@@ -33,6 +33,7 @@
 #include "io_runtime_ctx.h"
 
 #include "coord/hybrid/hybrid_cursor_mappings.h"
+#include "asm_state_machine.h"
 
 #define REFCOUNT_INCR_MSG(caller, refcount) \
   RS_DEBUG_LOG_FMT("%s: increased refCount to == %d", caller, refcount);
@@ -257,8 +258,7 @@ void MR_UpdateTopology(MRClusterTopology *newTopo, const RedisModuleSlotRangeArr
 
   // Refresh local slots info before propagating the topology, so that
   // the tracker is up to date before any I/O thread.
-  // TODO ASM: enable
-  // slots_tracker_set_local_slots(localSlots);
+  ASM_StateMachine_SetLocalSlots(localSlots);
 
   size_t lastIdx = cluster_g->num_io_threads - 1;
   for (size_t i = 0; i < cluster_g->num_io_threads; i++) {

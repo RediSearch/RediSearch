@@ -73,6 +73,7 @@
 #include "util/redis_mem_info.h"
 #include "notifications.h"
 #include "aggregate/reply_empty.h"
+#include "asm_state_machine.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -94,6 +95,9 @@
 extern RSConfig RSGlobalConfig;
 
 extern RedisModuleCtx *RSDummyContext;
+
+extern khash_t(query_key_space_version_tracker) *query_key_space_version_map = NULL;
+extern atomic_uint key_space_version = INVALID_KEYSPACE_VERSION;
 
 redisearch_thpool_t *depleterPool = NULL;
 
@@ -1584,6 +1588,7 @@ void RediSearch_CleanupModule(void) {
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
   SchemaPrefixes_Free(SchemaPrefixes_g);
+  ASM_StateMachine_End();
   // GeometryApi_Free();
 
   Dictionary_Free();
@@ -3810,7 +3815,7 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (clusterConfig.type == ClusterType_RedisOSS) {
     if (isClusterEnabled) {
       // Init the topology updater cron loop.
-      InitRedisTopologyUpdater(ctx);
+      InitRedisTopologyUpdater(ctx, REFRESH_PERIOD);
     } else {
       // We are not in cluster mode. No need to init the topology updater cron loop.
       // Set the number of shards to 1 to indicate the topology is "set"

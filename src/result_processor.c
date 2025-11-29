@@ -30,6 +30,7 @@
 #include "debug_commands.h"
 #include "search_result.h"
 #include "redisearch.h"
+#include "asm_state_machine.h"
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -47,9 +48,8 @@ typedef struct {
   QueryIterator *iterator;
   RedisSearchCtx *sctx;
   uint32_t timeoutLimiter;                      // counter to limit number of calls to TimedOut_WithCounter()
-  uint32_t slotsVersion;                        // version of the slot ranges used for filtering
+  uint32_t keySpaceVersion;                     // version of the Keyspace slot ranges used for filtering
   const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
-  const SharedSlotRangeArray *slotRanges;       // Owned slot ranges info, may be used for filtering. TODO ASM: remove
 } RPQueryIterator;
 
 
@@ -89,10 +89,6 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
   }
   return true;
 }
-
-// TODO ASM: use this to decide if we need to filter by slots
-extern atomic_uint key_space_version;
-atomic_uint key_space_version = 0;
 
 /* Next implementation */
 static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
@@ -151,10 +147,12 @@ validate_current:
         continue;
       }
     }
+    // querySlots presence would indicate that is internal command, if querySlots is NULL, we don't need to filter.
+    bool should_filter_slots = self->querySlots && (atomic_load(&key_space_version) != self->keySpaceVersion);
     if (should_filter_slots) {
-      RS_ASSERT(self->slotRanges != NULL);
+      RS_ASSERT(self->querySlots != NULL);
       int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
-      if (!Slots_CanAccessKeysInSlot(self->slotRanges, slot)) {
+      if (!SlotRangeArray_ContainsSlot(self->querySlots, slot)) {
         DMD_Return(dmd);
         continue;
       }
@@ -178,17 +176,15 @@ static void rpQueryItFree(ResultProcessor *iter) {
   RPQueryIterator *self = (RPQueryIterator *)iter;
   self->iterator->Free(self->iterator);
   rm_free((void *)self->querySlots);
-  Slots_FreeLocalSlots(self->slotRanges);
   rm_free(iter);
 }
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *root, const SharedSlotRangeArray *slotRanges, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx) {
+ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotRangeArray *querySlots, uint32_t keySpaceVersion, RedisSearchCtx *sctx) {
   RS_ASSERT(root != NULL);
   RPQueryIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iterator = root;
-  ret->slotRanges = slotRanges;
   ret->querySlots = querySlots;
-  ret->slotsVersion = slotsVersion;
+  ret->keySpaceVersion = keySpaceVersion;
   ret->base.Next = rpQueryItNext;
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
@@ -1984,7 +1980,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
  }
 
  /* Create a new Hybrid Merger processor */
-ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx, 
+ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
                                     HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,

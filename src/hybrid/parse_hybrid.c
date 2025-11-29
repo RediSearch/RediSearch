@@ -31,6 +31,7 @@
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/parse/hybrid_optional_args.h"
+#include "asm_state_machine.h"
 
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
@@ -577,7 +578,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Slot ranges info for distributed execution
   const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
-  uint32_t slotsVersion;
+  uint32_t keySpaceVersion = INVALID_KEYSPACE_VERSION;
 
   if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
@@ -605,7 +606,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .maxResults = &maxHybridResults,
       .prefixes = &prefixes,
       .querySlots = &requestSlotRanges,
-      .slotsVersion = &slotsVersion,
+      .keySpaceVersion = &keySpaceVersion,
   };
   // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
@@ -615,9 +616,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Set slots info in both subqueries
   if (internal) {
     vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
-    vectorRequest->slotsVersion = slotsVersion;
+    vectorRequest->keySpaceVersion = keySpaceVersion;
+    ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
     searchRequest->querySlots = requestSlotRanges;
-    searchRequest->slotsVersion = slotsVersion;
+    searchRequest->keySpaceVersion = keySpaceVersion;
+    ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
     requestSlotRanges = NULL; // ownership transferred
   }
 

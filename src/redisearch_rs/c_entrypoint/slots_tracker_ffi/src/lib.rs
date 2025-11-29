@@ -353,10 +353,9 @@ pub unsafe extern "C" fn slots_tracker_check_availability(
 /// # Safety
 ///
 /// This function must be called from the main thread only.
-/// This function is intended for testing use only and should not be called
-/// in production code.
+
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_reset_for_testing() {
+pub unsafe extern "C" fn slots_tracker_reset() {
     with_tracker_mut(|tracker| {
         *tracker = SlotsTracker::new();
     });
