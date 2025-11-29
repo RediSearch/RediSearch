@@ -27,6 +27,7 @@ mock_allocator = []
 [dependencies]
 buffer = { workspace = true }
 result_processor_ffi = { path = "../result_processor_ffi" }
+slots_tracker_ffi = { path = "../slots_tracker_ffi" }
 triemap_ffi = { path = "../triemap_ffi" }
 types_ffi = { path = "../types_ffi" }
 varint_ffi = { path = "../varint_ffi" }

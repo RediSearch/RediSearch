@@ -1377,6 +1377,7 @@ dependencies = [
  "buffer",
  "redis-module",
  "result_processor_ffi",
+ "slots_tracker_ffi",
  "triemap_ffi",
  "types_ffi",
  "varint_ffi",
