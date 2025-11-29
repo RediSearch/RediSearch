@@ -10,6 +10,7 @@
 #include "aggregate/aggregate.h"
 #include "util/units.h"
 #include "rs_wall_clock.h"
+#include "util/workers.h"
 
 #define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
 #define INCR(x) INCR_BY(x, 1)
@@ -98,9 +99,13 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   stats.coord_errors.syntax = READ(RSGlobalStats.totalStats.queries.coord_errors.syntax);
   stats.coord_errors.arguments = READ(RSGlobalStats.totalStats.queries.coord_errors.arguments);
   stats.coord_errors.timeout = READ(RSGlobalStats.totalStats.queries.coord_errors.timeout);
+  stats.shard_errors.oom = READ(RSGlobalStats.totalStats.queries.shard_errors.oom);
+  stats.coord_errors.oom = READ(RSGlobalStats.totalStats.queries.coord_errors.oom);
   // Warnings
   stats.shard_warnings.timeout = READ(RSGlobalStats.totalStats.queries.shard_warnings.timeout);
   stats.coord_warnings.timeout = READ(RSGlobalStats.totalStats.queries.coord_warnings.timeout);
+  stats.shard_warnings.oom = READ(RSGlobalStats.totalStats.queries.shard_warnings.oom);
+  stats.coord_warnings.oom = READ(RSGlobalStats.totalStats.queries.coord_warnings.oom);
   return stats;
 }
 
@@ -130,6 +135,9 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coo
     case QUERY_ERROR_CODE_TIMED_OUT:
       INCR_BY(queries_errors->timeout, toAdd);
       break;
+    case QUERY_ERROR_CODE_OUT_OF_MEMORY:
+      INCR_BY(queries_errors->oom, toAdd);
+      break;
   }
 }
 
@@ -145,6 +153,12 @@ void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bo
     case QUERY_WARNING_CODE_TIMED_OUT:
       INCR_BY(queries_warnings->timeout, toAdd);
       break;
+    case QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD:
+      INCR_BY(queries_warnings->oom, toAdd);
+      break;
+    case QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD:
+      INCR_BY(queries_warnings->oom, toAdd);
+      break;
   }
 }
 
@@ -159,10 +173,11 @@ void GlobalStats_UpdateActiveIoThreads(int toAdd) {
   INCR_BY(RSGlobalStats.totalStats.multi_threading.active_io_threads, toAdd);
 }
 
-// Get the number of active io threads.
 // Get multiThreadingStats
 MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   MultiThreadingStats stats;
   stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
+  RS_ASSERT(workersThreadPool_isCreated()); // In production workers threadpool is created at startup.
+  stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
   return stats;
 }

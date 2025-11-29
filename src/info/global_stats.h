@@ -50,10 +50,12 @@ typedef struct {
   size_t syntax; // Number of syntax errors
   size_t arguments; // Number of parse arguments errors
   size_t timeout; // Number of timeout errors
+  size_t oom; // Number of OOM errors
 } QueryErrorsGlobalStats;
 
 typedef struct {
   size_t timeout;
+  size_t oom;
 } QueryWarningGlobalStats;
 
 typedef struct {
@@ -69,6 +71,7 @@ typedef struct {
 
 typedef struct {
   size_t active_io_threads; // number of I/O thread callbacks currently executing
+  size_t active_worker_threads; // number of worker threads currently executing jobs
 } MultiThreadingStats;
 
 typedef struct {

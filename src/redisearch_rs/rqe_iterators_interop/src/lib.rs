@@ -60,13 +60,16 @@ where
         Box::into_raw(wrapper) as *mut QueryIterator
     }
 
-    /// Convert a type-erased iterator "header into a wrapper around a specific Rust iterator type.
+    /// Convert a type-erased iterator "header" into a wrapper around a specific Rust iterator type.
     ///
     /// # Safety
     ///
     /// 1. The caller must ensure that the provided header was produced via [`RQEIteratorWrapper::boxed_new`].
     /// 2. The caller must ensure that the provided header matches the expected Rust iterator type.
-    pub const unsafe fn from_header(base: *mut QueryIterator) -> &'index mut RQEIteratorWrapper<I> {
+    /// 3. The caller must ensure that it has a unique handle over the provided header.
+    pub const unsafe fn mut_ref_from_header_ptr(
+        base: *mut QueryIterator,
+    ) -> &'index mut RQEIteratorWrapper<I> {
         debug_assert!(!base.is_null());
 
         // SAFETY: Guaranteed by 1 + 2.
@@ -79,6 +82,24 @@ where
             unsafe { wrapper.unwrap_unchecked() }
         }
     }
+
+    /// Convert a type-erased iterator "header into a wrapper around a specific Rust iterator type.
+    ///
+    /// # Safety
+    ///
+    /// 1. The caller must ensure that the provided header was produced via [`RQEIteratorWrapper::boxed_new`].
+    /// 2. The caller must ensure that the provided header matches the expected Rust iterator type.
+    pub const unsafe fn ref_from_header_ptr(
+        base: *const QueryIterator,
+    ) -> &'index RQEIteratorWrapper<I> {
+        debug_assert!(!base.is_null());
+        // SAFETY: Guaranteed by 1 + 2.
+        unsafe {
+            base.cast::<RQEIteratorWrapper<I>>()
+                .as_ref()
+                .expect("Null pointer!")
+        }
+    }
 }
 
 extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
@@ -87,7 +108,7 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
-    let wrapper = unsafe { RQEIteratorWrapper::<I>::from_header(base) };
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
     match wrapper.inner.read() {
         Ok(Some(result)) => {
             wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
@@ -114,7 +135,7 @@ extern "C" fn skip_to<'index, I: RQEIterator<'index> + 'index>(
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
-    let wrapper = unsafe { RQEIteratorWrapper::<I>::from_header(base) };
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
     match wrapper.inner.skip_to(doc_id) {
         Ok(Some(SkipToOutcome::Found(result))) => {
             wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
@@ -145,10 +166,18 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
-    let wrapper = unsafe { RQEIteratorWrapper::<I>::from_header(base) };
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
     match wrapper.inner.revalidate() {
         Ok(RQEValidateStatus::Ok) => ValidateStatus_VALIDATE_OK,
-        Ok(RQEValidateStatus::Moved { .. }) => ValidateStatus_VALIDATE_MOVED,
+        Ok(RQEValidateStatus::Moved { current }) => {
+            if let Some(result) = current {
+                wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
+                wrapper.header.lastDocId = result.doc_id;
+            } else {
+                wrapper.header.atEOF = true;
+            }
+            ValidateStatus_VALIDATE_MOVED
+        }
         Ok(RQEValidateStatus::Aborted) => ValidateStatus_VALIDATE_ABORTED,
         Err(_) => ValidateStatus_VALIDATE_ABORTED,
     }
@@ -158,7 +187,7 @@ extern "C" fn rewind<'index, I: RQEIterator<'index> + 'index>(base: *mut QueryIt
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
-    let wrapper = unsafe { RQEIteratorWrapper::<I>::from_header(base) };
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
     wrapper.inner.rewind();
     wrapper.header.lastDocId = 0;
     wrapper.header.atEOF = false;
@@ -171,7 +200,7 @@ extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
-    let wrapper = unsafe { RQEIteratorWrapper::<I>::from_header(base) };
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::ref_from_header_ptr(base) };
     wrapper.inner.num_estimated()
 }
 
