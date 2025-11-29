@@ -20,18 +20,28 @@
 extern "C" {
 #endif
 
-// Separate structure for WITHCOUNT tracking that can be safely shared with I/O threads
+// Forward declaration
+struct ShardResponseBarrier;
+
+// Callback invoked by IO thread for each reply, before pushing to channel
+// Parameters:
+//   shardId: which shard sent this reply
+//   totalResults: extracted total_results from the reply (-1 if error or not found)
+//   isError: true if this is an error reply
+//   privateData: the ShardResponseBarrier passed via MRIteratorCallback_GetPrivateData
+typedef void (*ReplyNotifyCallback)(int16_t shardId, long long totalResults, bool isError, void *privateData);
+
+// Separate structure for collecting first responses from all shards that can be safely shared with I/O threads
 // This structure is allocated separately and can outlive RPNet if callbacks are still running
-typedef struct {
-  uint32_t magic;                  // Magic number for validation (0xWITHC0UN)
+typedef struct ShardResponseBarrier {
   size_t numShards;                // Total number of shards
   _Atomic(bool) *shardResponded;   // Array: has each shard sent its first response?
   _Atomic(size_t) numResponded;    // Count of shards that have responded
   _Atomic(long long) accumulatedTotal;  // Sum of total_results from all shards
   _Atomic(int) refCount;           // Reference count for safe cleanup
-} WithCountTracker;
-
-#define WITHCOUNT_TRACKER_MAGIC 0x57495448  // "WITH" in hex
+  _Atomic(bool) hasShardError;     // Set to true if any shard returns an error
+  ReplyNotifyCallback notifyCallback;  // Callback for processing replies (called from IO thread)
+} ShardResponseBarrier;
 
 typedef struct {
   ResultProcessor base;
@@ -53,10 +63,10 @@ typedef struct {
   // profile vars
   arrayof(MRReply *) shardsProfile;
 
-  // For WITHCOUNT: pointer to shared tracking structure (reference-counted)
-  WithCountTracker *withCountTracker;  // NULL if not using WITHCOUNT
+  // Pointer to shared barrier structure for collecting first responses from all shards (reference-counted)
+  ShardResponseBarrier *shardResponseBarrier;  // NULL if not using WITHCOUNT
 
-  // For WITHCOUNT: pending replies while waiting for all shards' first responses
+  // Pending replies while waiting for all shards' first responses
   arrayof(MRReply *) pendingReplies;   // Replies accumulated while waiting
   bool waitedForAllShards;             // True once all shards have sent their first response
 } RPNet;
@@ -69,6 +79,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r);
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);
 int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r);
 int getNextReply(RPNet *nc);
+
+// Callback for accumulating total_results from shard replies (called from IO thread)
+void shardResponseBarrier_Notify(int16_t shardId, long long totalResults, bool isError, void *privateData);
 
 #ifdef __cplusplus
 }

@@ -7,14 +7,52 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include <stdatomic.h>
 #include "dist_utils.h"
 #include "util/misc.h"
 #include "util/strconv.h"
 #include "rpnet.h"
 
+// Helper function to extract total_results from a shard reply
+// Returns true if total_results was found, false otherwise
+// out_total is set to the extracted value (or -1 if not found)
+static bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total) {
+  *out_total = -1;
+
+  if (cmd->protocol == 3) {
+    // RESP3: [map, cursor]
+    MRReply *meta = MRReply_ArrayElement(rep, 0);
+
+    // Handle profiling: results are nested under "results" key
+    if (cmd->forProfiling) {
+      meta = MRReply_MapElement(meta, "results");
+    }
+
+    // Extract total_results from metadata
+    if (meta) {
+      MRReply *totalReply = MRReply_MapElement(meta, "total_results");
+      if (totalReply && MRReply_Type(totalReply) == MR_REPLY_INTEGER) {
+        *out_total = MRReply_Integer(totalReply);
+        return true;
+      }
+    }
+  } else {
+    // RESP2: [results, cursor] or [results, cursor, profile]
+    MRReply *results = MRReply_ArrayElement(rep, 0);
+    if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 0) {
+      // First element is total_results
+      MRReply *totalReply = MRReply_ArrayElement(results, 0);
+      if (totalReply && MRReply_ToInteger(totalReply, out_total)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
+  ShardResponseBarrier *barrier = (ShardResponseBarrier *)MRIteratorCallback_GetPrivateData(ctx);
 
   // If the root command of this reply is a DEL command, we don't want to
   // propagate it up the chain to the client
@@ -30,6 +68,9 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     const char* error = MRReply_String(rep, NULL);
     RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
     RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
+    if (barrier && barrier->notifyCallback) {
+      barrier->notifyCallback(cmd->targetShard, 0, true, barrier);
+    }
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return;
@@ -100,63 +141,11 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   }
 #endif // Reply structure assertions
 
-  // WITHCOUNT: Step 2 - Extract total_results from reply (just log it, don't store)
-  int16_t shardId = cmd->targetShard;
-  long long shardTotal = -1;
-  bool found = false;
-
-  // Extract total_results based on protocol
-  if (cmd->protocol == 3) {
-    // RESP3: [map, cursor]
-    MRReply *meta = MRReply_ArrayElement(rep, 0);
-
-    // Handle profiling: results are nested under "results" key
-    if (cmd->forProfiling) {
-      meta = MRReply_MapElement(meta, "results");
-    }
-
-    // Extract total_results from metadata
-    if (meta) {
-      MRReply *totalReply = MRReply_MapElement(meta, "total_results");
-      if (totalReply && MRReply_Type(totalReply) == MR_REPLY_INTEGER) {
-        shardTotal = MRReply_Integer(totalReply);
-        found = true;
-      }
-    }
-  } else {
-    // RESP2: [results, cursor] or [results, cursor, profile]
-    MRReply *results = MRReply_ArrayElement(rep, 0);
-    if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 0) {
-      // First element is total_results
-      MRReply *totalReply = MRReply_ArrayElement(results, 0);
-      if (totalReply && MRReply_ToInteger(totalReply, &shardTotal)) {
-        found = true;
-      }
-    }
-  }
-
-  // WITHCOUNT: If we have tracker, accumulate total_results from first response of each shard
-  WithCountTracker *tracker = (WithCountTracker *)MRIteratorCallback_GetPrivateData(ctx);
-
-  if (tracker && found) {
-    // Validate magic number
-    if (tracker->magic != WITHCOUNT_TRACKER_MAGIC) {
-      RedisModule_Log(RSDummyContext, "warning",
-                      "WITHCOUNT: Invalid tracker magic! Expected 0x%X, got 0x%X",
-                      WITHCOUNT_TRACKER_MAGIC, tracker->magic);
-      return;  // Don't crash - just skip WITHCOUNT logic
-    }
-
-    // Validate shardId bounds
-    if (shardId >= 0 && shardId < (int16_t)tracker->numShards) {
-      // Check if this is the first response from this shard using atomic CAS
-      bool expected = false;
-      if (atomic_compare_exchange_strong(&tracker->shardResponded[shardId], &expected, true)) {
-        // We won the race - this is the first response from this shard
-        atomic_fetch_add(&tracker->accumulatedTotal, shardTotal);
-        atomic_fetch_add(&tracker->numResponded, 1);
-      }
-    }
+  // Extract total_results and notify barrier via callback (if registered)
+  if (barrier && barrier->notifyCallback) {
+    long long shardTotal;
+    extractTotalResults(rep, cmd, &shardTotal);
+    barrier->notifyCallback(cmd->targetShard, shardTotal, false, barrier);
   }
 
   if (cmd->forProfiling && cmd->protocol == 3) {

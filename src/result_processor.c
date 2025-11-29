@@ -2357,9 +2357,6 @@ static void RPSyncDepleter_Deplete(RPSyncDepleter *self) {
 static int RPSyncDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   RPSyncDepleter *self = (RPSyncDepleter *)base;
 
-  // ??
-  // base->parent->totalResults = self->depleted_results;
-
   // Check if we've yielded all results
   if (self->cur_idx >= array_len(self->results)) {
     // Return the last code from upstream (EOF or TIMEDOUT)

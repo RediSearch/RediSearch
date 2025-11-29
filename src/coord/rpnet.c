@@ -74,18 +74,146 @@ static RSValue *MRReply_ToValue(MRReply *r) {
   return v;
 }
 
+// Callback invoked by IO thread for each shard reply to accumulate totals
+// This function implements the ReplyNotifyCallback signature
+void shardResponseBarrier_Notify(int16_t shardId, long long totalResults, bool isError, void *privateData) {
+  ShardResponseBarrier *barrier = (ShardResponseBarrier *)privateData;
+
+  // Validate shardId bounds
+  if (shardId < 0 || shardId >= (int16_t)barrier->numShards) {
+    // TODO: Remove this debug log
+    RedisModule_Log(RSDummyContext, "warning",
+                    "ShardResponseBarrier: Invalid shardId %d (numShards=%zu)", shardId, barrier->numShards);
+    return;
+  }
+
+  // Check if this is the first response from this shard using atomic CAS
+  bool expected = false;
+  // Mark shard as responded, also for errors
+  if (atomic_compare_exchange_strong(&barrier->shardResponded[shardId], &expected, true)) {
+    // We won the race - this is the first response from this shard
+    if (!isError) {
+      atomic_fetch_add(&barrier->accumulatedTotal, totalResults);
+    } else {
+      atomic_store(&barrier->hasShardError, true);
+    }
+    size_t numResponded = atomic_fetch_add(&barrier->numResponded, 1) + 1;
+
+    RedisModule_Log(RSDummyContext, "debug",
+                    "ShardResponseBarrier: Shard %d first response: total=%lld (accumulated=%lld, responded=%zu/%zu, hasError=%d)",
+                    shardId, totalResults,
+                    atomic_load(&barrier->accumulatedTotal),
+                    numResponded, barrier->numShards,
+                    atomic_load(&barrier->hasShardError));
+  }
+}
+
+static void shardResponseBarrier_UpdateTotalResults(RPNet *nc) {
+  // Set the accumulated total now that all shards have responded
+  size_t numResponded = atomic_load(&nc->shardResponseBarrier->numResponded);
+  if (numResponded >= nc->shardResponseBarrier->numShards) {
+    long long accumulatedTotal = atomic_load(&nc->shardResponseBarrier->accumulatedTotal);
+    nc->base.parent->totalResults = accumulatedTotal;
+    RedisModule_Log(RSDummyContext, "debug",
+                    "ShardResponseBarrier: All %zu shards responded, total_results = %lld",
+                    nc->shardResponseBarrier->numShards, accumulatedTotal);
+  } else {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "ShardResponseBarrier: Only %zu of %zu shards responded before returning results",
+                    numResponded, nc->shardResponseBarrier->numShards);
+  }
+}
+
+static void shardResponseBarrier_PendingReplies_Free(RPNet *nc) {
+  if (nc->pendingReplies) {
+    array_foreach(nc->pendingReplies, reply, MRReply_Free(reply));
+    array_free(nc->pendingReplies);
+    nc->pendingReplies = NULL;
+  }
+}
+
+
+// Handle timeout (not enough shards responded) only if there were no errors
+static bool shardResponseBarrier_HandleTimeout(RPNet *nc) {
+  if (!(atomic_load(&nc->shardResponseBarrier->hasShardError)) &&
+      atomic_load(&nc->shardResponseBarrier->numResponded) < nc->shardResponseBarrier->numShards) {
+    // cleanup pending replies
+    shardResponseBarrier_PendingReplies_Free(nc);
+
+    // Set error in AREQ context
+    QueryError_SetError(
+      AREQ_QueryProcessingCtx(nc->areq)->err,
+      QUERY_ERROR_CODE_TIMED_OUT,
+      "ShardResponseBarrier: Timeout while waiting for first responses from all shards");
+    return true;
+  }
+  return false;
+}
+
+// Helper function to check for shard errors and keep only the first error reply
+// Returns true if an error was found and set in nc->current.root, false otherwise
+static bool shardResponseBarrier_HandleError(RPNet *nc) {
+  // Check if any shard returned an error during the waiting period
+  if (atomic_load(&nc->shardResponseBarrier->hasShardError)) {
+    // Find the first error reply in pendingReplies and return it
+    if (nc->pendingReplies) {
+      for (size_t i = 0; i < array_len(nc->pendingReplies); i++) {
+        MRReply *reply = nc->pendingReplies[i];
+        if (MRReply_Type(reply) == MR_REPLY_ERROR) {
+          const char *error = MRReply_String(reply, NULL);
+          RedisModule_Log(RSDummyContext, "warning",
+                          "ShardResponseBarrier: Shard error during wait: %s", error);
+          // Move error reply to current
+          nc->current.root = reply;
+          shardResponseBarrier_PendingReplies_Free(nc);
+          return true;  // Error found
+        }
+      }
+    }
+  }
+  return false;  // No error
+}
 
 int getNextReply(RPNet *nc) {
-  // WITHCOUNT: Wait for all shards' first responses before returning any results
+  // Wait for all shards' first responses before returning any results
   // This ensures accurate total_results from the start
-  if (nc->withCountTracker && !nc->waitedForAllShards) {
-    size_t numShards = nc->withCountTracker->numShards;
+  MRReply *root = NULL;
+  bool timedOut = false;
+  if (nc->shardResponseBarrier && !nc->waitedForAllShards) {
+    const size_t numShards = nc->shardResponseBarrier->numShards;
+
+    // Calculate absolute timeout for MRIterator_NextWithTimeout (using CLOCK_MONOTONIC)
+    // We use the query timeout if available, otherwise no timeout
+    struct timespec absTimeout;
+    struct timespec *timeoutPtr = NULL;
+    if (nc->areq && nc->areq->sctx) {
+      // Convert CLOCK_MONOTONIC_RAW based timeout to CLOCK_MONOTONIC
+      // Get current time on both clocks and adjust
+      struct timespec nowRaw, nowMono;
+      clock_gettime(CLOCK_MONOTONIC_RAW, &nowRaw);
+      clock_gettime(CLOCK_MONOTONIC, &nowMono);
+
+      // Calculate remaining time from the original timeout
+      struct timespec remaining;
+      rs_timersub((struct timespec *)&nc->areq->sctx->time.timeout, &nowRaw, &remaining);
+
+      // If already timed out, set a minimal timeout
+      if (remaining.tv_sec < 0) {
+        remaining.tv_sec = 0;
+        remaining.tv_nsec = 0;
+      }
+
+      // Add remaining time to current CLOCK_MONOTONIC time
+      rs_timeradd(&nowMono, &remaining, &absTimeout);
+      timeoutPtr = &absTimeout;
+    }
 
     // Collect replies until all shards have sent their first response
     // Also respect the query timeout to avoid blocking indefinitely
-    while (atomic_load(&nc->withCountTracker->numResponded) < numShards) {
+    while (atomic_load(&nc->shardResponseBarrier->numResponded) < numShards) {
       // Check for timeout to avoid blocking indefinitely
       if (nc->areq && nc->areq->sctx && TimedOut(&nc->areq->sctx->time.timeout)) {
+        timedOut = true;
         RedisModule_Log(RSDummyContext, "debug",
                         "WITHCOUNT: Timeout while waiting for all shards' first responses");
         break;
@@ -97,9 +225,15 @@ int getNextReply(RPNet *nc) {
         }
       }
 
-      MRReply *reply = MRIterator_Next(nc->it);
+      bool nextTimedOut = false;
+      MRReply *reply = MRIterator_NextWithTimeout(nc->it, timeoutPtr, &nextTimedOut);
       if (reply == NULL) {
-        break;  // No more replies
+        if (nextTimedOut) {
+          timedOut = true;
+          RedisModule_Log(RSDummyContext, "debug",
+                          "WITHCOUNT: MRIterator_NextWithTimeout timed out");
+        }
+        break;  // No more replies or timed out
       }
 
       // Store reply for later processing
@@ -107,37 +241,30 @@ int getNextReply(RPNet *nc) {
         nc->pendingReplies = array_new(MRReply *, numShards);
       }
       array_append(nc->pendingReplies, reply);
+
+      // Check for errors
+      if (shardResponseBarrier_HandleError(nc)) {
+        root = nc->current.root;
+        break;
+      }
     }
 
-    // Mark that we've waited (even if not all shards responded - to avoid infinite loop)
+    // Mark that we've waited (even if not all shards responded due to time out - to avoid infinite loop)
     nc->waitedForAllShards = true;
 
-    // Set the accumulated total now that all shards have responded
-    size_t numResponded = atomic_load(&nc->withCountTracker->numResponded);
-    if (numResponded >= numShards) {
-      long long accumulatedTotal = atomic_load(&nc->withCountTracker->accumulatedTotal);
-      nc->base.parent->totalResults = accumulatedTotal;
-      RedisModule_Log(RSDummyContext, "debug",
-                      "WITHCOUNT: All %zu shards responded, total_results = %lld",
-                      numShards, accumulatedTotal);
-    } else {
-      RedisModule_Log(RSDummyContext, "warning",
-                      "WITHCOUNT: Only %zu of %zu shards responded before returning results",
-                      numResponded, numShards);
+    // Handle timeout or not enough shards responded
+    if (timedOut) {
+      shardResponseBarrier_HandleTimeout(nc);
+      root = NULL;
     }
+    shardResponseBarrier_UpdateTotalResults(nc);
   }
 
   // First, return any pending replies collected during the wait
-  MRReply *root = NULL;
   if (nc->pendingReplies && array_len(nc->pendingReplies) > 0) {
     // Pop the first pending reply
     root = nc->pendingReplies[0];
-    // Shift array left (remove first element)
-    size_t len = array_len(nc->pendingReplies);
-    for (size_t i = 0; i < len - 1; i++) {
-      nc->pendingReplies[i] = nc->pendingReplies[i + 1];
-    }
-    array_pop(nc->pendingReplies);
+    array_del(nc->pendingReplies, 0);
   } else {
     // No pending replies, get from channel
     if (nc->cmd.forCursor) {
@@ -272,22 +399,18 @@ void rpnetFree(ResultProcessor *rp) {
   MRReply_Free(nc->current.root);
   MRCommand_Free(&nc->cmd);
 
-  // WITHCOUNT: Free any pending replies that weren't consumed
-  if (nc->pendingReplies) {
-    array_foreach(nc->pendingReplies, reply, MRReply_Free(reply));
-    array_free(nc->pendingReplies);
-    nc->pendingReplies = NULL;
-  }
+  // Free any pending replies that weren't consumed
+  shardResponseBarrier_PendingReplies_Free(nc);
 
-  // WITHCOUNT: Release tracker reference
-  if (nc->withCountTracker) {
-    int refCount = atomic_fetch_sub(&nc->withCountTracker->refCount, 1) - 1;
+  // Release barrier reference
+  if (nc->shardResponseBarrier) {
+    int refCount = atomic_fetch_sub(&nc->shardResponseBarrier->refCount, 1) - 1;
     if (refCount == 0) {
-      // Last reference - free the tracker
-      rm_free(nc->withCountTracker->shardResponded);
-      rm_free(nc->withCountTracker);
+      // Last reference - free the barrier
+      rm_free(nc->shardResponseBarrier->shardResponded);
+      rm_free(nc->shardResponseBarrier);
     }
-    nc->withCountTracker = NULL;
+    nc->shardResponseBarrier = NULL;
   }
 
   rm_free(rp);

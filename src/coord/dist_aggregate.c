@@ -52,51 +52,54 @@ void processResultFormat(uint32_t *flags, MRReply *map) {
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
 
-  // Initialize WITHCOUNT tracking if needed
+  // Initialize shard response barrier if WITHCOUNT is enabled
   if (HasWithCount(nc->areq) && (nc->areq->reqflags & QEXEC_F_IS_AGGREGATE)) {
     size_t numShards = GetNumShards_UnSafe();
 
-    // Allocate reference-counted tracker structure
-    WithCountTracker *tracker = rm_calloc(1, sizeof(WithCountTracker));
-    if (!tracker) {
+    // Allocate reference-counted barrier structure
+    ShardResponseBarrier *barrier = rm_calloc(1, sizeof(ShardResponseBarrier));
+    if (!barrier) {
       RedisModule_Log(RSDummyContext, "warning",
-                      "WITHCOUNT: Failed to allocate tracker for %zu shards", numShards);
+                      "ShardResponseBarrier: Failed to allocate for %zu shards", numShards);
       return RS_RESULT_ERROR;
     }
 
-    tracker->magic = WITHCOUNT_TRACKER_MAGIC;
-    tracker->numShards = numShards;
-    tracker->shardResponded = rm_calloc(numShards, sizeof(_Atomic(bool)));
-    if (!tracker->shardResponded) {
-      rm_free(tracker);
+    barrier->numShards = numShards;
+    barrier->shardResponded = rm_calloc(numShards, sizeof(_Atomic(bool)));
+    if (!barrier->shardResponded) {
+      rm_free(barrier);
       RedisModule_Log(RSDummyContext, "warning",
-                      "WITHCOUNT: Failed to allocate tracking array for %zu shards", numShards);
+                      "ShardResponseBarrier: Failed to allocate tracking array for %zu shards", numShards);
       return RS_RESULT_ERROR;
     }
 
-    atomic_init(&tracker->numResponded, 0);
-    atomic_init(&tracker->accumulatedTotal, 0);
+    atomic_init(&barrier->numResponded, 0);
+    atomic_init(&barrier->accumulatedTotal, 0);
     // RefCount: 1 for RPNet, 1 for iterator/callbacks
     // The iterator holds the reference for all callbacks
-    atomic_init(&tracker->refCount, 2);
+    atomic_init(&barrier->refCount, 2);
+    atomic_init(&barrier->hasShardError, false);
 
-    nc->withCountTracker = tracker;
+    // Set the callback for processing replies in IO threads
+    barrier->notifyCallback = shardResponseBarrier_Notify;
+
+    nc->shardResponseBarrier = barrier;
   }
 
-  // Step 3: Pass tracker as private data to callback (only if WITHCOUNT enabled)
-  MRIterator *it = nc->withCountTracker
-                   ? MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, nc->withCountTracker, iterStartCb, NULL)
+  // Pass barrier as private data to callback (only if WITHCOUNT enabled)
+  MRIterator *it = nc->shardResponseBarrier
+                   ? MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, nc->shardResponseBarrier, iterStartCb, NULL)
                    : MR_Iterate(&nc->cmd, netCursorCallback);
 
   if (!it) {
-    // Clean up on error - release tracker reference
-    if (nc->withCountTracker) {
-      int refCount = atomic_fetch_sub(&nc->withCountTracker->refCount, 1) - 1;
+    // Clean up on error - release barrier reference
+    if (nc->shardResponseBarrier) {
+      int refCount = atomic_fetch_sub(&nc->shardResponseBarrier->refCount, 1) - 1;
       if (refCount == 0) {
-        rm_free(nc->withCountTracker->shardResponded);
-        rm_free(nc->withCountTracker);
+        rm_free(nc->shardResponseBarrier->shardResponded);
+        rm_free(nc->shardResponseBarrier);
       }
-      nc->withCountTracker = NULL;
+      nc->shardResponseBarrier = NULL;
     }
     return RS_RESULT_ERROR;
   }
