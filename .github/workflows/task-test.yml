@@ -315,6 +315,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: steps.node20.outputs.supported == 'true'
         with:
+          prefix-key: "v1-rust"
+          key: ${{ inputs.platform }}-${{ inputs.architecture }}
           # The cargo workspaces and target directory configuration.
           # These entries are separated by newlines and have the form
           # `$workspace -> $target`. The `$target` part is treated as a directory
