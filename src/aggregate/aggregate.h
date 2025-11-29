@@ -420,7 +420,7 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 int prepareExecutionPlan(AREQ *req, QueryError *status);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
-void sendChunk_ReplyOnly_EmptyResults(RedisModule_Reply *reply, AREQ *req);
+void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
 void AREQ_Free(AREQ *req);
 
 /**
@@ -439,7 +439,10 @@ void AREQ_Free(AREQ *req);
  */
 int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status, bool coord);
 
-int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSCursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSCursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /**
  * @brief Parse a dialect version from var args
