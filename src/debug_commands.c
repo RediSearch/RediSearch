@@ -1351,6 +1351,13 @@ DEBUG_COMMAND(YieldCounter) {
   return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
 }
 
+DEBUG_COMMAND(RSProfileCommandShard) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  return RSProfileCommandImp(ctx, ++argv, --argc, true);
+}
+
 /**
  * FT.DEBUG BG_SCAN_CONTROLLER SET_MAX_SCANNED_DOCS <max_scanned_docs>
  */
@@ -1668,6 +1675,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                 */
                                {RS_AGGREGATE_CMD, RSAggregateCommandShard},
                                {RS_SEARCH_CMD, RSSearchCommandShard},
+                               {RS_PROFILE_CMD, RSProfileCommandShard},
 #ifdef MT_BUILD
                                {"WORKERS", WorkerThreadsSwitch},
 #endif

@@ -41,6 +41,8 @@ do {                                            \
 #define RedisModule_ReplyWithLiteral(ctx, literal) \
   RedisModule_ReplyWithStringBuffer(ctx, literal, sizeof(literal) - 1)
 
+int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
+
 #ifdef __cplusplus
 }
 #endif
