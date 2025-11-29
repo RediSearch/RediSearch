@@ -76,6 +76,11 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
   }
   double upstreamTime = _recursiveProfilePrint(reply, rp->upstream, printProfileClock);
 
+  if (rp->type > RP_MAX) {
+    RS_LOG_ASSERT_FMT(rp->type < RP_MAX_DEBUG, "RPType error, type: %d", rp->type);
+    return upstreamTime;
+  }
+
   // Array is filled backward in pair of [common, profile] result processors
   if (rp->type != RP_PROFILE) {
     RedisModule_Reply_Map(reply); // start of recursive map
@@ -106,15 +111,13 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
         printProfileGILTime(rp->GILTime);
         break;
 
-      case RP_PROFILE:
-      case RP_MAX:
+      default:
         RS_ABORT("RPType error");
         break;
     }
 
     return upstreamTime;
   }
-
   double totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPProfile_GetClock(rp));
   if (printProfileClock) {
     printProfileTime(totalRPTime - upstreamTime);
