@@ -1105,11 +1105,48 @@ def test_query_controller_pause_and_resume(env):
             if query_type == 'FT.AGGREGATE':
                 env.assertEqual(rp_stream, ['DEBUG_RP','Index'])
 
-        query_result = runQueryWithPausePoint(env, query_cmd, pause_before=True, rp_type='Index',
-                                             pause_count=0, internal_only=internal_only, callback=check_state_and_stream)
+        # Build debug params for pause before Index RP
+        debug_params = ['PAUSE_BEFORE_RP_N', 'Index', 0]
+        if internal_only:
+            debug_params.append('INTERNAL_ONLY')
+
+        query_result = [None]
+        query_exception = [None]
+
+        def run_query():
+            try:
+                query_result[0] = runDebugQueryCommand(env, query_cmd, debug_params)
+            except Exception as e:
+                query_exception[0] = e
+
+        # Start the query in a separate thread
+        t_query = threading.Thread(target=run_query, daemon=True)
+        t_query.start()
+
+        # Wait for the query to pause
+        start_time = time.time()
+        while getIsRPPaused(env) != 1:
+            if time.time() - start_time > 10:
+                raise TimeoutError(f"Query did not pause within 10 seconds")
+            time.sleep(0.05)
+
+        # Execute the callback while query is paused
+        check_state_and_stream()
+
+        # Resume the query
+        setPauseRPResume(env)
+
+        # Wait for the query to complete
+        t_query.join(timeout=10)
+        if t_query.is_alive():
+            raise TimeoutError(f"Query did not complete within 10 seconds after resume")
+
+        # Check if there was an exception in the query thread
+        if query_exception[0]:
+            raise query_exception[0]
 
         # Verify the query returned only 1 result
-        env.assertEqual(query_result[0], 1)
+        env.assertEqual(query_result[0][0], 1)
 
 @skip(cluster=True)
 def test_query_controller_add_before_after(env):
