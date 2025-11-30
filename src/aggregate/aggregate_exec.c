@@ -1333,7 +1333,6 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   } else {
     // TODO: run hybrid cursor - this needs to be implemented for the coordinator
   }
-
   if (has_spec) {
     IndexSpecRef_Release(execution_ref);
   }
