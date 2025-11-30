@@ -140,6 +140,13 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
   return RPMetricsLoader_New();
 }
 
+static bool PipelineRequiresSorter(AggregationPipelineParams *params) {
+  bool result = false;
+  result = IsHybrid(&params->common) ||
+          (params->common.optimizer->type != Q_OPT_NO_SORTER);
+  return result;
+}
+
 static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipelineParams *params, const PLN_BaseStep *stp,
                                      QueryError *status, ResultProcessor *up, bool forceLoad, uint32_t *outStateFlags) {
   ResultProcessor *rp = NULL;
@@ -168,8 +175,11 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     return up;
   }
 
-  if (IsHybrid(&params->common) || (params->common.optimizer->type != Q_OPT_NO_SORTER)) { // Don't optimize hybrid queries
-    if (astp->sortKeys) {
+  bool RPSyncDepleterAdded = false;
+  bool RPPagerAdded = false;
+
+  if (PipelineRequiresSorter(params)) {
+    if (array_len(astp->sortKeys)) {
       size_t nkeys = array_len(astp->sortKeys);
       astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
 
@@ -202,9 +212,10 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       }
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(&pipeline->qctx, rp, up);
+
     } else if (IsHybrid(&params->common) ||
-               IsSearch(&params->common) && !IsOptimized(&params->common) ||
-               HasScorer(&params->common)) {
+              (IsSearch(&params->common) && !IsOptimized(&params->common)) ||
+              HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
       rp = RPSorter_NewByScore(maxResults);
@@ -213,11 +224,39 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   }
 
   if (astp->offset || (astp->limit && !rp)) {
+    if (HasWithCount(&params->common)) {
+      rp = RPSyncDepleter_New();
+      up = pushRP(&pipeline->qctx, rp, up);
+      RPSyncDepleterAdded = true;
+    }
+
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(&pipeline->qctx, rp, up);
+    RPPagerAdded = true;
   } else if (IsSearch(&params->common) && IsOptimized(&params->common) && !rp) {
     rp = RPPager_New(0, maxResults);
     up = pushRP(&pipeline->qctx, rp, up);
+    RPPagerAdded = true;
+  }
+
+  if (HasDepleter(&params->common)) { // We need to add a RPSyncDepleter
+    if (!RPSyncDepleterAdded) {
+      rp = RPSyncDepleter_New();
+      up = pushRP(&pipeline->qctx, rp, up);
+      RPSyncDepleterAdded = true;
+    }
+
+    // Add Limiter at the coordinator when a depleter is required:
+    // 1. If there is no SORTBY, otherwise, the LIMIT is managed by the sorter.
+    // 2. If there is a SORTBY, but with offset, the sorter can't handle the offset.
+    if (((astp->isLimited && !IsInternal(&params->common)) &&
+      ((!HasSortBy(&params->common) || HasSortBy(&params->common) && astp->offset )))) {
+      if (!RPPagerAdded) {
+        rp = RPPager_New(astp->offset, astp->limit);
+        up = pushRP(&pipeline->qctx, rp, up);
+        RPPagerAdded = true;
+      }
+    }
   }
 
 end:
@@ -252,7 +291,7 @@ static ResultProcessor *getScorerRP(Pipeline *pipeline, RLookup *rl, const RLook
 bool hasQuerySortby(const AGGPlan *pln) {
   const PLN_BaseStep *bstp = AGPLN_FindStep(pln, NULL, NULL, PLN_T_GROUP);
   const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, bstp, PLN_T_ARRANGE);
-  return arng && arng->sortKeys;
+  return arng && array_len(arng->sortKeys);
 }
 
 static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t loadFlags,
@@ -509,12 +548,10 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
 
       case PLN_T_ARRANGE: {
         rp = getArrangeRP(pipeline, params, stp, status, rpUpstream, forceLoad, outStateFlags);
-        if (!rp) {
-          goto error;
+        if (rp) {
+          hasArrange = 1;
+          rpUpstream = rp;
         }
-        hasArrange = 1;
-        rpUpstream = rp;
-
         break;
       }
 
@@ -614,12 +651,16 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
 
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
-  if (!hasArrange && (IsSearch(&params->common) || IsHybridSearchSubquery(&params->common))) {
+  if (!hasArrange &&
+        (IsSearch(&params->common) || IsHybridSearchSubquery(&params->common) ||
+        (IsAggregate(&params->common) && HasWithCount(&params->common)))) {
     rp = getArrangeRP(pipeline, params, NULL, status, rpUpstream, forceLoad, outStateFlags);
-    if (!rp) {
-      goto error;
+    // if (!rp) {
+    //   goto error;
+    // }
+    if (rp) {
+      rpUpstream = rp;
     }
-    rpUpstream = rp;
   }
 
   // If this is an FT.SEARCH command which requires returning of some of the

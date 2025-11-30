@@ -6,6 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdatomic.h>
 #include "result_processor.h"
 #include "rmr/rmr.h"
 #include "rmutil/util.h"
@@ -50,8 +51,31 @@ void processResultFormat(uint32_t *flags, MRReply *map) {
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
-  MRIterator *it = MR_Iterate(&nc->cmd, netCursorCallback);
+
+  // Initialize shard response barrier if WITHCOUNT is enabled
+  if (HasWithCount(nc->areq) && (nc->areq->reqflags & QEXEC_F_IS_AGGREGATE)) {
+    size_t numShards = GetNumShards_UnSafe();
+    ShardResponseBarrier *barrier = shardResponseBarrier_New(numShards);
+    if (!barrier) {
+      return RS_RESULT_ERROR;
+    }
+    nc->shardResponseBarrier = barrier;
+  }
+
+  // Pass barrier as private data to callback (only if WITHCOUNT enabled)
+  // The barrier is freed by MRIterator via shardResponseBarrier_Free destructor
+  MRIterator *it = nc->shardResponseBarrier
+                   ? MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, nc->shardResponseBarrier,
+                                               shardResponseBarrier_Free, iterStartCb, NULL)
+                   : MR_Iterate(&nc->cmd, netCursorCallback);
+
   if (!it) {
+    // Clean up on error - iterator never started so no callbacks running
+    // Must free manually since iterator didn't take ownership
+    if (nc->shardResponseBarrier) {
+      shardResponseBarrier_Free(nc->shardResponseBarrier);
+      nc->shardResponseBarrier = NULL;
+    }
     return RS_RESULT_ERROR;
   }
 
@@ -86,6 +110,13 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   // Numeric responses are encoded as simple strings.
   array_append(tmparr, "_NUM_SSTRING");
 
+  int argOffset = 0;
+  // Preserve WITHCOUNT flag from the original command
+  argOffset  = RMUtil_ArgIndex("WITHCOUNT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (argOffset != -1) {
+    array_append(tmparr, "WITHCOUNT");
+  }
+
   // Add the index prefixes to the command, for validation in the shard
   array_append(tmparr, "_INDEX_PREFIXES");
   arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
@@ -99,7 +130,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   // Slots info will be added here
   uint32_t slotsInfoPos = array_len(tmparr);
 
-  int argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
     array_append(tmparr, "DIALECT");
     array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the dialect
@@ -321,6 +352,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // Construct the command string
   MRCommand xcmd;
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp, knnCtx);
+
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);

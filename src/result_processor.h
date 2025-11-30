@@ -71,6 +71,7 @@ typedef enum {
   RP_VECTOR_NORMALIZER,
   RP_HYBRID_MERGER,
   RP_DEPLETER,
+  RP_SYNC_DEPLETER,
   RP_MAX, // Marks the last non-debug RP type
   // Debug only result processors
   RP_TIMEOUT,
@@ -280,6 +281,11 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
 * @param nextThreadCtx Search context for the downstream processor that will receive results
 */
 ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx);
+
+/**
+* Constructs a new synchronous depleter processor that runs in the current thread.
+*/
+ResultProcessor *RPSyncDepleter_New();
 
 /**
 * Starts the depletion for all the depleters in the array, waits until all finished depleting, and returns.

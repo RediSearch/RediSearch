@@ -1107,7 +1107,7 @@ static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader"
                                      "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
                                      "Grouper", "Projector", "Filter",            "Profile",
                                      "Network", "Metrics Applier", "Key Name Loader", "Score Max Normalizer",
-                                     "Vector Normalizer", "Hybrid Merger", "Depleter"};
+                                     "Vector Normalizer", "Hybrid Merger", "Depleter", "Sync Depleter"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -2311,5 +2311,103 @@ ResultProcessor *RPPauseAfterCount_New(size_t count) {
 
   QueryDebugCtx_SetDebugRP(&ret->base);
 
+  return &ret->base;
+}
+
+/*******************************************************************************************************************
+ *  Synchronous Depleter Result Processor
+ *
+ *  The RPSyncDepleter result processor consumes all results from its upstream
+ *  processor synchronously, storing them in an internal array. It then yields
+ *  results one by one from this array. This processor is designed for use cases
+ *  where background processing is not needed or not desired.
+ *******************************************************************************************************************/
+typedef struct {
+  ResultProcessor base;            // Base result processor struct
+  arrayof(SearchResult *) results; // Array of pointers to SearchResult
+  size_t cur_idx;                  // Current index for yielding results
+  RPStatus last_rc;                // Last return code from upstream
+  uint32_t depleted_results;       // Total number of results depleted
+} RPSyncDepleter;
+
+/**
+ * Synchronous depletion function: consumes all results from upstream and stores
+ * them in the results array.
+ */
+static void RPSyncDepleter_Deplete(RPSyncDepleter *self) {
+  RPStatus rc;
+  SearchResult *r = rm_calloc(1, sizeof(*r));
+
+  // Deplete all results from upstream
+  while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
+    array_append(self->results, r);
+    r = rm_calloc(1, sizeof(*r));
+    self->depleted_results++;
+  }
+
+  SearchResult_Destroy(r);
+  rm_free(r);
+  self->last_rc = rc;
+}
+
+/**
+ * Yield function for RPSyncDepleter - returns results one by one from the
+ * internal array
+ */
+static int RPSyncDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
+  RPSyncDepleter *self = (RPSyncDepleter *)base;
+
+  // Check if we've yielded all results
+  if (self->cur_idx >= array_len(self->results)) {
+    // Return the last code from upstream (EOF or TIMEDOUT)
+    int ret = self->last_rc;
+    self->last_rc = RS_RESULT_EOF;
+    return ret;
+  }
+
+  // Return the next result from the array
+  SearchResult *current = self->results[self->cur_idx];
+  SearchResult_Override(r, current);
+  rm_free(current);
+  self->results[self->cur_idx] = NULL;
+  self->cur_idx++;
+  return RS_RESULT_OK;
+}
+
+/**
+ * Synchronous Next function for RPSyncDepleter.
+ */
+static int RPSyncDepleter_Next(ResultProcessor *base, SearchResult *r) {
+  RPSyncDepleter *self = (RPSyncDepleter *)base;
+
+  // Call the sync depletion function directly
+  RPSyncDepleter_Deplete(self);
+
+  // Switch to yield mode
+  self->base.Next = RPSyncDepleter_Next_Yield;
+
+  // Now yield the first result
+  return RPSyncDepleter_Next_Yield(base, r);
+}
+
+/**
+ * Destructor for RPSyncDepleter
+ */
+static void RPSyncDepleter_Free(ResultProcessor *base) {
+  RPSyncDepleter *self = (RPSyncDepleter *)base;
+  array_free_ex(self->results, srDtor(*(SearchResult**)ptr));
+  rm_free(self);
+}
+
+/**
+ * Constructs a new synchronous depleter processor that runs in the current thread.
+ */
+ResultProcessor *RPSyncDepleter_New() {
+  RPSyncDepleter *ret = rm_calloc(1, sizeof(*ret));
+  ret->results = array_new(SearchResult*, 0);
+  ret->base.Next = RPSyncDepleter_Next;
+  ret->base.Free = RPSyncDepleter_Free;
+  ret->base.type = RP_SYNC_DEPLETER;
+  ret->depleted_results = 0;
   return &ret->base;
 }
