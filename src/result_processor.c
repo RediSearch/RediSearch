@@ -1331,11 +1331,11 @@ static bool addResultProcessorBeforeType(AREQ *r, ResultProcessor *rp, ResultPro
     // To: downstream -> rp -> cur(type) -> cur->upstream
 
     if (cur->type == target_type) {
-      rp->parent = r->qiter;
+      rp->parent = &r->qiter;
       rp->upstream = cur;
       // Checking edge case: we are the first RP in the stream
-      if (cur == qctx->endProc) {
-        qctx->endProc = rp;
+      if (cur == r->qiter.endProc) {
+        r->qiter.endProc = rp;
       } else {
         downstream->upstream = rp;
       }
@@ -1367,7 +1367,7 @@ static bool addResultProcessorAfterType(AREQ *r, ResultProcessor *rp, ResultProc
       }
       rp->upstream = cur->upstream;
       cur->upstream = rp;
-      rp->parent = r->qiter;
+      rp->parent = &r->qiter;
       return true;
     }
     downstream = cur;
