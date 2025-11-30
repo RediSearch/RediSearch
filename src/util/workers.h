@@ -58,5 +58,3 @@ int workersThreadPool_resume();
 thpool_stats workersThreadPool_getStats();
 
 void workersThreadPool_wait();
-
-bool workersThreadPool_isCreated();
