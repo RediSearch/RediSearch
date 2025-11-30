@@ -1464,7 +1464,7 @@ DEBUG_COMMAND(DistSearchCommand_DebugWrapper) {
     return DEBUG_RSSearchCommand(ctx, ++argv, --argc);
   }
 
-  return DistSearchCommand(ctx, argv, argc);
+  return DistSearchCommandImp(ctx, ++argv, --argc, true);
 }
 
 DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
@@ -1482,7 +1482,7 @@ DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
     return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
   }
 
-  return DistAggregateCommand(ctx, argv, argc);
+  return DistAggregateCommandImp(ctx, ++argv, --argc, true);
 }
 
 DEBUG_COMMAND(RSSearchCommandShard) {
@@ -1497,6 +1497,27 @@ DEBUG_COMMAND(RSAggregateCommandShard) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
+}
+
+DEBUG_COMMAND(RSProfileCommandShard) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  return RSProfileCommandImp(ctx, ++argv, --argc, true);
+}
+
+DEBUG_COMMAND(ProfileCommandCommand_DebugWrapper) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+
+  // at least one debug_param should be provided
+  // (1)_FT.DEBUG (2) FT.PROFILE (3) <index> (4) SEARCH | AGGREGATE [LIMITED] (6) QUERY <query> [query_options] (5) debug_params (6)DEBUG_PARAMS_COUNT (7) <debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return ProfileCommandHandlerImp(ctx, ++argv, --argc, true);
 }
 
 /**
@@ -1822,11 +1843,11 @@ DEBUG_COMMAND(YieldCounter) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  
+
   if (argc > 3) {
     return RedisModule_WrongArity(ctx);
   }
-  
+
   // Check if we need to reset the counter
   if (argc == 3) {
     size_t len;
@@ -1838,7 +1859,7 @@ DEBUG_COMMAND(YieldCounter) {
       return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
     }
   }
-  
+
   // Return the current counter value
   return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
 }
@@ -1914,6 +1935,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"_FT.AGGREGATE", RSAggregateCommandShard}, // internal use only, in SA use FT.AGGREGATE
                                {"FT.SEARCH", DistSearchCommand_DebugWrapper},
                                {"_FT.SEARCH", RSSearchCommandShard}, // internal use only, in SA use FT.SEARCH
+                               {"FT.PROFILE", ProfileCommandCommand_DebugWrapper},
+                               {"_FT.PROFILE", RSProfileCommandShard},
                                /* IMPORTANT NOTE: Every debug command starts with
                                 * checking if redis allows this context to execute
                                 * debug commands by calling `debugCommandsEnabled(ctx)`.
