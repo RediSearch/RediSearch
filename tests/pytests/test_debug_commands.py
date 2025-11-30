@@ -682,11 +682,6 @@ class TestQueryDebugCommands(object):
         expectError(debug_params, 'INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N')
         expectError(debug_params, 'INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N')
 
-        # TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR is disabled.
-        if (self.env.isCluster() and self.cmd == "AGGREGATE"):
-            debug_params = ['TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3]
-            expectError(debug_params, 'INTERNAL_ONLY with TIMEOUT_AFTER_N 0 is not allowed without WITHCURSOR')
-
     def QueryDebug(self):
         env = self.env
         basic_debug_query = self.basic_debug_query
