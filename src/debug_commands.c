@@ -1327,31 +1327,6 @@ void ResetYieldCounter(void) {
 }
 
 /**
- * FT.DEBUG YIELDS_ON_LOAD_COUNTER [RESET]
- * Get or reset the counter for yields during loading operations
- */
-DEBUG_COMMAND(YieldCounter) {
-  if (argc > 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  // Check if we need to reset the counter
-  if (argc == 3) {
-    size_t len;
-    const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
-    if (STR_EQCASE(subCmd, len, "RESET")) {
-      ResetYieldCounter();
-      return RedisModule_ReplyWithSimpleString(ctx, "OK");
-    } else {
-      return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
-    }
-  }
-
-  // Return the current counter value
-  return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
-}
-
-/**
  * FT.DEBUG BG_SCAN_CONTROLLER SET_MAX_SCANNED_DOCS <max_scanned_docs>
  */
 DEBUG_COMMAND(setMaxScannedDocs) {
@@ -1598,11 +1573,58 @@ DEBUG_COMMAND(bgScanController) {
 
 }
 
-// Global variable for sleep time before yielding (in microseconds)
-static unsigned int g_indexerSleepBeforeYieldMicros = 0;
+// Global counter for tracking yield calls
+typedef struct {
+  size_t yieldOnLoadCounter;
+  size_t yieldOnBgIndexCounter;
+  size_t indexerSleepBeforeYieldMicros;
+} YieldCallHandler;
 
+static YieldCallHandler g_yieldCallHandler = {0};
+
+// Function to increment the yield counter upon loading (to be called from IndexerBulkAdd)
+void IncrementLoadYieldCounter(void) {
+  g_yieldCallHandler.yieldOnLoadCounter++;
+}
+
+// Function to increment the yield counter upon bg indexing
+void IncrementBgIndexYieldCounter(void) {
+  g_yieldCallHandler.yieldOnBgIndexCounter++;
+}
+
+// Reset the yield counter
+void ResetYieldCounters(void) {
+  g_yieldCallHandler.yieldOnLoadCounter = 0;
+  g_yieldCallHandler.yieldOnBgIndexCounter = 0;
+}
+
+// Get the current sleep time before yielding (in microseconds)
 unsigned int GetIndexerSleepBeforeYieldMicros(void) {
-  return g_indexerSleepBeforeYieldMicros;
+  return g_yieldCallHandler.indexerSleepBeforeYieldMicros;
+}
+
+/**
+ * FT.DEBUG YIELDS_COUNTER LOAD/BG_INDEX/RESET
+ * Get or reset the counter for yields indexing / loading operations
+ */
+DEBUG_COMMAND(YieldCounter) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  size_t len;
+  const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
+  if (STR_EQCASE(subCmd, len, "RESET")) {
+    ResetYieldCounters();
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  if (STR_EQCASE(subCmd, len, "BG_INDEX")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_yieldCallHandler.yieldOnBgIndexCounter);
+  }
+  if (STR_EQCASE(subCmd, len, "LOAD")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_yieldCallHandler.yieldOnLoadCounter);
+  }
+  return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
 }
 
 /**
@@ -1621,7 +1643,7 @@ DEBUG_COMMAND(IndexerSleepBeforeYieldMicros) {
       return RedisModule_ReplyWithError(ctx, "Invalid sleep time. Must be a non-negative integer.");
     }
 
-    g_indexerSleepBeforeYieldMicros = (unsigned int)sleepMicros;
+    g_yieldCallHandler.indexerSleepBeforeYieldMicros = (unsigned int)sleepMicros;
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
@@ -1660,7 +1682,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INDEXES", ListIndexesSwitch},
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
-                               {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
+                               {"YIELDS_COUNTER", YieldCounter},
                                {"BG_SCAN_CONTROLLER", bgScanController},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                /**

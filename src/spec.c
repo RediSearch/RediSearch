@@ -2326,6 +2326,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
       // time to ensure that other threads that are waiting for the GIL will actually have the
       // chance to take it.
       usleep(1);
+      IncrementBgIndexYieldCounter();
     } else {
       sched_yield();
     }
