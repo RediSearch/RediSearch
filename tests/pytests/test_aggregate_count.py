@@ -45,12 +45,14 @@ def _get_cluster_RP_profile(env, res) -> list:
         shard_RP = [item['Type'] for item in shard]
         coord_RP = [item['Type'] for item in coord]
 
-        for i in range(3):
-            shard = res['Profile']['Shards'][i]['Result processors profile']
-            shard_RP_and_count = [(item['Type'], item['Results processed']) for item in shard]
-            print(f"shard[{i}]: {shard_RP_and_count}")
-        coord_RP_and_count = [(item['Type'], item['Results processed']) for item in coord]
-        print(f"coord: {coord_RP_and_count}")
+        # Print the RP types and the number of results processed
+        # for i in range(3):
+        #     shard = res['Profile']['Shards'][i]['Result processors profile']
+        #     shard_RP_and_count = [(item['Type'], item['Results processed']) for item in shard]
+        #     print(f"shard[{i}]: {shard_RP_and_count}")
+        # coord_RP_and_count = [(item['Type'], item['Results processed']) for item in coord]
+        # print(f"coord: {coord_RP_and_count}")
+
         return [shard_RP, coord_RP]
     else:
         shard = res[1][1][0][13]
@@ -58,13 +60,14 @@ def _get_cluster_RP_profile(env, res) -> list:
         shard_RP = [item[1] for item in shard]
         coord_RP = [item[1] for item in coord]
 
-        for i in range(3):
-            shard = res[1][1][i][13]
-            shard_RP_and_count = [(item[1], item[5]) for item in shard]
-            print(f"shard[{i}]: {shard_RP_and_count}")
-        coord_RP_and_count = [(item[1], item[5]) for item in coord]
+        # Print the RP types and the number of results processed
+        # for i in range(3):
+        #     shard = res[1][1][i][13]
+        #     shard_RP_and_count = [(item[1], item[5]) for item in shard]
+        #     print(f"shard[{i}]: {shard_RP_and_count}")
+        # coord_RP_and_count = [(item[1], item[5]) for item in coord]
+        # print(f"coord_RP_and_count: {coord_RP_and_count}")
 
-        print(f"coord_RP_and_count: {coord_RP_and_count}")
         return [shard_RP, coord_RP]
 
 
@@ -372,7 +375,7 @@ def test_withoutcount_resp2():
 
 def _test_profile(protocol):
     env = Env(protocol=protocol)
-    docs = 5
+    docs = 3100
     _setup_index_and_data(env, docs)
 
     queries_and_profiles = [
