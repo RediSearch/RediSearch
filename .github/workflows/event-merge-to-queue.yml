@@ -9,16 +9,21 @@ on:
     types: [checks_requested]
 
 concurrency:
-  # This group identifies the PR by the tree ID of the head commit.
-  # TODO: Replace with PR number of branch name once GH adds it to the event context
-  group: ${{ github.workflow }}-${{ github.event.merge_group.head_commit.tree_id }}
+  # This group identifies the PR by the head ref (branch name) of the merge group
+  group: ${{ github.workflow }}-${{ github.event.merge_group.head_ref }}
   cancel-in-progress: true
 
 jobs:
   get-latest-redis-tag:
-   uses: ./.github/workflows/task-get-latest-tag.yml
-   with:
-     repo: redis/redis
+    # TODO: Revert to using the latest stable ref in redis
+    runs-on: ubuntu-latest
+    outputs:
+      tag: unstable
+    steps:
+      - run: echo "Dummy step to set output"
+    # uses: ./.github/workflows/task-get-latest-tag.yml
+    # with:
+    #   repo: redis/redis
 
   lint:
     uses: ./.github/workflows/task-lint.yml
@@ -26,28 +31,16 @@ jobs:
 
 
 # TODO: in version branches - this should turn into a single matrix runs it all (and not need for the test-macos separately)
-  test-ubuntu-latest:
+  test-matrix:
     needs: [get-latest-redis-tag, lint]
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: ubuntu:noble
+      platform: 'ubuntu:noble,macos'
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
       options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'coordinator,standalone,rejson,fail-fast,coverage,sanitize' || 'coordinator,standalone,rejson,fail-fast,sanitize' }}
-      rejson-branch: master
-
-  test-macos:
-    needs: [ get-latest-redis-tag, lint ]
-    uses: ./.github/workflows/flow-test.yml
-    secrets: inherit
-    with:
-      platform: macos
-      architecture: all
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      job-test-config: '{"test": ""}'
-      options: 'coordinator,standalone,rejson,fail-fast'
       rejson-branch: master
 
   run-on-intel:
@@ -61,8 +54,7 @@ jobs:
     needs:
       - get-latest-redis-tag
       - lint
-      - test-ubuntu-latest
-      - test-macos
+      - test-matrix
       - run-on-intel
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ !cancelled() }}
