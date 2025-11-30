@@ -477,6 +477,9 @@ done_2:
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, !IsInternal(req));
     }
+    if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
+    }
 
     // Prepare profile printer context
     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
@@ -621,6 +624,7 @@ done_3:
       // Non-fatal error
       RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
     } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
