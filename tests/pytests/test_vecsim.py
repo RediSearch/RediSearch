@@ -1771,7 +1771,6 @@ def test_rdb_memory_limit():
 
 class TestTimeoutReached(object):
     def __init__(self):
-        skipTest(cluster=True)
         self.env = Env(enableDebugCommand=True, moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
         n_shards = self.env.shardsCount
         # We need at least DEFAULT_BLOCK_SIZE at every shard, due to nature of hash slot distribution, we need a bit extra
@@ -1794,18 +1793,17 @@ class TestTimeoutReached(object):
                                    'TIMEOUT', 0)
         self.env.assertEqual(res[0], small_k)
 
-        # Enable VECSIM timeout to simulate timeout in the vecsim library
-        allShards_vecsimTimeoutEnable(self.env)
-        try:
+        # Enable VECSIM mock timeout to simulate timeout in the vecsim library
+        with vecsimMockTimeoutContext(self.env):
             # run query with timeout enabled in vecsim
             self.env.expect('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
                            'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', small_k,
-                           'vec_param', query_vec.tobytes(), 'TIMEOUT', 100).error().contains('Timeout limit was reached')
+                           'vec_param', query_vec.tobytes()).error().contains('Timeout limit was reached')
 
             # RANGE QUERY
             # run query with timeout enabled in vecsim
             self.env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                           'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'TIMEOUT', 100).error().contains('Timeout limit was reached')
+                           'PARAMS', 2, 'vec_param', query_vec.tobytes()).error().contains('Timeout limit was reached')
 
             # HYBRID MODES
             # Add some dummy documents so `-dummy` won't be empty and optimized away.
@@ -1815,10 +1813,7 @@ class TestTimeoutReached(object):
             for mode in self.hybrid_modes:
                 self.env.expect('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
                                'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', small_k,
-                               'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 100).error().contains('Timeout limit was reached')
-        finally:
-            # Disable VECSIM timeout to restore normal behavior
-            allShards_vecsimTimeoutDisable(self.env)
+                               'vec_param', query_vec.tobytes(), 'hp', mode).error().contains('Timeout limit was reached')
 
     def test_flat(self):
         # Create index and load vectors.

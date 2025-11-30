@@ -894,16 +894,28 @@ def allShards_setPauseRPResume(env, start_shard=1):
 def allShards_vecsimTimeoutEnable(env):
     results = []
     for shardId in range(1, env.shardsCount + 1):
-        result = env.getConnection(shardId).execute_command(debug_cmd(), 'VECSIM_TIMEOUT', 'enable')
+        result = env.getConnection(shardId).execute_command(debug_cmd(), 'VECSIM_MOCK_TIMEOUT', 'enable')
         results.append(result)
     return results
 
 def allShards_vecsimTimeoutDisable(env):
     results = []
     for shardId in range(1, env.shardsCount + 1):
-        result = env.getConnection(shardId).execute_command(debug_cmd(), 'VECSIM_TIMEOUT', 'disable')
+        result = env.getConnection(shardId).execute_command(debug_cmd(), 'VECSIM_MOCK_TIMEOUT', 'disable')
         results.append(result)
     return results
+
+class vecsimMockTimeoutContext:
+    """Context manager for enabling/disabling VECSIM mock timeout on all shards"""
+    def __init__(self, env):
+        self.env = env
+
+    def __enter__(self):
+        allShards_vecsimTimeoutEnable(self.env)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        allShards_vecsimTimeoutDisable(self.env)
 
 def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):

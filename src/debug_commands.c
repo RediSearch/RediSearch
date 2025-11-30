@@ -2068,12 +2068,12 @@ static inline int TimedOut_Always(TimeoutCtx *ctx) {
 extern int (*vecsimTimeoutCallback)(TimeoutCtx *ctx);
 
 /**
- * FT.DEBUG VECSIM_TIMEOUT <enable|disable>
+ * FT.DEBUG VECSIM_MOCK_TIMEOUT <enable|disable>
  * Set the timeout callback for VecSim searches globally
  * enable - will cause an immediate timeout for all VecSim searches
  * disable - will remove the timeout callback and restore normal behavior
  */
-DEBUG_COMMAND(VecSimTimeout) {
+DEBUG_COMMAND(VecSimMockTimeout) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -2090,7 +2090,7 @@ DEBUG_COMMAND(VecSimTimeout) {
     VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   } else {
-    return RedisModule_ReplyWithError(ctx, "Invalid command for 'VECSIM_TIMEOUT'");
+    return RedisModule_ReplyWithError(ctx, "Invalid command for 'VECSIM_MOCK_TIMEOUT'");
   }
 }
 
@@ -2134,7 +2134,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                {"QUERY_CONTROLLER", queryController},
                                {"DUMP_SCHEMA", DumpSchema},
-                               {"VECSIM_TIMEOUT", VecSimTimeout},
+                               {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
