@@ -80,7 +80,7 @@ DebugCommandType coordCommands[] = {
   {"CLEAR_PENDING_TOPOLOGY", clearTopology},
   {"FT.AGGREGATE", DistAggregateCommand_DebugWrapper},
   {"FT.SEARCH", DistSearchCommand_DebugWrapper},
-  {"FT.PROFILE", DistSearchCommand_DebugWrapper},
+  {"FT.PROFILE", ProfileCommandCommand_DebugWrapper},
   {NULL, NULL}
 };
 // Make sure the two arrays are of the same size (don't forget to update `debug_command_names.h`)
