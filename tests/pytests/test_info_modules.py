@@ -1687,8 +1687,8 @@ def _test_pending_jobs_metrics(env, command_type):
           queries_pending_jobs = int(shard_stats[MULTI_THREADING_SECTION][QUERIES_PENDING_JOBS_METRIC])
 
           all_shards_ready[i] = (expected_queries_jobs == queries_pending_jobs)
-          state['queries_jobs_pending'][i] = expected_queries_jobs
-          state['expected_queries_jobs'][i] = queries_pending_jobs
+          state['queries_jobs_pending'][i] = queries_pending_jobs
+          state['expected_queries_jobs'][i] = expected_queries_jobs
         return all(all_shards_ready), state
 
     wait_for_condition(check_queries_jobs_pending, "wait_for_queries_jobs_pending")
