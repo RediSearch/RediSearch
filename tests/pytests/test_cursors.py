@@ -633,3 +633,40 @@ def testCountArgValidation(env):
     res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'COUNT', '2')
     env.assertEqual(cid, 0)
     env.assertEqual(res, [0])
+
+@skip(cluster=True)
+def test_cursor_commands_errors(env: Env):
+    """Tests that appropriate errors are returned upon dispatching invalid
+    `FT.CURSOR` commands."""
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.cmd('HSET', 'doc1', 't', 'hello')
+
+    # Test missing arguments
+    env.expect('FT.CURSOR', 'READ').error().contains("wrong number of arguments for 'FT.CURSOR|READ' command")
+    env.expect('FT.CURSOR', 'DEL').error().contains("wrong number of arguments for 'FT.CURSOR|DEL' command")
+    env.expect('FT.CURSOR', 'PROFILE').error().contains("wrong number of arguments for 'FT.CURSOR|PROFILE' command")
+    env.expect('FT.CURSOR', 'GC').error().contains("wrong number of arguments for 'FT.CURSOR|GC' command")
+
+    # Test invalid cursor id
+    env.expect('FT.CURSOR', 'READ', 'idx', 'invalid_cursor_id').error().contains('Bad cursor ID')
+    env.expect('FT.CURSOR', 'DEL', 'idx', 'invalid_cursor_id').error().contains('Bad cursor ID')
+    env.expect('FT.CURSOR', 'PROFILE', 'idx', 'invalid_cursor_id').error().contains('Bad cursor ID')
+
+    # Internal cursor tests
+    env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
+
+    # Test internal cursor read after index drop
+    env.cmd('FT.CREATE', 'temp', 'SCHEMA', 't', 'TEXT')
+    waitForIndex(env, 'temp')
+    _, cid = env.cmd('FT.AGGREGATE', 'temp', '*', 'WITHCURSOR', 'COUNT', '1')
+    env.assertNotEqual(cid, 0)
+    env.expect('FT.DROPINDEX', 'temp').ok()
+    env.expect('_FT.CURSOR', 'READ', 'temp', cid).error().contains('The index was dropped while the cursor was idle')
+
+    # Test internal cursor profile after index drop
+    env.cmd('FT.CREATE', 'temp', 'SCHEMA', 't', 'TEXT')
+    waitForIndex(env, 'temp')
+    _, cid, _ = env.cmd('_FT.PROFILE', 'temp', 'AGGREGATE', 'QUERY', '*', '_SLOTS_INFO', generate_slots(), 'WITHCURSOR', 'COUNT', '1')
+    env.assertNotEqual(cid, 0)
+    env.expect('FT.DROPINDEX', 'temp').ok()
+    env.expect('_FT.CURSOR', 'PROFILE', 'temp', cid).error().contains('The index was dropped while the cursor was idle')
