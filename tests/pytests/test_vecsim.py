@@ -1772,7 +1772,7 @@ def test_rdb_memory_limit():
 class TestTimeoutReached(object):
     def __init__(self):
         skipTest(cluster=True)
-        self.env = Env(enableDebugCommand=True, moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL WORKERS 10')
+        self.env = Env(enableDebugCommand=True, moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
         n_shards = self.env.shardsCount
         # We need at least DEFAULT_BLOCK_SIZE at every shard, due to nature of hash slot distribution, we need a bit extra
         # for that reason we multiply by 1.1
