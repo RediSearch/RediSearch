@@ -14,10 +14,7 @@
 
 // Helper function to extract total_results from a shard reply
 // Returns true if total_results was found, false otherwise
-// out_total is set to the extracted value (or -1 if not found)
 static bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total) {
-  *out_total = -1;
-
   if (cmd->protocol == 3) {
     // RESP3: [map, cursor]
     MRReply *meta = MRReply_ArrayElement(rep, 0);
@@ -69,6 +66,7 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
     RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
     if (barrier && barrier->notifyCallback) {
+      // Notify an error was received
       barrier->notifyCallback(cmd->targetShard, 0, true, barrier);
     }
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
@@ -144,7 +142,13 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   // Extract total_results and notify barrier via callback (if registered)
   if (barrier && barrier->notifyCallback) {
     long long shardTotal;
-    extractTotalResults(rep, cmd, &shardTotal);
+    if (!extractTotalResults(rep, cmd, &shardTotal)) {
+      // If no error was detected earlier, and still we failed to extract total_results,
+      // Response is malformed: log a warning and set total to 0.
+      // Notice: must still call the notify callback since a response was received
+      shardTotal = 0;
+      RedisModule_Log(RSDummyContext, "notice", "Coordinator could not extract total_results from shard %d reply", cmd->targetShard);
+    }
     barrier->notifyCallback(cmd->targetShard, shardTotal, false, barrier);
   }
 

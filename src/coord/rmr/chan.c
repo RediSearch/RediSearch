@@ -28,6 +28,7 @@ struct MRChannel {
 
 #include "chan.h"
 #include "rmalloc.h"
+#include "util/timeout.h"
 
 MRChannel *MR_NewChannel() {
   MRChannel *chan = rm_malloc(sizeof(*chan));
@@ -133,16 +134,10 @@ void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstimeMo
     // Recalculate remaining time on each iteration to handle spurious wakeups
     struct timespec nowMono, remaining;
     clock_gettime(CLOCK_MONOTONIC, &nowMono);
-
-    remaining.tv_sec = abstimeMono->tv_sec - nowMono.tv_sec;
-    remaining.tv_nsec = abstimeMono->tv_nsec - nowMono.tv_nsec;
-    if (remaining.tv_nsec < 0) {
-      remaining.tv_sec -= 1;
-      remaining.tv_nsec += 1000000000;
-    }
+    rs_timerdelta((struct timespec *)abstimeMono, &nowMono, &remaining);
 
     // If already past the deadline, timeout immediately
-    if (remaining.tv_sec < 0 || (remaining.tv_sec == 0 && remaining.tv_nsec <= 0)) {
+    if (remaining.tv_sec == 0 && remaining.tv_nsec == 0) {
       *timedOut = true;
       pthread_mutex_unlock(&chan->lock);
       return NULL;
@@ -159,19 +154,7 @@ void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstimeMo
   // Calculate remaining time from now until the deadline
   struct timespec nowMono, remaining;
   clock_gettime(CLOCK_MONOTONIC, &nowMono);
-
-  remaining.tv_sec = abstimeMono->tv_sec - nowMono.tv_sec;
-  remaining.tv_nsec = abstimeMono->tv_nsec - nowMono.tv_nsec;
-  if (remaining.tv_nsec < 0) {
-    remaining.tv_sec -= 1;
-    remaining.tv_nsec += 1000000000;
-  }
-
-  // If already past the deadline, set minimal wait
-  if (remaining.tv_sec < 0) {
-    remaining.tv_sec = 0;
-    remaining.tv_nsec = 0;
-  }
+  rs_timerdelta((struct timespec *)abstimeMono, &nowMono, &remaining);
   // Linux: use pthread_cond_timedwait with CLOCK_REALTIME absolute time
   struct timespec nowReal, abstimeReal;
   clock_gettime(CLOCK_REALTIME, &nowReal);

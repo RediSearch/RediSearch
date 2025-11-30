@@ -167,12 +167,6 @@ static struct timespec *calculateAbsTimeout(RPNet *nc, struct timespec *absTimeo
   struct timespec remaining;
   rs_timerdelta((struct timespec *)&nc->areq->sctx->time.timeout, &nowRaw, &remaining);
 
-  // If already timed out, set a minimal timeout
-  if (remaining.tv_sec < 0) {
-    remaining.tv_sec = 0;
-    remaining.tv_nsec = 0;
-  }
-
   // Add remaining time to current CLOCK_MONOTONIC time
   rs_timeradd(&nowMono, &remaining, absTimeout);
   return absTimeout;
@@ -227,10 +221,6 @@ int getNextReply(RPNet *nc) {
   if (nc->shardResponseBarrier && !nc->waitedForAllShards) {
     const size_t numShards = nc->shardResponseBarrier->numShards;
 
-    // Calculate absolute timeout for MRIterator_NextWithTimeout
-    struct timespec absTimeout;
-    struct timespec *timeoutPtr = calculateAbsTimeout(nc, &absTimeout);
-
     // Collect replies until all shards have sent their first response
     // Also respect the query timeout to avoid blocking indefinitely
     while (atomic_load(&nc->shardResponseBarrier->numResponded) < numShards) {
@@ -239,6 +229,9 @@ int getNextReply(RPNet *nc) {
         timedOut = true;
         break;
       }
+      // Calculate absolute timeout for MRIterator_NextWithTimeout
+      struct timespec absTimeout;
+      struct timespec *timeoutPtr = calculateAbsTimeout(nc, &absTimeout);
 
       if (nc->cmd.forCursor) {
         if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
@@ -246,6 +239,7 @@ int getNextReply(RPNet *nc) {
         }
       }
 
+      // Get next reply with timeout
       bool nextTimedOut = false;
       MRReply *reply = MRIterator_NextWithTimeout(nc->it, timeoutPtr, &nextTimedOut);
       if (reply == NULL) {
