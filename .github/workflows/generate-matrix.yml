@@ -92,7 +92,7 @@ jobs:
           # Add coverage job if requested (only on ubuntu-latest - nobel x86_64)
           if include_coverage:
               matrix_items.append({
-                  'platform': 'ubuntu:nobel',
+                  'platform': 'ubuntu:noble',
                   'architecture': 'x86_64',
                   'job-type': 'coverage'
               })
@@ -100,7 +100,7 @@ jobs:
           # Add coverage job if requested (only on ubuntu-latest - nobel x86_64)
           if include_sanitize:
               matrix_items.append({
-                  'platform': 'ubuntu:nobel',
+                  'platform': 'ubuntu:noble',
                   'architecture': 'x86_64',
                   'job-type': 'sanitize'
               })
