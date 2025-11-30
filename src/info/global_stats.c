@@ -181,13 +181,11 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
 
   // Workers stats
   // We don't use workersThreadPool_getStats here to avoid the overhead of locking the thread pool.
-  RS_ASSERT(workersThreadPool_isInitialized()); // In production workers threadpool is initialized at startup.
   stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
   stats.low_priority_pending_jobs = workersThreadPool_LowPriorityPendingJobsCount();
   stats.high_priority_pending_jobs = workersThreadPool_HighPriorityPendingJobsCount();
 
   // Coordinator stats
-  RS_ASSERT(ConcurrentSearchPool_IsCreated()); // In production concurrent search pool is initialized at startup.
   stats.active_coord_threads = ConcurrentSearchPool_WorkingThreadCount();
   return stats;
 }
