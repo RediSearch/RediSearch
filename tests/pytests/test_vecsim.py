@@ -1795,7 +1795,7 @@ class TestTimeoutReached(object):
         self.env.assertEqual(res[0], small_k)
 
         # Enable VECSIM timeout to simulate timeout in the vecsim library
-        self.env.cmd(debug_cmd(), 'VECSIM_TIMEOUT', 'enable')
+        allShards_vecsimTimeoutEnable(self.env)
         try:
             # run query with timeout enabled in vecsim
             self.env.expect('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
@@ -1818,7 +1818,7 @@ class TestTimeoutReached(object):
                                'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 100).error().contains('Timeout limit was reached')
         finally:
             # Disable VECSIM timeout to restore normal behavior
-            self.env.cmd(debug_cmd(), 'VECSIM_TIMEOUT', 'disable')
+            allShards_vecsimTimeoutDisable(self.env)
 
     def test_flat(self):
         # Create index and load vectors.

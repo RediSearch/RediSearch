@@ -891,6 +891,20 @@ def allShards_setPauseRPResume(env, start_shard=1):
         results.append(result)
     return results
 
+def allShards_vecsimTimeoutEnable(env):
+    results = []
+    for shardId in range(1, env.shardsCount + 1):
+        result = env.getConnection(shardId).execute_command(debug_cmd(), 'VECSIM_TIMEOUT', 'enable')
+        results.append(result)
+    return results
+
+def allShards_vecsimTimeoutDisable(env):
+    results = []
+    for shardId in range(1, env.shardsCount + 1):
+        result = env.getConnection(shardId).execute_command(debug_cmd(), 'VECSIM_TIMEOUT', 'disable')
+        results.append(result)
+    return results
+
 def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):
       yield env.getConnection(shardId=s)
