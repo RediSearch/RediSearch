@@ -1097,7 +1097,6 @@ class ProfileDebugSA:
         baseline_query = ['FT.PROFILE', 'idx', command_type, 'QUERY', '@t:hello*']
         baseline_res = conn.execute_command(*baseline_query)
 
-        print(baseline_res)
         baseline_data = ProfileDebugSA.get_profile_data(baseline_res, command_type)
         baseline_profile = baseline_data['profile']
 
@@ -1106,7 +1105,6 @@ class ProfileDebugSA:
         debug_res = runDebugQueryCommandTimeoutAfterN(env, baseline_query, results_count)
         debug_data = ProfileDebugSA.get_profile_data(debug_res, command_type)
         debug_profile = debug_data['profile']
-        print(f"debug_res: {debug_res}")
         # Verify both return same number of results
         env.assertEqual(debug_data['results_count'], results_count,
                         message=f"{message_prefix}: Debug should return expected number of results")
@@ -1177,32 +1175,56 @@ class ProfileDebugCluster:
     def get_profile_data(res, cmd_type):
         if isinstance(res, dict):  # RESP3
             return {
-                'results_count': len(res['Results']['results']),
-                'shards_profile': res['Profile']['Shards'],
-                'coordinator_profile': res['Profile']['Coordinator']
+                'results_count': len(res['results']),
+                'shards_profile': res['Shards'].keys() if cmd_type == 'AGGREGATE' else res['shards'].keys(),
+                'coordinator_profile': res['Coordinator'] if cmd_type == 'AGGREGATE' else res['shards']['Coordinator']
             }
         else:  # RESP2
             # RESP2 format: [results_array, profile_array]
+            if cmd_type == 'AGGREGATE':
+                return {
+                    'results_count': len(res[0]) - 1,
+                    'shards_profile': [item for item in res[2] if "Shard #" in item],
+                    'coordinator_profile': res[res.index('Coordinator') + 1][1:] # for some reason the first element is "Result processors profile"
+                }
+            # Else SEARCH
+            # find the array in res that strart with "Shard #"
+            profile_start_index_search = 0
+            for i, item in enumerate(res):
+                if isinstance(item, list) and item[0] == 'Shard #1':
+                    profile_start_index_search = i
+                    break
             return {
-                'results_count': len(res[0]) - 1 if cmd_type == 'AGGREGATE' else len(res[0][1:]) // 2,  # Subtract 1 for total count
-                'shards_profile': res[1][1],
-                'coordinator_profile': res[1][res[1].index('Coordinator') + 1]
+                'results_count': len(res[1:profile_start_index_search]) // 2,  # Subtract 1 for total count
+                'shards_profile': [item for item in res[profile_start_index_search] if "Shard #" in item],
+                'coordinator_profile': res[profile_start_index_search][res[profile_start_index_search].index('Coordinator') + 1][1:] # for some reason the first element is "Result processors profile"
             }
 
     # Helper to get value from profile sections
     @staticmethod
-    def get_section(profile_sections, key):
+    def get_section(env, cmd_type, profile_sections, key):
         if isinstance(profile_sections, dict):  # RESP3
+            # For RESP3, handle nested 'profile' key in coordinator's Result processors profile
+            if key == 'Result processors profile':
+                return profile_sections['Result processors profile']['profile']['Result processors profile']
             return profile_sections.get(key)
         else:  # RESP2
-            return profile_sections[profile_sections.index(key) + 1]
+            if cmd_type == 'AGGREGATE' and key == 'Result processors profile':
+                    return profile_sections[0][0][-1]
+            for i, section in enumerate(profile_sections):
+                if key in section:
+                    env.assertGreaterEqual(len(section), 2, message=f"Expected at least 2 elements in section {key}, but got {section}")
+                    return section[i][1:]
+            env.assertTrue(False, message=f"Expected section {key} not found in profile_sections: {profile_sections}")
 
     @staticmethod
     def get_field(item, field_name):
         if isinstance(item, dict):  # RESP3
             return item.get(field_name)
         else:  # RESP2
-            return item[item.index(field_name) + 1]
+            # For RESP2, it's a list where field_name is followed by value
+            if field_name in item:
+                return item[item.index(field_name) + 1]
 
     @staticmethod
     def ProfileDebugTimeout(env, command_type, protocol):
@@ -1224,16 +1246,17 @@ class ProfileDebugCluster:
                         message=f"{message_prefix}: Debug should return expected number of results")
 
         # Verify we have received profiles from all 3 shards
-        env.assertEqual(len(debug_data['shards_profile']), 3,
-                        message=f"{message_prefix}: Debug should return profiles from all 3 shards")
+        expected_len = env.shardsCount if command_type == 'AGGREGATE' or protocol == 2 else env.shardsCount + 1
+        env.assertEqual(len(debug_data['shards_profile']), expected_len,
+                        message=f"{message_prefix}: Debug should return profiles from all shards")
         # Verify coordinator profile exists
         env.assertTrue(debug_data['coordinator_profile'] is not None,
                         message=f"{message_prefix}: Debug should return coordinator profile")
 
         if command_type == 'AGGREGATE':
             # Both baseline should have same result processors pipeline in the coordinator
-            baseline_rp = ProfileDebugCluster.get_section(baseline_data['coordinator_profile'], 'Result processors profile')
-            debug_rp = ProfileDebugCluster.get_section(debug_data['coordinator_profile'], 'Result processors profile')
+            baseline_rp = ProfileDebugCluster.get_section(env, command_type, baseline_data['coordinator_profile'], 'Result processors profile')
+            debug_rp = ProfileDebugCluster.get_section(env, command_type, debug_data['coordinator_profile'], 'Result processors profile')
             # Both should have same number of RPs
             env.assertEqual(len(baseline_rp), len(debug_rp),
                         message=f"{message_prefix}: Baseline and debug should have same number of result processors. baseline: {baseline_rp}, debug: {debug_rp}")
@@ -1250,7 +1273,7 @@ class ProfileDebugCluster:
                                     message=f"{message_prefix}: RP {i}: Debug RP should not appear in Result processors profile")
         if protocol == 3:
             # Verify debug has timeout warning
-            debug_warning = ProfileDebugCluster.get_section(debug_res['Results'], 'warning')
+            debug_warning = debug_res['warning']
             env.assertIsNotNone(debug_warning, message="Debug should have timeout warning")
             env.assertContains('Timeout', str(debug_warning), message="Debug warning should contain 'Timeout'")
 
