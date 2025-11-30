@@ -432,10 +432,7 @@ void rpnetFree(ResultProcessor *rp) {
   // This ensures barrier is not freed while I/O callbacks may still be accessing it.
 
   // Free any pending replies that weren't consumed
-  if (nc->pendingReplies) {
-    shardResponseBarrier_PendingReplies_Free(nc->pendingReplies);
-    nc->pendingReplies = NULL;
-  }
+  shardResponseBarrier_PendingReplies_Free(nc);
 
   if (nc->it) {
     RS_DEBUG_LOG("rpnetFree: calling MRIterator_Release");
