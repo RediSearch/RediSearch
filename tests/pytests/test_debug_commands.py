@@ -1059,23 +1059,27 @@ class ProfileDebugSA:
     def get_profile_data(res, cmd_type):
         if isinstance(res, dict):  # RESP3
             return {
-                'results_count': len(res['Results']['results']),
-                'profile': res['Profile']['Shards'][0]
+                'results_count': len(res['results']),
+                'profile': res['profile']
             }
         else:  # RESP2
             # RESP2 format: [results_array, profile_array]
             return {
                 'results_count': len(res[0]) - 1 if cmd_type == 'AGGREGATE' else len(res[0][1:]) // 2,  # Subtract 1 for total count
-                'profile': res[1][1][0]
+                'profile': res[1]
             }
 
     # Helper to get value from profile sections
     @staticmethod
-    def get_section(profile_sections, key):
+    def get_section(env, profile_sections, key):
         if isinstance(profile_sections, dict):  # RESP3
             return profile_sections.get(key)
         else:  # RESP2
-            return profile_sections[profile_sections.index(key) + 1]
+            for i, section in enumerate(profile_sections):
+                if key in section:
+                    env.assertGreaterEqual(len(profile_sections[i]), 2, message=f"Expected at least 2 elements in section {key}, but got {profile_sections[i]}")
+                    return profile_sections[i][1:]
+            env.assertTrue(False, message=f"Expected section {key} not found in profile_sections: {profile_sections}")
 
     @staticmethod
     def get_field(item, field_name):
@@ -1092,6 +1096,8 @@ class ProfileDebugSA:
         # Run baseline normal query to get expected structure
         baseline_query = ['FT.PROFILE', 'idx', command_type, 'QUERY', '@t:hello*']
         baseline_res = conn.execute_command(*baseline_query)
+
+        print(baseline_res)
         baseline_data = ProfileDebugSA.get_profile_data(baseline_res, command_type)
         baseline_profile = baseline_data['profile']
 
@@ -1100,20 +1106,20 @@ class ProfileDebugSA:
         debug_res = runDebugQueryCommandTimeoutAfterN(env, baseline_query, results_count)
         debug_data = ProfileDebugSA.get_profile_data(debug_res, command_type)
         debug_profile = debug_data['profile']
-
+        print(f"debug_res: {debug_res}")
         # Verify both return same number of results
         env.assertEqual(debug_data['results_count'], results_count,
                         message=f"{message_prefix}: Debug should return expected number of results")
 
         # Both should have same number of entries in baseline_iterators
-        baseline_iterators = ProfileDebugSA.get_section(baseline_profile, 'Iterators profile')
-        debug_iterators = ProfileDebugSA.get_section(debug_profile, 'Iterators profile')
+        baseline_iterators = ProfileDebugSA.get_section(env, baseline_profile, 'Iterators profile')
+        debug_iterators = ProfileDebugSA.get_section(env, debug_profile, 'Iterators profile')
         env.assertEqual(countFlatElements(baseline_iterators), countFlatElements(debug_iterators),
                         message=f"{message_prefix}: Baseline and debug should have same number of entries in iterators profile. baseline: {countFlatElements(baseline_iterators)}, debug: {countFlatElements(debug_iterators)}")
 
         # Verify Result processors profile structure matches
-        baseline_rp = ProfileDebugSA.get_section(baseline_profile, 'Result processors profile')
-        debug_rp = ProfileDebugSA.get_section(debug_profile, 'Result processors profile')
+        baseline_rp = ProfileDebugSA.get_section(env, baseline_profile, 'Result processors profile')
+        debug_rp = ProfileDebugSA.get_section(env, debug_profile, 'Result processors profile')
 
         # Both should have same number of RPs
         env.assertEqual(len(baseline_rp), len(debug_rp),
@@ -1131,7 +1137,7 @@ class ProfileDebugSA:
                                 message=f"{message_prefix}: RP {i}: Debug RP should not appear in Result processors profile")
 
         # Verify debug has timeout warning
-        debug_warning = ProfileDebugSA.get_section(debug_profile, 'Warning')
+        debug_warning = ProfileDebugSA.get_section(env, debug_profile, 'Warning')
         env.assertIsNotNone(debug_warning, message="Debug should have timeout warning")
         env.assertContains('Timeout', str(debug_warning), message="Debug warning should contain 'Timeout'")
 
