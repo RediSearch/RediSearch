@@ -41,6 +41,26 @@
  *         - Only applicable in FT.AGGREGATE cluster mode.
  *         - If specified, the timeout applies solely to internal shard queries,
  *           without affecting the coordinator pipeline.
+ *       - **`PAUSE_AFTER_RP_N <RP_TYPE> <N> [INTERNAL_ONLY]`**:
+ *         - Inserts a pause RP **after** the first occurrence of `<RP_TYPE>`; pauses after `<N>` results
+ *           flow past that RP. Fails if `<RP_TYPE>` is invalid or not present or if it's the last RP in the stream.
+ *         - `<RP_TYPE>` can be any valid RP type, except for `DEBUG_RP`.
+ *         - The query can be resumed by calling `FT.DEBUG QUERY_CONTROLLER SET_PAUSE_RP_RESUME`.
+ *         - If timeout is specified and the query is paused for longer than the query timeout, the query will timeout **after** it is resumed.
+ *         - **`INTERNAL_ONLY` (optional)**:
+ *           - Only applicable in FT.AGGREGATE cluster mode.
+ *           - Controls whether the pause applies to the coordinator pipeline or shard-level processing.
+ *           - If specified, the pause applies only to shards, not the coordinator.
+ *       - **`PAUSE_BEFORE_RP_N <RP_TYPE> <N> [INTERNAL_ONLY]`**:
+ *         - Inserts a pause RP **before** the first occurrence of `<RP_TYPE>`; pauses after `<N>` results
+ *           are produced upstream of that insertion point. Fails if `<RP_TYPE>` is invalid or not present.
+ *         - `<RP_TYPE>` can be any valid RP type, except for `DEBUG_RP`.
+ *         - The query can be resumed by calling `FT.DEBUG QUERY_CONTROLLER SET_PAUSE_RP_RESUME`.
+ *         - If timeout is specified and the query is paused for longer than the query timeout, the query will timeout **after** it is resumed.
+ *         - **`INTERNAL_ONLY` (optional)**:
+ *           - Only applicable in FT.AGGREGATE cluster mode.
+ *           - Controls whether the pause applies to the coordinator pipeline or shard-level processing.
+ *           - If specified, the pause applies only to the coordinator, not the shards.
  *
  *   - `<DEBUG_PARAMS_COUNT>`:
  *     - Specifies the number of expected arguments in `<DEBUG_QUERY_ARGS>`.
@@ -55,6 +75,7 @@
  * -----------------------------------------------------------------------------
  *
  * ### Limitations:
+ * - Pause debugging affects at most one query at a time (single debug pause RP at once).
  *
  * -----------------------------------------------------------------------------
  *
@@ -149,6 +170,34 @@
  *      - Second reply: 4 results (EOF)
  *      - Third reply: 3 results (EOF)
  *      - Total results = 12, no timeout warning.
+ *
+ * #### Pause Simulation:
+ * Allows pausing query execution
+ *
+ * - **`PAUSE_AFTER_RP_N <RP_TYPE> <N>`**, **`PAUSE_BEFORE_RP_N <RP_TYPE> <N>`**:
+ *   - Inserts a pause RP after/before the first occurrence of `<RP_TYPE>`.
+ *   - Fails fast on invalid RP type or if the type is not found in the stream.
+ *
+ * **Notes (Pause):**
+ * - Only one pause RP is supported at a time.
+ * - `N` must be `>= 0`. `N == 0` pauses immediately after insertion point.
+ *
+ * #### INTERNAL_ONLY Flag for Pause Commands:
+ *
+ * In `FT.AGGREGATE` cluster mode, the `INTERNAL_ONLY` flag provides pause control
+ * between the coordinator pipeline and shard-level processing. This ensures that pause operations
+ * affect either the coordinator or the shards, but never both simultaneously.
+
+ * - **When `INTERNAL_ONLY` is specified**:
+ *   - Only shards get the pause RP, coordinator pipeline continues normally
+ *
+ * - **When `INTERNAL_ONLY` is NOT specified**:
+ *   - Only the coordinator gets the pause RP, shards continue normally
+ *
+ * **Use Cases:**
+ * - **With `INTERNAL_ONLY`**: Pause individual shard processing to test shard-level behavior
+ * - **Without `INTERNAL_ONLY`**: Pause the coordinator's aggregation pipeline to test
+ *   coordinator-level behavior
  *
  * **Recommendations:**
  * - In `FT.AGGREGATE` (cluster mode), do not expect an exact number of results unless
