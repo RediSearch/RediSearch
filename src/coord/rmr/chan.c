@@ -119,6 +119,43 @@ void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstimeMo
     return MRChannel_Pop(chan);
   }
 
+#if defined(__APPLE__) && defined(__MACH__)
+  // macOS: use pthread_cond_timedwait_relative_np with relative timeout
+  // Must recalculate remaining time on each iteration to handle spurious wakeups
+  pthread_mutex_lock(&chan->lock);
+  while (!chan->size) {
+    if (!chan->wait) {
+      chan->wait = true;  // reset the flag
+      pthread_mutex_unlock(&chan->lock);
+      return NULL;
+    }
+
+    // Recalculate remaining time on each iteration to handle spurious wakeups
+    struct timespec nowMono, remaining;
+    clock_gettime(CLOCK_MONOTONIC, &nowMono);
+
+    remaining.tv_sec = abstimeMono->tv_sec - nowMono.tv_sec;
+    remaining.tv_nsec = abstimeMono->tv_nsec - nowMono.tv_nsec;
+    if (remaining.tv_nsec < 0) {
+      remaining.tv_sec -= 1;
+      remaining.tv_nsec += 1000000000;
+    }
+
+    // If already past the deadline, timeout immediately
+    if (remaining.tv_sec < 0 || (remaining.tv_sec == 0 && remaining.tv_nsec <= 0)) {
+      *timedOut = true;
+      pthread_mutex_unlock(&chan->lock);
+      return NULL;
+    }
+
+    int rc = pthread_cond_timedwait_relative_np(&chan->cond, &chan->lock, &remaining);
+    if (rc == ETIMEDOUT) {
+      *timedOut = true;
+      pthread_mutex_unlock(&chan->lock);
+      return NULL;
+    }
+  }
+#else
   // Calculate remaining time from now until the deadline
   struct timespec nowMono, remaining;
   clock_gettime(CLOCK_MONOTONIC, &nowMono);
@@ -135,24 +172,6 @@ void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstimeMo
     remaining.tv_sec = 0;
     remaining.tv_nsec = 0;
   }
-
-#if defined(__APPLE__) && defined(__MACH__)
-  // macOS: use pthread_cond_timedwait_relative_np with relative timeout
-  pthread_mutex_lock(&chan->lock);
-  while (!chan->size) {
-    if (!chan->wait) {
-      chan->wait = true;  // reset the flag
-      pthread_mutex_unlock(&chan->lock);
-      return NULL;
-    }
-    int rc = pthread_cond_timedwait_relative_np(&chan->cond, &chan->lock, &remaining);
-    if (rc == ETIMEDOUT) {
-      *timedOut = true;
-      pthread_mutex_unlock(&chan->lock);
-      return NULL;
-    }
-  }
-#else
   // Linux: use pthread_cond_timedwait with CLOCK_REALTIME absolute time
   struct timespec nowReal, abstimeReal;
   clock_gettime(CLOCK_REALTIME, &nowReal);
