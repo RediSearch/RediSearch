@@ -31,14 +31,14 @@ struct ShardResponseBarrier;
 //   privateData: the ShardResponseBarrier passed via MRIteratorCallback_GetPrivateData
 typedef void (*ReplyNotifyCallback)(int16_t shardId, long long totalResults, bool isError, void *privateData);
 
-// Separate structure for collecting first responses from all shards that can be safely shared with I/O threads
-// This structure is allocated separately and can outlive RPNet if callbacks are still running
+// Structure for collecting first responses from all shards
+// Shared with I/O threads via MRIterator's privateData
+// Safe to free after MRIterator_Release returns (all callbacks complete)
 typedef struct ShardResponseBarrier {
   size_t numShards;                // Total number of shards
   _Atomic(bool) *shardResponded;   // Array: has each shard sent its first response?
   _Atomic(size_t) numResponded;    // Count of shards that have responded
   _Atomic(long long) accumulatedTotal;  // Sum of total_results from all shards
-  _Atomic(int) refCount;           // Reference count for safe cleanup
   _Atomic(bool) hasShardError;     // Set to true if any shard returns an error
   ReplyNotifyCallback notifyCallback;  // Callback for processing replies (called from IO thread)
 } ShardResponseBarrier;
@@ -79,6 +79,13 @@ int rpnetNext(ResultProcessor *self, SearchResult *r);
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);
 int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r);
 int getNextReply(RPNet *nc);
+
+// Allocate and initialize a new ShardResponseBarrier
+// Returns NULL on allocation failure
+ShardResponseBarrier *shardResponseBarrier_New(size_t numShards);
+
+// Free a ShardResponseBarrier - used as destructor callback for MRIterator
+void shardResponseBarrier_Free(void *ptr);
 
 // Callback for accumulating total_results from shard replies (called from IO thread)
 void shardResponseBarrier_Notify(int16_t shardId, long long totalResults, bool isError, void *privateData);

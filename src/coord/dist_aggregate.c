@@ -55,50 +55,25 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // Initialize shard response barrier if WITHCOUNT is enabled
   if (HasWithCount(nc->areq) && (nc->areq->reqflags & QEXEC_F_IS_AGGREGATE)) {
     size_t numShards = GetNumShards_UnSafe();
-
-    // Allocate reference-counted barrier structure
-    ShardResponseBarrier *barrier = rm_calloc(1, sizeof(ShardResponseBarrier));
+    ShardResponseBarrier *barrier = shardResponseBarrier_New(numShards);
     if (!barrier) {
-      RedisModule_Log(RSDummyContext, "warning",
-                      "ShardResponseBarrier: Failed to allocate for %zu shards", numShards);
       return RS_RESULT_ERROR;
     }
-
-    barrier->numShards = numShards;
-    barrier->shardResponded = rm_calloc(numShards, sizeof(_Atomic(bool)));
-    if (!barrier->shardResponded) {
-      rm_free(barrier);
-      RedisModule_Log(RSDummyContext, "warning",
-                      "ShardResponseBarrier: Failed to allocate tracking array for %zu shards", numShards);
-      return RS_RESULT_ERROR;
-    }
-
-    atomic_init(&barrier->numResponded, 0);
-    atomic_init(&barrier->accumulatedTotal, 0);
-    // RefCount: 1 for RPNet, 1 for iterator/callbacks
-    // The iterator holds the reference for all callbacks
-    atomic_init(&barrier->refCount, 2);
-    atomic_init(&barrier->hasShardError, false);
-
-    // Set the callback for processing replies in IO threads
-    barrier->notifyCallback = shardResponseBarrier_Notify;
-
     nc->shardResponseBarrier = barrier;
   }
 
   // Pass barrier as private data to callback (only if WITHCOUNT enabled)
+  // The barrier is freed by MRIterator via shardResponseBarrier_Free destructor
   MRIterator *it = nc->shardResponseBarrier
-                   ? MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, nc->shardResponseBarrier, iterStartCb, NULL)
+                   ? MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, nc->shardResponseBarrier,
+                                               shardResponseBarrier_Free, iterStartCb, NULL)
                    : MR_Iterate(&nc->cmd, netCursorCallback);
 
   if (!it) {
-    // Clean up on error - release barrier reference
+    // Clean up on error - iterator never started so no callbacks running
+    // Must free manually since iterator didn't take ownership
     if (nc->shardResponseBarrier) {
-      int refCount = atomic_fetch_sub(&nc->shardResponseBarrier->refCount, 1) - 1;
-      if (refCount == 0) {
-        rm_free(nc->shardResponseBarrier->shardResponded);
-        rm_free(nc->shardResponseBarrier);
-      }
+      shardResponseBarrier_Free(nc->shardResponseBarrier);
       nc->shardResponseBarrier = NULL;
     }
     return RS_RESULT_ERROR;

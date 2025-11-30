@@ -74,6 +74,44 @@ static RSValue *MRReply_ToValue(MRReply *r) {
   return v;
 }
 
+// Free a ShardResponseBarrier - used as destructor callback for MRIterator
+void shardResponseBarrier_Free(void *ptr) {
+  ShardResponseBarrier *barrier = (ShardResponseBarrier *)ptr;
+  if (barrier) {
+    rm_free(barrier->shardResponded);
+    rm_free(barrier);
+  }
+}
+
+// Allocate and initialize a new ShardResponseBarrier
+// Returns NULL on allocation failure
+ShardResponseBarrier *shardResponseBarrier_New(size_t numShards) {
+  ShardResponseBarrier *barrier = rm_calloc(1, sizeof(ShardResponseBarrier));
+  if (!barrier) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "ShardResponseBarrier: Failed to allocate for %zu shards", numShards);
+    return NULL;
+  }
+
+  barrier->numShards = numShards;
+  barrier->shardResponded = rm_calloc(numShards, sizeof(_Atomic(bool)));
+  if (!barrier->shardResponded) {
+    rm_free(barrier);
+    RedisModule_Log(RSDummyContext, "warning",
+                    "ShardResponseBarrier: Failed to allocate tracking array for %zu shards", numShards);
+    return NULL;
+  }
+
+  atomic_init(&barrier->numResponded, 0);
+  atomic_init(&barrier->accumulatedTotal, 0);
+  atomic_init(&barrier->hasShardError, false);
+
+  // Set the callback for processing replies in IO threads
+  barrier->notifyCallback = shardResponseBarrier_Notify;
+
+  return barrier;
+}
+
 // Callback invoked by IO thread for each shard reply to accumulate totals
 // This function implements the ReplyNotifyCallback signature
 void shardResponseBarrier_Notify(int16_t shardId, long long totalResults, bool isError, void *privateData) {
@@ -132,6 +170,34 @@ static void shardResponseBarrier_PendingReplies_Free(RPNet *nc) {
   }
 }
 
+// Calculate absolute timeout for MRIterator_NextWithTimeout (using CLOCK_MONOTONIC)
+// Converts from CLOCK_MONOTONIC_RAW based timeout to CLOCK_MONOTONIC
+// Returns pointer to absTimeout if timeout is available, NULL otherwise
+static struct timespec *calculateAbsTimeout(RPNet *nc, struct timespec *absTimeout) {
+  if (!nc->areq || !nc->areq->sctx) {
+    return NULL;
+  }
+
+  // Convert CLOCK_MONOTONIC_RAW based timeout to CLOCK_MONOTONIC
+  // Get current time on both clocks and adjust
+  struct timespec nowRaw, nowMono;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &nowRaw);
+  clock_gettime(CLOCK_MONOTONIC, &nowMono);
+
+  // Calculate remaining time from the original timeout
+  struct timespec remaining;
+  rs_timerdelta((struct timespec *)&nc->areq->sctx->time.timeout, &nowRaw, &remaining);
+
+  // If already timed out, set a minimal timeout
+  if (remaining.tv_sec < 0) {
+    remaining.tv_sec = 0;
+    remaining.tv_nsec = 0;
+  }
+
+  // Add remaining time to current CLOCK_MONOTONIC time
+  rs_timeradd(&nowMono, &remaining, absTimeout);
+  return absTimeout;
+}
 
 // Handle timeout (not enough shards responded) only if there were no errors
 static bool shardResponseBarrier_HandleTimeout(RPNet *nc) {
@@ -165,6 +231,7 @@ static bool shardResponseBarrier_HandleError(RPNet *nc) {
                           "ShardResponseBarrier: Shard error during wait: %s", error);
           // Move error reply to current
           nc->current.root = reply;
+          array_del(nc->pendingReplies, i);
           shardResponseBarrier_PendingReplies_Free(nc);
           return true;  // Error found
         }
@@ -182,31 +249,9 @@ int getNextReply(RPNet *nc) {
   if (nc->shardResponseBarrier && !nc->waitedForAllShards) {
     const size_t numShards = nc->shardResponseBarrier->numShards;
 
-    // Calculate absolute timeout for MRIterator_NextWithTimeout (using CLOCK_MONOTONIC)
-    // We use the query timeout if available, otherwise no timeout
+    // Calculate absolute timeout for MRIterator_NextWithTimeout
     struct timespec absTimeout;
-    struct timespec *timeoutPtr = NULL;
-    if (nc->areq && nc->areq->sctx) {
-      // Convert CLOCK_MONOTONIC_RAW based timeout to CLOCK_MONOTONIC
-      // Get current time on both clocks and adjust
-      struct timespec nowRaw, nowMono;
-      clock_gettime(CLOCK_MONOTONIC_RAW, &nowRaw);
-      clock_gettime(CLOCK_MONOTONIC, &nowMono);
-
-      // Calculate remaining time from the original timeout
-      struct timespec remaining;
-      rs_timersub((struct timespec *)&nc->areq->sctx->time.timeout, &nowRaw, &remaining);
-
-      // If already timed out, set a minimal timeout
-      if (remaining.tv_sec < 0) {
-        remaining.tv_sec = 0;
-        remaining.tv_nsec = 0;
-      }
-
-      // Add remaining time to current CLOCK_MONOTONIC time
-      rs_timeradd(&nowMono, &remaining, &absTimeout);
-      timeoutPtr = &absTimeout;
-    }
+    struct timespec *timeoutPtr = calculateAbsTimeout(nc, &absTimeout);
 
     // Collect replies until all shards have sent their first response
     // Also respect the query timeout to avoid blocking indefinitely
@@ -373,7 +418,7 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     nc->cmd.protocol = 3;
     rm_free(idx_copy);
 
-    nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, iterCursorMappingCb, &nc->mappings);
+    nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, NULL, iterCursorMappingCb, &nc->mappings);
     nc->base.Next = rpnetNext;
 
     return rpnetNext(rp, r);
@@ -381,6 +426,16 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
 
 void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
+
+  // Note: shardResponseBarrier is freed by MRIterator_Free via the destructor callback
+  // but pendingReplies must be freed by RPNet since it's used only in rpnetNext.
+  // This ensures barrier is not freed while I/O callbacks may still be accessing it.
+
+  // Free any pending replies that weren't consumed
+  if (nc->pendingReplies) {
+    shardResponseBarrier_PendingReplies_Free(nc->pendingReplies);
+    nc->pendingReplies = NULL;
+  }
 
   if (nc->it) {
     RS_DEBUG_LOG("rpnetFree: calling MRIterator_Release");
@@ -398,20 +453,6 @@ void rpnetFree(ResultProcessor *rp) {
   }
   MRReply_Free(nc->current.root);
   MRCommand_Free(&nc->cmd);
-
-  // Free any pending replies that weren't consumed
-  shardResponseBarrier_PendingReplies_Free(nc);
-
-  // Release barrier reference
-  if (nc->shardResponseBarrier) {
-    int refCount = atomic_fetch_sub(&nc->shardResponseBarrier->refCount, 1) - 1;
-    if (refCount == 0) {
-      // Last reference - free the barrier
-      rm_free(nc->shardResponseBarrier->shardResponded);
-      rm_free(nc->shardResponseBarrier);
-    }
-    nc->shardResponseBarrier = NULL;
-  }
 
   rm_free(rp);
 }

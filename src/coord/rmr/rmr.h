@@ -98,7 +98,9 @@ MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *absti
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData, void (*iterStartCb)(void *) ,StrongRef *iterStartCbPrivateData);
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
+                                      void (*cbPrivateDataDestructor)(void *),
+                                      void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData);
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
