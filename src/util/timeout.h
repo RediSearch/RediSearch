@@ -52,12 +52,7 @@ static inline void rs_timersub(struct timespec *a, struct timespec *b, struct ti
 }
 
 static inline void rs_timerdelta(struct timespec *a, struct timespec *b, struct timespec *result) {
-  result->tv_sec = a->tv_sec - b->tv_sec;
-  result->tv_nsec = a->tv_nsec - b->tv_nsec;
-  if (result->tv_nsec < 0) {
-    result->tv_sec  -= 1;
-    result->tv_nsec += 1000000000;
-  }
+  rs_timersub(a, b, result);
   // If we ended up with a negative result, set to 0
   if (result->tv_sec < 0) {
     result->tv_sec = 0;

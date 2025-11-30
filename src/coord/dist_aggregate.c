@@ -54,8 +54,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 
   // Initialize shard response barrier if WITHCOUNT is enabled
   if (HasWithCount(nc->areq) && (nc->areq->reqflags & QEXEC_F_IS_AGGREGATE)) {
-    size_t numShards = GetNumShards_UnSafe();
-    ShardResponseBarrier *barrier = shardResponseBarrier_New(numShards);
+    ShardResponseBarrier *barrier = shardResponseBarrier_New();
     if (!barrier) {
       return RS_RESULT_ERROR;
     }
@@ -64,9 +63,11 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 
   // Pass barrier as private data to callback (only if WITHCOUNT enabled)
   // The barrier is freed by MRIterator via shardResponseBarrier_Free destructor
+  // shardResponseBarrier_Init is called from iterStartCb when numShards is known from topology
   MRIterator *it = nc->shardResponseBarrier
                    ? MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, nc->shardResponseBarrier,
-                                               shardResponseBarrier_Free, iterStartCb, NULL)
+                                               shardResponseBarrier_Free, shardResponseBarrier_Init,
+                                               iterStartCb, NULL)
                    : MR_Iterate(&nc->cmd, netCursorCallback);
 
   if (!it) {

@@ -84,19 +84,15 @@ void shardResponseBarrier_Free(void *ptr) {
 }
 
 // Allocate and initialize a new ShardResponseBarrier
+// Notice: numShards and shardResponded init is postponed until NumShards is known
 // Returns NULL on allocation failure
-ShardResponseBarrier *shardResponseBarrier_New(size_t numShards) {
+ShardResponseBarrier *shardResponseBarrier_New() {
   ShardResponseBarrier *barrier = rm_calloc(1, sizeof(ShardResponseBarrier));
   if (!barrier) {
     return NULL;
   }
 
-  barrier->numShards = numShards;
-  barrier->shardResponded = rm_calloc(numShards, sizeof(_Atomic(bool)));
-  if (!barrier->shardResponded) {
-    rm_free(barrier);
-    return NULL;
-  }
+  // Notice: numShards and shardResponded init is postponed until shardResponseBarrier_Init is called
 
   atomic_init(&barrier->numResponded, 0);
   atomic_init(&barrier->accumulatedTotal, 0);
@@ -106,6 +102,23 @@ ShardResponseBarrier *shardResponseBarrier_New(size_t numShards) {
   barrier->notifyCallback = shardResponseBarrier_Notify;
 
   return barrier;
+}
+
+// Initialize ShardResponseBarrier (called from iterStartCb when topology is known)
+void shardResponseBarrier_Init(void *ptr, MRIterator *it) {
+  ShardResponseBarrier *barrier = (ShardResponseBarrier *)ptr;
+  if (!barrier || !it) {
+    return;
+  }
+
+  size_t numShards = MRIterator_GetNumShards(it);
+  barrier->numShards = numShards;
+  barrier->shardResponded = rm_calloc(numShards, sizeof(*barrier->shardResponded));
+  if (barrier->shardResponded) {
+    for (size_t i = 0; i < numShards; i++) {
+      atomic_init(&barrier->shardResponded[i], false);
+    }
+  }
 }
 
 // Callback invoked by IO thread for each shard reply to accumulate totals
@@ -394,7 +407,7 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     nc->cmd.protocol = 3;
     rm_free(idx_copy);
 
-    nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, NULL, iterCursorMappingCb, &nc->mappings);
+    nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, NULL, NULL, iterCursorMappingCb, &nc->mappings);
     nc->base.Next = rpnetNext;
 
     return rpnetNext(rp, r);

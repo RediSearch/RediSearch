@@ -453,6 +453,7 @@ struct MRIteratorCtx {
   int8_t itRefCount;
   IORuntimeCtx *ioRuntime;
   void (*privateDataDestructor)(void *);  // Destructor for privateData, called in MRIterator_Free
+  void (*privateDataInit)(void *, MRIterator *);  // Init callback for privateData, called from iterStartCb
 };
 
 struct MRIteratorCallbackCtx {
@@ -567,6 +568,12 @@ void iterStartCb(void *p) {
   it->len = numShards;
   it->ctx.pending = numShards;
   it->ctx.inProcess = numShards; // Initially all commands are in process
+
+  // Call privateData init callback if set (e.g., to initialize ShardResponseBarrier)
+  void *privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+  if (privateData && it->ctx.privateDataInit) {
+    it->ctx.privateDataInit(privateData, it);
+  }
 
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
@@ -704,11 +711,12 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
 }
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
-  return MR_IterateWithPrivateData(cmd, cb, NULL, NULL, iterStartCb, NULL);
+  return MR_IterateWithPrivateData(cmd, cb, NULL, NULL, NULL, iterStartCb, NULL);
 }
 
 MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
                                       void (*cbPrivateDataDestructor)(void *),
+                                      void (*cbPrivateDataInit)(void *, MRIterator *),
                                       void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData) {
   MRIterator *ret = rm_new(MRIterator);
   // Initial initialization of the iterator.
@@ -729,6 +737,7 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
       .itRefCount = 2,
       .ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g)),
       .privateDataDestructor = cbPrivateDataDestructor,
+      .privateDataInit = cbPrivateDataInit,
     },
     .cbxs = rm_new(MRIteratorCallbackCtx),
   };

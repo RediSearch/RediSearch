@@ -81,8 +81,12 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r);
 int getNextReply(RPNet *nc);
 
 // Allocate and initialize a new ShardResponseBarrier
+// Notice: numShards and shardResponded init is postponed until shardResponseBarrier_Init is called
 // Returns NULL on allocation failure
-ShardResponseBarrier *shardResponseBarrier_New(size_t numShards);
+ShardResponseBarrier *shardResponseBarrier_New();
+
+// Initialize ShardResponseBarrier (called from iterStartCb when topology is known)
+void shardResponseBarrier_Init(void *ptr, MRIterator *it);
 
 // Free a ShardResponseBarrier - used as destructor callback for MRIterator
 void shardResponseBarrier_Free(void *ptr);
