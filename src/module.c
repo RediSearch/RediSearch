@@ -3334,6 +3334,7 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
 
 static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
   QueryError_ReplyAndClear(clientCtx, status);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
