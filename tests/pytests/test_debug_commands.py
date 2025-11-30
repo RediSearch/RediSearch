@@ -1084,66 +1084,52 @@ def test_query_controller_pause_and_resume(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
 
+    queries_completed = 0
+
     for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
-        query_cmd = [query_type, 'idx', '*']
-        internal_only = query_type == 'FT.AGGREGATE'
+        # We need to call the queries in MT so the paused query won't block the test
+        query_result = []
 
-        def check_state_and_stream():
-            # Test error when trying to create multiple debug RPs (should fail with "Failed to create pause RP or another debug RP is already set")
-            # This tests the error case in PipelineAddPauseRPcount when RPPauseAfterCount_New returns NULL
-            env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_BEFORE_RP_N', 'Index', 0, 'PAUSE_AFTER_RP_N', 'Sorter', 0, 'DEBUG_PARAMS_COUNT', 6).error()\
-            .contains('Failed to create pause RP or another debug RP is already set')
+        # Build threads
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                (env, [query_type, 'idx', '*'], 'Index', 0, ['INTERNAL_ONLY'] if query_type == 'FT.AGGREGATE' else None),
+                query_result),
+            daemon=True
+        )
 
-            # Verify we have 1 active query
-            active_queries = env.cmd('INFO', 'MODULES')['search_total_active_queries']
-            env.assertEqual(active_queries, 1)
-
-            # Test PRINT_RP_STREAM
-            rp_stream = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM')
-            if query_type == 'FT.SEARCH':
-                env.assertEqual(rp_stream, ['Threadsafe-Loader','Sorter','Scorer','DEBUG_RP','Index'])
-            if query_type == 'FT.AGGREGATE':
-                env.assertEqual(rp_stream, ['DEBUG_RP','Index'])
-
-        # Build debug params for pause before Index RP
-        debug_params = ['PAUSE_BEFORE_RP_N', 'Index', 0]
-        if internal_only:
-            debug_params.append('INTERNAL_ONLY')
-
-        query_result = [None]
-        query_exception = [None]
-
-        def run_query():
-            try:
-                query_result[0] = runDebugQueryCommand(env, query_cmd, debug_params)
-            except Exception as e:
-                query_exception[0] = e
-
-        # Start the query in a separate thread
-        t_query = threading.Thread(target=run_query, daemon=True)
+        # Start the query and the pause-check in parallel
         t_query.start()
 
-        # Wait for the query to pause
-        start_time = time.time()
         while getIsRPPaused(env) != 1:
-            if time.time() - start_time > 10:
-                raise TimeoutError(f"Query did not pause within 10 seconds")
-            time.sleep(0.05)
+            time.sleep(0.1)
 
-        # Execute the callback while query is paused
-        check_state_and_stream()
+        # Test error when trying to create multiple debug RPs (should fail with "Failed to create pause RP or another debug RP is already set")
+        # This tests the error case in PipelineAddPauseRPcount when RPPauseAfterCount_New returns NULL
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_BEFORE_RP_N', 'Index', 0, 'PAUSE_AFTER_RP_N', 'Sorter', 0, 'DEBUG_PARAMS_COUNT', 6).error()\
+        .contains('Failed to create pause RP or another debug RP is already set')
+        # The query above completed even though it failed
+        queries_completed += 1
+
+        # If we are here, the query is paused
+        # Verify we have 1 active query
+        active_queries = env.cmd('INFO', 'MODULES')['search_total_active_queries']
+        env.assertEqual(active_queries, 1)
+
+        # Test PRINT_RP_STREAM
+        rp_stream = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM')
+        if query_type == 'FT.SEARCH':
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','Sorter','Scorer','DEBUG_RP','Index'])
+        if query_type == 'FT.AGGREGATE':
+            env.assertEqual(rp_stream, ['DEBUG_RP','Index'])
 
         # Resume the query
         setPauseRPResume(env)
 
-        # Wait for the query to complete
-        t_query.join(timeout=10)
-        if t_query.is_alive():
-            raise TimeoutError(f"Query did not complete within 10 seconds after resume")
+        t_query.join()
 
-        # Check if there was an exception in the query thread
-        if query_exception[0]:
-            raise query_exception[0]
+        queries_completed += 1
 
         # Verify the query returned only 1 result
         env.assertEqual(query_result[0][0], 1)
