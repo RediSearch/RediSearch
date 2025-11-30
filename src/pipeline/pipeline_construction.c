@@ -166,8 +166,6 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     astp = &astp_s;
   }
 
-  Nafraf_Log("getArrangeRP:0", &params->common, astp, rp);
-
   size_t maxResults = astp->offset + astp->limit;
   if (!maxResults) {
     maxResults = DEFAULT_LIMIT;
@@ -178,8 +176,6 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   maxResults = MIN(maxResults, params->maxResultsLimit);
 
   if (IsCount(&params->common) || !maxResults) {
-    Nafraf_Log("getArrangeRP:2 IsCount", &params->common, astp, rp);
-    RedisModule_Log(RSDummyContext, "notice", "getArrangeRP:2 maxResults=%lu", maxResults);
     rp = RPCounter_New();
     up = pushRP(&pipeline->qctx, rp, up);
     return up;
@@ -188,12 +184,8 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   bool RPSyncDepleterAdded = false;
   bool RPPagerAdded = false;
 
-  if (params->common.optimizer) {
-    RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:1 optimizer->type=%s", QOptimizer_PrintType(params->common.optimizer));
-  }
   if (PipelineRequiresSorter(params)) {
     if (array_len(astp->sortKeys)) {
-      Nafraf_Log("getArrangeRP:3.1.1 astp->sortKeys", &params->common, astp, rp);
       size_t nkeys = array_len(astp->sortKeys);
       astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
 
@@ -230,7 +222,6 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     } else if (IsHybrid(&params->common) ||
               (IsSearch(&params->common) && !IsOptimized(&params->common)) ||
               HasScorer(&params->common)) {
-      Nafraf_Log("getArrangeRP:3.1.2 !astp->sortKeys", &params->common, astp, rp);
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
       rp = RPSorter_NewByScore(maxResults);
@@ -239,8 +230,6 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   }
 
   if (astp->offset || (astp->limit && !rp)) {
-    Nafraf_Log("getArrangeRP:4.1", &params->common, astp, rp);
-
     if (HasWithCount(&params->common)) {
       rp = RPSyncDepleter_New();
       up = pushRP(&pipeline->qctx, rp, up);
@@ -251,22 +240,18 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     up = pushRP(&pipeline->qctx, rp, up);
     RPPagerAdded = true;
   } else if (IsSearch(&params->common) && IsOptimized(&params->common) && !rp) {
-    Nafraf_Log("getArrangeRP:4.2", &params->common, astp, rp);
     rp = RPPager_New(0, maxResults);
     up = pushRP(&pipeline->qctx, rp, up);
     RPPagerAdded = true;
   }
 
   if (HasDepleter(&params->common)) { // We need to add a RPSyncDepleter
-    // Nafraf_Log("getArrangeRP:5", &params->common, astp, rp);
-
     if (!RPSyncDepleterAdded) {
       rp = RPSyncDepleter_New();
       up = pushRP(&pipeline->qctx, rp, up);
       RPSyncDepleterAdded = true;
     }
 
-    Nafraf_Log("getArrangeRP:5.2", &params->common, astp, rp);
     // Add Limiter at the coordinator when a depleter is required:
     // 1. If there is no SORTBY, otherwise, the LIMIT is managed by the sorter.
     // 2. If there is a SORTBY, but with offset, the sorter can't handle the offset.
@@ -540,7 +525,6 @@ error:
 }
 
 int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags) {
-  RedisModule_Log(RSDummyContext, "notice", "Nafraf: Pipeline_BuildAggregationPart");
   AGGPlan *pln = &pipeline->ap;
   ResultProcessor *rp = NULL, *rpUpstream = pipeline->qctx.endProc;
   RedisSearchCtx *sctx = params->common.sctx;
@@ -569,12 +553,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
       }
 
       case PLN_T_ARRANGE: {
-        RedisModule_Log(RSDummyContext, "notice", "Nafraf: Pipeline_BuildAggregationPart: PLN_T_ARRANGE -> getArrangeRP");
         rp = getArrangeRP(pipeline, params, stp, status, rpUpstream, forceLoad, outStateFlags);
-        // if (!rp) {
-        //   RedisModule_Log(RSDummyContext, "notice", "Nafraf: Pipeline_BuildAggregationPart: PLN_T_ARRANGE -> getArrangeRP failed");
-        //   goto error;
-        // }
         if (rp) {
           hasArrange = 1;
           rpUpstream = rp;

@@ -309,13 +309,6 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r) {
   return profileArgs;
 }
 
-static void logMRCommand(MRCommand *cmd) {
-  printf("MRCommand: ");
-  for (int i = 0; i < cmd->num; i++) {
-    RedisModule_Log(RSDummyContext, "notice", "Nafraf: MRCommand: %s", cmd->strs[i]);
-  }
-}
-
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
   AREQ_QueryProcessingCtx(r)->err = status;
@@ -359,7 +352,6 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // Construct the command string
   MRCommand xcmd;
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp, knnCtx);
-  // logMRCommand(&xcmd);
 
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
