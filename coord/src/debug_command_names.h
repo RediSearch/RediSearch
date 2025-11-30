@@ -16,5 +16,6 @@ static const char *coordCommandsNames[] = {
   "CLEAR_PENDING_TOPOLOGY",
   "FT.AGGREGATE",
   "FT.SEARCH",
+  "FT.PROFILE",
   NULL
 };
