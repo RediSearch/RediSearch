@@ -11,6 +11,7 @@
 #include "util/units.h"
 #include "rs_wall_clock.h"
 #include "util/workers.h"
+#include "concurrent_ctx.h"
 
 #define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
 #define INCR(x) INCR_BY(x, 1)
@@ -182,7 +183,7 @@ void GlobalStats_UpdateActiveIoThreads(int toAdd) {
 MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   MultiThreadingStats stats;
   stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
-  RS_ASSERT(workersThreadPool_isCreated()); // In production workers threadpool is created at startup.
   stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
+  stats.active_coord_threads = ConcurrentSearchPool_WorkingThreadCount();
   return stats;
 }

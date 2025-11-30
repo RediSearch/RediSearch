@@ -139,6 +139,17 @@ def toSortedFlatList(res):
         return py2sorted(finalList)
     return [res]
 
+def countFlatElements(arr):
+    """Count elements without sorting (lighter than toSortedFlatList)"""
+    if isinstance(arr, str):
+        return 1
+    if isinstance(arr, Iterable):
+        count = 0
+        for e in arr:
+            count += countFlatElements(e)
+        return count
+    return 1
+
 def assertInfoField(env, idx, field, expected, delta=None):
     d = index_info(env, idx)
     msg = f"field name: {field}"
