@@ -1301,6 +1301,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
+      Cursor_Free(cursor);
       RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
       return;
     }
@@ -1325,13 +1326,10 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     rs_wall_clock_init(&req->initClock); // Reset the clock for the current cursor read
   }
 
-  if (req) {
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    runCursor(reply, cursor, count);
-    RedisModule_EndReply(reply);
-  } else {
-    // TODO: run hybrid cursor - this needs to be implemented for the coordinator
-  }
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  runCursor(reply, cursor, count);
+  RedisModule_EndReply(reply);
+
   if (has_spec) {
     IndexSpecRef_Release(execution_ref);
   }
@@ -1420,6 +1418,7 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
   AREQ *req = cursor->execState;
   if (!IsProfile(req)) {
+    Cursor_Pause(cursor); // Pause the cursor again since we are not going to use it, but it's still valid.
     return RedisModule_ReplyWithErrorFormat(ctx, "cursor request is not profile, id: %d", cid);
   }
   // We get here only if it's internal (coord) cursor because cursor is not supported with profile,
