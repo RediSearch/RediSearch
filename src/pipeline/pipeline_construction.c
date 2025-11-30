@@ -147,12 +147,6 @@ static bool PipelineRequiresSorter(AggregationPipelineParams *params) {
   return result;
 }
 
-static void Nafraf_Log(char *msg, CommonPipelineParams *common, const PLN_ArrangeStep *astp, ResultProcessor *rp) {
-  RedisModule_Log(RSDummyContext, "notice", "Nafraf: %s: Aggregate:%d, Optimized:%d, Depleter:%d, Internal:%d, Scorer:%d, Limited:%d, offset:%lu, limit:%lu, rp=%p",
-    msg, !!IsAggregate(common), !!IsOptimized(common), !!HasDepleter(common),
-    !!IsInternal(common), !!HasScorer(common), astp->isLimited, astp->offset, astp->limit, rp!= NULL);
-}
-
 static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipelineParams *params, const PLN_BaseStep *stp,
                                      QueryError *status, ResultProcessor *up, bool forceLoad, uint32_t *outStateFlags) {
   ResultProcessor *rp = NULL;

@@ -88,8 +88,6 @@ void shardResponseBarrier_Free(void *ptr) {
 ShardResponseBarrier *shardResponseBarrier_New(size_t numShards) {
   ShardResponseBarrier *barrier = rm_calloc(1, sizeof(ShardResponseBarrier));
   if (!barrier) {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "ShardResponseBarrier: Failed to allocate for %zu shards", numShards);
     return NULL;
   }
 
@@ -97,8 +95,6 @@ ShardResponseBarrier *shardResponseBarrier_New(size_t numShards) {
   barrier->shardResponded = rm_calloc(numShards, sizeof(_Atomic(bool)));
   if (!barrier->shardResponded) {
     rm_free(barrier);
-    RedisModule_Log(RSDummyContext, "warning",
-                    "ShardResponseBarrier: Failed to allocate tracking array for %zu shards", numShards);
     return NULL;
   }
 
@@ -119,9 +115,6 @@ void shardResponseBarrier_Notify(int16_t shardId, long long totalResults, bool i
 
   // Validate shardId bounds
   if (shardId < 0 || shardId >= (int16_t)barrier->numShards) {
-    // TODO: Remove this debug log
-    RedisModule_Log(RSDummyContext, "warning",
-                    "ShardResponseBarrier: Invalid shardId %d (numShards=%zu)", shardId, barrier->numShards);
     return;
   }
 
@@ -136,13 +129,6 @@ void shardResponseBarrier_Notify(int16_t shardId, long long totalResults, bool i
       atomic_store(&barrier->hasShardError, true);
     }
     size_t numResponded = atomic_fetch_add(&barrier->numResponded, 1) + 1;
-
-    RedisModule_Log(RSDummyContext, "debug",
-                    "ShardResponseBarrier: Shard %d first response: total=%lld (accumulated=%lld, responded=%zu/%zu, hasError=%d)",
-                    shardId, totalResults,
-                    atomic_load(&barrier->accumulatedTotal),
-                    numResponded, barrier->numShards,
-                    atomic_load(&barrier->hasShardError));
   }
 }
 
@@ -152,13 +138,6 @@ static void shardResponseBarrier_UpdateTotalResults(RPNet *nc) {
   if (numResponded >= nc->shardResponseBarrier->numShards) {
     long long accumulatedTotal = atomic_load(&nc->shardResponseBarrier->accumulatedTotal);
     nc->base.parent->totalResults = accumulatedTotal;
-    RedisModule_Log(RSDummyContext, "debug",
-                    "ShardResponseBarrier: All %zu shards responded, total_results = %lld",
-                    nc->shardResponseBarrier->numShards, accumulatedTotal);
-  } else {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "ShardResponseBarrier: Only %zu of %zu shards responded before returning results",
-                    numResponded, nc->shardResponseBarrier->numShards);
   }
 }
 
@@ -227,8 +206,6 @@ static bool shardResponseBarrier_HandleError(RPNet *nc) {
         MRReply *reply = nc->pendingReplies[i];
         if (MRReply_Type(reply) == MR_REPLY_ERROR) {
           const char *error = MRReply_String(reply, NULL);
-          RedisModule_Log(RSDummyContext, "warning",
-                          "ShardResponseBarrier: Shard error during wait: %s", error);
           // Move error reply to current
           nc->current.root = reply;
           array_del(nc->pendingReplies, i);
@@ -246,6 +223,7 @@ int getNextReply(RPNet *nc) {
   // This ensures accurate total_results from the start
   MRReply *root = NULL;
   bool timedOut = false;
+  bool errorFound = false;
   if (nc->shardResponseBarrier && !nc->waitedForAllShards) {
     const size_t numShards = nc->shardResponseBarrier->numShards;
 
@@ -259,8 +237,6 @@ int getNextReply(RPNet *nc) {
       // Check for timeout to avoid blocking indefinitely
       if (nc->areq && nc->areq->sctx && TimedOut(&nc->areq->sctx->time.timeout)) {
         timedOut = true;
-        RedisModule_Log(RSDummyContext, "debug",
-                        "WITHCOUNT: Timeout while waiting for all shards' first responses");
         break;
       }
 
@@ -275,8 +251,6 @@ int getNextReply(RPNet *nc) {
       if (reply == NULL) {
         if (nextTimedOut) {
           timedOut = true;
-          RedisModule_Log(RSDummyContext, "debug",
-                          "WITHCOUNT: MRIterator_NextWithTimeout timed out");
         }
         break;  // No more replies or timed out
       }
@@ -290,6 +264,7 @@ int getNextReply(RPNet *nc) {
       // Check for errors
       if (shardResponseBarrier_HandleError(nc)) {
         root = nc->current.root;
+        errorFound = true;
         break;
       }
     }
@@ -305,20 +280,22 @@ int getNextReply(RPNet *nc) {
     shardResponseBarrier_UpdateTotalResults(nc);
   }
 
-  // First, return any pending replies collected during the wait
-  if (nc->pendingReplies && array_len(nc->pendingReplies) > 0) {
-    // Pop the first pending reply
-    root = nc->pendingReplies[0];
-    array_del(nc->pendingReplies, 0);
-  } else {
-    // No pending replies, get from channel
-    if (nc->cmd.forCursor) {
-      if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
-        RPNet_resetCurrent(nc);
-        return 0;
+  if (!errorFound) {
+    // First, return any pending replies collected during the wait
+    if (nc->pendingReplies && array_len(nc->pendingReplies) > 0) {
+      // Pop the first pending reply
+      root = nc->pendingReplies[0];
+      array_del(nc->pendingReplies, 0);
+    } else {
+      // No pending replies, get from channel
+      if (nc->cmd.forCursor) {
+        if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
+          RPNet_resetCurrent(nc);
+          return 0;
+        }
       }
+      root = MRIterator_Next(nc->it);
     }
-    root = MRIterator_Next(nc->it);
   }
 
   if (root == NULL) {
@@ -329,7 +306,9 @@ int getNextReply(RPNet *nc) {
   // Check if an error was returned
   if (MRReply_Type(root) == MR_REPLY_ERROR) {
     nc->current.root = root;
+    // If for profiling, clone and append the error
     if (nc->cmd.forProfiling) {
+      // Clone the error and append it to the profile
       MRReply *error = MRReply_Clone(root);
       array_append(nc->shardsProfile, error);
     }
@@ -338,13 +317,27 @@ int getNextReply(RPNet *nc) {
 
   // For profile command, extract the profile data from the reply
   if (nc->cmd.forProfiling) {
+    // if the cursor id is 0, this is the last reply from this shard, and it has the profile data
     if (CURSOR_EOF == MRReply_Integer(MRReply_ArrayElement(root, 1))) {
       MRReply *profile_data;
       if (nc->cmd.protocol == 3) {
+        // [
+        //   {
+        //     "Results": { <FT.AGGREGATE reply> },
+        //     "Profile": { <profile data> }
+        //   },
+        //   cursor_id
+        // ]
         MRReply *data = MRReply_ArrayElement(root, 0);
         profile_data = MRReply_TakeMapElement(data, "profile");
       } else {
+        // RESP2
         RS_ASSERT(nc->cmd.protocol == 2);
+        // [
+        //   <FT.AGGREGATE reply>,
+        //   cursor_id,
+        //   <profile data>
+        // ]
         RS_ASSERT(MRReply_Length(root) == 3);
         profile_data = MRReply_TakeArrayElement(root, 2);
       }
@@ -369,12 +362,8 @@ int getNextReply(RPNet *nc) {
   if (nc->cmd.protocol == 2 && rows_count > 0) {
     // RESP2: first element is the count
     long long total_count = MRReply_Integer(MRReply_ArrayElement(rows, 0));
-    RedisModule_Log(RSDummyContext, "debug", "Nafraf: Shard reply: %lld total results, %zu rows in batch",
-                    total_count, rows_count - 1);
   } else if (nc->cmd.protocol == 3) {
     long long total_count = MRReply_Integer(MRReply_MapElement(meta, "total_results"));
-    RedisModule_Log(RSDummyContext, "debug", "Nafraf: Shard reply: %lld total results, %zu rows in batch",
-                    total_count, rows_count);
   }
 
   const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
