@@ -63,6 +63,7 @@ class TestDebugCommands(object):
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
             'QUERY_CONTROLLER',
             'DUMP_SCHEMA',
+            'VECSIM_MOCK_TIMEOUT',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',
