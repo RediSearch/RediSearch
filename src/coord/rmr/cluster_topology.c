@@ -35,6 +35,19 @@ void MRClusterTopology_AddShard(MRClusterTopology *topo, MRClusterShard *sh) {
   topo->shards[topo->numShards++] = *sh;
 }
 
+void MRClusterTopology_SortShards(MRClusterTopology *topo) {
+  // Simple insertion sort, we don't expect many shards
+  for (size_t i = 1; i < topo->numShards; i++) {
+    MRClusterShard key = topo->shards[i];
+    size_t j = i;
+    while (j > 0 && strcmp(topo->shards[j - 1].node.id, key.node.id) > 0) {
+      topo->shards[j] = topo->shards[j - 1];
+      j--;
+    }
+    topo->shards[j] = key;
+  }
+}
+
 MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
   if (!t) {
     return NULL;
@@ -55,7 +68,7 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
   return topo;
 }
 
-static void MRClusterNode_Free(MRClusterNode *n) {
+void MRClusterNode_Free(MRClusterNode *n) {
   MREndpoint_Free(&n->endpoint);
   rm_free((char *)n->id);
 }

@@ -25,6 +25,8 @@ struct RedisModuleIO {
 
 std::vector<std::vector<std::string>> &RMCK_GetPropagatedCommands(RedisModuleCtx *ctx);
 
+std::string &RMCK_GetLastError(RedisModuleCtx *ctx);
+
 extern "C" {
 #else
 struct RedisModuleIO;
