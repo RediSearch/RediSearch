@@ -128,7 +128,7 @@ void shardResponseBarrier_Notify(int16_t shardId, long long totalResults, bool i
     } else {
       atomic_store(&barrier->hasShardError, true);
     }
-    size_t numResponded = atomic_fetch_add(&barrier->numResponded, 1) + 1;
+    barrier->numResponded++;
   }
 }
 
@@ -217,7 +217,6 @@ int getNextReply(RPNet *nc) {
   // This ensures accurate total_results from the start
   MRReply *root = NULL;
   bool timedOut = false;
-  bool errorFound = false;
   if (nc->shardResponseBarrier && !nc->waitedForAllShards) {
     const size_t numShards = nc->shardResponseBarrier->numShards;
 
@@ -257,9 +256,14 @@ int getNextReply(RPNet *nc) {
 
       // Check for errors
       if (shardResponseBarrier_HandleError(nc)) {
-        root = nc->current.root;
-        errorFound = true;
-        break;
+        nc->waitedForAllShards = true;
+        // If for profiling, clone and append the error
+        if (nc->cmd.forProfiling) {
+          // Clone the error and append it to the profile
+          MRReply *error = MRReply_Clone(nc->current.root);
+          array_append(nc->shardsProfile, error);
+        }
+        return 1;
       }
     }
 
@@ -274,22 +278,20 @@ int getNextReply(RPNet *nc) {
     shardResponseBarrier_UpdateTotalResults(nc);
   }
 
-  if (!errorFound) {
-    // First, return any pending replies collected during the wait
-    if (nc->pendingReplies && array_len(nc->pendingReplies) > 0) {
-      // Pop the first pending reply
-      root = nc->pendingReplies[0];
-      array_del(nc->pendingReplies, 0);
-    } else {
-      // No pending replies, get from channel
-      if (nc->cmd.forCursor) {
-        if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
-          RPNet_resetCurrent(nc);
-          return 0;
-        }
+  // First, return any pending replies collected during the wait
+  if (nc->pendingReplies && array_len(nc->pendingReplies) > 0) {
+    // Pop the first pending reply
+    root = nc->pendingReplies[0];
+    array_del(nc->pendingReplies, 0);
+  } else {
+    // No pending replies, get from channel
+    if (nc->cmd.forCursor) {
+      if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
+        RPNet_resetCurrent(nc);
+        return 0;
       }
-      root = MRIterator_Next(nc->it);
     }
+    root = MRIterator_Next(nc->it);
   }
 
   if (root == NULL) {
@@ -349,15 +351,6 @@ int getNextReply(RPNet *nc) {
     rows = MRReply_MapElement(meta, "results");
   } else { // RESP2
     rows = MRReply_ArrayElement(root, 0);
-  }
-
-  // Debug log: print count after receiving data from shard
-  size_t rows_count = MRReply_Length(rows);
-  if (nc->cmd.protocol == 2 && rows_count > 0) {
-    // RESP2: first element is the count
-    long long total_count = MRReply_Integer(MRReply_ArrayElement(rows, 0));
-  } else if (nc->cmd.protocol == 3) {
-    long long total_count = MRReply_Integer(MRReply_MapElement(meta, "total_results"));
   }
 
   const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
