@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "coord/rmr/rmr.h"
+#include "coord/rmr/rq.h"
+#include "commands.h"
 #include "coord/rmr/io_runtime_ctx.h"
 #include "debug_commands.h"
 #include "debug_command_names.h"
