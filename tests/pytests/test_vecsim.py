@@ -1794,50 +1794,32 @@ class TestTimeoutReached(object):
                                    'TIMEOUT', 0)
         self.env.assertEqual(res[0], small_k)
 
-        # run query with timeout by pausing before the index RP with 0 results, sleep, then resume.
-        # This simulates a timeout occurring in the vecsim library.
-        query_cmd = ['FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
-                     'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', small_k,
-                     'vec_param', query_vec.tobytes(), 'TIMEOUT', 100]
-
-        def sleep_callback():
-            time.sleep(1)
-
+        # Enable VECSIM timeout to simulate timeout in the vecsim library
+        self.env.cmd(debug_cmd(), 'VECSIM_TIMEOUT', 'enable')
         try:
-            runQueryWithPausePoint(self.env, query_cmd, pause_before=True, rp_type='Index',
-                                  pause_count=0, internal_only=True, callback=sleep_callback)
-            self.env.fail("Expected timeout error but query succeeded")
-        except ResponseError as e:
-            self.env.assertContains('Timeout limit was reached', str(e))
+            # run query with timeout enabled in vecsim
+            self.env.expect('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
+                           'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', small_k,
+                           'vec_param', query_vec.tobytes(), 'TIMEOUT', 100).error().contains('Timeout limit was reached')
 
-        # RANGE QUERY
-        # run query with timeout by pausing before the index RP with 0 results, sleep, then resume.
-        query_cmd = ['FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                     'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'TIMEOUT', 100]
+            # RANGE QUERY
+            # run query with timeout enabled in vecsim
+            self.env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                           'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'TIMEOUT', 100).error().contains('Timeout limit was reached')
 
-        try:
-            runQueryWithPausePoint(self.env, query_cmd, pause_before=True, rp_type='Index',
-                                  pause_count=0, internal_only=True, callback=sleep_callback)
-            self.env.fail("Expected timeout error but query succeeded")
-        except ResponseError as e:
-            self.env.assertContains('Timeout limit was reached', str(e))
-
-        # HYBRID MODES
-        # Add some dummy documents so `-dummy` won't be empty and optimized away.
-        with self.env.getClusterConnectionIfNeeded() as conn:
-            for i in range(n_vec + 1, n_vec + 5 * self.env.shardsCount):
-                conn.execute_command('HSET', i, 't', 'dummy')
-        for mode in self.hybrid_modes:
-            query_cmd = ['FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
-                         'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', small_k,
-                         'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 100]
-
-            try:
-                runQueryWithPausePoint(self.env, query_cmd, pause_before=True, rp_type='Index',
-                                      pause_count=0, internal_only=True, callback=sleep_callback)
-                self.env.fail("Expected timeout error but query succeeded")
-            except ResponseError as e:
-                self.env.assertContains('Timeout limit was reached', str(e))
+            # HYBRID MODES
+            # Add some dummy documents so `-dummy` won't be empty and optimized away.
+            with self.env.getClusterConnectionIfNeeded() as conn:
+                for i in range(n_vec + 1, n_vec + 5 * self.env.shardsCount):
+                    conn.execute_command('HSET', i, 't', 'dummy')
+            for mode in self.hybrid_modes:
+                print(f"Testing hybrid mode {mode}")
+                self.env.expect('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
+                               'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', small_k,
+                               'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 100).error().contains('Timeout limit was reached')
+        finally:
+            # Disable VECSIM timeout to restore normal behavior
+            self.env.cmd(debug_cmd(), 'VECSIM_TIMEOUT', 'disable')
 
     def test_flat(self):
         # Create index and load vectors.
