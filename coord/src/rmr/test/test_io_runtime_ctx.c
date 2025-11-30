@@ -7,6 +7,7 @@
 #include "coord/tests/utils/minunit.h"
 #include "coord/src/rmr/rq.h"
 #include "info/global_stats.h"
+#include "rmutil/alloc.h"
 #include <unistd.h>
 #include <stdatomic.h>
 
@@ -92,7 +93,11 @@ void testMetricUpdateDuringCallback() {
   RQ_Done(q);
 }
 
+static void dummyLog(RedisModuleCtx *ctx, const char *level, const char *fmt, ...) {}
+
 int main(int argc, char **argv) {
+  RMUTil_InitAlloc();
+  RedisModule_Log = dummyLog;
   MU_RUN_TEST(testMetricUpdateDuringCallback);
   MU_REPORT();
 
