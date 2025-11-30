@@ -79,7 +79,7 @@ jobs:
           include_sanitize = "${{ inputs.include-sanitize }}" == "true"
 
           # Parse comma-separated filters
-          platform_list = [p.strip() for p in platform_filter.split(',')] if platform_filter != 'all' else ['all']
+          platform_list = [p.strip() for p in platform_filter.split(',')]
 
           # Filter combinations based on inputs
           matrix_items = [
@@ -89,18 +89,18 @@ jobs:
                  (architecture == architecture_filter or architecture_filter == 'all')
           ]
 
-          # Add coverage job if requested (only on ubuntu-latest - nobel x86_64)
+          # Add coverage job if requested (only on ubuntu:default x86_64)
           if include_coverage:
               matrix_items.append({
-                  'platform': 'ubuntu:noble',
+                  'platform': 'ubuntu:default',
                   'architecture': 'x86_64',
                   'job-type': 'coverage'
               })
 
-          # Add coverage job if requested (only on ubuntu-latest - nobel x86_64)
+          # Add sanitize job if requested (only on ubuntu:default x86_64)
           if include_sanitize:
               matrix_items.append({
-                  'platform': 'ubuntu:noble',
+                  'platform': 'ubuntu:default',
                   'architecture': 'x86_64',
                   'job-type': 'sanitize'
               })

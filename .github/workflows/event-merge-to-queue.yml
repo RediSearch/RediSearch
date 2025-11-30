@@ -4,14 +4,14 @@ run-name: Validate ${{ github.ref_name }}
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
 on:
-  workflow_dispatch:
   workflow_call:
   merge_group:
     types: [checks_requested]
 
 concurrency:
-  # This group identifies the PR by the head ref (branch name) of the merge group
-  group: ${{ github.workflow }}-${{ github.event.merge_group.head_ref }}
+  # This group identifies the PR by the tree ID of the head commit.
+  # TODO: Replace with PR number of branch name once GH adds it to the event context
+  group: ${{ github.workflow }}-${{ github.event.merge_group.head_commit.tree_id }}
   cancel-in-progress: true
 
 jobs:
