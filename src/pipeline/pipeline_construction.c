@@ -224,7 +224,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   }
 
   if (astp->offset || (astp->limit && !rp)) {
-    if (HasDepleter(&params->common)) {
+    if (HasWithCount(&params->common)) {
       rp = RPSyncDepleter_New();
       up = pushRP(&pipeline->qctx, rp, up);
       RPSyncDepleterAdded = true;
@@ -548,12 +548,10 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
 
       case PLN_T_ARRANGE: {
         rp = getArrangeRP(pipeline, params, stp, status, rpUpstream, forceLoad, outStateFlags);
-        if (!rp) {
-          goto error;
+        if (rp) {
+          hasArrange = 1;
+          rpUpstream = rp;
         }
-        hasArrange = 1;
-        rpUpstream = rp;
-
         break;
       }
 
@@ -655,12 +653,14 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
   // return the entire matching result set!
   if (!hasArrange &&
         (IsSearch(&params->common) || IsHybridSearchSubquery(&params->common) ||
-        (IsAggregate(&params->common) && HasDepleter(&params->common)))) {
+        (IsAggregate(&params->common) && HasWithCount(&params->common)))) {
     rp = getArrangeRP(pipeline, params, NULL, status, rpUpstream, forceLoad, outStateFlags);
-    if (!rp) {
-      goto error;
+    // if (!rp) {
+    //   goto error;
+    // }
+    if (rp) {
+      rpUpstream = rp;
     }
-    rpUpstream = rp;
   }
 
   // If this is an FT.SEARCH command which requires returning of some of the
