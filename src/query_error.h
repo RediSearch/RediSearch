@@ -226,6 +226,29 @@ bool QueryError_HasQueryOOMWarning(const QueryError *status);
 /*** Sets the query OOM warning */
 void QueryError_SetQueryOOMWarning(QueryError *status);
 
+#define QUERY_XWARNS(X)                                                               \
+  X(QUERY_WARNING_CODE_TIMED_OUT, "Timeout limit was reached")                        \
+  X(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, QUERY_WMAXPREFIXEXPANSIONS)     \
+  X(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, QUERY_WOOM_SHARD)                         \
+  X(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, QUERY_WOOM_COORD)                         \
+
+typedef enum {
+  QUERY_WARNING_CODE_OK = 0,
+
+#define X(N, msg) N,
+  QUERY_XWARNS(X)
+#undef X
+
+} QueryWarningCode;
+
+const char *QueryWarningCode_Strerror(QueryWarningCode code);
+
+/**
+ * Returns a [`QueryWarningCode`] given an warnings message.
+ * If the message does not match any known warning, returns `QUERY_WARNING_CODE_OK`.
+ */
+QueryWarningCode QueryWarningCode_GetCodeFromMessage(const char *message);
+
 #ifdef __cplusplus
 }
 #endif
