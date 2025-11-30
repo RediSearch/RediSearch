@@ -443,10 +443,10 @@ def _test_profile(protocol):
 
         # WITHCOUNT + GROUPBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'LIMIT', 0, 50],
-         ['Index', 'Grouper', 'Sync Depleter', 'Pager/Limiter'],
-         ['Index', 'Grouper', 'Sync Depleter', 'Pager/Limiter'],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sync Depleter', 'Pager/Limiter']],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sync Depleter', 'Pager/Limiter']]),
+         ['Index', 'Grouper', 'Pager/Limiter'],
+         ['Index', 'Grouper', 'Pager/Limiter'],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Pager/Limiter']],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Pager/Limiter']]),
 
         # WITHCOUNT + GROUPBY + SORTBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 50],

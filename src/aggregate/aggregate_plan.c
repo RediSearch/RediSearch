@@ -185,6 +185,13 @@ PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, const char *dis
   return newStp;
 }
 
+PLN_ArrangeStep *NewArrangeStep() {
+  PLN_ArrangeStep *newStp = rm_calloc(1, sizeof(*newStp));
+  newStp->base.type = PLN_T_ARRANGE;
+  newStp->base.dtor = arrangeDtor;
+  return newStp;
+}
+
 PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
   PLN_ArrangeStep *ret = AGPLN_GetArrangeStep(pln);
   if (ret) {
