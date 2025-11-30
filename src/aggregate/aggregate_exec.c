@@ -1326,9 +1326,13 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     rs_wall_clock_init(&req->initClock); // Reset the clock for the current cursor read
   }
 
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  runCursor(reply, cursor, count);
-  RedisModule_EndReply(reply);
+  if (req) {
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    runCursor(reply, cursor, count);
+    RedisModule_EndReply(reply);
+  } else {
+    // TODO: run hybrid cursor - this needs to be implemented for the coordinator
+  }
 
   if (has_spec) {
     IndexSpecRef_Release(execution_ref);
