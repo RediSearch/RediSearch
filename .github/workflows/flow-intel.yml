@@ -53,7 +53,7 @@ jobs:
       platform: intel
       architecture: x86_64
       custom-env: ${{ needs.start-runner.outputs.label }}
-      test-config: QUICK=1
+      test-config: ''
       get-redis: ${{ inputs.get-redis }}
 
   stop-runner:

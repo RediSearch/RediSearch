@@ -93,14 +93,6 @@ jobs:
                       'container': '' 
                   }
               },
-              "ubuntu:default": {
-                  "x86_64": {
-                      'name': 'Ubuntu Latest x86_64'
-                  },
-                  "aarch64": {
-                      'name': 'Ubuntu Latest ARM64'
-                  }
-              },
               "ubuntu:noble": {
                   "x86_64": {
                       'container': 'ubuntu:noble',
