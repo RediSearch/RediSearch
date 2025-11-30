@@ -5,6 +5,7 @@ run-name: Validate ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
+  workflow_call:
   merge_group:
     types: [checks_requested]
 
