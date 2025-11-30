@@ -18,7 +18,7 @@ def testAddErrors(env):
         con.execute_command('ft.add', 'idx', 'doc1', '42')
     with env.assertResponseError(contained="No field list found"):
         con.execute_command('ft.add', 'idx', 'doc1', '1.0')
-    with env.assertResponseError(contained="Unknown index name"):
+    with env.assertResponseError(contained="Index not found"):
         con.execute_command('ft.add', 'fake_idx', 'doc1', '1.0', 'fields', 'foo', 'bar')
 
 def testConditionalUpdate(env):
@@ -200,8 +200,8 @@ def testGet(env):
     env.expect('ft.mget', 'idx').error().contains("wrong number of arguments")
     env.expect('ft.mget', 'fake_idx').error().contains("wrong number of arguments")
 
-    env.expect('ft.get fake_idx foo').error().contains("Unknown Index name")
-    env.expect('ft.mget fake_idx foo').error().contains("no such index")
+    env.expect('ft.get fake_idx foo').error().contains("Index not found")
+    env.expect('ft.mget fake_idx foo').error().contains("Index not found")
 
     for i in range(100):
         env.expect('ft.add', 'idx', f"doc{i}", 1.0, 'fields',
@@ -213,7 +213,7 @@ def testGet(env):
         env.assertEqual(set(['foo', 'hello world', 'bar', 'wat wat']), set(res))
         env.assertIsNone(env.cmd(
             'ft.get', 'idx', 'doc%dsdfsd' % i))
-    env.expect('ft.get', 'no_idx', 'doc0').error().contains("Unknown Index name")
+    env.expect('ft.get', 'no_idx', 'doc0').error().contains("Index not found")
 
     rr = env.cmd(
         'ft.mget', 'idx', *(f"doc{i}" for i in range(100)))
@@ -362,8 +362,8 @@ def testDropIndex(env):
     env.expect('FT.DROPINDEX').error().contains("wrong number of arguments")
     env.expect('FT.DROPINDEX', 'idx', 'dd', '666').error().contains("wrong number of arguments")
     # validate optional argument
-    env.expect('FT.DROPINDEX', 'idx', 'DE').error().contains("Unknown argument")
-    env.expect('FT.DROP', 'idx', 'Invalid').error().contains("Unknown argument")
+    env.expect('FT.DROPINDEX', 'idx', 'DE').error().contains("Argument not found")
+    env.expect('FT.DROP', 'idx', 'Invalid').error().contains("Argument not found")
 
     docs_count = 100
     for i in range(docs_count):
@@ -4091,7 +4091,7 @@ def test_missing_schema(env):
     # make sure the index successfully index new docs
     conn.execute_command('HSET', 'doc1', 'foo', 'bar')
     env.expect('FT.SEARCH', 'idx1', '*').equal([1, 'doc1', ['foo', 'bar']] )
-    env.expect('FT.SEARCH', 'idx2', '*').error().equal('No such index idx2')
+    env.expect('FT.SEARCH', 'idx2', '*').error().contains('Index not found: idx2')
 
 
 @skip(cluster=False) # this test is only relevant on cluster

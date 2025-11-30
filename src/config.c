@@ -293,7 +293,7 @@ CONFIG_SETTER(setMinStemLen) {
   unsigned int minStemLen;
   int acrc = AC_GetUnsigned(ac, &minStemLen, AC_F_GE1);
   if (minStemLen < MIN_MIN_STEM_LENGTH) {
-    QueryError_SetWithoutUserDataFmt(status, MIN_MIN_STEM_LENGTH, "Minimum stem length cannot be lower than %u", MIN_MIN_STEM_LENGTH);
+    QueryError_SetWithoutUserDataFmt(status, MIN_MIN_STEM_LENGTH, "SEARCH_STEM_LEN_TOO_LOW: Minimum stem length cannot be lower than %u", MIN_MIN_STEM_LENGTH);
     return REDISMODULE_ERR;
   }
   config->iteratorsConfigParams.minStemLength = minStemLen;
@@ -322,7 +322,7 @@ CONFIG_SETTER(setMaxDocTableSize) {
   int acrc = AC_GetSize(ac, &newsize, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc)
   if (newsize > MAX_DOC_TABLE_SIZE) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "Value exceeds maximum possible document table size");
+    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_DOC_TABLE_SIZE_EXCEEDED: Value exceeds maximum possible document table size");
     return REDISMODULE_ERR;
   }
   config->maxDocTableSize = newsize;
@@ -401,7 +401,7 @@ CONFIG_GETTER(getTimeout) {
 }
 
 static inline int errorTooManyThreads(QueryError *status) {
-  QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
+  QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_WORKER_THREADS_EXCEEDED: Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
   return REDISMODULE_ERR;
 }
 
@@ -481,7 +481,7 @@ long long get_min_operation_workers(const char *name, void *privdata) {
 }
 
 static inline int errorMemoryLimitG100(QueryError *status) {
-  QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Memory limit for indexing cannot be greater then 100%%");
+  QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_MEMORY_LIMIT_EXCEEDED: Memory limit for indexing cannot be greater then 100%%");
   return REDISMODULE_ERR;
 }
 // SET MEMORY LIMIT PERCENTAGE
@@ -508,7 +508,7 @@ CONFIG_SETTER(setBM25StdTanhFactor) {
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (newFactor > BM25STD_TANH_FACTOR_MAX) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-      "BM25STD_TANH_FACTOR must be between %d and %d inclusive",
+      "SEARCH_BM25_FACTOR_RANGE_INVALID: BM25STD_TANH_FACTOR must be between %d and %d inclusive",
       BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
     return REDISMODULE_ERR;
   }
@@ -553,7 +553,7 @@ CONFIG_SETTER(setDeprWorkThreads) {
   int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (newNumThreads > MAX_WORKER_THREADS) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_WORKER_THREADS_EXCEEDED: Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
     return REDISMODULE_ERR;
   }
   numWorkerThreads_config = newNumThreads;
@@ -591,7 +591,7 @@ CONFIG_SETTER(setMtMode) {
   } else if (!strcasecmp(mt_mode, "MT_MODE_FULL")){
     mt_mode_config = MT_MODE_FULL;
   } else {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalie MT mode");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_MT_MODE_INVALID: Invalid MT mode");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
@@ -695,7 +695,7 @@ CONFIG_SETTER(setDefaultScorer) {
     if (Extensions_InitDone()) {
       ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, scorerName);
       if (scoreCtx == NULL) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid default scorer value");
+        QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "SEARCH_SCORER_INVALID: Invalid default scorer value");
         return REDISMODULE_ERR;
       }
     }
@@ -725,7 +725,7 @@ CONFIG_SETTER(setOnTimeout) {
   CHECK_RETURN_PARSE_ERROR(acrc);
   RSTimeoutPolicy top = TimeoutPolicy_Parse(policy, len);
   if (top == TimeoutPolicy_Invalid) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid ON_TIMEOUT value");
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "SEARCH_TIMEOUT_POLICY_INVALID: Invalid ON_TIMEOUT value");
     return REDISMODULE_ERR;
   }
   config->requestConfigParams.timeoutPolicy = top;
@@ -861,7 +861,7 @@ CONFIG_SETTER(setNumericTreeMaxDepthRange) {
   int acrc = AC_GetSize(ac, &maxDepthRange, AC_F_GE0);
   // Prevent rebalancing/rotating of nodes with ranges since we use highest node with range.
   if (maxDepthRange > NR_MAX_DEPTH_BALANCE) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Max depth for range cannot be higher "
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_NUMERIC_DEPTH_INVALID: Max depth for range cannot be higher "
                                                   "than max depth for balance");
     return REDISMODULE_ERR;
   }
@@ -879,7 +879,7 @@ CONFIG_SETTER(setDefaultDialectVersion) {
   unsigned int dialectVersion;
   int acrc = AC_GetUnsigned(ac, &dialectVersion, AC_F_GE1);
   if (dialectVersion > MAX_DIALECT_VERSION) {
-    QueryError_SetWithoutUserDataFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
+    QueryError_SetWithoutUserDataFmt(status, MAX_DIALECT_VERSION, "SEARCH_DIALECT_VERSION_TOO_HIGH: Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
     return REDISMODULE_ERR;
   }
   config->requestConfigParams.dialectVersion = dialectVersion;
@@ -922,10 +922,10 @@ CONFIG_SETTER(setGcPolicy) {
   if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
     config->gcConfigParams.gcPolicy = GCPolicy_Fork;
   } else if (!strcasecmp(policy, "LEGACY")) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Legacy GC policy is no longer supported (since 2.6.0)");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_GC_POLICY_UNSUPPORTED: Legacy GC policy is no longer supported (since 2.6.0)");
     return REDISMODULE_ERR;
   } else {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid GC Policy value");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_GC_POLICY_INVALID: Invalid GC Policy value");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
@@ -954,7 +954,7 @@ CONFIG_SETTER(setUpgradeIndex) {
   int acrc = AC_GetString(ac, &rawIndexName, &len, 0);
 
   if (acrc != AC_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Index name was not given to upgrade argument");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_INDEX_NAME_MISSING: Index name was not given to upgrade argument");
     return REDISMODULE_ERR;
   }
 
@@ -963,7 +963,7 @@ CONFIG_SETTER(setUpgradeIndex) {
   if (dictFetchValue(legacySpecRules, indexName)) {
     HiddenString_Free(indexName, false);
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-                        "Upgrade index definition was given more then once on the same index");
+                        "SEARCH_INDEX_UPGRADE_DUP: Upgrade index definition was given more then once on the same index");
     return REDISMODULE_ERR;
   }
 
@@ -1074,7 +1074,7 @@ CONFIG_SETTER(setOnOom) {
   CHECK_RETURN_PARSE_ERROR(acrc);
   RSOomPolicy oom = OomPolicy_Parse(policy, len);
   if (oom == OomPolicy_Invalid) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid ON_OOM value");
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "SEARCH_OOM_POLICY_INVALID: Invalid ON_OOM value");
     return REDISMODULE_ERR;
   }
   config->requestConfigParams.oomPolicy = oom;
@@ -1622,11 +1622,11 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
                        RedisModuleString **argv, int argc, size_t *offset, QueryError *status) {
   RSConfigVar *var = findConfigVar(options, name);
   if (!var) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_NO_OPTION, NULL);
+    QueryError_SetError(status, QUERY_ERROR_CODE_NO_OPTION, "SEARCH_CONFIG_OPTION_NOT_FOUND: Configuration option not found");
     return REDISMODULE_ERR;
   }
   if (var->flags & RSCONFIGVAR_F_IMMUTABLE) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Not modifiable at runtime");
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "SEARCH_CONFIG_IMMUTABLE: Not modifiable at runtime");
     return REDISMODULE_ERR;
   }
   ArgsCursor ac;

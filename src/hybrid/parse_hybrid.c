@@ -35,7 +35,7 @@
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
   const char *verb = (provided == 1) ? "was" : "were";
-  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_ARG_COUNT_MISMATCH: Expected arguments", " %u, but %d %s provided", expected, provided, verb);
+  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_ARG_COUNT_BAD: Expected arguments", " %u, but %d %s provided", expected, provided, verb);
 }
 
 // Check if we're at the end of arguments in the middle of a clause and set appropriate error for missing argument
@@ -66,7 +66,7 @@ static void addVectorQueryParam(VectorQuery *vq, const char *name, size_t nameLe
 
 static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_QUERY_STRING_MISSING: No query string provided for SEARCH");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_QUERY_STRING_NONE: No query string provided for SEARCH");
     return REDISMODULE_ERR;
   }
 
@@ -107,7 +107,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
     }
 
     // Unknown argument that's not VSIM - this is an error
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_UNRECOGNIZED: Unknown argument", " `%s` in SEARCH", cur);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_UNKNOWN: Unknown argument", " `%s` in SEARCH", cur);
     return REDISMODULE_ERR;
   }
   if (searchOpts->scoreAlias) {
@@ -121,7 +121,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   // VSIM @vectorfield vector KNN ...
   //                              ^
   if (AC_IsAtEnd(ac)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_COUNT_MISSING: Missing argument count");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_COUNT_NONE: Missing argument count");
     return REDISMODULE_ERR;
   }
   // Try to get number of arguments
@@ -613,7 +613,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   arrayof(const char*) prefixes = array_new(const char*, 0);
 
   if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_ARG_REQUIRED: SEARCH argument is required");
+    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_ARG_REQ: SEARCH argument is required");
     goto error;
   }
 

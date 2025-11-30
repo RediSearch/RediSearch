@@ -221,7 +221,7 @@ def testIndexDropWhileIdle(env: Env):
     # drop the index while the cursor is idle/running in bg
     env.expect('FT.DROPINDEX', 'idx').ok()
 
-    env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('no such index')
+    env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('Index not found')
 
 def testIndexDropWhileIdleBG():
     env = Env(moduleArgs='WORKERS 1')
@@ -274,7 +274,7 @@ def CursorOnCoordinator(env: Env):
 
     env.expect(
         'FT.AGGREGATE', 'non-existing', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1
-    ).error().contains('No such index non-existing')
+    ).error().contains('Index not found: non-existing')
 
     # Verify we can read from the cursor all the results.
     # The coverage proves that the `_FT.CURSOR READ` command is sent to the shards only when more results are needed.
@@ -582,18 +582,18 @@ def testCountArgValidation(env):
     env.assertEqual(len(res), 2)
 
     # Query the cursor with a bad `COUNT` argument
-    env.expect('FT.CURSOR', 'READ', 'idx', str(cid), 'LOVE', '3').error().contains('Unknown argument `LOVE`')
+    env.expect('FT.CURSOR', 'READ', 'idx', str(cid), 'LOVE', '3').error().contains('Argument not found: `LOVE`')
 
     # Query the cursor with bad subcommand
     env.expect(
         'FT.CURSOR', 'READS', 'idx', str(cid)
-    ).error().contains('Unknown subcommand')
+    ).error().contains('Subcommand not found')
     env.expect(
         'FT.CURSOR', 'DELS', 'idx', str(cid)
-    ).error().contains('Unknown subcommand')
+    ).error().contains('Subcommand not found')
     env.expect(
         'FT.CURSOR', 'GCS', 'idx', str(cid)
-    ).error().contains('Unknown subcommand')
+    ).error().contains('Subcommand not found')
 
     # Query the cursor with a bad value for the `COUNT` argument
     env.expect(

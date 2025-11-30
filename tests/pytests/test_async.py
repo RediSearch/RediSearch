@@ -37,7 +37,7 @@ def testDeleteIndex(env):
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
     r.expect('ft.drop', 'idx').ok()
 
-    r.expect('ft.info', 'idx').contains('no such index')
+    r.expect('ft.info', 'idx').error().contains('Index not found')
     # time.sleep(1)
 
 

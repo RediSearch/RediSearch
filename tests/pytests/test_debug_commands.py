@@ -237,17 +237,17 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx1', 'no_suffix').error()
 
     def testGCStopAndContinueSchedule(self):
-        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'non-existing').error().contains('Unknown index name')
-        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'non-existing').error().contains('Index not found')
+        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'non-existing').error().contains('Index not found')
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
         self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
 
     def testTTLcommands(self):
         num_indexes = len(self.env.cmd('FT._LIST'))
-        self.env.expect(debug_cmd(), 'TTL', 'non-existing').error().contains('Unknown index name')
-        self.env.expect(debug_cmd(), 'TTL_PAUSE', 'non-existing').error().contains('Unknown index name')
-        self.env.expect(debug_cmd(), 'TTL_EXPIRE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect(debug_cmd(), 'TTL', 'non-existing').error().contains('Index not found')
+        self.env.expect(debug_cmd(), 'TTL_PAUSE', 'non-existing').error().contains('Index not found')
+        self.env.expect(debug_cmd(), 'TTL_EXPIRE', 'non-existing').error().contains('Index not found')
         self.env.expect(debug_cmd(), 'TTL', 'idx').error().contains('Index is not temporary')
         self.env.expect(debug_cmd(), 'TTL_PAUSE', 'idx').error().contains('Index is not temporary')
         self.env.expect(debug_cmd(), 'TTL_EXPIRE', 'idx').error().contains('Index is not temporary')
@@ -564,7 +564,7 @@ def testDebugScannerStatus(env: Env):
 
     # Test error handling
     # Giving non existing index name
-    checkDebugScannerStatusError(env, 'non_existing', 'Unknown index name')
+    checkDebugScannerStatusError(env, 'non_existing', 'Index not found')
 
     # Test error handling
     # Giving invalid argument to debug scanner control command
@@ -1036,7 +1036,7 @@ def test_update_debug_scanner_config(env):
 
     # Test error handling
     # Giving non existing index name
-    checkDebugScannerUpdateError(env, 'non_existing', 'Unknown index name')
+    checkDebugScannerUpdateError(env, 'non_existing', 'Index not found')
 
 @skip(cluster=True)
 def test_yield_counter(env):
@@ -1045,7 +1045,7 @@ def test_yield_counter(env):
     .contains('wrong number of arguments')
     # Giving wrong subcommand
     env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'NOT_A_COMMAND').error()\
-    .contains('Unknown subcommand')
+    .contains('Subcommand not found')
 
 @skip(cluster=True)
 def test_query_controller(env):

@@ -37,10 +37,10 @@ def testConfig(env):
 @skip(cluster=True)
 def testConfigErrors(env):
     env.expect(config_cmd(), 'set', 'MINPREFIX', 1, 2).equal('EXCESSARGS')
-    env.expect(config_cmd(), 'no_such_command', 'idx').equal('No such configuration action')
+    env.expect(config_cmd(), 'no_such_command', 'idx').error().contains('Configuration action not found')
     env.expect(config_cmd(), 'idx').error().contains('wrong number of arguments')
     env.expect(config_cmd(), 'set', '_NUMERIC_RANGES_PARENTS', 3) \
-        .equal('Max depth for range cannot be higher than max depth for balance')
+        .contains('Max depth for range cannot be higher than max depth for balance')
     env.expect(config_cmd(), 'set', 'MINSTEMLEN', 1).error()\
         .contains('Minimum stem length cannot be lower than')
     env.expect(config_cmd(), 'set', 'WORKERS', 1_000_000).error()\
@@ -99,23 +99,23 @@ def testGetConfigOptions(env):
 @skip(cluster=True)
 def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'MINPREFIX', 'str').equal('Could not convert argument to expected type')
-    env.expect(config_cmd(), 'set', 'EXTLOAD', 1).equal(not_modifiable)
-    env.expect(config_cmd(), 'set', 'NOGC', 1).equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'EXTLOAD', 1).error().contains('Not modifiable at runtime')
+    env.expect(config_cmd(), 'set', 'NOGC', 1).error().contains('Not modifiable at runtime')
     env.expect(config_cmd(), 'set', 'MINPREFIX', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 1).equal('OK')
-    env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 1).equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 1).error().contains('Not modifiable at runtime')
     env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'TIMEOUT', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'WORKERS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'DEFAULT_SCORER', 'BM25STD').equal('OK')
-    env.expect(config_cmd(), 'set', 'WORKER_THREADS', 1).equal(not_modifiable) # deprecated
-    env.expect(config_cmd(), 'set', 'MT_MODE', 1).equal(not_modifiable) # deprecated
-    env.expect(config_cmd(), 'set', 'FRISOINI', 1).equal(not_modifiable)
-    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 1).equal('Invalid ON_TIMEOUT value')
+    env.expect(config_cmd(), 'set', 'WORKER_THREADS', 1).error().contains('Not modifiable at runtime') # deprecated
+    env.expect(config_cmd(), 'set', 'MT_MODE', 1).error().contains('Not modifiable at runtime') # deprecated
+    env.expect(config_cmd(), 'set', 'FRISOINI', 1).error().contains('Not modifiable at runtime')
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 1).error().contains('Invalid ON_TIMEOUT value')
     env.expect(config_cmd(), 'set', 'GCSCANSIZE', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'MIN_PHONETIC_TERM_LEN', 1).equal('OK')
-    env.expect(config_cmd(), 'set', 'GC_POLICY', 1).equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'GC_POLICY', 1).error().contains('Not modifiable at runtime')
     env.expect(config_cmd(), 'set', 'FORK_GC_RUN_INTERVAL', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
@@ -125,11 +125,11 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', 1).equal('OK')
-    env.expect(config_cmd(), 'set', 'ON_OOM', 1).equal('Invalid ON_OOM value')
+    env.expect(config_cmd(), 'set', 'ON_OOM', 1).error().contains('Invalid ON_OOM value')
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
-    env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 'str').equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 'str').error().contains('Not modifiable at runtime')
     env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 'str').equal('Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'TIMEOUT', 'str').equal('Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Could not convert argument to expected type')
