@@ -8,6 +8,7 @@
 #define RS_MODULE_H_
 
 #include "redismodule.h"
+#include <stdbool.h>
 
 // Module-level dummy context for certain dummy RM_XXX operations
 extern RedisModuleCtx *RSDummyContext;

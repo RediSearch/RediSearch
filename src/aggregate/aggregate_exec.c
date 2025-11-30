@@ -21,6 +21,7 @@
 #include "info/global_stats.h"
 #include "aggregate_debug.h"
 #include "rs_wall_clock.h"
+#include "module.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 

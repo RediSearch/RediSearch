@@ -1302,6 +1302,17 @@ DEBUG_COMMAND(RSAggregateCommandShard) {
   return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
 }
 
+DEBUG_COMMAND(RSProfileCommandShard) {
+  // at least one debug_param should be provided
+  // (1)_FT.DEBUG (2)FT.SEARCH (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RSProfileCommandImp(ctx, ++argv, --argc, true);
+}
+
+
 DEBUG_COMMAND(ListIndexesSwitch) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx);
   Indexes_List(&_reply, true);
@@ -1349,13 +1360,6 @@ DEBUG_COMMAND(YieldCounter) {
 
   // Return the current counter value
   return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
-}
-
-DEBUG_COMMAND(RSProfileCommandShard) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  return RSProfileCommandImp(ctx, ++argv, --argc, true);
 }
 
 /**
