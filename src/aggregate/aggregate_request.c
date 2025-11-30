@@ -24,8 +24,14 @@
 #include "obfuscation/hidden.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 extern RSConfig RSGlobalConfig;
+
+// Static thread ID for AREQ_Free thread checking
+static pthread_t areq_free_thread_id = 0;
 
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
@@ -1342,7 +1348,23 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
+
+
 void AREQ_Free(AREQ *req) {
+  // Thread ID checking: ensure AREQ_Free is called from the same thread
+  pthread_t current_thread = pthread_self();
+
+  if (areq_free_thread_id == 0) {
+    // First call to AREQ_Free - store the thread ID
+    areq_free_thread_id = current_thread;
+  } else {
+    // Check if we're being called from the same thread
+    if (!pthread_equal(areq_free_thread_id, current_thread)) {
+      // Log error or assert - thread mismatch detected
+      RS_LOG_ASSERT(false, "AREQ_Free called from different thread!");
+    }
+  }
+
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.
