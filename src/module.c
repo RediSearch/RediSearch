@@ -3781,8 +3781,10 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argc, &my_shard_idx);
   // this means a parsing error, the parser already sent the explicit error to the client
   if (!topo) {
+    RedisModule_Log(ctx, "warning", "Received invalid cluster topology");
     return REDISMODULE_ERR;
   }
+  RedisModule_Log(ctx, "notice", "Received new cluster topology with %u shards", topo->numShards);
 
   // Take a reference to our own shard slot ranges (MR_UpdateTopology won't consume it)
   RS_ASSERT(my_shard_idx < topo->numShards);
