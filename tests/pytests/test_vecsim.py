@@ -1813,7 +1813,6 @@ class TestTimeoutReached(object):
                 for i in range(n_vec + 1, n_vec + 5 * self.env.shardsCount):
                     conn.execute_command('HSET', i, 't', 'dummy')
             for mode in self.hybrid_modes:
-                print(f"Testing hybrid mode {mode}")
                 self.env.expect('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
                                'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', small_k,
                                'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 100).error().contains('Timeout limit was reached')
