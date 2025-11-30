@@ -614,6 +614,8 @@ SYNTAX_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_syntax"
 ARGS_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_arguments"
 TIMEOUT_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_timeout"
 TIMEOUT_WARNING_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_timeout"
+OOM_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_oom"
+OOM_WARNING_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_oom"
 
 COORD_WARN_ERR_SECTION = WARN_ERR_SECTION.replace(SEARCH_PREFIX, 'search_coordinator_')
 
@@ -622,6 +624,8 @@ SYNTAX_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_syntax"
 ARGS_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_arguments"
 TIMEOUT_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_timeout"
 TIMEOUT_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_timeout"
+OOM_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_oom"
+OOM_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_oom"
 
 # Expect env and conn so we can assert
 def _verify_metrics_not_changed(env, conn, prev_info_dict: dict, ignored_metrics : list):
@@ -636,11 +640,11 @@ def _common_warnings_errors_test_scenario(env):
   """Common setup for warnings and errors tests"""
   # Create index
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
-  # Create doc
-  env.expect('HSET', 'doc:1', 'text', 'hello world').equal(1)
   # Create vector index for hybrid
   env.expect('FT.CREATE', 'idx_vec', 'PREFIX', '1', 'vec:', 'SCHEMA', 'text', 'TEXT', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
-  # Create doc for hybrid
+  # Create doc
+  env.expect('HSET', 'doc:1', 'text', 'hello world').equal(1)
+  # Create docs for hybrid
   env.expect('HSET', 'vec:1', 'vector', np.array([1.0, 0.0]).astype(np.float32).tobytes(), 'text', 'hello world1').equal(2)
   env.expect('HSET', 'vec:2', 'vector', np.array([0.0, 1.0]).astype(np.float32).tobytes(), 'text', 'hello world2').equal(2)
 
@@ -776,6 +780,54 @@ class testWarningsAndErrorsStandalone:
     tested_in_this_test = [TIMEOUT_WARNING_COORD_METRIC, TIMEOUT_ERROR_COORD_METRIC]
     _verify_metrics_not_changed(self.env, self.env, before_info_dict, tested_in_this_test)
 
+  def test_oom_errors_SA(self):
+    # Standalone shards are considered as coordinator in the info metrics
+
+    # ---------- OOM Errors ----------
+    self.env.expect(config_cmd(), 'SET', 'ON_OOM', 'FAIL').ok()
+    before_info_dict_err = info_modules_to_dict(self.env)
+    base_err = int(before_info_dict_err[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC])
+
+    self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+    # Test OOM error in FT.SEARCH
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').error().contains('Not enough memory available to execute the query')
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC], str(base_err + 1))
+    # Test OOM error in FT.AGGREGATE
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').error().contains('Not enough memory available to execute the query')
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC], str(base_err + 2))
+    # Test OOM error in FT.HYBRID (single shard debug)
+    query_vec = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', query_vec).error().contains('Not enough memory available to execute the query')
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC], str(base_err + 3))
+
+    # ---------- OOM Warnings ----------
+    self.env.expect(config_cmd(), 'SET', 'ON_OOM', 'RETURN').ok()
+    before_info_dict = info_modules_to_dict(self.env)
+    base_warn = int(before_info_dict[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC])
+
+    # Test OOM warning in FT.SEARCH
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').noError()
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn + 1))
+    # Test OOM warning in FT.AGGREGATE
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').noError()
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn + 2))
+    # Test OOM warning in FT.HYBRID (single shard debug)
+    query_vec = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', query_vec).noError()
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn + 3))
+
+    self.env.expect('CONFIG', 'SET', 'maxmemory', '0').ok()
+    # Test other metrics not changed
+    tested_in_this_test = [OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC]
+    _verify_metrics_not_changed(self.env, self.env, before_info_dict, tested_in_this_test)
+
+
   def test_no_error_queries_SA(self):
     # Standalone shards are considered as coordinator in the info metrics
 
@@ -805,6 +857,8 @@ def _common_warnings_errors_cluster_test_scenario(env):
   """Common setup for warnings and errors cluster tests"""
   # Create index
   env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc:', 'SCHEMA', 'text', 'TEXT').ok()
+  # Create vector index for hybrid
+  env.expect('FT.CREATE', 'idx_vec', 'PREFIX', '1', 'vec:', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   # Create doc
   conn = getConnectionByEnv(env)
   # Insert enough docs s.t each shard will timeout
@@ -812,8 +866,6 @@ def _common_warnings_errors_cluster_test_scenario(env):
   for i in range(docs_per_shard * env.shardsCount):
     conn.execute_command('HSET', f'doc:{i}', 'text', f'hello world {i}')
 
-  # Create vector index for hybrid
-  env.expect('FT.CREATE', 'idx_vec', 'PREFIX', '1', 'vec:', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   # Create doc for hybrid
   conn.execute_command('HSET', 'vec:1', 'vector', np.array([0.0, 0.0]).astype(np.float32).tobytes())
 
@@ -1061,6 +1113,193 @@ class testWarningsAndErrorsCluster:
     tested_in_this_test = [TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC, TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC]
     self._verify_metrics_not_changes_all_shards(tested_in_this_test)
 
+  def test_oom_errors_cluster_in_coord(self):
+    # Error/Warnings in Coordinator only
+    # Set OOM policy to fail
+    self.env.expect(config_cmd(), 'SET', 'ON_OOM', 'FAIL').ok()
+    coord_before_err = info_modules_to_dict(self.env)
+    base_err_coord = int(coord_before_err[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC])
+    base_warn_coord = int(coord_before_err[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC])
+    # Set maxmemory to 1 to trigger OOM
+    self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+
+    # Test OOM error in FT.SEARCH
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').error().contains('Not enough memory available to execute the query')
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC], str(base_err_coord + 1),
+                         message="Coordinator OOM error should be +1 after FT.SEARCH")
+    # Shards: unchanged
+    for shardId in range(1, self.env.shardsCount + 1):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_ERROR_SHARD_METRIC], '0',
+                           message=f"Shard {shardId} OOM error should not change after FT.SEARCH")
+
+    # Test OOM error in FT.AGGREGATE
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').error().contains('Not enough memory available to execute the query')
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC], str(base_err_coord + 2),
+                         message="Coordinator OOM error should be +1 after FT.AGGREGATE")
+    # Shards: unchanged
+    for shardId in range(1, self.env.shardsCount + 1):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_ERROR_SHARD_METRIC], '0',
+                           message=f"Shard {shardId} OOM error should not change after FT.AGGREGATE")
+
+    # Test OOM error in FT.HYBRID
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', query_vector).error().contains('Not enough memory available to execute the query')
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC], str(base_err_coord + 3),
+                         message="Coordinator OOM error should be +1 after FT.HYBRID")
+    # Shards: unchanged
+    for shardId in range(1, self.env.shardsCount + 1):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_ERROR_SHARD_METRIC], '0',
+                           message=f"Shard {shardId} OOM error should not change after FT.HYBRID")
+
+    # Test warnings
+    # Set policy to return
+    self.env.expect(config_cmd(), 'SET', 'ON_OOM', 'return').ok()
+    # Test warning in FT.SEARCH
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').noError()
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord + 1),
+                         message="Coordinator OOM warning should be +1 after FT.SEARCH")
+    # Shards: unchanged
+    for shardId in range(1, self.env.shardsCount + 1):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC], '0',
+                           message=f"Shard {shardId} OOM warning should not change after FT.SEARCH")
+
+    # Test warning in FT.AGGREGATE
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').noError()
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord + 2),
+                         message="Coordinator OOM warning should be +1 after FT.AGGREGATE")
+    # Shards: unchanged
+    for shardId in range(1, self.env.shardsCount + 1):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC], '0',
+                           message=f"Shard {shardId} OOM warning should not change after FT.AGGREGATE")
+
+    # Test warning in FT.HYBRID
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', query_vector).noError()
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord + 3),
+                         message="Coordinator OOM warning should be +1 after FT.HYBRID")
+    # Shards: unchanged
+    for shardId in range(1, self.env.shardsCount + 1):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC], '0',
+                           message=f"Shard {shardId} OOM warning should not change after FT.HYBRID")
+
+    self.env.expect('CONFIG', 'SET', 'maxmemory', '0').ok()
+
+    # Test other metrics not changed
+    tested_in_this_test = [OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC]
+    self._verify_metrics_not_changes_all_shards(tested_in_this_test)
+
+  def test_oom_errors_cluster_in_shards(self):
+    # Error/Warnings in Shards only
+    # Set OOM policy to fail
+    allShards_change_oom_policy(self.env, 'FAIL')
+    # Set maxmemory to 1 to trigger OOM
+    allShards_change_maxmemory_low(self.env)
+    # Set unlimited maxmemory for coord
+    set_unlimited_maxmemory_for_oom(self.env)
+
+    coord_before_err = info_modules_to_dict(self.env)
+    base_err_coord = int(coord_before_err[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC])
+    base_warn_coord = int(coord_before_err[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC])
+    shards_before_err = {i: info_modules_to_dict(self.env.getConnection(i)) for i in range(1, self.env.shardsCount + 1)}
+    base_err_shards = {i: int(shards_before_err[i][WARN_ERR_SECTION][OOM_ERROR_SHARD_METRIC]) for i in shards_before_err}
+    base_warn_shards = {i: int(shards_before_err[i][WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC]) for i in shards_before_err}
+
+    # Test OOM error in FT.SEARCH
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').error().contains('Not enough memory available to execute the query')
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC], str(base_err_coord + 1),
+                         message="Coordinator OOM error should be +1 after FT.SEARCH")
+    # Shards: +1 each (besides shard 1 which is coord)
+    shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][OOM_ERROR_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
+    self.env.assertEqual(shards_metrics.count(str(base_err_shards[1] + 1)), 2,
+                         message="Wrong number of shards with OOM error +1 after FT.SEARCH")
+
+    # Test OOM error in FT.AGGREGATE
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').error().contains('Not enough memory available to execute the query')
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC], str(base_err_coord + 2),
+                         message="Coordinator OOM error should be +1 after FT.AGGREGATE")
+    # Shards: +1 each (besides shard 1 which is coord)
+    shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][OOM_ERROR_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
+    self.env.assertEqual(shards_metrics.count(str(base_err_shards[1] + 2)), 2,
+                         message="Wrong number of shards with OOM error +1 after FT.AGGREGATE")
+
+    # Test OOM error in FT.HYBRID
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', query_vector).error().contains('Not enough memory available to execute the query')
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC], str(base_err_coord + 3),
+                         message="Coordinator OOM error should be +1 after FT.HYBRID")
+    # Shards: +1 each (besides shard 1 which is coord)
+    shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][OOM_ERROR_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
+    self.env.assertEqual(shards_metrics.count(str(base_err_shards[1] + 3)), 2,
+                         message="Wrong number of shards with OOM error +1 after FT.HYBRID")
+
+    # Test warnings
+    # Set policy to return
+    allShards_change_oom_policy(self.env, 'RETURN')
+    # Test warning in FT.SEARCH
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').noError()
+
+    # Coord: unchanged (Coord doesn't count warnings since resp2 doesn't return warnings)
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord),
+                         message="Coordinator OOM warning should not change after FT.SEARCH")
+    # Shards: +1 each (besides shard 1 which is coord)
+    shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
+    self.env.assertEqual(shards_metrics.count(str(base_warn_shards[1] + 1)), 2,
+                         message="Wrong number of shards with OOM warning +1 after FT.SEARCH")
+
+    # Test warning in FT.AGGREGATE
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').noError()
+    # Coord: unchanged (Coord doesn't count warnings since resp2 doesn't return warnings)
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord),
+                         message="Coordinator OOM warning should not change after FT.AGGREGATE")
+    # Shards: +1 each (besides shard 1 which is coord)
+    shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
+    self.env.assertEqual(shards_metrics.count(str(base_warn_shards[1] + 2)), 2,
+                         message="Wrong number of shards with OOM warning +1 after FT.AGGREGATE")
+    # Test warning in FT.HYBRID
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', query_vector).noError()
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord + 1),
+                         message="Coordinator OOM warning should be +1 after FT.HYBRID")
+    # Shards: +1 each (besides shard 1 which is coord)
+    shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
+    self.env.assertEqual(shards_metrics.count(str(base_warn_shards[1] + 3)), 2,
+                         message="Wrong number of shards with OOM warning +1 after FT.HYBRID")
+
+    allShards_set_unlimited_maxmemory_for_oom(self.env)
+
+    # Test other metrics not changed
+    tested_in_this_test = [OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC, OOM_ERROR_SHARD_METRIC, OOM_WARNING_SHARD_METRIC]
+    self._verify_metrics_not_changes_all_shards(tested_in_this_test)
+
+
   def test_no_error_queries_cluster(self):
     # Check no error queries not affecting any metric on each shard
     before_info_dicts = []
@@ -1184,7 +1423,33 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
     shard_conn = env.getConnection(shardId)
     _verify_metrics_not_changed(env, shard_conn, before_info_dicts[shardId], tested_in_this_test)
 
-# @skip(cluster=False)
+@skip(cluster=False)
+def test_warnings_metric_count_oom_cluster_in_shards_resp3():
+  # Test OOM warnings in shards only with RESP3
+  env  = Env(protocol=3)
+  _common_warnings_errors_cluster_test_scenario(env)
+  # Set OOM policy to return
+  allShards_change_oom_policy(env, 'RETURN')
+  allShards_change_maxmemory_low(env)
+  # Set unlimited maxmemory for coord
+  set_unlimited_maxmemory_for_oom(env)
+  # Test warning in FT.SEARCH
+  res = env.cmd('FT.SEARCH', 'idx', 'hello world')
+  env.assertEqual(res['warning'][0], 'One or more shards failed to execute the query due to insufficient memory')
+  # Coord: +1
+  info_coord = info_modules_to_dict(env)
+  env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], '1')
+
+  # Test warning in FT.AGGREGATE
+  # FT.AGGREGATE doesn't return warning in cluster for empty results
+  res = env.cmd('FT.AGGREGATE', 'idx', 'hello world')
+  # TODO - Check warning in FT.AGGREGATE when empty results are handled correctly
+  # The following asserts should fail when empty results are handled correctly
+  env.assertEqual(res['warning'], [])
+  # Coord: +1
+  info_coord = info_modules_to_dict(env)
+  env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], '1')
+
 def test_active_io_threads_stats(env):
   conn = getConnectionByEnv(env)
   # Setup: Create index with some data
@@ -1209,3 +1474,102 @@ def test_active_io_threads_stats(env):
                  message="active_io_threads should be 0 when idle")
   # There's no deterministic way to test active_io_threads increases while a query is running,
   # we test it in unit tests.
+
+# --- Helper Function (to be shared by both SA and Cluster tests) ---
+# NOTE: Currently query debug pause mechanism only supports pausing one query at a time.
+def _test_active_worker_threads(env, num_queries):
+    env.assertEqual(num_queries, 1, message="Currently only supports pausing one query at a time")
+    """
+    Helper function to test active_worker_threads metric with paused queries.
+
+    Args:
+        env: Test environment
+        num_queries: Number of queries to pause.
+                     NOTE: Currently query debug pause mechanism only supports pausing one query at a time.
+    """
+    conn = getConnectionByEnv(env)
+
+    # Setup: Ensure workers are configured (need at least num_queries workers)
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', num_queries)
+
+    # Create index and add test data
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    for i in range(10):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+    # Verify active_worker_threads and coord threads start at 0
+    multi_threading_section = f'{SEARCH_PREFIX}multi_threading'
+    for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+        info_dict = info_modules_to_dict(con)
+        env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], '0',
+                       message=f"shard {i}: active_worker_threads should be 0 when idle")
+        env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_coord_threads'], '0',
+                       message=f"shard {i}: active_coord_threads should be 0 when idle")
+
+    # Define callback for testing a specific query type
+    def _test_query_type(query_type):
+        query_threads = []
+        query_results = []
+
+        # Launch num_queries queries in background threads, paused at Index RP
+        for i in range(num_queries):
+            result_list = []
+            query_results.append(result_list)
+            t = threading.Thread(
+                target=call_and_store,
+                args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                      (env, [query_type, 'idx', '*'], 'Index', 0, ['INTERNAL_ONLY']),
+                      result_list),
+                daemon=True
+            )
+            query_threads.append(t)
+            t.start()
+
+        # Wait for all queries to be paused
+        with TimeLimit(120):
+            while not all(allShards_getIsRPPaused(env)):
+                time.sleep(0.1)
+
+        # Verify active_worker_threads == num_queries
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+            info_dict = info_modules_to_dict(con)
+            env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], str(num_queries),
+                           message=f"shard {i}: {query_type}: active_worker_threads should be {num_queries} when {num_queries} queries are paused")
+
+        # If this is cluster, and FT.AGGREGATE, verify active_coord_threads == num_queries
+        if env.isCluster() and query_type == 'FT.AGGREGATE':
+          info_dict = info_modules_to_dict(env)
+          env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_coord_threads'], str(num_queries),
+                         message=f"coordinator: {query_type}: active_coord_threads should be {num_queries} when {num_queries} queries are paused")
+
+        # Resume all queries
+        allShards_setPauseRPResume(env)
+
+        # Wait for all query threads to complete
+        for t in query_threads:
+            t.join()
+
+        # Drain worker thread pool to ensure all jobs complete
+        run_command_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
+
+        # Verify active_worker_threads returns to 0
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+            info_dict = info_modules_to_dict(con)
+            env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], '0',
+                           message=f"shard {i}: {query_type}: active_worker_threads should return to 0 after queries complete")
+
+    # Test both query types
+    _test_query_type('FT.SEARCH')
+    _test_query_type('FT.AGGREGATE')
+
+# --- Test 1: Standalone Mode ---
+@skip(cluster=True)  # Only run in standalone mode
+def test_active_worker_threads_SA(env):
+    num_queries = 1
+    _test_active_worker_threads(env, num_queries)
+
+# --- Test 2: Cluster Mode ---
+@skip(cluster=False)  # Only run in cluster mode
+def test_active_worker_threads_cluster(env):
+    num_queries = 1
+    _test_active_worker_threads(env, num_queries)

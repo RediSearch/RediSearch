@@ -2712,6 +2712,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       }
       RedisModule_Reply_ArrayEnd(reply);
     } else if (req->queryOOM) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
       // We use the cluster warning since shard level warning sent via empty reply bailout
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     } else {
@@ -2805,6 +2806,10 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     }
   }
   RedisModule_Reply_MapEnd(reply);
+
+  if (req->queryOOM) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
+  }
   //-------------------------------------------------------------------------------------------
 
   // Free the sorted results
@@ -3253,6 +3258,10 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
                          struct ConcurrentCmdCtx *cmdCtx);
 
 int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return DistAggregateCommandImp(ctx, argv, argc, false);
+}
+
+int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
@@ -3263,6 +3272,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (QueryMemoryGuard(ctx)) {
     // If we are in a single shard cluster, we should fail the query if we are out of memory
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WARN);
       return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
@@ -3279,10 +3289,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Coord callback
   ConcurrentCmdHandler dist_callback = RSExecDistAggregate;
 
-  bool isDebug = (RMUtil_ArgIndex("_FT.DEBUG", argv, 1) != -1);
   if (isDebug) {
-    argv++;
-    argc--;
     dist_callback = DEBUG_RSExecDistAggregate;
   }
 
@@ -3329,6 +3336,7 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (QueryMemoryGuard(ctx)) {
     // If we are in a single shard cluster, we should fail the query if we are out of memory
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WARN);
       return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
@@ -3662,6 +3670,10 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return DistSearchCommandImp(ctx, argv, argc, false);
+}
+
+int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
@@ -3671,6 +3683,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WARN);
       return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming policy is return, since we didn't ignore the memory guardrail
@@ -3687,10 +3700,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Coord callback
   void (*dist_callback)(void *) = DistSearchCommandHandler;
 
-  bool isDebug = (RMUtil_ArgIndex("_FT.DEBUG", argv, 1) != -1);
   if (isDebug) {
-    argv++;
-    argc--;
     dist_callback = DEBUG_DistSearchCommandHandler;
   }
 
@@ -3737,8 +3747,11 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return ProfileCommandHandlerImp(ctx, argv, argc, false);
+}
+
+int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
@@ -3753,14 +3766,14 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     // There is only one shard in the cluster. We can handle the command locally.
     // We must first check that we don't have a cursor, as the local command handler allows cursors
     // for multi-shard clusters support.
-    return RSProfileCommand(ctx, argv, argc);
+    return RSProfileCommandImp(ctx, argv, argc, isDebug);
   }
 
   if (RMUtil_ArgExists("SEARCH", argv, 3, 2)) {
-    return DistSearchCommand(ctx, argv, argc);
+    return DistSearchCommandImp(ctx, argv, argc, isDebug);
   }
   if (RMUtil_ArgExists("AGGREGATE", argv, 3, 2)) {
-    return DistAggregateCommand(ctx, argv, argc);
+    return DistAggregateCommandImp(ctx, argv, argc, isDebug);
   }
   return RedisModule_ReplyWithError(ctx, "No `SEARCH` or `AGGREGATE` provided");
 }

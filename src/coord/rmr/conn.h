@@ -105,3 +105,8 @@ void MRConnManager_Shrink(MRConnManager *m, size_t num);
 void MRConnManager_Expand(MRConnManager *m, size_t num, uv_loop_t *loop);
 
 void MRConnManager_Free(MRConnManager *m);
+
+/*
+* Stop all the connections in the manager.
+*/
+void MRConnManager_Stop(MRConnManager *mgr);
