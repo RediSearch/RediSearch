@@ -299,12 +299,30 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       *papCtx->reqflags |= QEXEC_F_NO_SORT;
     } else {
       REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_HAS_SORTBY);
-      PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(papCtx->plan);
+      PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(papCtx->plan);
+      bool existingSort = (arng != NULL);
+      if (!arng) {
+        arng = NewArrangeStep();
+      }
       if (parseSortby(arng, ac, status, papCtx) != REDISMODULE_OK) {
+        if (!existingSort) {
+          arng->base.dtor(&arng->base);
+        }
         return ARG_ERROR;
       }
       if (array_len(arng->sortKeys) == 0) {
         REQFLAGS_RemoveFlags(papCtx->reqflags, QEXEC_F_HAS_SORTBY);
+        if (!existingSort) {
+          if (arng->limit > 0) {
+            // To support SORTBY 0 MAX n, we have a SORTER without any keys,
+            // but with a limit.
+            AGPLN_AddStep(papCtx->plan, &arng->base);
+          } else {
+            arng->base.dtor(&arng->base);
+          }
+        }
+      } else if (!existingSort) {
+        AGPLN_AddStep(papCtx->plan, &arng->base);
       }
     }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
@@ -1093,7 +1111,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 
   // Define if we need a depleter in the pipeline to get accurate total results
   if (IsAggregate(req) && HasWithCount(req)) {
-    if (!HasSortBy(req) && !HasGroupBy(req) && !IsCount(req)) {
+    if (!HasSortBy(req) && !HasGroupBy(req) && !IsCount(req) && !HasGroupBy(req)) {
       AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
     }
   }
