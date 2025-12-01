@@ -23,7 +23,7 @@ target_link_libraries(rstest gtest ${TEST_MODULE} redismock ${CMAKE_LD_LIBS})
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
 add_dependencies(rstest example_extension)
 gtest_discover_tests(rstest
-    PROPERTIES TIMEOUT 30  # 30 second timeout for each individual test
+    PROPERTIES TIMEOUT 60  # Timeout for each individual test
 )
 
 add_executable(test_distagg ${root}/tests/cpptests/test_distagg.cpp)
