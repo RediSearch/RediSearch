@@ -34,7 +34,7 @@ jobs:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: 'ubuntu:default,macos,alpine:3'  # on feature branches this should be 'all'
+      platform: 'ubuntu:noble,macos,alpine:3'  # on feature branches this should be 'all'
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
