@@ -353,7 +353,6 @@ pub unsafe extern "C" fn slots_tracker_check_availability(
 /// # Safety
 ///
 /// This function must be called from the main thread only.
-
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_reset() {
     with_tracker_mut(|tracker| {
