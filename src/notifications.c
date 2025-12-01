@@ -344,8 +344,11 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
   }
 }
 
-static RedisModuleTimerID checkTrimmingStateTimerId = 0;
-static RedisModuleTimerID enableTrimmingTimerId = 0;
+//TODO ASM: Check what should be this value
+#define UNITIALIZED_TIMER_ID 0
+
+static RedisModuleTimerID checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
+static RedisModuleTimerID enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
 
 static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
   RedisModuleSlotRangeArray *slots = (RedisModuleSlotRangeArray *)privdata;
@@ -356,8 +359,11 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
   if (ASM_CanStartTrimming()) {
     RedisModule_Log(ctx, "notice", "No queries using the old version, Enabling trimming.");
     RedisModule_StopTimer(ctx, checkTrimmingStateTimerId, NULL);
+    RedisModule_StopTimer(ctx, enableTrimmingTimerId, NULL);
+    checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
+    enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
     ASM_StateMachine_StartTrim(slots); // Make sure that the keypace version is updated, so new queries will already see the new version.
-    RedisModule_ReleaseClusterPolicy(ctx, REDISMODULE_CLUSTER_POLICY_NO_TRIM);
+    RedisModule_ReleaseClusterCapability(ctx, REDISMODULE_SERVER_CAPA_NO_TRIM);
   } else {
     RedisModule_Log(ctx, "notice", "Queries still using the old version, rescheduling check in %d milliseconds.", TRIMMING_STATE_CHECK_DELAY);
     checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, TRIMMING_STATE_CHECK_DELAY, checkTrimmingStateCallback, NULL);
@@ -372,8 +378,10 @@ static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
     RedisModule_Log(ctx, "notice", "Queries still using the old version, potential result inaccuracy.");
   }
   RedisModule_StopTimer(ctx, checkTrimmingStateTimerId, NULL);
+  checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
+  enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
   ASM_StateMachine_StartTrim(slots);  // Make sure that the keypace version is updated, so new queries will already see the new version.
-  RedisModule_ReleaseClusterPolicy(ctx, REDISMODULE_CLUSTER_POLICY_NO_TRIM);
+  RedisModule_ReleaseClusterCapability(ctx, REDISMODULE_SERVER_CAPA_NO_TRIM);
 }
 
 void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
@@ -408,7 +416,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       ASM_StateMachine_CompleteMigration(slots);
       // Start 2 timers. One for the minimal delay, and one for the maximal delay.
       RedisModule_Log(ctx, "notice", "Got ASM migrate completed event.");
-      RedisModule_AcquireClusterPolicy(ctx, REDISMODULE_CLUSTER_POLICY_NO_TRIM);
+      RedisModule_AcquireServerCapability(ctx, REDISMODULE_SERVER_CAPA_NO_TRIM);
       checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, MIN_TRIM_DELAY, checkTrimmingStateCallback, slots);
       enableTrimmingTimerId = RedisModule_CreateTimer(ctx, MAX_TRIM_DELAY, enableTrimmingCallback, slots);
       if (!IsEnterprise()) {
