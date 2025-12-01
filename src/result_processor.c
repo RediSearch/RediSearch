@@ -2377,7 +2377,7 @@ static int RPSyncDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
 /**
  * Synchronous Next function for RPSyncDepleter.
  */
-static int RPSyncDepleter_Next(ResultProcessor *base, SearchResult *r) {
+static int RPSyncDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
   RPSyncDepleter *self = (RPSyncDepleter *)base;
 
   // Call the sync depletion function directly
@@ -2405,7 +2405,7 @@ static void RPSyncDepleter_Free(ResultProcessor *base) {
 ResultProcessor *RPSyncDepleter_New() {
   RPSyncDepleter *ret = rm_calloc(1, sizeof(*ret));
   ret->results = array_new(SearchResult*, 0);
-  ret->base.Next = RPSyncDepleter_Next;
+  ret->base.Next = RPSyncDepleter_Next_Accumulate;
   ret->base.Free = RPSyncDepleter_Free;
   ret->base.type = RP_SYNC_DEPLETER;
   ret->depleted_results = 0;

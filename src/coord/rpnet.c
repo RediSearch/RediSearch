@@ -253,12 +253,6 @@ int getNextReply(RPNet *nc) {
       struct timespec absTimeout;
       struct timespec *timeoutPtr = calculateAbsTimeout(nc, &absTimeout);
 
-      if (nc->cmd.forCursor) {
-        if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
-          break;  // No more replies available
-        }
-      }
-
       // Get next reply with timeout
       bool nextTimedOut = false;
       MRReply *reply = MRIterator_NextWithTimeout(nc->it, timeoutPtr, &nextTimedOut);
