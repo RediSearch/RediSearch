@@ -44,6 +44,9 @@ RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
 # since the static libraries they depend on haven't been built yet.
 EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi"
 
+# Retrieve our pinned nightly version.
+NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
+
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
 # Parse command-line arguments and set configuration variables
@@ -171,6 +174,7 @@ setup_build_environment() {
   # Determine build flavor
   if [ "$SAN" == "address" ]; then
     FLAVOR="debug-asan"
+    export CARGO_BUILD_TARGET="$(rustc +$NIGHTLY_VERSION -vV | sed -n 's/host: //p')"
   elif [[ "$DEBUG" == "1" ]]; then
     FLAVOR="debug"
   elif [[ "$COV" == "1" ]]; then
@@ -379,6 +383,10 @@ prepare_cmake_arguments() {
   if [[ "$RUST_PROFILE" != "" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_PROFILE=$RUST_PROFILE"
   fi
+
+  if [[ -n "$CARGO_BUILD_TARGET" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCARGO_BUILD_TARGET=$CARGO_BUILD_TARGET"
+  fi
 }
 
 #-----------------------------------------------------------------------------
@@ -570,8 +578,6 @@ run_rust_tests() {
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
 
-  # Retrieve our pinned nightly version.
-  NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
 
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
