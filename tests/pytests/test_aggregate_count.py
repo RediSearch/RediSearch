@@ -370,47 +370,47 @@ def _test_profile(protocol):
         # WITHCOUNT
         # No sorter, no limit, returns all results
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT'],
-         ['Index', 'Sync Depleter'],
-         ['Index', 'Sync Depleter'],
-         [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter']],
-         [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter']]),
+         ['Index', 'Depleter'],
+         ['Index', 'Depleter'],
+         [['Index', 'Depleter'], ['Network', 'Depleter']],
+         [['Index', 'Depleter'], ['Network', 'Depleter']]),
 
         # WITHCOUNT + LIMIT 0 0
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 0],
          ['Index', 'Counter'],
          ['Index', 'Counter'],
-         [['Index', 'Sync Depleter'], ['Network', 'Counter']],
-         [['Index', 'Sync Depleter'], ['Network', 'Counter']]),
+         [['Index', 'Depleter'], ['Network', 'Counter']],
+         [['Index', 'Depleter'], ['Network', 'Counter']]),
 
         # WITHCOUNT + LIMIT
         # No sorter, limit results
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 50],
-         ['Index', 'Sync Depleter', 'Pager/Limiter'],
-         ['Index', 'Sync Depleter', 'Pager/Limiter'],
-         [['Index', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
-         [['Index', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
+         ['Index', 'Depleter', 'Pager/Limiter'],
+         ['Index', 'Depleter', 'Pager/Limiter'],
+         [['Index', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']],
+         [['Index', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']]),
 
         # WITHCOUNT + SORTBY 0
         # Sorter without keys, default limit
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0'],
-         ['Index', 'Sync Depleter'],
-         ['Index', 'Sync Depleter'],
-         [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter']],
-         [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter']]),
+         ['Index', 'Depleter'],
+         ['Index', 'Depleter'],
+         [['Index', 'Depleter'], ['Network', 'Depleter']],
+         [['Index', 'Depleter'], ['Network', 'Depleter']]),
 
         # WITHCOUNT + SORTBY 0 + MAX
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0', 'MAX', 3],
-         ['Index', 'Sync Depleter', 'Pager/Limiter'],
-         ['Index', 'Sync Depleter', 'Pager/Limiter'],
-         [['Index', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
-         [['Index', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
+         ['Index', 'Depleter', 'Pager/Limiter'],
+         ['Index', 'Depleter', 'Pager/Limiter'],
+         [['Index', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']],
+         [['Index', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']]),
 
         # WITHCOUNT + SORTBY 0 + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0', 'LIMIT', 0, 50],
-         ['Index', 'Sync Depleter', 'Pager/Limiter'],
-         ['Index', 'Sync Depleter', 'Pager/Limiter'],
-         [['Index', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
-         [['Index', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
+         ['Index', 'Depleter', 'Pager/Limiter'],
+         ['Index', 'Depleter', 'Pager/Limiter'],
+         [['Index', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']],
+         [['Index', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']]),
 
         # WITHCOUNT + SORTBY
         # Sorter, limit results to DEFAULT_LIMIT
@@ -429,17 +429,17 @@ def _test_profile(protocol):
 
         # WITHCOUNT + LOAD
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'],
-         ['Index', 'Loader', 'Sync Depleter'],
-         ['Index', 'Loader', 'Sync Depleter'],
-         [['Index', 'Loader', 'Sync Depleter'], ['Network', 'Sync Depleter']],
-         [['Index', 'Loader', 'Sync Depleter'], ['Network', 'Sync Depleter']]),
+         ['Index', 'Loader', 'Depleter'],
+         ['Index', 'Loader', 'Depleter'],
+         [['Index', 'Loader', 'Depleter'], ['Network', 'Depleter']],
+         [['Index', 'Loader', 'Depleter'], ['Network', 'Depleter']]),
 
         # WITHCOUNT + LOAD + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title', 'LIMIT', 0, 50],
-         ['Index', 'Loader', 'Sync Depleter', 'Pager/Limiter'],
-         ['Index', 'Loader', 'Sync Depleter', 'Pager/Limiter'],
-         [['Index', 'Loader', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
-         [['Index', 'Loader', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
+         ['Index', 'Loader', 'Depleter', 'Pager/Limiter'],
+         ['Index', 'Loader', 'Depleter', 'Pager/Limiter'],
+         [['Index', 'Loader', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']],
+         [['Index', 'Loader', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']]),
 
         # WITHCOUNT + GROUPBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand'],
@@ -471,10 +471,10 @@ def _test_profile(protocol):
 
         # WITHCOUNT + ADDSCORES
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES'],
-         ['Index', 'Scorer', 'Sync Depleter'],
-         ['Index', 'Scorer', 'Sync Depleter'],
-         [['Index', 'Scorer', 'Sync Depleter'], ['Network', 'Sync Depleter']],
-         [['Index', 'Scorer', 'Sync Depleter'], ['Network', 'Sync Depleter']]),
+         ['Index', 'Scorer', 'Depleter'],
+         ['Index', 'Scorer', 'Depleter'],
+         [['Index', 'Scorer', 'Depleter'], ['Network', 'Depleter']],
+         [['Index', 'Scorer', 'Depleter'], ['Network', 'Depleter']]),
 
         # WITHCOUNT + ADDSCORES + SORTBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'SORTBY', 1, '@title'],
@@ -485,24 +485,24 @@ def _test_profile(protocol):
 
         # WITHCOUNT + ADDSCORES + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LIMIT', 0, 50],
-         ['Index', 'Scorer', 'Sync Depleter', 'Pager/Limiter'],
-         ['Index', 'Scorer', 'Sync Depleter', 'Pager/Limiter'],
-         [['Index', 'Scorer', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
-         [['Index', 'Scorer', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
+         ['Index', 'Scorer', 'Depleter', 'Pager/Limiter'],
+         ['Index', 'Scorer', 'Depleter', 'Pager/Limiter'],
+         [['Index', 'Scorer', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']],
+         [['Index', 'Scorer', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']]),
 
         # WITHCOUNT + FILTER
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200'],
-         ['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter'],
-         ['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter'],
-         [['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter'], ['Network', 'Sync Depleter']],
-         [['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter'], ['Network', 'Sync Depleter']]),
+         ['Index', 'Loader', 'Filter - Predicate <', 'Depleter'],
+         ['Index', 'Loader', 'Filter - Predicate <', 'Depleter'],
+         [['Index', 'Loader', 'Filter - Predicate <', 'Depleter'], ['Network', 'Depleter']],
+         [['Index', 'Loader', 'Filter - Predicate <', 'Depleter'], ['Network', 'Depleter']]),
 
         # WITHCOUNT + FILTER + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200', 'LIMIT', 0, 50],
-         ['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter', 'Pager/Limiter'],
-         ['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter', 'Pager/Limiter'],
-         [['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
-         [['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
+         ['Index', 'Loader', 'Filter - Predicate <', 'Depleter', 'Pager/Limiter'],
+         ['Index', 'Loader', 'Filter - Predicate <', 'Depleter', 'Pager/Limiter'],
+         [['Index', 'Loader', 'Filter - Predicate <', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']],
+         [['Index', 'Loader', 'Filter - Predicate <', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']]),
 
         # ----------------------------------------------------------------------
         # WITHOUTCOUNT

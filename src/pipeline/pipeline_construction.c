@@ -175,7 +175,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     return up;
   }
 
-  bool RPSyncDepleterAdded = false;
+  bool RPDepleterAdded = false;
   bool RPPagerAdded = false;
 
   if (PipelineRequiresSorter(params)) {
@@ -225,9 +225,9 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
 
   if (astp->offset || (astp->limit && !rp)) {
     if (HasDepleter(&params->common)) {
-      rp = RPSyncDepleter_New();
+      rp = RPDepleter_New();
       up = pushRP(&pipeline->qctx, rp, up);
-      RPSyncDepleterAdded = true;
+      RPDepleterAdded = true;
     }
 
     rp = RPPager_New(astp->offset, astp->limit);
@@ -239,11 +239,11 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     RPPagerAdded = true;
   }
 
-  if (HasDepleter(&params->common)) { // We need to add a RPSyncDepleter
-    if (!RPSyncDepleterAdded) {
-      rp = RPSyncDepleter_New();
+  if (HasDepleter(&params->common)) { // We need to add a RPDepleter
+    if (!RPDepleterAdded) {
+      rp = RPDepleter_New();
       up = pushRP(&pipeline->qctx, rp, up);
-      RPSyncDepleterAdded = true;
+      RPDepleterAdded = true;
     }
 
     // Add Limiter at the coordinator when a depleter is required:
