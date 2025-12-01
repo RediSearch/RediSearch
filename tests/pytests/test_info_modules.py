@@ -1720,9 +1720,9 @@ def _test_pending_jobs_metrics(env, command_type):
     wait_for_condition(check_reset_metrics, "wait_for_workers_pending_jobs_metric_reset")
 
 def test_pending_jobs_metricsSearch():
-  env = Env('DEFAULT_DIALECT 2')
+  env = Env(moduleArgs='DEFAULT_DIALECT 2')
   _test_pending_jobs_metrics(env, 'SEARCH')
 
 def test_pending_jobs_metricsAggregate():
-  env = Env('DEFAULT_DIALECT 2')
+  env = Env(moduleArgs='DEFAULT_DIALECT 2')
   _test_pending_jobs_metrics(env, 'AGGREGATE')
