@@ -78,7 +78,7 @@ def wait_for_condition(check_fn, message):
                 timeout_msg['state'] = state
     except Exception as e:
         log = f"{message}: {timeout_msg}"
-        raise Exception(f'Timeout: {log}')
+        raise Exception(f'Error: {e}, log: {log}')
 
 class DialectEnv(Env):
     def __init__(self, *args, **kwargs):
