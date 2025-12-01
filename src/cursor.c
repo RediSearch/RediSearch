@@ -11,6 +11,7 @@
 #include <time.h>
 #include "rmutil/rm_assert.h"
 #include <err.h>
+#include "asm_state_machine.h"
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
 
@@ -118,12 +119,16 @@ static void Cursors_ForEach(CursorList *cl, void (*callback)(CursorList *, Curso
 typedef struct {
   uint64_t now;
   int numCollected;
+  bool asm_account_request_finished;
 } cursorGcCtx;
 
 static void cursorGcCb(CursorList *cl, Cursor *cur, void *arg) {
   cursorGcCtx *ctx = arg;
   if (cur->nextTimeoutNs <= ctx->now) {
     Cursor_RemoveFromIdle(cur);
+    if (ctx->asm_account_request_finished) {
+      ASM_AccountRequestFinished(cur->execState->keySpaceVersion, 1);
+    }
     Cursor_FreeInternal(cur);
     ctx->numCollected++;
   }
@@ -143,7 +148,7 @@ static void cursorGcCb(CursorList *cl, Cursor *cur, void *arg) {
  * Assumed to be called under the cursors global lock or upon server shut down.
  *
  */
-static int Cursors_GCInternal(CursorList *cl, int force) {
+static int Cursors_GCInternal(CursorList *cl, int force, bool asm_account_request_finished) {
   uint64_t now = curTimeNs();
   if ((cl->nextIdleTimeoutNs && cl->nextIdleTimeoutNs > now) ||
       (!force && now - cl->lastCollect < RSCURSORS_SWEEP_THROTTLE)) {
@@ -151,14 +156,14 @@ static int Cursors_GCInternal(CursorList *cl, int force) {
   }
 
   cl->lastCollect = now;
-  cursorGcCtx ctx = {.now = now};
+  cursorGcCtx ctx = {.now = now, .asm_account_request_finished = asm_account_request_finished};
   Cursors_ForEach(cl, cursorGcCb, &ctx);
   return ctx.numCollected;
 }
 
-int Cursors_CollectIdle(CursorList *cl) {
+int Cursors_CollectIdle(CursorList *cl, bool asm_account_request_finished) {
   CursorList_Lock(cl);
-  int rc = Cursors_GCInternal(cl, 1);
+  int rc = Cursors_GCInternal(cl, 1, asm_account_request_finished);
   CursorList_Unlock(cl);
   return rc;
 }
@@ -179,7 +184,7 @@ CursorsInfoStats Cursors_GetInfoStats(void) {
 // The cursors list is assumed to be locked upon calling this function
 static void CursorList_IncrCounter(CursorList *cl) {
   if (++cl->counter % RSCURSORS_SWEEP_INTERVAL == 0) {
-    Cursors_GCInternal(cl, 0);
+    Cursors_GCInternal(cl, 0, false);
   }
 }
 
@@ -216,7 +221,7 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
   // If we are in a coordinator ctx, the spec is NULL
   if (spec && spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
     /** Collect idle cursors now */
-    Cursors_GCInternal(cl, 0);
+    Cursors_GCInternal(cl, 0, false);
     if (spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "INDEX_CURSOR_LIMIT of %lld has been reached for an index", RSGlobalConfig.indexCursorLimit);
       goto done;
@@ -303,6 +308,7 @@ int Cursors_Purge(CursorList *cl, uint64_t cid) {
     if (Cursor_IsIdle(cur)) {
       // Cursor is idle, we can free it (regardless of ownership)
       Cursor_RemoveFromIdle(cur);
+      ASM_AccountRequestFinished(cur->execState->keySpaceVersion, 1);
       Cursor_FreeInternal(cur);
     } else {
       // Cursor is not idle, and we don't own it. We need to mark it for deletion.

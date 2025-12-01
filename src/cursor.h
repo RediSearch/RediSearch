@@ -188,7 +188,7 @@ int Cursor_Free(Cursor *cl);
  */
 int Cursors_Purge(CursorList *cl, uint64_t cid);
 
-int Cursors_CollectIdle(CursorList *cl);
+int Cursors_CollectIdle(CursorList *cl, bool asm_account_request_finished);
 
 typedef struct CursorsInfoStats {
   size_t total_user;                // total number of cursors created explicitly by user commands

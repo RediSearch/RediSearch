@@ -31,6 +31,7 @@
 #include "value.h"
 #include "module.h"
 #include "aggregate/reply_empty.h"
+#include "asm_state_machine.h"
 
 #include <time.h>
 
@@ -540,7 +541,7 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     // TODO: Dump the entire hreq when explain is implemented
     // Create a dummy AREQ for BlockQueryClient (it expects an AREQ but we'll use the first one)
     AREQ *dummy_req = hreq->requests[0];
-    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, dummy_req, 0);
+    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, dummy_req, true);
 
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(StrongRef_Clone(hybrid_ref), hybridParams, blockedClient, spec_ref, internal);
 
@@ -557,7 +558,10 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     return REDISMODULE_OK;
   } else {
     // Single-threaded execution path
-    return buildPipelineAndExecute(hybrid_ref, hybridParams, ctx, sctx, status, internal, false);
+    int rc = buildPipelineAndExecute(hybrid_ref, hybridParams, ctx, sctx, status, internal, false);
+    // We assume that the KeySpaceVersion is the same for all subrequests (as they have been parsed in the main thread)
+    ASM_AccountRequestFinished(hreq->requests[0]->keySpaceVersion, HYBRID_REQUEST_NUM_SUBQUERIES);
+    return rc;
   }
 }
 

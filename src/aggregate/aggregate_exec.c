@@ -30,7 +30,7 @@
 #include "module.h"
 #include "result_processor.h"
 #include "reply_empty.h"
-
+#include "asm_state_machine.h"
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
@@ -1062,7 +1062,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   if (RunInThread()) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
-    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, r, 0);
+    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, r, false);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
@@ -1094,6 +1094,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       }
     } else {
       AREQ_Execute(r, ctx);
+      ASM_AccountRequestFinished(r->keySpaceVersion, 1);
     }
   }
 
@@ -1405,12 +1406,13 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
     if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
       CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
-      cr_ctx->bc = BlockCursorClient(ctx, cursor, count, 0);
+      cr_ctx->bc = BlockCursorClient(ctx, cursor, count);
       cr_ctx->cursor = cursor;
       cr_ctx->count = count;
       workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
     } else {
       cursorRead(reply, cursor, count, false);
+      ASM_AccountRequestFinished(cursor->execState->keySpaceVersion, 1);
     }
   } else if (strcasecmp(cmd, "PROFILE") == 0) {
     // Return profile
@@ -1443,6 +1445,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
     // Free the cursor
+    ASM_AccountRequestFinished(req->keySpaceVersion, 1);
     Cursor_Free(cursor);
   } else if (strcasecmp(cmd, "DEL") == 0) {
     int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
@@ -1452,8 +1455,10 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_Reply_SimpleString(reply, "OK");
     }
   } else if (strcasecmp(cmd, "GC") == 0) {
-    int rc = Cursors_CollectIdle(&g_CursorsList);
-    rc += Cursors_CollectIdle(&g_CursorsListCoord);
+    // Here for each cursor list we need to account for the number of queries that were executed and call
+    // ASM_AccountRequestFinished for each one of them.
+    int rc = Cursors_CollectIdle(&g_CursorsList, true);
+    rc += Cursors_CollectIdle(&g_CursorsListCoord, false);
     RedisModule_Reply_LongLong(reply, rc);
   } else {
     RedisModule_Reply_Error(reply, "Unknown subcommand");

@@ -170,6 +170,15 @@ static inline uint32_t ASM_KeySpaceVersionTracker_GetTrackedVersionsCount() {
   return kh_size(query_key_space_version_map);
 }
 
+static int ASM_AccountRequestFinished(uint32_t keySpaceVersion, size_t innerQueriesCount) {
+  if (keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+    for (size_t i = 0; i < innerQueriesCount; i++) {
+      ASM_KeySpaceVersionTracker_DecreaseQueryCount(keySpaceVersion);
+    }
+  }
+  return REDISMODULE_OK;
+}
+
 // END KEY SPACE VERSION QUERY TRACKER IMPLEMENTATION
 
 /**
