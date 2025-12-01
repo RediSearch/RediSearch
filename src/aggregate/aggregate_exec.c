@@ -1473,10 +1473,25 @@ int RSCursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
-  int rc = Cursors_CollectIdle(&g_CursorsList);
-  rc += Cursors_CollectIdle(&g_CursorsListCoord);
+  // Collect idle cursors from both local and coord lists
+  int ret_local = Cursors_CollectIdle(&g_CursorsList);
+  int ret_coord = Cursors_CollectIdle(&g_CursorsListCoord);
 
-  return RedisModule_ReplyWithLongLong(ctx, rc);
+  // `Cursors_CollectIdle` returns -1 if no cursors were expired (quick check),
+  // otherwise it returns the number of collected cursors (which can be 0, if there were no idle+expired cursors).
+  // We want to return -1 only if both lists returned -1, otherwise we sum the non-negative results.
+  int ret;
+  if (ret_local < 0 && ret_coord < 0) {
+    ret = -1;
+  } else if (ret_local < 0) {
+    ret = ret_coord;
+  } else if (ret_coord < 0) {
+    ret = ret_local;
+  } else {
+    ret = ret_local + ret_coord;
+  }
+
+  return RedisModule_ReplyWithLongLong(ctx, ret);
 }
 
 /* ======================= DEBUG ONLY ======================= */
