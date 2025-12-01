@@ -9,10 +9,25 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
 
-  run-on-intel:
-    uses: ./.github/workflows/flow-intel.yml
-    secrets: inherit
+  collect-merge-queue-stats:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Collect merge queue statistics
+        run: python scripts/collect_merge_queue_stats.py
+
+      - name: Upload merge queue stats
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: merge-queue-stats
+          path: merge_queue_*.json
+          retention-days: 30
