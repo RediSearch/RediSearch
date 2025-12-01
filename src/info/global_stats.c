@@ -182,8 +182,8 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   // Workers stats
   // We don't use workersThreadPool_getStats here to avoid the overhead of locking the thread pool.
   stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
-  stats.low_priority_pending_jobs = workersThreadPool_LowPriorityPendingJobsCount();
-  stats.high_priority_pending_jobs = workersThreadPool_HighPriorityPendingJobsCount();
+  stats.workers_low_priority_pending_jobs = workersThreadPool_LowPriorityPendingJobsCount();
+  stats.workers_high_priority_pending_jobs = workersThreadPool_HighPriorityPendingJobsCount();
 
   // Coordinator stats
   stats.active_coord_threads = ConcurrentSearchPool_WorkingThreadCount();
