@@ -11,6 +11,7 @@
 #include "redismodule.h"
 #include  <stdbool.h>
 #include <stdatomic.h>
+#include "result_processor.h"
 
 #define RS_DEBUG_FLAGS 0, 0, 0
 #define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -33,14 +34,30 @@ typedef struct BgIndexingDebugCtx {
 
 } BgIndexingDebugCtx;
 
+// Struct used for debugging queries
+// Note: unrelated to timeout debugging
+typedef struct QueryDebugCtx {
+  volatile atomic_bool pause; // Volatile atomic bool to wait for the resume command
+  ResultProcessor *debugRP; // Result processor for debugging, supports debugging one query at a time
+} QueryDebugCtx;
+
 // General debug context
 typedef struct DebugCTX {
   bool debugMode; // Indicates whether debug mode is enabled
   BgIndexingDebugCtx bgIndexing; // Background indexing debug context
+  QueryDebugCtx query; // Query debug context
 } DebugCTX;
 
 // Should be called after each debug command that changes the debugCtx
+// Exception for QueryDebugCtx
 void validateDebugMode(DebugCTX *debugCtx);
+
+// QueryDebugCtx API function declarations
+bool QueryDebugCtx_IsPaused(void);
+void QueryDebugCtx_SetPause(bool pause);
+ResultProcessor* QueryDebugCtx_GetDebugRP(void);
+void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP);
+bool QueryDebugCtx_HasDebugRP(void);
 
 // Yield counter functions
 void IncrementLoadYieldCounter(void);

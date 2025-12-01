@@ -64,6 +64,7 @@ typedef enum {
   // Debug only result processors
   RP_TIMEOUT,
   RP_CRASH,
+  RP_PAUSE,
   RP_MAX_DEBUG
 } ResultProcessorType;
 
@@ -286,8 +287,25 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryIterator *qiter);
 
+ /*******************************************************************************************************************
+  *  Normalizer Result Processor
+  *
+  * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
+  * First accumulates all results from the upstream, then normalizes and yields them.
+  *******************************************************************************************************************/
+ ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
+
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);
+
+// Return RPType for string
+ResultProcessorType StringToRPType(const char *str);
+
+
+/*******************************************************************************************************************
+ *  Debug only result processors
+ *
+ * *******************************************************************************************************************/
 
 /*******************************************************************************************************************
  *  Timeout Processor - DEBUG ONLY
@@ -305,13 +323,15 @@ void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
 ResultProcessor *RPCrash_New();
 void PipelineAddCrash(struct AREQ *r);
 
- /*******************************************************************************************************************
-  *  Normalizer Result Processor
-  *
-  * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
-  * First accumulates all results from the upstream, then normalizes and yields them.
-  *******************************************************************************************************************/
- ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
+/*******************************************************************************************************************
+ *  Pause Processor - DEBUG ONLY
+ *
+ * Pauses the query after N results, N >= 0.
+ *******************************************************************************************************************/
+ResultProcessor *RPPauseAfterCount_New(size_t count);
+
+// Adds a pause processor after N results, before/after a specific RP type
+bool PipelineAddPauseRPcount(struct AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type, QueryError *status);
 
 #ifdef __cplusplus
 }

@@ -847,8 +847,14 @@ def VerifyTimeoutWarningResp3(env, res, message="", depth=0):
     if (res['warning']):
         env.assertContains("Timeout", res["warning"][0], message=message + " expected timeout warning", depth=depth+1)
 
+def parseDebugQueryCommandArgs(query_cmd, debug_params):
+    return [*query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)]
+
 def runDebugQueryCommand(env, query_cmd, debug_params):
-    return env.cmd(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params))
+    # Use the helper function to build the argument list
+    args = parseDebugQueryCommandArgs(query_cmd, debug_params)
+    return env.cmd(debug_cmd(), *args)
+
 
 def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, internal_only=False):
     debug_params = ['TIMEOUT_AFTER_N', timeout_res_count]
@@ -859,6 +865,38 @@ def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, interna
 def runDebugQueryCommandAndCrash(env, query_cmd):
     debug_params = ['CRASH']
     return env.expect(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)).error()
+
+
+
+def runDebugQueryCommandPauseAfterRPAfterN(env, query_cmd, rp_type, pause_after_n):
+    debug_params = ['PAUSE_AFTER_RP_N', rp_type, pause_after_n]
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def runDebugQueryCommandPauseBeforeRPAfterN(env, query_cmd, rp_type, pause_after_n, extra_args=None):
+    debug_params = ['PAUSE_BEFORE_RP_N', rp_type, pause_after_n]
+    if extra_args:
+        debug_params.extend(extra_args)
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def getIsRPPaused(env):
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_RP_PAUSED')
+
+def setPauseRPResume(env):
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
+
+def allShards_getIsRPPaused(env):
+    results = []
+    for shardId in range(1, env.shardsCount + 1):
+        result = env.getConnection(shardId).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_RP_PAUSED')
+        results.append(result)
+    return results
+
+def allShards_setPauseRPResume(env):
+    results = []
+    for shardId in range(1, env.shardsCount + 1):
+        result = env.getConnection(shardId).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
+        results.append(result)
+    return results
 
 def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):
