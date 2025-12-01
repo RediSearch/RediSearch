@@ -9,7 +9,6 @@ from functools import wraps
 import signal
 import platform
 import itertools
-import threading
 from redis.client import NEVER_DECODE
 from redis import exceptions as redis_exceptions
 import RLTest
@@ -856,7 +855,6 @@ def runDebugQueryCommandAndCrash(env, query_cmd):
     debug_params = ['CRASH']
     return env.expect(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)).error()
 
-
 def runDebugQueryCommandPauseAfterRPAfterN(env, query_cmd, rp_type, pause_after_n):
     debug_params = ['PAUSE_AFTER_RP_N', rp_type, pause_after_n]
     return runDebugQueryCommand(env, query_cmd, debug_params)
@@ -880,9 +878,9 @@ def allShards_getIsRPPaused(env):
         results.append(result)
     return results
 
-def allShards_setPauseRPResume(env, start_shard=1):
+def allShards_setPauseRPResume(env):
     results = []
-    for shardId in range(start_shard, env.shardsCount + 1):
+    for shardId in range(1, env.shardsCount + 1):
         result = env.getConnection(shardId).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
         results.append(result)
     return results

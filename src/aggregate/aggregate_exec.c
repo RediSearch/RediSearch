@@ -24,6 +24,7 @@
 #include "aggregate_debug.h"
 #include "info/info_redis/block_client.h"
 #include "info/info_redis/threads/current_thread.h"
+#include "module.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -42,6 +43,10 @@ typedef struct {
 } blockedClientReqCtx;
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
+static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                             CommandType type, int execOptions);
+typedef int (*execCommandCommonHandler)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                             CommandType type, int execOptions);
 
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
@@ -1131,9 +1136,14 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 
 error:
+  // Update global query errors statistics before freeing the request.
+  // Both SA and internal are considered shards.
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, SHARD_ERR_WARN);
+
   if (r) {
     AREQ_Free(r);
   }
+
   return QueryError_ReplyAndClear(ctx, &status);
 }
 
@@ -1153,11 +1163,15 @@ RedisModuleString **_profileArgsDup(RedisModuleString **argv, int argc, int para
   memcpy(newArgv, argv, PROFILE_1ST_PARAM * sizeof(*newArgv));
   // copy non-profile commands
   memcpy(newArgv + PROFILE_1ST_PARAM, argv + PROFILE_1ST_PARAM + params,
-          (argc - PROFILE_1ST_PARAM - params) * sizeof(*newArgv));
+         (argc - PROFILE_1ST_PARAM - params) * sizeof(*newArgv));
   return newArgv;
 }
 
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return RSProfileCommandImp(ctx, argv, argc, false);
+}
+
+int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1165,6 +1179,13 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   CommandType cmdType;
   int curArg = PROFILE_1ST_PARAM;
   int withProfile = EXEC_WITH_PROFILE;
+  execCommandCommonHandler execCommandHandlerFunc = execCommandCommon;
+
+  // Check if this is a debug command
+  if (isDebug) {
+    execCommandHandlerFunc = DEBUG_execCommandCommon;
+    withProfile |= EXEC_DEBUG;
+  }
 
   // Check the command type
   const char *cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
@@ -1190,7 +1211,9 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   int newArgc = argc - curArg + PROFILE_1ST_PARAM;
   RedisModuleString **newArgv = _profileArgsDup(argv, argc, curArg - PROFILE_1ST_PARAM);
-  execCommandCommon(ctx, newArgv, newArgc, cmdType, withProfile);
+
+  execCommandHandlerFunc(ctx, newArgv, newArgc, cmdType, withProfile);
+
   rm_free(newArgv);
   return REDISMODULE_OK;
 }

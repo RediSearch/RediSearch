@@ -1,4 +1,6 @@
 from common import *
+import threading
+import time
 
 class TestDebugCommands(object):
 
@@ -57,12 +59,15 @@ class TestDebugCommands(object):
             "INDEXES",
             "INFO",
             'GET_HIDE_USER_DATA_FROM_LOGS',
-            'YIELDS_ON_LOAD_COUNTER',
+            'YIELDS_COUNTER',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
+            'QUERY_CONTROLLER',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',
             '_FT.SEARCH',
+            'FT.PROFILE',
+            '_FT.PROFILE',
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
@@ -70,7 +75,7 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
-                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS', 'YIELDS_ON_LOAD_COUNTER']
+                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
@@ -672,10 +677,10 @@ class TestQueryDebugCommands(object):
         debug_params = ['INTERNAL_ONLY', 'TIMEOUT_AFTER_N', 'DEBUG_PARAMS_COUNT', 2]
         expectError(debug_params, 'TIMEOUT_AFTER_N: Expected an argument, but none provided')
 
-        # INTERNAL_ONLY without TIMEOUT_AFTER_N
+        # INTERNAL_ONLY without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N
         debug_params = ['INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 1]
-        expectError(debug_params, 'INTERNAL_ONLY must be used with TIMEOUT_AFTER_N')
-        expectError(debug_params, 'INTERNAL_ONLY must be used with TIMEOUT_AFTER_N')
+        expectError(debug_params, 'INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N')
+        expectError(debug_params, 'INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N')
 
     def QueryDebug(self):
         env = self.env
@@ -1031,8 +1036,492 @@ def test_update_debug_scanner_config(env):
 @skip(cluster=True)
 def test_yield_counter(env):
     # Giving wrong arity
-    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER','ExtraARG1','ExtraARG2').error()\
+    env.expect(debug_cmd(), 'YIELDS_COUNTER','ExtraARG1','ExtraARG2').error()\
     .contains('wrong number of arguments')
     # Giving wrong subcommand
-    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'NOT_A_COMMAND').error()\
+    env.expect(debug_cmd(), 'YIELDS_COUNTER', 'NOT_A_COMMAND').error()\
     .contains('Unknown subcommand')
+
+@skip(cluster=True)
+def test_query_controller(env):
+    # Giving wrong arity
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER').error()\
+    .contains('wrong number of arguments')
+    # Giving wrong subcommand
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'NOT_A_COMMAND').error()\
+    .contains("Invalid command for 'QUERY_CONTROLLER'")
+
+@skip(cluster=True)
+def test_query_controller_pause_and_resume(env):
+
+    # Giving wrong arity
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME', 'ExtraARG').error()\
+    .contains('wrong number of arguments')
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_RP_PAUSED', 'ExtraARG').error()\
+    .contains('wrong number of arguments')
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM', 'ExtraARG').error()\
+    .contains('wrong number of arguments')
+
+    # Test error when trying to resume when no query is paused
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME').error()\
+    .contains('Query is not paused')
+
+    # Test error when trying to print RP stream when no debug RP is set
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM').error()\
+    .contains('No debug RP is set')
+
+    # Set workers to 2 to make sure the query can be paused
+    # 1 worker is for testing we can't debug multiple queries
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', 2).ok()
+
+    # Create 1 docs
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
+
+    # Helper to call a function and push its return value into a list
+    def _call_and_store(fn, args, out_list):
+        out_list.append(fn(*args))
+
+    queries_completed = 0
+
+    for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
+        # We need to call the queries in MT so the paused query won't block the test
+        query_result = []
+
+        # Build threads
+        t_query = threading.Thread(
+            target=_call_and_store,
+            args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                (env, [query_type, 'idx', '*'], 'Index', 0, ['INTERNAL_ONLY'] if query_type == 'FT.AGGREGATE' else None),
+                query_result),
+            daemon=True
+        )
+
+        # Start the query and the pause-check in parallel
+        t_query.start()
+
+        while getIsRPPaused(env) != 1:
+            time.sleep(0.1)
+
+        # Test error when trying to create multiple debug RPs (should fail with "Failed to create pause RP or another debug RP is already set")
+        # This tests the error case in PipelineAddPauseRPcount when RPPauseAfterCount_New returns NULL
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_BEFORE_RP_N', 'Index', 0, 'PAUSE_AFTER_RP_N', 'Sorter', 0, 'DEBUG_PARAMS_COUNT', 6).error()\
+        .contains('Failed to create pause RP or another debug RP is already set')
+        # The query above completed even though it failed
+        queries_completed += 1
+
+        # If we are here, the query is paused
+        # Verify we have 1 active query
+        active_queries = env.cmd('INFO', 'MODULES')['search_total_active_queries']
+        env.assertEqual(active_queries, 1)
+
+        # Test PRINT_RP_STREAM
+        rp_stream = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM')
+        if query_type == 'FT.SEARCH':
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','Sorter','Scorer','DEBUG_RP','Index'])
+        if query_type == 'FT.AGGREGATE':
+            env.assertEqual(rp_stream, ['DEBUG_RP','Index'])
+
+        # Resume the query
+        setPauseRPResume(env)
+
+        t_query.join()
+
+        queries_completed += 1
+
+        # Verify the query returned only 1 result
+        env.assertEqual(query_result[0][0], 1)
+
+@skip(cluster=True)
+def test_query_controller_add_before_after(env):
+    # Set workers to 1 to make sure the query can be paused
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    # Create 1 docs
+    env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
+
+    # Check error when workers is 0
+    env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_BEFORE_RP_N', 'Index', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+    .contains("Query PAUSE_BEFORE_RP_N is only supported with WORKERS")
+
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', 1).ok()
+
+    # Check error when insert after Index RP
+    env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_AFTER_RP_N', 'Index', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+    .contains("Index RP type not found in stream or tried to insert after last RP")
+
+    for before in [True, False]:
+
+        target_func = runDebugQueryCommandPauseBeforeRPAfterN if before else runDebugQueryCommandPauseAfterRPAfterN
+
+        # Check wrong RP type error
+        cmd_str = 'BEFORE' if before else 'AFTER'
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'InvalidRP', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+        .contains(f"InvalidRP is an invalid PAUSE_{cmd_str}_RP_N RP type")
+        # Check RP type that is not in the stream
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'Highlighter', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+        .contains(f"Highlighter RP type not found in stream or tried to insert after last RP")
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'Highlighter', -1, 'DEBUG_PARAMS_COUNT', 3).error()\
+        .contains(f"Invalid PAUSE_{cmd_str}_RP_N count")
+        # Build threads
+        t_query = threading.Thread(
+            target=target_func,
+            args=(env,['FT.SEARCH', 'idx', '*'], 'Sorter', 0),
+            daemon=True
+        )
+
+        # Start the query and the pause-check in parallel
+        t_query.start()
+
+        while getIsRPPaused(env) != 1:
+            time.sleep(0.1)
+        rp_stream = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM')
+        if before:
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','DEBUG_RP','Sorter','Scorer','Index'])
+        else:
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','Sorter','DEBUG_RP','Scorer','Index'])
+
+        # Resume the query
+        setPauseRPResume(env)
+        t_query.join()
+
+@skip(cluster=False)
+def test_cluster_query_controller_pause_and_resume():
+    # Set workers to 1 on all shards to make sure queries can be paused
+    env = Env(moduleArgs='WORKERS 1')
+
+    conn = getConnectionByEnv(env)
+
+    # Create index
+    res = conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.assertEqual(res, 'OK')
+
+    n_docs_per_shard = 100
+    # Enough docs to make sure we have results from all shards
+    n_docs = n_docs_per_shard * env.shardsCount
+    for i in range(n_docs):
+        res = conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
+        env.assertEqual(res, 1)
+
+
+    # Helper to call a function and push its return value into a list
+    def _call_and_store(fn, args, out_list):
+        out_list.append(fn(*args))
+
+    for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
+        # We need to call the queries in MT so the paused query won't block the test
+        query_result = []
+
+        # Build threads
+        query_args = [query_type, 'idx', '*']
+        if query_type == 'FT.AGGREGATE':
+            query_args.append('LOAD')
+            query_args.append(1)
+            query_args.append('@t')
+
+        t_query = threading.Thread(
+            target=_call_and_store,
+            args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                (env, query_args, 'Index', 0, ['INTERNAL_ONLY'] if query_type == 'FT.AGGREGATE' else None),
+                query_result),
+            daemon=True
+        )
+
+        # Start the query and the pause-check in parallel
+        t_query.start()
+
+        # Wait for any shard to be paused
+        while False in allShards_getIsRPPaused(env):
+            time.sleep(0.1)
+
+        # If we are here, at least one query is paused
+        # Verify that we have active queries across the cluster
+        for shard_id in range(1, env.shardsCount + 1):
+            active_queries = env.getConnection(shard_id).execute_command('INFO', 'MODULES')['search_total_active_queries']
+            env.assertEqual(active_queries, 1)
+
+        # Resume all shards
+        allShards_setPauseRPResume(env)
+
+        t_query.join()
+
+        if query_type == 'FT.SEARCH':
+            env.assertEqual(query_result[0][0], n_docs)
+        else:
+            env.assertEqual(len(query_result[0]) - 1, n_docs)
+
+@skip(cluster=False)
+def test_cluster_query_controller_pause_and_resume_coord(env):
+
+    conn = getConnectionByEnv(env)
+
+    # Create index
+    res = conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.assertEqual(res, 'OK')
+
+    n_docs_per_shard = 100
+    # Enough docs to make sure we have results from all shards
+    n_docs = n_docs_per_shard * env.shardsCount
+    for i in range(n_docs):
+        res = conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
+        env.assertEqual(res, 1)
+
+    # Check error when insert after Network RP
+    env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'PAUSE_AFTER_RP_N', 'Network', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+    .contains("Network RP type not found in stream or tried to insert after last RP")
+
+    # Helper to call a function and push its return value into a list
+    def _call_and_store(fn, args, out_list):
+        out_list.append(fn(*args))
+
+    # We need to call the queries in MT so the paused query won't block the test
+    query_result = []
+
+    # Build threads
+    query_args = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t']
+
+    t_query = threading.Thread(
+        target=_call_and_store,
+        args=(runDebugQueryCommandPauseBeforeRPAfterN,
+            (env, query_args, 'Network', 0),
+            query_result),
+        daemon=True
+    )
+
+    # Start the query and the pause-check in parallel
+    t_query.start()
+
+    # Wait for the coordinator to be paused
+    while getIsRPPaused(env) != 1:
+        time.sleep(0.1)
+
+    # Resume the coordinator
+    setPauseRPResume(env)
+
+    t_query.join()
+
+    env.assertEqual(len(query_result[0]) - 1, n_docs)
+
+class ProfileDebugSA:
+    @staticmethod
+    def createIndex(env):
+        skipTest(cluster=True)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
+        env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+        conn = getConnectionByEnv(env)
+        for i in range(10):
+            conn.execute_command('HSET', f'doc{i}', 't', f"hello{i}")
+    @staticmethod
+    def get_profile_data(res, cmd_type):
+        if isinstance(res, dict):  # RESP3
+            return {
+                'results_count': len(res['Results']['results']),
+                'profile': res['Profile']['Shards'][0]
+            }
+        else:  # RESP2
+            # RESP2 format: [results_array, profile_array]
+            return {
+                'results_count': len(res[0]) - 1 if cmd_type == 'AGGREGATE' else len(res[0][1:]) // 2,  # Subtract 1 for total count
+                'profile': res[1][1][0]
+            }
+
+    # Helper to get value from profile sections
+    @staticmethod
+    def get_section(profile_sections, key):
+        if isinstance(profile_sections, dict):  # RESP3
+            return profile_sections.get(key)
+        else:  # RESP2
+            return profile_sections[profile_sections.index(key) + 1]
+
+    @staticmethod
+    def get_field(item, field_name):
+        if isinstance(item, dict):  # RESP3
+            return item.get(field_name)
+        else:  # RESP2
+            return item[item.index(field_name) + 1]
+
+    @staticmethod
+    def ProfileDebugTimeout(env, command_type, protocol):
+        conn = getConnectionByEnv(env)
+        message_prefix = f"command_type: {command_type}, protocol: {protocol}"
+
+        # Run baseline normal query to get expected structure
+        baseline_query = ['FT.PROFILE', 'idx', command_type, 'QUERY', '@t:hello*']
+        baseline_res = conn.execute_command(*baseline_query)
+        baseline_data = ProfileDebugSA.get_profile_data(baseline_res, command_type)
+        baseline_profile = baseline_data['profile']
+
+        # Run debug query with TIMEOUT_AFTER_N
+        results_count = 5
+        debug_res = runDebugQueryCommandTimeoutAfterN(env, baseline_query, results_count)
+        debug_data = ProfileDebugSA.get_profile_data(debug_res, command_type)
+        debug_profile = debug_data['profile']
+
+        # Verify both return same number of results
+        env.assertEqual(debug_data['results_count'], results_count,
+                        message=f"{message_prefix}: Debug should return expected number of results")
+
+        # Both should have same number of entries in baseline_iterators
+        baseline_iterators = ProfileDebugSA.get_section(baseline_profile, 'Iterators profile')
+        debug_iterators = ProfileDebugSA.get_section(debug_profile, 'Iterators profile')
+        env.assertEqual(countFlatElements(baseline_iterators), countFlatElements(debug_iterators),
+                        message=f"{message_prefix}: Baseline and debug should have same number of entries in iterators profile. baseline: {countFlatElements(baseline_iterators)}, debug: {countFlatElements(debug_iterators)}")
+
+        # Verify Result processors profile structure matches
+        baseline_rp = ProfileDebugSA.get_section(baseline_profile, 'Result processors profile')
+        debug_rp = ProfileDebugSA.get_section(debug_profile, 'Result processors profile')
+
+        # Both should have same number of RPs
+        env.assertEqual(len(baseline_rp), len(debug_rp),
+                        message=f"{message_prefix}: Baseline and debug should have same number of result processors. baseline: {baseline_rp}, debug: {debug_rp}")
+
+        # Verify each RP has same Type
+        for i, (baseline_rp_item, debug_rp_item) in enumerate(zip(baseline_rp, debug_rp)):
+            baseline_type = ProfileDebugSA.get_field(baseline_rp_item, 'Type')
+            debug_type = ProfileDebugSA.get_field(debug_rp_item, 'Type')
+            env.assertEqual(baseline_type, debug_type,
+                            message=f"{message_prefix}: RP {i}: Type should match baseline")
+
+            # Verify no "Debug" type appears (debug RPs should be skipped)
+            env.assertNotEqual(debug_type, 'Debug',
+                                message=f"{message_prefix}: RP {i}: Debug RP should not appear in Result processors profile")
+
+        # Verify debug has timeout warning
+        debug_warning = ProfileDebugSA.get_section(debug_profile, 'Warning')
+        env.assertIsNotNone(debug_warning, message="Debug should have timeout warning")
+        env.assertContains('Timeout', str(debug_warning), message="Debug warning should contain 'Timeout'")
+
+class TestProfileDebugSAResp2(object):
+    def __init__(self):
+        env = Env(protocol=2)
+        ProfileDebugSA.createIndex(env)
+        self.env = env
+
+    def testProfileTimeoutSearchResp2(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "SEARCH", 2)
+    def testProfileTimeoutAggregateResp2(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "AGGREGATE", 2)
+
+class TestProfileDebugSAResp3(object):
+    def __init__(self):
+        env = Env(protocol=3)
+        ProfileDebugSA.createIndex(env)
+        self.env = env
+
+    def testProfileTimeoutSearchResp3(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "SEARCH", 3)
+    def testProfileTimeoutAggregateResp3(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "AGGREGATE", 3)
+
+class ProfileDebugCluster:
+    @staticmethod
+    def createIndex(env):
+        skipTest(cluster=False)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
+        run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+        conn = getConnectionByEnv(env)
+        for i in range(20):
+            conn.execute_command('HSET', f'doc{i}', 't', f"hello{i}")
+
+    @staticmethod
+    def get_profile_data(res, cmd_type):
+        if isinstance(res, dict):  # RESP3
+            return {
+                'results_count': len(res['Results']['results']),
+                'shards_profile': res['Profile']['Shards'],
+                'coordinator_profile': res['Profile']['Coordinator']
+            }
+        else:  # RESP2
+            # RESP2 format: [results_array, profile_array]
+            return {
+                'results_count': len(res[0]) - 1 if cmd_type == 'AGGREGATE' else len(res[0][1:]) // 2,  # Subtract 1 for total count
+                'shards_profile': res[1][1],
+                'coordinator_profile': res[1][res[1].index('Coordinator') + 1]
+            }
+
+    # Helper to get value from profile sections
+    @staticmethod
+    def get_section(profile_sections, key):
+        if isinstance(profile_sections, dict):  # RESP3
+            return profile_sections.get(key)
+        else:  # RESP2
+            return profile_sections[profile_sections.index(key) + 1]
+
+    @staticmethod
+    def get_field(item, field_name):
+        if isinstance(item, dict):  # RESP3
+            return item.get(field_name)
+        else:  # RESP2
+            return item[item.index(field_name) + 1]
+
+    @staticmethod
+    def ProfileDebugTimeout(env, command_type, protocol):
+        message_prefix = f"command_type: {command_type}, protocol: {protocol}"
+
+        # Run baseline normal query to get expected structure
+        baseline_query = ['FT.PROFILE', 'idx', command_type, 'QUERY', '@t:hello*']
+        baseline_res = env.cmd(*baseline_query)
+        baseline_data = ProfileDebugCluster.get_profile_data(baseline_res, command_type)
+
+        # Run debug query with TIMEOUT_AFTER_N
+        results_count = 3
+        debug_res = runDebugQueryCommandTimeoutAfterN(env, baseline_query, results_count)
+        debug_data = ProfileDebugCluster.get_profile_data(debug_res, command_type)
+
+        # Verify number of results
+        expected_results = results_count if command_type == 'AGGREGATE' else results_count * env.shardsCount
+        env.assertEqual(debug_data['results_count'], expected_results,
+                        message=f"{message_prefix}: Debug should return expected number of results")
+
+        # Verify we have received profiles from all 3 shards
+        env.assertEqual(len(debug_data['shards_profile']), 3,
+                        message=f"{message_prefix}: Debug should return profiles from all 3 shards")
+        # Verify coordinator profile exists
+        env.assertTrue(debug_data['coordinator_profile'] is not None,
+                        message=f"{message_prefix}: Debug should return coordinator profile")
+
+        if command_type == 'AGGREGATE':
+            # Both baseline should have same result processors pipeline in the coordinator
+            baseline_rp = ProfileDebugCluster.get_section(baseline_data['coordinator_profile'], 'Result processors profile')
+            debug_rp = ProfileDebugCluster.get_section(debug_data['coordinator_profile'], 'Result processors profile')
+            # Both should have same number of RPs
+            env.assertEqual(len(baseline_rp), len(debug_rp),
+                        message=f"{message_prefix}: Baseline and debug should have same number of result processors. baseline: {baseline_rp}, debug: {debug_rp}")
+
+            # Verify each RP has same Type
+            for i, (baseline_rp_item, debug_rp_item) in enumerate(zip(baseline_rp, debug_rp)):
+                baseline_type = ProfileDebugCluster.get_field(baseline_rp_item, 'Type')
+                debug_type = ProfileDebugCluster.get_field(debug_rp_item, 'Type')
+                env.assertEqual(baseline_type, debug_type,
+                                message=f"{message_prefix}: RP {i}: Type should match baseline")
+
+                # Verify no "Debug" type appears (debug RPs should be skipped)
+                env.assertNotEqual(debug_type, 'Debug',
+                                    message=f"{message_prefix}: RP {i}: Debug RP should not appear in Result processors profile")
+        if protocol == 3:
+            # Verify debug has timeout warning
+            debug_warning = ProfileDebugCluster.get_section(debug_res['Results'], 'warning')
+            env.assertIsNotNone(debug_warning, message="Debug should have timeout warning")
+            env.assertContains('Timeout', str(debug_warning), message="Debug warning should contain 'Timeout'")
+
+class TestProfileDebugClusterResp2(object):
+    def __init__(self):
+        env = Env(protocol=2)
+        ProfileDebugCluster.createIndex(env)
+        self.env = env
+
+    def testProfileTimeoutSearchResp2(self):
+        ProfileDebugCluster.ProfileDebugTimeout(self.env, "SEARCH", 2)
+    def testProfileTimeoutAggregateResp2(self):
+        ProfileDebugCluster.ProfileDebugTimeout(self.env, "AGGREGATE", 2)
+
+class TestProfileDebugClusterResp3(object):
+    def __init__(self):
+        env = Env(protocol=3)
+        ProfileDebugCluster.createIndex(env)
+        self.env = env
+
+    def testProfileTimeoutSearchResp3(self):
+        ProfileDebugCluster.ProfileDebugTimeout(self.env, "SEARCH", 3)
+    def testProfileTimeoutAggregateResp3(self):
+        ProfileDebugCluster.ProfileDebugTimeout(self.env, "AGGREGATE", 3)
