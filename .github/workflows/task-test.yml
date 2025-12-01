@@ -311,6 +311,18 @@ jobs:
             echo "Setup failed after 5 attempts"
             exit 1
           fi
+      # Cache Rust packages
+      - uses: Swatinem/rust-cache@v2
+        if: steps.node20.outputs.supported == 'true'
+        with:
+          prefix-key: "v1-rust"
+          key: ${{ inputs.platform }}-${{ inputs.architecture }}
+          # The cargo workspaces and target directory configuration.
+          # These entries are separated by newlines and have the form
+          # `$workspace -> $target`. The `$target` part is treated as a directory
+          # relative to the `$workspace` and defaults to "target" if not explicitly given.
+          # default: ". -> target"
+          workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
       - name: Setup Rust test dependencies
         if: needs.build-image.outputs.succeeded != 'true' # Only run if NOT using custom container
         run: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
