@@ -655,6 +655,12 @@ def test_cursor_commands_errors(env: Env):
     # Internal cursor tests
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
 
+    # Test missing arguments
+    env.expect('_FT.CURSOR', 'READ').error().contains("wrong number of arguments for '_FT.CURSOR|READ' command")
+    env.expect('_FT.CURSOR', 'DEL').error().contains("wrong number of arguments for '_FT.CURSOR|DEL' command")
+    env.expect('_FT.CURSOR', 'PROFILE').error().contains("wrong number of arguments for '_FT.CURSOR|PROFILE' command")
+    env.expect('_FT.CURSOR', 'GC').error().contains("wrong number of arguments for '_FT.CURSOR|GC' command")
+
     # Test internal cursor read after index drop
     env.cmd('FT.CREATE', 'temp', 'SCHEMA', 't', 'TEXT')
     waitForIndex(env, 'temp')
