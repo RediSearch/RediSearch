@@ -481,6 +481,9 @@ int RS_dictReplace(dict *d, void *key, void *val)
 dictEntry *RS_dictAddOrFind(dict *d, void *key) {
     dictEntry *entry, *existing;
     entry = RS_dictAddRaw(d,key,&existing);
+    // If we have a new entry, initialize the value union to zero,
+    // otherwise we don't have a way to know it's a new entry or existing one.
+    if (entry) memset(&entry->v, 0, sizeof(entry->v));
     return entry ? entry : existing;
 }
 
