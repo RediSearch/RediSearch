@@ -112,12 +112,18 @@ void shardResponseBarrier_Init(void *ptr, MRIterator *it) {
   }
 
   size_t numShards = MRIterator_GetNumShards(it);
-  atomic_init(&barrier->numShards, numShards);
   barrier->shardResponded = rm_calloc(numShards, sizeof(*barrier->shardResponded));
   if (barrier->shardResponded) {
     for (size_t i = 0; i < numShards; i++) {
       atomic_init(&barrier->shardResponded[i], false);
     }
+    // Set numShards only after successful allocation to prevent
+    // shardResponseBarrier_Notify from accessing NULL shardResponded array
+    atomic_init(&barrier->numShards, numShards);
+  } else {
+    // Allocation failed - keep numShards at 0 so Notify callback
+    // won't try to access the NULL shardResponded array
+    atomic_init(&barrier->numShards, 0);
   }
 }
 
@@ -568,7 +574,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       // Note: For WITHCOUNT in multi-shard aggregate, totalResults is already set
       // by the waiting logic above. We skip accumulation here to avoid double-counting.
       // For non-WITHCOUNT or single-shard cases, we still need to count.
-      if (!HasWithCount(nc->areq) || !(nc->areq->reqflags & QEXEC_F_IS_AGGREGATE)) {
+      if (!nc->shardResponseBarrier) {
         // Without WITHCOUNT, count rows in batch for backward compatibility
         nc->base.parent->totalResults += MRReply_Length(rows);
       }
@@ -577,7 +583,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       nc->curIdx = 1;
       // For WITHCOUNT in multi-shard aggregate, totalResults is already set
       // by the callback accumulation logic. Skip to avoid double-counting.
-      if (!HasWithCount(nc->areq) || !(nc->areq->reqflags & QEXEC_F_IS_AGGREGATE)) {
+      if (!nc->shardResponseBarrier) {
         // Without WITHCOUNT, accumulate total_results from each shard reply
         nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
       }
