@@ -18,7 +18,9 @@ use value::RSValueFFI;
 use crate::{
     RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow,
     bindings::RLookupCoerceType,
-    load_document::{LoadDocumentContext, LoadDocumentError, LoadDocumentOptions, ValueSrc},
+    load_document::{
+        LoadDocumentContext, LoadDocumentError, LoadDocumentOptions, ValueSrc, ccalls,
+    },
 };
 
 pub(super) struct LoadDocumentImpl;
@@ -57,20 +59,20 @@ impl LoadDocumentContext for LoadDocumentImpl {
 
     fn load_json(
         &self,
-        _lookup: &mut RLookup<'_>,
-        _dst_row: &mut RLookupRow<'_, Self::V>,
-        _options: &LoadDocumentOptions<'_, Self::V>,
+        lookup: &mut RLookup<'_>,
+        dst_row: &mut RLookupRow<'_, Self::V>,
+        options: &LoadDocumentOptions<'_, Self::V>,
     ) -> Result<(), LoadDocumentError> {
-        todo!("ccalls::json_get_all(lookup, dst_row, options)")
+        ccalls::json_get_all(lookup, dst_row, options)
     }
 
     fn load_individual_keys(
         &self,
-        _lookup: &mut RLookup<'_>,
-        _dst_row: &mut RLookupRow<'_, Self::V>,
-        _options: &LoadDocumentOptions<'_, Self::V>,
+        lookup: &mut RLookup<'_>,
+        dst_row: &mut RLookupRow<'_, Self::V>,
+        options: &LoadDocumentOptions<'_, Self::V>,
     ) -> Result<(), LoadDocumentError> {
-        todo!("ccalls::load_individual_keys(lookup, dst_row, options)")
+        ccalls::load_individual_keys(lookup, dst_row, options)
     }
 }
 
