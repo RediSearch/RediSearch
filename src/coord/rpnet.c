@@ -116,7 +116,7 @@ void shardResponseBarrier_Init(void *ptr, MRIterator *it) {
   barrier->shardResponded = rm_calloc(numShards, sizeof(*barrier->shardResponded));
   if (barrier->shardResponded) {
     for (size_t i = 0; i < numShards; i++) {
-      barrier->shardResponded[i] = false;
+      atomic_init(&barrier->shardResponded[i], false);
     }
   }
 }
@@ -134,7 +134,8 @@ void shardResponseBarrier_Notify(int16_t shardId, long long totalResults, bool i
 
   // Check if this is the first response from this shard
   // No atomic needed - only one IO thread writes to this barrier
-  if (!barrier->shardResponded[shardId]) {
+  bool expected = false;
+  if (atomic_compare_exchange_strong(&barrier->shardResponded[shardId], &expected, true)) {
     if (!isError) {
       atomic_fetch_add(&barrier->accumulatedTotal, totalResults);
     } else {

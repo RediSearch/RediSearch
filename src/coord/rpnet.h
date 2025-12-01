@@ -36,7 +36,7 @@ typedef void (*ReplyNotifyCallback)(int16_t shardId, long long totalResults, boo
 // Safe to free after MRIterator_Release returns (all callbacks complete)
 typedef struct ShardResponseBarrier {
   _Atomic(size_t) numShards;       // Total number of shards (written by IO thread, read by main thread)
-  bool *shardResponded;            // Array: has each shard sent its first response? (IO thread only)
+  _Atomic(bool) *shardResponded;   // Array: has each shard sent its first response? (IO thread only)
   _Atomic(size_t) numResponded;    // Count of shards that have responded
   _Atomic(long long) accumulatedTotal;  // Sum of total_results from all shards
   _Atomic(bool) hasShardError;     // Set to true if any shard returns an error
