@@ -375,20 +375,6 @@ static void FreeHybridRequest(void *ptr) {
   HybridRequest_Free((HybridRequest *)ptr);
 }
 
-int HybridRequest_StartSingleCursor(StrongRef hybrid_ref, RedisModule_Reply *reply, bool coord) {
-    HybridRequest *req = StrongRef_Get(hybrid_ref);
-    // We don't have depleters, we will create a single cursor just for the hybrid request
-    // This is needed for client facing API, client expects a single cursor id to receive the merged result set
-    AREQ *first = req->requests[0];
-    Cursor *cursor = Cursors_Reserve(getCursorList(coord), first->sctx->spec->own_ref, first->cursorConfig.maxIdle, &req->tailPipelineError);
-    if (!cursor) {
-      return REDISMODULE_ERR;
-    }
-    cursor->hybrid_ref = hybrid_ref;
-    RedisModule_Reply_LongLong(reply, cursor->id);;
-    return REDISMODULE_OK;
-}
-
 static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) cursors) {
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
     // Send map of cursor IDs as response
