@@ -381,7 +381,6 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
     *papCtx->keySpaceVersion = version.version;
     *papCtx->querySlots = slot_array;
-    ASM_KeySpaceVersionTracker_IncreaseQueryCount(*papCtx->keySpaceVersion);
   } else {
     return ARG_UNKNOWN;
   }

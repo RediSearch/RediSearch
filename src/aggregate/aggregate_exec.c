@@ -1055,11 +1055,20 @@ int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, 
   SET_DIALECT(AREQ_SearchCtx(r)->spec->used_dialects, r->reqConfig.dialectVersion);
   SET_DIALECT(RSGlobalStats.totalStats.used_dialects, r->reqConfig.dialectVersion);
 
+  // ASM: As per query preparation, we need to account for the query and the cursor (if any), Execute phase will be responsible for not leaking it
+  if (r->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+    ASM_KeySpaceVersionTracker_IncreaseQueryCount(r->keySpaceVersion);
+    if (r->reqflags & QEXEC_F_IS_CURSOR) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(r->keySpaceVersion);
+    }
+  }
+
   return REDISMODULE_OK;
 }
 
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
+  int rc = REDISMODULE_OK;
   if (RunInThread()) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
     RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, r, false);
@@ -1069,37 +1078,38 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     if (r->qiter.isProfile){
       r->qiter.GILTime += rs_wall_clock_elapsed_ns(&r->qiter.initTime);
     }
-    const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
-    RS_ASSERT(rc == 0);
+    // TODO ASM: Control risk of leaking the Cursor query count
+    const int add_work_rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
+    RS_ASSERT(add_work_rc == 0);
   } else {
     // Take a read lock on the spec (to avoid conflicts with the GC).
     // This is released in AREQ_Free or while executing the query.
     RedisSearchCtx_LockSpecRead(sctx);
-
-    if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
-      CurrentThread_ClearIndexSpec();
-      return REDISMODULE_ERR;
-    }
-    if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
-      // Since we are still in the main thread, and we already validated the
-      // spec'c existence, it is safe to directly get the strong reference from the spec
-      // found in buildRequest
-      StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
-      RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-      int rc = AREQ_StartCursor(r, reply, spec_ref, status, false);
-      RedisModule_EndReply(reply);
-      if (rc != REDISMODULE_OK) {
-        CurrentThread_ClearIndexSpec();
-        return REDISMODULE_ERR;
+    rc = prepareExecutionPlan(r, status);
+    if (rc == REDISMODULE_OK) {
+      if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
+        // Since we are still in the main thread, and we already validated the
+        // spec'c existence, it is safe to directly get the strong reference from the spec
+        // found in buildRequest
+        StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
+        RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+        rc = AREQ_StartCursor(r, reply, spec_ref, status, false);
+        RedisModule_EndReply(reply);
+      } else {
+        AREQ_Execute(r, ctx);
       }
-    } else {
-      AREQ_Execute(r, ctx);
-      ASM_AccountRequestFinished(r->keySpaceVersion, 1);
+    }
+    if (r->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_DecreaseQueryCount(r->keySpaceVersion);
+      if (rc != REDISMODULE_OK && AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
+        // The Cursors should only be decreased if the query was unsuccessfull, otherwise this counter should be handled by the cursor created
+        ASM_KeySpaceVersionTracker_DecreaseQueryCount(r->keySpaceVersion);
+      }
     }
   }
 
   CurrentThread_ClearIndexSpec();
-  return REDISMODULE_OK;
+  return rc;
 }
 
 /**

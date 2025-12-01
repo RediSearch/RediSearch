@@ -551,7 +551,7 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     for (size_t i = 0; i < hreq->nrequests; i++) {
       AREQ_AddRequestFlags(hreq->requests[i], QEXEC_F_RUN_IN_BACKGROUND);
     }
-
+    // TODO ASM: Control risk of leaking the Cursor query count
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, BCHCtx);
     RS_ASSERT(rc == 0);
 
@@ -560,7 +560,13 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     // Single-threaded execution path
     int rc = buildPipelineAndExecute(hybrid_ref, hybridParams, ctx, sctx, status, internal, false);
     // We assume that the KeySpaceVersion is the same for all subrequests (as they have been parsed in the main thread)
-    ASM_AccountRequestFinished(hreq->requests[0]->keySpaceVersion, HYBRID_REQUEST_NUM_SUBQUERIES);
+    if (hreq->requests[0]->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_AccountRequestFinished(hreq->requests[0]->keySpaceVersion, HYBRID_REQUEST_NUM_SUBQUERIES);
+      if (rc != REDISMODULE_OK && hreq->requests[0]->reqflags & QEXEC_F_IS_CURSOR) {
+        // If the query failed, we need to decrease the cursor query count as well
+        ASM_AccountRequestFinished(hreq->requests[0]->keySpaceVersion, HYBRID_REQUEST_NUM_SUBQUERIES);
+      }
+    }
     return rc;
   }
 }
@@ -629,6 +635,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, argv, argc);
 
+  // ASM: Parse hybrid command increases the query counts for the key space version for the Hybrid command and their cursors
   if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
   }
@@ -639,6 +646,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
   SearchCtx_UpdateTime(hybridRequest->sctx, hybridRequest->reqConfig.queryTimeoutMS);
 
+  // ASM: Build Pipeline and Execute handle the decrease of the query count for the key space version for the Hybrid command, but not from their cursors. (Even in the case of error avoiding leaks)
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
     HybridRequest_ClearErrors(hybridRequest);
