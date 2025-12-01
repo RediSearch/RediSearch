@@ -118,7 +118,7 @@ jobs:
             BASE_IMAGE=${{ needs.get-config.outputs.container || 'ubuntu:24.04' }}
           file: Dockerfile
           tags: ${{ steps.meta.outputs.image }}
-          cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max
+          cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max,compression=zstd
           cache-from: type=registry,ref=${{ steps.meta.outputs.cache }}
       # This step ONLY runs if all previous steps succeeded
       - name: Mark success
