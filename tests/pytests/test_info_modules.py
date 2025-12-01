@@ -1575,7 +1575,7 @@ def _test_active_worker_threads(env, num_queries):
     _test_query_type('FT.SEARCH')
     _test_query_type('FT.AGGREGATE')
 
-def test_active_worker_threads_SA(env):
+def test_active_worker_threads(env):
     num_queries = 1
     _test_active_worker_threads(env, num_queries)
 
