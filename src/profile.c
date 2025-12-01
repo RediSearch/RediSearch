@@ -108,7 +108,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
       case RP_SAFE_LOADER:
         printProfileType(RPTypeToString(rp->type));
-        printProfileGILTime(rp->GILTime);
+        printProfileGILTime(rs_wall_clock_convert_ns_to_ms_d(rp->rpGILTime));
         break;
 
       default:
@@ -166,7 +166,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   if (profile_verbose) {
     if (AREQ_RequestFlags(req) & QEXEC_F_RUN_IN_BACKGROUND) {
       RedisModule_ReplyKV_Double(reply, "Total GIL time",
-                                 rs_wall_clock_convert_ns_to_ms_d(qctx->GILTime));
+                                 rs_wall_clock_convert_ns_to_ms_d(qctx->queryGILTime));
     } else {
       rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&qctx->initTime);
       RedisModule_ReplyKV_Double(reply, "Total GIL time",
