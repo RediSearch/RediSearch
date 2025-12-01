@@ -1462,8 +1462,8 @@ MULTI_THREADING_SECTION = f'{SEARCH_PREFIX}multi_threading'
 ACTIVE_IO_THREADS_METRIC = f'{SEARCH_PREFIX}active_io_threads'
 ACTIVE_WORKER_THREADS_METRIC = f'{SEARCH_PREFIX}active_worker_threads'
 ACTIVE_COORD_THREADS_METRIC = f'{SEARCH_PREFIX}active_coord_threads'
-BG_INDEXING_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}background_indexing_pending_jobs'
-QUERIES_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}queries_pending_jobs'
+WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}workers_low_priority_pending_jobs'
+WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}workers_high_priority_pending_jobs'
 
 def test_active_io_threads_stats(env):
   conn = getConnectionByEnv(env)
@@ -1575,15 +1575,7 @@ def _test_active_worker_threads(env, num_queries):
     _test_query_type('FT.SEARCH')
     _test_query_type('FT.AGGREGATE')
 
-# --- Test 1: Standalone Mode ---
-@skip(cluster=True)  # Only run in standalone mode
 def test_active_worker_threads_SA(env):
-    num_queries = 1
-    _test_active_worker_threads(env, num_queries)
-
-# --- Test 2: Cluster Mode ---
-@skip(cluster=False)  # Only run in cluster mode
-def test_active_worker_threads_cluster(env):
     num_queries = 1
     _test_active_worker_threads(env, num_queries)
 
@@ -1598,23 +1590,23 @@ def _test_pending_jobs_metrics(env, command_type):
     run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', '2')
 
     # Define variables
-    num_vectors = 10 * env.shardsCount  # Number of vectors to index (creates background jobs)
-    num_queries = 3   # Number of queries to execute (creates query jobs)
+    num_vectors = 10 * env.shardsCount  # Number of vectors to index (creates low priority jobs)
+    num_queries = 3   # Number of queries to execute (creates high priority jobs)
     dim = 4
-    vector_field = DEFAULT_FIELD_NAME  # from vecsim_utils.py
+    vector_field = DEFAULT_FIELD_NAME
     index_name = 'idx'
 
     # --- STEP 2: VERIFY INITIAL STATE (metrics = 0) ---
     for conn in env.getOSSMasterNodesConnectionList():
         info_dict = info_modules_to_dict(conn)
-        env.assertEqual(info_dict[MULTI_THREADING_SECTION][BG_INDEXING_PENDING_JOBS_METRIC], '0')
-        env.assertEqual(info_dict[MULTI_THREADING_SECTION][QUERIES_PENDING_JOBS_METRIC], '0')
+        env.assertEqual(info_dict[MULTI_THREADING_SECTION][WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC], '0')
+        env.assertEqual(info_dict[MULTI_THREADING_SECTION][WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC], '0')
 
     #  --- STEP 3: PAUSE WORKERS THREAD POOL ---
     # Pause workers to prevent jobs from executing
     run_command_on_all_shards(env, debug_cmd(), 'WORKERS', 'PAUSE')
 
-    # --- STEP 4: CREATE INDEX AND INDEX VECTORS (creates background_indexing_pending_jobs) ---
+    # --- STEP 4: CREATE INDEX AND INDEX VECTORS (creates workers_low_priority_pending_jobs) ---
     # Create index with HNSW and load vectors (HNSW creates background indexing jobs which are low priority)
     set_up_database_with_vectors(env, dim, num_vectors, index_name=index_name,
                                              field_name=vector_field, datatype='FLOAT32',
@@ -1633,16 +1625,16 @@ def _test_pending_jobs_metrics(env, command_type):
           expected_indexing_jobs = con.execute_command('DBSIZE')
 
           shard_stats = info_modules_to_dict(con)
-          index_pending_jobs = int(shard_stats[MULTI_THREADING_SECTION][BG_INDEXING_PENDING_JOBS_METRIC])
+          indexing_jobs_pending = int(shard_stats[MULTI_THREADING_SECTION][WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC])
 
-          all_shards_ready[i] = (expected_indexing_jobs == index_pending_jobs)
+          all_shards_ready[i] = (expected_indexing_jobs == indexing_jobs_pending)
           state['expected_indexing_jobs'][i] = expected_indexing_jobs
-          state['indexing_jobs_pending'][i] = index_pending_jobs
+          state['indexing_jobs_pending'][i] = indexing_jobs_pending
         return all(all_shards_ready), state
 
-    wait_for_condition(check_indexing_jobs_pending, "wait_for_indexing_jobs_pending")
+    wait_for_condition(check_indexing_jobs_pending, "wait_for_workers_low_priority_jobs_pending")
 
-    # --- STEP 5: EXECUTE QUERIES (creates queries_pending_jobs) ---
+    # --- STEP 5: EXECUTE QUERIES (creates high_priority_pending_jobs) ---
     # Launch num_queries queries in background threads
     # Queries will be queued as high-priority jobs but not executed (workers paused)
 
@@ -1684,14 +1676,14 @@ def _test_pending_jobs_metrics(env, command_type):
         for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
 
           shard_stats = info_modules_to_dict(con)
-          queries_pending_jobs = int(shard_stats[MULTI_THREADING_SECTION][QUERIES_PENDING_JOBS_METRIC])
+          queries_pending_jobs = int(shard_stats[MULTI_THREADING_SECTION][WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC])
 
           all_shards_ready[i] = (expected_queries_jobs == queries_pending_jobs)
           state['queries_jobs_pending'][i] = queries_pending_jobs
           state['expected_queries_jobs'][i] = expected_queries_jobs
         return all(all_shards_ready), state
 
-    wait_for_condition(check_queries_jobs_pending, "wait_for_queries_jobs_pending")
+    wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
 
     # --- STEP 7: RESUME WORKERS AND DRAIN ---
     # Resume workers:
@@ -1710,22 +1702,22 @@ def _test_pending_jobs_metrics(env, command_type):
         num_shards = env.shardsCount
         all_shards_ready = [False] * num_shards
         state = {
-          'background_indexing_jobs_pending': [-1] * num_shards,
-          'queries_jobs_pending': [-1] * num_shards,
+          'workers_low_priority_jobs_pending': [-1] * num_shards,
+          'workers_high_priority_jobs_pending': [-1] * num_shards,
         }
 
         for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
 
           shard_stats = info_modules_to_dict(con)
-          queries_jobs_pending = int(shard_stats[MULTI_THREADING_SECTION][QUERIES_PENDING_JOBS_METRIC])
-          background_indexing_jobs_pending = int(shard_stats[MULTI_THREADING_SECTION][BG_INDEXING_PENDING_JOBS_METRIC])
+          queries_jobs_pending = int(shard_stats[MULTI_THREADING_SECTION][WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC])
+          background_indexing_jobs_pending = int(shard_stats[MULTI_THREADING_SECTION][WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC])
 
           all_shards_ready[i] = (queries_jobs_pending == 0 and background_indexing_jobs_pending == 0)
-          state['queries_jobs_pending'][i] = queries_jobs_pending
-          state['background_indexing_jobs_pending'][i] = background_indexing_jobs_pending
+          state['workers_low_priority_jobs_pending'][i] = background_indexing_jobs_pending
+          state['workers_high_priority_jobs_pending'][i] = queries_jobs_pending
         return all(all_shards_ready), state
 
-    wait_for_condition(check_reset_metrics, "wait_for_reset_metrics")
+    wait_for_condition(check_reset_metrics, "wait_for_workers_pending_jobs_metric_reset")
 
 def test_pending_jobs_metricsSearch():
   env = Env('DEFAULT_DIALECT 2')
