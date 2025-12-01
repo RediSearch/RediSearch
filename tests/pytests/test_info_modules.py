@@ -3,7 +3,6 @@ from RLTest import Env
 import redis
 from inspect import currentframe
 
-
 def info_modules_to_dict(conn):
   res = conn.execute_command('INFO MODULES')
   info = dict()
