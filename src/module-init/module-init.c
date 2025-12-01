@@ -207,6 +207,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   if (RedisModule_RegisterInfoFunc && RedisModule_RegisterInfoFunc(ctx, RS_moduleInfoFunc) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
+
   ASM_StateMachine_Init();
   Initialize_ServerEventNotifications(ctx);
   Initialize_CommandFilter(ctx);

@@ -184,6 +184,7 @@ CursorsInfoStats Cursors_GetInfoStats(void) {
 // The cursors list is assumed to be locked upon calling this function
 static void CursorList_IncrCounter(CursorList *cl) {
   if (++cl->counter % RSCURSORS_SWEEP_INTERVAL == 0) {
+    // TODO ASM: Check this false, is this called from main thread?
     Cursors_GCInternal(cl, 0, false);
   }
 }
@@ -221,6 +222,7 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
   // If we are in a coordinator ctx, the spec is NULL
   if (spec && spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
     /** Collect idle cursors now */
+    // TODO ASM: Check this false, is this called from main thread?
     Cursors_GCInternal(cl, 0, false);
     if (spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "INDEX_CURSOR_LIMIT of %lld has been reached for an index", RSGlobalConfig.indexCursorLimit);

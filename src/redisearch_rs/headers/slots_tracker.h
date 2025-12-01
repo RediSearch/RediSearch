@@ -7,10 +7,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "redismodule.h"
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 
 /**
  * FFI struct representing an optional SlotsTracker version.
@@ -24,6 +20,10 @@ typedef struct OptionSlotTrackerVersion {
   bool is_some;
   uint32_t version;
 } OptionSlotTrackerVersion;
+
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
 
 /**
  * Sets the local slot ranges this shard is responsible for.

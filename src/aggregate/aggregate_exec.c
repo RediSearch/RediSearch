@@ -842,6 +842,7 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
   }
   RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
   void *privdata = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
+  // TODO ASM: Here maybe we could pass to destroy information about whether the query failed or not, and whether it was a cursor query or not, so that callback would receive it
   RedisModule_UnblockClient(BCRctx->blockedClient, privdata);
   WeakRef_Release(BCRctx->spec_ref);
   rm_free(BCRctx);
@@ -1102,7 +1103,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     if (r->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
       ASM_KeySpaceVersionTracker_DecreaseQueryCount(r->keySpaceVersion);
       if (rc != REDISMODULE_OK && AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
-        // The Cursors should only be decreased if the query was unsuccessfull, otherwise this counter should be handled by the cursor created
+        // The Cursors should only be decreased if the query was unsuccessful, otherwise this counter should be handled by the cursor created
         ASM_KeySpaceVersionTracker_DecreaseQueryCount(r->keySpaceVersion);
       }
     }

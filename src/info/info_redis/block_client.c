@@ -18,6 +18,7 @@
 #include "hybrid/hybrid_request.h"
 #include "asm_state_machine.h"
 
+// TODO ASM: Move keySpaceVersion and innerQueriesCount to BlockedQueryNode, so that we will avoid an extra allocation and deallocation
 struct BlockedClientPrivateData {
   void *data;
   uint32_t keySpaceVersion;
@@ -32,7 +33,10 @@ static void FreeQueryNode(RedisModuleCtx* ctx, void *privdata) {
   BlockedQueries_RemoveQuery(queryNode);
   // Function called from the free callbacks to decrease the query count. The ideas is that this callback
   // will be called even in the case of client disconnection, and in any case.
-  ASM_AccountRequestFinished(keySpaceVersion, innerQueriesCount);
+  if (keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+    // TODO ASM: Somehow we should know if the query failed or not, and if the query was a cursor query and only decrease the cursor count if it did.
+    ASM_AccountRequestFinished(keySpaceVersion, innerQueriesCount);
+  }
   rm_free(queryNode);
   rm_free(data);
 }
