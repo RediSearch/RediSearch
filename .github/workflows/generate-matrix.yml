@@ -69,7 +69,6 @@ jobs:
               ('azurelinux:3', 'aarch64'),
               ('alpine:3', 'x86_64'),
               ('alpine:3', 'aarch64'),
-              ('macos', 'x86_64'),
               ('macos', 'aarch64')
           ]
 
