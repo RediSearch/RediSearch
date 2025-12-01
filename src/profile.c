@@ -82,7 +82,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
       case RP_SAFE_LOADER:
         printProfileType(RPTypeToString(rp->type));
-        printProfileGILTime(rp->GILTime);
+        printProfileGILTime(rs_wall_clock_convert_ns_to_ms_d(rp->rpGILTime));
         break;
 
       case RP_PROFILE:
@@ -139,7 +139,7 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
     if (profile_verbose) {
       if (req->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
         RedisModule_ReplyKV_Double(reply, "Total GIL time",
-                                   rs_wall_clock_convert_ns_to_ms_d(req->qiter.GILTime));
+                                   rs_wall_clock_convert_ns_to_ms_d(req->qiter.queryGILTime));
       } else {
         rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime);
         RedisModule_ReplyKV_Double(reply, "Total GIL time",
@@ -217,7 +217,7 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
     if (profile_verbose) {
       if (req->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
         RedisModule_Reply_Double(reply,
-                                 rs_wall_clock_convert_ns_to_ms_d(req->qiter.GILTime));
+                                 rs_wall_clock_convert_ns_to_ms_d(req->qiter.queryGILTime));
       } else {
         rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime);
         RedisModule_Reply_Double(reply,
