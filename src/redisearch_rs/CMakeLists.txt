@@ -16,6 +16,23 @@ endif()
 # This avoids CMake argument parsing issues with complex flag values
 set(RUST_FLAGS "$ENV{RUSTFLAGS}")
 
+# Configure ASAN flags for Rust if sanitizer is enabled
+if(SAN STREQUAL "address")
+    message(STATUS "Configuring Rust build with AddressSanitizer")
+    # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
+    # -Zsanitizer=address enables ASAN in Rust
+    # -C link-args=-znostart-stop-gc prevents linker GC issues with ASAN
+    set(RUST_FLAGS "${RUST_FLAGS} -Zsanitizer=address -C link-args=-znostart-stop-gc")
+
+    # -Zbuild-std is a cargo flag (not rustc), so set it separately
+    set(CARGO_BUILD_STD_FLAG "-Zbuild-std")
+
+    # Note: ASAN in Rust requires nightly compiler
+    # The build.sh script should handle setting the correct toolchain
+else()
+    set(CARGO_BUILD_STD_FLAG "")
+endif()
+
 # Map Rust profile names to their corresponding artifact directory names
 if(RUST_PROFILE STREQUAL "dev")
     set(RUST_ARTIFACT_DIR "debug")
