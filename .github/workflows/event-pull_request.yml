@@ -52,7 +52,7 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
-      platform: ubuntu:noble
+      platform: ubuntu:default
       architecture: x86_64
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
