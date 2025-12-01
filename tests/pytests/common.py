@@ -855,6 +855,8 @@ def runDebugQueryCommandAndCrash(env, query_cmd):
     debug_params = ['CRASH']
     return env.expect(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)).error()
 
+
+
 def runDebugQueryCommandPauseAfterRPAfterN(env, query_cmd, rp_type, pause_after_n):
     debug_params = ['PAUSE_AFTER_RP_N', rp_type, pause_after_n]
     return runDebugQueryCommand(env, query_cmd, debug_params)
