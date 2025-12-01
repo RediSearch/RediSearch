@@ -112,11 +112,11 @@ void shardResponseBarrier_Init(void *ptr, MRIterator *it) {
   }
 
   size_t numShards = MRIterator_GetNumShards(it);
-  barrier->numShards = numShards;
+  atomic_init(&barrier->numShards, numShards);
   barrier->shardResponded = rm_calloc(numShards, sizeof(*barrier->shardResponded));
   if (barrier->shardResponded) {
     for (size_t i = 0; i < numShards; i++) {
-      atomic_init(&barrier->shardResponded[i], false);
+      barrier->shardResponded[i] = false;
     }
   }
 }
@@ -127,28 +127,29 @@ void shardResponseBarrier_Notify(int16_t shardId, long long totalResults, bool i
   ShardResponseBarrier *barrier = (ShardResponseBarrier *)privateData;
 
   // Validate shardId bounds
-  if (shardId < 0 || shardId >= (int16_t)barrier->numShards) {
+  size_t numShards = atomic_load(&barrier->numShards);
+  if (shardId < 0 || shardId >= (int16_t)numShards) {
     return;
   }
 
-  // Check if this is the first response from this shard using atomic CAS
-  bool expected = false;
-  // Mark shard as responded, also for errors
-  if (atomic_compare_exchange_strong(&barrier->shardResponded[shardId], &expected, true)) {
-    // We won the race - this is the first response from this shard
+  // Check if this is the first response from this shard
+  // No atomic needed - only one IO thread writes to this barrier
+  if (!barrier->shardResponded[shardId]) {
     if (!isError) {
       atomic_fetch_add(&barrier->accumulatedTotal, totalResults);
     } else {
       atomic_store(&barrier->hasShardError, true);
     }
-    barrier->numResponded++;
+    atomic_fetch_add(&barrier->numResponded, 1);
   }
 }
 
 static void shardResponseBarrier_UpdateTotalResults(RPNet *nc) {
   // Set the accumulated total now that all shards have responded
+  // numShards == 0 means IO thread never initialized the barrier (timeout before init)
   size_t numResponded = atomic_load(&nc->shardResponseBarrier->numResponded);
-  if (numResponded >= nc->shardResponseBarrier->numShards) {
+  size_t numShards = atomic_load(&nc->shardResponseBarrier->numShards);
+  if (numShards > 0 && numResponded >= numShards) {
     long long accumulatedTotal = atomic_load(&nc->shardResponseBarrier->accumulatedTotal);
     nc->base.parent->totalResults = accumulatedTotal;
   }
@@ -186,9 +187,13 @@ static struct timespec *calculateAbsTimeout(RPNet *nc, struct timespec *absTimeo
 }
 
 // Handle timeout (not enough shards responded) only if there were no errors
+// Also handles the case where numShards == 0 (IO thread never initialized barrier)
 static bool shardResponseBarrier_HandleTimeout(RPNet *nc) {
+  size_t numShards = atomic_load(&nc->shardResponseBarrier->numShards);
+  size_t numResponded = atomic_load(&nc->shardResponseBarrier->numResponded);
+  // Timeout if: barrier not initialized (numShards == 0) OR not all shards responded
   if (!(atomic_load(&nc->shardResponseBarrier->hasShardError)) &&
-      atomic_load(&nc->shardResponseBarrier->numResponded) < nc->shardResponseBarrier->numShards) {
+      (numShards == 0 || numResponded < numShards)) {
     // cleanup pending replies
     shardResponseBarrier_PendingReplies_Free(nc);
 
@@ -231,11 +236,13 @@ int getNextReply(RPNet *nc) {
   MRReply *root = NULL;
   bool timedOut = false;
   if (nc->shardResponseBarrier && !nc->waitedForAllShards) {
-    const size_t numShards = nc->shardResponseBarrier->numShards;
-
-    // Collect replies until all shards have sent their first response
-    // Also respect the query timeout to avoid blocking indefinitely
-    while (atomic_load(&nc->shardResponseBarrier->numResponded) < numShards) {
+    // Get at least 1 response from each shard
+    // Notice: numShards is re-read on each iteration because it may initially be 0
+    // (in case the IO thread iterStartCb did not run yet and did not initialize the barrier yet).
+    // Once a reply arrives, iterStartCb has finished and numShards will be set.
+    size_t numShards;
+    while ((numShards = atomic_load(&nc->shardResponseBarrier->numShards)) == 0 ||
+           atomic_load(&nc->shardResponseBarrier->numResponded) < numShards) {
       // Check for timeout to avoid blocking indefinitely
       if (nc->areq && nc->areq->sctx && TimedOut(&nc->areq->sctx->time.timeout)) {
         timedOut = true;
