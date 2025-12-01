@@ -703,6 +703,10 @@ def test_cursor_gc_edge_cases(env: Env):
 
     # Test with both internal and external cursors
     _, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1')
+    # Aggregate may return before the local shard cursor was created, so we wait until it is created
+    with TimeLimit(0.5, "shard cursors were not created"):
+        while getCursorStats(env)['global_total'] < 2:
+            sleep(0.01)
     env.expect('_FT.CURSOR', 'GC', 'idx', '0').equal(-1)
 
     # Test with only external cursors
