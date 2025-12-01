@@ -134,7 +134,7 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
 
         //Print total GIL time
         if (profile_verbose){
-          if (RunInThread()){
+          if (req->reqflags & QEXEC_F_RUN_IN_BACKGROUND){
             RedisModule_ReplyKV_Double(reply, "Total GIL time",
             rs_wall_clock_convert_ns_to_ms_d(req->qiter.GILTime));
           } else {
@@ -201,6 +201,19 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
     RedisModule_Reply_SimpleString(reply, "Pipeline creation time");
     if (profile_verbose)
       RedisModule_Reply_Double(reply, rs_wall_clock_convert_ns_to_ms_d(req->profilePipelineBuildTime));
+    RedisModule_Reply_ArrayEnd(reply);
+
+    //Print total GIL time
+    RedisModule_Reply_Array(reply);
+    RedisModule_Reply_SimpleString(reply, "Total GIL time");
+    if (profile_verbose){
+      if (req->reqflags & QEXEC_F_RUN_IN_BACKGROUND){
+        RedisModule_Reply_Double(reply, rs_wall_clock_convert_ns_to_ms_d(req->qiter.GILTime));
+      } else {
+        rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime);
+        RedisModule_Reply_Double(reply, rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
+      }
+    }
     RedisModule_Reply_ArrayEnd(reply);
 
     // Print whether a warning was raised throughout command execution
