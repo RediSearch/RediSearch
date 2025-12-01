@@ -35,6 +35,9 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
 /* return number of currently working threads */
 size_t ConcurrentSearchPool_WorkingThreadCount();
 
+/* return number of pending high priority jobs */
+size_t ConcurrentSearchPool_HighPriorityPendingJobsCount();
+
 struct ConcurrentCmdCtx;
 typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
                                      struct ConcurrentCmdCtx *);
@@ -61,6 +64,15 @@ WeakRef ConcurrentCmdCtx_GetWeakRef(struct ConcurrentCmdCtx *cctx);
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           WeakRef spec_ref);
+
+/********************************************* for debugging **********************************/
+
+int ConcurrentSearch_isPaused();
+
+int ConcurrentSearch_pause();
+
+int ConcurrentSearch_resume();
+
 #ifdef __cplusplus
 }
 #endif

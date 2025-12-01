@@ -3,6 +3,11 @@ from RLTest import Env
 import redis
 from inspect import currentframe
 import numpy as np
+from vecsim_utils import (
+    DEFAULT_FIELD_NAME,
+    DEFAULT_INDEX_NAME,
+    set_up_database_with_vectors,
+)
 
 def info_modules_to_dict(conn):
   res = conn.execute_command('INFO MODULES')
@@ -1450,6 +1455,18 @@ def test_warnings_metric_count_oom_cluster_in_shards_resp3():
   info_coord = info_modules_to_dict(env)
   env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], '1')
 
+########
+# Multi Threaded Stats tests
+########
+
+MULTI_THREADING_SECTION = f'{SEARCH_PREFIX}multi_threading'
+ACTIVE_IO_THREADS_METRIC = f'{SEARCH_PREFIX}active_io_threads'
+ACTIVE_WORKER_THREADS_METRIC = f'{SEARCH_PREFIX}active_worker_threads'
+ACTIVE_COORD_THREADS_METRIC = f'{SEARCH_PREFIX}active_coord_threads'
+WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}workers_low_priority_pending_jobs'
+WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}workers_high_priority_pending_jobs'
+COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}coord_high_priority_pending_jobs'
+
 def test_active_io_threads_stats(env):
   conn = getConnectionByEnv(env)
   # Setup: Create index with some data
@@ -1461,17 +1478,16 @@ def test_active_io_threads_stats(env):
   info_dict = info_modules_to_dict(env)
 
   # Verify multi_threading section exists
-  multi_threading_section = f'{SEARCH_PREFIX}multi_threading'
-  env.assertTrue(multi_threading_section in info_dict,
+  env.assertTrue(MULTI_THREADING_SECTION in info_dict,
                  message="multi_threading section should exist in INFO MODULES")
 
   # Verify all expected fields exist
-  env.assertTrue(f'{SEARCH_PREFIX}active_io_threads' in info_dict[multi_threading_section],
-                 message="active_io_threads field should exist in multi_threading section")
+  env.assertTrue(ACTIVE_IO_THREADS_METRIC in info_dict[MULTI_THREADING_SECTION],
+                 message=f"{ACTIVE_IO_THREADS_METRIC} field should exist in multi_threading section")
 
   # Verify all fields initialized to 0.
-  env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_io_threads'], '0',
-                 message="active_io_threads should be 0 when idle")
+  env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_IO_THREADS_METRIC], '0',
+                 message=f"{ACTIVE_IO_THREADS_METRIC} should be 0 when idle")
   # There's no deterministic way to test active_io_threads increases while a query is running,
   # we test it in unit tests.
 
@@ -1498,13 +1514,12 @@ def _test_active_worker_threads(env, num_queries):
         conn.execute_command('HSET', f'doc{i}', 'n', i)
 
     # Verify active_worker_threads and coord threads start at 0
-    multi_threading_section = f'{SEARCH_PREFIX}multi_threading'
     for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
         info_dict = info_modules_to_dict(con)
-        env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], '0',
-                       message=f"shard {i}: active_worker_threads should be 0 when idle")
-        env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_coord_threads'], '0',
-                       message=f"shard {i}: active_coord_threads should be 0 when idle")
+        env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_WORKER_THREADS_METRIC], '0',
+                       message=f"shard {i}: {ACTIVE_WORKER_THREADS_METRIC} should be 0 when idle")
+        env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_COORD_THREADS_METRIC], '0',
+                       message=f"shard {i}: {ACTIVE_COORD_THREADS_METRIC} should be 0 when idle")
 
     # Define callback for testing a specific query type
     def _test_query_type(query_type):
@@ -1533,14 +1548,14 @@ def _test_active_worker_threads(env, num_queries):
         # Verify active_worker_threads == num_queries
         for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
             info_dict = info_modules_to_dict(con)
-            env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], str(num_queries),
-                           message=f"shard {i}: {query_type}: active_worker_threads should be {num_queries} when {num_queries} queries are paused")
+            env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_WORKER_THREADS_METRIC], str(num_queries),
+                           message=f"shard {i}: {query_type}: {ACTIVE_WORKER_THREADS_METRIC} should be {num_queries} when {num_queries} queries are paused")
 
         # If this is cluster, and FT.AGGREGATE, verify active_coord_threads == num_queries
         if env.isCluster() and query_type == 'FT.AGGREGATE':
           info_dict = info_modules_to_dict(env)
-          env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_coord_threads'], str(num_queries),
-                         message=f"coordinator: {query_type}: active_coord_threads should be {num_queries} when {num_queries} queries are paused")
+          env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_COORD_THREADS_METRIC], str(num_queries),
+                         message=f"coordinator: {query_type}: {ACTIVE_COORD_THREADS_METRIC} should be {num_queries} when {num_queries} queries are paused")
 
         # Resume all queries
         allShards_setPauseRPResume(env)
@@ -1555,21 +1570,297 @@ def _test_active_worker_threads(env, num_queries):
         # Verify active_worker_threads returns to 0
         for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
             info_dict = info_modules_to_dict(con)
-            env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], '0',
-                           message=f"shard {i}: {query_type}: active_worker_threads should return to 0 after queries complete")
+            env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_WORKER_THREADS_METRIC], '0',
+                           message=f"shard {i}: {query_type}: {ACTIVE_WORKER_THREADS_METRIC} should return to 0 after queries complete")
 
     # Test both query types
     _test_query_type('FT.SEARCH')
     _test_query_type('FT.AGGREGATE')
 
-# --- Test 1: Standalone Mode ---
-@skip(cluster=True)  # Only run in standalone mode
-def test_active_worker_threads_SA(env):
+def test_active_worker_threads(env):
     num_queries = 1
     _test_active_worker_threads(env, num_queries)
 
-# --- Test 2: Cluster Mode ---
-@skip(cluster=False)  # Only run in cluster mode
-def test_active_worker_threads_cluster(env):
-    num_queries = 1
-    _test_active_worker_threads(env, num_queries)
+def _test_pending_jobs_metrics(env, command_type):
+    """
+    Parameters:
+        - env: Test environment (works for both SA and cluster)
+    """
+
+    # --- STEP 1: SETUP ---
+    # Configure WORKERS (we just need workers enabled, e.g., 2)
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', '2')
+
+    # Define variables
+    num_vectors = 10 * env.shardsCount  # Number of vectors to index (creates low priority jobs)
+    num_queries = 3   # Number of queries to execute (creates high priority jobs)
+    dim = 4
+    vector_field = DEFAULT_FIELD_NAME
+    index_name = 'idx'
+
+    # --- STEP 2: VERIFY INITIAL STATE (metrics = 0) ---
+    for conn in env.getOSSMasterNodesConnectionList():
+        info_dict = info_modules_to_dict(conn)
+        env.assertEqual(info_dict[MULTI_THREADING_SECTION][WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC], '0')
+        env.assertEqual(info_dict[MULTI_THREADING_SECTION][WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC], '0')
+
+    #  --- STEP 3: PAUSE WORKERS THREAD POOL ---
+    # Pause workers to prevent jobs from executing
+    run_command_on_all_shards(env, debug_cmd(), 'WORKERS', 'PAUSE')
+
+    # --- STEP 4: CREATE INDEX AND INDEX VECTORS (creates workers_low_priority_pending_jobs) ---
+    # Create index with HNSW and load vectors (HNSW creates background indexing jobs which are low priority)
+    set_up_database_with_vectors(env, dim, num_vectors, index_name=index_name,
+                                             field_name=vector_field, datatype='FLOAT32',
+                                             metric='L2', alg='HNSW')
+
+    def check_indexing_jobs_pending():
+        num_shards = env.shardsCount
+        all_shards_ready = [False] * num_shards
+        state = {
+          'indexing_jobs_pending': [0] * num_shards,
+          'expected_indexing_jobs': [0] * num_shards,
+        }
+
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+          # Expected low_priority_pending_jobs = con.dbsize() (number of vectors on this shard)
+          expected_indexing_jobs = con.execute_command('DBSIZE')
+
+          shard_stats = info_modules_to_dict(con)
+          indexing_jobs_pending = int(shard_stats[MULTI_THREADING_SECTION][WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC])
+
+          all_shards_ready[i] = (expected_indexing_jobs == indexing_jobs_pending)
+          state['expected_indexing_jobs'][i] = expected_indexing_jobs
+          state['indexing_jobs_pending'][i] = indexing_jobs_pending
+        return all(all_shards_ready), state
+
+    wait_for_condition(check_indexing_jobs_pending, "wait_for_workers_low_priority_jobs_pending")
+
+    # --- STEP 5: EXECUTE QUERIES (creates high_priority_pending_jobs) ---
+    # Launch num_queries queries in background threads
+    # Queries will be queued as high-priority jobs but not executed (workers paused)
+
+    query_threads = []
+    query_results = []
+
+    def run_query(query_id):
+        conn = getConnectionByEnv(env)
+        try:
+            result = conn.execute_command(f'FT.{command_type}', index_name, '*')
+            query_results.append((query_id, 'success', result))
+        except Exception as e:
+            query_results.append((query_id, 'error', e))
+
+    for i in range(num_queries):
+        t = threading.Thread(target=run_query, args=(i,))
+        query_threads.append(t)
+        t.start()
+
+    # Give threads a moment to start and attempt to queue their queries
+    time.sleep(0.1)
+
+    # Check if any queries failed immediately (before being queued)
+    for query_id, status, result in query_results:
+        if status == 'error':
+            env.assertTrue(False, message=f"Query {query_id} failed immediately: {result}")
+
+    # --- STEP 6: WAIT FOR THREADPOOL STATS TO UPDATE (jobs queued) ---
+    # Wait for the threadpool stats to reflect the expected pending jobs
+    def check_queries_jobs_pending():
+        num_shards = env.shardsCount
+        all_shards_ready = [False] * num_shards
+        expected_queries_jobs = num_queries
+        state = {
+          'queries_jobs_pending': [0] * num_shards,
+          'expected_queries_jobs': [expected_queries_jobs] * num_shards,
+        }
+
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+
+          shard_stats = info_modules_to_dict(con)
+          queries_pending_jobs = int(shard_stats[MULTI_THREADING_SECTION][WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC])
+
+          all_shards_ready[i] = (expected_queries_jobs == queries_pending_jobs)
+          state['queries_jobs_pending'][i] = queries_pending_jobs
+          state['expected_queries_jobs'][i] = expected_queries_jobs
+        return all(all_shards_ready), state
+
+    wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
+
+    # --- STEP 7: RESUME WORKERS AND DRAIN ---
+    # Resume workers:
+    run_command_on_all_shards(env, debug_cmd(), 'WORKERS', 'RESUME')
+
+    # Wait for all query threads to complete:
+    for t in query_threads:
+        t.join(timeout=30)
+
+    # Drain worker thread pool to ensure all jobs complete:
+    run_command_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
+
+    # --- STEP 8: VERIFY METRICS RETURN TO 0 ---
+    # Wait for metrics to return to 0 (job callback finished before stats update)
+    def check_reset_metrics():
+        num_shards = env.shardsCount
+        all_shards_ready = [False] * num_shards
+        state = {
+          'workers_low_priority_jobs_pending': [-1] * num_shards,
+          'workers_high_priority_jobs_pending': [-1] * num_shards,
+        }
+
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+
+          shard_stats = info_modules_to_dict(con)
+          queries_jobs_pending = int(shard_stats[MULTI_THREADING_SECTION][WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC])
+          background_indexing_jobs_pending = int(shard_stats[MULTI_THREADING_SECTION][WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC])
+
+          all_shards_ready[i] = (queries_jobs_pending == 0 and background_indexing_jobs_pending == 0)
+          state['workers_low_priority_jobs_pending'][i] = background_indexing_jobs_pending
+          state['workers_high_priority_jobs_pending'][i] = queries_jobs_pending
+        return all(all_shards_ready), state
+
+    wait_for_condition(check_reset_metrics, "wait_for_workers_pending_jobs_metric_reset")
+
+def test_pending_jobs_metrics_search():
+  env = Env(moduleArgs='DEFAULT_DIALECT 2')
+  _test_pending_jobs_metrics(env, 'SEARCH')
+
+def test_pending_jobs_metrics_aggregate():
+  env = Env(moduleArgs='DEFAULT_DIALECT 2')
+  _test_pending_jobs_metrics(env, 'AGGREGATE')
+
+# ============================================================================
+# PSEUDO CODE: Test for coord_high_priority_pending_jobs metric
+# ============================================================================
+#
+# This test verifies the new INFO metric:
+# - coord_high_priority_pending_jobs: Number of high-priority coordinator jobs pending
+#
+# The metric is increased when the following commands are executed in cluster env:
+# - FT.SEARCH
+# - FT.AGGREGATE
+# - FT.CURSOR (READ)
+# - FT.HYBRID
+#
+# The test should be DETERMINISTIC and STABLE by using COORD_THREADS pause/resume capabilities.
+#
+# ============================================================================
+
+class TestCoordHighPriorityPendingJobs(object):
+  def __init__(self):
+    self.env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(self.env)
+    num_docs = 10 * self.env.shardsCount
+    self.dim = 2
+    set_up_database_with_vectors(self.env, self.dim, num_docs, index_name=DEFAULT_INDEX_NAME,
+                                             field_name=DEFAULT_FIELD_NAME, datatype='FLOAT32',
+                                             metric='L2', alg='FLAT', additional_schema_args=['t', 'TEXT'])
+
+    # Add some text to the documents
+    for i in range(num_docs):
+      conn.execute_command('HSET', f'doc:{i}', 't', f'hello')
+
+    # VERIFY INITIAL STATE (metric = 0) ---
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[MULTI_THREADING_SECTION][COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC], '0')
+
+  def verify_coord_high_priority_pending_jobs(self, command_type, num_commands_per_type, search_threads):
+    # --- VERIFY METRIC INCREASED ---
+    def check_coord_pending_jobs():
+      info_dict = info_modules_to_dict(self.env)
+      pending_jobs = int(info_dict[MULTI_THREADING_SECTION][COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC])
+      return (pending_jobs == num_commands_per_type), {'pending_jobs': pending_jobs, 'expected': num_commands_per_type}
+
+    wait_for_condition(check_coord_pending_jobs, f"wait_for_coord_pending_jobs_{command_type}")
+    # --- RESUME COORD_THREADS ---
+    self.env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+    # --- WAIT FOR ALL THREADS TO COMPLETE ---
+    for t in search_threads:
+        t.join(timeout=30)
+    # --- VERIFY METRIC DECREASED TO 0 ---
+    def check_coord_pending_jobs_reset():
+        info_dict = info_modules_to_dict(self.env)
+        pending_jobs = int(info_dict[MULTI_THREADING_SECTION][COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC])
+        return (pending_jobs == 0), {'pending_jobs': pending_jobs}
+
+    wait_for_condition(check_coord_pending_jobs_reset, f"wait_for_coord_pending_jobs_reset_{command_type}")
+
+  def _test_coord_high_priority_pending_jobs(self, command_type):
+    env = self.env
+    conn = getConnectionByEnv(env)
+    num_commands_per_type = 3  # Number of commands to execute for each command type
+
+    env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+    #
+    search_threads = []
+    search_results = []
+
+    def run_query(query_id):
+        try:
+            result = conn.execute_command(f'FT.{command_type}', DEFAULT_INDEX_NAME, '*')
+            search_results.append((query_id, 'success', result))
+        except Exception as e:
+            search_results.append((query_id, 'error', e))
+
+    for i in range(num_commands_per_type):
+        t = threading.Thread(target=run_query, args=(i,))
+        search_threads.append(t)
+        t.start()
+
+    self.verify_coord_high_priority_pending_jobs(command_type, num_commands_per_type, search_threads)
+
+  def test_coord_high_priority_pending_jobs_search(self):
+    self._test_coord_high_priority_pending_jobs('SEARCH')
+
+  def test_coord_high_priority_pending_jobs_aggregate(self):
+    self._test_coord_high_priority_pending_jobs('AGGREGATE')
+
+  def test_coord_high_priority_pending_jobs_cursor(self):
+    conn = getConnectionByEnv(self.env)
+    # Use COUNT parameter with low value so cursor won't be depleted at first execution
+    _, cursor_id = self.env.cmd('FT.AGGREGATE', DEFAULT_INDEX_NAME, '*', 'LOAD', '1', '@t', 'WITHCURSOR', 'COUNT', '2')
+    self.env.assertNotEqual(cursor_id, 0, message="Cursor should not be depleted")
+    num_commands_per_type = 1  # Number of commands to execute for each command type
+
+    self.env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+    #
+    search_threads = []
+    search_results = []
+
+    def run_query(query_id):
+        try:
+            result, cursor_id = conn.execute_command(f'FT.CURSOR', 'READ', DEFAULT_INDEX_NAME, cursor_id)
+            search_results.append((query_id, 'success', result))
+        except Exception as e:
+            search_results.append((query_id, 'error', e))
+
+    for i in range(num_commands_per_type):
+        t = threading.Thread(target=run_query, args=(i,))
+        search_threads.append(t)
+        t.start()
+
+    self.verify_coord_high_priority_pending_jobs('CURSOR', num_commands_per_type, search_threads)
+
+  def test_coord_high_priority_pending_jobs_hybrid(self):
+    env = self.env
+    num_commands_per_type = 3  # Number of commands to execute for each command type
+    query_vector = np.array([1.0] * self.dim).astype(np.float32).tobytes()
+
+    self.env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+
+    hybrid_threads = []
+    hybrid_results = []
+    def run_hybrid(query_id):
+        try:
+            result = env.cmd('FT.HYBRID', DEFAULT_INDEX_NAME, 'SEARCH', 'hello',
+                                          'VSIM', f'@{DEFAULT_FIELD_NAME}', query_vector)
+            hybrid_results.append((query_id, 'success', result))
+        except Exception as e:
+            hybrid_results.append((query_id, 'error', e))
+
+    for i in range(num_commands_per_type):
+        t = threading.Thread(target=run_hybrid, args=(i,))
+        hybrid_threads.append(t)
+        t.start()
+
+    self.verify_coord_high_priority_pending_jobs('HYBRID', num_commands_per_type, hybrid_threads)
