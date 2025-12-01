@@ -1014,6 +1014,7 @@ done:
 static int parseProfile(AREQ *r, int execOptions, RedisModuleString **argv, int argc, QueryError *status) {
   if (execOptions & EXEC_WITH_PROFILE) {
 
+    r->qiter.isProfile = true;
     // WithCursor is disabled on the shards for external use but is available internally to the coordinator
     #ifndef RS_COORDINATOR
     if (RMUtil_ArgExists("WITHCURSOR", argv, argc, 3)) {
@@ -1026,6 +1027,8 @@ static int parseProfile(AREQ *r, int execOptions, RedisModuleString **argv, int 
     if (execOptions & EXEC_WITH_PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
     }
+  } else {
+    r->qiter.isProfile = false;
   }
   return REDISMODULE_OK;
 }
@@ -1047,6 +1050,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   if (!IsInternal(r) || IsProfile(r)) {
     // We currently don't need to measure the time for internal and non-profile commands
     rs_wall_clock_init(&r->initClock);
+    rs_wall_clock_init(&r->qiter.initTime);
   }
 
   // This function also builds the RedisSearchCtx.
@@ -1076,7 +1080,9 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     r->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
-
+    if (r->qiter.isProfile){
+      r->qiter.queryGILTime += rs_wall_clock_elapsed_ns(&r->qiter.initTime);
+    }
     workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else
 #endif // MT_BUILD
