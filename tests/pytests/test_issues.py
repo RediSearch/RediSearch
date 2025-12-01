@@ -938,7 +938,7 @@ def test_mod5910(env):
     # iterator.
     # Hence, we expect that the numeric iterator would come *after* the union iterator.
     res = env.execute_command('FT.PROFILE', 'idx', 'search', 'query', '(@n:[1 3] (@t:one | @t:two))')
-    iterators_profile = res[1][4]
+    iterators_profile = res[1][5]
     env.assertEqual(iterators_profile[1][1], 'INTERSECT')
     env.assertEqual(iterators_profile[1][7][1], 'UNION')
     env.assertEqual(iterators_profile[1][8][1], 'NUMERIC')
@@ -949,7 +949,7 @@ def test_mod5910(env):
     # *before* the union iterator.
     env.assertEqual('OK', con.execute_command('FT.CONFIG', 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true'))
     res = con.execute_command('FT.PROFILE', 'idx', 'search', 'query', '(@n:[1 3] (@t:one | @t:two))')
-    iterators_profile = res[1][4]
+    iterators_profile = res[1][5]
     env.assertEqual(iterators_profile[1][1], 'INTERSECT')
     env.assertEqual(iterators_profile[1][7][1], 'NUMERIC')
     env.assertEqual(iterators_profile[1][8][1], 'UNION')

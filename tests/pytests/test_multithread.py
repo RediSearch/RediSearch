@@ -689,7 +689,7 @@ def testNameLoader(env: Env):
         if isinstance(profile_res[0], list):
             return profile_res[2][6][-1][1] # 2.10 aggregate
         else:
-            return profile_res[-1][6][5][1] # 2.10 search
+                return profile_res[-1][6][-1][1] # 2.10 search
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'sortable', 'TEXT', 'SORTABLE', 'UNF', 'not-sortable', 'TEXT').ok()
     with env.getClusterConnectionIfNeeded() as con:
