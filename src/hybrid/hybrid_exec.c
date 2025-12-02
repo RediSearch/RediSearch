@@ -31,8 +31,6 @@
 #include "value.h"
 #include "module.h"
 #include "aggregate/reply_empty.h"
-#include "asm_state_machine.h"
-#include "info/info_redis/types/blocked_queries.h"
 
 #include <time.h>
 
@@ -68,6 +66,7 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
     // Non-fatal error
     ReplyWarning(reply, QueryError_GetUserError(err), suffix);
   } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, COORD_ERR_WARN);
     ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix);
   }
 
@@ -542,7 +541,7 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     // TODO: Dump the entire hreq when explain is implemented
     // Create a dummy AREQ for BlockQueryClient (it expects an AREQ but we'll use the first one)
     AREQ *dummy_req = hreq->requests[0];
-    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, dummy_req);
+    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, dummy_req, 0);
 
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(StrongRef_Clone(hybrid_ref), hybridParams, blockedClient, spec_ref, internal);
 
@@ -552,22 +551,14 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     for (size_t i = 0; i < hreq->nrequests; i++) {
       AREQ_AddRequestFlags(hreq->requests[i], QEXEC_F_RUN_IN_BACKGROUND);
     }
+
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, BCHCtx);
     RS_ASSERT(rc == 0);
 
     return REDISMODULE_OK;
   } else {
     // Single-threaded execution path
-    int rc = buildPipelineAndExecute(hybrid_ref, hybridParams, ctx, sctx, status, internal, false);
-    // We assume that the KeySpaceVersion is the same for all subrequests (as they have been parsed in the main thread)
-    if (hreq->requests[0]->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
-      ASM_AccountRequestFinished(hreq->requests[0]->keySpaceVersion, HYBRID_REQUEST_NUM_SUBQUERIES);
-      if (rc != REDISMODULE_OK && hreq->requests[0]->reqflags & QEXEC_F_IS_CURSOR) {
-        // If the query failed, we need to decrease the cursor query count as well
-        ASM_AccountRequestFinished(hreq->requests[0]->keySpaceVersion, HYBRID_REQUEST_NUM_SUBQUERIES);
-      }
-    }
-    return rc;
+    return buildPipelineAndExecute(hybrid_ref, hybridParams, ctx, sctx, status, internal, false);
   }
 }
 
@@ -635,7 +626,6 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, argv, argc);
 
-  // ASM: Parse hybrid command increases the query counts for the key space version for the Hybrid command and their cursors
   if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
   }
@@ -646,7 +636,6 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
   SearchCtx_UpdateTime(hybridRequest->sctx, hybridRequest->reqConfig.queryTimeoutMS);
 
-  // ASM: Build Pipeline and Execute handle the decrease of the query count for the key space version for the Hybrid command, but not from their cursors. (Even in the case of error avoiding leaks)
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
     HybridRequest_ClearErrors(hybridRequest);
@@ -666,12 +655,11 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
  *
  * @param BCHCtx The blocked client context to destroy
  */
-static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx, bool success) {
+static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
   StrongRef_Release(BCHCtx->hybrid_ref);
   freeHybridParams(BCHCtx->hybridParams);
   RedisModule_BlockedClientMeasureTimeEnd(BCHCtx->blockedClient);
-  BlockedQueryNode *privdata = (BlockedQueryNode *)RedisModule_BlockClientGetPrivateData(BCHCtx->blockedClient);
-  privdata->success = success;
+  void *privdata = RedisModule_BlockClientGetPrivateData(BCHCtx->blockedClient);
   RedisModule_UnblockClient(BCHCtx->blockedClient, privdata);
   WeakRef_Release(BCHCtx->spec_ref);
   rm_free(BCHCtx);
@@ -697,11 +685,9 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     QueryError_ReplyAndClear(outctx, &status);
     RedisModule_FreeThreadSafeContext(outctx);
-    blockedClientHybridCtx_destroy(BCHCtx, false);
+    blockedClientHybridCtx_destroy(BCHCtx);
     return;
   }
-
-  int rc = REDISMODULE_OK;
 
   RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
   if (!(hreq->reqflags & QEXEC_F_IS_CURSOR)) {
@@ -713,10 +699,9 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
   } else if (QueryError_HasError(&status)) {
-    rc = REDISMODULE_ERR;
     QueryError_ReplyAndClear(outctx, &status);
   }
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
-  blockedClientHybridCtx_destroy(BCHCtx, rc == REDISMODULE_OK);
+  blockedClientHybridCtx_destroy(BCHCtx);
 }

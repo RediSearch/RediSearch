@@ -15,50 +15,28 @@
 #include "info/info_redis/types/blocked_queries.h"
 #include "threads/main_thread.h"
 #include "cursor.h"
-#include "hybrid/hybrid_request.h"
-#include "asm_state_machine.h"
 
 static void FreeQueryNode(RedisModuleCtx* ctx, void *node) {
-  BlockedQueryNode *queryNode = (BlockedQueryNode *)node;
-  uint32_t keySpaceVersion = queryNode->keySpaceVersion;
-  size_t innerQueriesCount = queryNode->innerQueriesCount;
-  bool isCursor = queryNode->isCursor;
-  bool success = queryNode->success;
+  BlockedQueryNode *queryNode = node;
   BlockedQueries_RemoveQuery(queryNode);
-  // Function called from the free callbacks to decrease the query count. The ideas is that this callback
-  // will be called even in the case of client disconnection, and in any case.
-  if (keySpaceVersion != INVALID_KEYSPACE_VERSION) {
-    ASM_AccountRequestFinished(keySpaceVersion, innerQueriesCount);
-    if (!success && isCursor) {
-      // If the query failed, we need to decrease the cursor query count as well if the query created a cursor
-      ASM_AccountRequestFinished(keySpaceVersion, innerQueriesCount);
-    }
-  }
   rm_free(queryNode);
 }
 
 static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
-  BlockedCursorNode *cursorNode = (BlockedCursorNode *)node;
+  BlockedCursorNode *cursorNode = node;
   BlockedQueries_RemoveCursor(cursorNode);
   rm_free(cursorNode);
 }
 
-RedisModuleBlockedClient *BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec_ref, AREQ* req) {
+RedisModuleBlockedClient *BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec_ref, AREQ* req, int timeoutMS) {
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-  size_t innerQueriesCount = (req->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY || req->reqflags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY) ? HYBRID_REQUEST_NUM_SUBQUERIES : 1;
-  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries,
-    spec_ref,
-    &req->ast,
-    req->keySpaceVersion,
-    innerQueriesCount,
-    req->reqflags & QEXEC_F_IS_CURSOR);
+  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, &req->ast);
 
   // Prepare context for the worker thread
   // Since we are still in the main thread, and we already validated the
   // spec's existence, it is safe to directly get the strong reference from the spec
   // found in buildRequest.
-
   RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, NULL, FreeQueryNode, 0);
   RedisModule_BlockClientSetPrivateData(blockedClient, node);
   // report block client start time
@@ -66,7 +44,7 @@ RedisModuleBlockedClient *BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec_r
   return blockedClient;
 }
 
-RedisModuleBlockedClient *BlockCursorClient(RedisModuleCtx *ctx, Cursor *cursor, size_t count) {
+RedisModuleBlockedClient *BlockCursorClient(RedisModuleCtx *ctx, Cursor *cursor, size_t count, int timeoutMS) {
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
   BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref, cursor->id, &cursor->execState->ast, count);
