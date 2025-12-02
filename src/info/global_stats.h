@@ -56,7 +56,6 @@ typedef struct {
 typedef struct {
   size_t timeout;
   size_t oom;
-  size_t maxPrefixExpansion;
 } QueryWarningGlobalStats;
 
 typedef struct {
