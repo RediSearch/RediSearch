@@ -42,6 +42,7 @@ jobs:
       job-test-config: '{"test": "QUICK=1", "coverage": "", "sanitize": ""}'
       options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'coordinator,standalone,rejson,fail-fast,coverage,sanitize' || 'coordinator,standalone,rejson,fail-fast,sanitize' }}
       rejson-branch: master
+      fail-fast: true
 
   run-on-intel:
     needs: get-latest-redis-tag
