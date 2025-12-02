@@ -52,13 +52,13 @@ static void freeSlotRangeArray(RedisModuleSlotRangeArray* array) {
 
 int testInitialization() {
   ASM_StateMachine_Init();
-  atomic_store_explicit(&key_space_version, 0, memory_order_relaxed);
-  uint32_t initial_version = atomic_load_explicit(&key_space_version, memory_order_relaxed);
+  __atomic_store_n(&key_space_version, 0, __ATOMIC_RELAXED);
+  uint32_t initial_version = __atomic_load_n(&key_space_version, __ATOMIC_RELAXED);
   RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(100, 199);
   ASM_StateMachine_SetLocalSlots(init_slots);
   OptionSlotTrackerVersion version = slots_tracker_check_availability(init_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_EQUAL(version.version, __atomic_load_n(&key_space_version, __ATOMIC_RELAXED));
   // The slots tracker starts at version 1, and set local slots increments it by 1
   ASSERT_EQUAL(version.version, 2);
   freeSlotRangeArray(init_slots);
@@ -68,7 +68,7 @@ int testInitialization() {
 
 int testImportWorkflow() {
   ASM_StateMachine_Init();
-  atomic_store_explicit(&key_space_version, 0, memory_order_relaxed);
+  __atomic_store_n(&key_space_version, 0, __ATOMIC_RELAXED);
 
   RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(5, 20);
   RedisModuleSlotRangeArray* import_slots = createSlotRangeArray(100, 199);
@@ -78,7 +78,7 @@ int testImportWorkflow() {
   ASM_StateMachine_SetLocalSlots(init_slots);
   OptionSlotTrackerVersion version = slots_tracker_check_availability(init_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_EQUAL(version.version, __atomic_load_n(&key_space_version, __ATOMIC_RELAXED));
   ASSERT_EQUAL(version.version, 2);
   version = slots_tracker_check_availability(import_slots);
   ASSERT_FALSE(version.is_some);
@@ -86,9 +86,9 @@ int testImportWorkflow() {
   ASM_StateMachine_StartImport(import_slots);
   version = slots_tracker_check_availability(init_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_FALSE(version.version == atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_FALSE(version.version == __atomic_load_n(&key_space_version, __ATOMIC_RELAXED));
   ASSERT_EQUAL(version.version, 0); // Unstable THERE ARE PARTIALLY AVAILABLE SLOTS that u need to filter
-  ASSERT_EQUAL(atomic_load_explicit(&key_space_version, memory_order_relaxed), 3);
+  ASSERT_EQUAL(__atomic_load_n(&key_space_version, __ATOMIC_RELAXED), 3);
   version = slots_tracker_check_availability(complete_slots);
   ASSERT_FALSE(version.is_some);
   version = slots_tracker_check_availability(import_slots);
@@ -97,7 +97,7 @@ int testImportWorkflow() {
   ASM_StateMachine_CompleteImport(import_slots);
   version = slots_tracker_check_availability(complete_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed)); // Stable, Local Equals while no partially available slots
+  ASSERT_EQUAL(version.version, __atomic_load_n(&key_space_version, __ATOMIC_RELAXED)); // Stable, Local Equals while no partially available slots
   ASSERT_EQUAL(version.version, 3);
 
   version = slots_tracker_check_availability(import_slots);
@@ -116,7 +116,7 @@ int testImportWorkflow() {
 
 int testImportContinuousWorkflow() {
   ASM_StateMachine_Init();
-  atomic_store_explicit(&key_space_version, 0, memory_order_relaxed);
+  __atomic_store_n(&key_space_version, 0, __ATOMIC_RELAXED);
 
   RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(5, 99);
   RedisModuleSlotRangeArray* import_slots = createSlotRangeArray(100, 199);
@@ -124,7 +124,7 @@ int testImportContinuousWorkflow() {
   ASM_StateMachine_SetLocalSlots(init_slots);
   OptionSlotTrackerVersion version = slots_tracker_check_availability(init_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_EQUAL(version.version, __atomic_load_n(&key_space_version, __ATOMIC_RELAXED));
   ASSERT_EQUAL(version.version, 2);
   version = slots_tracker_check_availability(import_slots);
   ASSERT_FALSE(version.is_some);
@@ -132,9 +132,9 @@ int testImportContinuousWorkflow() {
   ASM_StateMachine_StartImport(import_slots);
   version = slots_tracker_check_availability(init_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_FALSE(version.version == atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_FALSE(version.version == __atomic_load_n(&key_space_version, __ATOMIC_RELAXED));
   ASSERT_EQUAL(version.version, 0); // Unstable THERE ARE PARTIALLY AVAILABLE SLOTS that u need to filter
-  ASSERT_EQUAL(atomic_load_explicit(&key_space_version, memory_order_relaxed), 3);
+  ASSERT_EQUAL(__atomic_load_n(&key_space_version, __ATOMIC_RELAXED), 3);
   version = slots_tracker_check_availability(complete_slots);
   ASSERT_FALSE(version.is_some);
   version = slots_tracker_check_availability(import_slots);
@@ -143,7 +143,7 @@ int testImportContinuousWorkflow() {
   ASM_StateMachine_CompleteImport(import_slots);
   version = slots_tracker_check_availability(complete_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed)); // Stable, Local Equals while no partially available slots
+  ASSERT_EQUAL(version.version, __atomic_load_n(&key_space_version, __ATOMIC_RELAXED)); // Stable, Local Equals while no partially available slots
   ASSERT_EQUAL(version.version, 3);
 
   version = slots_tracker_check_availability(import_slots);
@@ -169,7 +169,7 @@ int testMigrationTrimmingWorkflow() {
   ASM_StateMachine_SetLocalSlots(init_slots);
   OptionSlotTrackerVersion version = slots_tracker_check_availability(init_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed)); // Stable, Local Equals while no partially available slots
+  ASSERT_EQUAL(version.version, __atomic_load_n(&key_space_version, __ATOMIC_RELAXED)); // Stable, Local Equals while no partially available slots
   ASSERT_EQUAL(version.version, 2);
   version = slots_tracker_check_availability(migration_slots);
   ASSERT_TRUE(version.is_some);
@@ -182,7 +182,7 @@ int testMigrationTrimmingWorkflow() {
   ASM_StateMachine_CompleteMigration(migration_slots);
   version = slots_tracker_check_availability(init_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed)); // Stable, Local Equals while no partially available slots
+  ASSERT_EQUAL(version.version, __atomic_load_n(&key_space_version, __ATOMIC_RELAXED)); // Stable, Local Equals while no partially available slots
   ASSERT_EQUAL(version.version, 2);
   version = slots_tracker_check_availability(migration_slots);
   ASSERT_TRUE(version.is_some);
@@ -206,7 +206,7 @@ int testMigrationTrimmingWorkflow() {
   version = slots_tracker_check_availability(migration_slots);
   ASSERT_FALSE(version.is_some);
   version = slots_tracker_check_availability(disjoint_slots);
-  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed)); // Stable, Local Equals while no partially available slots
+  ASSERT_EQUAL(version.version, __atomic_load_n(&key_space_version, __ATOMIC_RELAXED)); // Stable, Local Equals while no partially available slots
   ASSERT_EQUAL(version.version, 3);
 
   freeSlotRangeArray(migration_slots);
@@ -218,7 +218,7 @@ int testMigrationTrimmingWorkflow() {
 
 int testKeySpaceVersionTracker() {
   ASM_StateMachine_Init();
-  atomic_store_explicit(&key_space_version, 1, memory_order_relaxed);
+  __atomic_store_n(&key_space_version, 1, __ATOMIC_RELAXED);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 0);
   // One query is using version 1
   ASM_KeySpaceVersionTracker_IncreaseQueryCount(1);
@@ -261,7 +261,7 @@ int testKeySpaceVersionTracker() {
 
   // From now on we are going to change the version, does not make sense checking if we can start trimming.
   // This does not follow a real migration/trimming flow
-  atomic_store_explicit(&key_space_version, 2, memory_order_relaxed);
+  __atomic_store_n(&key_space_version, 2, __ATOMIC_RELAXED);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
   ASM_KeySpaceVersionTracker_DecreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 1);
