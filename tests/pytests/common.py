@@ -31,6 +31,7 @@ BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64', 'FLOAT16', 'BFLOAT16']
 VECSIM_ALGOS = ['FLAT', 'HNSW']
+DEFAULT_VECTOR_FIELD_NAME = 'vector'
 
 class TimeLimit(object):
     """
@@ -52,6 +53,33 @@ class TimeLimit(object):
 
     def handler(self, signum, frame):
         raise Exception(f'Timeout: {self.message}')
+
+def wait_for_condition(check_fn, message):
+    """
+    Wait for a condition with timeout and status reporting.
+
+    Parameters:
+        - env: Test environment
+        - check_fn: Function that takes returns (status: bool, state: dict)
+                   where state is a dict of the current state information
+        - message: Message prefix for timeout exception
+    """
+    iter = 0
+    timeout_msg = {}
+
+    try:
+        with TimeLimit(120):
+            while True:
+                done, state = check_fn()
+                if done:
+                    break
+                time.sleep(0.01)
+                iter += 1
+                timeout_msg['iter'] = iter
+                timeout_msg['state'] = state
+    except Exception as e:
+        log = f"{message}: {timeout_msg}"
+        raise Exception(f'Error: {e}, log: {log}')
 
 class DialectEnv(Env):
     def __init__(self, *args, **kwargs):
@@ -590,16 +618,16 @@ class ConditionalExpected:
             func(self.env.expect(*self.query))
         return self
 
-def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0, seed=10):
+def load_vectors_to_redis(env, n_vec, query_vec_index, dim, data_type='FLOAT32', vec_field_name=DEFAULT_VECTOR_FIELD_NAME, ids_offset=0, seed=10):
     conn = getConnectionByEnv(env)
     np.random.seed(seed)
     p = conn.pipeline(transaction=False)
     query_vec = None
     for i in range(n_vec):
-        vector = create_np_array_typed(np.random.rand(vec_size), data_type)
+        vector = create_np_array_typed(np.random.rand(dim), data_type)
         if i == query_vec_index:
             query_vec = vector
-        p.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
+        p.execute_command('HSET', ids_offset + i, vec_field_name, vector.tobytes())
     p.execute()
     return query_vec
 

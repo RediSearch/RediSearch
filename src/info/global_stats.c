@@ -135,9 +135,14 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   MultiThreadingStats stats = {0};
   stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
 #ifdef MT_BUILD
+  // Workers stats
+  // We don't use workersThreadPool_getStats here to avoid the overhead of locking the thread pool.
   stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
+  stats.workers_low_priority_pending_jobs = workersThreadPool_LowPriorityPendingJobsCount();
+  stats.workers_high_priority_pending_jobs = workersThreadPool_HighPriorityPendingJobsCount();
 #endif
 #ifdef RS_COORDINATOR
+  // Coordinator stats
   stats.active_coord_threads = ConcurrentSearchPool_WorkingThreadCount();
 #endif
   return stats;
