@@ -9,7 +9,7 @@
 
 #include "wildcard_iterator.h"
 #include "inverted_index_iterator.h"
-#include "empty_iterator.h"
+#include "iterators_rs.h"
 #include "search_disk.h"
 
 /* Free a wildcard iterator */
