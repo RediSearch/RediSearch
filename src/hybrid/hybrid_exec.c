@@ -32,6 +32,7 @@
 #include "module.h"
 #include "aggregate/reply_empty.h"
 #include "asm_state_machine.h"
+#include "info/info_redis/types/blocked_queries.h"
 
 #include <time.h>
 
@@ -551,7 +552,6 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     for (size_t i = 0; i < hreq->nrequests; i++) {
       AREQ_AddRequestFlags(hreq->requests[i], QEXEC_F_RUN_IN_BACKGROUND);
     }
-    // TODO ASM: Control risk of leaking the Cursor query count
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, BCHCtx);
     RS_ASSERT(rc == 0);
 
@@ -666,11 +666,12 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
  *
  * @param BCHCtx The blocked client context to destroy
  */
-static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
+static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx, bool success) {
   StrongRef_Release(BCHCtx->hybrid_ref);
   freeHybridParams(BCHCtx->hybridParams);
   RedisModule_BlockedClientMeasureTimeEnd(BCHCtx->blockedClient);
-  void *privdata = RedisModule_BlockClientGetPrivateData(BCHCtx->blockedClient);
+  BlockedQueryNode *privdata = (BlockedQueryNode *)RedisModule_BlockClientGetPrivateData(BCHCtx->blockedClient);
+  privdata->success = success;
   RedisModule_UnblockClient(BCHCtx->blockedClient, privdata);
   WeakRef_Release(BCHCtx->spec_ref);
   rm_free(BCHCtx);
@@ -696,9 +697,11 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     QueryError_ReplyAndClear(outctx, &status);
     RedisModule_FreeThreadSafeContext(outctx);
-    blockedClientHybridCtx_destroy(BCHCtx);
+    blockedClientHybridCtx_destroy(BCHCtx, false);
     return;
   }
+
+  int rc = REDISMODULE_OK;
 
   RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
   if (!(hreq->reqflags & QEXEC_F_IS_CURSOR)) {
@@ -710,9 +713,10 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
   } else if (QueryError_HasError(&status)) {
+    rc = REDISMODULE_ERR;
     QueryError_ReplyAndClear(outctx, &status);
   }
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
-  blockedClientHybridCtx_destroy(BCHCtx);
+  blockedClientHybridCtx_destroy(BCHCtx, rc == REDISMODULE_OK);
 }

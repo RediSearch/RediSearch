@@ -22,12 +22,17 @@ static void FreeQueryNode(RedisModuleCtx* ctx, void *node) {
   BlockedQueryNode *queryNode = (BlockedQueryNode *)node;
   uint32_t keySpaceVersion = queryNode->keySpaceVersion;
   size_t innerQueriesCount = queryNode->innerQueriesCount;
+  bool isCursor = queryNode->isCursor;
+  bool success = queryNode->success;
   BlockedQueries_RemoveQuery(queryNode);
   // Function called from the free callbacks to decrease the query count. The ideas is that this callback
   // will be called even in the case of client disconnection, and in any case.
   if (keySpaceVersion != INVALID_KEYSPACE_VERSION) {
-    // TODO ASM: Somehow we should know if the query failed or not, and if the query was a cursor query and only decrease the cursor count if it did.
     ASM_AccountRequestFinished(keySpaceVersion, innerQueriesCount);
+    if (!success && isCursor) {
+      // If the query failed, we need to decrease the cursor query count as well if the query created a cursor
+      ASM_AccountRequestFinished(keySpaceVersion, innerQueriesCount);
+    }
   }
   rm_free(queryNode);
 }
@@ -41,7 +46,12 @@ static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
 RedisModuleBlockedClient *BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec_ref, AREQ* req, bool hybrid_request) {
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, &req->ast, req->keySpaceVersion, hybrid_request ? HYBRID_REQUEST_NUM_SUBQUERIES : 1);
+  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries,
+    spec_ref,
+    &req->ast,
+    req->keySpaceVersion,
+    hybrid_request ? HYBRID_REQUEST_NUM_SUBQUERIES : 1,
+    req->reqflags & QEXEC_F_IS_CURSOR);
 
   // Prepare context for the worker thread
   // Since we are still in the main thread, and we already validated the

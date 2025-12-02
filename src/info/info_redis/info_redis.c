@@ -366,6 +366,10 @@ static void AddQueriesToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
     RedisModule_InfoBeginDictField(ctx, IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
     RedisModule_InfoAddFieldULongLong(ctx, "started_at", (unsigned long long)at->start);
     RedisModule_InfoAddFieldULongLong(ctx, "key_space_version", at->keySpaceVersion);
+    //TODO ASM: Review if we want to output the query string
+    RedisModule_InfoAddFieldULongLong(ctx, "inner_queries_count", at->innerQueriesCount);
+    RedisModule_InfoAddFieldCString(ctx, "success", at->success ? "true" : "false");
+    RedisModule_InfoAddFieldCString(ctx, "is_cursor", at->isCursor ? "true" : "false");
     RedisModule_InfoEndDictField(ctx);
   }
 }

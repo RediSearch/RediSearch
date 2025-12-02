@@ -26,7 +26,7 @@ static size_t PrintActiveQueries(BlockedQueries *blockedQueries) {
     ++count; // increment regardless if sp is valid, the fact we have a valid node is problematic
     const char *indexName = sp ? IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog) : "n/a";
     const char *query = at->query && !RSGlobalConfig.hideUserDataFromLog ? at->query : "n/a";
-    RedisModule_Log(NULL, "warning", "Active query on index %s, query: %s, started at %ld, key space version: %u", indexName, query, at->start, at->keySpaceVersion);
+    RedisModule_Log(NULL, "warning", "Active query on index %s, query: %s, started at %ld, key space version: %u, isCursor: %s", indexName, query, at->start, at->keySpaceVersion, at->isCursor ? "true" : "false");
   }
   return count;
 }
@@ -53,13 +53,15 @@ void BlockedQueries_Free(BlockedQueries *blockedQueries) {
   rm_free(blockedQueries);
 }
 
-BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* blockedQueries, StrongRef spec, QueryAST* ast, uint32_t keySpaceVersion, size_t innerQueriesCount) {
+BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* blockedQueries, StrongRef spec, QueryAST* ast, uint32_t keySpaceVersion, size_t innerQueriesCount, bool isCursor) {
   BlockedQueryNode* blockedQueryNode = rm_calloc(1, sizeof(BlockedQueryNode));
   blockedQueryNode->spec = StrongRef_Clone(spec);
   blockedQueryNode->start = time(NULL);
   blockedQueryNode->query = QAST_DumpExplain(ast, StrongRef_Get(spec));
   blockedQueryNode->keySpaceVersion = keySpaceVersion;
   blockedQueryNode->innerQueriesCount = innerQueriesCount;
+  blockedQueryNode->isCursor = isCursor;
+  blockedQueryNode->success = false;
   dllist_prepend(&blockedQueries->queries, &blockedQueryNode->llnode);
   return blockedQueryNode;
 }

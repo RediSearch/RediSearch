@@ -33,6 +33,8 @@ typedef struct {
   char *query;        // The query
   uint32_t keySpaceVersion; // Version of the key space at the time of the query
   size_t innerQueriesCount; // Number of inner queries, for hybrid requests it is > 1
+  bool success;       // Whether the query was successful or not
+  bool isCursor;      // Whether the query is a cursor query or not
 } BlockedQueryNode;
 
 typedef struct {
@@ -71,7 +73,7 @@ BlockedQueries* BlockedQueries_Init();
  */
 void BlockedQueries_Free(BlockedQueries*);
 
-BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* list, StrongRef spec, QueryAST* ast, uint32_t keySpaceVersion, size_t innerQueriesCount);
+BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* list, StrongRef spec, QueryAST* ast, uint32_t keySpaceVersion, size_t innerQueriesCount, bool isCursor);
 BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* list, WeakRef spec, uint64_t cursorId, QueryAST* ast, size_t count);
 void BlockedQueries_RemoveQuery(BlockedQueryNode* node);
 void BlockedQueries_RemoveCursor(BlockedCursorNode* node);

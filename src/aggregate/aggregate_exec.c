@@ -31,6 +31,7 @@
 #include "result_processor.h"
 #include "reply_empty.h"
 #include "asm_state_machine.h"
+#include "info/info_redis/types/blocked_queries.h"
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
@@ -836,13 +837,13 @@ static void blockedClientReqCtx_setRequest(blockedClientReqCtx *BCRctx, AREQ *re
   BCRctx->req = req;
 }
 
-static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
+static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx, bool success) {
   if (BCRctx->req) {
     AREQ_Free(BCRctx->req);
   }
   RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
-  void *privdata = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
-  // TODO ASM: Here maybe we could pass to destroy information about whether the query failed or not, and whether it was a cursor query or not, so that callback would receive it
+  BlockedQueryNode *privdata = (BlockedQueryNode *)RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
+  privdata->success = success;
   RedisModule_UnblockClient(BCRctx->blockedClient, privdata);
   WeakRef_Release(BCRctx->spec_ref);
   rm_free(BCRctx);
@@ -860,9 +861,10 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     QueryError_ReplyAndClear(outctx, &status);
     RedisModule_FreeThreadSafeContext(outctx);
-    blockedClientReqCtx_destroy(BCRctx);
+    blockedClientReqCtx_destroy(BCRctx, false);
     return;
   }
+  int rc = REDISMODULE_OK;
 
   // Cursors are created with a thread-safe context, so we don't want to replace it
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
@@ -878,7 +880,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     RedisModule_Reply _reply = RedisModule_NewReply(outctx), *reply = &_reply;
-    int rc = AREQ_StartCursor(req, reply, execution_ref, &status, false);
+    rc = AREQ_StartCursor(req, reply, execution_ref, &status, false);
     RedisModule_EndReply(reply);
     if (rc != REDISMODULE_OK) {
       goto error;
@@ -901,7 +903,7 @@ cleanup:
   // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
-  blockedClientReqCtx_destroy(BCRctx);
+  blockedClientReqCtx_destroy(BCRctx, rc == REDISMODULE_OK);
 }
 
 // Assumes the spec is guarded (by its own lock for read or by the global lock)
@@ -1079,7 +1081,6 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     if (r->qiter.isProfile){
       r->qiter.GILTime += rs_wall_clock_elapsed_ns(&r->qiter.initTime);
     }
-    // TODO ASM: Control risk of leaking the Cursor query count
     const int add_work_rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(add_work_rc == 0);
   } else {
