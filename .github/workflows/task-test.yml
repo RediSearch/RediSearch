@@ -61,12 +61,10 @@ jobs:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
 
-  # Free up disk space on the runner before container jobs start
+  # Free up disk space on the runner before the main job starts
   # This runs on the host (not in container) to access host directories
   free-disk-space:
     needs: get-config
-    # Only run when we'll use a container (containers can't clean host directories)
-    if: ${{ needs.get-config.outputs.container }}
     runs-on: ${{ needs.get-config.outputs.env }}
     steps:
       - name: Free up disk space on host
@@ -243,16 +241,9 @@ jobs:
             fi
           done
           echo "supported=true" >> $GITHUB_OUTPUT
-      - name: Free up disk space
-        # Only run on non-containerized jobs - containers don't have access to host directories
-        # and don't have the large toolchains that consume disk space on GitHub runners
-        if: ${{ !needs.get-config.outputs.container }}
+      - name: Check disk space
         run: |
-          df -h
-          sudo rm -rf /usr/share/dotnet || true
-          sudo rm -rf /usr/local/lib/android || true
-          sudo rm -rf /opt/ghc || true
-          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          echo "Disk space available:"
           df -h
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
