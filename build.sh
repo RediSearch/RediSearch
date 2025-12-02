@@ -184,6 +184,8 @@ setup_build_environment() {
   # Determine build flavor
   if [ "$SAN" == "address" ]; then
     FLAVOR="debug-asan"
+  elif [[ "$RUN_MIRI" == "1" ]]; then
+    FLAVOR="debug-miri"
   elif [[ "$DEBUG" == "1" ]]; then
     FLAVOR="debug"
   elif [[ "$COV" == "1" ]]; then
