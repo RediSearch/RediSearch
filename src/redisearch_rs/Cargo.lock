@@ -445,6 +445,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "document"
+version = "0.0.1"
+dependencies = [
+ "strum",
+ "thiserror",
+]
+
+[[package]]
+name = "document_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "c_ffi_utils",
+ "cbindgen",
+ "document",
+ "libc",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1516,6 +1535,7 @@ dependencies = [
 name = "rlookup"
 version = "0.0.1"
 dependencies = [
+ "document",
  "enumflags2",
  "ffi",
  "libc",
