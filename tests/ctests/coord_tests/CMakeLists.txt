@@ -12,6 +12,7 @@ function(RMRTEST name)
   target_link_libraries("${name}" redismock ${TEST_MODULE} ${CMAKE_LD_LIBS})
   add_test(NAME "${name}" COMMAND "${name}")
   set_target_properties("${name}" PROPERTIES COMPILE_FLAGS "-fvisibility=default")
+  target_link_options("${name}" PRIVATE "LINKER:--unresolved-symbols=ignore-in-shared-libs")
 endfunction()
 
 file(GLOB TEST_SOURCES "test_*.c")
