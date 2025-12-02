@@ -1503,6 +1503,34 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+/**
+ * FT.DEBUG COORD_THREADS [PAUSE / RESUME ]
+ *
+ */
+DEBUG_COMMAND(CoordThreadsSwitch) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcasecmp(op, "pause")) {
+    if (ConcurrentSearch_pause() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: coordinator thread pool doesn't exists"
+                                      " or is not running");
+    }
+  } else if (!strcasecmp(op, "resume")) {
+    if (ConcurrentSearch_resume() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: coordinator thread pool doesn't exists"
+                                        " or is already running");
+    }
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'COORD_THREADS' subcommand");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 DEBUG_COMMAND(DistSearchCommand_DebugWrapper) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -2154,6 +2182,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_HNSW", dumpHNSWData},
                                {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
                                {"WORKERS", WorkerThreadsSwitch},
+                               {"COORD_THREADS", CoordThreadsSwitch},
                                {"BG_SCAN_CONTROLLER", bgScanController},
                                {"INDEXES", ListIndexesSwitch},
                                {"INFO", IndexObfuscatedInfo},
