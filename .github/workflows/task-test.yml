@@ -60,7 +60,6 @@ jobs:
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
-
   build-image:
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
@@ -84,9 +83,6 @@ jobs:
           sudo rm -rf /usr/local/lib/android || true
           sudo rm -rf /opt/ghc || true
           sudo rm -rf /opt/hostedtoolcache/CodeQL || true
-          sudo rm -rf /usr/local/share/boost || true
-          sudo rm -rf /opt/hostedtoolcache/go || true
-          sudo rm -rf /opt/hostedtoolcache/node || true
           docker system prune -af 2>/dev/null || true
           echo "After cleanup:"
           df -h
@@ -175,8 +171,6 @@ jobs:
           sudo rm -rf /opt/ghc || true
           sudo rm -rf /opt/hostedtoolcache/CodeQL || true
           sudo rm -rf /usr/local/share/boost || true
-          sudo rm -rf /opt/hostedtoolcache/go || true
-          sudo rm -rf /opt/hostedtoolcache/node || true
           docker system prune -af 2>/dev/null || true
           echo "After cleanup:"
           df -h
