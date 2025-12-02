@@ -1038,3 +1038,40 @@ def call_and_store(fn, args, out_list):
         out_list: List to append the function's return value to
     """
     out_list.append(fn(*args))
+
+def launch_cmds_in_bg_with_exception_check(env, command, num_triggers, exception_timeout=1):
+    """
+    Launch the same Redis command multiple times in background threads with exception monitoring.
+    
+    Args:
+        env: Redis test environment for executing commands.
+        command: A list containing the Redis command to execute (e.g., ['FT.SEARCH', 'idx', 'query']).
+        num_triggers: Number of background threads to spawn, each executing the same command.
+        exception_timeout: Seconds to wait for exception detection (default: 1).
+    
+    Returns:
+        list[Thread]: Started thread objects if no exceptions occur, None if any thread fails.
+    """
+    threads = []
+    exceptions = []
+    exception_event = threading.Event()
+
+    def run_cmd():
+        try:
+            env.cmd(*command)
+        except Exception as e:
+            exceptions.append(e)
+            exception_event.set()
+
+    for i in range(num_triggers):
+        t = threading.Thread(target=run_cmd)
+        threads.append(t)
+        t.start()
+
+    # Check for exceptions before proceeding
+    if exception_event.wait(timeout=exception_timeout):
+        error_msg = f"Background command {command} failed with {len(exceptions)} error(s): {exceptions}"
+        env.assertTrue(False, message=error_msg)
+        return None
+
+    return threads

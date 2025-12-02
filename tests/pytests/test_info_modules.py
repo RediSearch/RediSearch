@@ -1048,6 +1048,7 @@ def _test_pending_jobs_metrics(env, command_type):
         state = {
           'indexing_jobs_pending': [0] * num_shards,
           'expected_indexing_jobs': [0] * num_shards,
+          'workers_stats': [{}] * num_shards,
         }
 
         for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
@@ -1060,6 +1061,7 @@ def _test_pending_jobs_metrics(env, command_type):
           all_shards_ready[i] = (expected_indexing_jobs == indexing_jobs_pending)
           state['expected_indexing_jobs'][i] = expected_indexing_jobs
           state['indexing_jobs_pending'][i] = indexing_jobs_pending
+          state['workers_stats'][i] = {f'shard {i}': to_dict(con.execute_command(debug_cmd(), 'WORKERS', 'stats'))}
         return all(all_shards_ready), state
 
     wait_for_condition(check_indexing_jobs_pending, "wait_for_workers_low_priority_jobs_pending")
@@ -1068,29 +1070,10 @@ def _test_pending_jobs_metrics(env, command_type):
     # Launch num_queries queries in background threads
     # Queries will be queued as high-priority jobs but not executed (workers paused)
 
-    query_threads = []
-    query_results = []
-
-    def run_query(query_id):
-        conn = getConnectionByEnv(env)
-        try:
-            result = conn.execute_command(f'FT.{command_type}', index_name, '*')
-            query_results.append((query_id, 'success', result))
-        except Exception as e:
-            query_results.append((query_id, 'error', e))
-
-    for i in range(num_queries):
-        t = threading.Thread(target=run_query, args=(i,))
-        query_threads.append(t)
-        t.start()
-
-    # Give threads a moment to start and attempt to queue their queries
-    time.sleep(0.1)
-
-    # Check if any queries failed immediately (before being queued)
-    for query_id, status, result in query_results:
-        if status == 'error':
-            env.assertTrue(False, message=f"Query {query_id} failed immediately: {result}")
+    query_threads = launch_cmds_in_bg_with_exception_check(env, [f'FT.{command_type}', index_name, '*'], num_queries)
+    if query_threads is None:
+        run_command_on_all_shards(env, debug_cmd(), 'WORKERS', 'RESUME')
+        return
 
     # --- STEP 6: WAIT FOR THREADPOOL STATS TO UPDATE (jobs queued) ---
     # Wait for the threadpool stats to reflect the expected pending jobs
@@ -1101,6 +1084,7 @@ def _test_pending_jobs_metrics(env, command_type):
         state = {
           'queries_jobs_pending': [0] * num_shards,
           'expected_queries_jobs': [expected_queries_jobs] * num_shards,
+          'workers_stats': [{}] * num_shards,
         }
 
         for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
@@ -1111,6 +1095,7 @@ def _test_pending_jobs_metrics(env, command_type):
           all_shards_ready[i] = (expected_queries_jobs == queries_pending_jobs)
           state['queries_jobs_pending'][i] = queries_pending_jobs
           state['expected_queries_jobs'][i] = expected_queries_jobs
+          state['workers_stats'][i] = {f'shard {i}': to_dict(con.execute_command(debug_cmd(), 'WORKERS', 'stats'))}
         return all(all_shards_ready), state
 
     wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
@@ -1134,6 +1119,7 @@ def _test_pending_jobs_metrics(env, command_type):
         state = {
           'workers_low_priority_jobs_pending': [-1] * num_shards,
           'workers_high_priority_jobs_pending': [-1] * num_shards,
+          'workers_stats': [{}] * num_shards,
         }
 
         for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
@@ -1145,6 +1131,7 @@ def _test_pending_jobs_metrics(env, command_type):
           all_shards_ready[i] = (queries_jobs_pending == 0 and background_indexing_jobs_pending == 0)
           state['workers_low_priority_jobs_pending'][i] = background_indexing_jobs_pending
           state['workers_high_priority_jobs_pending'][i] = queries_jobs_pending
+          state['workers_stats'][i] = {f'shard {i}': to_dict(con.execute_command(debug_cmd(), 'WORKERS', 'stats'))}
         return all(all_shards_ready), state
 
     wait_for_condition(check_reset_metrics, "wait_for_workers_pending_jobs_metric_reset")
