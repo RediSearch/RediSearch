@@ -39,7 +39,7 @@ RUST_PROFILE=""  # Which profile should be used to build/test Rust code
                  # the operations to be performed
 RUN_MIRI=0       # Run Rust tests through miri to catch undefined behavior
 RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
-RUST_TOOLCHAIN="" # Rust toolchain to use (e.g., +nightly)
+RUST_TOOLCHAIN_MODIFIER="" # Rust toolchain to use (e.g., +nightly)
 
 # Rust code is built first, so exclude benchmarking crates that link C code,
 # since the static libraries they depend on haven't been built yet.
@@ -178,7 +178,7 @@ setup_build_environment() {
     # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
     echo "Using nightly version: ${NIGHTLY_VERSION}"
 
-    RUST_TOOLCHAIN="+$NIGHTLY_VERSION"
+    RUST_TOOLCHAIN_MODIFIER="+$NIGHTLY_VERSION"
   fi
 
   # Determine build flavor
@@ -199,7 +199,7 @@ setup_build_environment() {
   #
   # See https://doc.rust-lang.org/beta/unstable-book/compiler-flags/sanitizer.html#build-scripts-and-procedural-macros
   if [ "$SAN" == "address"  ]; then
-    export CARGO_BUILD_TARGET="$(rustc $RUST_TOOLCHAIN -vV | sed -n 's/host: //p')"
+    export CARGO_BUILD_TARGET="$(rustc $RUST_TOOLCHAIN_MODIFIER -vV | sed -n 's/host: //p')"
   fi
 
   # Determine the correct Rust profile for both build and tests
@@ -405,8 +405,8 @@ prepare_cmake_arguments() {
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCARGO_BUILD_TARGET=$CARGO_BUILD_TARGET"
   fi
 
-  if [[ -n "$RUST_TOOLCHAIN" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_TOOLCHAIN=$RUST_TOOLCHAIN"
+  if [[ -n "$RUST_TOOLCHAIN_MODIFIER" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_TOOLCHAIN_MODIFIER=$RUST_TOOLCHAIN_MODIFIER"
   fi
 }
 
@@ -625,7 +625,7 @@ run_rust_tests() {
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS}" cargo $RUST_TOOLCHAIN $RUST_TEST_COMMAND $RUST_TEST_OPTIONS --workspace $TEST_FILTER
+  RUSTFLAGS="${RUSTFLAGS}" cargo $RUST_TOOLCHAIN_MODIFIER $RUST_TEST_COMMAND $RUST_TEST_OPTIONS --workspace $TEST_FILTER
 
   # Check test results
   RUST_TEST_RESULT=$?
