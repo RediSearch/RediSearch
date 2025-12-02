@@ -25,7 +25,11 @@ on:
       options:
         type: string
         default: coordinator,standalone,rejson,fail-fast
-        description: 'Comma-separated list of options: coordinator, standalone, rejson, fail-fast, coverage, sanitize'
+        description: "Comma-separated list of options: coordinator, standalone, rejson, fail-fast, coverage, sanitize"
+      fail-fast:
+        type: boolean
+        default: false
+        description: "If true, the workflow will terminate as soon as one test step fails."
 
   workflow_dispatch:
     inputs:
@@ -111,3 +115,4 @@ jobs:
       test-config: ${{ fromJson(inputs.job-test-config)[(matrix.job-type || 'test')] }}
       coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
       san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
+      fail-fast: ${{ inputs.fail-fast }}
