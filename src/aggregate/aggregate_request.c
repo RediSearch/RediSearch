@@ -380,6 +380,9 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return REDISMODULE_ERR;
     }
     *papCtx->keySpaceVersion = version.version;
+    if (*papCtx->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(*papCtx->keySpaceVersion);
+    }
     *papCtx->querySlots = slot_array;
   } else {
     return ARG_UNKNOWN;
@@ -1079,10 +1082,6 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     goto error;
   }
 
-  if (req->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
-    ASM_KeySpaceVersionTracker_IncreaseQueryCount(req->keySpaceVersion);
-  }
-
   return REDISMODULE_OK;
 
 error:
@@ -1379,6 +1378,7 @@ void AREQ_Free(AREQ *req) {
   }
 
   if (req->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+    RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "Decreasing query count for version %u\n", req->keySpaceVersion);
     ASM_KeySpaceVersionTracker_DecreaseQueryCount(req->keySpaceVersion);
   }
   rm_free((void *)req->querySlots);
