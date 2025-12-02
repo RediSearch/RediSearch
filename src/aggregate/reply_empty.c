@@ -44,12 +44,9 @@ static int shallow_parse_query_args(RedisModuleString **argv, int argc, AREQ *re
 // Assumes req has already been compiled, including REQFLAGS and AREQ_QueryProcessingCtx(req)->err has been set.
 static int empty_sendChunk_common(RedisModuleCtx *ctx, AREQ *req) {
 
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-    sendChunk_ReplyOnly_EmptyResults(reply, req);
+    sendChunk_ReplyOnly_EmptyResults(ctx, req);
 
     AREQ_Free(req);
-    RedisModule_EndReply(reply);
     return REDISMODULE_OK;
 }
 
