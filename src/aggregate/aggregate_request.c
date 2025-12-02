@@ -1079,6 +1079,10 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     goto error;
   }
 
+  if (req->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+    ASM_KeySpaceVersionTracker_IncreaseQueryCount(req->keySpaceVersion);
+  }
+
   return REDISMODULE_OK;
 
 error:
@@ -1375,6 +1379,9 @@ void AREQ_Free(AREQ *req) {
     StopWordList_Unref((StopWordList *)req->searchopts.stopwords);
   }
 
+  if (req->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+    ASM_KeySpaceVersionTracker_DecreaseQueryCount(req->keySpaceVersion);
+  }
   rm_free((void *)req->querySlots);
 
   // Finally, free the context. If we are a cursor or have multi workers threads,

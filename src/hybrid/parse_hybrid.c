@@ -617,8 +617,14 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   if (internal) {
     vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
     vectorRequest->keySpaceVersion = keySpaceVersion;
+    if (vectorRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
+    }
     searchRequest->querySlots = requestSlotRanges;
     searchRequest->keySpaceVersion = keySpaceVersion;
+    if (searchRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
+    }
     requestSlotRanges = NULL; // ownership transferred
   }
 
