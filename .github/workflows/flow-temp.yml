@@ -20,5 +20,19 @@ jobs:
       platform: alpine:3
       architecture: all
       redis-ref: unstable
+  run-on-macos:
+    uses: ./.github/workflows/flow-test.yml
+    secrets: inherit
+    with:
+      platform: macos
+      architecture: all
+      redis-ref: unstable
+  run-on-noble:
+    uses: ./.github/workflows/flow-test.yml
+    secrets: inherit
+    with:
+      platform: ubuntu:noble
+      architecture: all
+      redis-ref: unstable
 
 
