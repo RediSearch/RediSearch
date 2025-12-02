@@ -1192,6 +1192,34 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
 }
 #endif
 
+/**
+ * FT.DEBUG COORD_THREADS [PAUSE / RESUME ]
+ *
+ */
+DEBUG_COMMAND(CoordThreadsSwitch) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcasecmp(op, "pause")) {
+    if (ConcurrentSearch_pause() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: coordinator thread pool doesn't exists"
+                                      " or is not running");
+    }
+  } else if (!strcasecmp(op, "resume")) {
+    if (ConcurrentSearch_resume() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: coordinator thread pool doesn't exists"
+                                        " or is already running");
+    }
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'COORD_THREADS' subcommand");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 DEBUG_COMMAND(RSSearchCommandShard) {
   // at least one debug_param should be provided
   // (1)FT.SEARCH (2)<index> (3)<query> [query_options] (4)[debug_params] (5)DEBUG_PARAMS_COUNT (6)<debug_params_count>
@@ -1698,6 +1726,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
 #ifdef MT_BUILD
                                {"WORKER_THREADS", WorkerThreadsSwitch},
 #endif
+                               {"COORD_THREADS", CoordThreadsSwitch},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

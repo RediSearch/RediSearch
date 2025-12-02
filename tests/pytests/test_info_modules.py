@@ -605,6 +605,7 @@ ACTIVE_WORKER_THREADS_METRIC = f'{SEARCH_PREFIX}active_worker_threads'
 ACTIVE_COORD_THREADS_METRIC = f'{SEARCH_PREFIX}active_coord_threads'
 WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}workers_low_priority_pending_jobs'
 WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}workers_high_priority_pending_jobs'
+COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}coord_high_priority_pending_jobs'
 
 def test_initial_multi_threading_stats(env):
   conn = getConnectionByEnv(env)
@@ -626,6 +627,8 @@ def test_initial_multi_threading_stats(env):
                  message=f"{ACTIVE_COORD_THREADS_METRIC} should exist in multi_threading section")
   env.assertTrue(ACTIVE_WORKER_THREADS_METRIC in info_dict[MULTI_THREADING_SECTION],
                  message=f"{ACTIVE_WORKER_THREADS_METRIC} field should exist in multi_threading section")
+  env.assertTrue(COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC in info_dict[MULTI_THREADING_SECTION],
+                 message=f"{COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC} field should exist in multi_threading section")
 
   # Verify all fields initialized to 0.
   env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_IO_THREADS_METRIC], '0',
@@ -634,6 +637,8 @@ def test_initial_multi_threading_stats(env):
                  message=f"{ACTIVE_COORD_THREADS_METRIC} should be 0 when idle")
   env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_WORKER_THREADS_METRIC], '0',
                  message=f"{ACTIVE_WORKER_THREADS_METRIC} should be 0 when idle")
+  env.assertEqual(info_dict[MULTI_THREADING_SECTION][COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC], '0',
+                 message=f"{COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC} should be 0 when idle")
   # There's no deterministic way to test active_io_threads increases while a query is running,
   # we test it in unit tests.
 
@@ -839,3 +844,83 @@ def test_pending_jobs_metrics_search():
 def test_pending_jobs_metrics_aggregate():
   env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 2 MT_MODE MT_MODE_FULL')
   _test_pending_jobs_metrics(env, 'AGGREGATE')
+
+# The metric is increased when the following commands are executed in cluster env:
+# - FT.SEARCH
+# - FT.AGGREGATE
+# - FT.CURSOR *
+# - FT.HYBRID
+
+class TestCoordHighPriorityPendingJobs(object):
+  def __init__(self):
+    if not self.isCluster():
+            self.skip()
+    self.env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(self.env)
+    num_docs = 10 * self.env.shardsCount
+    self.index_name = 'idx'
+
+    self.env.expect('FT.CREATE', index_name, 'SCHEMA', 't', 'TEXT').ok()
+
+    # Add some text to the documents
+    for i in range(num_docs):
+      conn.execute_command('HSET', f"doc:{i}", 't', f'hello')
+
+    # VERIFY INITIAL STATE (metric = 0) ---
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[MULTI_THREADING_SECTION][COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC], '0')
+
+
+  def verify_coord_high_priority_pending_jobs(self, command_type, num_commands_per_type, search_threads):
+    # --- VERIFY METRIC INCREASED ---
+    def check_coord_pending_jobs():
+      info_dict = info_modules_to_dict(self.env)
+      pending_jobs = int(info_dict[MULTI_THREADING_SECTION][COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC])
+      return (pending_jobs == num_commands_per_type), {'pending_jobs': pending_jobs, 'expected': num_commands_per_type}
+
+    wait_for_condition(check_coord_pending_jobs, f"wait_for_coord_pending_jobs_{command_type}")
+    # --- RESUME COORD_THREADS ---
+    self.env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+    # --- WAIT FOR ALL THREADS TO COMPLETE ---
+    for t in search_threads:
+        t.join(timeout=30)
+    # --- VERIFY METRIC DECREASED TO 0 ---
+    def check_coord_pending_jobs_reset():
+        info_dict = info_modules_to_dict(self.env)
+        pending_jobs = int(info_dict[MULTI_THREADING_SECTION][COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC])
+        return (pending_jobs == 0), {'pending_jobs': pending_jobs}
+
+    wait_for_condition(check_coord_pending_jobs_reset, f"wait_for_coord_pending_jobs_reset_{command_type}")
+
+  def _test_coord_high_priority_pending_jobs(self, command_type):
+    env = self.env
+    num_commands_per_type = 3  # Number of commands to execute for each command type
+
+    env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+
+    search_threads = launch_cmds_in_bg_with_exception_check(self.env, [f'FT.{command_type}', self.index_name, '*'], num_commands_per_type)
+    if search_threads is None:
+      env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+      return
+
+    self.verify_coord_high_priority_pending_jobs(command_type, num_commands_per_type, search_threads)
+
+  def test_coord_high_priority_pending_jobs_search(self):
+    self._test_coord_high_priority_pending_jobs('SEARCH')
+
+  def test_coord_high_priority_pending_jobs_aggregate(self):
+    self._test_coord_high_priority_pending_jobs('AGGREGATE')
+
+  def test_coord_high_priority_pending_jobs_cursor(self):
+    # Use COUNT parameter with low value so cursor won't be depleted at first execution
+    _, cursor_id = self.env.cmd('FT.AGGREGATE', self.index_name, '*', 'LOAD', '1', '@t', 'WITHCURSOR', 'COUNT', '2')
+    self.env.assertNotEqual(cursor_id, 0, message="Cursor should not be depleted")
+    num_commands_per_type = 1  # Number of commands to execute for each command type
+
+    self.env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+    search_threads = launch_cmds_in_bg_with_exception_check(self.env, ['FT.CURSOR', 'READ', self.index_name, cursor_id], num_commands_per_type)
+    if search_threads is None:
+      self.env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+      return
+
+    self.verify_coord_high_priority_pending_jobs('CURSOR', num_commands_per_type, search_threads)

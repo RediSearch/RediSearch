@@ -128,8 +128,9 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
 
 #ifdef RS_COORDINATOR
   // Coordinator stats
-  if (CoordThreadCount_Func) {
+  if (CoordThreadCount_Func) { // TODO: replace with bool
     stats.active_coord_threads = CoordThreadCount_Func();
+    stats.coord_high_priority_pending_jobs = ConcurrentSearchPool_HighPriorityPendingJobsCount();
   }
 #endif
   return stats;
