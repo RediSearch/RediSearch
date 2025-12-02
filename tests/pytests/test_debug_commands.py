@@ -48,6 +48,7 @@ class TestDebugCommands(object):
             'TTL_EXPIRE', 
             'VECSIM_INFO',
             'YIELDS_ON_LOAD_COUNTER',
+            'VECSIM_MOCK_TIMEOUT',
         ]
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 

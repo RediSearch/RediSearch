@@ -144,6 +144,10 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
   IndexResult_Free(cur_vec_res);
 }
 
+// Global timeout callback for VecSim searches.
+// Need the redirection so tests can pass a mock function to test timeout behavior.
+int (*vecsimTimeoutCallback)(TimeoutCtx *ctx) = TimedOut_WithCtx;
+
 void computeDistances(HybridIterator *hr) {
   double upper_bound = INFINITY;
   RSIndexResult *cur_res = hr->base.current;
@@ -158,7 +162,7 @@ void computeDistances(HybridIterator *hr) {
   }
 
   while (hr->child->Read(hr->child->ctx, &cur_child_res) != INDEXREAD_EOF) {
-    if(TimedOut_WithCtx(&hr->timeoutCtx)) {
+    if(vecsimTimeoutCallback(&hr->timeoutCtx)) {
       hr->list.code = VecSim_QueryResult_TimedOut;
       break;
     }

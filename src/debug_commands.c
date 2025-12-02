@@ -1028,6 +1028,40 @@ typedef struct DebugCommandType {
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 } DebugCommandType;
 
+static inline int TimedOut_Always(TimeoutCtx *ctx) {
+  (void)ctx; // Unused parameter
+  return TIMED_OUT;
+}
+
+// Global timeout callback for VecSim searches.
+// Need the redirection so tests can pass a mock function to test timeout behavior.
+// Used in hybrid_reader.c in computeDistances
+extern int (*vecsimTimeoutCallback)(TimeoutCtx *ctx);
+
+/**
+ * FT.DEBUG VECSIM_MOCK_TIMEOUT <enable|disable>
+ * Set the timeout callback for VecSim searches globally
+ * enable - will cause an immediate timeout for all VecSim searches
+ * disable - will remove the timeout callback and restore normal behavior
+ */
+DEBUG_COMMAND(VecSimMockTimeout) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcmp("enable", op)) {
+    vecsimTimeoutCallback = TimedOut_Always;
+    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_Always);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  } else if (!strcmp("disable", op)) {
+    vecsimTimeoutCallback = TimedOut_WithCtx;
+    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid command for 'VECSIM_MOCK_TIMEOUT'");
+  }
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1051,6 +1085,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
                                {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
+                               {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

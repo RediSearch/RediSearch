@@ -1623,47 +1623,44 @@ def test_rdb_memory_limit():
 
 class TestTimeoutReached(object):
     def __init__(self):
-        if SANITIZER:
-            raise SkipTest()
         self.env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
         n_shards = self.env.shardsCount
-        self.index_sizes = {'FLAT': 80000 * n_shards, 'HNSW': 10000 * n_shards}
+        self.index_sizes = {'FLAT': 100 * n_shards, 'HNSW': 100 * n_shards}
         self.hybrid_modes = ['BATCHES', 'ADHOC_BF']
         self.dim = 10
         self.timeout_expected = 0 if self.env.isCluster() else 'Timeout limit was reached'
 
-    def run_long_queries(self, n_vec, query_vec):
+    def run_timeout_tests(self, n_vec, query_vec):
+        small_k = 10
         # STANDARD KNN
-        large_k = 1000
         # run query with no timeout. should succeed.
-        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, large_k,
-                                   'PARAMS', 4, 'K', large_k, 'vec_param', query_vec.tobytes(),
+        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                   'PARAMS', 4, 'K', small_k, 'vec_param', query_vec.tobytes(),
                                    'TIMEOUT', 0)
-        self.env.assertEqual(res[0], large_k)
-        # run query with 1 millisecond timeout. should fail.
-        try: # TODO: rewrite when cluster behavior is consistent on timeout
-            res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                       'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
-                                       'TIMEOUT', 1)
-            self.env.assertEqual(res[0], self.timeout_expected)
-        except Exception as error:
-            self.env.assertContains('Timeout limit was reached', str(error))
-
-        # RANGE QUERY
-        # run query with 1 millisecond timeout. should fail.
-        self.env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                   'PARAMS', 2, 'vec_param', query_vec.tobytes(),
-                   'TIMEOUT', 1).error().equal('Timeout limit was reached')
-
-        # HYBRID MODES
-        for mode in self.hybrid_modes:
+        self.env.assertEqual(res[0], small_k)
+        # Enable VECSIM mock timeout to simulate timeout in the vecsim library
+        with vecsimMockTimeoutContext(self.env):
+            # run query with 1 millisecond timeout. should fail.
             try: # TODO: rewrite when cluster behavior is consistent on timeout
-                res = self.env.cmd('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                           'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
-                                           'TIMEOUT', 1)
+                res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                        'PARAMS', 4, 'K', small_k, 'vec_param', query_vec.tobytes())
                 self.env.assertEqual(res[0], self.timeout_expected)
             except Exception as error:
                 self.env.assertContains('Timeout limit was reached', str(error))
+
+            # RANGE QUERY
+            # run query with 1 millisecond timeout. should fail.
+            self.env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                    'PARAMS', 2, 'vec_param', query_vec.tobytes()).error().equal('Timeout limit was reached')
+
+            # HYBRID MODES
+            for mode in self.hybrid_modes:
+                try: # TODO: rewrite when cluster behavior is consistent on timeout
+                    res = self.env.cmd('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                            'PARAMS', 6, 'K', small_k, 'vec_param', query_vec.tobytes(), 'hp', mode)
+                    self.env.assertEqual(res[0], self.timeout_expected)
+                except Exception as error:
+                    self.env.assertContains('Timeout limit was reached', str(error))
 
     def test_flat(self):
         for data_type in VECSIM_DATA_TYPES:
@@ -1674,7 +1671,7 @@ class TestTimeoutReached(object):
                        'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
             waitForIndex(self.env, 'idx')
 
-            self.run_long_queries(n_vec, query_vec)
+            self.run_timeout_tests(n_vec, query_vec)
             self.env.flush()
 
     def test_hnsw(self):
@@ -1686,7 +1683,7 @@ class TestTimeoutReached(object):
                             'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
             waitForIndex(self.env, 'idx')
 
-            self.run_long_queries(n_vec, query_vec)
+            self.run_timeout_tests(n_vec, query_vec)
             self.env.flush()
 
 
