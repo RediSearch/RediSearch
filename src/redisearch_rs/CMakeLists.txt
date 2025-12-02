@@ -9,9 +9,9 @@ endif()
 
 # Use RUST_TOOLCHAIN_MODIFIER if provided (e.g., +nightly, +stable)
 if(DEFINED RUST_TOOLCHAIN_MODIFIER)
-    set(TOOLCHAIN_FLAG "${RUST_TOOLCHAIN_MODIFIER}")
+    set(TOOLCHAIN_MODIFIER "${RUST_TOOLCHAIN_MODIFIER}")
 else()
-    set(TOOLCHAIN_FLAG "")
+    set(TOOLCHAIN_MODIFIER "")
 endif()
 
 # Use RUST_PROFILE if provided, otherwise default to release
@@ -71,7 +71,7 @@ if(NOT TARGET redisearch_rs_build)
         COMMAND ${CMAKE_COMMAND} -E env
             "RUSTFLAGS=${RUST_FLAGS}"
             "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
-            ${CARGO_EXECUTABLE} ${TOOLCHAIN_FLAG} build
+            ${CARGO_EXECUTABLE} ${TOOLCHAIN_MODIFIER} build
             ${CARGO_BUILD_STD_FLAG}
             --package redisearch_rs
             --profile=${RUST_PROFILE}
@@ -107,7 +107,7 @@ endif()
 
 message(STATUS "Rust configuration:")
 message(STATUS "  Cargo: ${CARGO_EXECUTABLE}")
-message(STATUS "  Toolchain: ${TOOLCHAIN_FLAG}")
+message(STATUS "  Toolchain: ${TOOLCHAIN_MODIFIER}")
 message(STATUS "  Profile: ${RUST_PROFILE}")
 message(STATUS "  Cargo Build Std Flag: ${CARGO_BUILD_STD_FLAG}")
 message(STATUS "  RUSTFLAGS: ${RUST_FLAGS}")
