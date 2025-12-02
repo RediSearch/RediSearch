@@ -122,13 +122,6 @@ if (COV)
     add_compile_definitions(COVERAGE=1)
 endif()
 
-# Clang 20+ linker compatibility: allow test executables to link against shared libraries
-# with undefined symbols (C++ stdlib symbols in redisearch.so will be resolved at runtime)
-if(BUILD_SEARCH_UNIT_TESTS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "20.0")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --unresolved-symbols=ignore-in-shared-libs")
-    message(STATUS "Clang ${CMAKE_CXX_COMPILER_VERSION} detected: Adding --unresolved-symbols=ignore-in-shared-libs to EXE_LINKER_FLAGS")
-endif()
-
 # Get Git version info - to be printed in log upon loading the module
 execute_process(
   COMMAND git describe --abbrev=7 --always
@@ -370,14 +363,14 @@ add_dependencies(redisearch VectorSimilarity)
 add_dependencies(redisearch uv_a)
 add_dependencies(redisearch redisearch_rs)
 
-# # Handle C++ standard library linking for Clang on Linux
-# # Force libstdc++ (GCC standard library) to ensure consistency between headers and runtime library,
-# # avoiding header/library mismatches that cause undefined reference errors like std::ios_base_library_init
-# if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT APPLE)
-#     message(STATUS "Forcing libstdc++ for Clang on Linux")
-#     target_compile_options(redisearch PRIVATE -stdlib=libstdc++)
-#     target_link_options(redisearch PRIVATE -stdlib=libstdc++)
-# endif()
+# Clang 20 changed how it links the C++ standard library for shared libraries.
+# For test executables linking against redisearch.so (which contains C++ code),
+# we need to allow undefined symbols from the shared library - they'll be resolved
+# by the executable's C++ runtime at load time. This is standard for plugin architectures.
+if(BUILD_SEARCH_UNIT_TESTS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "20.0")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --unresolved-symbols=ignore-in-shared-libs")
+    message(STATUS "Clang ${CMAKE_CXX_COMPILER_VERSION}: Setting --unresolved-symbols=ignore-in-shared-libs for test executables")
+endif()
 
 #----------------------------------------------------------------------------------------------
 # Unit tests configuration
