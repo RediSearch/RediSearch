@@ -405,6 +405,31 @@ jobs:
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
+      - name: Verify C++ symbols in redisearch.so
+        if: ${{ contains(needs.get-config.outputs.container, 'clang:20') }}
+        run: |
+          echo "=== Checking for undefined C++ stdlib symbols in redisearch.so ==="
+          UNDEFINED_CPP=$(nm -u bin/linux-*/redisearch.so 2>/dev/null | grep -E "std::|__cxx|_Z" || true)
+          if [ -n "$UNDEFINED_CPP" ]; then
+            echo "WARNING: Found undefined C++ symbols in redisearch.so:"
+            echo "$UNDEFINED_CPP" | head -20
+            echo ""
+            echo "=== Checking if test executable provides these symbols ==="
+            # Check one of the test executables
+            TEST_EXE=$(find bin/linux-*/tests -name "rstest" -o -name "test_distagg" 2>/dev/null | head -1)
+            if [ -n "$TEST_EXE" ]; then
+              echo "Test executable: $TEST_EXE"
+              DEFINED_IN_TEST=$(nm -D "$TEST_EXE" 2>/dev/null | grep -E "std::|__cxx|_Z" | grep -v " U " | wc -l)
+              echo "Number of defined C++ symbols in test executable: $DEFINED_IN_TEST"
+              if [ "$DEFINED_IN_TEST" -gt 0 ]; then
+                echo "✓ Test executable links C++ stdlib and will provide these symbols at runtime"
+              else
+                echo "✗ WARNING: Test executable may not provide C++ stdlib symbols!"
+              fi
+            fi
+          else
+            echo "✓ No undefined C++ stdlib symbols found in redisearch.so"
+          fi
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
