@@ -238,7 +238,6 @@ int getNextReply(RPNet *nc) {
   // Wait for all shards' first responses before returning any results
   // This ensures accurate total_results from the start
   MRReply *root = NULL;
-  bool timedOut = false;
   if (nc->shardResponseBarrier && !nc->waitedForAllShards) {
     // Get at least 1 response from each shard
     // Notice: numShards is re-read on each iteration because it may initially be 0
@@ -249,7 +248,6 @@ int getNextReply(RPNet *nc) {
            atomic_load(&nc->shardResponseBarrier->numResponded) < numShards) {
       // Check for timeout to avoid blocking indefinitely
       if (nc->areq && nc->areq->sctx && TimedOut(&nc->areq->sctx->time.timeout)) {
-        timedOut = true;
         break;
       }
       // Calculate absolute timeout for MRIterator_NextWithTimeout
@@ -260,9 +258,6 @@ int getNextReply(RPNet *nc) {
       bool nextTimedOut = false;
       MRReply *reply = MRIterator_NextWithTimeout(nc->it, timeoutPtr, &nextTimedOut);
       if (reply == NULL) {
-        if (nextTimedOut) {
-          timedOut = true;
-        }
         break;  // No more replies or timed out
       }
 
@@ -281,7 +276,7 @@ int getNextReply(RPNet *nc) {
           MRReply *error = MRReply_Clone(nc->current.root);
           array_append(nc->shardsProfile, error);
         }
-        return 1;
+        return RS_RESULT_OK;
       }
     }
 
@@ -289,9 +284,8 @@ int getNextReply(RPNet *nc) {
     nc->waitedForAllShards = true;
 
     // Handle timeout or not enough shards responded
-    if (timedOut) {
-      shardResponseBarrier_HandleTimeout(nc);
-      root = NULL;
+    if (shardResponseBarrier_HandleTimeout(nc)) {
+      return RS_RESULT_TIMEDOUT;
     }
     shardResponseBarrier_UpdateTotalResults(nc);
   }
@@ -306,7 +300,7 @@ int getNextReply(RPNet *nc) {
     if (nc->cmd.forCursor) {
       if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
         RPNet_resetCurrent(nc);
-        return 0;
+        return RS_RESULT_EOF;
       }
     }
     root = MRIterator_Next(nc->it);
@@ -314,7 +308,7 @@ int getNextReply(RPNet *nc) {
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);
-    return MRIterator_GetPending(nc->it);
+    return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
   }
 
   // Check if an error was returned
@@ -326,7 +320,7 @@ int getNextReply(RPNet *nc) {
       MRReply *error = MRReply_Clone(root);
       array_append(nc->shardsProfile, error);
     }
-    return 1;
+    return RS_RESULT_OK;
   }
 
   // For profile command, extract the profile data from the reply
@@ -384,7 +378,7 @@ int getNextReply(RPNet *nc) {
   nc->current.root = root;
   nc->current.rows = rows;
   nc->current.meta = meta;
-  return 1;
+  return RS_RESULT_OK;
 }
 
 /**
@@ -536,8 +530,12 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
     }
 
-    if (!getNextReply(nc)) {
+    int ret = getNextReply(nc);
+    if (ret == RS_RESULT_EOF) {
       return RS_RESULT_EOF;
+    } else if (ret == RS_RESULT_TIMEDOUT) {
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+      return RS_RESULT_TIMEDOUT;
     }
 
     // If an error was returned, propagate it
