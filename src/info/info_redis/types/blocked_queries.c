@@ -26,7 +26,7 @@ static size_t PrintActiveQueries(BlockedQueries *blockedQueries) {
     ++count; // increment regardless if sp is valid, the fact we have a valid node is problematic
     const char *indexName = sp ? IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog) : "n/a";
     const char *query = at->query && !RSGlobalConfig.hideUserDataFromLog ? at->query : "n/a";
-    RedisModule_Log(NULL, "warning", "Active query on index %s, query: %s, started at %ld", indexName, query, at->start);
+    RedisModule_Log(NULL, "warning", "Active query on index %s, query: %s, started at %ld, key space version: %u", indexName, query, at->start, at->keySpaceVersion);
   }
   return count;
 }
@@ -47,17 +47,19 @@ static size_t PrintActiveCursors(BlockedQueries *blockedQueries) {
 void BlockedQueries_Free(BlockedQueries *blockedQueries) {
   const size_t numQueries = PrintActiveQueries(blockedQueries);
   const size_t numCursors = PrintActiveCursors(blockedQueries);
-  RS_LOG_ASSERT_FMT(numQueries == 0 && numCursors == 0, 
-    "There are %zu active queries and %zu active cursors. This is a bug. Please report it to https://github.com/RediSearch/RediSearch/issues", 
+  RS_LOG_ASSERT_FMT(numQueries == 0 && numCursors == 0,
+    "There are %zu active queries and %zu active cursors. This is a bug. Please report it to https://github.com/RediSearch/RediSearch/issues",
     numQueries, numCursors);
   rm_free(blockedQueries);
 }
 
-BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* blockedQueries, StrongRef spec, QueryAST* ast) {
+BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* blockedQueries, StrongRef spec, QueryAST* ast, uint32_t keySpaceVersion, size_t innerQueriesCount) {
   BlockedQueryNode* blockedQueryNode = rm_calloc(1, sizeof(BlockedQueryNode));
   blockedQueryNode->spec = StrongRef_Clone(spec);
   blockedQueryNode->start = time(NULL);
   blockedQueryNode->query = QAST_DumpExplain(ast, StrongRef_Get(spec));
+  blockedQueryNode->keySpaceVersion = keySpaceVersion;
+  blockedQueryNode->innerQueriesCount = innerQueriesCount;
   dllist_prepend(&blockedQueries->queries, &blockedQueryNode->llnode);
   return blockedQueryNode;
 }

@@ -365,6 +365,7 @@ static void AddQueriesToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
     }
     RedisModule_InfoBeginDictField(ctx, IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
     RedisModule_InfoAddFieldULongLong(ctx, "started_at", (unsigned long long)at->start);
+    RedisModule_InfoAddFieldULongLong(ctx, "key_space_version", at->keySpaceVersion);
     RedisModule_InfoEndDictField(ctx);
   }
 }

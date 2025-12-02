@@ -18,18 +18,10 @@
 #include "hybrid/hybrid_request.h"
 #include "asm_state_machine.h"
 
-// TODO ASM: Move keySpaceVersion and innerQueriesCount to BlockedQueryNode, so that we will avoid an extra allocation and deallocation
-struct BlockedClientPrivateData {
-  void *data;
-  uint32_t keySpaceVersion;
-  size_t innerQueriesCount;
-};
-
-static void FreeQueryNode(RedisModuleCtx* ctx, void *privdata) {
-  struct BlockedClientPrivateData *data = (struct BlockedClientPrivateData *)privdata;
-  uint32_t keySpaceVersion = data->keySpaceVersion;
-  size_t innerQueriesCount = data->innerQueriesCount;
-  BlockedQueryNode *queryNode = (BlockedQueryNode *)data->data;
+static void FreeQueryNode(RedisModuleCtx* ctx, void *node) {
+  BlockedQueryNode *queryNode = (BlockedQueryNode *)node;
+  uint32_t keySpaceVersion = queryNode->keySpaceVersion;
+  size_t innerQueriesCount = queryNode->innerQueriesCount;
   BlockedQueries_RemoveQuery(queryNode);
   // Function called from the free callbacks to decrease the query count. The ideas is that this callback
   // will be called even in the case of client disconnection, and in any case.
@@ -38,7 +30,6 @@ static void FreeQueryNode(RedisModuleCtx* ctx, void *privdata) {
     ASM_AccountRequestFinished(keySpaceVersion, innerQueriesCount);
   }
   rm_free(queryNode);
-  rm_free(data);
 }
 
 static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
@@ -50,18 +41,15 @@ static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
 RedisModuleBlockedClient *BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec_ref, AREQ* req, bool hybrid_request) {
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, &req->ast);
+  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, &req->ast, req->keySpaceVersion, hybrid_request ? HYBRID_REQUEST_NUM_SUBQUERIES : 1);
 
   // Prepare context for the worker thread
   // Since we are still in the main thread, and we already validated the
   // spec's existence, it is safe to directly get the strong reference from the spec
   // found in buildRequest.
-  struct BlockedClientPrivateData *privdata = rm_malloc(sizeof(struct BlockedClientPrivateData));
-  privdata->data = node;
-  privdata->keySpaceVersion = req->keySpaceVersion;
-  privdata->innerQueriesCount = hybrid_request ? HYBRID_REQUEST_NUM_SUBQUERIES : 1;
+
   RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, NULL, FreeQueryNode, 0);
-  RedisModule_BlockClientSetPrivateData(blockedClient, privdata);
+  RedisModule_BlockClientSetPrivateData(blockedClient, node);
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(blockedClient);
   return blockedClient;
