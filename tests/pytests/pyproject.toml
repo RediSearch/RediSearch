@@ -7,7 +7,7 @@ dependencies = [
     "packaging<=24.2",
     "deepdiff<=8.3.0",
     "redis>=5.2.1,<7.0.0", # Pin to avoid redis-py 7.x incompatibility (todo: update once fixed)
-    "RLTest @ git+https://github.com/RediSearch/RLTest.git@master_jk_group_passing_tests_in_github",
+    "RLTest @ git+https://github.com/kei-nan/RLTest.git@master_jk_group_passing_tests_in_github",
     "numpy<=2.2.4",
     "scipy<=1.15.2",
     "faker<=37.1.0",
@@ -17,4 +17,4 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-RLTest = { git = "https://github.com/RediSearch/RLTest.git", rev = "master_jk_group_passing_tests_in_github" }
+RLTest = { git = "https://github.com/kei-nan/RLTest.git", rev = "master_jk_group_passing_tests_in_github" }
