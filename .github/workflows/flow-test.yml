@@ -111,3 +111,4 @@ jobs:
       test-config: ${{ fromJson(inputs.job-test-config)[(matrix.job-type || 'test')] }}
       coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
       san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
+      fail-fast: ${{ contains(inputs.options, 'fail-fast') }}
