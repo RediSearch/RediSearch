@@ -257,15 +257,23 @@ void UpdateTopology(RedisModuleCtx *ctx) {
 
 RedisModuleTimerID topologyRefreshTimer = 0;
 
+// forward declaration
+#define REFRESH_PERIOD 1000 // 1 second
+
 static void UpdateTopology_Periodic(RedisModuleCtx *ctx, void *p) {
   REDISMODULE_NOT_USED(p);
   topologyRefreshTimer = RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
   UpdateTopology(ctx);
 }
 
-int InitRedisTopologyUpdater(RedisModuleCtx *ctx, mstime_t refresh_period) {
+void RedisTopologyUpdater_StopAndRescheduleInmediately(RedisModuleCtx *ctx) {
+  RedisModule_StopTimer(ctx, topologyRefreshTimer, NULL);
+  topologyRefreshTimer = RedisModule_CreateTimer(ctx, 0, UpdateTopology_Periodic, NULL);
+}
+
+int InitRedisTopologyUpdater(RedisModuleCtx *ctx) {
   if (topologyRefreshTimer || clusterConfig.type != ClusterType_RedisOSS) return REDISMODULE_ERR;
-  topologyRefreshTimer = RedisModule_CreateTimer(ctx, refresh_period, UpdateTopology_Periodic, NULL);
+  topologyRefreshTimer = RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
   return REDISMODULE_OK;
 }
 

@@ -41,7 +41,7 @@ DEBUG_COMMAND(resumeTopologyUpdater) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   if (argc != 2) return RedisModule_WrongArity(ctx);
-  if (InitRedisTopologyUpdater(ctx, REFRESH_PERIOD) != REDISMODULE_OK) {
+  if (InitRedisTopologyUpdater(ctx) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "Topology updater is already running");
   } else {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");

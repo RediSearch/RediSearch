@@ -12,10 +12,9 @@
 #include "cluster.h"
 #include "redismodule.h"
 
-// forward declaration
-#define REFRESH_PERIOD 1000 // 1 second
 struct RedisModuleCtx;
 
 void UpdateTopology(struct RedisModuleCtx *ctx);
-int InitRedisTopologyUpdater(struct RedisModuleCtx *ctx, mstime_t refresh_period);
+int InitRedisTopologyUpdater(struct RedisModuleCtx *ctx);
 int StopRedisTopologyUpdater(RedisModuleCtx *ctx);
+void RedisTopologyUpdater_StopAndRescheduleInmediately(struct RedisModuleCtx *ctx);
