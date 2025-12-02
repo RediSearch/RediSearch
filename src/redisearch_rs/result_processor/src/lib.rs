@@ -21,7 +21,7 @@ pub mod counter;
 #[cfg(test)]
 mod test_utils;
 
-use libc::{c_int};
+use libc::c_int;
 use pin_project::pin_project;
 #[cfg(debug_assertions)]
 use std::any::{TypeId, type_name};
