@@ -33,7 +33,12 @@ activate_venv() {
 uv venv --seed
 activate_venv
 source .venv/bin/activate
-uv sync --locked --all-packages
+# Try to sync with locked file, but if it fails due to git dependencies, regenerate the lock file
+if ! uv sync --locked --all-packages; then
+	echo "Locked sync failed, regenerating lock file..."
+	uv lock
+	uv sync --all-packages
+fi
 
 # List installed packages
 uv run pip list
