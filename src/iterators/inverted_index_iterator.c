@@ -407,31 +407,25 @@ static QueryIterator *NewInvIndIterator(const InvertedIndex *idx, RSIndexResult 
   return InitInvIndIterator(it, idx, res, filterCtx, sctx, decoderCtx, checkAbortFn);
 }
 
-static QueryIterator *NewInvIndIterator_NumericRange(const InvertedIndex *idx, RSIndexResult *res, const NumericRangeTree *rt, const FieldFilterContext *filterCtx,
-                const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx) {
-  RS_ASSERT(idx);
-  NumericInvIndIterator *it = rm_calloc(1, sizeof(*it));
-
-  // Initialize the iterator first
-  InitInvIndIterator(&it->base, idx, res, filterCtx, sctx, decoderCtx, NumericCheckAbort);
-
-  if (rt) {
-    it->revisionId = rt->revisionId;
-    it->rt = rt;
-  }
-
-  return &it->base.base;
-}
-
 QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
                                               const NumericFilter *flt, const NumericRangeTree *rt, double rangeMin, double rangeMax) {
+  RS_ASSERT(idx);
   IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
 
   if (flt) {
     decoderCtx = (IndexDecoderCtx){.numeric_tag = IndexDecoderCtx_Numeric, .numeric = flt};
   }
 
-  QueryIterator *ret = NewInvIndIterator_NumericRange(idx, NewNumericResult(), rt, fieldCtx, sctx, &decoderCtx);
+  NumericInvIndIterator *numIt = rm_calloc(1, sizeof(*numIt));
+  // Initialize the iterator first
+  InitInvIndIterator(&numIt->base, idx, NewNumericResult(), fieldCtx, sctx, &decoderCtx, NumericCheckAbort);
+
+  if (rt) {
+    numIt->revisionId = rt->revisionId;
+    numIt->rt = rt;
+  }
+
+  QueryIterator *ret = &numIt->base.base;
   InvIndIterator *it = (InvIndIterator *)ret;
   it->profileCtx.numeric.rangeMin = rangeMin;
   it->profileCtx.numeric.rangeMax = rangeMax;
