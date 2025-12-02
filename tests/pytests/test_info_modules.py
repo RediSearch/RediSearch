@@ -1896,22 +1896,11 @@ def test_pending_jobs_metrics_aggregate():
   env = Env(moduleArgs='DEFAULT_DIALECT 2')
   _test_pending_jobs_metrics(env, 'AGGREGATE')
 
-# ============================================================================
-# PSEUDO CODE: Test for coord_high_priority_pending_jobs metric
-# ============================================================================
-#
-# This test verifies the new INFO metric:
-# - coord_high_priority_pending_jobs: Number of high-priority coordinator jobs pending
-#
 # The metric is increased when the following commands are executed in cluster env:
 # - FT.SEARCH
 # - FT.AGGREGATE
-# - FT.CURSOR (READ)
+# - FT.CURSOR *
 # - FT.HYBRID
-#
-# The test should be DETERMINISTIC and STABLE by using COORD_THREADS pause/resume capabilities.
-#
-# ============================================================================
 
 class TestCoordHighPriorityPendingJobs(object):
   def __init__(self):
