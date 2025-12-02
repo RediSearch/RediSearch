@@ -605,7 +605,7 @@ run_rust_tests() {
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*"
       --output-path=$BINROOT/rust_cov.info
     "
-  elif [[ -n "$SAN" || "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
+  elif [[ "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
     RUST_EXTENSIONS="miri"
   fi
 
