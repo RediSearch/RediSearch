@@ -24,4 +24,5 @@ struct MRClusterTopology;
 void RQ_Push_Topology(MRQueueCallback cb, struct MRClusterTopology *topo);
 
 void RQ_Debug_ClearPendingTopo();
+void RQ_Debug_SetLoopReady();
 #endif // RQ_C__
