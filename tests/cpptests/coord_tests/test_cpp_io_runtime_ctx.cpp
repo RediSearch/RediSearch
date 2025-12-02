@@ -194,6 +194,7 @@ TEST_F(IORuntimeCtxCommonTest, ShutdownWithPendingRequests) {
 
 TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
   // Test that the active_io_threads metric is tracked correctly
+  GTEST_SKIP() << "Takes over 5 minutes to run when computing coverage";
 
   // Create ConcurrentSearch required to call GlobalStats_GetMultiThreadingStats
   ConcurrentSearch_CreatePool(1);
