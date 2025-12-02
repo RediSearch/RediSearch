@@ -114,9 +114,7 @@ void shardResponseBarrier_Init(void *ptr, MRIterator *it) {
   size_t numShards = MRIterator_GetNumShards(it);
   barrier->shardResponded = rm_calloc(numShards, sizeof(*barrier->shardResponded));
   if (barrier->shardResponded) {
-    for (size_t i = 0; i < numShards; i++) {
-      atomic_init(&barrier->shardResponded[i], false);
-    }
+    // rm_calloc already zero-initializes, so all elements are false
     // Set numShards only after successful allocation to prevent
     // shardResponseBarrier_Notify from accessing NULL shardResponded array
     atomic_init(&barrier->numShards, numShards);
@@ -139,9 +137,9 @@ void shardResponseBarrier_Notify(int16_t shardId, long long totalResults, bool i
   }
 
   // Check if this is the first response from this shard
-  // No atomic needed - only one IO thread writes to this barrier
-  bool expected = false;
-  if (atomic_compare_exchange_strong(&barrier->shardResponded[shardId], &expected, true)) {
+  // No atomic needed - only one IO thread accesses shardResponded for this barrier
+  if (!barrier->shardResponded[shardId]) {
+    barrier->shardResponded[shardId] = true;
     if (!isError) {
       atomic_fetch_add(&barrier->accumulatedTotal, totalResults);
     } else {
@@ -224,7 +222,6 @@ static bool shardResponseBarrier_HandleError(RPNet *nc) {
       for (size_t i = 0; i < array_len(nc->pendingReplies); i++) {
         MRReply *reply = nc->pendingReplies[i];
         if (MRReply_Type(reply) == MR_REPLY_ERROR) {
-          const char *error = MRReply_String(reply, NULL);
           // Move error reply to current
           nc->current.root = reply;
           array_del(nc->pendingReplies, i);
