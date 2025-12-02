@@ -76,16 +76,6 @@ typedef struct {
   size_t active_coord_threads; // number of coordinator threads currently executing jobs
   size_t workers_low_priority_pending_jobs; // number of low priority jobs waiting to be executed (currently only vecsim background indexing)
   size_t workers_high_priority_pending_jobs; // number of high priority jobs waiting to be executed (currently only queries)
-  // ConcurrentSearch_ThreadPoolRun called by:
-    // searchResultReducer_background
-    // DistSearchCommandImp
-    // ScheduleContextCleanup
-    // ConcurrentSearch_HandleRedisCommandEx
-  // ConcurrentSearch_HandleRedisCommandEx called by:
-    // DistAggregateCommandImp
-    // DistHybridCommand
-    // CursorCommand
-
   size_t coord_high_priority_pending_jobs; // number of high priority jobs waiting to be executed by the coordinator
 } MultiThreadingStats;
 
