@@ -12,6 +12,20 @@
 #include <stdatomic.h>
 #include <uv.h>
 
+uv_thread_t loop_th;
+static atomic_bool loop_started = false;
+
+/* start the event loop side thread */
+static void sideThread(void *arg) {
+  atomic_store(&loop_started, true);  // Signal that loop thread is starting
+  while (1) {
+    if (uv_run(uv_default_loop(), UV_RUN_DEFAULT)) break;
+    usleep(1000);
+    fprintf(stderr, "restarting loop!\n");
+  }
+  fprintf(stderr, "Uv loop exited!\n");
+}
+
 // Test flags to track callback execution using C11 atomics
 typedef struct {
   atomic_bool started;
@@ -65,6 +79,15 @@ void testMetricUpdateDuringCallback() {
   MRWorkQueue *q = RQ_New(10);
   mu_check(q != NULL);
 
+  if (uv_thread_create(&loop_th, sideThread, NULL) != 0) {
+      perror("thread create");
+      exit(-1);
+  }
+
+  // Wait for UV loop thread to start
+  int loop_ready = wait_for_atomic_bool(&loop_started, 5000); // 5s timeout
+  mu_check(loop_ready);
+
   // Phase 1: Verify metric starts at 0
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
   mu_assert_int_eq(0, stats.active_io_threads);
@@ -93,24 +116,8 @@ void testMetricUpdateDuringCallback() {
 
 static void dummyLog(RedisModuleCtx *ctx, const char *level, const char *fmt, ...) {}
 
-/* start the event loop side thread */
-static void sideThread(void *arg) {
-  while (1) {
-    if (uv_run(uv_default_loop(), UV_RUN_DEFAULT)) break;
-    usleep(1000);
-    fprintf(stderr, "restarting loop!\n");
-  }
-  fprintf(stderr, "Uv loop exited!\n");
-}
-
-uv_thread_t loop_th;
-
 int main(int argc, char **argv) {
   RMUTil_InitAlloc();
-  if (uv_thread_create(&loop_th, sideThread, NULL) != 0) {
-      perror("thread create");
-      exit(-1);
-  }
   RedisModule_Log = dummyLog;
   MU_RUN_TEST(testMetricUpdateDuringCallback);
   MU_REPORT();
