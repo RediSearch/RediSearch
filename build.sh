@@ -39,6 +39,7 @@ RUST_PROFILE=""  # Which profile should be used to build/test Rust code
                  # the operations to be performed
 RUN_MIRI=0       # Run Rust tests through miri to catch undefined behavior
 RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
+RUST_TOOLCHAIN="" # Rust toolchain to use (e.g., +nightly)
 
 # Rust code is built first, so exclude benchmarking crates that link C code,
 # since the static libraries they depend on haven't been built yet.
@@ -171,10 +172,18 @@ setup_test_configuration() {
 # Configure the build environment variables
 #-----------------------------------------------------------------------------
 setup_build_environment() {
+  # Determine Rust toolchain
+  if [[ -n "$SAN" || "$COV" == "1" || "$RUN_MIRI" == "1" ]]; then
+    # We use the `nightly` compiler in order to include doc tests in the coverage computation.
+    # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
+    echo "Using nightly version: ${NIGHTLY_VERSION}"
+
+    RUST_TOOLCHAIN="+$NIGHTLY_VERSION"
+  fi
+
   # Determine build flavor
   if [ "$SAN" == "address" ]; then
     FLAVOR="debug-asan"
-    export CARGO_BUILD_TARGET="$(rustc +$NIGHTLY_VERSION -vV | sed -n 's/host: //p')"
   elif [[ "$DEBUG" == "1" ]]; then
     FLAVOR="debug"
   elif [[ "$COV" == "1" ]]; then
@@ -183,6 +192,11 @@ setup_build_environment() {
     FLAVOR="release-profile"
   else
     FLAVOR="release"
+  fi
+
+  # Use a custom build target for sanitizers
+  if [ "$SAN" == "address"  ]; then
+    export CARGO_BUILD_TARGET="$(rustc $RUST_TOOLCHAIN -vV | sed -n 's/host: //p')"
   fi
 
   # Determine the correct Rust profile for both build and tests
@@ -376,6 +390,10 @@ prepare_cmake_arguments() {
 
   if [[ -n "$CARGO_BUILD_TARGET" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCARGO_BUILD_TARGET=$CARGO_BUILD_TARGET"
+  fi
+
+  if [[ -n "$RUST_TOOLCHAIN" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_TOOLCHAIN=$RUST_TOOLCHAIN"
   fi
 }
 
@@ -575,14 +593,11 @@ run_rust_tests() {
 
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
-    # We use the `nightly` compiler in order to include doc tests in the coverage computation.
-    # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
-    RUST_EXTENSIONS="+$NIGHTLY_VERSION llvm-cov"
+    RUST_EXTENSIONS="llvm-cov"
     # We exclude Rust benchmarking crates that link to C code when computing coverage.
     # On one side, we aren't interested in coverage of those utilities.
     # On top of that, it causes linking issues since, when computing coverage, it seems to
     # require C symbols to be defined even if they aren't invoked at runtime.
-    echo "Using nightly version: ${NIGHTLY_VERSION}"
     RUST_TEST_OPTIONS="
       --doctests
       $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C
@@ -591,7 +606,7 @@ run_rust_tests() {
       --output-path=$BINROOT/rust_cov.info
     "
   elif [[ -n "$SAN" || "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
-    RUST_EXTENSIONS="+$NIGHTLY_VERSION miri"
+    RUST_EXTENSIONS="miri"
   fi
 
   if [[ $OS_NAME != "macos" ]]; then
@@ -601,7 +616,7 @@ run_rust_tests() {
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings }" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $TEST_FILTER -- --nocapture
+  RUSTFLAGS="${RUSTFLAGS:--D warnings }" cargo $RUST_TOOLCHAIN $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $TEST_FILTER -- --nocapture
 
   # Check test results
   RUST_TEST_RESULT=$?
