@@ -192,5 +192,6 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
 
   // Coordinator stats
   stats.active_coord_threads = ConcurrentSearchPool_WorkingThreadCount();
+  stats.coord_high_priority_pending_jobs = ConcurrentSearchPool_HighPriorityPendingJobsCount();
   return stats;
 }
