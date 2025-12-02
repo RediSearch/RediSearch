@@ -7,6 +7,13 @@ if(NOT CARGO_EXECUTABLE)
     message(FATAL_ERROR "Cargo not found. Please install Rust and Cargo.")
 endif()
 
+# Use RUST_TOOLCHAIN if provided (e.g., +nightly, +stable)
+if(DEFINED RUST_TOOLCHAIN)
+    set(TOOLCHAIN_FLAG "${RUST_TOOLCHAIN}")
+else()
+    set(TOOLCHAIN_FLAG "")
+endif()
+
 # Use RUST_PROFILE if provided, otherwise default to release
 if(NOT DEFINED RUST_PROFILE)
     set(RUST_PROFILE "release")
@@ -64,7 +71,7 @@ if(NOT TARGET redisearch_rs_build)
         COMMAND ${CMAKE_COMMAND} -E env
             "RUSTFLAGS=${RUST_FLAGS}"
             "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
-            ${CARGO_EXECUTABLE} build
+            ${CARGO_EXECUTABLE} ${TOOLCHAIN_FLAG} build
             ${CARGO_BUILD_STD_FLAG}
             --package redisearch_rs
             --profile=${RUST_PROFILE}
