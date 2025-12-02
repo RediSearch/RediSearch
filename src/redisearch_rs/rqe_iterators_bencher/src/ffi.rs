@@ -72,9 +72,8 @@ impl QueryIterator {
         Self(unsafe { bindings::NewIdListIterator(data, len as u64, 1f64) })
     }
 
-    #[inline(always)]
-    pub fn new_wildcard(max_id: u64, num_docs: usize) -> Self {
-        Self(unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, num_docs, 1f64) })
+    pub fn new_wildcard(max_id: u64) -> Self {
+        Self(unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, 1f64) })
     }
 
     #[inline(always)]

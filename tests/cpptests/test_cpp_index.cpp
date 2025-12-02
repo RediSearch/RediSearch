@@ -1591,7 +1591,7 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}}, .predicate = FIELD_EXPIRATION_DEFAULT};
 
   // Mock the WILDCARD_ITERATOR consideration
-  QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, n, 1.0);
+  QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, 1.0);
 
   HybridIteratorParams hParams = {
     .sctx = NULL,
