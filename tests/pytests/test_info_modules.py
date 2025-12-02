@@ -1915,7 +1915,7 @@ def test_pending_jobs_metrics_aggregate():
 
 class TestCoordHighPriorityPendingJobs(object):
   def __init__(self):
-    if CLUSTER:
+    if not CLUSTER:
         raise SkipTest()
     self.env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(self.env)
