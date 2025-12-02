@@ -13,6 +13,7 @@
 #include "deps/rmutil/rm_assert.h"
 #include <stdatomic.h>
 #include <stdlib.h>
+#include <pthread.h>
 
 // Sanitizer detection for leak tracking
 #define ASM_SANITIZER_ENABLED 0
@@ -95,6 +96,9 @@ KHASH_MAP_INIT_INT(query_key_space_version_tracker, uint32_t);
 // Static hash map instance for tracking query versions
 extern khash_t(query_key_space_version_tracker) *query_key_space_version_map;
 
+// Mutex for thread-safe hash map operations
+static pthread_mutex_t query_version_tracker_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 static inline void ASM_KeySpaceVersionTracker_Init() {
   if (query_key_space_version_map != NULL) {
     kh_destroy(query_key_space_version_tracker, query_key_space_version_map);
@@ -131,17 +135,18 @@ static inline void ASM_KeySpaceVersionTracker_Destroy() {
 }
 
 static inline void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_key_space_version) {
-  // If map doesn't exist, nothing to increase  // Find or create entry for this query version
+  pthread_mutex_lock(&query_version_tracker_mutex);
+
   int ret;
   khiter_t k = kh_put(query_key_space_version_tracker, query_key_space_version_map, query_key_space_version, &ret);
 
   if (ret == 0) {
-    // Key already exists, increment the count
     kh_value(query_key_space_version_map, k)++;
   } else {
-    // New key, set count to 1
     kh_value(query_key_space_version_map, k) = 1;
   }
+
+  pthread_mutex_unlock(&query_version_tracker_mutex);
 
 #if ASM_SANITIZER_ENABLED
   // Allocate a dummy integer for sanitizer leak detection
@@ -170,23 +175,24 @@ static inline void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_
 }
 
 static inline void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_key_space_version) {
-  // Find the entry for this query version
+  pthread_mutex_lock(&query_version_tracker_mutex);
+
   khiter_t k = kh_get(query_key_space_version_tracker, query_key_space_version_map, query_key_space_version);
   RS_LOG_ASSERT(k != kh_end(query_key_space_version_map), "Query version not found in tracker");
 
-  // Decrease the count
   uint32_t *count = &kh_value(query_key_space_version_map, k);
   if (*count > 0) {
     (*count)--;
   }
 
-  // If count reaches 0 and query version is smaller than current version, remove the entry
   if (*count == 0) {
     uint32_t current_version = __atomic_load_n(&key_space_version, __ATOMIC_RELAXED);
     if (query_key_space_version < current_version) {
       kh_del(query_key_space_version_tracker, query_key_space_version_map, k);
     }
   }
+
+  pthread_mutex_unlock(&query_version_tracker_mutex);
 
 #if ASM_SANITIZER_ENABLED
   // Deallocate a dummy integer for sanitizer leak detection
@@ -202,15 +208,18 @@ static inline void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_
 
 /* Get the number of queries that are using a specific version, this is intended to be used in tests only. */
 static inline uint32_t ASM_KeySpaceVersionTracker_GetQueryCount(uint32_t query_version) {
+  pthread_mutex_lock(&query_version_tracker_mutex);
   khiter_t k = kh_get(query_key_space_version_tracker, query_key_space_version_map, query_version);
-  if (k == kh_end(query_key_space_version_map)) {
-    return 0;
-  }
-  return kh_value(query_key_space_version_map, k);
+  uint32_t result = (k == kh_end(query_key_space_version_map)) ? 0 : kh_value(query_key_space_version_map, k);
+  pthread_mutex_unlock(&query_version_tracker_mutex);
+  return result;
 }
 
 static inline uint32_t ASM_KeySpaceVersionTracker_GetTrackedVersionsCount() {
-  return kh_size(query_key_space_version_map);
+  pthread_mutex_lock(&query_version_tracker_mutex);
+  uint32_t result = kh_size(query_key_space_version_map);
+  pthread_mutex_unlock(&query_version_tracker_mutex);
+  return result;
 }
 
 static int ASM_AccountRequestFinished(uint32_t keySpaceVersion, size_t innerQueriesCount) {
