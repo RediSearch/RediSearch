@@ -17,7 +17,7 @@ extern "C" {
 struct IndexSpec;
 struct AREQ;
 struct Cursor;
-RedisModuleBlockedClient* BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec, struct AREQ* req, bool hybrid_request);
+RedisModuleBlockedClient* BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec, struct AREQ* req);
 RedisModuleBlockedClient* BlockCursorClient(RedisModuleCtx *ctx, Cursor* cursor, size_t count);
 
 #ifdef __cplusplus

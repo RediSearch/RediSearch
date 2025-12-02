@@ -542,7 +542,7 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     // TODO: Dump the entire hreq when explain is implemented
     // Create a dummy AREQ for BlockQueryClient (it expects an AREQ but we'll use the first one)
     AREQ *dummy_req = hreq->requests[0];
-    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, dummy_req, true);
+    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, dummy_req);
 
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(StrongRef_Clone(hybrid_ref), hybridParams, blockedClient, spec_ref, internal);
 

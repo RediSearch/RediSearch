@@ -43,14 +43,15 @@ static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
   rm_free(cursorNode);
 }
 
-RedisModuleBlockedClient *BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec_ref, AREQ* req, bool hybrid_request) {
+RedisModuleBlockedClient *BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec_ref, AREQ* req) {
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
+  size_t innerQueriesCount = (req->reqflags & QEXEC_F_IS_HYBRID_TAIL || req->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY || req->reqflags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY) ? HYBRID_REQUEST_NUM_SUBQUERIES : 1;
   BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries,
     spec_ref,
     &req->ast,
     req->keySpaceVersion,
-    hybrid_request ? HYBRID_REQUEST_NUM_SUBQUERIES : 1,
+    innerQueriesCount,
     req->reqflags & QEXEC_F_IS_CURSOR);
 
   // Prepare context for the worker thread

@@ -1074,7 +1074,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
   int rc = REDISMODULE_OK;
   if (RunInThread()) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
-    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, r, false);
+    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, r);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
@@ -1425,6 +1425,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else {
       uint32_t keySpaceVersion = cursor->execState->keySpaceVersion;
       cursorRead(reply, cursor, count, false);
+      // TODO ASM: Should I decrease here?
       ASM_AccountRequestFinished(keySpaceVersion, 1);
     }
   } else if (strcasecmp(cmd, "PROFILE") == 0) {
