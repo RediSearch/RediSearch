@@ -1807,7 +1807,7 @@ def _test_pending_jobs_metrics(env, command_type):
     # Launch num_queries queries in background threads
     # Queries will be queued as high-priority jobs but not executed (workers paused)
 
-    query_threads = run_cmds_in_bg(env, [f'FT.{command_type}', index_name, '*'], num_queries)
+    query_threads = launch_cmds_in_bg_with_exception_check(env, [f'FT.{command_type}', index_name, '*'], num_queries)
     if query_threads is None:
         run_command_on_all_shards(env, debug_cmd(), 'WORKERS', 'RESUME')
         return
