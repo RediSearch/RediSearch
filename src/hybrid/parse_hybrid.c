@@ -743,17 +743,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   hybridParams->aggregationParams = params;
 
-  if (keySpaceVersion != INVALID_KEYSPACE_VERSION) {
-    ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
-    ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
-    if (searchRequest->reqflags && QEXEC_F_IS_CURSOR) {
-      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
-    }
-    if (vectorRequest->reqflags && QEXEC_F_IS_CURSOR) {
-      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
-    }
-  }
-
   return REDISMODULE_OK;
 
 error:

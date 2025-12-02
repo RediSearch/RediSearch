@@ -13,7 +13,6 @@
 #include "module.h"
 #include "util/strconv.h"
 #include "slot_ranges.h"
-#include "redis_cluster.h"
 
 #ifndef ENABLE_ASSERT
 #define ASSERT_KEY(reply, idx, expected)
@@ -239,10 +238,8 @@ void UpdateTopology(RedisModuleCtx *ctx) {
   }
 }
 
-RedisModuleTimerID topologyRefreshTimer = 0;
-
-// forward declaration
 #define REFRESH_PERIOD 1000 // 1 second
+RedisModuleTimerID topologyRefreshTimer = 0;
 
 static void UpdateTopology_Periodic(RedisModuleCtx *ctx, void *p) {
   REDISMODULE_NOT_USED(p);

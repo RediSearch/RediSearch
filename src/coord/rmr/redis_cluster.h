@@ -10,8 +10,8 @@
 #pragma once
 
 #include "cluster.h"
-#include "redismodule.h"
 
+// forward declaration
 struct RedisModuleCtx;
 
 void UpdateTopology(struct RedisModuleCtx *ctx);
