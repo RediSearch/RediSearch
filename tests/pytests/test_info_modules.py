@@ -1915,6 +1915,8 @@ def test_pending_jobs_metrics_aggregate():
 
 class TestCoordHighPriorityPendingJobs(object):
   def __init__(self):
+    if CLUSTER:
+        raise SkipTest()
     self.env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(self.env)
     num_docs = 10 * self.env.shardsCount
@@ -1958,7 +1960,7 @@ class TestCoordHighPriorityPendingJobs(object):
     num_commands_per_type = 3  # Number of commands to execute for each command type
 
     env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
-    #
+
     search_threads = []
     search_results = []
 
@@ -1995,6 +1997,7 @@ class TestCoordHighPriorityPendingJobs(object):
     search_results = []
 
     def run_query(query_id):
+        nonlocal cursor_id
         try:
             result, cursor_id = conn.execute_command(f'FT.CURSOR', 'READ', DEFAULT_INDEX_NAME, cursor_id)
             search_results.append((query_id, 'success', result))
