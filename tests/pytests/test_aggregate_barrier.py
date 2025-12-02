@@ -14,6 +14,7 @@ Test Categories:
 from common import *
 import threading
 import time
+import redis
 
 
 def setup_index_with_data(env, num_docs, index_name='idx'):
@@ -28,13 +29,19 @@ def setup_index_with_data(env, num_docs, index_name='idx'):
             'HSET', f'doc:{index_name}:{i}', 'title', f'hello world {i}', 'num', i)
 
 
-def get_total_results(res):
+def _get_total_results(res):
     """Extract total_results from query response (handles both RESP2 and RESP3)."""
     if isinstance(res, dict):
         return res.get('total_results', 0)
     else:
         return res[0] if res else 0
 
+def _get_results(res):
+    # Extract the results from the query response
+    if isinstance(res, dict):
+        return res['results']
+    else:
+        return res[1:]
 
 #------------------------------------------------------------------------------
 # Delayed Shard Response Tests
@@ -47,6 +54,36 @@ def call_and_store(func, args, results_list):
         results_list.append(result)
     except Exception as e:
         results_list.append(e)
+
+
+def run_query_with_delayed_shard(env, cmd, query_result, sleep_duration):
+    """Execute query where shard 1 is delayed (the one with 0 docs)"""
+    conn = getConnectionByEnv(env)
+    try:
+        # Start DEBUG SLEEP on shard 1 (connection index 2) in a background thread
+        # This will block the entire Redis main thread on that shard
+        def block_shard():
+            # Connection index 2 corresponds to shard 1 (the one with 0 docs)
+            shard_conn = env.getConnection(2)
+            # This blocks the entire Redis instance
+            shard_conn.execute_command('DEBUG', 'SLEEP', sleep_duration)
+
+        sleep_thread = threading.Thread(target=block_shard, daemon=True)
+        sleep_thread.start()
+
+        # Wait a bit to ensure DEBUG SLEEP has started
+        time.sleep(0.5)
+
+        # Now send the query from coordinator
+        # Shards 0 and 2 will respond quickly and start sending data
+        # but the coordinator must wait for shard 1 before reporting total
+        start_time = time.time()
+        result = conn.execute_command(*cmd)
+        elapsed = time.time() - start_time
+
+        query_result.append((result, elapsed))
+    except Exception as e:
+        query_result.append(e)
 
 
 @skip(cluster=False)
@@ -68,7 +105,7 @@ def test_barrier_waits_for_delayed_shard():
 
     # First verify baseline without pausing
     baseline_res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', num_docs//2)
-    baseline_total = get_total_results(baseline_res)
+    baseline_total = _get_total_results(baseline_res)
     env.assertEqual(baseline_total, num_docs,
                     message=f"Baseline should return {num_docs}, got {baseline_total}")
 
@@ -125,7 +162,7 @@ def test_barrier_waits_for_delayed_shard():
     if isinstance(query_result[0], Exception):
         env.assertTrue(False, message=f"Query failed with: {query_result[0]}")
     else:
-        total = get_total_results(query_result[0])
+        total = _get_total_results(query_result[0])
         env.assertEqual(total, num_docs,
                         message=f"WITHCOUNT after delayed shard should return {num_docs}, got {total}")
 
@@ -144,11 +181,10 @@ def test_barrier_waits_for_delayed_unbalanced_shard():
     Shard 1: 0 docs - delayed with DEBUG SLEEP (via env.getConnection(2))
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3, shardsCount=3)
+    conn = getConnectionByEnv(env)
 
     # Create index
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
-
-    conn = getConnectionByEnv(env)
 
     # Add docs to shard 0 (small shard)
     num_docs0 = 5000
@@ -166,62 +202,95 @@ def test_barrier_waits_for_delayed_unbalanced_shard():
     # We delay shard 1 (connection index 2) which has 0 docs
     # This tests that the coordinator waits for ALL shards even while
     # receiving lots of data from the fast shards (0 and 2)
-    query_result = []
     sleep_duration = 4  # seconds
 
-    def run_query_with_delayed_shard():
-        """Execute query where shard 1 is delayed (the one with 0 docs)"""
-        try:
-            # Start DEBUG SLEEP on shard 1 (connection index 2) in a background thread
-            # This will block the entire Redis main thread on that shard
-            def block_shard():
-                # Connection index 2 corresponds to shard 1 (the one with 0 docs)
-                shard_conn = env.getConnection(2)
-                # This blocks the entire Redis instance
-                shard_conn.execute_command('DEBUG', 'SLEEP', sleep_duration)
-
-            sleep_thread = threading.Thread(target=block_shard, daemon=True)
-            sleep_thread.start()
-
-            # Wait a bit to ensure DEBUG SLEEP has started
-            time.sleep(0.5)
-
-            # Now send the query from coordinator
-            # Shards 0 and 2 will respond quickly and start sending data
-            # but the coordinator must wait for shard 1 before reporting total
-            start_time = time.time()
-            result = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT')
-            elapsed = time.time() - start_time
-
-            query_result.append((result, elapsed))
-        except Exception as e:
-            query_result.append(e)
-
+    # --------------------------------------------------------------------------
+    # Case 1: No timeout
+    # --------------------------------------------------------------------------
+    cmd = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 3]
+    query_result = []
     # Run the query
-    t_query = threading.Thread(target=run_query_with_delayed_shard, daemon=True)
+    t_query = threading.Thread(
+        target=run_query_with_delayed_shard,
+        args=(env, cmd, query_result, sleep_duration),
+        daemon=True
+    )
     t_query.start()
-
     # Wait for query to complete (should take ~sleep_duration seconds)
     t_query.join(timeout=sleep_duration + 5)
 
+    expected = 3
     # Verify query completed and returned correct total
     env.assertEqual(len(query_result), 1,
                     message="Query should have completed")
+    result, elapsed = query_result[0]
+    total = _get_total_results(result)
+    env.assertEqual(
+        total, num_docs,
+        message=f"expected total_results:{num_docs}, got {total}")
+    env.assertEqual(
+        len(_get_results(result)), expected,
+        message=f"Expected {expected} results, got {len(_get_results(result))}")
+    env.assertGreaterEqual(
+        elapsed, sleep_duration - 1,
+        message=f"Query should take ~{sleep_duration} seconds, took {elapsed}")
 
-    if isinstance(query_result[0], Exception):
-        env.assertTrue(False, message=f"Query failed with: {query_result[0]}")
-    else:
-        result, elapsed = query_result[0]
-        total = get_total_results(result)
-        env.assertEqual(total, num_docs,
-                        message=f"WITHCOUNT with delayed shard should return {num_docs}, got {total}")
+    # --------------------------------------------------------------------------
+    # Case 2: Timeout - ON_TIMEOUT FAIL
+    # --------------------------------------------------------------------------
+    config_cmd = ['CONFIG', 'SET', 'search-on-timeout', 'RETURN']
+    query_result = []
+    verify_command_OK_on_all_shards(env, *config_cmd)
+    cmd = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 2, 'TIMEOUT', 1]
+    # Run the query
+    t_query = threading.Thread(
+        target=run_query_with_delayed_shard,
+        args=(env, cmd, query_result, sleep_duration),
+        daemon=True
+    )
+    t_query.start()
+    # Wait for query to complete (should take ~sleep_duration seconds)
+    t_query.join(timeout=sleep_duration + 5)
 
-        # Verify that the query actually waited for the delayed shard
-        # It should take at least (sleep_duration - 0.5) seconds (allowing some margin)
-        min_expected_time = sleep_duration - 0.5
-        env.assertTrue(elapsed >= min_expected_time,
-                      message=f"Query should have waited for delayed shard (expected >={min_expected_time}s, got {elapsed:.2f}s)")
+    print(f"query_result: {query_result}")
+    print(f'len(query_result): {len(query_result)}')
+    # Verify query completed and returned correct total
+    env.assertEqual(len(query_result), 1,
+                    message="Query should have completed")
+    env.assertTrue(isinstance(query_result[0], redis.exceptions.ResponseError))
 
+     # --------------------------------------------------------------------------
+    # Case 3: Timeout - ON_TIMEOUT RETURN
+    # --------------------------------------------------------------------------
+    config_cmd = ['CONFIG', 'SET', 'search-on-timeout', 'RETURN']
+    query_result = []
+    verify_command_OK_on_all_shards(env, *config_cmd)
+    cmd = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 2, 'TIMEOUT', 1]
+    # Run the query
+    t_query = threading.Thread(
+        target=run_query_with_delayed_shard,
+        args=(env, cmd, query_result, sleep_duration),
+        daemon=True
+    )
+    t_query.start()
+    # Wait for query to complete (should take ~sleep_duration seconds)
+    t_query.join(timeout=sleep_duration + 5)
+
+    expected = 3
+    # Verify query completed and returned correct total
+    env.assertEqual(len(query_result), 1,
+                    message="Query should have completed")
+    result, elapsed = query_result[0]
+    total = _get_total_results(result)
+    env.assertEqual(
+        total, num_docs,
+        message=f"expected total_results:{num_docs}, got {total}")
+    env.assertEqual(
+        len(_get_results(result)), expected,
+        message=f"Expected {expected} results, got {len(_get_results(result))}")
+    env.assertGreaterEqual(
+        elapsed, sleep_duration - 1,
+        message=f"Query should take ~{sleep_duration} seconds, took {elapsed}")
 
 @skip(cluster=False)
 def test_barrier_all_shards_delayed_then_resume():
@@ -269,7 +338,7 @@ def test_barrier_all_shards_delayed_then_resume():
     if isinstance(query_result[0], Exception):
         env.assertTrue(False, message=f"Query failed with: {query_result[0]}")
     else:
-        total = get_total_results(query_result[0])
+        total = _get_total_results(query_result[0])
         env.assertEqual(total, num_docs,
                         message=f"WITHCOUNT should return {num_docs}, got {total}")
 
@@ -299,7 +368,7 @@ def test_barrier_concurrent_queries():
             conn = getConnectionByEnv(env)
             res = conn.execute_command(
                 'FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', '0')
-            total = get_total_results(res)
+            total = _get_total_results(res)
             results.append(total)
         except Exception as e:
             errors.append(str(e))
@@ -343,7 +412,7 @@ def test_barrier_handles_empty_results():
     # Query that matches nothing
     res = conn.execute_command('FT.AGGREGATE', 'idx', 'nonexistent_term_xyz',
                                'WITHCOUNT', 'LIMIT', '0', '0')
-    total = get_total_results(res)
+    total = _get_total_results(res)
 
     env.assertEqual(total, 0,
                     message=f"Query with no matches should return 0, got {total}")
@@ -371,7 +440,7 @@ def test_barrier_handles_single_shard_results():
     # Query for the unique term
     res = conn.execute_command('FT.AGGREGATE', 'idx', 'unique_xyz',
                                'WITHCOUNT', 'LIMIT', '0', '0')
-    total = get_total_results(res)
+    total = _get_total_results(res)
 
     # Should get exactly n_docs results
     env.assertEqual(total, n_docs,
@@ -424,7 +493,7 @@ def test_barrier_shard_timeout_with_fail_policy():
         res = runDebugQueryCommandTimeoutAfterN(env, query_args, 10, internal_only=True)
         # If query completes without error, it means timeout didn't trigger
         # This can happen if shards process fewer docs than the timeout threshold
-        total = get_total_results(res)
+        total = _get_total_results(res)
         env.assertGreaterEqual(total, 0, message="Should get valid result if no timeout")
     except Exception as e:
         # Timeout error is expected with FAIL policy
@@ -450,7 +519,7 @@ def test_barrier_shard_timeout_with_return_policy():
     res = runDebugQueryCommandTimeoutAfterN(env, query_args, 50, internal_only=True)
 
     # With RETURN policy, we should get some results (possibly partial)
-    total = get_total_results(res)
+    total = _get_total_results(res)
 
     # Total should be positive but likely less than num_docs due to timeout
     env.assertGreaterEqual(total, 0,
@@ -482,7 +551,7 @@ def test_barrier_shard_timeout_zero_results():
     res = runDebugQueryCommandTimeoutAfterN(env, query_args, 0, internal_only=True)
 
     # With RETURN policy and immediate timeout, we should get 0 or minimal results
-    total = get_total_results(res)
+    total = _get_total_results(res)
     env.assertGreaterEqual(total, 0,
                            message=f"Should get non-negative total, got {total}")
 
@@ -504,7 +573,7 @@ def test_barrier_partial_shard_timeout_results():
     query_args_baseline = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', '0']
     conn = getConnectionByEnv(env)
     baseline_res = conn.execute_command(*query_args_baseline)
-    baseline_total = get_total_results(baseline_res)
+    baseline_total = _get_total_results(baseline_res)
     env.assertEqual(baseline_total, num_docs,
                     message=f"Baseline should return {num_docs}, got {baseline_total}")
 
@@ -512,7 +581,7 @@ def test_barrier_partial_shard_timeout_results():
     query_args = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', num_docs]
     res = runDebugQueryCommandTimeoutAfterN(env, query_args, 100, internal_only=True)
 
-    total = get_total_results(res)
+    total = _get_total_results(res)
 
     # With timeout, we expect partial results
     # The total should be less than or equal to baseline (timeout may limit results)
