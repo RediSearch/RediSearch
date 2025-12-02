@@ -1423,10 +1423,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       cr_ctx->count = count;
       workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
     } else {
-      uint32_t keySpaceVersion = cursor->execState->keySpaceVersion;
       cursorRead(reply, cursor, count, false);
-      // TODO ASM: Should I decrease here?
-      ASM_AccountRequestFinished(keySpaceVersion, 1);
     }
   } else if (strcasecmp(cmd, "PROFILE") == 0) {
     // Return profile
