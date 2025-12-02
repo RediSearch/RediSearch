@@ -3263,6 +3263,10 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
                          struct ConcurrentCmdCtx *cmdCtx);
 
 int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return DistAggregateCommandImp(ctx, argv, argc, false);
+}
+
+int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
@@ -3290,10 +3294,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Coord callback
   ConcurrentCmdHandler dist_callback = RSExecDistAggregate;
 
-  bool isDebug = (RMUtil_ArgIndex("_FT.DEBUG", argv, 1) != -1);
   if (isDebug) {
-    argv++;
-    argc--;
     dist_callback = DEBUG_RSExecDistAggregate;
   }
 
@@ -3674,6 +3675,10 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return DistSearchCommandImp(ctx, argv, argc, false);
+}
+
+int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
@@ -3700,10 +3705,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Coord callback
   void (*dist_callback)(void *) = DistSearchCommandHandler;
 
-  bool isDebug = (RMUtil_ArgIndex("_FT.DEBUG", argv, 1) != -1);
   if (isDebug) {
-    argv++;
-    argc--;
     dist_callback = DEBUG_DistSearchCommandHandler;
   }
 
@@ -3749,8 +3751,11 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return ProfileCommandHandlerImp(ctx, argv, argc, false);
+}
+
+int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
@@ -3765,14 +3770,14 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     // There is only one shard in the cluster. We can handle the command locally.
     // We must first check that we don't have a cursor, as the local command handler allows cursors
     // for multi-shard clusters support.
-    return RSProfileCommand(ctx, argv, argc);
+    return RSProfileCommandImp(ctx, argv, argc, isDebug);
   }
 
   if (RMUtil_ArgExists("SEARCH", argv, 3, 2)) {
-    return DistSearchCommand(ctx, argv, argc);
+    return DistSearchCommandImp(ctx, argv, argc, isDebug);
   }
   if (RMUtil_ArgExists("AGGREGATE", argv, 3, 2)) {
-    return DistAggregateCommand(ctx, argv, argc);
+    return DistAggregateCommandImp(ctx, argv, argc, isDebug);
   }
   return RedisModule_ReplyWithError(ctx, "No `SEARCH` or `AGGREGATE` provided");
 }
@@ -3793,8 +3798,27 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argc, &my_shard_idx);
   // this means a parsing error, the parser already sent the explicit error to the client
   if (!topo) {
+    RedisModule_Log(ctx, "warning", "Received invalid cluster topology");
+    for (int i = 1; i < argc; i++) {
+      size_t len;
+      const char *arg = RedisModule_StringPtrLen(argv[i], &len);
+      RedisModule_Log(ctx, "warning", " Arg %d: %.*s", i, (int)len, arg);
+    }
     return REDISMODULE_ERR;
   }
+  // Build a comma-separated list of ranges per shard
+  char ranges_info[256];
+  ranges_info[0] = '\0';
+  size_t offset = 0;
+  for (uint32_t i = 0; i < topo->numShards && offset < sizeof(ranges_info) - 2; i++) {
+    if (i > 0) {
+      offset += snprintf(ranges_info + offset, sizeof(ranges_info) - offset, ", ");
+    }
+    offset += snprintf(ranges_info + offset, sizeof(ranges_info) - offset, "%d",
+                      topo->shards[i].slotRanges ? topo->shards[i].slotRanges->num_ranges : 0);
+  }
+
+  RedisModule_Log(ctx, "notice", "Received new cluster topology with %u shards (%s)", topo->numShards, ranges_info);
 
   // Take a reference to our own shard slot ranges (MR_UpdateTopology won't consume it)
   RS_ASSERT(my_shard_idx < topo->numShards);

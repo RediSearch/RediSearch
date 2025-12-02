@@ -132,22 +132,6 @@ static bool hasSlots(RedisModuleCallReply *shard) {
   return RedisModule_CallReplyLength(slots) > 0;
 }
 
-// Sort shards by the port of their node
-// We want to sort by some node value and not by slots, as the nodes in the cluster may be
-// stable while slots can migrate between them
-static void sortShards(MRClusterTopology *topo) {
-  // Simple insertion sort, we don't expect many shards
-  for (size_t i = 1; i < topo->numShards; i++) {
-    MRClusterShard key = topo->shards[i];
-    size_t j = i;
-    while (j > 0 && topo->shards[j - 1].node.endpoint.port > key.node.endpoint.port) {
-      topo->shards[j] = topo->shards[j - 1];
-      j--;
-    }
-    topo->shards[j] = key;
-  }
-}
-
 // Assumes auto memory was enabled on ctx
 static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
 
@@ -242,7 +226,7 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
   }
 
   // Sort shards by the port of their node (master), to have a stable order while the topology is stable
-  sortShards(topo);
+  MRClusterTopology_SortShards(topo);
   return topo;
 }
 

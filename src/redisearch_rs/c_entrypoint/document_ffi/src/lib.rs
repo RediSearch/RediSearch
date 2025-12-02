@@ -7,16 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#pragma once
-
-#include "cluster.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, uint32_t *my_shard_idx);
-
-#ifdef __cplusplus
-}
-#endif
+//! This crate currently only exposes the [`DocumentType`](document::DocumentType) enum
+//! to C. It can be expanded to host more document-related APIs later.
+use document as _;

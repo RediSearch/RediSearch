@@ -7,16 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#pragma once
+use build_utils::run_cbinden;
 
-#include "cluster.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, uint32_t *my_shard_idx);
-
-#ifdef __cplusplus
+fn main() {
+    run_cbinden("../../headers/document_rs.h").unwrap();
 }
-#endif
