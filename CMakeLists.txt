@@ -363,12 +363,13 @@ add_dependencies(redisearch VectorSimilarity)
 add_dependencies(redisearch uv_a)
 add_dependencies(redisearch redisearch_rs)
 
-# Clang 20 changed how it links the C++ standard library for shared libraries.
-# For test executables linking against redisearch.so (which contains C++ code),
-# we need to allow undefined symbols from the shared library - they'll be resolved
-# by the executable's C++ runtime at load time. This is standard for plugin architectures.
+# Workaround for Clang 20 linking issue: test executables fail to link against redisearch.so
+# with "undefined reference" errors for C++ stdlib symbols (std::ios_base_library_init, etc).
+# Root cause unknown - possibly related to how Clang 20 handles C++ stdlib for shared libraries.
+# The --unresolved-symbols=ignore-in-shared-libs flag allows linking to proceed, with symbols
+# resolved at runtime by the executable's C++ runtime (standard pattern for plugin architectures).
 if(BUILD_SEARCH_UNIT_TESTS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "20.0")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --unresolved-symbols=ignore-in-shared-libs")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--unresolved-symbols=ignore-in-shared-libs")
     message(STATUS "Clang ${CMAKE_CXX_COMPILER_VERSION}: Setting --unresolved-symbols=ignore-in-shared-libs for test executables")
 endif()
 
