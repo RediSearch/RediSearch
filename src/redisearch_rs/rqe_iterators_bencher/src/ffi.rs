@@ -75,10 +75,6 @@ pub struct QueryIterator(*mut bindings::QueryIterator);
 
 impl QueryIterator {
     #[inline(always)]
-    pub fn new_empty() -> Self {
-        Self(unsafe { bindings::NewEmptyIterator() })
-    }
-
     #[inline(always)]
     pub fn new_wildcard(max_id: u64) -> Self {
         Self(unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, 1f64) })
@@ -326,24 +322,6 @@ mod tests {
         IndexFlags_Index_StoreNumeric, IteratorStatus_ITERATOR_EOF,
         IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK, ValidateStatus_VALIDATE_OK,
     };
-
-    #[test]
-    fn empty_iterator() {
-        let it = QueryIterator::new_empty();
-        assert_eq!(it.num_estimated(), 0);
-        assert!(it.at_eof());
-
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
-        assert_eq!(it.skip_to(1), IteratorStatus_ITERATOR_EOF);
-
-        it.rewind();
-        assert!(it.at_eof());
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
-
-        assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
-
-        it.free();
-    }
 
     #[test]
     fn numeric_iterator_full() {

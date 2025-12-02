@@ -24,7 +24,6 @@ extern "C" {
 #include "src/iterators/union_iterator.h"
 #include "src/iterators/intersection_iterator.h"
 #include "src/iterators/not_iterator.h"
-#include "src/iterators/empty_iterator.h"
 #include "src/iterators/wildcard_iterator.h"
 #include "src/util/arr.h"
 #include "src/util/references.h"
