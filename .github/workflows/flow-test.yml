@@ -25,7 +25,7 @@ on:
       options:
         type: string
         default: coordinator,standalone,rejson,fail-fast
-        description: "Comma-separated list of options: coordinator, standalone, rejson, fail-fast, coverage, sanitize"
+        description: 'Comma-separated list of options: coordinator, standalone, rejson, fail-fast, coverage, sanitize'
 
   workflow_dispatch:
     inputs:
