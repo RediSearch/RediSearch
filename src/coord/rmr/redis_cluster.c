@@ -234,7 +234,10 @@ void UpdateTopology(RedisModuleCtx *ctx) {
   MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
   if (topo) { // if we didn't get a topology, do nothing. Log was already printed
     // Pass the local slots info directly from the RedisModule API, as we enabled auto memory
-    MR_UpdateTopology(topo, RedisModule_ClusterGetLocalSlotRanges(ctx));
+    RedisModule_Log(RSDummyContext, "notice", "Check RedisModule_ClusterGetLocalSlotRanges");
+    RedisModuleSlotRangeArray *local_slots = RedisModule_ClusterGetLocalSlotRanges(ctx);
+    RedisModule_Log(RSDummyContext, "notice", "Got local slots");
+    MR_UpdateTopology(topo, local_slots);
   }
 }
 
