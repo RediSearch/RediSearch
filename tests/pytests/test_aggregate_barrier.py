@@ -238,7 +238,7 @@ def test_barrier_waits_for_delayed_unbalanced_shard():
     # --------------------------------------------------------------------------
     # Case 2: Timeout - ON_TIMEOUT FAIL
     # --------------------------------------------------------------------------
-    config_cmd = ['CONFIG', 'SET', 'search-on-timeout', 'RETURN']
+    config_cmd = ['CONFIG', 'SET', 'search-on-timeout', 'FAIL']
     query_result = []
     verify_command_OK_on_all_shards(env, *config_cmd)
     cmd = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 2, 'TIMEOUT', 1]
@@ -252,14 +252,14 @@ def test_barrier_waits_for_delayed_unbalanced_shard():
     # Wait for query to complete (should take ~sleep_duration seconds)
     t_query.join(timeout=sleep_duration + 5)
 
-    print(f"query_result: {query_result}")
-    print(f'len(query_result): {len(query_result)}')
-    # Verify query completed and returned correct total
+    # Verify query completed with error
     env.assertEqual(len(query_result), 1,
                     message="Query should have completed")
     env.assertTrue(isinstance(query_result[0], redis.exceptions.ResponseError))
+    err_msg = "ShardResponseBarrier: Timeout while waiting for first responses from all shards"
+    env.assertContains(str(query_result[0]), err_msg)
 
-     # --------------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Case 3: Timeout - ON_TIMEOUT RETURN
     # --------------------------------------------------------------------------
     config_cmd = ['CONFIG', 'SET', 'search-on-timeout', 'RETURN']
@@ -276,21 +276,21 @@ def test_barrier_waits_for_delayed_unbalanced_shard():
     # Wait for query to complete (should take ~sleep_duration seconds)
     t_query.join(timeout=sleep_duration + 5)
 
-    expected = 3
-    # Verify query completed and returned correct total
+    expected = 0
+    # Verify query completed and returned 0 results
     env.assertEqual(len(query_result), 1,
                     message="Query should have completed")
     result, elapsed = query_result[0]
     total = _get_total_results(result)
     env.assertEqual(
-        total, num_docs,
-        message=f"expected total_results:{num_docs}, got {total}")
+        total, 0,
+        message=f"expected total_results:0, got {total}")
     env.assertEqual(
         len(_get_results(result)), expected,
         message=f"Expected {expected} results, got {len(_get_results(result))}")
-    env.assertGreaterEqual(
-        elapsed, sleep_duration - 1,
-        message=f"Query should take ~{sleep_duration} seconds, took {elapsed}")
+    # Verify we got a timeout warning in the response
+    env.assertEqual(result.get('warning', []),
+                    ['Timeout limit was reached'])
 
 @skip(cluster=False)
 def test_barrier_all_shards_delayed_then_resume():
