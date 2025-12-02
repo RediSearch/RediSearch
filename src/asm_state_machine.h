@@ -12,6 +12,25 @@
 #include "util/khash.h"
 #include "deps/rmutil/rm_assert.h"
 #include <stdatomic.h>
+#include <stdlib.h>
+
+// Sanitizer detection for leak tracking
+#define ASM_SANITIZER_ENABLED 0
+#if defined(__has_feature)
+# if __has_feature(address_sanitizer)
+#  define ASM_SANITIZER_ENABLED 1
+# endif
+#elif defined(__SANITIZE_ADDRESS__)
+# define ASM_SANITIZER_ENABLED 1
+#endif
+
+#if ASM_SANITIZER_ENABLED
+// Dynamic array to track allocated pointers for leak detection
+static int** asm_sanitizer_allocs = NULL;
+static int asm_sanitizer_alloc_count = 0;
+static int asm_sanitizer_alloc_capacity = 0;
+#define ASM_SANITIZER_INITIAL_CAPACITY 100
+#endif
 
 #define INVALID_KEYSPACE_VERSION 0
 
@@ -81,6 +100,16 @@ static inline void ASM_KeySpaceVersionTracker_Init() {
     kh_destroy(query_key_space_version_tracker, query_key_space_version_map);
   }
   query_key_space_version_map = kh_init(query_key_space_version_tracker);
+
+#if ASM_SANITIZER_ENABLED
+  // Initialize sanitizer allocation tracking
+  if (asm_sanitizer_allocs) {
+    free(asm_sanitizer_allocs);
+  }
+  asm_sanitizer_allocs = (int**)malloc(ASM_SANITIZER_INITIAL_CAPACITY * sizeof(int*));
+  asm_sanitizer_alloc_count = 0;
+  asm_sanitizer_alloc_capacity = ASM_SANITIZER_INITIAL_CAPACITY;
+#endif
 }
 
 static inline void ASM_KeySpaceVersionTracker_Destroy() {
@@ -88,6 +117,17 @@ static inline void ASM_KeySpaceVersionTracker_Destroy() {
     kh_destroy(query_key_space_version_tracker, query_key_space_version_map);
     query_key_space_version_map = NULL;
   }
+
+#if ASM_SANITIZER_ENABLED
+  // Clean up any remaining sanitizer allocations
+  if (asm_sanitizer_allocs) {
+    // Do not free the integers, so that sanitizer tests would show leaks
+    free(asm_sanitizer_allocs);
+    asm_sanitizer_allocs = NULL;
+    asm_sanitizer_alloc_count = 0;
+    asm_sanitizer_alloc_capacity = 0;
+  }
+#endif
 }
 
 static inline void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_key_space_version) {
@@ -102,6 +142,31 @@ static inline void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_
     // New key, set count to 1
     kh_value(query_key_space_version_map, k) = 1;
   }
+
+#if ASM_SANITIZER_ENABLED
+  // Allocate a dummy integer for sanitizer leak detection
+  // We allocate one for each query count increase
+  if (asm_sanitizer_allocs) {
+    // Check if we need to reallocate the array
+    if (asm_sanitizer_alloc_count >= asm_sanitizer_alloc_capacity) {
+      int new_capacity = asm_sanitizer_alloc_capacity * 2;
+      int** new_allocs = (int**)realloc(asm_sanitizer_allocs, new_capacity * sizeof(int*));
+      if (new_allocs) {
+        asm_sanitizer_allocs = new_allocs;
+        asm_sanitizer_alloc_capacity = new_capacity;
+      }
+    }
+
+    // Allocate the tracking integer if we have space
+    if (asm_sanitizer_alloc_count < asm_sanitizer_alloc_capacity) {
+      int *leak_tracker = (int*)malloc(sizeof(int));
+      if (leak_tracker) {
+        *leak_tracker = (int)query_key_space_version; // Store version for debugging
+        asm_sanitizer_allocs[asm_sanitizer_alloc_count++] = leak_tracker;
+      }
+    }
+  }
+#endif
 }
 
 static inline void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_key_space_version) {
@@ -122,6 +187,17 @@ static inline void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_
       kh_del(query_key_space_version_tracker, query_key_space_version_map, k);
     }
   }
+
+#if ASM_SANITIZER_ENABLED
+  // Deallocate a dummy integer for sanitizer leak detection
+  // We deallocate one for each query count decrease (LIFO order)
+  if (asm_sanitizer_alloc_count > 0) {
+    int *leak_tracker = asm_sanitizer_allocs[--asm_sanitizer_alloc_count];
+    if (leak_tracker) {
+      free(leak_tracker);
+    }
+  }
+#endif
 }
 
 /* Get the number of queries that are using a specific version, this is intended to be used in tests only. */
