@@ -60,6 +60,31 @@ jobs:
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
+
+  # Free up disk space on the runner before container jobs start
+  # This runs on the host (not in container) to access host directories
+  free-disk-space:
+    needs: get-config
+    # Only run when we'll use a container (containers can't clean host directories)
+    if: ${{ needs.get-config.outputs.container }}
+    runs-on: ${{ needs.get-config.outputs.env }}
+    steps:
+      - name: Free up disk space on host
+        run: |
+          echo "Before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/share/boost || true
+          sudo rm -rf /opt/hostedtoolcache/go || true
+          sudo rm -rf /opt/hostedtoolcache/node || true
+          # Clean up Docker images if available
+          docker system prune -af 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+
   build-image:
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
@@ -127,7 +152,7 @@ jobs:
           echo "succeeded=true" >> $GITHUB_OUTPUT
 
   common-flow:
-    needs: [get-config, build-image]
+    needs: [get-config, build-image, free-disk-space]
     name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
     # Run if get-config succeeded and at least one test type is enabled
     if: |
@@ -219,12 +244,15 @@ jobs:
           done
           echo "supported=true" >> $GITHUB_OUTPUT
       - name: Free up disk space
+        # Only run on non-containerized jobs - containers don't have access to host directories
+        # and don't have the large toolchains that consume disk space on GitHub runners
+        if: ${{ !needs.get-config.outputs.container }}
         run: |
           df -h
-          ${{ steps.mode.outputs.mode }} rm -rf /usr/share/dotnet || true
-          ${{ steps.mode.outputs.mode }} rm -rf /usr/local/lib/android || true
-          ${{ steps.mode.outputs.mode }} rm -rf /opt/ghc || true
-          ${{ steps.mode.outputs.mode }} rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
           df -h
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
