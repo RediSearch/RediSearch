@@ -8,4 +8,4 @@
 !.github/workflows/task-get-config.yml
 
 # Make sure we don't include the boost directory in the context.
-.install/boost/*
+.install/boost/**
