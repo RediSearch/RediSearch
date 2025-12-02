@@ -2826,14 +2826,15 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
   return REDISMODULE_OK;
 }
 
-static bool should_return_error(MRReply *reply) {
-  // TODO: Replace third condition with a var instead of hard-coded string
-  const char *errStr = MRReply_String(reply, NULL);
-  return (!errStr
-          || RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
-          || strcmp(errStr, "Timeout limit was reached"));
+// TODO - get RequestConfig ptr as parameter instead of global config
+bool should_return_error(QueryErrorCode errCode) {
+  // Check if this is a timeout error with non-fail policy
+  if (errCode == QUERY_ETIMEDOUT) {
+    return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail;
+  }
+  // For any other error, return it
+  return true;
 }
-
 static bool should_return_timeout_error(searchRequestCtx *req) {
   return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
          && req->timeout != 0

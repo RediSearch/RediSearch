@@ -456,13 +456,13 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &results, &r, &rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
-    if (ShouldReplyWithError(QueryError_GetCode(rp->parent->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
+    if (ShouldReplyWithError(rp, req)) {
       // Track errors in global statistics
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(rp->parent->err), 1, !IsInternal(req));
-      RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(req->qiter.err), 1, !IsInternal(req));
+      RedisModule_Reply_Error(reply, QueryError_GetUserError(req->qiter.err));
       cursor_done = true;
       goto done_2_err;
-    } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
+    } else if (ShouldReplyWithTimeoutError(rc, req)) {
       // Track timeout error in global statistics
       QueryErrorsGlobalStats_UpdateError(QUERY_ETIMEDOUT, 1, !IsInternal(req));
       ReplyWithTimeoutError(reply);
@@ -581,13 +581,13 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &results, &r, &rc);
 
-    if (ShouldReplyWithError(QueryError_GetCode(rp->parent->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
+    if (ShouldReplyWithError(rp, req)) {
       // Track errors in global statistics
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(rp->parent->err), 1, !IsInternal(req));
-      RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(req->qiter.err), 1, !IsInternal(req));
+      RedisModule_Reply_Error(reply, QueryError_GetUserError(req->qiter.err));
       cursor_done = true;
       goto done_3_err;
-    } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
+    } else if (ShouldReplyWithTimeoutError(rc, req)) {
       // Track errors in global statistics
       QueryErrorsGlobalStats_UpdateError(QUERY_ETIMEDOUT, 1, !IsInternal(req));
       ReplyWithTimeoutError(reply);

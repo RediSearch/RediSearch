@@ -132,6 +132,18 @@ QueryErrorCode QueryError_GetCode(const QueryError *status) {
   return status->code;
 }
 
+QueryErrorCode QueryError_GetCodeFromMessage(const char *errorMessage) {
+  if (!errorMessage) {
+    return QUERY_EGENERIC;
+  }
+
+  if (!strcmp(errorMessage, QueryError_Strerror(QUERY_ETIMEDOUT))) {
+    return QUERY_ETIMEDOUT;
+  }
+
+  return QUERY_EGENERIC;
+}
+
 const char *QueryWarningCode_Strerror(QueryWarningCode code) {
   if (code == QUERY_WARNING_CODE_OK) {
     return "Success (not an warning)";

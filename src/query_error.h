@@ -172,6 +172,11 @@ const char *QueryError_GetDisplayableError(const QueryError *status, bool obfusc
  */
 QueryErrorCode QueryError_GetCode(const QueryError *status);
 
+// Extracts the query error from the error message
+// Returns the error code
+// Only checks for timeout
+QueryErrorCode QueryError_GetCodeFromMessage(const char *errorMessage);
+
 /**
  * Clear the error state, potentially releasing the embedded string
  */
