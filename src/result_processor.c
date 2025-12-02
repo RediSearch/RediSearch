@@ -147,9 +147,8 @@ validate_current:
         continue;
       }
     }
-    // querySlots presence would indicate that is internal command, if querySlots is NULL, we don't need to filter.
-    bool should_filter_slots = self->querySlots && (__atomic_load_n(&key_space_version, __ATOMIC_RELAXED) != self->keySpaceVersion);
-    if (should_filter_slots) {
+    // querySlots presence would indicate that is internal command, if querySlots is NULL, we don't need to filter as we would be in standalone.
+    if (self->querySlots && (__atomic_load_n(&key_space_version, __ATOMIC_RELAXED) != self->keySpaceVersion)) {
       RS_ASSERT(self->querySlots != NULL);
       int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
       if (!SlotRangeArray_ContainsSlot(self->querySlots, slot)) {
