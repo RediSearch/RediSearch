@@ -55,6 +55,7 @@ class TestDebugCommands(object):
             "DUMP_HNSW",
             "SET_MONITOR_EXPIRATION",
             "WORKERS",
+            'COORD_THREADS',
             'BG_SCAN_CONTROLLER',
             "INDEXES",
             "INFO",
