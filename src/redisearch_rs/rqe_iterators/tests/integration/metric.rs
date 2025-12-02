@@ -9,23 +9,22 @@
 
 use rqe_iterators::{
     RQEIterator, RQEValidateStatus,
-    metric::{MetricIteratorSortedById, MetricIteratorSortedByScore},
+    metric::{MetricSortedById, MetricSortedByScore},
 };
-mod c_mocks;
 
 #[test]
 #[should_panic(expected = "assertion failed: ids.len() == metric_data.len()")]
 fn test_metric_creation_panic() {
     let ids = vec![1, 3, 5, 7, 9];
     let metric_data = vec![0.1, 0.3, 0.5, 0.7];
-    let _ = MetricIteratorSortedById::new(ids, metric_data);
+    let _ = MetricSortedById::new(ids, metric_data);
 }
 
 #[test]
 fn test_metric_creation() {
     let ids = vec![1, 3, 5, 7, 9];
     let metric_data = vec![0.1, 0.3, 0.5, 0.7, 0.9];
-    let mut metric = MetricIteratorSortedById::new(ids.clone(), metric_data.clone());
+    let mut metric = MetricSortedById::new(ids.clone(), metric_data.clone());
 
     // Test that the metric was created with correct data
     assert_eq!(metric.num_estimated(), ids.len());
@@ -39,7 +38,7 @@ fn score_variant_can_handle_unsorted_ids() {
     let ids = vec![5, 3, 1, 4, 2];
     assert!(!ids.is_sorted());
     let metric_data = vec![0.1, 0.3, 0.5, 0.7, 0.9];
-    let _ = MetricIteratorSortedByScore::new(ids, metric_data);
+    let _ = MetricSortedByScore::new(ids, metric_data);
 }
 
 #[test]
@@ -48,17 +47,15 @@ fn score_variant_can_handle_unsorted_ids() {
 fn score_variant_cannot_skip() {
     let ids = vec![5, 3, 1, 4, 2];
     let metric_data = vec![0.1, 0.3, 0.5, 0.7, 0.9];
-    let mut i = MetricIteratorSortedByScore::new(ids, metric_data);
+    let mut i = MetricSortedByScore::new(ids, metric_data);
     let _ = i.skip_to(3);
 }
 
-// unsafe array_ensure_append_n_func is not supported by Miri
 #[cfg(not(miri))]
 mod not_miri {
+    use ffi::RSValue_Number_Get;
     use inverted_index::RSResultKind;
-    use rqe_iterators::{RQEIterator, SkipToOutcome, metric::MetricIteratorSortedById};
-    use std::ptr::NonNull;
-    use value::RSValueTrait;
+    use rqe_iterators::{RQEIterator, SkipToOutcome, metric::MetricSortedById};
 
     static CASES: &[&[u64]] = &[
         &[1, 3, 5, 7, 9],
@@ -78,7 +75,7 @@ mod not_miri {
     fn read() {
         for (i, &case) in CASES.iter().enumerate() {
             let metric_data: Vec<f64> = case.iter().map(|&id| id as f64 * 0.1).collect();
-            let mut it = MetricIteratorSortedById::new(case.to_vec(), metric_data.clone());
+            let mut it = MetricSortedById::new(case.to_vec(), metric_data.clone());
 
             assert_eq!(
                 it.num_estimated(),
@@ -108,12 +105,8 @@ mod not_miri {
                 let metrics = unsafe { *res.metrics };
                 assert!(metrics.key.is_null());
 
-                let metric_val = unsafe {
-                    value::RSValueFFI::from_raw(
-                        NonNull::new(metrics.value).expect("metrics.value is NULL"),
-                    )
-                };
-                assert_eq!(metric_val.as_num().unwrap(), metric_data[j]);
+                let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
+                assert_eq!(metric_val, metric_data[j]);
                 assert_eq!(it.last_doc_id(), expected_id, "Case {i}, element {j}");
             }
 
@@ -130,7 +123,7 @@ mod not_miri {
     fn skip_to() {
         for (ci, &case) in CASES.iter().enumerate() {
             let metric_data: Vec<f64> = case.iter().map(|&id| id as f64 * 0.1).collect();
-            let mut it = MetricIteratorSortedById::new(case.to_vec(), metric_data.clone());
+            let mut it = MetricSortedById::new(case.to_vec(), metric_data.clone());
 
             // Read first element
             let first_res = it.read();
@@ -146,12 +139,8 @@ mod not_miri {
             let metrics = unsafe { *first_doc.metrics };
             assert!(metrics.key.is_null());
 
-            let metric_val = unsafe {
-                value::RSValueFFI::from_raw(
-                    NonNull::new(metrics.value).expect("metrics.value is NULL"),
-                )
-            };
-            assert_eq!(metric_val.as_num().unwrap(), metric_data[0]);
+            let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
+            assert_eq!(metric_val, metric_data[0]);
             assert_eq!(it.last_doc_id(), first_id, "Case {ci}");
             assert_eq!(it.current().unwrap().doc_id, first_id, "Case {ci}");
             assert_eq!(it.at_eof(), Some(&first_id) == case.last(), "Case {ci}");
@@ -187,12 +176,8 @@ mod not_miri {
                     let metrics = unsafe { *res.metrics };
                     assert!(metrics.key.is_null());
 
-                    let metric_val = unsafe {
-                        value::RSValueFFI::from_raw(
-                            NonNull::new(metrics.value).expect("metrics.value is NULL"),
-                        )
-                    };
-                    assert_eq!(metric_val.as_num().unwrap(), metric_data[j]);
+                    let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
+                    assert_eq!(metric_val, metric_data[j]);
                     // Should land on next existing id
                     assert_eq!(
                         it.at_eof(),
@@ -226,12 +211,8 @@ mod not_miri {
                 let metrics = unsafe { *res.metrics };
                 assert!(metrics.key.is_null());
 
-                let metric_val = unsafe {
-                    value::RSValueFFI::from_raw(
-                        NonNull::new(metrics.value).expect("metrics.value is NULL"),
-                    )
-                };
-                assert_eq!(metric_val.as_num().unwrap(), metric_data[j]);
+                let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
+                assert_eq!(metric_val, metric_data[j]);
                 assert_eq!(
                     it.at_eof(),
                     Some(&id) == case.last(),
@@ -277,7 +258,7 @@ mod not_miri {
     fn skip_between_any_pair() {
         for (ci, &case) in CASES.iter().filter(|&&case| case.len() >= 2).enumerate() {
             let metric_data: Vec<f64> = case.iter().map(|&id| id as f64 * 0.1).collect();
-            let mut it = MetricIteratorSortedById::new(case.to_vec(), metric_data);
+            let mut it = MetricSortedById::new(case.to_vec(), metric_data);
 
             for from_idx in 0..case.len() - 1 {
                 for to_idx in from_idx + 1..case.len() {
@@ -359,6 +340,6 @@ mod not_miri {
 #[test]
 fn revalidate() {
     let metric_data = vec![0.1, 0.2, 0.3];
-    let mut it = MetricIteratorSortedById::new(vec![1, 2, 3], metric_data);
+    let mut it = MetricSortedById::new(vec![1, 2, 3], metric_data);
     assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
 }

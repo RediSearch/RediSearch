@@ -63,7 +63,7 @@ protected:
             case TYPE_NUMERIC: {
                 SetNumericInvIndex();
                 FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-                FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+                FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
                 numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
                 it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, nullptr, -INFINITY, INFINITY);
             }
@@ -231,7 +231,7 @@ public:
     void CreateIterator(double min, double max) {
         ASSERT_TRUE(idx != nullptr);
         FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-        FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+        FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
         flt = NewNumericFilter(min, max, 1, 1, 1, nullptr);
         iterator = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, flt, nullptr, min, max);
         ASSERT_TRUE(iterator != nullptr);
@@ -330,7 +330,7 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
 
           // Create the iterator based on the flags
           if (flags & Index_StoreNumeric) {
-              FieldFilterContext fieldCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fieldIndex}, .predicate = FIELD_EXPIRATION_DEFAULT};
+              FieldFilterContext fieldCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fieldIndex}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
               numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
               it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, nullptr, -INFINITY, INFINITY);
           } else {
@@ -616,7 +616,7 @@ private:
 
         // Create the iterator with proper sctx so NumericCheckAbort can work
         FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index};
-        FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+        FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
         const NumericRangeTree *rt = NULL;
         if (fs) {
               RedisModuleString *numField = IndexSpec_GetFormattedKey(sctx->spec, fs, INDEXFLD_T_NUMERIC);

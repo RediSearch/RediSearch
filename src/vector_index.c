@@ -7,8 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "vector_index.h"
+#include "VecSim/query_results.h"
 #include "iterators/hybrid_reader.h"
-#include "iterators/idlist_iterator.h"
+#include "iterators_rs.h"
 #include "query_param.h"
 #include "rdb.h"
 #include "util/workers_pool.h"
@@ -76,7 +77,7 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
   return kdv->p;
 }
 
-QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, const bool yields_metric) {
+QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, const bool yields_metric, const bool sorted_by_id) {
   size_t res_num = VecSimQueryReply_Len(reply);
   if (res_num == 0) {
     VecSimQueryReply_Free(reply);
@@ -99,9 +100,17 @@ QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
 
   // Move ownership on the arrays to the iterator.
   if (yields_metric) {
-    return NewMetricIterator(docIdsList, metricList, res_num, VECTOR_DISTANCE);
+      if (sorted_by_id) {
+          return NewMetricIteratorSortedById(docIdsList, metricList, res_num, VECTOR_DISTANCE);
+      } else {
+          return NewMetricIteratorSortedByScore(docIdsList, metricList, res_num, VECTOR_DISTANCE);
+      }
   } else {
-    return NewIdListIterator(docIdsList, res_num, 1.0);
+      if (sorted_by_id) {
+          return NewSortedIdListIterator(docIdsList, res_num, 1.0);
+      } else {
+          return NewUnsortedIdListIterator(docIdsList, res_num, 1.0);
+      }
   }
 }
 
@@ -119,7 +128,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
   VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = vq->field->index}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = vq->field->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
@@ -183,7 +192,8 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         return NULL;
       }
       bool yields_metric = vq->scoreField != NULL;
-      return createMetricIteratorFromVectorQueryResults(results, yields_metric);
+      bool sorted_by_id = vq->range.order == BY_ID;
+      return createMetricIteratorFromVectorQueryResults(results, yields_metric, sorted_by_id);
     }
   }
   return NULL;

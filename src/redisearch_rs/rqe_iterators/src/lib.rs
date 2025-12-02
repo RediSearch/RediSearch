@@ -20,6 +20,12 @@ pub mod metric;
 pub mod not_iterator;
 pub mod wildcard;
 
+pub use empty::Empty;
+pub use id_list::IdList;
+pub use inverted_index::{Numeric, Term};
+pub use metric::Metric;
+pub use wildcard::Wildcard;
+
 #[derive(Debug, PartialEq)]
 /// The outcome of [`RQEIterator::skip_to`].
 pub enum SkipToOutcome<'iterator, 'index> {
@@ -55,6 +61,7 @@ pub enum RQEValidateStatus<'iterator, 'index> {
     Aborted,
 }
 
+/// Trait providing the iterators API.
 pub trait RQEIterator<'index> {
     /// Return the current [`RSIndexResult`] stored within this [`RQEIterator`].
     ///

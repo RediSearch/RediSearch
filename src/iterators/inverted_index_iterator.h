@@ -22,11 +22,6 @@ typedef struct InvIndIterator {
 
   IndexReader *reader;
 
-  // Whether to skip multi values from the same doc
-  // Stores the original requested value, even if skipping multi values is not needed (based on other information),
-  // so that we can re-choose the right implementation of the iterator API implementation
-  bool skipMulti;
-
   // Whether this iterator is result of a wildcard query
   bool isWildcard;
 
@@ -57,11 +52,6 @@ typedef struct {
   const TagIndex *tagIdx; // not const, may reopen on revalidation
 } TagInvIndIterator;
 
-// API for full index scan. Not suitable for queries
-QueryIterator *NewInvIndIterator_NumericFull(const InvertedIndex *idx);
-// API for full index scan. Not suitable for queries
-QueryIterator *NewInvIndIterator_TermFull(const InvertedIndex *idx);
-
 // Returns an iterator for a numeric index, suitable for queries
 QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
                                               const NumericFilter *flt, const NumericRangeTree *rt, double rangeMin, double rangeMax);
@@ -76,9 +66,6 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const R
 // Returns an iterator for a missing index - revalidate the missing index was not deleted
 // Result is a virtual result with a weight of 0.0, and a field mask of RS_FIELDMASK_ALL
 QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex);
-
-// API for full index scan with TagIndex. Not suitable for queries
-QueryIterator *NewInvIndIterator_TagFull(const InvertedIndex *idx, const TagIndex *tagIdx);
 
 // Returns an iterator for a tag index, suitable for queries
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,

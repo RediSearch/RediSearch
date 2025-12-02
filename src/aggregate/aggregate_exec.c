@@ -47,6 +47,10 @@ typedef struct {
 } blockedClientReqCtx;
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
+static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                             CommandType type, int execOptions);
+typedef int (*execCommandCommonHandler)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                             CommandType type, int execOptions);
 
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
@@ -399,10 +403,14 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (ShouldReplyWithError(QueryError_GetCode(rp->parent->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
+      // Track errors in global statistics
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), 1, !IsInternal(req));
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
       goto done_2_err;
     } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
+      // Track timeout error in global statistics
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
       ReplyWithTimeoutError(reply);
       cursor_done = true;
       goto done_2_err;
@@ -465,6 +473,18 @@ done_2:
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
     req->has_timedout = has_timedout;
+    if (has_timedout) {
+      // Track warnings in global statistics
+      // Assuming that if we reached here, timeout is not an error.
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+    }
+    if (QueryError_HasQueryOOMWarning(qctx->err)) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, !IsInternal(req));
+    }
+    if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
+    }
+
     // Prepare profile printer context
     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
     ProfilePrinterCtx profileCtx = {
@@ -518,10 +538,14 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &results, &r, &rc);
 
     if (ShouldReplyWithError(QueryError_GetCode(rp->parent->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
+      // Track errors in global statistics
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(rp->parent->err), 1, !IsInternal(req));
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
       goto done_3_err;
     } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
+      // Track errors in global statistics
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
       ReplyWithTimeoutError(reply);
       cursor_done = true;
       goto done_3_err;
@@ -592,15 +616,19 @@ done_3:
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, !IsInternal(req));
       // We use the cluster warning since shard level warning sent via empty reply bailout
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     }
     if (rc == RS_RESULT_TIMEDOUT) {
+      // Track warnings in global statistics
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     } else if (rc == RS_RESULT_ERROR) {
       // Non-fatal error
       RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
     } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
@@ -732,6 +760,7 @@ static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
     // warning
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
     if (QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, !IsInternal(req));
       // Shards should use SHARD warning
       // SA and Coordinator should use COORD warning
       const char *warning = !IsInternal(req) ? QUERY_WOOM_COORD : QUERY_WOOM_SHARD;
@@ -771,6 +800,10 @@ static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
     RedisModule_Reply_ArrayEnd(reply);
 
     ProfilePrinterCtx profileCtx = createProfilePrinterCtx(req);
+
+    if (QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, !IsInternal(req));
+    }
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
       // Cursor done
@@ -1091,6 +1124,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, GetNumShards_UnSafe() == 1);
       return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
@@ -1111,9 +1145,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 
 error:
-  // Update global query errors statistics before freeing the request.
-  // Both SA and internal are considered shards.
-  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, SHARD_ERR_WARN);
+  // Update global query errors statistics
+  // If num shards == 1 we are in SA, and we count it as a coord error
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, GetNumShards_UnSafe() == 1);
 
   if (r) {
     AREQ_Free(r);
@@ -1138,11 +1172,15 @@ RedisModuleString **_profileArgsDup(RedisModuleString **argv, int argc, int para
   memcpy(newArgv, argv, PROFILE_1ST_PARAM * sizeof(*newArgv));
   // copy non-profile commands
   memcpy(newArgv + PROFILE_1ST_PARAM, argv + PROFILE_1ST_PARAM + params,
-          (argc - PROFILE_1ST_PARAM - params) * sizeof(*newArgv));
+         (argc - PROFILE_1ST_PARAM - params) * sizeof(*newArgv));
   return newArgv;
 }
 
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return RSProfileCommandImp(ctx, argv, argc, false);
+}
+
+int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1150,6 +1188,13 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   CommandType cmdType;
   int curArg = PROFILE_1ST_PARAM;
   int withProfile = EXEC_WITH_PROFILE;
+  execCommandCommonHandler execCommandHandlerFunc = execCommandCommon;
+
+  // Check if this is a debug command
+  if (isDebug) {
+    execCommandHandlerFunc = DEBUG_execCommandCommon;
+    withProfile |= EXEC_DEBUG;
+  }
 
   // Check the command type
   const char *cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
@@ -1175,7 +1220,9 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   int newArgc = argc - curArg + PROFILE_1ST_PARAM;
   RedisModuleString **newArgv = _profileArgsDup(argv, argc, curArg - PROFILE_1ST_PARAM);
-  execCommandCommon(ctx, newArgv, newArgc, cmdType, withProfile);
+
+  execCommandHandlerFunc(ctx, newArgv, newArgc, cmdType, withProfile);
+
   rm_free(newArgv);
   return REDISMODULE_OK;
 }

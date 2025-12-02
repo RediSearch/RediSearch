@@ -16,6 +16,7 @@
 #include "cluster.h"
 #include <rmutil/rm_assert.h>  // Include the assertion header
 #include "../config.h"
+#include "info/global_stats.h"
 
 // Atomically exchange the pending topology with a new topology.
 // Returns the old pending topology (or NULL if there was no pending topology).
@@ -49,7 +50,9 @@ static void rqAsyncCb(uv_async_t *async) {
   }
   queueItem *req;
   while (NULL != (req = RQ_Pop(io_runtime_ctx->queue, &io_runtime_ctx->uv_runtime.async))) {
+    GlobalStats_UpdateActiveIoThreads(1);
     req->cb(req->privdata);
+    GlobalStats_UpdateActiveIoThreads(-1);
     rm_free(req);
   }
 }
@@ -117,6 +120,8 @@ void shutdown_cb(uv_async_t* handle) {
   IORuntimeCtx* io_runtime_ctx = (IORuntimeCtx*)handle->data;
   // Stop the event loop first
   RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Stopping event loop", io_runtime_ctx->queue->id);
+  // Go through all the connections and stop the timers
+  MRConnManager_Stop(&io_runtime_ctx->conn_mgr);
   uv_stop(&io_runtime_ctx->uv_runtime.loop);
 }
 
@@ -261,6 +266,7 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopolog
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
   if (CheckIoRuntimeStarted(io_runtime_ctx)) {
     // There may be a delay between the thread starting and the loop running, we need to account for it
+    // Stop the timers of all the connections before shutting down the loop
     uv_async_send(&io_runtime_ctx->uv_runtime.shutdownAsync);
   }
 }

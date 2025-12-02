@@ -53,6 +53,33 @@ class TimeLimit(object):
     def handler(self, signum, frame):
         raise Exception(f'Timeout: {self.message}')
 
+def wait_for_condition(check_fn, message):
+    """
+    Wait for a condition with timeout and status reporting.
+
+    Parameters:
+        - env: Test environment
+        - check_fn: Function that takes returns (status: bool, state: dict)
+                   where state is a dict of the current state information
+        - message: Message prefix for timeout exception
+    """
+    iter = 0
+    timeout_msg = {}
+
+    try:
+        with TimeLimit(120):
+            while True:
+                done, state = check_fn()
+                if done:
+                    break
+                time.sleep(0.01)
+                iter += 1
+                timeout_msg['iter'] = iter
+                timeout_msg['state'] = state
+    except Exception as e:
+        log = f"{message}: {timeout_msg}"
+        raise Exception(f'Error: {e}, log: {log}')
+
 class DialectEnv(Env):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -138,6 +165,17 @@ def toSortedFlatList(res):
 
         return py2sorted(finalList)
     return [res]
+
+def countFlatElements(arr):
+    """Count elements without sorting (lighter than toSortedFlatList)"""
+    if isinstance(arr, str):
+        return 1
+    if isinstance(arr, Iterable):
+        count = 0
+        for e in arr:
+            count += countFlatElements(e)
+        return count
+    return 1
 
 def assertInfoField(env, idx, field, expected, delta=None):
     d = index_info(env, idx)
@@ -1000,7 +1038,16 @@ def get_results_from_hybrid_response(response) -> Dict[str, Dict[str, any]]:
         Dict mapping key -> dict of all fields from the results list
         Example: {'doc:1': {'__score': '0.5', 'vector_distance': '0.3'}}
     """
-    # return dict mapping key -> all fields from the results list
+    # Handle RESP3 format (dict)
+    if isinstance(response, dict):
+        results = {}
+        for result in response.get('results', []):
+            if '__key' in result:
+                key = result['__key']
+                results[key] = result
+        total_results = response.get('total_results', 0)
+        return results, total_results
+
     res_results_index = recursive_index(response, 'results')
     res_count_index = recursive_index(response, 'total_results')
     res_results_index[-1] += 1
@@ -1105,3 +1152,11 @@ def allShards_change_maxmemory_low(env):
     for shardId in range(1, env.shardsCount + 1):
         res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', 1)
         env.assertEqual(res, 'OK')
+
+def shard_change_timeout_policy(env, shardId, policy):
+    res = env.getConnection(shardId).execute_command(config_cmd(), 'SET', 'ON_TIMEOUT', policy)
+    env.assertEqual(res, 'OK')
+
+def allShards_change_timeout_policy(env, policy):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_change_timeout_policy(env, shardId, policy)

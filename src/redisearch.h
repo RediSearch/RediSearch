@@ -14,6 +14,7 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <time.h>
+#include "document_rs.h"
 #include "util/dllist.h"
 #include "stemmer.h"
 #include "types_rs.h"
@@ -65,12 +66,6 @@ do {                                                                            
 extern "C" {
 #endif
 
-typedef enum {
-  DocumentType_Hash,
-  DocumentType_Json,
-  DocumentType_Unsupported,
-} DocumentType;
-
 #define isSpecHash(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Hash)
 #define isSpecJson(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Json)
 #define SpecRuleTypeName(spec) ((spec)->rule ? DocumentType_ToString((spec)->rule->type) : "Unknown")
@@ -96,11 +91,6 @@ typedef enum {
   Document_FailedToOpen = 0x20, // Document was failed to opened by a loader (might expired) but not yet marked as deleted.
                                 // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
 } RSDocumentFlags;
-
-enum FieldExpirationPredicate {
-  FIELD_EXPIRATION_DEFAULT, // one of the fields need to be valid
-  FIELD_EXPIRATION_MISSING // one of the fields need to be expired for the entry to be considered missing
-};
 
 #define hasPayload(x) (x & Document_HasPayload)
 #define hasExpirationTimeInformation(x) (x & Document_HasExpiration)
