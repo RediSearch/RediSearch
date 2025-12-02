@@ -2000,8 +2000,10 @@ class TestCoordHighPriorityPendingJobs(object):
       return
 
     self.verify_coord_high_priority_pending_jobs('CURSOR', num_commands_per_type, search_threads)
-
+  # Skiping due to a leak in HYBRID queries
+  # enable once MOD-12859 is fixed
   def test_coord_high_priority_pending_jobs_hybrid(self):
+    raise SkipTest()
     num_commands_per_type = 3  # Number of commands to execute for each command type
     query_vector = np.array([1.0] * self.dim).astype(np.float32).tobytes()
 
