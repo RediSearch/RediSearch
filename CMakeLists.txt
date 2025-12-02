@@ -122,6 +122,13 @@ if (COV)
     add_compile_definitions(COVERAGE=1)
 endif()
 
+# Clang 20+ linker compatibility: allow test executables to link against shared libraries
+# with undefined symbols (C++ stdlib symbols in redisearch.so will be resolved at runtime)
+if(BUILD_SEARCH_UNIT_TESTS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "20.0")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--unresolved-symbols=ignore-in-shared-libs")
+    message(STATUS "Clang ${CMAKE_CXX_COMPILER_VERSION} detected: Adding --unresolved-symbols=ignore-in-shared-libs to EXE_LINKER_FLAGS")
+endif()
+
 # Get Git version info - to be printed in log upon loading the module
 execute_process(
   COMMAND git describe --abbrev=7 --always
