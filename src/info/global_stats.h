@@ -72,6 +72,7 @@ typedef struct {
 
 typedef struct {
   size_t active_io_threads; // number of I/O thread callbacks currently executing
+  size_t active_worker_threads; // number of worker threads currently executing jobs
 } MultiThreadingStats;
 
 typedef struct {
