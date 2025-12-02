@@ -186,6 +186,33 @@ static inline int QueryError_HasError(const QueryError *status) {
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code);
 
+/*** Whether the reached max prefix expansions warning is set */
+bool QueryError_HasReachedMaxPrefixExpansionsWarning(const QueryError *status);
+
+/*** Sets the reached max prefix expansions warning */
+void QueryError_SetReachedMaxPrefixExpansionsWarning(QueryError *status);
+
+#define QUERY_XWARNS(X)                                                               \
+  X(QUERY_WARNING_CODE_TIMED_OUT, "Timeout limit was reached")                        \
+  X(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, QUERY_WMAXPREFIXEXPANSIONS)     \
+
+typedef enum {
+  QUERY_WARNING_CODE_OK = 0,
+
+#define X(N, msg) N,
+  QUERY_XWARNS(X)
+#undef X
+
+} QueryWarningCode;
+
+const char *QueryWarningCode_Strerror(QueryWarningCode code);
+
+/**
+ * Returns a [`QueryWarningCode`] given an warnings message.
+ * If the message does not match any known warning, returns `QUERY_WARNING_CODE_OK`.
+ */
+QueryWarningCode QueryWarningCode_GetCodeFromMessage(const char *message);
+
 #ifdef __cplusplus
 }
 #endif

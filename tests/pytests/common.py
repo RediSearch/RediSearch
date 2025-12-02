@@ -1011,3 +1011,11 @@ def call_and_store(fn, args, out_list):
         out_list: List to append the function's return value to
     """
     out_list.append(fn(*args))
+
+def shard_change_timeout_policy(env, shardId, policy):
+    res = env.getConnection(shardId).execute_command(config_cmd(), 'SET', 'ON_TIMEOUT', policy)
+    env.assertEqual(res, 'OK')
+
+def allShards_change_timeout_policy(env, policy):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_change_timeout_policy(env, shardId, policy)
