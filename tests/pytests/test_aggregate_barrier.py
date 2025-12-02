@@ -74,7 +74,7 @@ def test_barrier_waits_for_delayed_shard():
 
     # Now test with delayed shard using PAUSE_BEFORE_RP_N
     query_result = []
-    query_args = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', '0']
+    query_args = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', num_docs//2]
 
     # Start query in background thread - it will pause on all shards at Index RP
     t_query = threading.Thread(
@@ -128,6 +128,99 @@ def test_barrier_waits_for_delayed_shard():
         total = get_total_results(query_result[0])
         env.assertEqual(total, num_docs,
                         message=f"WITHCOUNT after delayed shard should return {num_docs}, got {total}")
+
+@skip(cluster=False)
+def test_barrier_waits_for_delayed_unbalanced_shard():
+    """
+    Test that the barrier waits for all shards before returning results.
+
+    This test uses DEBUG SLEEP on a specific shard to simulate delayed responses.
+    Data is distributed across shards so fast shards start sending data while
+    one shard is delayed. We verify that the coordinator waits for all shards
+    and returns accurate total_results.
+
+    Shard 0: 5000 docs (responds fast)
+    Shard 2: 10000 docs (responds fast)
+    Shard 1: 0 docs - delayed with DEBUG SLEEP (via env.getConnection(2))
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3, shardsCount=3)
+
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
+
+    conn = getConnectionByEnv(env)
+
+    # Add docs to shard 0 (small shard)
+    num_docs0 = 5000
+    for i in range(num_docs0):
+        conn.execute_command('HSET', f'{{shard-0}}:doc:{i}', 'title', f'doc{i}')
+
+    # Add docs to shard 2 (large shard)
+    num_docs2 = 10000
+    for i in range(num_docs2):
+        conn.execute_command('HSET', f'{{shard-2}}:doc:{i}', 'title', f'doc{i}')
+
+    num_docs = num_docs0 + num_docs2
+
+    # Now test with delayed shard using DEBUG SLEEP
+    # We delay shard 1 (connection index 2) which has 0 docs
+    # This tests that the coordinator waits for ALL shards even while
+    # receiving lots of data from the fast shards (0 and 2)
+    query_result = []
+    sleep_duration = 4  # seconds
+
+    def run_query_with_delayed_shard():
+        """Execute query where shard 1 is delayed (the one with 0 docs)"""
+        try:
+            # Start DEBUG SLEEP on shard 1 (connection index 2) in a background thread
+            # This will block the entire Redis main thread on that shard
+            def block_shard():
+                # Connection index 2 corresponds to shard 1 (the one with 0 docs)
+                shard_conn = env.getConnection(2)
+                # This blocks the entire Redis instance
+                shard_conn.execute_command('DEBUG', 'SLEEP', sleep_duration)
+
+            sleep_thread = threading.Thread(target=block_shard, daemon=True)
+            sleep_thread.start()
+
+            # Wait a bit to ensure DEBUG SLEEP has started
+            time.sleep(0.5)
+
+            # Now send the query from coordinator
+            # Shards 0 and 2 will respond quickly and start sending data
+            # but the coordinator must wait for shard 1 before reporting total
+            start_time = time.time()
+            result = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT')
+            elapsed = time.time() - start_time
+
+            query_result.append((result, elapsed))
+        except Exception as e:
+            query_result.append(e)
+
+    # Run the query
+    t_query = threading.Thread(target=run_query_with_delayed_shard, daemon=True)
+    t_query.start()
+
+    # Wait for query to complete (should take ~sleep_duration seconds)
+    t_query.join(timeout=sleep_duration + 5)
+
+    # Verify query completed and returned correct total
+    env.assertEqual(len(query_result), 1,
+                    message="Query should have completed")
+
+    if isinstance(query_result[0], Exception):
+        env.assertTrue(False, message=f"Query failed with: {query_result[0]}")
+    else:
+        result, elapsed = query_result[0]
+        total = get_total_results(result)
+        env.assertEqual(total, num_docs,
+                        message=f"WITHCOUNT with delayed shard should return {num_docs}, got {total}")
+
+        # Verify that the query actually waited for the delayed shard
+        # It should take at least (sleep_duration - 0.5) seconds (allowing some margin)
+        min_expected_time = sleep_duration - 0.5
+        env.assertTrue(elapsed >= min_expected_time,
+                      message=f"Query should have waited for delayed shard (expected >={min_expected_time}s, got {elapsed:.2f}s)")
 
 
 @skip(cluster=False)
