@@ -64,6 +64,17 @@ size_t ConcurrentSearchPool_WorkingThreadCount() {
 #endif
 }
 
+size_t ConcurrentSearchPool_HighPriorityPendingJobsCount() {
+#ifdef RS_COORDINATOR
+  RS_ASSERT(threadpools_g);
+  // Assert we only have 1 pool
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+  return redisearch_thpool_high_priority_pending_jobs(threadpools_g[0]);
+#else
+  return 0;
+#endif
+}
+
 static void threadHandleCommand(void *p) {
   ConcurrentCmdCtx *ctx = p;
   // Lock GIL if needed
@@ -222,4 +233,36 @@ void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx) {
 void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx) {
   RedisModule_ThreadSafeContextUnlock(ctx->ctx);
   ctx->isLocked = 0;
+}
+
+/********************************************* for debugging **********************************/
+
+int ConcurrentSearch_isPaused() {
+  RS_ASSERT(threadpools_g);
+  // Assert we only have 1 pool
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+  return redisearch_thpool_paused(threadpools_g[0]);
+}
+
+int ConcurrentSearch_pause() {
+  RS_ASSERT(threadpools_g);
+  // Assert we only have 1 pool
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+
+  if (ConcurrentSearch_isPaused()) {
+    return REDISMODULE_ERR;
+  }
+  redisearch_thpool_pause_threads(threadpools_g[0]);
+  return REDISMODULE_OK;
+}
+
+int ConcurrentSearch_resume() {
+  RS_ASSERT(threadpools_g);
+  // Assert we only have 1 pool
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+  if (!ConcurrentSearch_isPaused()) {
+    return REDISMODULE_ERR;
+  }
+  redisearch_thpool_resume_threads(threadpools_g[0]);
+  return REDISMODULE_OK;
 }

@@ -17,5 +17,6 @@ static const char *coordCommandsNames[] = {
   "FT.AGGREGATE",
   "FT.SEARCH",
   "FT.PROFILE",
+  "COORD_THREADS",
   NULL
 };

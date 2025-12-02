@@ -126,6 +126,9 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
 /* return number of currently working threads */
 size_t ConcurrentSearchPool_WorkingThreadCount();
 
+/* return number of pending high priority jobs */
+size_t ConcurrentSearchPool_HighPriorityPendingJobsCount();
+
 /** Check the elapsed timer, and release the lock if enough time has passed.
  * Return 1 if switching took place
  */
@@ -192,6 +195,15 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
     }                                                        \
     conctx__didSwitch;                                       \
   })
+
+
+/********************************************* for debugging **********************************/
+
+int ConcurrentSearch_isPaused();
+
+int ConcurrentSearch_pause();
+
+int ConcurrentSearch_resume();
 
 #ifdef __cplusplus
 }
