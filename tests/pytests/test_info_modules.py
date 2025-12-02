@@ -1922,30 +1922,6 @@ class TestCoordHighPriorityPendingJobs(object):
     info_dict = info_modules_to_dict(self.env)
     self.env.assertEqual(info_dict[MULTI_THREADING_SECTION][COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC], '0')
 
-  def run_cmd_bg(self, command, num_commands):
-    search_threads = []
-    exceptions = []
-    exception_event = threading.Event()
-
-    def run_query():
-        try:
-            self.env.cmd(*command)
-        except Exception as e:
-            exceptions.append(e)
-            exception_event.set()
-
-    for i in range(num_commands):
-        t = threading.Thread(target=run_query)
-        search_threads.append(t)
-        t.start()
-
-    # Check for exceptions before proceeding
-    if exception_event.wait(timeout=1):
-        error_msg = f"Background queries failed with {len(exceptions)} error(s): {exceptions}"
-        self.env.assertTrue(False, message=error_msg)
-        return None
-
-    return search_threads
 
   def verify_coord_high_priority_pending_jobs(self, command_type, num_commands_per_type, search_threads):
     # --- VERIFY METRIC INCREASED ---
@@ -1974,7 +1950,7 @@ class TestCoordHighPriorityPendingJobs(object):
 
     env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
 
-    search_threads = self.run_cmd_bg([f'FT.{command_type}', DEFAULT_INDEX_NAME, '*'], num_commands_per_type)
+    search_threads = launch_cmds_in_bg_with_exception_check(self.env, [f'FT.{command_type}', DEFAULT_INDEX_NAME, '*'], num_commands_per_type)
     if search_threads is None:
       env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
       return
@@ -1994,7 +1970,7 @@ class TestCoordHighPriorityPendingJobs(object):
     num_commands_per_type = 1  # Number of commands to execute for each command type
 
     self.env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
-    search_threads = self.run_cmd_bg(['FT.CURSOR', 'READ', DEFAULT_INDEX_NAME, cursor_id], num_commands_per_type)
+    search_threads = launch_cmds_in_bg_with_exception_check(self.env, ['FT.CURSOR', 'READ', DEFAULT_INDEX_NAME, cursor_id], num_commands_per_type)
     if search_threads is None:
       self.env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
       return
@@ -2009,7 +1985,7 @@ class TestCoordHighPriorityPendingJobs(object):
 
     self.env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
 
-    hybrid_threads = self.run_cmd_bg(['FT.HYBRID', DEFAULT_INDEX_NAME, 'SEARCH', 'hello',
+    hybrid_threads = launch_cmds_in_bg_with_exception_check(self.env, ['FT.HYBRID', DEFAULT_INDEX_NAME, 'SEARCH', 'hello',
                                  'VSIM', f'@{DEFAULT_FIELD_NAME}', query_vector], num_commands_per_type)
     if hybrid_threads is None:
       self.env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
