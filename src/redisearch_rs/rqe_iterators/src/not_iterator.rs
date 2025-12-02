@@ -16,10 +16,16 @@ use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
 };
 
+/// An iterator that negates the results of its child iterator.
+///
+/// Yields all document IDs from 1 to `max_doc_id` (inclusive) that are **not**
+/// present in the child iterator.
 pub struct NotIterator<'index, I> {
+    /// The child iterator whose results are negated.
     child: MaybeEmpty<I>,
+    /// The maximum document ID to iterate up to (inclusive).
     max_doc_id: t_docId,
-    current_id: t_docId,
+    /// A reusable result object to avoid allocations on each `read` call.
     result: RSIndexResult<'index>,
     // TODO: Timeout
 }
@@ -32,7 +38,6 @@ where
         Self {
             child: MaybeEmpty::new(child),
             max_doc_id,
-            current_id: 0,
             result: RSIndexResult::virt(),
         }
     }
@@ -49,35 +54,37 @@ where
 
     #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.at_eof() {
-            return Ok(None);
-        }
+        // skip all child docs, while not EOF and in sync with child
+        while !self.at_eof() {
+            self.result.doc_id += 1;
 
-        // IdList::at_eof() flips to true as soon as the last child doc is read,
-        // so we must still treat that doc as excluded.
-        if self.last_doc_id() == self.child.last_doc_id() {
-            self.child.read()?;
-            // TODO: Timeout
-        }
-
-        while self.current_id < self.max_doc_id {
-            self.current_id += 1;
-
-            let child_last = self.child.last_doc_id();
-            let child_at_eof = self.child.at_eof();
-
-            // Accept current_id when:
-            //  - child.last_doc_id > current_id, or
-            //  - child is at EOF and current_id > child.last_doc_id().
-            if self.current_id < child_last || (child_at_eof && self.current_id > child_last) {
-                self.result.doc_id = self.current_id;
+            if self.result.doc_id < self.child.last_doc_id() {
+                // no child to NOT results, return our result as-is
                 return Ok(Some(&mut self.result));
             }
 
-            self.child.read()?;
-            // TODO: Timeout
+            if self.child.last_doc_id() == self.result.doc_id {
+                // we caught up with child iterator,
+                // skip the _real_ result as part of the NOT iterator negation
+                continue;
+            }
+
+            if let Some(result) = self.child.read()? {
+                if result.doc_id > self.result.doc_id {
+                    // child skipped ahead already
+                    return Ok(Some(&mut self.result));
+                }
+                debug_assert_eq!(
+                    result.doc_id, self.result.doc_id,
+                    "child read backwards without rewind"
+                );
+            } else {
+                // child EOF at read
+                return Ok(Some(&mut self.result));
+            }
         }
 
+        debug_assert!(self.at_eof());
         Ok(None)
     }
 
@@ -94,13 +101,12 @@ where
 
         // Do not skip beyond max_doc_id
         if doc_id > self.max_doc_id {
-            self.current_id = self.max_doc_id;
+            self.result.doc_id = self.max_doc_id;
             return Ok(None);
         }
 
         // Case 1: Child is ahead or at EOF - docId is not in child
         if self.child.last_doc_id() > doc_id || self.child.at_eof() {
-            self.current_id = doc_id;
             self.result.doc_id = doc_id;
             return Ok(Some(SkipToOutcome::Found(&mut self.result)));
         }
@@ -113,7 +119,6 @@ where
                 }
                 _ => {
                     // Not found - return
-                    self.current_id = doc_id;
                     self.result.doc_id = doc_id;
                     return Ok(Some(SkipToOutcome::Found(&mut self.result)));
                 }
@@ -122,7 +127,7 @@ where
 
         // If we are here, Child has DocID (either already lastDocID == docId or the SkipTo returned OK)
         // We need to return NOTFOUND and set the current result to the next valid docId
-        self.current_id = doc_id;
+        self.result.doc_id = doc_id;
         match self.read()? {
             Some(_) => Ok(Some(SkipToOutcome::NotFound(&mut self.result))),
             None => Ok(None),
@@ -131,7 +136,7 @@ where
 
     #[inline(always)]
     fn rewind(&mut self) {
-        self.current_id = 0;
+        self.result.doc_id = 0;
         self.child.rewind();
     }
 
@@ -142,12 +147,12 @@ where
 
     #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
-        self.current_id
+        self.result.doc_id
     }
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        self.current_id >= self.max_doc_id
+        self.result.doc_id >= self.max_doc_id
     }
 
     #[inline(always)]
