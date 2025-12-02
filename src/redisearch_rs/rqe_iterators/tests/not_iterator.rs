@@ -13,8 +13,6 @@ use rqe_iterators::{
     not_iterator::NotIterator,
 };
 
-mod c_mocks;
-
 // Basic iterator invariants before any read.
 #[test]
 fn initial_state() {
