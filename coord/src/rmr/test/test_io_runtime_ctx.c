@@ -68,11 +68,11 @@ void testMetricUpdateDuringCallback() {
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
   mu_assert_int_eq(0, stats.active_io_threads);
 
-  // Phase 2: Schedule callback and verify metric increases
-  RQ_Push(q, slowCallback, &flags);
-
   // Mark the IO runtime as ready to process callbacks (bypass topology validation timeout)
   RQ_Debug_SetLoopReady();
+
+  // Phase 2: Schedule callback and verify metric increases
+  RQ_Push(q, slowCallback, &flags);
 
   // Wait for callback to start
   int started = wait_for_atomic_bool(&flags.started, 30000); // 30s timeout
