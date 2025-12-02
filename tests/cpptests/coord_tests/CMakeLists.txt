@@ -24,6 +24,6 @@ set(COMMON_FILES
 
 add_executable(rstest_coord ${TEST_SOURCES} ${COMMON_FILES})
 target_link_libraries(rstest_coord gtest ${TEST_MODULE} redismock ${CMAKE_LD_LIBS})
-set_target_properties(rstest_coord PROPERTIES LINKER_LANGUAGE CXX)
+set_target_properties(rstest_coord PROPERTIES LINKER_LANGUAGE CXX LINK_FLAGS "-Wl,--allow-shlib-undefined")
 
 add_test(NAME rstest_coord COMMAND rstest_coord)
