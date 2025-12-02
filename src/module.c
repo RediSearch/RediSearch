@@ -394,7 +394,6 @@ int QueryExplainCLICommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* FT.DEL {index} {doc_id}
@@ -1391,8 +1390,16 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
          "readonly", 1, 1, 1, "read", false))
 
   // Do not force cross slot validation since coordinator will handle it.
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly",
+  RM_TRY(RMCreateSearchCommand(ctx, RS_CURSOR_CMD, NULL, "readonly",
          0, 0, 0, "read", true));
+  RM_TRY(RedisModule_CreateSubcommand(RedisModule_GetCommand(ctx, RS_CURSOR_CMD),
+         "READ", RSCursorReadCommand, "readonly", 0, 0, 0))
+  RM_TRY(RedisModule_CreateSubcommand(RedisModule_GetCommand(ctx, RS_CURSOR_CMD),
+         "PROFILE", RSCursorProfileCommand, "readonly", 0, 0, 0))
+  RM_TRY(RedisModule_CreateSubcommand(RedisModule_GetCommand(ctx, RS_CURSOR_CMD),
+         "DEL", RSCursorDelCommand, "readonly", 0, 0, 0))
+  RM_TRY(RedisModule_CreateSubcommand(RedisModule_GetCommand(ctx, RS_CURSOR_CMD),
+         "GC", RSCursorGCCommand, "readonly", 0, 0, 0))
 
   // todo: what to do with this?
   RM_TRY(RMCreateSearchCommand(ctx, RS_SYNADD_CMD, SynAddCommand,
@@ -3201,11 +3208,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
                                                StrongRef_Demote(spec_ref));
 }
 
-static void CursorCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
-  RSCursorCommand(ctx, argv, argc);
-}
-
-static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisModuleCmdFunc subcmd, ConcurrentCmdHandler dist_callback) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
@@ -3216,15 +3219,26 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
-    return RSCursorCommand(ctx, argv, argc);
+    return subcmd(ctx, argv, argc);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, CMDCTX_NO_GIL,
-                                               CursorCommandInternal, ctx, argv, argc,
+  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, CMDCTX_NO_GIL, dist_callback, ctx, argv, argc,
                                                (WeakRef){0});
 }
+
+#define CURSOR_SUBCOMMAND(name) \
+static void Cursor##name##CommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) { \
+  RSCursor##name##Command(ctx, argv, argc);                                                                                           \
+}                                                                                                                                     \
+int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {                                                  \
+  return CursorCommand(ctx, argv, argc, RSCursor##name##Command, Cursor##name##CommandInternal);                                      \
+}
+
+CURSOR_SUBCOMMAND(Read)
+CURSOR_SUBCOMMAND(Del)
+CURSOR_SUBCOMMAND(GC)
 
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
@@ -3821,10 +3835,18 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, "", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read", false))
-  if (clusterConfig.type == ClusterType_RedisLabs) {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 3, 1, -3, "read", false))
-  } else {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, -1, "read", false))
+  {
+    int firstkey, lastkey, keystep;
+    if (clusterConfig.type == ClusterType_RedisLabs) {
+      firstkey = 3; lastkey = 1; keystep = -3;
+    } else {
+      firstkey = 0; lastkey = 0; keystep = -1;
+    }
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", NULL, "readonly", firstkey, lastkey, keystep, "read", false))
+    RedisModuleCommand *cursorCmd = RedisModule_GetCommand(ctx, "FT.CURSOR");
+    RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "READ", SafeCmd(CursorReadCommand), "readonly", firstkey, lastkey, keystep))
+    RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "DEL", SafeCmd(CursorDelCommand), "readonly", firstkey, lastkey, keystep))
+    RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "GC", SafeCmd(CursorGCCommand), "readonly", firstkey, lastkey, keystep))
   }
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1, "", false))
   // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
