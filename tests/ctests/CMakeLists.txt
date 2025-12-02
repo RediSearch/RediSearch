@@ -8,7 +8,6 @@ function(define_test name)
     add_executable("${name}" "${name}.c")
     target_link_libraries("${name}" ${TEST_MODULE} ${CMAKE_LD_LIBS})
     set_target_properties("${name}" PROPERTIES LINKER_LANGUAGE CXX)
-    target_link_options("${name}" PRIVATE "LINKER:--unresolved-symbols=ignore-in-shared-libs")
 endfunction()
 
 file(GLOB TEST_SOURCES "test_*.c")
