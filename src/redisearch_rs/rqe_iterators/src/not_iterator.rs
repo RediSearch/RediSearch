@@ -158,19 +158,22 @@ where
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Get child status
-        let child_status = self.child.revalidate()?;
-        if matches!(child_status, RQEValidateStatus::Aborted) {
-            // Replace aborted child with an empty iterator
-            self.child = MaybeEmpty::new_empty();
-            // Return here so we can borrow child after mutating the child
-            return Ok(RQEValidateStatus::Ok);
-        }
 
-        debug_assert!(
-            !matches!(child_status, RQEValidateStatus::Moved { .. })
-                || self.child.at_eof()
-                || self.child.last_doc_id() > self.last_doc_id()
-        );
-        Ok(RQEValidateStatus::Ok)
+        match self.child.revalidate()? {
+            RQEValidateStatus::Aborted => {
+                // Replace aborted child with an empty iterator
+                self.child = MaybeEmpty::new_empty();
+                return Ok(RQEValidateStatus::Ok);
+            }
+            RQEValidateStatus::Moved { .. } => {
+                // Assert that child is at EOF or beyond our last doc id
+                debug_assert!(self.child.at_eof() || self.child.last_doc_id() > self.last_doc_id());
+                return Ok(RQEValidateStatus::Ok);
+            }
+            RQEValidateStatus::Ok => {
+                // Child did not move - we did not move
+                return Ok(RQEValidateStatus::Ok);
+            }
+        }
     }
 }
