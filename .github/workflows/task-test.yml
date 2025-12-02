@@ -144,7 +144,7 @@ jobs:
           echo "succeeded=true" >> $GITHUB_OUTPUT
 
   common-flow:
-    needs: [get-config, build-image, free-disk-space]
+    needs: [get-config, build-image]
     name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
     # Run if get-config succeeded and at least one test type is enabled
     if: |
