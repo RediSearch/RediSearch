@@ -1104,6 +1104,31 @@ def call_and_store(fn, args, out_list):
     """
     out_list.append(fn(*args))
 
+def run_cmds_in_bg(env, command, num_commands):
+    threads = []
+    exceptions = []
+    exception_event = threading.Event()
+
+    def run_query():
+        try:
+            env.cmd(*command)
+        except Exception as e:
+            exceptions.append(e)
+            exception_event.set()
+
+    for i in range(num_commands):
+        t = threading.Thread(target=run_query)
+        threads.append(t)
+        t.start()
+
+    # Check for exceptions before proceeding
+    if exception_event.wait(timeout=1):
+        error_msg = f"Background command {command} failed with {len(exceptions)} error(s): {exceptions}"
+        env.assertTrue(False, message=error_msg)
+        return None
+
+    return threads
+
 def generate_slots(slots = range(2**14)) -> bytes:
     """Generate slot ranges in binary format matching RedisModuleSlotRangeArray serialization.
 
