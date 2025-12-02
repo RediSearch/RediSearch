@@ -459,14 +459,14 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     processResultFormat(&nc->areq->reqflags, nc->current.meta);
 
-    if (fields && MRReply_Type(fields) == MR_REPLY_MAP) {
-      for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
-        size_t len;
-        const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
-        MRReply *val = MRReply_ArrayElement(fields, i + 1);
-        RSValue *v = MRReply_ToValue(val);
-        RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
-      }
+    size_t fields_length = fields && MRReply_Type(fields) == MR_REPLY_MAP ? MRReply_Length(fields) : 0;
+
+    for (size_t i = 0; i < fields_length; i += 2) {
+      size_t len;
+      const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
+      MRReply *val = MRReply_ArrayElement(fields, i + 1);
+      RSValue *v = MRReply_ToValue(val);
+      RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
     }
   } else { // RESP2
     MRReply *rep = MRReply_ArrayElement(rows, nc->curIdx++);
