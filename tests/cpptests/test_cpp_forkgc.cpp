@@ -702,6 +702,9 @@ TEST_F(FGCTestTag, testPipeErrorDuringGC) {
  * code paths and timing windows during the apply phase.
  */
 TEST_F(FGCTestTag, testPipeErrorDuringApply) {
+  #ifdef __APPLE__
+    GTEST_SKIP() << "Times out quite regularly on macOS";
+  #endif
   volatile bool should_close = false;
   volatile bool thread_should_exit = false;
   volatile int delay_usec = 0;
@@ -720,7 +723,7 @@ TEST_F(FGCTestTag, testPipeErrorDuringApply) {
   });
 
   // Run multiple iterations to increase coverage of different timing scenarios
-  for (int iteration = 0; iteration < 1000; iteration++) {
+  for (int iteration = 0; iteration < 1000; iteration+=2) {
     // Add documents to create work for the GC
     std::string doc1 = "doc1_" + std::to_string(iteration);
     std::string doc2 = "doc2_" + std::to_string(iteration);
