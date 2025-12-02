@@ -1673,7 +1673,7 @@ static void CursorCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RSCursorCommand(ctx, argv, argc);
 }
 
-static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ConcurrentCmdHandler dist_callback) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1684,8 +1684,20 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return ReplyBlockDeny(ctx, argv[0]);
   }
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
-                                               CursorCommandInternal, ctx, argv, argc);
+                                               dist_callback, ctx, argv, argc);
 }
+
+#define CURSOR_SUBCOMMAND(name) \
+static void Cursor##name##CommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) { \
+  RSCursor##name##Command(ctx, argv, argc);                                                                                           \
+}                                                                                                                                     \
+int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {                                                  \
+  return CursorCommand(ctx, argv, argc, Cursor##name##CommandInternal);                                                               \
+}
+
+CURSOR_SUBCOMMAND(Read)
+CURSOR_SUBCOMMAND(Del)
+CURSOR_SUBCOMMAND(GC)
 
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
@@ -2144,6 +2156,19 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 3, 1, -3));
   } else {
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, -1));
+  }
+  {
+    int firstkey, lastkey, keystep;
+    if (clusterConfig.type == ClusterType_RedisLabs) {
+      firstkey = 3; lastkey = 1; keystep = -3;
+    } else {
+      firstkey = 0; lastkey = 0; keystep = -1;
+    }
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", NULL, "readonly", firstkey, lastkey, keystep, "read", false))
+    RedisModuleCommand *cursorCmd = RedisModule_GetCommand(ctx, "FT.CURSOR");
+    RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "READ", SafeCmd(CursorReadCommand), "readonly", firstkey, lastkey, keystep))
+    RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "DEL", SafeCmd(CursorDelCommand), "readonly", firstkey, lastkey, keystep))
+    RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "GC", SafeCmd(CursorGCCommand), "readonly", firstkey, lastkey, keystep))
   }
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1));
   // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
