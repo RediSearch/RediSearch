@@ -18,9 +18,11 @@ pub mod inverted_index;
 pub mod maybe_empty;
 pub mod metric;
 pub mod wildcard;
+pub mod intersection;
 
 pub use empty::Empty;
 pub use id_list::IdList;
+pub use intersection::Intersection;
 pub use inverted_index::{Numeric, Term};
 pub use metric::Metric;
 pub use wildcard::Wildcard;
