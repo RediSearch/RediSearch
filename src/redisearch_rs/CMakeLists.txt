@@ -65,6 +65,7 @@ if(NOT TARGET redisearch_rs_build)
             "RUSTFLAGS=${RUST_FLAGS}"
             "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
             ${CARGO_EXECUTABLE} build
+            ${CARGO_BUILD_STD_FLAG}
             --package redisearch_rs
             --profile=${RUST_PROFILE}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
