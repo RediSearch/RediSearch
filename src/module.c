@@ -3408,7 +3408,6 @@ int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 CURSOR_SUBCOMMAND(Read)
 CURSOR_SUBCOMMAND(Del)
 CURSOR_SUBCOMMAND(GC)
-CURSOR_SUBCOMMAND(Profile)
 
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
@@ -4030,18 +4029,13 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   {
     int firstkey, lastkey, keystep;
     if (clusterConfig.type == ClusterType_RedisLabs) {
-      firstkey = 3;
-      lastkey = 1;
-      keystep = -3;
+      firstkey = 3; lastkey = 1; keystep = -3;
     } else {
-      firstkey = 0;
-      lastkey = 0;
-      keystep = -1;
+      firstkey = 0; lastkey = 0; keystep = -1;
     }
     RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", NULL, "readonly", firstkey, lastkey, keystep, "read", false))
     RedisModuleCommand *cursorCmd = RedisModule_GetCommand(ctx, "FT.CURSOR");
     RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "READ", SafeCmd(CursorReadCommand), "readonly", firstkey, lastkey, keystep))
-    RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "PROFILE", SafeCmd(CursorProfileCommand), "readonly", firstkey, lastkey, keystep))
     RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "DEL", SafeCmd(CursorDelCommand), "readonly", firstkey, lastkey, keystep))
     RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "GC", SafeCmd(CursorGCCommand), "readonly", firstkey, lastkey, keystep))
   }

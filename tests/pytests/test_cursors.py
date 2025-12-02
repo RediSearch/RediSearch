@@ -525,19 +525,21 @@ def testCursorDepletionStrictTimeoutPolicy():
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t', 'GROUPBY', '1', '@t', 'WITHCURSOR', 'COUNT', str(num_docs), 'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
 
-def test_cursor_profile(env):
+@skip(cluster=True)
+def test_cursor_profile(env: Env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    conn = getConnectionByEnv(env)
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
 
-    conn.execute_command('HSET', f'doc1', 't', str(1))
-    conn.execute_command('HSET', f'doc2', 't', str(2))
+    env.cmd('HSET', f'doc1', 't', str(1))
+    env.cmd('HSET', f'doc2', 't', str(2))
 
-    env.expect('FT.CURSOR', 'PROFILE', 'idx', '123').error().contains('Cursor not found')
+    env.expect('_FT.CURSOR', 'PROFILE', 'idx', '123').error().contains('Cursor not found')
 
     # create a cursor
-    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1')
+
+    _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1')
     env.assertNotEqual(cursor, 0)
-    env.expect('FT.CURSOR', 'PROFILE', 'idx', cursor).error().contains('cursor request is not profile')
+    env.expect('_FT.CURSOR', 'PROFILE', 'idx', cursor).error().contains('cursor request is not profile')
 
 @skip(cluster=True)
 def test_mod_6597(env):
@@ -644,13 +646,11 @@ def test_cursor_commands_errors(env: Env):
     # Test missing arguments
     env.expect('FT.CURSOR', 'READ').error().contains("wrong number of arguments for 'FT.CURSOR|READ' command")
     env.expect('FT.CURSOR', 'DEL').error().contains("wrong number of arguments for 'FT.CURSOR|DEL' command")
-    env.expect('FT.CURSOR', 'PROFILE').error().contains("wrong number of arguments for 'FT.CURSOR|PROFILE' command")
     env.expect('FT.CURSOR', 'GC').error().contains("wrong number of arguments for 'FT.CURSOR|GC' command")
 
     # Test invalid cursor id
     env.expect('FT.CURSOR', 'READ', 'idx', 'invalid_cursor_id').error().contains('Bad cursor ID')
     env.expect('FT.CURSOR', 'DEL', 'idx', 'invalid_cursor_id').error().contains('Bad cursor ID')
-    env.expect('FT.CURSOR', 'PROFILE', 'idx', 'invalid_cursor_id').error().contains('Bad cursor ID')
 
     # Internal cursor tests
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
