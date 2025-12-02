@@ -206,7 +206,7 @@ setup_build_environment() {
   # Only set RUST_PROFILE if it wasn't already set by the user
   if [[ -z "$RUST_PROFILE" ]]; then
     if [[ "$BUILD_TESTS" == "1" ]]; then
-      if [[ "$DEBUG" == "1" || -n "$SAN" || "$COV" == "1" ]]; then
+      if [[ "$DEBUG" == "1" || -n "$SAN" || "$COV" == "1" || "$RUN_MIRI" == "1" ]]; then
         RUST_PROFILE="dev"
       else
         if [[ "$RUN_MICRO_BENCHMARKS" == "1" ]]; then
