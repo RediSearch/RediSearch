@@ -194,7 +194,10 @@ setup_build_environment() {
     FLAVOR="release"
   fi
 
-  # Use a custom build target for sanitizers
+  # Use a custom build target for sanitizers to prevent the Rust flags from being applied to build
+  # scripts and procedural macros.
+  #
+  # See https://doc.rust-lang.org/beta/unstable-book/compiler-flags/sanitizer.html#build-scripts-and-procedural-macros
   if [ "$SAN" == "address"  ]; then
     export CARGO_BUILD_TARGET="$(rustc $RUST_TOOLCHAIN -vV | sed -n 's/host: //p')"
   fi
