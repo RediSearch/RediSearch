@@ -1,5 +1,5 @@
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/../../.. ABSOLUTE)
@@ -27,4 +27,5 @@ foreach(benchmark_file ${BENCHMARK_ITER_SOURCES})
   get_filename_component(benchmark_name ${benchmark_file} NAME_WE)
   add_executable(${benchmark_name} ${benchmark_file} ../index_utils.cpp ../iterator_util.cpp)
   target_link_libraries(${benchmark_name} redisearch redismock benchmark::benchmark)
+  target_link_options(${benchmark_name} PRIVATE "LINKER:--unresolved-symbols=ignore-in-shared-libs")
 endforeach()

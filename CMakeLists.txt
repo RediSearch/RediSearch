@@ -24,7 +24,8 @@ function(setup_cc_options)
     # Common compiler flags
     set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
     set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
-    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_CXX_STANDARD 20 PARENT_SCOPE)
+
     # Release/Debug/Profile specific flags
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
@@ -340,6 +341,8 @@ endif()
 set_target_properties(redisearch
     PROPERTIES
     LINKER_LANGUAGE CXX
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
     C_STANDARD 17
     C_STANDARD_REQUIRED ON
     POSITION_INDEPENDENT_CODE ON)
@@ -368,6 +371,15 @@ extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
 add_dependencies(redisearch uv_a)
 add_dependencies(redisearch redisearch_rs)
+
+# # Handle C++ standard library linking for Clang on Linux
+# # Force libstdc++ (GCC standard library) to ensure consistency between headers and runtime library,
+# # avoiding header/library mismatches that cause undefined reference errors like std::ios_base_library_init
+# if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT APPLE)
+#     message(STATUS "Forcing libstdc++ for Clang on Linux")
+#     target_compile_options(redisearch PRIVATE -stdlib=libstdc++)
+#     target_link_options(redisearch PRIVATE -stdlib=libstdc++)
+# endif()
 
 #----------------------------------------------------------------------------------------------
 # Unit tests configuration

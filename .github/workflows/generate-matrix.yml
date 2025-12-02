@@ -69,6 +69,8 @@ jobs:
               ('azurelinux:3', 'aarch64'),
               ('alpine:3', 'x86_64'),
               ('alpine:3', 'aarch64'),
+              ('silkeh/clang:20', 'x86_64'),
+              ('silkeh/clang:20', 'aarch64'),
               ('macos', 'x86_64'),
               ('macos', 'aarch64')
           ]
@@ -109,4 +111,3 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'matrix={json.dumps({"include": matrix_items})}\n')
               f.write(f'has-jobs={str(has_jobs).lower()}\n')
-

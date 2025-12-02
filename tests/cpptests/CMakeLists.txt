@@ -1,5 +1,5 @@
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
@@ -19,13 +19,17 @@ file(GLOB TEST_SOURCES "test_cpp_*.cpp")
 add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp iterator_util.cpp)
 target_link_libraries(rstest gtest ${TEST_MODULE} redismock ${CMAKE_LD_LIBS})
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
+target_link_options(rstest PRIVATE "LINKER:--unresolved-symbols=ignore-in-shared-libs")
+
 add_dependencies(rstest example_extension)
 add_test(NAME rstest COMMAND rstest)
 
 
 add_executable(test_distagg ${root}/tests/cpptests/test_distagg.cpp)
-target_link_libraries(test_distagg ${TEST_MODULE} redismock)
-set_target_properties(test_distagg PROPERTIES COMPILE_FLAGS "-fvisibility=default")
+target_link_libraries(test_distagg ${TEST_MODULE} redismock ${CMAKE_LD_LIBS})
+set_target_properties(test_distagg PROPERTIES COMPILE_FLAGS "-fvisibility=default" LINKER_LANGUAGE CXX)
+target_link_options(test_distagg PRIVATE "LINKER:--unresolved-symbols=ignore-in-shared-libs")
+
 add_test(name test_distagg COMMAND test_distagg)
 
 # Add the coord_tests subdirectory
@@ -35,3 +39,4 @@ file(GLOB BENCHMARK_SOURCES "benchmark_*.cpp")
 add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp)
 target_link_libraries(rsbench ${TEST_MODULE} redismock ${CMAKE_LD_LIBS} pthread)
 set_target_properties(rsbench PROPERTIES LINKER_LANGUAGE CXX)
+target_link_options(rsbench PRIVATE "LINKER:--unresolved-symbols=ignore-in-shared-libs")
