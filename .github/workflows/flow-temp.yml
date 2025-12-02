@@ -15,5 +15,4 @@ jobs:
 
   run-on-intel:
     uses: ./.github/workflows/flow-intel.yml
-
-
+    secrets: inherit
