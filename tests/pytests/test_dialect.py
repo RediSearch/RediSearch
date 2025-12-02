@@ -323,6 +323,9 @@ def check_info_results(env, command, idx1_expect, idx2_expect, should_succeed):
                                           'dialect_4', idx2_expect[3]])
   check_info_module_results(env, [x or y for x, y in zip(idx1_expect, idx2_expect)])
 
+def test_failure_one(env):
+   env.assertTrue(False)
+
 def test_dialect_info(env):
   conn = getConnectionByEnv(env)
   env.expect(config_cmd() + " SET DEFAULT_DIALECT 1").ok()
