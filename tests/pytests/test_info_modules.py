@@ -595,7 +595,6 @@ def test_indexing_metrics(env: Env):
 
 SEARCH_PREFIX = 'search_'
 
-# @skip(cluster=False)
 def test_active_io_threads_stats(env):
   conn = getConnectionByEnv(env)
   # Setup: Create index with some data
