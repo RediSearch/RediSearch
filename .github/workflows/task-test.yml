@@ -44,6 +44,10 @@ on:
       test-timeout:
         type: number
         default: 50
+      fail-fast:
+        type: boolean
+        default: false
+        description: "If true, the workflow will terminate as soon as one test step fails."
 
 env:
   REJSON: ${{ inputs.rejson && 1 || 0 }} # convert the boolean input to numeric
@@ -420,7 +424,7 @@ jobs:
       - name: "C/C++ tests"
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: c_unit_tests
-        continue-on-error: true
+        continue-on-error: ${{ !inputs.fail-fast }}
         env:
           SAN: ${{ inputs.san }}
           LOG: 1
@@ -430,7 +434,7 @@ jobs:
       - name: Rust tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: rust_unit_tests
-        continue-on-error: true
+        continue-on-error: ${{ !inputs.fail-fast }}
         env:
           SAN: ${{ inputs.san }}
           LOG: 1
@@ -441,7 +445,7 @@ jobs:
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
         if: ${{ inputs.standalone }}
-        continue-on-error: true
+        continue-on-error: ${{ !inputs.fail-fast }}
         env:
           SAN: ${{ inputs.san }}
           LOG: 1
@@ -456,7 +460,7 @@ jobs:
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
         if: ${{ inputs.coordinator }}
-        continue-on-error: true
+        continue-on-error: ${{ !inputs.fail-fast }}
         env:
           SAN: ${{ inputs.san }}
           LOG: 1

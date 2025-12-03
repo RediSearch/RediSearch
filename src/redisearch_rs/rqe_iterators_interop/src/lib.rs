@@ -15,7 +15,6 @@ use ffi::{
 };
 use inverted_index::RSIndexResult;
 use rqe_iterators::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
-use std::ptr;
 
 #[repr(C)]
 /// A wrapper around a Rust iterator—i.e. an implementer of the [`RQEIterator`] trait.
@@ -42,12 +41,12 @@ where
     ///
     /// The wrapper is placed on the heap.
     pub fn boxed_new(type_: ffi::IteratorType, inner: I) -> *mut QueryIterator {
-        let wrapper = Box::new(Self {
+        let mut wrapper = Box::new(Self {
             header: QueryIterator {
                 type_,
-                atEOF: false,
-                lastDocId: 0,
-                current: ptr::null_mut(),
+                atEOF: inner.at_eof(),
+                lastDocId: inner.last_doc_id(),
+                current: std::ptr::null_mut(),
                 NumEstimated: Some(num_estimated::<I>),
                 Read: Some(read::<I>),
                 SkipTo: Some(skip_to::<I>),
@@ -57,6 +56,13 @@ where
             },
             inner,
         });
+        if let Some(current) = wrapper
+            .inner
+            .current()
+            .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult)
+        {
+            wrapper.header.current = current;
+        }
         Box::into_raw(wrapper) as *mut QueryIterator
     }
 
@@ -189,9 +195,13 @@ extern "C" fn rewind<'index, I: RQEIterator<'index> + 'index>(base: *mut QueryIt
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
     wrapper.inner.rewind();
-    wrapper.header.lastDocId = 0;
-    wrapper.header.atEOF = false;
-    wrapper.header.current = ptr::null_mut();
+    wrapper.header.lastDocId = wrapper.inner.last_doc_id();
+    wrapper.header.atEOF = wrapper.inner.at_eof();
+    wrapper.header.current = wrapper
+        .inner
+        .current()
+        .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult)
+        .unwrap_or(std::ptr::null_mut());
 }
 
 extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(

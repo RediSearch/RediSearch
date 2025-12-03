@@ -586,11 +586,14 @@ class ConditionalExpected:
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0, seed=10):
     conn = getConnectionByEnv(env)
     np.random.seed(seed)
+    p = conn.pipeline(transaction=False)
+    query_vec = None
     for i in range(n_vec):
         vector = create_np_array_typed(np.random.rand(vec_size), data_type)
         if i == query_vec_index:
             query_vec = vector
-        conn.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
+        p.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
+    p.execute()
     return query_vec
 
 def sortResultByKeyName(res, start_index=1):
@@ -926,6 +929,18 @@ def allShards_setPauseRPResume(env, start_shard=1):
         results.append(result)
     return results
 
+class vecsimMockTimeoutContext:
+    """Context manager for enabling/disabling VECSIM mock timeout on all shards"""
+    def __init__(self, env):
+        self.env = env
+
+    def __enter__(self):
+        run_command_on_all_shards(self.env, debug_cmd(), 'VECSIM_MOCK_TIMEOUT', 'enable')
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        run_command_on_all_shards(self.env, debug_cmd(), 'VECSIM_MOCK_TIMEOUT', 'disable')
+
 def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):
       yield env.getConnection(shardId=s)
@@ -1103,6 +1118,43 @@ def call_and_store(fn, args, out_list):
         out_list: List to append the function's return value to
     """
     out_list.append(fn(*args))
+
+def launch_cmds_in_bg_with_exception_check(env, command, num_triggers, exception_timeout=1):
+    """
+    Launch the same Redis command multiple times in background threads with exception monitoring.
+    
+    Args:
+        env: Redis test environment for executing commands.
+        command: A list containing the Redis command to execute (e.g., ['FT.SEARCH', 'idx', 'query']).
+        num_triggers: Number of background threads to spawn, each executing the same command.
+        exception_timeout: Seconds to wait for exception detection (default: 1).
+    
+    Returns:
+        list[Thread]: Started thread objects if no exceptions occur, None if any thread fails.
+    """
+    threads = []
+    exceptions = []
+    exception_event = threading.Event()
+
+    def run_cmd():
+        try:
+            env.cmd(*command)
+        except Exception as e:
+            exceptions.append(e)
+            exception_event.set()
+
+    for i in range(num_triggers):
+        t = threading.Thread(target=run_cmd)
+        threads.append(t)
+        t.start()
+
+    # Check for exceptions before proceeding
+    if exception_event.wait(timeout=exception_timeout):
+        error_msg = f"Background command {command} failed with {len(exceptions)} error(s): {exceptions}"
+        env.assertTrue(False, message=error_msg)
+        return None
+
+    return threads
 
 def generate_slots(slots = range(2**14)) -> bytes:
     """Generate slot ranges in binary format matching RedisModuleSlotRangeArray serialization.
