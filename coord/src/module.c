@@ -1669,10 +1669,6 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
                                                dist_callback, ctx, argv, argc);
 }
 
-static void CursorCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
-  RSCursorCommand(ctx, argv, argc);
-}
-
 static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ConcurrentCmdHandler dist_callback) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
