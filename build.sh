@@ -605,7 +605,7 @@ run_rust_tests() {
 
   # Determine which features to enable
   RUST_FEATURES=""
-  if [[ "$SAN" != "address" ]]; then
+  if [[ "$SAN" != "address" && "$RUN_MIRI" != "1" ]]; then
     RUST_FEATURES="--features leaky_tests"
   fi
 
