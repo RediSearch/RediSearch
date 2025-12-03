@@ -1375,6 +1375,9 @@ class TestCoordHighPriorityPendingJobs(object):
     info_dict = info_modules_to_dict(self.env)
     self.env.assertEqual(info_dict[MULTI_THREADING_SECTION][COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC], '0')
 
+  def tearDown(self):
+    if self.env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused'):
+      self.env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
 
   def verify_coord_high_priority_pending_jobs(self, command_type, num_commands_per_type, search_threads):
     # --- VERIFY METRIC INCREASED ---
