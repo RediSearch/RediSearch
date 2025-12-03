@@ -73,18 +73,6 @@ jobs:
       image: ${{ steps.meta.outputs.image }}
       succeeded: ${{ steps.mark-success.outputs.succeeded }}
     steps:
-      - name: Free up disk space
-        # Clean up large directories on GitHub runners to make room for the build
-        run: |
-          echo "Before cleanup:"
-          df -h
-          sudo rm -rf /usr/share/dotnet || true
-          sudo rm -rf /usr/local/lib/android || true
-          sudo rm -rf /opt/ghc || true
-          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
-          docker system prune -af 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
       - name: Checkout
         uses: actions/checkout@v5
       - name: Set image name
@@ -147,7 +135,7 @@ jobs:
       needs.get-config.result == 'success' &&
       (inputs.standalone || inputs.coordinator)
     runs-on: ${{ inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
-    container: ${{ needs.get-config.outputs.container && fromJSON(format('{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache"}', needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container)) || null }}
+    container: ${{ needs.get-config.outputs.container && fromJSON(format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache"}}', needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container)) || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
