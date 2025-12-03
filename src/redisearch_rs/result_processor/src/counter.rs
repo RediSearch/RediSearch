@@ -81,7 +81,7 @@ impl Counter {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::test_utils::{Chain, MockResultProcessor, default_search_result, from_iter};
+    use crate::test_utils::{Chain, UpstreamResultProcessor, default_search_result, from_iter};
     use std::{
         iter,
         sync::atomic::{AtomicUsize, Ordering},
@@ -113,7 +113,7 @@ pub(crate) mod test {
     /// Tests that RPProfile_IncrementCount is incremented one when the pipeline runs.
     #[test]
     fn test_profile_count() {
-        type MockRPProfile = MockResultProcessor<{ ffi::ResultProcessorType_RP_PROFILE }>;
+        type MockRPProfile = UpstreamResultProcessor<{ ffi::ResultProcessorType_RP_PROFILE }>;
 
         let mut chain = Chain::new()
             .append(from_iter(iter::repeat_n(default_search_result(), 3)))
