@@ -757,7 +757,10 @@ def _common_warnings_errors_cluster_test_scenario(env):
   env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc:', 'SCHEMA', 'text', 'TEXT').ok()
   # Create doc
   conn = getConnectionByEnv(env)
-  conn.execute_command('HSET', 'doc:1', 'text', 'hello world')
+  # Insert enough docs s.t each shard will timeout
+  docs_per_shard = 3
+  for i in range(docs_per_shard * env.shardsCount):
+    conn.execute_command('HSET', f'doc:{i}', 'text', f'hello world {i}')
 
 class testWarningsAndErrorsCluster:
   """Test class for warnings and errors metrics in cluster mode with RESP2"""
@@ -1081,7 +1084,6 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
     shard_conn = env.getConnection(shardId)
     _verify_metrics_not_changed(env, shard_conn, before_info_dicts[shardId], tested_in_this_test)
 
-# @skip(cluster=False)
 def test_active_io_threads_stats(env):
   conn = getConnectionByEnv(env)
   # Setup: Create index with some data

@@ -425,11 +425,10 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     // If an error was returned, propagate it
     if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
-      const char *strErr = MRReply_String(nc->current.root, NULL);
-      if (!strErr
-          || strcmp(strErr, "Timeout limit was reached")
-          || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-        QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC, strErr);
+      QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(nc->current.root, NULL));
+      if (errCode == QUERY_EGENERIC ||
+           ((errCode == QUERY_ETIMEDOUT) && nc -> areq -> reqConfig.timeoutPolicy == TimeoutPolicy_Fail)) {
+        QueryError_SetError(nc->areq->qiter.err, errCode, MRReply_String(nc->current.root, NULL));
         return RS_RESULT_ERROR;
       } else {
         MRReply_Free(nc->current.root);
