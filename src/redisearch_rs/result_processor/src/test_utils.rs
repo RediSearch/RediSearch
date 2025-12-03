@@ -13,22 +13,24 @@ use std::{
     ptr::{self, NonNull},
 };
 
-/// Create a ResultProcessor from an `Iterator` for testing purposes
-pub fn from_iter<I>(i: I) -> IterResultProcessor<I::IntoIter>
-where
-    I: IntoIterator<Item = ffi::SearchResult>,
-{
-    IterResultProcessor {
-        iter: i.into_iter(),
-    }
-}
-
 /// ResultProcessor that yields items from an inner `Iterator`
-pub struct IterResultProcessor<I> {
+pub struct IteratorResultProcessor<I> {
     iter: I,
 }
 
-impl<I> ResultProcessor for IterResultProcessor<I>
+impl<I> IteratorResultProcessor<I> {
+    /// Create a ResultProcessor from an `Iterator`
+    pub fn from_iter(i: I) -> IteratorResultProcessor<I::IntoIter>
+    where
+        I: IntoIterator<Item = ffi::SearchResult>,
+    {
+        IteratorResultProcessor {
+            iter: i.into_iter(),
+        }
+    }
+}
+
+impl<I> ResultProcessor for IteratorResultProcessor<I>
 where
     I: Iterator<Item = ffi::SearchResult>,
 {
