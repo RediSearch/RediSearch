@@ -1653,9 +1653,6 @@ DEBUG_COMMAND(IndexerSleepBeforeYieldMicros) {
  * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_RP_RESUME
  */
 DEBUG_COMMAND(setPauseRPResume) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1673,9 +1670,6 @@ DEBUG_COMMAND(setPauseRPResume) {
  * FT.DEBUG QUERY_CONTROLLER GET_IS_RP_PAUSED
  */
 DEBUG_COMMAND(getIsRPPaused) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1687,9 +1681,6 @@ DEBUG_COMMAND(getIsRPPaused) {
  * FT.DEBUG QUERY_CONTROLLER PRINT_RP_STREAM
  */
 DEBUG_COMMAND(printRPStream) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1725,9 +1716,6 @@ DEBUG_COMMAND(printRPStream) {
  * FT.DEBUG QUERY_CONTROLLER <command> [options]
  */
 DEBUG_COMMAND(queryController) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }

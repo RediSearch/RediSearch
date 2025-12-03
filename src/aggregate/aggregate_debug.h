@@ -218,22 +218,7 @@
  *     reply, even if all replies are empty.
  *   - To prevent similar issues, when `N == 0`, a real timeout is enforced at the coordinator
  *     level—large enough to allow shard timeouts to occur first.
- *
- * // TODO !!!!!
- * !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
- * STILL RELEVANT???
- *   NOTE: `FT.AGGREGATE TIMEOUT_AFTER_N 0 INTERNAL_ONLY` **without** `WITHCURSOR` is not allowed.
- *   It has no practical use and can lead to an infinite loop:
- *    - `N == 0` forces shards to return empty results instead of issuing a timeout.
- *    - `INTERNAL_ONLY` prevents the coordinator from enforcing its own timeout.
- *    - Since shard responses are empty but **not EOF**, the coordinator keeps requesting more
- *      results indefinitely.
- *    - This created an **infinite loop**, where the coordinator waited for non-empty results that
- *      would never arrive.
- *    **In production, this infinite loop does not occur** because shards will eventually return EOF
- *    once they have finished iterating all documents in the dataset.
  */
-
 
 typedef struct {
   RedisModuleString **debug_argv;

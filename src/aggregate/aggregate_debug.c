@@ -165,12 +165,6 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     return REDISMODULE_OK;
   }
 
-  // Verify internal_only is not used without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N
-  if (internal_only) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N");
-    return REDISMODULE_ERR;
-  }
-
   return REDISMODULE_OK;
 }
 
