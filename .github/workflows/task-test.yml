@@ -73,6 +73,18 @@ jobs:
       image: ${{ steps.meta.outputs.image }}
       succeeded: ${{ steps.mark-success.outputs.succeeded }}
     steps:
+      - name: Free up disk space
+        # Clean up large directories on GitHub runners to make room for the build
+        run: |
+          echo "Before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
       - name: Checkout
         uses: actions/checkout@v5
       - name: Set image name
@@ -120,6 +132,12 @@ jobs:
           tags: ${{ steps.meta.outputs.image }}
           cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max,compression=zstd
           cache-from: type=registry,ref=${{ steps.meta.outputs.cache }}
+      - name: Check disk space after build
+        run: |
+          echo "Disk space after build:"
+          df -h
+          echo "Total Repo Size:"
+          du -sh . 2>/dev/null || echo "Failed to get repo size"
       # This step ONLY runs if all previous steps succeeded
       - name: Mark success
         id: mark-success
