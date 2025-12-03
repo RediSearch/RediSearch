@@ -41,7 +41,7 @@ pub unsafe extern "C" fn SearchResult_Override(
     // Safety: ensured by caller (1.)
     let dst = unsafe { dst.unwrap().as_mut() };
 
-    // Safety: ensured by caller (2.,3.)
+    // Safety: ensured by caller (2., 3.)
     let _ = mem::replace(dst, unsafe { src.unwrap().read() });
 }
 
@@ -72,7 +72,7 @@ pub unsafe extern "C" fn SearchResult_Clear(res: Option<NonNull<SearchResult>>) 
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SearchResult_Destroy(res: Option<NonNull<SearchResult>>) {
-    // Safety: ensured by caller (1.,2.)
+    // Safety: ensured by caller (1., 2.)
     unsafe { res.unwrap().drop_in_place() };
 }
 
@@ -193,7 +193,7 @@ pub const unsafe extern "C" fn SearchResult_SetScoreExplain(
     // Safety: ensured by caller (1.)
     let res = unsafe { res.unwrap().as_mut() };
 
-    // Safety: ensured by caller (2.,3.)
+    // Safety: ensured by caller (2., 3.)
     unsafe {
         res.set_score_explain(score_explain);
     }
@@ -234,7 +234,7 @@ pub unsafe extern "C" fn SearchResult_SetDocumentMetadata(
     let res = unsafe { res.unwrap().as_mut() };
 
     let document_metadata = NonNull::new(document_metadata.cast_mut()).map(|ptr| {
-        // Safety: ensured by caller (2.,3.)
+        // Safety: ensured by caller (2., 3.)
         unsafe { DocumentMetadata::from_raw(ptr) }
     });
 
@@ -290,7 +290,7 @@ pub const unsafe extern "C" fn SearchResult_SetIndexResult(
     // Safety: ensured by caller (1.)
     let res = unsafe { res.unwrap().as_mut() };
 
-    // Safety: ensured by caller (2.,3.)
+    // Safety: ensured by caller (2., 3.)
     let index_result = unsafe { index_result.as_ref() };
 
     res.set_index_result(index_result);
@@ -414,7 +414,7 @@ pub unsafe extern "C" fn SearchResult_AllocateMove(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SearchResult_DeallocateDestroy(res: Option<NonNull<SearchResult>>) {
-    // Safety: ensured by caller (1.,2.)
+    // Safety: ensured by caller (1., 2.)
     let res = unsafe { Box::from_raw(res.unwrap().as_ptr()) };
     drop(res);
 }

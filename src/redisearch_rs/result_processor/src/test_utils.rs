@@ -74,7 +74,7 @@ impl ResultProcessor for ResultRP {
     }
 }
 
-/// A mock result processor of a fixed type, that just calls it's upstream's `next`.
+/// A result processor of a fixed type, that just calls its upstream's `next`.
 pub struct MockResultProcessor<const TYPE: ffi::ResultProcessorType>;
 
 impl<const RP_TYPE: ffi::ResultProcessorType> MockResultProcessor<RP_TYPE> {
@@ -95,7 +95,7 @@ impl<const RP_TYPE: ffi::ResultProcessorType> ResultProcessor for MockResultProc
     }
 }
 
-/// A mock implementation of the "result processor chain" part of the `QueryIterator`
+/// An implementation of the "result processor chain" part of the `QueryIterator`
 ///
 /// It acts as an owning collection of linked result processors.
 pub struct Chain {
