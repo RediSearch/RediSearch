@@ -397,7 +397,9 @@ jobs:
           # Checkout the REF
           git fetch origin ${{ inputs.get-redis }}
           git checkout ${{ inputs.get-redis }}
-
+      - name: Fail fast
+        continue-on-error: false
+        run: exit 1
       - name: Build Redis
         working-directory: redis
         run:  ${{ steps.mode.outputs.mode }} make install
@@ -471,6 +473,17 @@ jobs:
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
 
+      - name: Debug - Print test outcomes
+        if: always()
+        run: |
+          echo "=== Test Step Outcomes ==="
+          echo "rust_unit_tests.outcome: ${{ steps.rust_unit_tests.outcome }}"
+          echo "c_unit_tests.outcome: ${{ steps.c_unit_tests.outcome }}"
+          echo "standalone_tests.outcome: ${{ steps.standalone_tests.outcome }}"
+          echo "coordinator_tests.outcome: ${{ steps.coordinator_tests.outcome }}"
+          echo "Condition result: ${{ steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure' }}"
+          echo "=========================="
+
       - name: Check test logs folder size
         if: always()
         run: |
@@ -513,7 +526,7 @@ jobs:
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'true' &&
-          (steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
+          (failure() || steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -528,17 +541,20 @@ jobs:
       - name: Upload Artifacts (node20 not supported) (temporarily disabled)
         if: >
           steps.node20.outputs.supported == 'false' &&
-          (steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
+          (failure() || steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
         run: echo "Currently not available..."
 
       - name: Fail flow if tests failed
-        if: steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
+        if: always()
         run: |
           echo "Rust Unit Tests: ${{ steps.rust_unit_tests.outcome }}"
           echo "C Unit Tests: ${{ steps.c_unit_tests.outcome }}"
           echo "Standalone: ${{ steps.standalone_tests.outcome }}"
           echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
-          exit 1
+          if [[ "${{ steps.rust_unit_tests.outcome }}" == "failure" || "${{ steps.c_unit_tests.outcome }}" == "failure" || "${{ steps.standalone_tests.outcome }}" == "failure" || "${{ steps.coordinator_tests.outcome }}" == "failure" ]]; then
+            exit 1
+          fi
+          exit 0
 
       - name: Upload flow coverage
         if: inputs.coverage

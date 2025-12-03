@@ -27,3 +27,6 @@ def testDocTable():
         env.assertEqual(res[0], 9)
 
     env.expect('ft.drop', 'idx').ok()
+
+def test_failure_two(env):
+   env.assertTrue(False)

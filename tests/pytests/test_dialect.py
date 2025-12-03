@@ -272,7 +272,7 @@ def test_v1_vs_v2(env):
     expected = ['-inf', '']
     env.assertEqual(res, expected)
 
-    # terms wich contain numbers are expanded
+    # terms which contain numbers are expanded
     expected = ['UNION {', '  cherry1', '  +cherry1(expanded)', '}', '']
     res = env.cmd('FT.EXPLAINCLI', 'idx', 'cherry1', 'DIALECT', 1)
     env.assertEqual(res, expected)
@@ -322,6 +322,9 @@ def check_info_results(env, command, idx1_expect, idx2_expect, should_succeed):
                                           'dialect_3', idx2_expect[2],
                                           'dialect_4', idx2_expect[3]])
   check_info_module_results(env, [x or y for x, y in zip(idx1_expect, idx2_expect)])
+
+def test_failure_one(env):
+   env.assertTrue(False)
 
 def test_dialect_info(env):
   conn = getConnectionByEnv(env)

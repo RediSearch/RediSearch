@@ -82,6 +82,25 @@ on:
         default: coordinator,standalone,rejson
 
 jobs:
+  print-inputs:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Inputs: ${{ inputs }}"
+          echo "Options: ${{ inputs.options }}"
+          echo "Job Test Config: ${{ inputs.job-test-config }}"
+          echo "Redis Ref: ${{ inputs.redis-ref }}"
+          echo "ReJSON Branch: ${{ inputs.rejson-branch }}"
+          echo "Platform: ${{ inputs.platform }}"
+          echo "Architecture: ${{ inputs.architecture }}"
+          echo "Options: ${{ inputs.options }}"
+          echo "fail-fast: ${{ contains(inputs.options, 'fail-fast') }}"
+          echo "coverage: ${{ contains(inputs.options, 'coverage') }}"
+          echo "sanitize: ${{ contains(inputs.options, 'sanitize') }}"
+          echo "coordinator: ${{ contains(inputs.options, 'coordinator') }}"
+          echo "standalone: ${{ contains(inputs.options, 'standalone') }}"
+          echo "rejson: ${{ contains(inputs.options, 'rejson') }}"
+
   generate-matrix:
     uses: ./.github/workflows/generate-matrix.yml
     with:
