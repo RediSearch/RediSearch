@@ -271,7 +271,7 @@ mod not_miri {
                 .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(FIELD_INDEX));
 
             let reader = self.test.ii.reader();
-            let mut it = Numeric::with_context(
+            let mut it = Numeric::new(
                 reader,
                 self.test.context(),
                 FIELD_INDEX,
@@ -296,7 +296,7 @@ mod not_miri {
                 .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(FIELD_INDEX));
 
             let reader = self.test.ii.reader();
-            let mut it = Numeric::with_context(
+            let mut it = Numeric::new(
                 reader,
                 self.test.context(),
                 FIELD_INDEX,

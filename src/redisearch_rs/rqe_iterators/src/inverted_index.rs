@@ -444,7 +444,7 @@ where
     /// or [`inverted_index::FilterGeoReader`].
     ///
     /// This constructor should only used in tests, production code should use
-    /// [`Numeric::with_context`] instead.
+    /// [`Numeric::new`] instead.
     #[doc(hidden)]
     pub fn new_simple(reader: R) -> Self {
         let result = RSIndexResult::numeric(0.0);
@@ -467,7 +467,7 @@ where
     /// 1. `context` is a valid pointer to a `RedisSearchCtx`.
     /// 2. `context.spec` is a valid pointer to an `IndexSpec`.
     /// 3. 1 and 2 must stay valid during the iterator's lifetime.
-    pub fn with_context(
+    pub fn new(
         reader: R,
         context: NonNull<RedisSearchCtx>,
         index: t_fieldIndex,
@@ -559,7 +559,7 @@ where
     /// a [`inverted_index::FilterMaskReader`].
     ///
     /// This constructor should only used in tests, production code should use
-    /// [`Term::with_context`] instead.
+    /// [`Term::new`] instead.
     #[doc(hidden)]
     pub fn new_simple(reader: R) -> Self {
         let result = RSIndexResult::term();
@@ -581,7 +581,7 @@ where
     /// 1. `context` is a valid pointer to a `RedisSearchCtx`.
     /// 2. `context.spec` is a valid pointer to an `IndexSpec`.
     /// 3. 1 and 2 must stay valid during the iterator's lifetime.
-    pub fn with_context(
+    pub fn new(
         reader: R,
         context: NonNull<RedisSearchCtx>,
         mask: t_fieldMask,

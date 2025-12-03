@@ -237,7 +237,7 @@ mod not_miri {
                 .mark_index_expired(even_ids, FieldMaskOrIndex::Mask(FIELD_MASK));
 
             let reader = self.test.ii.reader();
-            let mut it = Term::with_context(
+            let mut it = Term::new(
                 reader,
                 self.test.context(),
                 FIELD_MASK,
@@ -262,7 +262,7 @@ mod not_miri {
                 .mark_index_expired(even_ids, FieldMaskOrIndex::Mask(FIELD_MASK));
 
             let reader = self.test.ii.reader();
-            let mut it = Term::with_context(
+            let mut it = Term::new(
                 reader,
                 self.test.context(),
                 FIELD_MASK,
