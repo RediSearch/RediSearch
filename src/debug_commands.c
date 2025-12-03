@@ -1045,10 +1045,10 @@ extern int (*vecsimTimeoutCallback)(TimeoutCtx *ctx);
  * disable - will remove the timeout callback and restore normal behavior
  */
 DEBUG_COMMAND(VecSimMockTimeout) {
-  if (argc != 3) {
+  if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
-  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+  const char *op = RedisModule_StringPtrLen(argv[0], NULL);
   if (!strcmp("enable", op)) {
     vecsimTimeoutCallback = TimedOut_Always;
     VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_Always);
