@@ -11,6 +11,10 @@
 
 #include <stdlib.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef void (*MRQueueCallback)(void *);
 
 #ifndef RQ_C__
@@ -27,4 +31,8 @@ void RQ_Push_Topology(MRQueueCallback cb, struct MRClusterTopology *topo);
 
 void RQ_Debug_ClearPendingTopo();
 void RQ_Debug_SetLoopReady();
+
+#ifdef __cplusplus
+}
+#endif
 #endif // RQ_C__

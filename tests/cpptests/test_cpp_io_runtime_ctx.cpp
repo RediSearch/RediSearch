@@ -13,11 +13,9 @@
 #include <chrono>
 #include <thread>
 #include <atomic>
-
-extern "C" {
 #include "coord/rmr/rq.h"
+#include "concurrent_ctx.h"
 #include "info/global_stats.h"
-}
 
 class ActiveIoThreadsTest : public ::testing::Test {
 protected:
@@ -52,16 +50,19 @@ TEST_F(ActiveIoThreadsTest, TestMetricUpdateDuringCallback) {
     }
   };
 
+  // Create ConcurrentSearch required to call GlobalStats_GetMultiThreadingStats
+  ConcurrentSearch_CreatePool(1);
+
   // Phase 1: Verify metric starts at 0
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
   ASSERT_EQ(0, stats.active_io_threads)
     << "active_io_threads should start at 0";
 
-  // Phase 2: Schedule callback and verify metric increases
-  RQ_Push(queue, slowCallback, &flags);
-
   // Mark the IO runtime as ready to process callbacks (bypass topology validation timeout)
   RQ_Debug_SetLoopReady();
+
+  // Phase 2: Schedule callback and verify metric increases
+  RQ_Push(queue, slowCallback, &flags);
 
   // Wait for callback to start
   bool started = RS::WaitForCondition([&]() { return flags.started.load(); });
@@ -78,4 +79,7 @@ TEST_F(ActiveIoThreadsTest, TestMetricUpdateDuringCallback) {
   bool returned_to_zero = RS::WaitForCondition(
     [&]() { return GlobalStats_GetMultiThreadingStats().active_io_threads == 0; });
   ASSERT_TRUE(returned_to_zero) << "Timeout waiting for metric to return to 0";
+
+  // Free ConcurrentSearch resources
+  ConcurrentSearch_ThreadPoolDestroy();
 }
