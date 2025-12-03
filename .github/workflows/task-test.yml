@@ -397,7 +397,7 @@ jobs:
           # Checkout the REF
           git fetch origin ${{ inputs.get-redis }}
           git checkout ${{ inputs.get-redis }}
-      - name: Fail fase
+      - name: Fail fast
         continue-on-error: false
         run: exit 1
       - name: Build Redis
