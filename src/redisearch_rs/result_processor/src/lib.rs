@@ -21,7 +21,7 @@ pub mod counter;
 #[cfg(test)]
 mod test_utils;
 
-use libc::{c_int, timespec};
+use libc::c_int;
 use pin_project::pin_project;
 #[cfg(debug_assertions)]
 use std::any::{TypeId, type_name};
@@ -224,7 +224,7 @@ struct Header {
     upstream: *mut Header,
     /// Type of result processor
     ty: ffi::ResultProcessorType,
-    gil_time: timespec,
+    rp_gil_time: ffi::rs_wall_clock_ns_t,
     /// "VTable" function. Pulls [`ffi::SearchResult`]s out of this result processor.
     ///
     /// Populates the result pointed to by `res`. The existing data of `res` is
@@ -275,10 +275,7 @@ where
                 parent: ptr::null_mut(), // will be set by `QITR_PushRP` when inserting this result processor into the chain
                 upstream: ptr::null_mut(), // will be set by `QITR_PushRP` when inserting this result processor into the chain
                 ty: P::TYPE,
-                gil_time: timespec {
-                    tv_sec: 0,
-                    tv_nsec: 0,
-                },
+                rp_gil_time: 0,
                 next: Some(Self::result_processor_next),
                 free: Some(Self::result_processor_free),
                 #[cfg(debug_assertions)]
@@ -451,8 +448,8 @@ pub(crate) mod test {
                 == ::std::mem::offset_of!(ffi::ResultProcessor, type_)
         );
         assert!(
-            ::std::mem::offset_of!(Header, gil_time)
-                == ::std::mem::offset_of!(ffi::ResultProcessor, GILTime)
+            ::std::mem::offset_of!(Header, rp_gil_time)
+                == ::std::mem::offset_of!(ffi::ResultProcessor, rpGILTime)
         );
         assert!(
             ::std::mem::offset_of!(Header, next)
@@ -536,10 +533,7 @@ pub(crate) mod test {
                     parent: ptr::null_mut(),
                     upstream: ptr::null_mut(),
                     ty: ffi::ResultProcessorType_RP_MAX,
-                    gil_time: timespec {
-                        tv_sec: 0,
-                        tv_nsec: 0,
-                    },
+                    rp_gil_time: 0,
                     next: Some(result_processor_next),
                     free: Some(result_processor_free),
 
