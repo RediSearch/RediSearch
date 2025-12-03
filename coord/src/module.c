@@ -2148,11 +2148,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1));
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1));
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1));
-  if (clusterConfig.type == ClusterType_RedisLabs) {
-    RM_TRY(RedisModule_CreateCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 3, 1, -3));
-  } else {
-    RM_TRY(RedisModule_CreateCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, -1));
-  }
   {
     int firstkey, lastkey, keystep;
     if (clusterConfig.type == ClusterType_RedisLabs) {
@@ -2160,11 +2155,11 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else {
       firstkey = 0; lastkey = 0; keystep = -1;
     }
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", NULL, "readonly", firstkey, lastkey, keystep, "read", false))
+    RM_TRY(RedisModule_CreateCommand(ctx, "FT.CURSOR", NULL, "readonly", firstkey, lastkey, keystep));
     RedisModuleCommand *cursorCmd = RedisModule_GetCommand(ctx, "FT.CURSOR");
-    RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "READ", SafeCmd(CursorReadCommand), "readonly", firstkey, lastkey, keystep))
-    RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "DEL", SafeCmd(CursorDelCommand), "readonly", firstkey, lastkey, keystep))
-    RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "GC", SafeCmd(CursorGCCommand), "readonly", firstkey, lastkey, keystep))
+    RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "READ", SafeCmd(CursorReadCommand), "readonly", firstkey, lastkey, keystep));
+    RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "DEL", SafeCmd(CursorDelCommand), "readonly", firstkey, lastkey, keystep));
+    RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "GC", SafeCmd(CursorGCCommand), "readonly", firstkey, lastkey, keystep));
   }
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1));
   // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
