@@ -24,7 +24,6 @@ where
 }
 
 /// ResultProcessor that yields items from an inner `Iterator`
-#[derive(Debug)]
 pub struct IterResultProcessor<I> {
     iter: I,
 }
