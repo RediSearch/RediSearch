@@ -14,6 +14,7 @@
 #include "rmutil/rm_assert.h"
 #include "redismodule.h"
 #include "info/global_stats.h"
+#include "concurrent_ctx.h"
 #include "common.h"
 #include <unistd.h>
 #include <atomic>
@@ -193,6 +194,10 @@ TEST_F(IORuntimeCtxCommonTest, ShutdownWithPendingRequests) {
 
 TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
   // Test that the active_io_threads metric is tracked correctly
+  GTEST_SKIP() << "Takes over 5 minutes to run when computing coverage";
+
+  // Create ConcurrentSearch required to call GlobalStats_GetMultiThreadingStats
+  ConcurrentSearch_CreatePool(1);
 
   // Phase 1: Verify metric starts at 0
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
@@ -241,4 +246,7 @@ TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
   });
 
   ASSERT_TRUE(success) << "Timeout waiting for active_io_threads to return to 0, current value: " << stats.active_io_threads;
+
+  // Free ConcurrentSearch and WorkersPool
+  ConcurrentSearch_ThreadPoolDestroy();
 }

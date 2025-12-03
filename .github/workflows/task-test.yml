@@ -118,7 +118,7 @@ jobs:
             BASE_IMAGE=${{ needs.get-config.outputs.container || 'ubuntu:24.04' }}
           file: Dockerfile
           tags: ${{ steps.meta.outputs.image }}
-          cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max
+          cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max,compression=zstd
           cache-from: type=registry,ref=${{ steps.meta.outputs.cache }}
       # This step ONLY runs if all previous steps succeeded
       - name: Mark success
@@ -135,11 +135,45 @@ jobs:
       needs.get-config.result == 'success' &&
       (inputs.standalone || inputs.coordinator)
     runs-on: ${{ inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
-    container: ${{ needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container || null }}
+    container: ${{ needs.get-config.outputs.container && fromJSON(format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache"}}', needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container)) || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+      - name: Debug - Check build-image output
+        if: always()
+        run: |
+          echo "build-image.result: ${{ needs.build-image.result }}"
+          echo "build-image.outputs.succeeded: ${{ needs.build-image.outputs.succeeded }}"
+          echo "build-image.outputs.image: ${{ needs.build-image.outputs.image }}"
+      - name: Free up disk space (container)
+        # For container jobs - delete mounted host directories
+        if: ${{ needs.get-config.outputs.container }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          rm -rf /host_usr/dotnet/* 2>/dev/null || true
+          rm -rf /host_usr/android/* 2>/dev/null || true
+          rm -rf /host_opt/ghc/* 2>/dev/null || true
+          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+      - name: Free up disk space (non-container)
+        # For non-container jobs - delete directly with sudo
+        # Skip macOS - it doesn't have these directories
+        if: ${{ !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/share/boost || true
+          docker system prune -af 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+
       - name: Fix HOME Directory
         if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
         shell: bash
@@ -212,13 +246,9 @@ jobs:
             fi
           done
           echo "supported=true" >> $GITHUB_OUTPUT
-      - name: Free up disk space
+      - name: Check disk space
         run: |
-          df -h
-          ${{ steps.mode.outputs.mode }} rm -rf /usr/share/dotnet || true
-          ${{ steps.mode.outputs.mode }} rm -rf /usr/local/lib/android || true
-          ${{ steps.mode.outputs.mode }} rm -rf /opt/ghc || true
-          ${{ steps.mode.outputs.mode }} rm -rf /opt/hostedtoolcache/CodeQL || true
+          echo "Disk space available:"
           df -h
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
@@ -309,6 +339,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: steps.node20.outputs.supported == 'true'
         with:
+          prefix-key: "v1-rust"
+          key: ${{ inputs.platform }}-${{ inputs.architecture }}
           # The cargo workspaces and target directory configuration.
           # These entries are separated by newlines and have the form
           # `$workspace -> $target`. The `$target` part is treated as a directory
@@ -409,17 +441,33 @@ jobs:
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
-      - name: Unit tests
+      - name: Check disk space after build
+        run: |
+          echo "Disk space after build:"
+          df -h
+          echo "Total Repo Size:"
+          du -sh . 2>/dev/null || echo "Failed to get repo size"
+      - name: "C/C++ tests"
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
-        id: unit_tests
+        id: c_unit_tests
         continue-on-error: true
         env:
           SAN: ${{ inputs.san }}
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
-        run: make unit-tests rust-tests
-
+        run: make unit-tests
+      - name: Rust tests
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: rust_unit_tests
+        continue-on-error: true
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          ENABLE_ASSERT: 1
+        run: make rust-tests
+        
       - name: Check test logs folder size (before)
         if: always()
         run: |
@@ -510,7 +558,7 @@ jobs:
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'true' &&
-          (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
+          (steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -525,13 +573,14 @@ jobs:
       - name: Upload Artifacts (node20 not supported) (temporarily disabled)
         if: >
           steps.node20.outputs.supported == 'false' &&
-          (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
+          (steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
         run: echo "Currently not available..."
 
       - name: Fail flow if tests failed
-        if: steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
+        if: steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
         run: |
-          echo "Unit Tests: ${{ steps.unit_tests.outcome }}"
+          echo "Rust Unit Tests: ${{ steps.rust_unit_tests.outcome }}"
+          echo "C Unit Tests: ${{ steps.c_unit_tests.outcome }}"
           echo "Standalone: ${{ steps.standalone_tests.outcome }}"
           echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
           exit 1
