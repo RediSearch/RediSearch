@@ -629,7 +629,9 @@ run_rust_tests() {
     RUST_TEST_OPTIONS="--profile=$RUST_PROFILE"
   elif [[ "$SAN" == "address" ]]; then
     # --build-std is a cargo flag (not rustc), so set it separately
-    RUST_TEST_COMMAND="-Zbuild-std nextest run"
+    # The doc tests are disabled under ASAN to avoid issues with linking to the sanitizer runtime
+    # in doc tests.
+    RUST_TEST_COMMAND="-Zbuild-std nextest run --tests"
     RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
 
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
