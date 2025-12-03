@@ -32,6 +32,9 @@ size_t workersThreadPool_LowPriorityPendingJobsCount(void);
 // Return the number of high priority jobs waiting to be executed.
 size_t workersThreadPool_HighPriorityPendingJobsCount(void);
 
+// Return the number of admin priority jobs waiting to be executed.
+size_t workersThreadPool_AdminPriorityPendingJobsCount(void);
+
 // return n_threads value.
 size_t workersThreadPool_NumThreads(void);
 
