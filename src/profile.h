@@ -16,7 +16,12 @@
 #define printProfileTime(vtime) RedisModule_ReplyKV_Double(reply, "Time", (vtime))
 #define printProfileIteratorCounter(vcount) RedisModule_ReplyKV_LongLong(reply, "Number of reading operations", (vcount))
 #define printProfileRPCounter(vcount) RedisModule_ReplyKV_LongLong(reply, "Results processed", (vcount))
-#define printProfileGILTime(vtime) RedisModule_ReplyKV_Double(reply, "GIL-Time", (rs_timer_ms(&(vtime))))
+// For now we only print the total counter in order to avoid breaking the response format of profile
+// If we get a chance to break it then consider splitting the count into separate fields
+#define printProfileCounters(counters) printProfileIteratorCounter(counters->read + counters->skipTo - counters->eof)
+
+#define printProfileGILTime(vtime) RedisModule_ReplyKV_Double(reply, "GIL-Time", (vtime))
+
 #define printProfileNumBatches(hybrid_reader) \
   RedisModule_ReplyKV_LongLong(reply, "Batches number", (hybrid_reader)->numIterations)
 #define printProfileMaxBatchSize(hybrid_reader) \
