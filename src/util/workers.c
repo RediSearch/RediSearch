@@ -111,6 +111,18 @@ size_t workersThreadPool_WorkingThreadCount(void) {
   return redisearch_thpool_num_jobs_in_progress(_workers_thpool);
 }
 
+size_t workersThreadPool_LowPriorityPendingJobsCount(void) {
+  RS_ASSERT(_workers_thpool != NULL);
+
+  return redisearch_thpool_low_priority_pending_jobs(_workers_thpool);
+}
+
+size_t workersThreadPool_HighPriorityPendingJobsCount(void) {
+  RS_ASSERT(_workers_thpool != NULL);
+
+  return redisearch_thpool_high_priority_pending_jobs(_workers_thpool);
+}
+
 // return n_threads value.
 size_t workersThreadPool_NumThreads(void) {
   RS_ASSERT(_workers_thpool);
@@ -202,8 +214,4 @@ void workersThreadPool_wait() {
     return;
   }
   redisearch_thpool_wait(_workers_thpool);
-}
-
-bool workersThreadPool_isCreated() {
-  return _workers_thpool != NULL;
 }

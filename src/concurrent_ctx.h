@@ -15,6 +15,10 @@
 #include "thpool/thpool.h"
 #include "util/references.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Concurrent Search Execution Context.
  */
 
@@ -110,6 +114,9 @@ void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx);
 
 void ConcurrentSearchCtx_ReopenKeys(ConcurrentSearchCtx *ctx);
 
+/* return number of currently working threads */
+size_t ConcurrentSearchPool_WorkingThreadCount();
+
 struct ConcurrentCmdCtx;
 typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
                                      struct ConcurrentCmdCtx *);
@@ -140,5 +147,7 @@ int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handl
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           WeakRef spec_ref);
-
+#ifdef __cplusplus
+}
 #endif
+#endif // RS_CONCERRNT_CTX_
