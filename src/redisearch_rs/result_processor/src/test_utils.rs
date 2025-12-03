@@ -46,11 +46,11 @@ where
 }
 
 /// A result processor that returns the provided result.
-pub struct ResultRP {
+pub struct ResultResultProcessor {
     res: Option<Result<Option<()>, Error>>,
 }
 
-impl ResultRP {
+impl ResultResultProcessor {
     pub fn new_err(error: Error) -> Self {
         Self {
             res: Some(Err(error)),
@@ -68,7 +68,7 @@ impl ResultRP {
     }
 }
 
-impl ResultProcessor for ResultRP {
+impl ResultProcessor for ResultResultProcessor {
     const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
 
     fn next(&mut self, _cx: Context, _res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
