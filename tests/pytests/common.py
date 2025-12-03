@@ -1054,16 +1054,24 @@ def call_and_store(fn, args, out_list):
     """
     out_list.append(fn(*args))
 
+def shard_change_timeout_policy(env, shardId, policy):
+    res = env.getConnection(shardId).execute_command(config_cmd(), 'SET', 'ON_TIMEOUT', policy)
+    env.assertEqual(res, 'OK')
+
+def allShards_change_timeout_policy(env, policy):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_change_timeout_policy(env, shardId, policy)
+
 def launch_cmds_in_bg_with_exception_check(env, command, num_triggers, exception_timeout=1):
     """
     Launch the same Redis command multiple times in background threads with exception monitoring.
-    
+
     Args:
         env: Redis test environment for executing commands.
         command: A list containing the Redis command to execute (e.g., ['FT.SEARCH', 'idx', 'query']).
         num_triggers: Number of background threads to spawn, each executing the same command.
         exception_timeout: Seconds to wait for exception detection (default: 1).
-    
+
     Returns:
         list[Thread]: Started thread objects if no exceptions occur, None if any thread fails.
     """

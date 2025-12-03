@@ -131,3 +131,44 @@ const char *QueryError_GetDisplayableError(const QueryError *status, bool obfusc
 QueryErrorCode QueryError_GetCode(const QueryError *status) {
   return status->code;
 }
+
+QueryErrorCode QueryError_GetCodeFromMessage(const char *errorMessage) {
+  if (!errorMessage) {
+    return QUERY_EGENERIC;
+  }
+
+  if (!strcmp(errorMessage, QueryError_Strerror(QUERY_ETIMEDOUT))) {
+    return QUERY_ETIMEDOUT;
+  }
+
+  return QUERY_EGENERIC;
+}
+
+const char *QueryWarningCode_Strerror(QueryWarningCode code) {
+  if (code == QUERY_WARNING_CODE_OK) {
+    return "Success (not an warning)";
+  }
+#define X(N, M)    \
+  if (code == N) { \
+    return M;      \
+  }
+  QUERY_XWARNS(X)
+#undef X
+  return "Unknown warning code";
+}
+
+QueryWarningCode QueryWarningCode_GetCodeFromMessage(const char *message) {
+  if (!message) {
+    return QUERY_WARNING_CODE_OK;
+  }
+
+  if (!strcmp(message, QueryWarningCode_Strerror(QUERY_WARNING_CODE_TIMED_OUT))) {
+    return QUERY_WARNING_CODE_TIMED_OUT;
+  }
+
+  if (!strcmp(message, QueryWarningCode_Strerror(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS))) {
+    return QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS;
+  }
+
+  return QUERY_WARNING_CODE_OK;
+}
