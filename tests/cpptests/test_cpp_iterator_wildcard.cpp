@@ -16,10 +16,11 @@ class WildcardIteratorTest : public ::testing::Test {
 protected:
   QueryIterator *iterator_base;
   const t_docId maxDocId = 100;
+  const size_t numDocs = 50;
   const double weight = 2.0;
 
   void SetUp() override {
-    iterator_base = NewWildcardIterator_NonOptimized(maxDocId, weight);
+    iterator_base = NewWildcardIterator_NonOptimized(maxDocId, numDocs, weight);
   }
 
   void TearDown() override {
@@ -36,6 +37,7 @@ TEST_F(WildcardIteratorTest, InitialState) {
 
   // Test initial state
   ASSERT_EQ(wi->topId, maxDocId);
+  ASSERT_EQ(wi->numDocs, numDocs);
   ASSERT_EQ(wi->currentId, 0);
   ASSERT_FALSE(iterator_base->atEOF);
   ASSERT_EQ(iterator_base->lastDocId, 0);
@@ -43,7 +45,7 @@ TEST_F(WildcardIteratorTest, InitialState) {
   ASSERT_EQ(iterator_base->current->weight, weight);
 
   // Test NumEstimated returns the correct number of docs
-  ASSERT_EQ(iterator_base->NumEstimated(iterator_base), maxDocId);
+  ASSERT_EQ(iterator_base->NumEstimated(iterator_base), numDocs);
 }
 
 TEST_F(WildcardIteratorTest, Read) {
@@ -133,7 +135,7 @@ TEST_F(WildcardIteratorTest, ResultProperties) {
 
 TEST_F(WildcardIteratorTest, ZeroDocuments) {
   // Create a wildcard iterator with zero documents
-  QueryIterator *emptyIterator = NewWildcardIterator_NonOptimized(0, weight);
+  QueryIterator *emptyIterator = NewWildcardIterator_NonOptimized(0, 0, weight);
 
   // Should immediately return EOF on read
   ASSERT_EQ(emptyIterator->Read(emptyIterator), ITERATOR_EOF);

@@ -22,6 +22,11 @@ typedef struct InvIndIterator {
 
   IndexReader *reader;
 
+  // Whether to skip multi values from the same doc
+  // Stores the original requested value, even if skipping multi values is not needed (based on other information),
+  // so that we can re-choose the right implementation of the iterator API implementation
+  bool skipMulti;
+
   // Whether this iterator is result of a wildcard query
   bool isWildcard;
 

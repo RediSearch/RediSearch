@@ -11,7 +11,6 @@
 #include "util/units.h"
 #include "rs_wall_clock.h"
 #include "util/workers.h"
-#include "concurrent_ctx.h"
 
 #define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
 #define INCR(x) INCR_BY(x, 1)
@@ -107,8 +106,6 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   stats.coord_warnings.timeout = READ(RSGlobalStats.totalStats.queries.coord_warnings.timeout);
   stats.shard_warnings.oom = READ(RSGlobalStats.totalStats.queries.shard_warnings.oom);
   stats.coord_warnings.oom = READ(RSGlobalStats.totalStats.queries.coord_warnings.oom);
-  stats.shard_warnings.maxPrefixExpansion = READ(RSGlobalStats.totalStats.queries.shard_warnings.maxPrefixExpansion);
-  stats.coord_warnings.maxPrefixExpansion = READ(RSGlobalStats.totalStats.queries.coord_warnings.maxPrefixExpansion);
   return stats;
 }
 
@@ -162,9 +159,6 @@ void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bo
     case QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD:
       INCR_BY(queries_warnings->oom, toAdd);
       break;
-    case QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS:
-      INCR_BY(queries_warnings->maxPrefixExpansion, toAdd);
-      break;
   }
 }
 
@@ -183,14 +177,7 @@ void GlobalStats_UpdateActiveIoThreads(int toAdd) {
 MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   MultiThreadingStats stats;
   stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
-
-  // Workers stats
-  // We don't use workersThreadPool_getStats here to avoid the overhead of locking the thread pool.
+  RS_ASSERT(workersThreadPool_isCreated()); // In production workers threadpool is created at startup.
   stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
-  stats.workers_low_priority_pending_jobs = workersThreadPool_LowPriorityPendingJobsCount();
-  stats.workers_high_priority_pending_jobs = workersThreadPool_HighPriorityPendingJobsCount();
-
-  // Coordinator stats
-  stats.active_coord_threads = ConcurrentSearchPool_WorkingThreadCount();
   return stats;
 }

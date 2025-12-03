@@ -1518,7 +1518,7 @@ DEBUG_COMMAND(DistSearchCommand_DebugWrapper) {
     return DEBUG_RSSearchCommand(ctx, ++argv, --argc);
   }
 
-  return DistSearchCommandImp(ctx, ++argv, --argc, true);
+  return DistSearchCommand(ctx, argv, argc);
 }
 
 DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
@@ -1536,7 +1536,7 @@ DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
     return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
   }
 
-  return DistAggregateCommandImp(ctx, ++argv, --argc, true);
+  return DistAggregateCommand(ctx, argv, argc);
 }
 
 DEBUG_COMMAND(RSSearchCommandShard) {
@@ -1551,27 +1551,6 @@ DEBUG_COMMAND(RSAggregateCommandShard) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
-}
-
-DEBUG_COMMAND(RSProfileCommandShard) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  return RSProfileCommandImp(ctx, ++argv, --argc, true);
-}
-
-DEBUG_COMMAND(ProfileCommandCommand_DebugWrapper) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-
-  // at least one debug_param should be provided
-  // (1)_FT.DEBUG (2) FT.PROFILE (3) <index> (4) SEARCH | AGGREGATE [LIMITED] (6) QUERY <query> [query_options] (5) debug_params (6)DEBUG_PARAMS_COUNT (7) <debug_params_count>
-  if (argc < 7) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  return ProfileCommandHandlerImp(ctx, ++argv, --argc, true);
 }
 
 DEBUG_COMMAND(HybridCommand_DebugWrapper) {
@@ -2134,8 +2113,6 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"_FT.SEARCH", RSSearchCommandShard}, // internal use only, in SA use FT.SEARCH
                                {"FT.HYBRID", HybridCommand_DebugWrapper},
                                {"_FT.HYBRID", HybridCommand_DebugWrapper}, // internal use only, in SA use FT.HYBRID
-                               {"FT.PROFILE", ProfileCommandCommand_DebugWrapper},
-                               {"_FT.PROFILE", RSProfileCommandShard},
                                /* IMPORTANT NOTE: Every debug command starts with
                                 * checking if redis allows this context to execute
                                 * debug commands by calling `debugCommandsEnabled(ctx)`.

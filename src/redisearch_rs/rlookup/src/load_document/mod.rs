@@ -11,14 +11,13 @@ mod hash;
 
 use std::ptr::NonNull;
 
-use document::DocumentType;
 use redis_module::RedisString;
 use sorting_vector::RSSortingVector;
 use value::{RSValueFFI, RSValueTrait};
 
 use crate::{
     RLookup, RLookupRow,
-    bindings::{RLookupCoerceType, RLookupLoadMode},
+    bindings::{DocumentType, RLookupCoerceType, RLookupLoadMode},
 };
 
 /// Populate the provided `dst_row` by loading a either a redis hash or json key (either a [Redis hash] or [JSON Document]).

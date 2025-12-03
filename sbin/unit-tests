@@ -184,7 +184,7 @@ run_single_test() {
 # Run C unit tests
 #------------------------------------------------------------------------------
 run_c_tests() {
-    print_separator
+    print_separator    
     C_TESTS_DIR="$BINDIR/tests/ctests"
     if [[ ! -d "$C_TESTS_DIR" ]]; then
         echo "C tests directory not found: $C_TESTS_DIR"
@@ -222,10 +222,11 @@ run_cpp_tests() {
     cd $ROOT_DIR/tests/cpptests
     TEST_NAME=rstest setup_sanitizer
 
-    LOG_FILE="${LOGS_DIR}/rstest.log"
-
+    # C++ tests are special because they use Google Test framework
+    # which runs multiple tests in a single binary
     if [[ -z $TEST ]]; then
         # Run all C++ tests
+        LOG_FILE="${LOGS_DIR}/rstest.log"
         if [[ $GDB == 1 ]]; then
             if run_with_gdb "rstest (all C++ tests)" "$CPP_TESTS_DIR/rstest"; then
                 echo "C++ tests: PASS"
@@ -233,25 +234,32 @@ run_cpp_tests() {
                 echo "C++ tests: FAIL"
             fi
         else
-            echo "Running all C++ tests via ctest (log: $LOG_FILE)"
-            { cd "$BINDIR" && ctest --test-dir tests/cpptests --output-on-failure -j $(nproc) > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+            echo "Running all C++ tests (log: $LOG_FILE)"
+            { $CPP_TESTS_DIR/rstest > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+            # Parse and display individual test results
             parse_cpp_test_results "$LOG_FILE"
         fi
     else
         # Run single C++ test if requested
-        LOG_FILE="${LOGS_DIR}/rstest_${TEST}.log"
-        if [[ $GDB == 1 ]]; then
-            run_with_gdb "rstest --gtest_filter=$TEST" "$CPP_TESTS_DIR/rstest" "--gtest_filter=$TEST"
-            test_result=$?
-            if [[ $test_result -eq 0 ]]; then
-                echo "C++ test $TEST: PASS"
+        if [[ -f $CPP_TESTS_DIR/rstest ]]; then
+            LOG_FILE="${LOGS_DIR}/rstest_${TEST}.log"
+            if [[ $GDB == 1 ]]; then
+                run_with_gdb "rstest --gtest_filter=$TEST" "$CPP_TESTS_DIR/rstest" "--gtest_filter=$TEST"
+                test_result=$?
+                # Report GDB test result
+                if [[ $test_result -eq 0 ]]; then
+                    echo "C++ test $TEST: PASS"
+                else
+                    echo "C++ test $TEST: FAIL"
+                fi
             else
-                echo "C++ test $TEST: FAIL"
+                echo "Running C++ test: $TEST (log: $LOG_FILE)"
+                { $CPP_TESTS_DIR/rstest --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+                # Parse and display results
+                parse_cpp_test_results "$LOG_FILE"
             fi
         else
-            echo "Running C++ test: $TEST via ctest (log: $LOG_FILE)"
-            { cd "$BINDIR" && ctest --test-dir tests/cpptests -R "$TEST" --output-on-failure > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-            parse_cpp_test_results "$LOG_FILE"
+            echo "C++ test binary not found: $CPP_TESTS_DIR/rstest"
         fi
     fi
     end_group
@@ -262,60 +270,32 @@ run_cpp_tests() {
 #------------------------------------------------------------------------------
 parse_cpp_test_results() {
     local log_file=$1
+
     echo "Individual test results:"
 
-    # CTest output format: "N/M Test #N: TestName .... Passed/Failed X.XX sec"
-    grep -E "Test\s+#[0-9]+:" "$log_file" | while read -r line; do
-        # Extract test name by removing the prefix and the suffix (dots + status + time)
-        test_name=$(echo "$line" | sed -E 's/^[0-9]+\/[0-9]+ Test +#[0-9]+: //' | sed -E 's/ \.{3,}   (Passed|Failed|Skipped|\**Timeout).*//')
-
-        if [[ $line == *"Passed"* ]]; then
+    # Extract all test results (both passed and failed)
+    grep -E "\[ *OK *\]|\[ *FAILED *\]" "$log_file" | while read -r line; do
+        if [[ $line == *"[       OK ]"* ]]; then
+            # Extract test name from passed test
+            test_name=$(echo "$line" | sed -e 's/\[ *OK *\] \(.*\) (.* ms)/\1/')
             echo "$test_name ... PASS"
-        elif [[ $line == *"Failed"* ]]; then
+        elif [[ $line == *"[  FAILED  ]"* ]]; then
+            # Extract test name from failed test
+            test_name=$(echo "$line" | sed -e 's/\[ *FAILED *\] \(.*\)/\1/')
             echo "$test_name ... FAIL"
-        elif [[ $line == *"Skipped"* ]]; then
-            echo "$test_name ... SKIPPED"
-        elif [[ $line == *"Timeout"* ]]; then
-            echo "$test_name ... TIMEOUT"
         fi
     done
 
-    # Print detailed gtest output for each failed test (not timeouts)
-    if grep -q "Failed" "$log_file"; then
-        printf "\n=============== FAILED TEST DETAILS ===============\n"
-        awk '
-            /Note: Google Test filter =/ {
-                capture = 1
-                buffer = ""
-                # Extract test name from this line
-                sub(/.*Note: Google Test filter = /, "")
-                current_test = $0
-            }
-            capture {
-                buffer = buffer $0 "\n"
-            }
-            /FAILED TEST/ {
-                if (capture && buffer != "") {
-                    print "------- " current_test " -------"
-                    print ""
-                    print buffer
-                }
-                capture = 0
-                buffer = ""
-            }
-        ' "$log_file"
-        printf "====================================================\n"
+    # Show the full output for failed tests if any
+    if grep -q "\[ *FAILED *\]" "$log_file"; then
+        printf "\nFailed tests output:\n"
+        # Extract sections for failed tests
+        awk '/\[ *RUN *\]/{test=$0} /\[ *FAILED *\]/{print test; print $0; print "----- Error details -----"; flag=1; next} flag{print} /\[ *RUN *\]/{flag=0}' "$log_file"
     fi
 
-    # Show summary from CTest
+    # Show summary
     printf "\nTest summary:\n"
-    grep -E "^[0-9]+% tests passed" "$log_file" || true
-
-    # Show failed/timeout test details if any
-    if grep -qE "Failed|Timeout" "$log_file"; then
-        printf "\nFailed/timed out tests:\n"
-        grep -E "^\s*[0-9]+ - .* \((Failed|Timeout)" "$log_file" || true
-    fi
+    grep "\[==========\]" "$log_file" | tail -n 2
 }
 
 #------------------------------------------------------------------------------
@@ -387,36 +367,46 @@ run_cpp_coord_tests() {
     cd $ROOT_DIR/tests/cpptests/coord_tests
     TEST_NAME=rstest_coord setup_sanitizer
 
-    LOG_FILE="${LOGS_DIR}/rstest_coord.log"
-
+    # C++ coordinator tests use Google Test framework like regular C++ tests
     if [[ -z $TEST ]]; then
         # Run all C++ coordinator tests
+        LOG_FILE="${LOGS_DIR}/rstest_coord.log"
         if [[ $GDB == 1 ]]; then
-            if run_with_gdb "rstest_coord (all C++ coordinator tests)" "$CPP_COORD_TESTS_DIR/rstest_coord"; then
+            run_with_gdb "rstest_coord (all C++ coordinator tests)" "$CPP_COORD_TESTS_DIR/rstest_coord"
+            test_result=$?
+            # Report GDB test result
+            if [[ $test_result -eq 0 ]]; then
                 echo "C++ coordinator tests: PASS"
             else
                 echo "C++ coordinator tests: FAIL"
             fi
         else
-            echo "Running all C++ coordinator tests via ctest (log: $LOG_FILE)"
-            { cd "$BINDIR" && ctest --test-dir tests/cpptests/coord_tests --output-on-failure -j $(nproc) > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+            echo "Running all C++ coordinator tests (log: $LOG_FILE)"
+            { $CPP_COORD_TESTS_DIR/rstest_coord > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+            # Parse and display individual test results
             parse_cpp_test_results "$LOG_FILE"
         fi
     else
         # Run single C++ coordinator test if requested
-        LOG_FILE="${LOGS_DIR}/rstest_coord_${TEST}.log"
-        if [[ $GDB == 1 ]]; then
-            run_with_gdb "rstest_coord --gtest_filter=$TEST" "$CPP_COORD_TESTS_DIR/rstest_coord" "--gtest_filter=$TEST"
-            test_result=$?
-            if [[ $test_result -eq 0 ]]; then
-                echo "C++ coordinator test $TEST: PASS"
+        if [[ -f $CPP_COORD_TESTS_DIR/rstest_coord ]]; then
+            LOG_FILE="${LOGS_DIR}/rstest_coord_${TEST}.log"
+            if [[ $GDB == 1 ]]; then
+                run_with_gdb "rstest_coord --gtest_filter=$TEST" "$CPP_COORD_TESTS_DIR/rstest_coord" "--gtest_filter=$TEST"
+                test_result=$?
+                # Report GDB test result
+                if [[ $test_result -eq 0 ]]; then
+                    echo "C++ coordinator test $TEST: PASS"
+                else
+                    echo "C++ coordinator test $TEST: FAIL"
+                fi
             else
-                echo "C++ coordinator test $TEST: FAIL"
+                echo "Running C++ coordinator test: $TEST (log: $LOG_FILE)"
+                { $CPP_COORD_TESTS_DIR/rstest_coord --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+                # Parse and display results
+                parse_cpp_test_results "$LOG_FILE"
             fi
         else
-            echo "Running C++ coordinator test: $TEST via ctest (log: $LOG_FILE)"
-            { cd "$BINDIR" && ctest --test-dir tests/cpptests/coord_tests -R "$TEST" --output-on-failure > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-            parse_cpp_test_results "$LOG_FILE"
+            echo "C++ coordinator test binary not found: $CPP_COORD_TESTS_DIR/rstest_coord"
         fi
     fi
     end_group

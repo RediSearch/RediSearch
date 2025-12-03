@@ -40,14 +40,6 @@ std::vector<RedisModuleString *> RMCK::CreateArgv(RedisModuleCtx *ctx, const cha
   return ret;
 }
 
-std::vector<RedisModuleString *> RMCK::CreateArgv(RedisModuleCtx *ctx, const std::vector<std::string>& args) {
-  std::vector<RedisModuleString *> argv;
-  for (const auto& arg : args) {
-    argv.push_back(new RedisModuleString(arg));
-  }
-  return argv;
-}
-
 size_t RMCK::GetRefcount(const RedisModuleString *s) {
   return s->refcount;
 }

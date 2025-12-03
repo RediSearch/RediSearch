@@ -47,10 +47,6 @@ typedef struct {
 } blockedClientReqCtx;
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
-static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                             CommandType type, int execOptions);
-typedef int (*execCommandCommonHandler)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                             CommandType type, int execOptions);
 
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
@@ -481,9 +477,6 @@ done_2:
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, !IsInternal(req));
     }
-    if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
-    }
 
     // Prepare profile printer context
     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
@@ -628,7 +621,6 @@ done_3:
       // Non-fatal error
       RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
     } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
@@ -725,8 +717,7 @@ static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
 // Includes OOM warning when QueryError has OOM status.
 // Currently used during OOM conditions to return empty results instead of failing.
 // Based on sendChunk_Resp2/3 patterns.
- void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req) {
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+ void sendChunk_ReplyOnly_EmptyResults(RedisModule_Reply *reply, AREQ *req) {
 
   if (reply->resp3) {
 
@@ -819,7 +810,6 @@ static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
       RedisModule_Reply_ArrayEnd(reply);
     }
   }
-  RedisModule_EndReply(reply);
 }
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
@@ -1174,15 +1164,11 @@ RedisModuleString **_profileArgsDup(RedisModuleString **argv, int argc, int para
   memcpy(newArgv, argv, PROFILE_1ST_PARAM * sizeof(*newArgv));
   // copy non-profile commands
   memcpy(newArgv + PROFILE_1ST_PARAM, argv + PROFILE_1ST_PARAM + params,
-         (argc - PROFILE_1ST_PARAM - params) * sizeof(*newArgv));
+          (argc - PROFILE_1ST_PARAM - params) * sizeof(*newArgv));
   return newArgv;
 }
 
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return RSProfileCommandImp(ctx, argv, argc, false);
-}
-
-int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1190,13 +1176,6 @@ int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   CommandType cmdType;
   int curArg = PROFILE_1ST_PARAM;
   int withProfile = EXEC_WITH_PROFILE;
-  execCommandCommonHandler execCommandHandlerFunc = execCommandCommon;
-
-  // Check if this is a debug command
-  if (isDebug) {
-    execCommandHandlerFunc = DEBUG_execCommandCommon;
-    withProfile |= EXEC_DEBUG;
-  }
 
   // Check the command type
   const char *cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
@@ -1222,9 +1201,7 @@ int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   int newArgc = argc - curArg + PROFILE_1ST_PARAM;
   RedisModuleString **newArgv = _profileArgsDup(argv, argc, curArg - PROFILE_1ST_PARAM);
-
-  execCommandHandlerFunc(ctx, newArgv, newArgc, cmdType, withProfile);
-
+  execCommandCommon(ctx, newArgv, newArgc, cmdType, withProfile);
   rm_free(newArgv);
   return REDISMODULE_OK;
 }
@@ -1305,7 +1282,7 @@ static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader,
   return qctx;
 }
 
-static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool bg) {
+static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, bool bg) {
 
   QueryError status = QueryError_Default();
 
@@ -1322,8 +1299,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
-      Cursor_Free(cursor);
-      RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
+      RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
       return;
     }
 
@@ -1348,9 +1324,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   }
 
   if (req) {
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     runCursor(reply, cursor, count);
-    RedisModule_EndReply(reply);
   } else {
     // TODO: run hybrid cursor - this needs to be implemented for the coordinator
   }
@@ -1367,7 +1341,9 @@ typedef struct {
 
 static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
-  cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  cursorRead(reply, cr_ctx->cursor, cr_ctx->count, true);
+  RedisModule_EndReply(reply);
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
   void *privdata = RedisModule_BlockClientGetPrivateData(cr_ctx->bc);
@@ -1377,142 +1353,113 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
 
 /**
  * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
- */
-int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 4) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  long long cid;
-  if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
-  }
-
-  long long count = 0;
-  if (argc > 5) {
-    // e.g. 'COUNT <timeout>'
-    // Verify that the 4'th argument is `COUNT`.
-    const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
-    if (strcasecmp(count_str, "count") != 0) {
-      return RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
-    }
-
-    if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
-      return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
-    }
-  }
-
-  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
-  if (cursor == NULL) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
-  }
-
-  // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
-  if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
-    CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
-    cr_ctx->bc = BlockCursorClient(ctx, cursor, count, 0);
-    cr_ctx->cursor = cursor;
-    cr_ctx->count = count;
-    workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
-  } else {
-    cursorRead(ctx, cursor, count, false);
-  }
-
-  return REDISMODULE_OK;
-}
-
-/**
  * FT.CURSOR PROFILE {index} {CID}
- */
-int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 4) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  long long cid;
-  if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
-  }
-
-  // Return profile
-  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
-  if (cursor == NULL) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
-  }
-
-  AREQ *req = cursor->execState;
-  if (!IsProfile(req)) {
-    Cursor_Pause(cursor); // Pause the cursor again since we are not going to use it, but it's still valid.
-    return RedisModule_ReplyWithErrorFormat(ctx, "cursor request is not profile, id: %d", cid);
-  }
-  // We get here only if it's internal (coord) cursor because cursor is not supported with profile,
-  // and we already checked that the cmd is not for profiling.
-  // Since it's an internal cursor, it must be associated with a spec.
-  RS_ASSERT(cursor_HasSpecWeakRef(cursor));
-  // Check if the spec is still valid
-  StrongRef execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
-  if (!StrongRef_Get(execution_ref)) {
-    // The index was dropped while the cursor was idle.
-    // Notify the client that the query was aborted.
-    RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
-  } else {
-    sendChunk_ReplyOnly_EmptyResults(ctx, req);
-    IndexSpecRef_Release(execution_ref);
-  }
-
-  // Free the cursor
-  Cursor_Free(cursor);
-
-  return REDISMODULE_OK;
-}
-
-/**
  * FT.CURSOR DEL {index} {CID}
- */
-int RSCursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 4) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  long long cid;
-  if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
-  }
-  int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
-  if (rc != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "Cursor does not exist");
-  } else {
-    return RedisModule_ReplyWithSimpleString(ctx, "OK");
-  }
-}
-
-/**
  * FT.CURSOR GC {index}
  */
-int RSCursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 3) {
+int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   }
 
-  // Collect idle cursors from both local and coord lists
-  int ret_local = Cursors_CollectIdle(&g_CursorsList);
-  int ret_coord = Cursors_CollectIdle(&g_CursorsListCoord);
+  const char *cmd = RedisModule_StringPtrLen(argv[1], NULL);
+  long long cid = 0;
+  // argv[0] - FT.CURSOR
+  // argv[1] - subcommand
+  // argv[2] - index
+  // argv[3] - cursor ID
 
-  // `Cursors_CollectIdle` returns -1 if no cursors were expired (quick check),
-  // otherwise it returns the number of collected cursors (which can be 0, if there were no idle+expired cursors).
-  // We want to return -1 only if both lists returned -1, otherwise we sum the non-negative results.
-  int ret;
-  if (ret_local < 0 && ret_coord < 0) {
-    ret = -1;
-  } else if (ret_local < 0) {
-    ret = ret_coord;
-  } else if (ret_coord < 0) {
-    ret = ret_local;
-  } else {
-    ret = ret_local + ret_coord;
+  if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(ctx, "Bad cursor ID");
+    return REDISMODULE_OK;
   }
 
-  return RedisModule_ReplyWithLongLong(ctx, ret);
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+
+  if (strcasecmp(cmd, "READ") == 0) {
+    long long count = 0;
+    if (argc > 5) {
+      // e.g. 'COUNT <timeout>'
+      // Verify that the 4'th argument is `COUNT`.
+      const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
+      if (strcasecmp(count_str, "count") != 0) {
+        RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
+        RedisModule_EndReply(reply);
+        return REDISMODULE_OK;
+      }
+
+      if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
+        RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
+        RedisModule_EndReply(reply);
+        return REDISMODULE_OK;
+      }
+    }
+
+    Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+    if (cursor == NULL) {
+      RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
+    }
+
+    // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
+    if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
+      CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
+      cr_ctx->bc = BlockCursorClient(ctx, cursor, count, 0);
+      cr_ctx->cursor = cursor;
+      cr_ctx->count = count;
+      workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
+    } else {
+      cursorRead(reply, cursor, count, false);
+    }
+  } else if (strcasecmp(cmd, "PROFILE") == 0) {
+    // Return profile
+    Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+    if (cursor == NULL) {
+      RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
+    }
+
+    AREQ *req = cursor->execState;
+    if (!IsProfile(req)) {
+      RedisModule_ReplyWithErrorFormat(ctx, "cursor request is not profile, id: %d", cid);
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
+    }
+    // We get here only if it's internal (coord) cursor because cursor is not supported with profile,
+    // and we already checked that the cmd is not for profiling.
+    // Since it's an internal cursor, it must be associated with a spec.
+    RS_ASSERT(cursor_HasSpecWeakRef(cursor));
+    // Check if the spec is still valid
+    StrongRef execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
+    if (!StrongRef_Get(execution_ref)) {
+      // The index was dropped while the cursor was idle.
+      // Notify the client that the query was aborted.
+      RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
+    } else {
+      sendChunk_ReplyOnly_EmptyResults(reply, req);
+      IndexSpecRef_Release(execution_ref);
+    }
+
+    // Free the cursor
+    Cursor_Free(cursor);
+  } else if (strcasecmp(cmd, "DEL") == 0) {
+    int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
+    if (rc != REDISMODULE_OK) {
+      RedisModule_Reply_Error(reply, "Cursor does not exist");
+    } else {
+      RedisModule_Reply_SimpleString(reply, "OK");
+    }
+  } else if (strcasecmp(cmd, "GC") == 0) {
+    int rc = Cursors_CollectIdle(&g_CursorsList);
+    rc += Cursors_CollectIdle(&g_CursorsListCoord);
+    RedisModule_Reply_LongLong(reply, rc);
+  } else {
+    RedisModule_Reply_Error(reply, "Unknown subcommand");
+  }
+  RedisModule_EndReply(reply);
+  return REDISMODULE_OK;
 }
 
 /* ======================= DEBUG ONLY ======================= */

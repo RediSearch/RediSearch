@@ -20,7 +20,7 @@ static void WI_Free(QueryIterator *base) {
 
 static size_t WI_NumEstimated(QueryIterator *base) {
   WildcardIterator *wi = (WildcardIterator *)base;
-  return wi->topId;
+  return wi->numDocs;
 }
 
 /* Read reads the next consecutive id, unless we're at the end */
@@ -68,10 +68,11 @@ bool IsWildcardIterator(QueryIterator *it) {
 }
 
 /* Create a new wildcard iterator */
-QueryIterator *NewWildcardIterator_NonOptimized(t_docId maxId, double weight) {
+QueryIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs, double weight) {
   WildcardIterator *wi = rm_calloc(1, sizeof(*wi));
   wi->currentId = 0;
   wi->topId = maxId;
+  wi->numDocs = numDocs;
   QueryIterator *ret = &wi->base;
   ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   ret->current->freq = 1;
@@ -107,6 +108,6 @@ QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight) {
     return NewWildcardIterator_Optimized(q->sctx, weight);
   } else {
     // Non-optimized wildcard iterator, using a simple doc-id increment as its base.
-    return NewWildcardIterator_NonOptimized(q->docTable->maxDocId, weight);
+    return NewWildcardIterator_NonOptimized(q->docTable->maxDocId, q->docTable->size, weight);
   }
 }

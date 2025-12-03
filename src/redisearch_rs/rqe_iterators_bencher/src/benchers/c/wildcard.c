@@ -22,7 +22,7 @@ typedef enum {
 } IteratorStatus;
 
 // Forward declarations for the functions we need
-extern void* NewWildcardIterator_NonOptimized(t_docId maxId, double weight);
+extern void* NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs, double weight);
 extern IteratorStatus WI_Read_Direct(void* iterator);
 extern IteratorStatus WI_SkipTo_Direct(void* iterator, t_docId docId);
 extern t_docId WI_GetLastDocId_Direct(void* iterator);
@@ -39,7 +39,7 @@ static uint64_t get_time_ns(void) {
 // Eliminates FFI overhead by implementing the entire benchmark loop in C
 void benchmark_wildcard_read_direct_c(uint64_t max_id, uint64_t* iterations_out, uint64_t* time_ns_out) {
     // Create wildcard iterator
-    void* it = NewWildcardIterator_NonOptimized(max_id, 1.0);
+    void* it = NewWildcardIterator_NonOptimized(max_id, max_id, 1.0);
 
     uint64_t start_time = get_time_ns();
     uint64_t iterations = 0;
@@ -64,7 +64,7 @@ void benchmark_wildcard_read_direct_c(uint64_t max_id, uint64_t* iterations_out,
 // Direct C benchmark for wildcard iterator skip_to operations
 void benchmark_wildcard_skip_to_direct_c(uint64_t max_id, uint64_t step, uint64_t* iterations_out, uint64_t* time_ns_out) {
     // Create wildcard iterator
-    void* it = NewWildcardIterator_NonOptimized(max_id, 1.0);
+    void* it = NewWildcardIterator_NonOptimized(max_id, max_id, 1.0);
 
     uint64_t start_time = get_time_ns();
     uint64_t iterations = 0;
@@ -97,7 +97,8 @@ typedef struct {
     t_docId top_id;
 } SimpleWildcardIterator;
 
-void* NewWildcardIterator_NonOptimized(t_docId maxId, double weight) {
+void* NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs, double weight) {
+    (void)numDocs; // Unused parameter
     (void)weight;  // Unused parameter
 
     SimpleWildcardIterator* it = malloc(sizeof(SimpleWildcardIterator));

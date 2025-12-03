@@ -72,7 +72,6 @@ void init();
 
 std::vector<RedisModuleString *> CreateArgv(RedisModuleCtx *, const char *s, ...);
 std::vector<RedisModuleString *> CreateArgv(RedisModuleCtx *, const char **s, size_t n);
-std::vector<RedisModuleString *> CreateArgv(RedisModuleCtx *ctx, const std::vector<std::string>& args);
 
 class ArgvList {
   std::vector<RedisModuleString *> m_list;
@@ -85,9 +84,6 @@ class ArgvList {
   }
   ArgvList(RedisModuleCtx *ctx, const char **s, size_t n) : m_ctx(ctx) {
     m_list = CreateArgv(ctx, s, n);
-  }
-  ArgvList(RedisModuleCtx *ctx, const std::vector<std::string>& args) : m_ctx(ctx) {
-    m_list = CreateArgv(ctx, args);
   }
   ArgvList(ArgvList &) = delete;
 

@@ -311,7 +311,6 @@ struct RedisModuleCtx {
   std::vector<std::vector<std::string>> propagated_commands;
   KVDB *db = NULL;
   uint32_t dbid = 0;
-  std::string last_error;  // Store the last error message from ReplyWithError
 
   RedisModuleCtx(uint32_t dbid = 0);
 

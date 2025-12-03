@@ -53,33 +53,6 @@ class TimeLimit(object):
     def handler(self, signum, frame):
         raise Exception(f'Timeout: {self.message}')
 
-def wait_for_condition(check_fn, message):
-    """
-    Wait for a condition with timeout and status reporting.
-
-    Parameters:
-        - env: Test environment
-        - check_fn: Function that takes returns (status: bool, state: dict)
-                   where state is a dict of the current state information
-        - message: Message prefix for timeout exception
-    """
-    iter = 0
-    timeout_msg = {}
-
-    try:
-        with TimeLimit(120):
-            while True:
-                done, state = check_fn()
-                if done:
-                    break
-                time.sleep(0.01)
-                iter += 1
-                timeout_msg['iter'] = iter
-                timeout_msg['state'] = state
-    except Exception as e:
-        log = f"{message}: {timeout_msg}"
-        raise Exception(f'Error: {e}, log: {log}')
-
 class DialectEnv(Env):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -165,17 +138,6 @@ def toSortedFlatList(res):
 
         return py2sorted(finalList)
     return [res]
-
-def countFlatElements(arr):
-    """Count elements without sorting (lighter than toSortedFlatList)"""
-    if isinstance(arr, str):
-        return 1
-    if isinstance(arr, Iterable):
-        count = 0
-        for e in arr:
-            count += countFlatElements(e)
-        return count
-    return 1
 
 def assertInfoField(env, idx, field, expected, delta=None):
     d = index_info(env, idx)

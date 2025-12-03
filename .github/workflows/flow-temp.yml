@@ -16,9 +16,3 @@ jobs:
   merge-queue:
     uses: ./.github/workflows/event-merge-to-queue.yml
     secrets: inherit
-    with:
-      platform: all
-      architecture: all
-      redis-ref: unstable
-
-

@@ -75,6 +75,7 @@
  * -----------------------------------------------------------------------------
  *
  * ### Limitations:
+ * - `_FT.DEBUG` does not support `FT.PROFILE`.
  * - Pause debugging affects at most one query at a time (single debug pause RP at once).
  *
  * -----------------------------------------------------------------------------

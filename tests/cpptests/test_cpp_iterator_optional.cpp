@@ -616,7 +616,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithWildcardChild) {
   MockQueryEvalCtx ctx(maxDocId, numDocs);
 
   // Create wildcard child iterator
-  QueryIterator *wildcardChild = NewWildcardIterator_NonOptimized(maxDocId, 2.0);
+  QueryIterator *wildcardChild = NewWildcardIterator_NonOptimized(maxDocId, numDocs, 2.0);
 
   // Create optional iterator with wildcard child - should return the child directly
   QueryIterator *it = NewOptionalIterator(wildcardChild, &ctx.qctx, childWeight);

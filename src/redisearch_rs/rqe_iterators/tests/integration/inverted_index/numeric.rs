@@ -8,8 +8,8 @@
 */
 
 use ffi::{IndexFlags_Index_StoreNumeric, t_docId};
-use inverted_index::{FilterNumericReader, InvertedIndex, NumericFilter, RSIndexResult};
-use rqe_iterators::{RQEIterator, inverted_index::Numeric};
+use inverted_index::{FilterNumericReader, NumericFilter, RSIndexResult};
+use rqe_iterators::inverted_index::Numeric;
 
 use crate::inverted_index::utils::{BaseTest, RevalidateTest};
 
@@ -118,112 +118,4 @@ fn numeric_full_revalidate_after_document_deleted() {
     let mut it = Numeric::new(reader);
     test.revalidate_test
         .revalidate_after_document_deleted(&mut it);
-}
-
-#[test]
-fn skip_multi_id() {
-    // Add multiple entries with the same docId
-    let mut ii =
-        InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
-    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(3.0).doc_id(1));
-
-    let mut it = Numeric::new(ii.reader());
-
-    // Read the first entry. Expect to get the entry with value 1.0
-    let record = it
-        .read()
-        .expect("failed to read")
-        .expect("expected result not eof");
-    assert_eq!(record.doc_id, 1);
-    assert_eq!(record.as_numeric(), Some(1.0));
-    assert_eq!(it.last_doc_id(), 1);
-    assert!(!it.at_eof());
-
-    // Read the next entry. Expect EOF since we have only one unique docId
-    assert_eq!(it.read().unwrap(), None);
-    assert!(it.at_eof());
-}
-
-#[test]
-fn skip_multi_id_and_value() {
-    // Add multiple entries with the same docId and numeric value
-    let mut ii =
-        InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
-    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
-
-    let mut it = Numeric::new(ii.reader());
-
-    // Read the first entry. Expect to get the entry with value 1.0
-    let record = it
-        .read()
-        .expect("failed to read")
-        .expect("expected result not eof");
-    assert_eq!(record.doc_id, 1);
-    assert_eq!(record.as_numeric(), Some(1.0));
-    assert_eq!(it.last_doc_id(), 1);
-    assert!(!it.at_eof());
-
-    // Read the next entry. Expect EOF since we have only one unique docId
-    assert_eq!(it.read().unwrap(), None);
-    assert!(it.at_eof());
-}
-
-#[test]
-fn get_correct_value() {
-    // Add entries with the same ID but different values
-    let mut ii =
-        InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
-    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(3.0).doc_id(1));
-
-    // Create an iterator that reads only entries with value >= 2.0
-    let filter = NumericFilter {
-        min: 2.0,
-        max: 3.0,
-        ..Default::default()
-    };
-    let reader = FilterNumericReader::new(&filter, ii.reader());
-    let mut it = Numeric::new(reader);
-
-    // Read the first entry. Expect to get the entry with value 2.0
-    let record = it
-        .read()
-        .expect("failed to read")
-        .expect("expected result not eof");
-    assert_eq!(record.doc_id, 1);
-    assert_eq!(record.as_numeric(), Some(2.0));
-    assert_eq!(it.last_doc_id(), 1);
-    assert!(!it.at_eof());
-
-    // Read the next entry. Expect EOF since we have only one unique docId with value 2.0
-    assert_eq!(it.read().unwrap(), None);
-    assert!(it.at_eof());
-}
-
-#[test]
-fn eof_after_filtering() {
-    let mut ii =
-        InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
-
-    // Fill the index with entries, all with value 1.0
-    for id in 1..=1234 {
-        let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(id));
-    }
-
-    // Create an iterator that reads only entries with value 2.0
-    let filter = NumericFilter {
-        min: 2.0,
-        max: 2.0,
-        ..Default::default()
-    };
-    let reader = FilterNumericReader::new(&filter, ii.reader());
-    let mut it = Numeric::new(reader);
-
-    // Attempt to skip to the first entry, expecting EOF since no entries match the filter
-    assert_eq!(it.skip_to(1).expect("skip_to failed"), None);
 }

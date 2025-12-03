@@ -20,12 +20,14 @@ typedef struct {
   QueryIterator base;
   t_docId topId;
   t_docId currentId;
+  t_docId numDocs;
 } WildcardIterator;
 
 /**
  * @param maxId - The maxID to return
+ * @param numDocs - the number of docs to return
  */
-QueryIterator *NewWildcardIterator_NonOptimized(t_docId maxId, double weight);
+QueryIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs, double weight);
 
 /**
  * Create a new optimized wildcard iterator.

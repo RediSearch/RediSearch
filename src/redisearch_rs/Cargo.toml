@@ -3,7 +3,6 @@ members = [
     "buffer",
     "build_utils",
     "c_entrypoint/*",
-    "document",
     "ffi",
     "field",
     "fnv",
@@ -65,7 +64,6 @@ publish = false
 [workspace.dependencies]
 buffer = { path = "./buffer" }
 c_ffi_utils = { path = "./c_entrypoint/c_ffi_utils" }
-document = { path = "./document" }
 ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
 fnv = { path = "./fnv" }

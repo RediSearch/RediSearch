@@ -33,7 +33,7 @@ public:
     maxDocId = numDocs * 2; // Simulate sparse document IDs
 
     // Initialize iterators based on the test name
-    iterator_base = NewWildcardIterator_NonOptimized(maxDocId, 1.0);
+    iterator_base = NewWildcardIterator_NonOptimized(maxDocId, numDocs, 1.0);
   }
 
   void TearDown(::benchmark::State &state) {

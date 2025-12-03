@@ -417,7 +417,7 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithNoChild) {
 TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
   children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
-  children[1] = NewWildcardIterator_NonOptimized(30, 1.0);
+  children[1] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
   children[2] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
   // Create a READER Iterator and set the `isWildCard` flag so that it is removed by the reducer
   size_t memsize;
@@ -452,10 +452,10 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
 
 TEST_F(IntersectionIteratorReducerTest, TestIntersectionAllWildCardChildren) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
-  children[0] = NewWildcardIterator_NonOptimized(30, 1.0);
-  children[1] = NewWildcardIterator_NonOptimized(30, 1.0);
-  children[2] = NewWildcardIterator_NonOptimized(30, 1.0);
-  children[3] = NewWildcardIterator_NonOptimized(30, 1.0);
+  children[0] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
+  children[1] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
+  children[2] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
+  children[3] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
 
   QueryIterator *expected_iter = children[3];
   size_t num = 4;
@@ -467,8 +467,8 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionAllWildCardChildren) {
 TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithSingleChild) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 3);
   children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
-  children[1] = NewWildcardIterator_NonOptimized(30, 1.0);
-  children[2] = NewWildcardIterator_NonOptimized(30, 1.0);
+  children[1] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
+  children[2] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
   auto expected_type = children[0]->type;
 
   size_t num = 3;
