@@ -247,6 +247,10 @@ jobs:
             fi
           done
           echo "supported=true" >> $GITHUB_OUTPUT
+      - name: Check disk space
+        run: |
+          echo "Disk space available:"
+          df -h
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
@@ -438,7 +442,7 @@ jobs:
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
-      - name: Check disk space after repo build
+      - name: Check disk space after build
         run: |
           echo "Disk space after build:"
           df -h
