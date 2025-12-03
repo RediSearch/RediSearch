@@ -202,7 +202,7 @@ def test_barrier_waits_for_delayed_unbalanced_shard():
     # We delay shard 1 (connection index 2) which has 0 docs
     # This tests that the coordinator waits for ALL shards even while
     # receiving lots of data from the fast shards (0 and 2)
-    sleep_duration = 4  # seconds
+    sleep_duration = 3  # seconds
 
     # --------------------------------------------------------------------------
     # Case 1: No timeout
