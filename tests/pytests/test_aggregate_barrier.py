@@ -466,6 +466,12 @@ def test_barrier_handles_error_in_shard():
         'APPLY', '1 / @n', 'AS', 'reciprocal')\
             .error().contains("Could not convert value to a number")
 
+    env.expect(
+        'FT.PROFILE', 'idx', 'AGGREGATE',
+        'QUERY', '*', 'WITHCOUNT', 'LOAD', 2, '@t', '@n',
+        'APPLY', '1 / @n', 'AS', 'reciprocal')\
+            .error().contains("Could not convert value to a number")
+
 
 #------------------------------------------------------------------------------
 # Simulated Shard Timeout Tests (using TIMEOUT_AFTER_N)
