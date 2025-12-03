@@ -8,6 +8,7 @@
 */
 
 use inverted_index::RSIndexResult;
+
 use rqe_iterators::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::SortedIdList,
     not_iterator::NotIterator,
