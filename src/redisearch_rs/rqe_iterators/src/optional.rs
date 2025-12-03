@@ -65,6 +65,18 @@ where
             child: Some(child),
         }
     }
+
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+
+    pub fn set_child(&mut self, new_child: I) {
+        self.child = Some(new_child);
+    }
+
+    pub const fn take_child(&mut self) -> Option<I> {
+        self.child.take()
+    }
 }
 
 impl<'index, I> RQEIterator<'index> for Optional<'index, I>
