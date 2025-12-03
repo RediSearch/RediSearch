@@ -628,8 +628,12 @@ run_rust_tests() {
     RUST_TEST_COMMAND="miri test "
     RUST_TEST_OPTIONS="--profile=$RUST_PROFILE"
   elif [[ "$SAN" == "address" ]]; then
-    RUST_TEST_COMMAND="nextest run"
+    # --build-std is a cargo flag (not rustc), so set it separately
+    RUST_TEST_COMMAND="-Zbuild-std nextest run"
     RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
+
+    # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
+    # -Zsanitizer=address enables ASAN in Rust
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Z sanitizer=address"
   else
     RUST_TEST_COMMAND="nextest run"
