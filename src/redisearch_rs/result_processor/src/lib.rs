@@ -466,8 +466,7 @@ pub(crate) mod test {
     #[test]
     fn error_to_ret_code() {
         fn check(error: Error, expected: i32) {
-            let mut chain = Chain::new();
-            chain.append(ResultRP::new_err(error));
+            let mut chain = Chain::new().append(ResultRP::new_err(error));
 
             let rp = unsafe { chain.last_raw() };
             let found =
@@ -483,8 +482,7 @@ pub(crate) mod test {
     /// Assert that returning `Ok(None)` from Rust translates to EOF in C
     #[test]
     fn none_signals_eof() {
-        let mut chain = Chain::new();
-        chain.append(ResultRP::new_ok_none());
+        let mut chain = Chain::new().append(ResultRP::new_ok_none());
 
         let rp = unsafe { chain.last_raw() };
         let found =
@@ -496,8 +494,7 @@ pub(crate) mod test {
     /// Assert that `Ok(Some(())` in Rust translates to the `OK` in C
     #[test]
     fn ok_some_signals_ok() {
-        let mut chain = Chain::new();
-        chain.append(ResultRP::new_ok_some());
+        let mut chain = Chain::new().append(ResultRP::new_ok_some());
 
         let rp = unsafe { chain.last_raw() };
         let found =
@@ -568,7 +565,7 @@ pub(crate) mod test {
         fn check(code: i32, expected: Result<Option<()>, Error>) {
             let mut chain = Chain::new();
             unsafe { chain.push_raw(new_upstream(code)) };
-            chain.append(RP);
+            chain = chain.append(RP);
 
             let (cx, rp) = chain.last_as_context_and_inner::<RP>();
 
@@ -617,10 +614,7 @@ pub(crate) mod test {
             }
         }
 
-        let mut chain = Chain::new();
-
-        chain.append(Upstream);
-        chain.append(RP);
+        let mut chain = Chain::new().append(Upstream).append(RP);
 
         let (cx, rp) = chain.last_as_context_and_inner::<RP>();
 
@@ -632,8 +626,7 @@ pub(crate) mod test {
 
     #[test]
     fn wrapper_proper_alignment() {
-        let mut chain = Chain::new();
-        chain.append(ResultRP::new_ok_some());
+        let mut chain = Chain::new().append(ResultRP::new_ok_some());
 
         // Safety: we just check the alignment
         let ptr = unsafe { chain.last_raw() };
