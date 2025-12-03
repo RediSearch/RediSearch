@@ -39,6 +39,8 @@ static ValidateStatus NumericCheckAbort(QueryIterator *base) {
     return VALIDATE_OK;
   }
 
+  // sctx and rt should always be set, except in some tests.
+  RS_ASSERT(nit->rt);
   if (nit->rt->revisionId != nit->revisionId) {
     // The numeric tree was either completely deleted or a node was split or removed.
     // The cursor is invalidated.
@@ -54,6 +56,8 @@ static ValidateStatus TermCheckAbort(QueryIterator *base) {
     return VALIDATE_OK;
   }
   RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
+  // sctx and term should always be set, except in some tests.
+  RS_ASSERT(term);
   InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, term->str, term->len, false, NULL);
   if (!idx || !IndexReader_IsIndex(it->reader, idx)) {
     // The inverted index was collected entirely by GC.
