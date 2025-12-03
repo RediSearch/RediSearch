@@ -190,7 +190,7 @@ impl Upstream<'_> {
 ///
 /// # Safety
 ///
-/// Result processors intrusively linked, where one result processor has the pointer to the
+/// Result processors are intrusively linked, where one result processor has a pointer to the
 /// previous (forming an intrusively singly-linked list). This places a big safety invariant on all code
 /// that touches this data structure: Result processors must *never* be moved while part of a QueryIterator
 /// chain. Accidentally moving a processor will create a broken link and undefined behaviour.
@@ -200,17 +200,17 @@ impl Upstream<'_> {
 /// it easy to break accidentally. The compiler is free to move values as it sees fit (Rust calls this trivially moveable).
 /// As a result a Rust reference (&T or &mut T) is a stable "handle" to a value but a pointer (*const T or *mut T) is not.
 ///
-/// For intrusive data types like this we need to tell the compiler "don't move this please I have pointers to it" which is called
+/// For intrusive data types like this we need to tell the compiler "don't move this please, I have pointers to it" which is called
 /// pinning in Rust.
 ///
 /// We wrap a reference in the Pin<T> type (Pin<&mut T>) which disallows moving the pointee from its location in memory.
-/// Crucially though, the way Pin disallows is not magic, it simply doesn't implement any methods and traits that would
+/// Crucially though, the way Pin disallows this is not magic, it simply doesn't implement any methods and traits that would
 /// allow a caller to move the value. Unfortunately this means banning all mutable access to the value T (you cannot get a
 /// &mut T from a Pin<&mut T> for example) since with a &mut T you can always move the value very easily (via mem::replace for example).
 ///
-/// So Rust has another technique that lets you treat memory locations a "pinned" while still being able to mutate
-/// them through "pin projections" essentially a "proxy type" that behaves like a regular Rust type (including allowing
-/// moving & mutation) but will forward all accesses and mutations to the backing, actually pinned type
+/// So Rust has another technique that lets you treat memory locations as "pinned" while still being able to mutate
+/// them through "pin projections". It's essentially a "proxy type" that behaves like a regular Rust type (including allowing
+/// moving & mutation) but will forward all accesses and mutations to the backing actually pinned type
 /// (this is what the `#[pin_project]` below does!)
 ///
 /// For details refer to the [`Pin`] documentation which explains the concept of "pinning" a Rust value in memory and its implications.
