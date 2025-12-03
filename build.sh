@@ -618,7 +618,12 @@ run_rust_tests() {
       --output-path=$BINROOT/rust_cov.info
     "
   elif [[ "$SAN" == "address" ]]; then
+    # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
+    # -Zsanitizer=address enables ASAN in Rust
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Z sanitizer=address"
+
+    # --build-std is a cargo flag (not rustc), so set it separately
+    RUST_EXTENSIONS="-Zbuild-std"
   elif [[ "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
     RUST_EXTENSIONS="miri"
   fi
