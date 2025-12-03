@@ -108,14 +108,34 @@ where
     /// # Returns
     ///
     /// A new `Intersection` iterator that yields documents appearing in ALL children.
+    /// If `children` is empty, returns an iterator that is immediately at EOF.
     pub fn new(mut children: Vec<I>) -> Self {
-        // Sort children by estimated count (smallest first) for optimization
-        children.sort_by_key(|c| c.num_estimated());
-
         let num_children = children.len();
 
-        // Compute num_expected as the minimum of all children's estimates
-        let num_expected = children.iter().map(|c| c.num_estimated()).min().unwrap_or(0);
+        // Handle empty children case: intersection of zero sets yields no results.
+        // Set is_eof = true to avoid panics in read_from_first_child.
+        if num_children == 0 {
+            return Self {
+                children,
+                doc_ids: Vec::new(),
+                last_doc_id: 0,
+                last_found_id: 0,
+                len: 0,
+                num_expected: 0,
+                is_eof: true,
+                result: RSIndexResult::intersect(0),
+            };
+        }
+
+        // Sort children by estimated count (smallest first) for optimization.
+        // Using sort_by_cached_key to cache num_estimated() values and avoid
+        // repeated calls during sort comparisons. While current implementations
+        // are O(1) field accesses, caching avoids O(n log n) redundant calls
+        // and protects against future implementations that might be more expensive.
+        children.sort_by_cached_key(|c| c.num_estimated());
+
+        // After sorting, the minimum estimate is at index 0
+        let num_expected = children.first().map(|c| c.num_estimated()).unwrap_or(0);
 
         // Initialize doc_ids cache with zeros
         let doc_ids = vec![0; num_children];
@@ -212,6 +232,35 @@ where
     /// Equivalent to the result aggregation in `II_AgreeOnDocId` in the C implementation.
     ///
     /// Must be called only after `find_consensus` returns successfully.
+    ///
+    /// # Design Note: Use of `unsafe`
+    ///
+    /// This method uses `unsafe` to work around a borrow checker limitation. The issue is that
+    /// we need to simultaneously:
+    /// 1. Iterate over `&mut self.children` to call `child.current()` on each child
+    /// 2. Mutate `self.result` via `push_borrowed()`
+    ///
+    /// Although `children` and `result` are disjoint fields and could theoretically be borrowed
+    /// independently (a "split borrow"), Rust's borrow checker cannot verify this through `&mut self`
+    /// method calls. The borrow checker sees both accesses as going through `&mut self`.
+    ///
+    /// ## Alternatives considered and rejected:
+    ///
+    /// 1. **Split the struct**: Moving `result` to a separate struct that can be borrowed
+    ///    independently would work but adds complexity and indirection for no benefit.
+    ///
+    /// 2. **Pass result as parameter**: Would require changing the method signature and all
+    ///    callers, propagating complexity upward without safety benefit.
+    ///
+    /// 3. **Use `RefCell`**: Would add runtime borrow checking overhead in a hot path. The
+    ///    intersection iterator's `read()` method is called for every document in the result
+    ///    set, making this unacceptable for performance.
+    ///
+    /// 4. **Collect child results into a temporary `Vec`**: Would require allocating and
+    ///    copying data on every iteration, defeating the zero-copy design of `push_borrowed`.
+    ///
+    /// The `unsafe` approach is sound because the fields are truly disjoint, and we're just
+    /// working around the borrow checker's inability to see this through method boundaries.
     fn build_aggregate_result(&mut self, doc_id: t_docId) {
         self.last_found_id = doc_id;
         self.last_doc_id = doc_id;
@@ -223,18 +272,46 @@ where
         }
         self.result.doc_id = doc_id;
 
-        // Collect children's results into the aggregate
-        // We need to use unsafe to push borrowed references from children
-        // because we can't hold mutable references to children while also
-        // borrowing their results. The children's results are valid for 'index.
+        // Split borrow: get mutable references to disjoint fields.
+        // We use raw pointers to work around the borrow checker's limitation with split borrows.
+        //
+        // SAFETY ANALYSIS:
+        //
+        // 1. **No aliasing**: `children` and `result` are separate fields in the struct.
+        //    We never create overlapping mutable references to the same memory.
+        //
+        // 2. **Pointer validity**: `result_ptr` points to `self.result` which is valid for
+        //    the entire duration of this function. We only dereference it within this scope.
+        //
+        // 3. **Child result lifetime**: Each `child_result` returned by `child.current()`
+        //    has lifetime `'index`, which is tied to the underlying index data (not the
+        //    iterator). The `RQEIterator` trait contract guarantees that:
+        //    - Results remain valid as long as we don't call `read()` or `skip_to()` on
+        //      that specific child
+        //    - We only call `current()` here, which doesn't invalidate the result
+        //    - The `'index` lifetime ensures the underlying index data outlives our use
+        //
+        // 4. **No concurrent modification**: We iterate through children sequentially,
+        //    calling only `current()` (a read-like operation that returns cached state).
+        //    We don't call `read()` or `skip_to()` which would invalidate results.
+        //
+        // 5. **Aggregate result reset**: We call `reset()` at the start of this method,
+        //    clearing any previous borrowed references before adding new ones. This ensures
+        //    we don't hold stale references from a previous iteration.
+        let result_ptr: *mut RSIndexResult<'index> = &mut self.result;
+
         for child in &mut self.children {
             if let Some(child_result) = child.current() {
-                // SAFETY: child_result is valid for 'index lifetime as guaranteed
-                // by the RQEIterator trait contract. The reference will remain valid
-                // as long as we don't call read/skip_to on the child again.
+                // Convert to raw pointer to break the borrow chain.
+                // The child_result reference is valid for 'index, but we need to
+                // convince the borrow checker that pushing it to result is safe.
                 let child_ptr: *const RSIndexResult<'index> = child_result;
+                // SAFETY: See detailed analysis above. The key points are:
+                // - result_ptr and child_ptr point to disjoint memory
+                // - child_ptr is valid for 'index lifetime per RQEIterator contract
+                // - We don't invalidate child results during this loop
                 unsafe {
-                    self.result.push_borrowed(&*child_ptr);
+                    (*result_ptr).push_borrowed(&*child_ptr);
                 }
             }
         }
@@ -429,7 +506,7 @@ pub enum ReducedIntersection<'index, I> {
 /// 3. If no children remain → return the last wildcard (or Empty if none)
 /// 4. If one child remains → return that child
 /// 5. Otherwise → create `Intersection` with remaining children
-pub fn reduce<'index, I>(mut children: Vec<I>) -> ReducedIntersection<'index, I>
+pub fn reduce<'index, I>(children: Vec<I>) -> ReducedIntersection<'index, I>
 where
     I: RQEIterator<'index>,
 {
@@ -443,29 +520,21 @@ where
         return ReducedIntersection::Empty(Empty);
     }
 
-    // Find and keep track of the last wildcard (in case all are wildcards)
-    let last_wildcard_idx = children.iter().rposition(|c| c.is_wildcard());
-
-    // Remove wildcard children (they match everything, so don't affect intersection)
+    // Separate wildcards from non-wildcards.
+    // Keep track of the last wildcard in case all children are wildcards.
+    let mut non_wildcards = Vec::with_capacity(children.len());
     let mut last_wildcard: Option<I> = None;
-    children = children
-        .into_iter()
-        .enumerate()
-        .filter_map(|(i, child)| {
-            if child.is_wildcard() {
-                // Keep the last wildcard in case we need it
-                if Some(i) == last_wildcard_idx {
-                    last_wildcard = Some(child);
-                }
-                None
-            } else {
-                Some(child)
-            }
-        })
-        .collect();
+
+    for child in children {
+        if child.is_wildcard() {
+            last_wildcard = Some(child);
+        } else {
+            non_wildcards.push(child);
+        }
+    }
 
     // All children were wildcards - return the last one
-    if children.is_empty() {
+    if non_wildcards.is_empty() {
         return match last_wildcard {
             Some(w) => ReducedIntersection::Single(w),
             None => ReducedIntersection::Empty(Empty), // Shouldn't happen
@@ -473,12 +542,12 @@ where
     }
 
     // Only one non-wildcard child - return it directly
-    if children.len() == 1 {
-        return ReducedIntersection::Single(children.pop().unwrap());
+    if non_wildcards.len() == 1 {
+        return ReducedIntersection::Single(non_wildcards.pop().unwrap());
     }
 
     // Multiple children - create intersection
-    ReducedIntersection::Intersection(Intersection::new(children))
+    ReducedIntersection::Intersection(Intersection::new(non_wildcards))
 }
 
 impl<'index, I> RQEIterator<'index> for ReducedIntersection<'index, I>
