@@ -92,8 +92,12 @@ ShardResponseBarrier *shardResponseBarrier_New() {
     return NULL;
   }
 
-  // Notice: numShards and shardResponded init is postponed until shardResponseBarrier_Init is called
-
+  // numShards is initialized to 0 here and later updated via atomic_store in
+  // shardResponseBarrier_Init when the actual shard count is known.
+  // We must use atomic_init here (not rely on calloc zeroing)
+  // because the coord thread may call atomic_load on numShards before
+  // shardResponseBarrier_Init runs.
+  atomic_init(&barrier->numShards, 0);
   atomic_init(&barrier->numResponded, 0);
   atomic_init(&barrier->accumulatedTotal, 0);
   atomic_init(&barrier->hasShardError, false);
@@ -117,12 +121,12 @@ void shardResponseBarrier_Init(void *ptr, MRIterator *it) {
     // rm_calloc already zero-initializes, so all elements are false
     // Set numShards only after successful allocation to prevent
     // shardResponseBarrier_Notify from accessing NULL shardResponded array
-    atomic_init(&barrier->numShards, numShards);
-  } else {
-    // Allocation failed - keep numShards at 0 so Notify callback
-    // won't try to access the NULL shardResponded array
-    atomic_init(&barrier->numShards, 0);
+    // Use atomic_store (not atomic_init) because coord thread may already be
+    // calling atomic_load on numShards concurrently in getNextReply()
+    atomic_store(&barrier->numShards, numShards);
   }
+  // If allocation failed, numShards remains 0 (from atomic_init in shardResponseBarrier_New)
+  // so Notify callback won't try to access the NULL shardResponded array
 }
 
 // Callback invoked by IO thread for each shard reply to accumulate totals
