@@ -31,6 +31,7 @@ inverted_index_ffi = { path = "../inverted_index_ffi" }
 iterators_ffi = { path = "../iterators_ffi" }
 query_error_ffi = { path = "../query_error_ffi" }
 result_processor_ffi = { path = "../result_processor_ffi" }
+slots_tracker_ffi = { path = "../slots_tracker_ffi" }
 triemap_ffi = { path = "../triemap_ffi" }
 types_ffi = { path = "../types_ffi" }
 varint_ffi = { path = "../varint_ffi" }

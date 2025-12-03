@@ -15,7 +15,7 @@ use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use rqe_iterators::{RQEIterator, metric::MetricIteratorSortedById};
+use rqe_iterators::{RQEIterator, metric::MetricSortedById};
 
 #[derive(Default)]
 pub struct Bencher;
@@ -88,7 +88,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let BenchInput { ids, metric_data } = dense_input();
-                    MetricIteratorSortedById::new(ids, metric_data)
+                    MetricSortedById::new(ids, metric_data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -104,7 +104,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let BenchInput { ids, metric_data } = sparse_input();
-                    MetricIteratorSortedById::new(ids, metric_data)
+                    MetricSortedById::new(ids, metric_data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -122,7 +122,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let BenchInput { ids, metric_data } = dense_input();
-                    MetricIteratorSortedById::new(ids, metric_data)
+                    MetricSortedById::new(ids, metric_data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
@@ -139,7 +139,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let BenchInput { ids, metric_data } = sparse_input();
-                    MetricIteratorSortedById::new(ids, metric_data)
+                    MetricSortedById::new(ids, metric_data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {

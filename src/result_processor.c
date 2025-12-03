@@ -1984,7 +1984,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
  }
 
  /* Create a new Hybrid Merger processor */
-ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx, 
+ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
                                     HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
