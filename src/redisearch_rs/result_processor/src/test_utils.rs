@@ -214,7 +214,10 @@ impl Chain {
 impl Drop for Chain {
     fn drop(&mut self) {
         for mut ptr in self.result_processors.drain(..) {
-            unsafe { (ptr.as_mut().free.unwrap())(ptr.as_ptr()) }
+            let free = unsafe { ptr.as_mut() }.free.unwrap();
+            unsafe {
+                free(ptr.as_ptr());
+            }
         }
     }
 }
@@ -245,7 +248,7 @@ pub const fn default_search_result() -> ffi::SearchResult {
 // FIXME: replace with `SearchResult::clear` once [MOD-9920] is completed.
 #[unsafe(no_mangle)]
 unsafe extern "C" fn SearchResult_Clear(r: *mut ffi::SearchResult) {
-    let r = unsafe { r.as_mut().unwrap() };
+    let r = unsafe { r.as_mut() }.unwrap();
 
     // This won't affect anything if the result is null
     r.score = 0.0;
