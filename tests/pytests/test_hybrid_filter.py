@@ -123,3 +123,21 @@ def test_hybrid_filter_behavior():
     )
     results, _ = get_results_from_hybrid_response(response)
     env.assertEqual(set(results.keys()), {"doc:3"})
+
+def test_hybrid_policy_errors():
+    """Test that errors are returned for invalid POLICY values"""
+    env = Env()
+    setup_filter_test_index(env)
+    query_vector = np.array([0.0, 0.2]).astype(np.float32).tobytes()
+
+    env.expect(
+        'FT.HYBRID', 'filter_idx',
+        'SEARCH', '@text:(green)',
+        'VSIM', '@vector', query_vector,
+        'FILTER', '@category:{"vegetable"}', "POLICY", "INVALID_POLICY").error().contains("Error parsing vector similarity parameters: invalid hybrid policy was given")
+
+    env.expect(
+        'FT.HYBRID', 'filter_idx',
+        'SEARCH', '@text:(green)',
+        'VSIM', '@vector', query_vector,
+        'FILTER', '@category:{"vegetable"}', "POLICY", "ADHOC_BF", "BATCH_SIZE", "100").error().contains("Error parsing vector similarity parameters: 'batch size' is irrelevant for the selected policy")
