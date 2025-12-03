@@ -634,7 +634,7 @@ run_rust_tests() {
 
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
     # -Zsanitizer=address enables ASAN in Rust
-    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Z sanitizer=address"
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Zsanitizer=address"
   else
     RUST_TEST_COMMAND="nextest run"
     RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
