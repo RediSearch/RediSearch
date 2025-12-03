@@ -620,6 +620,10 @@ run_rust_tests() {
   elif [[ "$RUN_MIRI" == "1" ]]; then
     RUST_TEST_COMMAND="miri test "
     RUST_TEST_OPTIONS="--profile=$RUST_PROFILE"
+  elif [[ "$SAN" == "address" ]]; then
+    RUST_TEST_COMMAND="nextest run"
+    RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Z sanitizer=address"
   else
     RUST_TEST_COMMAND="nextest run"
     RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
