@@ -262,10 +262,67 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
   return REDISMODULE_OK;
 }
 
-static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
-  // VSIM @vectorfield vector [KNN/RANGE ...] FILTER ...
+static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, QueryError *status) {
+  // VSIM @vectorfield vector [KNN/RANGE ...] FILTER "<filter>" [POLICY <value>] [BATCH_SIZE <value>]
   //                                                 ^
   vreq->query = AC_GetStringNC(ac, NULL);
+
+  bool hasPolicy = false;
+  bool hasBatchSize = false;
+
+  // Parse optional POLICY and BATCH_SIZE in any order
+  while (!AC_IsAtEnd(ac)) {
+    if (AC_AdvanceIfMatch(ac, "POLICY")) {
+      if (hasPolicy) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate POLICY argument");
+        return REDISMODULE_ERR;
+      }
+      if (CheckEnd(ac, "POLICY", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+      const char *value;
+      size_t len;
+      AC_GetString(ac, &value, &len, 0);
+
+      // Map user-friendly "ADHOC" to the VecSim value "adhoc_bf"
+      if (strcasecmp(value, "ADHOC") == 0) {
+        value = VECSIM_POLICY_ADHOC_BF;
+      }
+
+      QueryAttribute attr = {
+        .name = VECSIM_HYBRID_POLICY,
+        .namelen = strlen(VECSIM_HYBRID_POLICY),
+        .value = rm_strdup(value),
+        .vallen = len
+      };
+      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
+      hasPolicy = true;
+
+    } else if (AC_AdvanceIfMatch(ac, "BATCH_SIZE")) {
+      if (hasBatchSize) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate BATCH_SIZE argument");
+        return REDISMODULE_ERR;
+      }
+      if (CheckEnd(ac, "BATCH_SIZE", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+      const char *value;
+      size_t len;
+      AC_GetString(ac, &value, &len, 0);
+
+      QueryAttribute attr = {
+        .name = VECSIM_BATCH_SIZE,
+        .namelen = strlen(VECSIM_BATCH_SIZE),
+        .value = rm_strdup(value),
+        .vallen = len
+      };
+      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
+      hasBatchSize = true;
+
+    } else {
+      // Unknown keyword - stop and let parent handle it
+      break;
+    }
+  }
+
   return REDISMODULE_OK;
 }
 
@@ -369,7 +426,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
 
   // Check for optional FILTER clause - argument may not be in our scope
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
-    if (parseFilterClause(ac, vreq, status) != REDISMODULE_OK) {
+    if (parseFilterClause(ac, vreq, pvd, status) != REDISMODULE_OK) {
       goto error;
     }
   }
