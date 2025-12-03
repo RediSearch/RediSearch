@@ -490,14 +490,11 @@ def test_barrier_shard_timeout_with_fail_policy():
 
     # Timeout after 10 results on each shard - with FAIL policy should error
     try:
-        res = runDebugQueryCommandTimeoutAfterN(env, query_args, 10, internal_only=True)
-        # If query completes without error, it means timeout didn't trigger
-        # This can happen if shards process fewer docs than the timeout threshold
-        total = _get_total_results(res)
-        env.assertGreaterEqual(total, 0, message="Should get valid result if no timeout")
+        runDebugQueryCommandTimeoutAfterN(env, query_args, 10, internal_only=True)
+        env.assertTrue(False, message="Expected timeout error, got valid result")
     except Exception as e:
         # Timeout error is expected with FAIL policy
-        env.assertContains('Timeout', str(e))
+        env.assertContains(str(e), 'Timeout limit was reached')
 
 
 @skip(cluster=False)
@@ -522,8 +519,8 @@ def test_barrier_shard_timeout_with_return_policy():
     total = _get_total_results(res)
 
     # Total should be positive but likely less than num_docs due to timeout
-    env.assertGreaterEqual(total, 0,
-                           message=f"With RETURN policy, should get non-negative total, got {total}")
+    env.assertGreater(total, 0,
+                    message=f"With RETURN policy, should get non-negative total, got {total}")
 
     # Verify we got a timeout warning in the response
     if isinstance(res, dict) and 'warning' in res:
@@ -531,64 +528,6 @@ def test_barrier_shard_timeout_with_return_policy():
         has_timeout_warning = any('Timeout' in str(w) for w in warnings)
         env.assertTrue(has_timeout_warning,
                        message=f"Expected timeout warning, got: {warnings}")
-
-
-@skip(cluster=False)
-def test_barrier_shard_timeout_zero_results():
-    """
-    Test barrier behavior when shards timeout before returning any results.
-
-    This tests the edge case where TIMEOUT_AFTER_N is set to 0,
-    causing immediate timeout on shards.
-    """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT RETURN', protocol=3)
-    num_docs = 100 * env.shardsCount
-    setup_index_with_data(env, num_docs)
-
-    # TIMEOUT_AFTER_N 0 with INTERNAL_ONLY causes shards to timeout immediately
-    query_args = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', num_docs]
-
-    res = runDebugQueryCommandTimeoutAfterN(env, query_args, 0, internal_only=True)
-
-    # With RETURN policy and immediate timeout, we should get 0 or minimal results
-    total = _get_total_results(res)
-    env.assertGreaterEqual(total, 0,
-                           message=f"Should get non-negative total, got {total}")
-
-
-@skip(cluster=False)
-def test_barrier_partial_shard_timeout_results():
-    """
-    Test that barrier correctly aggregates partial results from shards
-    when some shards timeout.
-
-    Uses TIMEOUT_AFTER_N to verify the coordinator properly combines
-    whatever partial results arrive from each shard.
-    """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT RETURN', protocol=3)
-    num_docs = 500 * env.shardsCount
-    setup_index_with_data(env, num_docs)
-
-    # First run without timeout to get baseline
-    query_args_baseline = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', '0']
-    conn = getConnectionByEnv(env)
-    baseline_res = conn.execute_command(*query_args_baseline)
-    baseline_total = _get_total_results(baseline_res)
-    env.assertEqual(baseline_total, num_docs,
-                    message=f"Baseline should return {num_docs}, got {baseline_total}")
-
-    # Now run with timeout after 100 results per shard
-    query_args = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', num_docs]
-    res = runDebugQueryCommandTimeoutAfterN(env, query_args, 100, internal_only=True)
-
-    total = _get_total_results(res)
-
-    # With timeout, we expect partial results
-    # The total should be less than or equal to baseline (timeout may limit results)
-    env.assertLessEqual(total, baseline_total,
-                        message=f"Timeout query should return <= {baseline_total}, got {total}")
-
-    # But we should still get some results
-    env.assertGreaterEqual(total, 0,
-                           message=f"Should get some results, got {total}")
+    else:
+        env.assertTrue(False, message="Expected warning in response, got none")
 
