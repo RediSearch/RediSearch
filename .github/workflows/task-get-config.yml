@@ -250,12 +250,12 @@ jobs:
               "silkeh/clang:20": {
                   "x86_64": {
                       'container': 'silkeh/clang:20',
-                      'post_setup_script': 'echo CC=clang >> $GITHUB_ENV; echo CXX=clang++ >> $GITHUB_ENV; apt update && apt install build-essential -y',
+                      'post_setup_script': 'echo CC=clang >> $GITHUB_ENV; echo CXX=clang++ >> $GITHUB_ENV',
                       'name': 'Clang 20 x86_64'
                   },
                   "aarch64": {
                       'container': 'silkeh/clang:20',
-                      'post_setup_script': 'echo CC=clang >> $GITHUB_ENV; echo CXX=clang++ >> $GITHUB_ENV; apt update && apt install build-essential -y',
+                      'post_setup_script': 'echo CC=clang >> $GITHUB_ENV; echo CXX=clang++ >> $GITHUB_ENV',
                       'name': 'Clang 20 ARM64'
                   }
               },
