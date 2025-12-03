@@ -630,6 +630,10 @@ run_rust_tests() {
 
     # --build-std is a cargo flag (not rustc), so set it separately
     RUST_EXTENSIONS="-Zbuild-std"
+
+    # The doc tests are disabled under ASAN to avoid issues with linking to the sanitizer runtime
+    # in doc tests.
+    RUST_TEST_OPTIONS="--tests"
   elif [[ "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
     RUST_EXTENSIONS="miri"
   fi
