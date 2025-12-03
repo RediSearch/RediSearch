@@ -100,9 +100,9 @@ pub(crate) mod test {
     #[test]
     fn basically_works() {
         // Set up the result processor chain
-        let mut chain = Chain::new();
-        chain.append(from_iter(iter::repeat_n(default_search_result(), 3)));
-        chain.append(Counter::new());
+        let mut chain = Chain::new()
+            .append(from_iter(iter::repeat_n(default_search_result(), 3)))
+            .append(Counter::new());
 
         let (cx, rp) = chain.last_as_context_and_inner::<Counter>();
 
@@ -115,11 +115,11 @@ pub(crate) mod test {
     fn test_profile_count() {
         type MockRPProfile = MockResultProcessor<{ ffi::ResultProcessorType_RP_PROFILE }>;
 
-        let mut chain = Chain::new();
-        chain.append(from_iter(iter::repeat_n(default_search_result(), 3)));
-        chain.append(MockRPProfile::new());
-        chain.append(Counter::new());
-        chain.append(MockRPProfile::new());
+        let mut chain = Chain::new()
+            .append(from_iter(iter::repeat_n(default_search_result(), 3)))
+            .append(MockRPProfile::new())
+            .append(Counter::new())
+            .append(MockRPProfile::new());
 
         let (cx, rp) = chain.last_as_context_and_inner::<MockRPProfile>();
         rp.next(cx, &mut default_search_result()).unwrap();
