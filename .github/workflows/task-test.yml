@@ -378,7 +378,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ShooterIT/redis
-          ref: ${{ inputs.get-redis }}
+          ref: "trim-delay"
           path: redis
       - name: Get Redis (node20 not supported)
         if: ${{ steps.node20.outputs.supported == 'false' }}
@@ -391,8 +391,8 @@ jobs:
           cd $DEST_DIR
 
           # Checkout the REF
-          git fetch origin ${{ inputs.get-redis }}
-          git checkout ${{ inputs.get-redis }}
+          git fetch origin trim-delay
+          git checkout trim-delay
 
       - name: Build Redis
         working-directory: redis
