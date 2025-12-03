@@ -523,11 +523,14 @@ class ConditionalExpected:
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0, seed=10):
     conn = getConnectionByEnv(env)
     np.random.seed(seed)
+    p = conn.pipeline(transaction=False)
+    query_vec = None
     for i in range(n_vec):
         vector = create_np_array_typed(np.random.rand(vec_size), data_type)
         if i == query_vec_index:
             query_vec = vector
-        conn.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
+        p.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
+    p.execute()
     return query_vec
 
 def sortResultByKeyName(res, start_index=1):
@@ -772,6 +775,18 @@ def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count):
     debug_params = ['TIMEOUT_AFTER_N', timeout_res_count]
     return runDebugQueryCommand(env, query_cmd, debug_params)
 
+class vecsimMockTimeoutContext:
+    """Context manager for enabling/disabling VECSIM mock timeout on all shards"""
+    def __init__(self, env):
+        self.env = env
+
+    def __enter__(self):
+        run_command_on_all_shards(self.env, debug_cmd(), 'VECSIM_MOCK_TIMEOUT', 'enable')
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        run_command_on_all_shards(self.env, debug_cmd(), 'VECSIM_MOCK_TIMEOUT', 'disable')
+        
 def waitForIndexFinishScan(env, idx = 'idx'):
     with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
         while index_info(env, idx)['percent_indexed'] not in (1, '1'):
