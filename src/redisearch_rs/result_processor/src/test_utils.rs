@@ -49,6 +49,7 @@ where
 pub struct ResultRP {
     res: Option<Result<Option<()>, Error>>,
 }
+
 impl ResultRP {
     pub fn new_err(error: Error) -> Self {
         Self {
@@ -66,6 +67,7 @@ impl ResultRP {
         }
     }
 }
+
 impl ResultProcessor for ResultRP {
     const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
 
