@@ -1,0 +1,32 @@
+name: "ftsb-1M-enwiki_abstract-hashes-load-no-trim"
+description: "
+             enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md),
+             from English-language Wikipedia:Database page abstracts.
+             This use case generates 3 TEXT fields per document, and focusses on full text queries performance.
+             Specifically for this testcase:
+                - Type (read/write/mixed): write
+                - Query type: N/A
+                - Query sample: N/A
+
+              This use case aims to test how the slots filtering in the result processor while a shard has unowned slots affects performance in this transitional state.
+             "
+
+metadata:
+  component: "search"
+setups:
+  - oss-cluster-02-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+
+dbconfig:
+  - init_commands:
+      - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
+  - pre_run_commands:
+      - "CONFIG SET search-debug-disable-trimming yes"
+      - "Some command thar forces moving hash slots between all the nodes"
+clientconfig:
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.SETUP.csv"
