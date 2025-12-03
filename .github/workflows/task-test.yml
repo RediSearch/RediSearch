@@ -539,7 +539,7 @@ jobs:
         run: echo "Currently not available..."
 
       - name: Fail flow if tests failed
-        if: (inputs.san == 'address' && steps.rust_unit_tests_miri.outcome == 'failure') || steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
+        if: ((inputs.san == 'address' && steps.rust_unit_tests_miri.outcome == 'failure') || steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
         run: |
           echo "Rust Unit Tests(Miri): ${{ steps.rust_unit_tests_miri.outcome }}"
           echo "Rust Unit Tests: ${{ steps.rust_unit_tests.outcome }}"
