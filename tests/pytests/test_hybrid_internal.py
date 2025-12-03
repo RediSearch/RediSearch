@@ -346,13 +346,14 @@ def test_hybrid_internal_cursor_with_scores():
     """Test reading from both VSIM and SEARCH cursors with WITHSCORES and compare with equivalent FT.SEARCH commands"""
     env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
     setup_hybrid_test_data(env)
+    slots = generate_slots(range(0, int((2**14)/3))) if env.isCluster() else generate_slots()
 
     # Execute the hybrid command with cursors
     query_vec = create_np_array_typed([1.0, 0.0], 'FLOAT32')
     hybrid_cursor_dict = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:shoes',
                            'VSIM', '@embedding', '$vec_param', 'KNN', '2', 'K', '10',
                            'WITHCURSOR', 'WITHSCORES',
-                           'PARAMS', '2', 'vec_param', query_vec.tobytes(), '_SLOTS_INFO', generate_slots(range(0, 0)))
+                           'PARAMS', '2', 'vec_param', query_vec.tobytes(), '_SLOTS_INFO', slots)
 
     hybrid_cursor_dict = remove_warnings(hybrid_cursor_dict)
     # Should return a map with cursor IDs

@@ -672,7 +672,7 @@ def test_cursor_commands_errors(env: Env):
     # Test internal cursor profile after index drop
     env.cmd('FT.CREATE', 'temp', 'SCHEMA', 't', 'TEXT')
     waitForIndex(env, 'temp')
-    _, cid, _ = env.cmd('_FT.PROFILE', 'temp', 'AGGREGATE', 'QUERY', '*', '_SLOTS_INFO', generate_slots(range(0, 0)), 'WITHCURSOR', 'COUNT', '1')
+    _, cid, _ = env.cmd('_FT.PROFILE', 'temp', 'AGGREGATE', 'QUERY', '*', '_SLOTS_INFO', generate_slots(), 'WITHCURSOR', 'COUNT', '1')
     env.assertNotEqual(cid, 0)
     env.expect('FT.DROPINDEX', 'temp').ok()
     env.expect('_FT.CURSOR', 'PROFILE', 'temp', cid).error().contains('The index was dropped while the cursor was idle')

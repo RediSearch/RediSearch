@@ -173,7 +173,8 @@ def test_internal_commands(env):
 
     # Promote the connection to internal
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
-    env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', generate_slots(range(0, 0))).equal([0])
+    slots = generate_slots(range(0, int((2**14)/3))) if env.isCluster() else generate_slots()
+    env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', slots).equal([0])
 
 @skip(redis_less_than="7.9.227")
 def test_acl_key_permissions_validation(env):
