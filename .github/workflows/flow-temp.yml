@@ -13,6 +13,14 @@ on:
 
 jobs:
 
-  run-on-intel:
-    uses: ./.github/workflows/flow-intel.yml
+  run-on-alpine:
+    uses: ./.github/workflows/flow-test.yml
     secrets: inherit
+    with:
+      platform: all
+      architecture: all
+      redis-ref: unstable
+
+
+
+
