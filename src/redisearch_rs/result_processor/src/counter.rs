@@ -81,7 +81,9 @@ impl Counter {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::test_utils::{Chain, UpstreamResultProcessor, default_search_result, from_iter};
+    use crate::test_utils::{
+        Chain, IteratorResultProcessor, UpstreamResultProcessor, default_search_result,
+    };
     use std::{
         iter,
         sync::atomic::{AtomicUsize, Ordering},
@@ -101,7 +103,10 @@ pub(crate) mod test {
     fn basically_works() {
         // Set up the result processor chain
         let mut chain = Chain::new()
-            .append(from_iter(iter::repeat_n(default_search_result(), 3)))
+            .append(IteratorResultProcessor::from_iter(iter::repeat_n(
+                default_search_result(),
+                3,
+            )))
             .append(Counter::new());
 
         let (cx, rp) = chain.last_as_context_and_inner::<Counter>();
@@ -116,7 +121,10 @@ pub(crate) mod test {
         type MockRPProfile = UpstreamResultProcessor<{ ffi::ResultProcessorType_RP_PROFILE }>;
 
         let mut chain = Chain::new()
-            .append(from_iter(iter::repeat_n(default_search_result(), 3)))
+            .append(IteratorResultProcessor::from_iter(iter::repeat_n(
+                default_search_result(),
+                3,
+            )))
             .append(MockRPProfile::new())
             .append(Counter::new())
             .append(MockRPProfile::new());
