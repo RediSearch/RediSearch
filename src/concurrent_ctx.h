@@ -13,6 +13,10 @@
 #include <time.h>
 #include "thpool/thpool.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #if defined(__FreeBSD__)
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
 #endif
@@ -149,6 +153,9 @@ void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx);
 
 void ConcurrentSearchCtx_ReopenKeys(ConcurrentSearchCtx *ctx);
 
+/* return number of currently working threads */
+size_t ConcurrentSearchPool_WorkingThreadCount();
+
 struct ConcurrentCmdCtx;
 typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
                                      struct ConcurrentCmdCtx *);
@@ -207,4 +214,7 @@ static inline int CheckConcurrentSupport(RedisModuleCtx *ctx) {
   return 1;
 }
 
+#ifdef __cplusplus
+}
 #endif
+#endif // RS_CONCERRNT_CTX_

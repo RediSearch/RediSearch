@@ -595,14 +595,13 @@ def test_indexing_metrics(env: Env):
 
 SEARCH_PREFIX = 'search_'
 
-def test_active_io_threads_stats(env):
+def test_initial_multi_threading_stats(env):
   conn = getConnectionByEnv(env)
   # Setup: Create index with some data
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'age', 'NUMERIC').ok()
   for i in range(10):
     conn.execute_command('HSET', f'doc{i}', 'name', f'name{i}', 'age', i)
 
-  # Phase 1: Verify multi_threading section exists and active_io_threads starts at 0
   info_dict = info_modules_to_dict(env)
 
   # Verify multi_threading section exists
@@ -613,12 +612,17 @@ def test_active_io_threads_stats(env):
   # Verify all expected fields exist
   env.assertTrue(f'{SEARCH_PREFIX}active_io_threads' in info_dict[multi_threading_section],
                  message="active_io_threads field should exist in multi_threading section")
+  env.assertTrue(f'{SEARCH_PREFIX}active_coord_threads' in info_dict[multi_threading_section],
+                 message="active_coord_threads field should exist in multi_threading section")
 
   # Verify all fields initialized to 0.
   env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_io_threads'], '0',
                  message="active_io_threads should be 0 when idle")
+  env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_coord_threads'], '0',
+                 message="active_coord_threads should be 0 when idle")
   # There's no deterministic way to test active_io_threads increases while a query is running,
   # we test it in unit tests.
+  # TODO: TEST COORD???
 
 # NOTE: Currently query debug pause mechanism only supports pausing one query at a time, and is not supported on cluster.
 def test_active_worker_threads():
@@ -664,9 +668,16 @@ def test_active_worker_threads():
                 time.sleep(0.1)
 
         # Verify active_worker_threads == num_queries
-        info_dict = info_modules_to_dict(conn)
-        env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], str(num_queries),
-                        message=f"{query_type}: active_worker_threads should be {num_queries} when {num_queries} queries are paused")
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+            info_dict = info_modules_to_dict(con)
+            env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], str(num_queries),
+                           message=f"shard {i}: {query_type}: active_worker_threads should be {num_queries} when {num_queries} queries are paused")
+
+        # If this is cluster, and FT.AGGREGATE, verify active_coord_threads == num_queries
+        if env.isCluster() and query_type == 'FT.AGGREGATE':
+          info_dict = info_modules_to_dict(env)
+          env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_coord_threads'], str(num_queries),
+                         message=f"coordinator: {query_type}: active_coord_threads should be {num_queries} when {num_queries} queries are paused")
 
         # Resume all queries
         setPauseRPResume(env)
