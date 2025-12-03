@@ -356,26 +356,22 @@ target_link_libraries(redisearch
         ttl_table
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
-        ${CMAKE_LD_LIBS})
+)
 
 extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
 add_dependencies(redisearch uv_a)
 add_dependencies(redisearch redisearch_rs)
 
-# Workaround for Clang 20 linking issue: test executables fail to link against redisearch.so
-# with "undefined reference" errors for C++ stdlib symbols (std::ios_base_library_init, etc).
-# Root cause unknown - possibly related to how Clang 20 handles C++ stdlib for shared libraries.
-# The --unresolved-symbols=ignore-in-shared-libs flag allows linking to proceed, with symbols
-# resolved at runtime by the executable's C++ runtime (standard pattern for plugin architectures).
-if(BUILD_SEARCH_UNIT_TESTS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "20.0")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--unresolved-symbols=ignore-in-shared-libs")
-    message(STATUS "Clang ${CMAKE_CXX_COMPILER_VERSION}: Setting --unresolved-symbols=ignore-in-shared-libs for test executables")
-endif()
-
 #----------------------------------------------------------------------------------------------
 # Unit tests configuration
 if(BUILD_SEARCH_UNIT_TESTS)
+    # Special linker flags to ignore unresolved symbols in shared libraries
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "20.0")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--unresolved-symbols=ignore-in-shared-libs")
+        message(STATUS "Clang ${CMAKE_CXX_COMPILER_VERSION}: Setting --unresolved-symbols=ignore-in-shared-libs for test executables")
+    endif()
+
     enable_testing()
 
     add_subdirectory(tests/cpptests/redismock)
