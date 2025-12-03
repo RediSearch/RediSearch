@@ -28,8 +28,7 @@ if(SAN STREQUAL "address")
     message(STATUS "Configuring Rust build with AddressSanitizer")
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
     # -Zsanitizer=address enables ASAN in Rust
-    # -C link-args=-znostart-stop-gc prevents linker GC issues with ASAN
-    set(RUST_FLAGS "${RUST_FLAGS} -Zsanitizer=address -C link-arg=-static-libasan")
+    set(RUST_FLAGS "${RUST_FLAGS} -Zsanitizer=address")
 
     # -Zbuild-std is a cargo flag (not rustc), so set it separately
     set(CARGO_BUILD_STD_FLAG "-Zbuild-std")
