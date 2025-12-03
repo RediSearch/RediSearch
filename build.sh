@@ -620,7 +620,7 @@ run_rust_tests() {
   elif [[ "$SAN" == "address" ]]; then
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
     # -Zsanitizer=address enables ASAN in Rust
-    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Z sanitizer=address"
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Zsanitizer=address"
 
     # --build-std is a cargo flag (not rustc), so set it separately
     RUST_EXTENSIONS="-Zbuild-std"
