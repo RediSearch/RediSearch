@@ -361,6 +361,10 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
   checkTrimmingStateTimerIdScheduled = false;
   RedisModule_Log(ctx, "notice", "Checking if we can start trimming migrated slots.");
   if (ASM_CanStartTrimming()) {
+    if (RSGlobalConfig.debugDisableTrimming) {
+      RedisModule_Log(ctx, "notice", "Trimming disabled by debug flag, skipping EnableTrim.");
+      return;
+    }
     RedisModule_Log(ctx, "notice", "No queries using the old version, Enabling trimming.");
     RS_ASSERT(enableTrimmingTimerIdScheduled);
     RedisModule_StopTimer(ctx, enableTrimmingTimerId, NULL);
@@ -382,6 +386,10 @@ static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
   // Cancel the checkTrimmingStateCallback timer (Ignore error if it did not exist it does not matter)
   RedisModule_Log(ctx, "notice", "Maximum delay reached. Enabling trimming.");
   if (ASM_CanStartTrimming()) {
+    if (RSGlobalConfig.debugDisableTrimming) {
+      RedisModule_Log(ctx, "notice", "Trimming disabled by debug flag, skipping EnableTrim.");
+      return;
+    }
     RedisModule_Log(ctx, "notice", "Queries still using the old version, potential result inaccuracy.");
   }
   RS_ASSERT(checkTrimmingStateTimerIdScheduled);

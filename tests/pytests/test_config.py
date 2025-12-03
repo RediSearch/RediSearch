@@ -1305,6 +1305,7 @@ booleanConfigs = [
     ('search-_prioritize-intersect-union-children', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no', False, False),
     ('search-raw-docid-encoding', 'RAW_DOCID_ENCODING', 'no', True, False),
     ('search-enable-unstable-features', 'ENABLE_UNSTABLE_FEATURES', 'no', False, False),
+    ('search-debug-disable-trimming', 'DEBUG_DISABLE_TRIMMING', 'no', False, False),
 ]
 
 @skip(redis_less_than='7.9.227')
