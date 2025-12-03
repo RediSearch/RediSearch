@@ -19,6 +19,8 @@ use rqe_iterators::{RQEIterator, wildcard::Wildcard};
 
 use crate::ffi;
 
+static WEIGHT: f64 = 1.0;
+
 #[derive(Default)]
 pub struct Bencher;
 
@@ -51,7 +53,7 @@ impl Bencher {
                 || {
                     // Large range: 1M documents (1 to 1,000,000)
                     // Matches C large range benchmark exactly
-                    Wildcard::new(1_000_000)
+                    Wildcard::new(1_000_000, WEIGHT)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -69,7 +71,7 @@ impl Bencher {
                 || {
                     // Medium range: 500K documents (1 to 500,000)
                     // Matches C medium range benchmark exactly
-                    Wildcard::new(500_000)
+                    Wildcard::new(500_000, WEIGHT)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -88,7 +90,7 @@ impl Bencher {
                 || {
                     // Large range: skip through 1M documents with step=100
                     // Matches C large range benchmark exactly
-                    Wildcard::new(1_000_000)
+                    Wildcard::new(1_000_000, WEIGHT)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
@@ -107,7 +109,7 @@ impl Bencher {
                 || {
                     // Medium range: skip through 500K documents with step=100
                     // Matches C medium range benchmark exactly
-                    Wildcard::new(500_000)
+                    Wildcard::new(500_000, WEIGHT)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {

@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Supporting types for [`MetricIterator`].
+//! Supporting types for [`Metric`].
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdList};
 use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
@@ -24,15 +24,15 @@ pub enum MetricType {
 
 /// An iterator that yields document ids alongside a metric value (e.g. a score or a distance),
 /// sorted by document id.
-pub type MetricIteratorSortedById<'index> = MetricIterator<'index, true>;
+pub type MetricSortedById<'index> = Metric<'index, true>;
 /// An iterator that yields document ids alongside a metric value (e.g. a score or a distance),
 /// sorted by metric value.
-pub type MetricIteratorSortedByScore<'index> = MetricIterator<'index, false>;
+pub type MetricSortedByScore<'index> = Metric<'index, false>;
 
 /// An iterator that yields document ids alongside a metric value (e.g. a score or a distance).
 /// The iterator can be sorted by document id or by metric value,
 /// but the choice is made at compile time.
-pub struct MetricIterator<'index, const SORTED_BY_ID: bool> {
+pub struct Metric<'index, const SORTED_BY_ID: bool> {
     base: IdList<'index, SORTED_BY_ID>,
     metric_data: Vec<f64>,
     #[allow(dead_code)]
@@ -47,7 +47,7 @@ pub struct MetricIterator<'index, const SORTED_BY_ID: bool> {
     key_handle: *mut RLookupKeyHandle,
 }
 
-impl<'index, const SORTED_BY_ID: bool> Drop for MetricIterator<'index, SORTED_BY_ID> {
+impl<'index, const SORTED_BY_ID: bool> Drop for Metric<'index, SORTED_BY_ID> {
     fn drop(&mut self) {
         if !self.key_handle.is_null() {
             // Safety: thanks to [`Self::key_handle`]'s invariant, we can safely
@@ -72,7 +72,7 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey
     unsafe { ffi::ResetAndPushMetricData(result as *mut _ as *mut ffi::RSIndexResult, val, key) };
 }
 
-impl<'index, const SORTED_BY_ID: bool> MetricIterator<'index, SORTED_BY_ID> {
+impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     pub fn new(ids: Vec<t_docId>, metric_data: Vec<f64>) -> Self {
         debug_assert!(ids.len() == metric_data.len());
 
@@ -108,9 +108,7 @@ impl<'index, const SORTED_BY_ID: bool> MetricIterator<'index, SORTED_BY_ID> {
     }
 }
 
-impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index>
-    for MetricIterator<'index, SORTED_BY_ID>
-{
+impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SORTED_BY_ID> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.base.current()
