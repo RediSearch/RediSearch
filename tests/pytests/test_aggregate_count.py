@@ -39,31 +39,41 @@ def _get_results(res):
 
 def _get_cluster_RP_profile(env, res) -> list:
     # Extract the RP types from the profile response
+    shard_RP_and_count = []
     if isinstance(res, dict):
-        shard = res['Profile']['Shards'][0]['Result processors profile']
+        for i in range(len(res['Profile']['Shards'])):
+            shard = res['Profile']['Shards'][i]['Result processors profile']
+            shard_RP_and_count.append([(item['Type'], item['Results processed']) for item in shard])
+
+        # sort shard by the number of results processed by the first RP
+        shard_RP_and_count.sort(key=lambda x: x[0][1])
+        # Extract the RP types from the coordinator
         coord = res['Profile']['Coordinator']['Result processors profile']
-        shard_RP = [item['Type'] for item in shard]
-        coord_RP = [item['Type'] for item in coord]
+        coord_RP_and_count = [(item['Type'], item['Results processed']) for item in coord]
+        return [shard_RP_and_count, coord_RP_and_count]
 
-        return [shard_RP, coord_RP]
     else:
-        shard = res[1][1][0][13]
-        coord = res[1][3][11]
-        shard_RP = [item[1] for item in shard]
-        coord_RP = [item[1] for item in coord]
+        for i in range(len(res[1][1])):
+            shard = res[1][1][i][13]
+            shard_RP_and_count.append([(item[1], item[5]) for item in shard])
 
-        return [shard_RP, coord_RP]
+        # sort shard by the number of results processed by the first RP
+        shard_RP_and_count.sort(key=lambda x: x[0][1])
+        # Extract the RP types from the coordinator
+        coord = res[1][3][11]
+        coord_RP_and_count = [(item[1], item[5]) for item in coord]
+        return [shard_RP_and_count, coord_RP_and_count]
 
 
 def _get_standalone_RP_profile(env, res) -> list:
     if isinstance(res, dict):
         profile = res['Profile']['Shards'][0]['Result processors profile']
         RP_and_count = [(item['Type'], item['Results processed']) for item in profile]
-        return [item['Type'] for item in profile]
+        return RP_and_count
     else:
         profile = res[1][1][0][13]
         RP_and_count = [(item[1], item[5]) for item in profile]
-        return [item[1] for item in profile]
+        return RP_and_count
 
 
 def _translate_query_to_profile_query(query) -> list:
@@ -362,285 +372,317 @@ def _test_profile(protocol):
 
     queries_and_profiles = [
         # query,
-        # RESP2 Standalone,
-        # RESP3 standalone,
-        # RESP2 [shard[0], coordinator]
-        # RESP3 [shard[0], coordinator]
+        # RESP2/RESP3 Standalone,
+        # RESP2/RESP3 [[shard[0], shard[1], shard[2]], coordinator]
 
         # WITHCOUNT
         # No sorter, no limit, returns all results
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT'],
-         ['Index', 'Depleter'],
-         ['Index', 'Depleter'],
-         [['Index', 'Depleter'], ['Network', 'Depleter']],
-         [['Index', 'Depleter'], ['Network', 'Depleter']]),
+         [('Index', 3100), ('Depleter', 3100)],
+         [[[('Index', 1027), ('Depleter', 1027)],
+           [('Index', 1032), ('Depleter', 1032)],
+           [('Index', 1041), ('Depleter', 1041)]],
+           [('Network', 3100), ('Depleter', 3100)]]),
 
-        # WITHCOUNT + LIMIT 0 0
+        # # WITHCOUNT + LIMIT 0 0
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 0],
-         ['Index', 'Counter'],
-         ['Index', 'Counter'],
-         [['Index', 'Depleter'], ['Network', 'Counter']],
-         [['Index', 'Depleter'], ['Network', 'Counter']]),
+         [('Index', 3100), ('Counter', 1)],
+         [[[('Index', 1027), ('Depleter', 1027)],
+           [('Index', 1032), ('Depleter', 1032)],
+           [('Index', 1041), ('Depleter', 1041)]],
+           [('Network', 3100), ('Counter', 1)]]),
 
         # WITHCOUNT + LIMIT
         # No sorter, limit results
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 50],
-         ['Index', 'Depleter', 'Pager/Limiter'],
-         ['Index', 'Depleter', 'Pager/Limiter'],
-         [['Index', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']],
-         [['Index', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']]),
+         [('Index', 3100), ('Depleter', 49), ('Pager/Limiter', 50)],
+         [[[('Index', 1027), ('Depleter', 49), ('Pager/Limiter', 50)],
+           [('Index', 1032), ('Depleter', 49), ('Pager/Limiter', 50)],
+           [('Index', 1041), ('Depleter', 49), ('Pager/Limiter', 50)]],
+           [('Network', 150), ('Depleter', 49), ('Pager/Limiter', 50)]]),
 
         # WITHCOUNT + SORTBY 0
         # Sorter without keys, default limit
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0'],
-         ['Index', 'Depleter'],
-         ['Index', 'Depleter'],
-         [['Index', 'Depleter'], ['Network', 'Depleter']],
-         [['Index', 'Depleter'], ['Network', 'Depleter']]),
+         [('Index', 3100), ('Depleter', 3100)],
+         [[[('Index', 1027), ('Depleter', 1027)],
+           [('Index', 1032), ('Depleter', 1032)],
+           [('Index', 1041), ('Depleter', 1041)]],
+           [('Network', 3100), ('Depleter', 3100)]]),
 
         # WITHCOUNT + SORTBY 0 + MAX
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0', 'MAX', 3],
-         ['Index', 'Depleter', 'Pager/Limiter'],
-         ['Index', 'Depleter', 'Pager/Limiter'],
-         [['Index', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']],
-         [['Index', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']]),
+         [('Index', 3100), ('Depleter', 2), ('Pager/Limiter', 3)],
+         [[[('Index', 1027), ('Depleter', 2), ('Pager/Limiter', 3)],
+           [('Index', 1032), ('Depleter', 2), ('Pager/Limiter', 3)],
+           [('Index', 1041), ('Depleter', 2), ('Pager/Limiter', 3)]],
+           [('Network', 9), ('Depleter', 2), ('Pager/Limiter', 3)]]),
 
         # WITHCOUNT + SORTBY 0 + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0', 'LIMIT', 0, 50],
-         ['Index', 'Depleter', 'Pager/Limiter'],
-         ['Index', 'Depleter', 'Pager/Limiter'],
-         [['Index', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']],
-         [['Index', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']]),
+         [('Index', 3100), ('Depleter', 49), ('Pager/Limiter', 50)],
+         [[[('Index', 1027), ('Depleter', 49), ('Pager/Limiter', 50)],
+           [('Index', 1032), ('Depleter', 49), ('Pager/Limiter', 50)],
+           [('Index', 1041), ('Depleter', 49), ('Pager/Limiter', 50)]],
+           [('Network', 150), ('Depleter', 49), ('Pager/Limiter', 50)]]),
 
         # WITHCOUNT + SORTBY
         # Sorter, limit results to DEFAULT_LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'],
-         ['Index', 'Sorter'],
-         ['Index', 'Sorter'],
-         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
-         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
+         [('Index', 3100), ('Sorter', 10)],
+         [[[('Index', 1027), ('Sorter', 10), ('Loader', 10)],
+           [('Index', 1032), ('Sorter', 10), ('Loader', 10)],
+           [('Index', 1041), ('Sorter', 10), ('Loader', 10)]],
+           [('Network', 30), ('Sorter', 10)]]),
 
         # WITHCOUNT + SORTBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
-         ['Index', 'Sorter'],
-         ['Index', 'Sorter'],
-         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
-         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
+         [('Index', 3100), ('Sorter', 50)],
+         [[[('Index', 1027), ('Sorter', 50), ('Loader', 50)],
+         [('Index', 1032), ('Sorter', 50), ('Loader', 50)],
+         [('Index', 1041), ('Sorter', 50), ('Loader', 50)]],
+         [('Network', 150), ('Sorter', 50)]]),
 
         # WITHCOUNT + LOAD
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'],
-         ['Index', 'Loader', 'Depleter'],
-         ['Index', 'Loader', 'Depleter'],
-         [['Index', 'Loader', 'Depleter'], ['Network', 'Depleter']],
-         [['Index', 'Loader', 'Depleter'], ['Network', 'Depleter']]),
+         [('Index', 3100), ('Loader', 3100), ('Depleter', 3100)],
+         [[[('Index', 1027), ('Loader', 1027), ('Depleter', 1027)],
+           [('Index', 1032), ('Loader', 1032), ('Depleter', 1032)],
+           [('Index', 1041), ('Loader', 1041), ('Depleter', 1041)]],
+           [('Network', 3100), ('Depleter', 3100)]]),
 
         # WITHCOUNT + LOAD + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title', 'LIMIT', 0, 50],
-         ['Index', 'Loader', 'Depleter', 'Pager/Limiter'],
-         ['Index', 'Loader', 'Depleter', 'Pager/Limiter'],
-         [['Index', 'Loader', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']],
-         [['Index', 'Loader', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']]),
+         [('Index', 3100), ('Loader', 3100), ('Depleter', 49), ('Pager/Limiter', 50)],
+         [[[('Index', 1027), ('Loader', 1027), ('Depleter', 49), ('Pager/Limiter', 50)],
+           [('Index', 1032), ('Loader', 1032), ('Depleter', 49), ('Pager/Limiter', 50)],
+           [('Index', 1041), ('Loader', 1041), ('Depleter', 49), ('Pager/Limiter', 50)]],
+           [('Network', 150), ('Depleter', 49), ('Pager/Limiter', 50)]]),
 
         # WITHCOUNT + GROUPBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand'],
-         ['Index', 'Grouper'],
-         ['Index', 'Grouper'],
-         [['Index', 'Grouper'], ['Network', 'Grouper']],
-         [['Index', 'Grouper'], ['Network', 'Grouper']]),
+         [('Index', 3100), ('Grouper', 25)],
+         [[[('Index', 1027), ('Grouper', 25)],
+           [('Index', 1032), ('Grouper', 25)],
+           [('Index', 1041), ('Grouper', 25)]],
+           [('Network', 75), ('Grouper', 25)]]),
 
         # WITHCOUNT + GROUPBY + SORTBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand'],
-         ['Index', 'Grouper', 'Sorter'],
-         ['Index', 'Grouper', 'Sorter'],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']]),
+         [('Index', 3100), ('Grouper', 25), ('Sorter', 10)],
+         [[[('Index', 1027), ('Grouper', 25)],
+           [('Index', 1032), ('Grouper', 25)],
+           [('Index', 1041), ('Grouper', 25)]],
+           [('Network', 75), ('Grouper', 25), ('Sorter', 10)]]),
 
         # WITHCOUNT + GROUPBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'LIMIT', 0, 50],
-         ['Index', 'Grouper', 'Pager/Limiter'],
-         ['Index', 'Grouper', 'Pager/Limiter'],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Pager/Limiter']],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Pager/Limiter']]),
+         [('Index', 3100), ('Grouper', 25), ('Pager/Limiter', 25)],
+         [[[('Index', 1027), ('Grouper', 25)],
+           [('Index', 1032), ('Grouper', 25)],
+           [('Index', 1041), ('Grouper', 25)]],
+           [('Network', 75), ('Grouper', 25), ('Pager/Limiter', 25)]]),
 
         # WITHCOUNT + GROUPBY + SORTBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 50],
-         ['Index', 'Grouper', 'Sorter'],
-         ['Index', 'Grouper', 'Sorter'],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']]),
+         [('Index', 3100), ('Grouper', 25), ('Sorter', 25)],
+         [[[('Index', 1027), ('Grouper', 25)],
+           [('Index', 1032), ('Grouper', 25)],
+           [('Index', 1041), ('Grouper', 25)]],
+           [('Network', 75), ('Grouper', 25), ('Sorter', 25)]]),
 
         # WITHCOUNT + ADDSCORES
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES'],
-         ['Index', 'Scorer', 'Depleter'],
-         ['Index', 'Scorer', 'Depleter'],
-         [['Index', 'Scorer', 'Depleter'], ['Network', 'Depleter']],
-         [['Index', 'Scorer', 'Depleter'], ['Network', 'Depleter']]),
+         [('Index', 3100), ('Scorer', 3100), ('Depleter', 3100)],
+         [[[('Index', 1027), ('Scorer', 1027), ('Depleter', 1027)],
+           [('Index', 1032), ('Scorer', 1032), ('Depleter', 1032)],
+           [('Index', 1041), ('Scorer', 1041), ('Depleter', 1041)]],
+           [('Network', 3100), ('Depleter', 3100)]]),
 
         # WITHCOUNT + ADDSCORES + SORTBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'SORTBY', 1, '@title'],
-         ['Index', 'Scorer', 'Sorter'],
-         ['Index', 'Scorer', 'Sorter'],
-         [['Index', 'Scorer', 'Sorter', 'Loader'], ['Network', 'Sorter']],
-         [['Index', 'Scorer', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
+         [('Index', 3100), ('Scorer', 3100), ('Sorter', 10)],
+         [[[('Index', 1027), ('Scorer', 1027), ('Sorter', 10), ('Loader', 10)],
+           [('Index', 1032), ('Scorer', 1032), ('Sorter', 10), ('Loader', 10)],
+           [('Index', 1041), ('Scorer', 1041), ('Sorter', 10), ('Loader', 10)]],
+           [('Network', 30), ('Sorter', 10)]]),
 
         # WITHCOUNT + ADDSCORES + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LIMIT', 0, 50],
-         ['Index', 'Scorer', 'Depleter', 'Pager/Limiter'],
-         ['Index', 'Scorer', 'Depleter', 'Pager/Limiter'],
-         [['Index', 'Scorer', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']],
-         [['Index', 'Scorer', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']]),
+         [('Index', 3100), ('Scorer', 3100), ('Depleter', 49), ('Pager/Limiter', 50)],
+         [[[('Index', 1027), ('Scorer', 1027), ('Depleter', 49), ('Pager/Limiter', 50)],
+           [('Index', 1032), ('Scorer', 1032), ('Depleter', 49), ('Pager/Limiter', 50)],
+           [('Index', 1041), ('Scorer', 1041), ('Depleter', 49), ('Pager/Limiter', 50)]],
+           [('Network', 150), ('Depleter', 49), ('Pager/Limiter', 50)]]),
 
         # WITHCOUNT + FILTER
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200'],
-         ['Index', 'Loader', 'Filter - Predicate <', 'Depleter'],
-         ['Index', 'Loader', 'Filter - Predicate <', 'Depleter'],
-         [['Index', 'Loader', 'Filter - Predicate <', 'Depleter'], ['Network', 'Depleter']],
-         [['Index', 'Loader', 'Filter - Predicate <', 'Depleter'], ['Network', 'Depleter']]),
+         [('Index', 3100), ('Loader', 3100), ('Filter - Predicate <', 200), ('Depleter', 200)],
+         [[[('Index', 1027), ('Loader', 1027), ('Filter - Predicate <', 64), ('Depleter', 64)],
+           [('Index', 1032), ('Loader', 1032), ('Filter - Predicate <', 68), ('Depleter', 68)],
+           [('Index', 1041), ('Loader', 1041), ('Filter - Predicate <', 68), ('Depleter', 68)]],
+           [('Network', 200), ('Depleter', 200)]]),
 
         # WITHCOUNT + FILTER + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200', 'LIMIT', 0, 50],
-         ['Index', 'Loader', 'Filter - Predicate <', 'Depleter', 'Pager/Limiter'],
-         ['Index', 'Loader', 'Filter - Predicate <', 'Depleter', 'Pager/Limiter'],
-         [['Index', 'Loader', 'Filter - Predicate <', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']],
-         [['Index', 'Loader', 'Filter - Predicate <', 'Depleter', 'Pager/Limiter'], ['Network', 'Depleter', 'Pager/Limiter']]),
+         [('Index', 3100), ('Loader', 3100), ('Filter - Predicate <', 200), ('Depleter', 49), ('Pager/Limiter', 50)],
+         [[[('Index', 1027), ('Loader', 1027), ('Filter - Predicate <', 64), ('Depleter', 49), ('Pager/Limiter', 50)],
+           [('Index', 1032), ('Loader', 1032), ('Filter - Predicate <', 68), ('Depleter', 49), ('Pager/Limiter', 50)],
+           [('Index', 1041), ('Loader', 1041), ('Filter - Predicate <', 68), ('Depleter', 49), ('Pager/Limiter', 50)]],
+           [('Network', 150), ('Depleter', 49), ('Pager/Limiter', 50)]]),
 
         # ----------------------------------------------------------------------
         # WITHOUTCOUNT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT'],
-         ['Index'],
-         ['Index'],
-         [['Index'], ['Network']],
-         [['Index'], ['Network']]),
+         [('Index', 3100)],
+         [[[('Index', 1027)],
+           [('Index', 1032)],
+           [('Index', 1041)]],
+           [('Network', 3100)]]),
 
         # WITHOUTCOUNT implicit (by default)
         (['FT.AGGREGATE', 'idx', '*'],
-         ['Index'],
-         ['Index'],
-         [['Index'], ['Network']],
-         [['Index'], ['Network']]),
+         [('Index', 3100)],
+         [[[('Index', 1027)],
+           [('Index', 1032)],
+           [('Index', 1041)]],
+           [('Network', 3100)]]),
 
         # WITHOUTCOUNT + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LIMIT', 0, 50],
-         ['Index', 'Pager/Limiter'],
-         ['Index', 'Pager/Limiter'],
-         [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']],
-         [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']]),
+         [('Index', 49), ('Pager/Limiter', 50)],
+         [[[('Index', 49), ('Pager/Limiter', 50)],
+           [('Index', 49), ('Pager/Limiter', 50)],
+           [('Index', 49), ('Pager/Limiter', 50)]],
+           [('Network', 49), ('Pager/Limiter', 50)]]),
 
          # WITHOUTCOUNT (implicit) + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 50],
-         ['Index', 'Pager/Limiter'],
-         ['Index', 'Pager/Limiter'],
-         [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']],
-         [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']]),
+         [('Index', 49), ('Pager/Limiter', 50)],
+         [[[('Index', 49), ('Pager/Limiter', 50)],
+           [('Index', 49), ('Pager/Limiter', 50)],
+           [('Index', 49), ('Pager/Limiter', 50)]],
+           [('Network', 49), ('Pager/Limiter', 50)]]),
 
         # WITHOUTCOUNT + SORTBY 0
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0'],
-         ['Index'],
-         ['Index'],
-         [['Index'], ['Network']],
-         [['Index'], ['Network']]),
+         [('Index', 3100)],
+         [[[('Index', 1027)],
+           [('Index', 1032)],
+           [('Index', 1041)]],
+           [('Network', 3100)]]),
 
         # WITHOUTCOUNT + SORTBY 0 + MAX
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0', 'MAX', 3],
-         ['Index', 'Pager/Limiter'],
-         ['Index', 'Pager/Limiter'],
-         [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']],
-         [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']]),
+         [('Index', 2), ('Pager/Limiter', 3)],
+         [[[('Index', 2), ('Pager/Limiter', 3)],
+           [('Index', 2), ('Pager/Limiter', 3)],
+           [('Index', 2), ('Pager/Limiter', 3)]],
+           [('Network', 2), ('Pager/Limiter', 3)]]),
 
         # WITHOUTCOUNT + SORTBY 0 + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0', 'LIMIT', 0, 50],
-         ['Index', 'Pager/Limiter'],
-         ['Index', 'Pager/Limiter'],
-         [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']],
-         [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']]),
+         [('Index', 49), ('Pager/Limiter', 50)],
+         [[[('Index', 49), ('Pager/Limiter', 50)], [('Index', 49), ('Pager/Limiter', 50)], [('Index', 49), ('Pager/Limiter', 50)]], [('Network', 49), ('Pager/Limiter', 50)]]),
 
         # WITHOUTCOUNT + SORTBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'],
-         ['Index', 'Sorter'],
-         ['Index', 'Sorter'],
-         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
-         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
+         [('Index', 3100), ('Sorter', 10)],
+         [[[('Index', 1027), ('Sorter', 10), ('Loader', 10)],
+           [('Index', 1032), ('Sorter', 10), ('Loader', 10)],
+           [('Index', 1041), ('Sorter', 10), ('Loader', 10)]],
+           [('Network', 30), ('Sorter', 10)]]),
 
         # WITHOUTCOUNT + SORTBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
-         ['Index', 'Sorter'],
-         ['Index', 'Sorter'],
-         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
-         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
+         [('Index', 3100), ('Sorter', 50)],
+         [[[('Index', 1027), ('Sorter', 50), ('Loader', 50)],
+           [('Index', 1032), ('Sorter', 50), ('Loader', 50)],
+           [('Index', 1041), ('Sorter', 50), ('Loader', 50)]],
+           [('Network', 150), ('Sorter', 50)]]),
 
          # WITHOUTCOUNT + LOAD
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@title'],
-         ['Index', 'Loader',],
-         ['Index', 'Loader'],
-         [['Index', 'Loader',], ['Network']],
-         [['Index', 'Loader'], ['Network']]),
+         [('Index', 3100), ('Loader', 3100)],
+         [[[('Index', 1027), ('Loader', 1027)],
+           [('Index', 1032), ('Loader', 1032)],
+           [('Index', 1041), ('Loader', 1041)]],
+           [('Network', 3100)]]),
 
          # WITHOUTCOUNT + GROUPBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand'],
-         ['Index', 'Grouper'],
-         ['Index', 'Grouper'],
-         [['Index', 'Grouper'], ['Network', 'Grouper']],
-         [['Index', 'Grouper'], ['Network', 'Grouper']]),
+         [('Index', 3100), ('Grouper', 25)],
+         [[[('Index', 1027), ('Grouper', 25)],
+           [('Index', 1032), ('Grouper', 25)],
+           [('Index', 1041), ('Grouper', 25)]],
+           [('Network', 75), ('Grouper', 25)]]),
 
         # WITHOUTCOUNT + GROUPBY + SORTBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand'],
-         ['Index', 'Grouper', 'Sorter'],
-         ['Index', 'Grouper', 'Sorter'],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']]),
+         [('Index', 3100), ('Grouper', 25), ('Sorter', 10)],
+         [[[('Index', 1027), ('Grouper', 25)],
+           [('Index', 1032), ('Grouper', 25)],
+           [('Index', 1041), ('Grouper', 25)]],
+           [('Network', 75), ('Grouper', 25), ('Sorter', 10)]]),
 
         # WITHOUTCOUNT + GROUPBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand', 'LIMIT', 0, 50],
-         ['Index', 'Grouper', 'Pager/Limiter'],
-         ['Index', 'Grouper', 'Pager/Limiter'],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Pager/Limiter']],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Pager/Limiter']]),
+         [('Index', 3100), ('Grouper', 25), ('Pager/Limiter', 25)],
+         [[[('Index', 1027), ('Grouper', 25)],
+           [('Index', 1032), ('Grouper', 25)],
+           [('Index', 1041), ('Grouper', 25)]],
+           [('Network', 75), ('Grouper', 25), ('Pager/Limiter', 25)]]),
 
         # WITHOUTCOUNT + GROUPBY + SORTBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 50],
-         ['Index', 'Grouper', 'Sorter'],
-         ['Index', 'Grouper', 'Sorter'],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']]),
+         [('Index', 3100), ('Grouper', 25), ('Sorter', 25)],
+         [[[('Index', 1027), ('Grouper', 25)],
+           [('Index', 1032), ('Grouper', 25)],
+           [('Index', 1041), ('Grouper', 25)]],
+           [('Network', 75), ('Grouper', 25), ('Sorter', 25)]]),
 
         # WITHOUTCOUNT + ADDSCORES
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'ADDSCORES'],
-         ['Index', 'Scorer'],
-         ['Index', 'Scorer'],
-         [['Index', 'Scorer'], ['Network']],
-         [['Index', 'Scorer'], ['Network']]),
+         [('Index', 3100), ('Scorer', 3100)],
+         [[[('Index', 1027), ('Scorer', 1027)],
+           [('Index', 1032), ('Scorer', 1032)],
+           [('Index', 1041), ('Scorer', 1041)]],
+           [('Network', 3100)]]),
 
         # WITHOUTCOUNT + ADDSCORES + SORTBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'ADDSCORES', 'SORTBY', 1, '@title'],
-         ['Index', 'Scorer', 'Sorter'],
-         ['Index', 'Scorer', 'Sorter'],
-         [['Index', 'Scorer', 'Sorter', 'Loader'], ['Network', 'Sorter']],
-         [['Index', 'Scorer', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
+         [('Index', 3100), ('Scorer', 3100), ('Sorter', 10)],
+         [[[('Index', 1027), ('Scorer', 1027), ('Sorter', 10), ('Loader', 10)],
+           [('Index', 1032), ('Scorer', 1032), ('Sorter', 10), ('Loader', 10)],
+           [('Index', 1041), ('Scorer', 1041), ('Sorter', 10), ('Loader', 10)]],
+           [('Network', 30), ('Sorter', 10)]]),
 
         # WITHOUTCOUNT + ADDSCORES + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'ADDSCORES', 'LIMIT', 0, 50],
-         ['Index', 'Scorer', 'Pager/Limiter'],
-         ['Index', 'Scorer', 'Pager/Limiter'],
-         [['Index', 'Scorer', 'Pager/Limiter'], ['Network', 'Pager/Limiter']],
-         [['Index', 'Scorer', 'Pager/Limiter'], ['Network', 'Pager/Limiter']]),
+         [('Index', 49), ('Scorer', 49), ('Pager/Limiter', 50)],
+         [[[('Index', 49), ('Scorer', 49), ('Pager/Limiter', 50)],
+           [('Index', 49), ('Scorer', 49), ('Pager/Limiter', 50)],
+           [('Index', 49), ('Scorer', 49), ('Pager/Limiter', 50)]],
+           [('Network', 49), ('Pager/Limiter', 50)]]),
 
         # WITHOUTCOUNT + FILTER
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200'],
-         ['Index', 'Loader', 'Filter - Predicate <'],
-         ['Index', 'Loader', 'Filter - Predicate <'],
-         [['Index', 'Loader', 'Filter - Predicate <'], ['Network']],
-         [['Index', 'Loader', 'Filter - Predicate <'], ['Network']]),
+         [('Index', 3100), ('Loader', 3100), ('Filter - Predicate <', 200)],
+         [[[('Index', 1027), ('Loader', 1027), ('Filter - Predicate <', 64)],
+           [('Index', 1032), ('Loader', 1032), ('Filter - Predicate <', 68)],
+           [('Index', 1041), ('Loader', 1041), ('Filter - Predicate <', 68)]],
+           [('Network', 200)]]),
 
         # WITHOUTCOUNT + FILTER + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200', 'LIMIT', 0, 50],
-         ['Index', 'Loader', 'Filter - Predicate <', 'Pager/Limiter'],
-         ['Index', 'Loader', 'Filter - Predicate <', 'Pager/Limiter'],
-         [['Index', 'Loader', 'Filter - Predicate <', 'Pager/Limiter'], ['Network', 'Pager/Limiter']],
-         [['Index', 'Loader', 'Filter - Predicate <', 'Pager/Limiter'], ['Network', 'Pager/Limiter']]),
+         [('Index', 49), ('Loader', 49), ('Filter - Predicate <', 49), ('Pager/Limiter', 50)],
+         [[[('Index', 49), ('Loader', 49), ('Filter - Predicate <', 49), ('Pager/Limiter', 50)],
+           [('Index', 49), ('Loader', 49), ('Filter - Predicate <', 49), ('Pager/Limiter', 50)],
+           [('Index', 49), ('Loader', 49), ('Filter - Predicate <', 49), ('Pager/Limiter', 50)]],
+           [('Network', 49), ('Pager/Limiter', 50)]]),
     ]
 
-    for (query, resp2_standalone, resp3_standalone, resp2_cluster,
-         resp3_cluster) in queries_and_profiles:
+    for (query, standalone, cluster) in queries_and_profiles:
         cmd=' '.join(str(x) for x in query)
         ftprofile = _translate_query_to_profile_query(query)
         res = env.cmd(*ftprofile)
@@ -648,21 +690,13 @@ def _test_profile(protocol):
         if env.isCluster():
             message = f'{cmd}: RP_list != expected: RESP{env.protocol}, Cluster'
             cluster_RP_list = _get_cluster_RP_profile(env, res)
-            if env.protocol == 2:
-                env.assertEqual(cluster_RP_list, resp2_cluster,
-                                message=message)
-            else:
-                env.assertEqual(cluster_RP_list, resp3_cluster,
-                                message=message)
+            env.assertEqual(cluster_RP_list, cluster,
+                            message=message)
         else:
             message = f'{cmd}: RP_list != expected: RESP{env.protocol}, Standalone'
             standalone_RP_list = _get_standalone_RP_profile(env, res)
-            if env.protocol == 2:
-                env.assertEqual(standalone_RP_list, resp2_standalone,
-                                message=message)
-            else:
-                env.assertEqual(standalone_RP_list, resp3_standalone,
-                                message=message)
+            env.assertEqual(standalone_RP_list, standalone,
+                            message=message)
 
 
 def test_profile_resp2():
