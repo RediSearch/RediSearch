@@ -215,8 +215,8 @@ impl Upstream<'_> {
 ///
 /// For details refer to the [`Pin`] documentation which explains the concept of "pinning" a Rust value in memory and its implications.
 #[pin_project]
-#[repr(C)]
 #[derive(Debug)]
+#[repr(C)]
 struct Header {
     /// Reference to the parent QueryProcessingCtx that owns this result processor
     parent: *const ffi::QueryProcessingCtx,
