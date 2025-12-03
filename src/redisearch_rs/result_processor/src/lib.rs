@@ -427,7 +427,7 @@ where
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::test_utils::{Chain, ResultRP, default_search_result};
+    use crate::test_utils::{Chain, ResultResultProcessor, default_search_result};
 
     // Compile time check to ensure that `Header` (which currently duplicates `ffi::ResultProcessor`)
     // has the exact same size, alignment, and field layout.
@@ -466,7 +466,7 @@ pub(crate) mod test {
     #[test]
     fn error_to_ret_code() {
         fn check(error: Error, expected: i32) {
-            let mut chain = Chain::new().append(ResultRP::new_err(error));
+            let mut chain = Chain::new().append(ResultResultProcessor::new_err(error));
 
             let rp = unsafe { chain.last_raw() };
             let found =
@@ -482,7 +482,7 @@ pub(crate) mod test {
     /// Assert that returning `Ok(None)` from Rust translates to EOF in C
     #[test]
     fn none_signals_eof() {
-        let mut chain = Chain::new().append(ResultRP::new_ok_none());
+        let mut chain = Chain::new().append(ResultResultProcessor::new_ok_none());
 
         let rp = unsafe { chain.last_raw() };
         let found =
@@ -494,7 +494,7 @@ pub(crate) mod test {
     /// Assert that `Ok(Some(())` in Rust translates to the `OK` in C
     #[test]
     fn ok_some_signals_ok() {
-        let mut chain = Chain::new().append(ResultRP::new_ok_some());
+        let mut chain = Chain::new().append(ResultResultProcessor::new_ok_some());
 
         let rp = unsafe { chain.last_raw() };
         let found =
@@ -626,7 +626,7 @@ pub(crate) mod test {
 
     #[test]
     fn wrapper_proper_alignment() {
-        let mut chain = Chain::new().append(ResultRP::new_ok_some());
+        let mut chain = Chain::new().append(ResultResultProcessor::new_ok_some());
 
         // Safety: we just check the alignment
         let ptr = unsafe { chain.last_raw() };
@@ -638,7 +638,9 @@ pub(crate) mod test {
 
     #[test]
     fn wrapper_initializes_null_fields() {
-        let counter = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
+        let counter = Box::pin(ResultProcessorWrapper::new(
+            ResultResultProcessor::new_ok_some(),
+        ));
 
         assert!(counter.header.parent.is_null(), "Parent should be null");
         assert!(counter.header.upstream.is_null(), "Upstream should be null");
@@ -646,7 +648,9 @@ pub(crate) mod test {
 
     #[test]
     fn wrapper_initializes_function_pointers() {
-        let counter = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
+        let counter = Box::pin(ResultProcessorWrapper::new(
+            ResultResultProcessor::new_ok_some(),
+        ));
 
         assert!(counter.header.next.is_some(), "Next function should be set");
         assert!(counter.header.free.is_some(), "Free function should be set");
