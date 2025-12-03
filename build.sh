@@ -204,6 +204,13 @@ setup_build_environment() {
     export CARGO_BUILD_TARGET="$(rustc $RUST_TOOLCHAIN_MODIFIER -vV | sed -n 's/host: //p')"
   fi
 
+  # Disable ODR violation detection when building tests with ASAN. This is needed because both the
+  # shared redisearch.so and the test binaries link to the same static libraries, causing false
+  # positives (mostly in the Rust's compiler_builtins for `RSQRT_TAB`).
+  if [[ "$SAN" == "address" && "$BUILD_TESTS" == "1" ]]; then
+    export ASAN_OPTIONS=detect_odr_violation=0
+  fi
+
   # Determine the correct Rust profile for both build and tests
   # Only set RUST_PROFILE if it wasn't already set by the user
   if [[ -z "$RUST_PROFILE" ]]; then
