@@ -677,7 +677,7 @@ def test_cursor_commands_errors(env: Env):
     # Test internal cursor profile after index drop
     env.cmd('FT.CREATE', 'temp', 'SCHEMA', 't', 'TEXT')
     waitForIndex(env, 'temp')
-    _, cid, _ = env.cmd('_FT.PROFILE', 'temp', 'AGGREGATE', 'QUERY', '*', '_SLOTS_INFO', generate_slots(), 'WITHCURSOR', 'COUNT', '1')
+    _, cid, _ = env.cmd('_FT.PROFILE', 'temp', 'AGGREGATE', 'QUERY', '*', 'WITHCURSOR', 'COUNT', '1')
     env.assertNotEqual(cid, 0)
     env.expect('FT.DROPINDEX', 'temp').ok()
     env.expect('_FT.CURSOR', 'PROFILE', 'temp', cid).error().contains('The index was dropped while the cursor was idle')
@@ -702,7 +702,7 @@ def test_cursor_gc_edge_cases(env: Env):
     env.expect('_FT.CURSOR', 'GC', 'idx', '0').equal(0, message='Expected 0 cursors to be collected when none exist')
 
     # Test with only internal cursors
-    _, cid = env.cmd('_FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1', '_SLOTS_INFO', generate_slots())
+    _, cid = env.cmd('_FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1')
     env.expect('_FT.CURSOR', 'GC', 'idx', '0').equal(0, message='Expected 0 cursors to be collected when only internal cursors exist')
     env.expect('_FT.CURSOR', 'DEL', 'idx', cid).ok()
 
