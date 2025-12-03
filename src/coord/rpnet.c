@@ -168,27 +168,13 @@ static void shardResponseBarrier_PendingReplies_Free(RPNet *nc) {
   }
 }
 
-// Calculate absolute timeout for MRIterator_NextWithTimeout (using CLOCK_MONOTONIC)
-// Converts from CLOCK_MONOTONIC_RAW based timeout to CLOCK_MONOTONIC
-// Returns pointer to absTimeout if timeout is available, NULL otherwise
-static struct timespec *calculateAbsTimeout(RPNet *nc, struct timespec *absTimeout) {
+// Get absolute timeout for MRIterator_NextWithTimeout
+// Returns pointer to the CLOCK_MONOTONIC_RAW based timeout, or NULL if not available
+static struct timespec *getAbsTimeout(RPNet *nc) {
   if (!nc->areq || !nc->areq->sctx) {
     return NULL;
   }
-
-  // Convert CLOCK_MONOTONIC_RAW based timeout to CLOCK_MONOTONIC
-  // Get current time on both clocks and adjust
-  struct timespec nowRaw, nowMono;
-  clock_gettime(CLOCK_MONOTONIC_RAW, &nowRaw);
-  clock_gettime(CLOCK_MONOTONIC, &nowMono);
-
-  // Calculate remaining time from the original timeout
-  struct timespec remaining;
-  rs_timerdelta((struct timespec *)&nc->areq->sctx->time.timeout, &nowRaw, &remaining);
-
-  // Add remaining time to current CLOCK_MONOTONIC time
-  rs_timeradd(&nowMono, &remaining, absTimeout);
-  return absTimeout;
+  return (struct timespec *)&nc->areq->sctx->time.timeout;
 }
 
 // Handle timeout (not enough shards responded) only if there were no errors
@@ -250,13 +236,9 @@ int getNextReply(RPNet *nc) {
       if (nc->areq && nc->areq->sctx && TimedOut(&nc->areq->sctx->time.timeout)) {
         break;
       }
-      // Calculate absolute timeout for MRIterator_NextWithTimeout
-      struct timespec absTimeout;
-      struct timespec *timeoutPtr = calculateAbsTimeout(nc, &absTimeout);
-
-      // Get next reply with timeout
+      // Get next reply with timeout (uses CLOCK_MONOTONIC_RAW based timeout)
       bool nextTimedOut = false;
-      MRReply *reply = MRIterator_NextWithTimeout(nc->it, timeoutPtr, &nextTimedOut);
+      MRReply *reply = MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), &nextTimedOut);
       if (reply == NULL) {
         break;  // No more replies or timed out
       }
