@@ -146,7 +146,7 @@ jobs:
                      needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container)
           )
        || null }}
-    defaults:
+
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
