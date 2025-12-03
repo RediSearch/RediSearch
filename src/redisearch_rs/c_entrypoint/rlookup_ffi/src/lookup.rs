@@ -415,7 +415,7 @@ pub unsafe extern "C" fn RLookup_Init(
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
     let spcache = spcache.map(|spcache| {
-        // Safety: ensured by caller (2. & 3.)
+        // Safety: ensured by caller (2., 3.)
         unsafe { IndexSpecCache::from_raw(spcache) }
     });
 
@@ -434,6 +434,6 @@ pub unsafe extern "C" fn RLookup_Init(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
-    // Safety: ensured by caller (1.,2.)
+    // Safety: ensured by caller (1., 2.)
     unsafe { lookup.unwrap().drop_in_place() };
 }

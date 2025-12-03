@@ -370,7 +370,7 @@ impl<'a> RLookupKey<'a> {
         self.rlookup_id
     }
 
-    /// Construct an `RLookupKey` from its main parts. Prefer Self::new if you are unsure which to use.
+    /// Construct an `RLookupKey` from its main parts. Prefer `Self::new` if you are unsure which to use.
     fn from_parts(
         name: Cow<'a, CStr>,
         path: Option<Cow<'a, CStr>>,

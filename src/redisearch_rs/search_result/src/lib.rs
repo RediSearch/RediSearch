@@ -118,7 +118,7 @@ impl<'index> SearchResult<'index> {
         self.flags = SearchResultFlags::empty();
     }
 
-    /// Sets the document ID of this search result.
+    /// Returns the document ID of this search result.
     pub const fn doc_id(&self) -> ffi::t_docId {
         self.doc_id
     }
@@ -158,8 +158,8 @@ impl<'index> SearchResult<'index> {
     ///
     /// # Safety
     ///
-    /// 1. `index_result` must be a [valid] pointer to a [`ffi::RSScoreExplain`] if non-null.
-    /// 2. `index_result` must be [valid] for the entire lifetime of `self`.
+    /// 1. `score_explain` must be a [valid] pointer to a [`ffi::RSScoreExplain`] if non-null.
+    /// 2. `score_explain` must be [valid] for the entire lifetime of `self`.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn set_score_explain(

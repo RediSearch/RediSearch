@@ -118,7 +118,7 @@ impl RSValueTrait for RSValueFFI {
     }
 
     fn create_num(num: f64) -> Self {
-        // Safety: RSValue_FromDouble expects a valid double value.
+        // Safety: RSValue_NewNumber expects a valid double value.
         let num = unsafe { ffi::RSValue_NewNumber(num) };
         RSValueFFI(NonNull::new(num).expect("RSValue_NewNumber returned a null pointer"))
     }
@@ -128,7 +128,7 @@ impl RSValueTrait for RSValueFFI {
     }
 
     fn is_null(&self) -> bool {
-        // Safety: RSValue_NullStatic returns an immutable global ptr
+        // Safety: RSValue_NullStatic returns an immutable global ptr.
         self.0.as_ptr() == unsafe { ffi::RSValue_NullStatic() }
     }
 
@@ -139,7 +139,7 @@ impl RSValueTrait for RSValueFFI {
             // Safety: We tested that the type is a reference, so we access it over the union safely.
             let ref_ptr = unsafe { p.__bindgen_anon_1._ref };
 
-            // Safety: We assume that a valid pointer is given by the C side
+            // Safety: We assume that a valid pointer is given by the C side.
             Some(unsafe { &*(ref_ptr as *const RSValueFFI) })
         } else {
             None
