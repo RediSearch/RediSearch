@@ -1111,7 +1111,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 
   // Define if we need a depleter in the pipeline to get accurate total results
   if (IsAggregate(req) && HasWithCount(req)) {
-    if (!HasSortBy(req) && !HasGroupBy(req) && !IsCount(req)) {
+    if (IsNeededDepleter(req)) {
       AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
     }
   }

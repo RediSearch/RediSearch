@@ -179,6 +179,7 @@ typedef struct {
 #define HasGroupBy(r) ((r)->reqflags & QEXEC_F_HAS_GROUPBY)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
 #define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
+#define IsNeededDepleter(r) (!HasSortBy(r) && !HasGroupBy(r) && !IsCount(r))
 
 // Indicates whether a query should run in the background. This
 // will also guarantee that there is a running thread pool with al least 1 thread.
