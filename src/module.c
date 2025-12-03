@@ -96,8 +96,8 @@ extern RSConfig RSGlobalConfig;
 
 extern RedisModuleCtx *RSDummyContext;
 
-extern khash_t(query_key_space_version_tracker) *query_key_space_version_map = NULL;
-extern uint32_t key_space_version = INVALID_KEYSPACE_VERSION;
+khash_t(query_key_space_version_tracker) *query_key_space_version_map = NULL;
+uint32_t key_space_version = INVALID_KEYSPACE_VERSION;
 
 redisearch_thpool_t *depleterPool = NULL;
 
@@ -3859,11 +3859,12 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       // Set the number of shards to 1 to indicate the topology is "set"
       NumShards = 1;
       // Setting all slots for the case where we send/test internal commands directly from client (potentially with _SLOTS_INFO)
-      RedisModuleSlotRangeArray all_slots;
-      all_slots.num_ranges = 1;
-      all_slots.ranges[0].start = 0;
-      all_slots.ranges[0].end = 16383;
-      ASM_StateMachine_SetLocalSlots(&all_slots);
+      RedisModuleSlotRangeArray *all_slots = rm_malloc(sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange));
+      all_slots->num_ranges = 1;
+      all_slots->ranges[0].start = 0;
+      all_slots->ranges[0].end = 16383;
+      ASM_StateMachine_SetLocalSlots(all_slots);
+      rm_free(all_slots);
     }
   }
 
