@@ -163,16 +163,16 @@ where
             RQEValidateStatus::Aborted => {
                 // Replace aborted child with an empty iterator
                 self.child = MaybeEmpty::new_empty();
-                return Ok(RQEValidateStatus::Ok);
+                Ok(RQEValidateStatus::Ok)
             }
             RQEValidateStatus::Moved { .. } => {
                 // Assert that child is at EOF or beyond our last doc id
                 debug_assert!(self.child.at_eof() || self.child.last_doc_id() > self.last_doc_id());
-                return Ok(RQEValidateStatus::Ok);
+                Ok(RQEValidateStatus::Ok)
             }
             RQEValidateStatus::Ok => {
                 // Child did not move - we did not move
-                return Ok(RQEValidateStatus::Ok);
+                Ok(RQEValidateStatus::Ok)
             }
         }
     }
