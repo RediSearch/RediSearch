@@ -603,6 +603,12 @@ run_rust_tests() {
     export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
   fi
 
+  # Determine which features to enable
+  RUST_FEATURES=""
+  if [[ "$SAN" != "address" ]]; then
+    RUST_FEATURES="--features leaky_tests"
+  fi
+
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
     RUST_EXTENSIONS="llvm-cov"
@@ -635,7 +641,7 @@ run_rust_tests() {
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings }" cargo $RUST_TOOLCHAIN_MODIFIER $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $TEST_FILTER -- --nocapture
+  RUSTFLAGS="${RUSTFLAGS:--D warnings }" cargo $RUST_TOOLCHAIN_MODIFIER $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $RUST_FEATURES $TEST_FILTER -- --nocapture
 
   # Check test results
   RUST_TEST_RESULT=$?
