@@ -10,8 +10,7 @@
 #include <uv.h>
 #include "rq.h"
 #include "rmalloc.h"
-
-extern RedisModuleCtx *RSDummyContext;
+#include "info/global_stats.h"
 
 struct queueItem {
   void *privdata;
@@ -103,7 +102,9 @@ static void rqAsyncCb(uv_async_t *async) {
   MRWorkQueue *q = async->data;
   struct queueItem *req;
   while (NULL != (req = rqPop(q))) {
+    GlobalStats_UpdateActiveIoThreads(1);
     req->cb(req->privdata);
+    GlobalStats_UpdateActiveIoThreads(-1);
     rm_free(req);
   }
 }
