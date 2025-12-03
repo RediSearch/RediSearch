@@ -17,12 +17,12 @@
 
 use ffi::t_docId;
 use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome,
+    Empty, RQEIterator, RQEValidateStatus, SkipToOutcome, Wildcard,
     id_list::SortedIdList,
-    intersection::Intersection,
+    intersection::{Intersection, ReducedIntersection, reduce},
 };
 
-mod mock_iterator;
+use crate::common::{MockIterator, MockRevalidateResult};
 
 /// Helper function to create child iterators for intersection tests.
 ///
@@ -581,8 +581,6 @@ fn many_children() {
 // Revalidate tests - from IntersectionIteratorRevalidateTest
 // =============================================================================
 
-use mock_iterator::{MockIterator, MockRevalidateResult};
-
 /// Helper to create mock children for revalidate tests.
 /// Creates 3 children with common docs [10, 20, 30, 40, 50] plus unique docs.
 fn create_revalidate_test_children() -> Vec<MockIterator<'static>> {
@@ -775,4 +773,140 @@ fn revalidate_some_children_moved_to_eof() {
     // Further reads should return EOF
     assert!(matches!(ii.read(), Ok(None)));
     assert!(matches!(ii.skip_to(100), Ok(None)));
+}
+
+// =============================================================================
+// Reducer tests - from IntersectionIteratorReducerTest
+// =============================================================================
+
+/// Test: Intersection with an empty child returns Empty iterator
+/// Equivalent to C++ TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithEmptyChild)
+#[test]
+fn reduce_with_empty_child() {
+    // Create children where one is empty
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
+        Box::new(SortedIdList::new(vec![1, 2, 3])),
+        Box::new(Empty),
+        Box::new(SortedIdList::new(vec![1, 2, 3, 4, 5])),
+    ];
+
+    let result = reduce(children);
+
+    // Should return Empty
+    assert!(
+        matches!(result, ReducedIntersection::Empty(_)),
+        "Expected Empty, got {:?}",
+        std::mem::discriminant(&result)
+    );
+}
+
+/// Test: Intersection with no children returns Empty
+/// Equivalent to C++ TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithNoChild)
+#[test]
+fn reduce_with_no_children() {
+    let children: Vec<SortedIdList<'static>> = vec![];
+
+    let result = reduce(children);
+
+    assert!(matches!(result, ReducedIntersection::Empty(_)));
+}
+
+/// Test: Intersection removes wildcard children
+/// Equivalent to C++ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
+#[test]
+fn reduce_removes_wildcard_children() {
+    // 2 regular iterators + 2 wildcards = should keep only 2 regular
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
+        Box::new(SortedIdList::new(vec![1, 2, 3])),
+        Box::new(Wildcard::new(100)),
+        Box::new(SortedIdList::new(vec![1, 2, 3])),
+        Box::new(Wildcard::new(100)),
+    ];
+
+    let mut result = reduce(children);
+
+    // Should return Intersection (2 non-wildcard children)
+    assert!(
+        matches!(result, ReducedIntersection::Intersection(_)),
+        "Expected Intersection"
+    );
+
+    // Should be able to read documents
+    let doc = result.read().expect("read failed").unwrap();
+    assert_eq!(doc.doc_id, 1);
+}
+
+/// Test: All wildcard children returns the last wildcard
+/// Equivalent to C++ TEST_F(IntersectionIteratorReducerTest, TestIntersectionAllWildCardChildren)
+#[test]
+fn reduce_all_wildcards() {
+    let children: Vec<Wildcard<'static>> = vec![
+        Wildcard::new(30),
+        Wildcard::new(40),
+        Wildcard::new(50),
+        Wildcard::new(60), // Last one should be returned
+    ];
+
+    let mut result = reduce(children);
+
+    // Should return Single (the last wildcard)
+    assert!(
+        matches!(result, ReducedIntersection::Single(_)),
+        "Expected Single"
+    );
+
+    // The returned wildcard should have top_id = 60
+    assert_eq!(result.num_estimated(), 60);
+
+    // Should be able to read documents 1..60
+    let doc = result.read().expect("read failed").unwrap();
+    assert_eq!(doc.doc_id, 1);
+}
+
+/// Test: Single non-wildcard child after removing wildcards
+/// Equivalent to C++ TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithSingleChild)
+#[test]
+fn reduce_single_non_wildcard_after_removing_wildcards() {
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
+        Box::new(SortedIdList::new(vec![1, 2, 3])),
+        Box::new(Wildcard::new(100)),
+        Box::new(Wildcard::new(100)),
+    ];
+
+    let mut result = reduce(children);
+
+    // Should return Single (the non-wildcard iterator)
+    assert!(
+        matches!(result, ReducedIntersection::Single(_)),
+        "Expected Single"
+    );
+
+    // Should be able to read documents 1, 2, 3
+    assert_eq!(result.read().unwrap().unwrap().doc_id, 1);
+    assert_eq!(result.read().unwrap().unwrap().doc_id, 2);
+    assert_eq!(result.read().unwrap().unwrap().doc_id, 3);
+    assert!(result.read().unwrap().is_none());
+}
+
+/// Test: Reduced intersection works correctly end-to-end
+#[test]
+fn reduce_works_as_iterator() {
+    // Mix of regular and wildcard children
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
+        Box::new(SortedIdList::new(vec![1, 2, 3, 10, 20])),
+        Box::new(Wildcard::new(100)), // Will be removed
+        Box::new(SortedIdList::new(vec![2, 3, 20, 30])),
+    ];
+
+    let mut result = reduce(children);
+
+    // Should be Intersection of the two non-wildcards
+    assert!(matches!(result, ReducedIntersection::Intersection(_)));
+
+    // Common docs: 2, 3, 20
+    assert_eq!(result.read().unwrap().unwrap().doc_id, 2);
+    assert_eq!(result.read().unwrap().unwrap().doc_id, 3);
+    assert_eq!(result.read().unwrap().unwrap().doc_id, 20);
+    assert!(result.read().unwrap().is_none());
+    assert!(result.at_eof());
 }

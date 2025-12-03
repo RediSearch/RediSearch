@@ -7,13 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub(crate) mod common;
-pub(crate) mod ffi;
+//! Common test utilities shared across iterator tests.
 
-mod empty;
-mod id_list;
-mod intersection;
-mod inverted_index;
-mod maybe_empty;
-mod metric;
-mod wildcard;
+mod mock_iterator;
+
+pub use mock_iterator::{MockIterator, MockRevalidateResult};
+

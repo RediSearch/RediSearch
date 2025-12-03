@@ -61,4 +61,9 @@ impl<'index> RQEIterator<'index> for Empty {
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
+
+    #[inline(always)]
+    fn is_empty(&self) -> bool {
+        true
+    }
 }

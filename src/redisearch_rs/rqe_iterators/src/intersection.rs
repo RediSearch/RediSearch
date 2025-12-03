@@ -16,7 +16,7 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// An iterator that yields documents appearing in ALL of its child iterators.
 ///
@@ -394,6 +394,161 @@ where
                 // No intersection found - EOF
                 Ok(RQEValidateStatus::Moved { current: None })
             }
+        }
+    }
+}
+
+// =============================================================================
+// Reduced Intersection - result of applying optimizations
+// =============================================================================
+
+/// Result of reducing an intersection's children.
+///
+/// The reducer applies the following optimizations:
+/// 1. If any child is empty → return `Empty` (intersection with empty set is empty)
+/// 2. Remove all wildcard children (intersection with "all" is identity)
+/// 3. If no children remain (all were wildcards) → return the last wildcard
+/// 4. If one child remains → return that child directly
+/// 5. Otherwise → return `Intersection` with remaining children
+pub enum ReducedIntersection<'index, I> {
+    /// No results possible (empty child found or no children)
+    Empty(Empty),
+    /// Only one non-wildcard child, or all children were wildcards
+    Single(I),
+    /// Multiple non-wildcard children remain
+    Intersection(Intersection<'index, I>),
+}
+
+/// Reduces children and creates the appropriate iterator.
+///
+/// This is the Rust equivalent of `IntersectionIteratorReducer` in C.
+///
+/// # Algorithm
+/// 1. If any child `is_empty()` → return `Empty`
+/// 2. Filter out children where `is_wildcard()` is true
+/// 3. If no children remain → return the last wildcard (or Empty if none)
+/// 4. If one child remains → return that child
+/// 5. Otherwise → create `Intersection` with remaining children
+pub fn reduce<'index, I>(mut children: Vec<I>) -> ReducedIntersection<'index, I>
+where
+    I: RQEIterator<'index>,
+{
+    // Check for empty children first - if any child is empty, result is empty
+    if children.iter().any(|c| c.is_empty()) {
+        return ReducedIntersection::Empty(Empty);
+    }
+
+    // No children provided
+    if children.is_empty() {
+        return ReducedIntersection::Empty(Empty);
+    }
+
+    // Find and keep track of the last wildcard (in case all are wildcards)
+    let last_wildcard_idx = children.iter().rposition(|c| c.is_wildcard());
+
+    // Remove wildcard children (they match everything, so don't affect intersection)
+    let mut last_wildcard: Option<I> = None;
+    children = children
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, child)| {
+            if child.is_wildcard() {
+                // Keep the last wildcard in case we need it
+                if Some(i) == last_wildcard_idx {
+                    last_wildcard = Some(child);
+                }
+                None
+            } else {
+                Some(child)
+            }
+        })
+        .collect();
+
+    // All children were wildcards - return the last one
+    if children.is_empty() {
+        return match last_wildcard {
+            Some(w) => ReducedIntersection::Single(w),
+            None => ReducedIntersection::Empty(Empty), // Shouldn't happen
+        };
+    }
+
+    // Only one non-wildcard child - return it directly
+    if children.len() == 1 {
+        return ReducedIntersection::Single(children.pop().unwrap());
+    }
+
+    // Multiple children - create intersection
+    ReducedIntersection::Intersection(Intersection::new(children))
+}
+
+impl<'index, I> RQEIterator<'index> for ReducedIntersection<'index, I>
+where
+    I: RQEIterator<'index>,
+{
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        match self {
+            ReducedIntersection::Empty(e) => e.read(),
+            ReducedIntersection::Single(s) => s.read(),
+            ReducedIntersection::Intersection(i) => i.read(),
+        }
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        match self {
+            ReducedIntersection::Empty(e) => e.skip_to(doc_id),
+            ReducedIntersection::Single(s) => s.skip_to(doc_id),
+            ReducedIntersection::Intersection(i) => i.skip_to(doc_id),
+        }
+    }
+
+    fn rewind(&mut self) {
+        match self {
+            ReducedIntersection::Empty(e) => e.rewind(),
+            ReducedIntersection::Single(s) => s.rewind(),
+            ReducedIntersection::Intersection(i) => i.rewind(),
+        }
+    }
+
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        match self {
+            ReducedIntersection::Empty(e) => e.current(),
+            ReducedIntersection::Single(s) => s.current(),
+            ReducedIntersection::Intersection(i) => i.current(),
+        }
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        match self {
+            ReducedIntersection::Empty(e) => e.last_doc_id(),
+            ReducedIntersection::Single(s) => s.last_doc_id(),
+            ReducedIntersection::Intersection(i) => i.last_doc_id(),
+        }
+    }
+
+    fn at_eof(&self) -> bool {
+        match self {
+            ReducedIntersection::Empty(e) => e.at_eof(),
+            ReducedIntersection::Single(s) => s.at_eof(),
+            ReducedIntersection::Intersection(i) => i.at_eof(),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            ReducedIntersection::Empty(e) => e.num_estimated(),
+            ReducedIntersection::Single(s) => s.num_estimated(),
+            ReducedIntersection::Intersection(i) => i.num_estimated(),
+        }
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        match self {
+            ReducedIntersection::Empty(e) => e.revalidate(),
+            ReducedIntersection::Single(s) => s.revalidate(),
+            ReducedIntersection::Intersection(i) => i.revalidate(),
         }
     }
 }

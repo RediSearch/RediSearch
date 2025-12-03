@@ -87,4 +87,9 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
+
+    #[inline(always)]
+    fn is_wildcard(&self) -> bool {
+        true
+    }
 }

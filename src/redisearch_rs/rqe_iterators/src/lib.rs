@@ -22,7 +22,7 @@ pub mod intersection;
 
 pub use empty::Empty;
 pub use id_list::IdList;
-pub use intersection::Intersection;
+pub use intersection::{Intersection, ReducedIntersection, reduce};
 pub use inverted_index::{Numeric, Term};
 pub use metric::Metric;
 pub use wildcard::Wildcard;
@@ -112,4 +112,69 @@ pub trait RQEIterator<'index> {
     /// Returns `false` if the iterator can yield more results.
     /// The iterator implementation must ensure that `at_eof` returns `false` when it is sure that the [`RQEIterator::read`] returns `Ok(None)`.
     fn at_eof(&self) -> bool;
+
+    /// Returns `true` if this iterator is known to yield no results.
+    ///
+    /// Used by compound iterators (like Intersection) to optimize away empty children.
+    /// Default implementation returns `false`.
+    #[inline(always)]
+    fn is_empty(&self) -> bool {
+        false
+    }
+
+    /// Returns `true` if this iterator is a wildcard iterator.
+    ///
+    /// Wildcard iterators match all documents and can be removed from intersections
+    /// without changing the result (since intersection with "all" is identity).
+    /// Default implementation returns `false`.
+    #[inline(always)]
+    fn is_wildcard(&self) -> bool {
+        false
+    }
+}
+
+// Implement RQEIterator for Box<dyn RQEIterator> to support dynamic dispatch
+impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        (**self).current()
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (**self).read()
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        (**self).skip_to(doc_id)
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate()
+    }
+
+    fn rewind(&mut self) {
+        (**self).rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        (**self).num_estimated()
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        (**self).last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        (**self).at_eof()
+    }
+
+    fn is_empty(&self) -> bool {
+        (**self).is_empty()
+    }
+
+    fn is_wildcard(&self) -> bool {
+        (**self).is_wildcard()
+    }
 }
