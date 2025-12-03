@@ -76,15 +76,15 @@ impl ResultProcessor for ResultResultProcessor {
 }
 
 /// A result processor of a fixed type, that just calls its upstream's `next`.
-pub struct MockResultProcessor<const TYPE: ffi::ResultProcessorType>;
+pub struct UpstreamResultProcessor<const TYPE: ffi::ResultProcessorType>;
 
-impl<const RP_TYPE: ffi::ResultProcessorType> MockResultProcessor<RP_TYPE> {
+impl<const RP_TYPE: ffi::ResultProcessorType> UpstreamResultProcessor<RP_TYPE> {
     pub fn new() -> Self {
         Self
     }
 }
 
-impl<const RP_TYPE: ffi::ResultProcessorType> ResultProcessor for MockResultProcessor<RP_TYPE> {
+impl<const RP_TYPE: ffi::ResultProcessorType> ResultProcessor for UpstreamResultProcessor<RP_TYPE> {
     const TYPE: ffi::ResultProcessorType = RP_TYPE;
 
     fn next(&mut self, mut cx: Context, res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
