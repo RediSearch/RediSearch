@@ -1387,14 +1387,14 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   // Since it's an internal cursor, it must be associated with a spec.
   RS_ASSERT(cursor_HasSpecWeakRef(cursor));
   // Check if the spec is still valid
-  StrongRef execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
+  StrongRef execution_ref = WeakRef_Promote(cursor->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the cursor was idle.
     // Notify the client that the query was aborted.
     RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
   } else {
     sendChunk_ReplyOnly_EmptyResults(ctx, req);
-    IndexSpecRef_Release(execution_ref);
+    StrongRef_Release(execution_ref);
   }
 
   // Free the cursor
