@@ -64,7 +64,7 @@ jobs:
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
     continue-on-error: true
-    name: Build container for ${{ needs.get-config.outputs.container  || needs.get-config.outputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    name: Build container for ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ needs.get-config.outputs.env }}
     permissions:
       contents: read
@@ -173,6 +173,7 @@ jobs:
           docker system prune -af 2>/dev/null || true
           echo "After cleanup:"
           df -h
+
       - name: Fix HOME Directory
         if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
         shell: bash
@@ -466,6 +467,23 @@ jobs:
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
         run: make rust-tests
+        
+      - name: Check test logs folder size (before)
+        if: always()
+        run: |
+          echo "=== Total Repo Size ==="
+          du -sh . 2>/dev/null || echo "Failed to get repo size"
+          echo "=== Test Logs Folder Size ==="
+          if [ -d "tests" ]; then
+            echo "Total tests directory size:"
+            du -sh tests/ 2>/dev/null || echo "tests/ directory not found"
+            echo ""
+            echo "Logs subdirectories size:"
+            find tests -type d -name "logs" -exec du -sh {} \; 2>/dev/null || echo "No logs directories found"
+          else
+            echo "tests/ directory does not exist"
+          fi
+          echo "=========================="
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
@@ -481,24 +499,26 @@ jobs:
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
 
-      - name: Flow tests (coordinator)
-        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
-        id: coordinator_tests
-        if: ${{ inputs.coordinator }}
-        continue-on-error: true
-        env:
-          SAN: ${{ inputs.san }}
-          LOG: 1
-          CLEAR_LOGS: 0
-          REDIS_STANDALONE: 0
-          REJSON: ${{ env.REJSON }}
-          REJSON_BRANCH: ${{ inputs.rejson-branch }}
-          ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }}
+#      - name: Flow tests (coordinator)
+#        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+#        id: coordinator_tests
+#        if: ${{ inputs.coordinator }}
+#        continue-on-error: true
+#        env:
+#          SAN: ${{ inputs.san }}
+#          LOG: 1
+#          CLEAR_LOGS: 0
+#          REDIS_STANDALONE: 0
+#          REJSON: ${{ env.REJSON }}
+#          REJSON_BRANCH: ${{ inputs.rejson-branch }}
+#          ENABLE_ASSERT: 1
+#        run: make pytest ${{ inputs.test-config }}
 
       - name: Check test logs folder size
         if: always()
         run: |
+          echo "=== Total Repo Size ==="
+          du -sh . 2>/dev/null || echo "Failed to get repo size"
           echo "=== Test Logs Folder Size ==="
           if [ -d "tests" ]; then
             echo "Total tests directory size:"

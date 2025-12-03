@@ -9,18 +9,16 @@ name: temporary testing
 
 on:
   push:
-    #branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+#    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
 
-  run-on-alpine:
-    uses: ./.github/workflows/flow-test.yml
+  merge-queue:
+    uses: ./.github/workflows/event-merge-to-queue.yml
     secrets: inherit
     with:
       platform: all
       architecture: all
       redis-ref: unstable
-
-
 
 
