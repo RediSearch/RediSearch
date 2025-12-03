@@ -367,10 +367,10 @@ add_dependencies(redisearch redisearch_rs)
 # Unit tests configuration
 if(BUILD_SEARCH_UNIT_TESTS)
     # Special linker flags to ignore unresolved symbols in shared libraries
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "20.0")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--unresolved-symbols=ignore-in-shared-libs")
-        message(STATUS "Clang ${CMAKE_CXX_COMPILER_VERSION}: Setting --unresolved-symbols=ignore-in-shared-libs for test executables")
-    endif()
+    # if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "20.0")
+    #     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--unresolved-symbols=ignore-in-shared-libs")
+    #     message(STATUS "Clang ${CMAKE_CXX_COMPILER_VERSION}: Setting --unresolved-symbols=ignore-in-shared-libs for test executables")
+    # endif()
 
     enable_testing()
 
