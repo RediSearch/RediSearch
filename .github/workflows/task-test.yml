@@ -60,6 +60,7 @@ env:
 jobs:
   # Get configuration for this specific platform and architecture
   get-config:
+    name: Get build configurations for platform
     uses: ./.github/workflows/task-get-config.yml
     with:
       platform: ${{ inputs.platform }}
