@@ -59,6 +59,7 @@ jobs:
       coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
       san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
       rejson-branch: master
+      fail-fast: true
 
   pr-validation:
     needs:
