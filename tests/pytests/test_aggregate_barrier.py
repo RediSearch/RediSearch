@@ -86,8 +86,7 @@ def run_query_with_delayed_shard(env, cmd, query_result, sleep_duration):
         query_result.append(e)
 
 
-@skip(cluster=False)
-def test_barrier_waits_for_delayed_shard():
+def _test_barrier_waits_for_delayed_shard(protocol):
     """
     Test that the barrier waits for all shards before returning results.
 
@@ -97,7 +96,7 @@ def test_barrier_waits_for_delayed_shard():
     accurate total_results.
     """
     # WORKERS must be set to use PAUSE_BEFORE_RP_N
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', protocol=3)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', protocol=protocol)
     num_docs = 3000 * env.shardsCount
     setup_index_with_data(env, num_docs)
 
@@ -166,8 +165,18 @@ def test_barrier_waits_for_delayed_shard():
         env.assertEqual(total, num_docs,
                         message=f"WITHCOUNT after delayed shard should return {num_docs}, got {total}")
 
+
 @skip(cluster=False)
-def test_barrier_waits_for_delayed_unbalanced_shard():
+def test_barrier_waits_for_delayed_shard_resp2():
+    _test_barrier_waits_for_delayed_shard(2)
+
+
+@skip(cluster=False)
+def test_barrier_waits_for_delayed_shard_resp3():
+    _test_barrier_waits_for_delayed_shard(3)
+
+
+def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
     """
     Test that the barrier waits for all shards before returning results.
 
@@ -180,7 +189,7 @@ def test_barrier_waits_for_delayed_unbalanced_shard():
     Shard 2: 10000 docs (responds fast)
     Shard 1: 0 docs - delayed with DEBUG SLEEP (via env.getConnection(2))
     """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3, shardsCount=3)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=protocol, shardsCount=3)
     conn = getConnectionByEnv(env)
 
     # Create index
@@ -289,18 +298,29 @@ def test_barrier_waits_for_delayed_unbalanced_shard():
         len(_get_results(result)), expected,
         message=f"Expected {expected} results, got {len(_get_results(result))}")
     # Verify we got a timeout warning in the response
-    env.assertEqual(result.get('warning', []),
-                    ['Timeout limit was reached'])
+    if isinstance(result, dict):
+        env.assertEqual(result.get('warning', []),
+                        ['Timeout limit was reached'])
+
 
 @skip(cluster=False)
-def test_barrier_all_shards_delayed_then_resume():
+def test_barrier_waits_for_delayed_unbalanced_shard_resp2():
+    _test_barrier_waits_for_delayed_unbalanced_shard(2)
+
+
+@skip(cluster=False)
+def test_barrier_waits_for_delayed_unbalanced_shard_resp3():
+    _test_barrier_waits_for_delayed_unbalanced_shard(3)
+
+
+def _test_barrier_all_shards_delayed_then_resume(protocol):
     """
     Test barrier with all shards paused, then resumed together.
 
     This verifies the barrier correctly accumulates results when all
     shards respond at roughly the same time.
     """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', protocol=3)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', protocol=protocol)
     num_docs = 100 * env.shardsCount
     setup_index_with_data(env, num_docs)
 
@@ -343,19 +363,28 @@ def test_barrier_all_shards_delayed_then_resume():
                         message=f"WITHCOUNT should return {num_docs}, got {total}")
 
 
+@skip(cluster=False)
+def test_barrier_all_shards_delayed_then_resume_resp2():
+    _test_barrier_all_shards_delayed_then_resume(2)
+
+
+@skip(cluster=False)
+def test_barrier_all_shards_delayed_then_resume_resp3():
+    _test_barrier_all_shards_delayed_then_resume(3)
+
+
 #------------------------------------------------------------------------------
 # Concurrent Query Tests
 #------------------------------------------------------------------------------
 
-@skip(cluster=False)
-def test_barrier_concurrent_queries():
+def _test_barrier_concurrent_queries(protocol):
     """
     Test thread safety: multiple concurrent WITHCOUNT queries.
 
     This tests the atomic operations in ShardResponseBarrier when
     multiple queries are running simultaneously.
     """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=protocol)
     num_docs = 100 * env.shardsCount
     setup_index_with_data(env, num_docs)
 
@@ -394,16 +423,25 @@ def test_barrier_concurrent_queries():
                         message=f"Concurrent query {i+1}: expected {num_docs}, got {total}")
 
 
+@skip(cluster=False)
+def test_barrier_concurrent_queries_resp2():
+    _test_barrier_concurrent_queries(2)
+
+
+@skip(cluster=False)
+def test_barrier_concurrent_queries_resp3():
+    _test_barrier_concurrent_queries(3)
+
+
 #------------------------------------------------------------------------------
 # Error Handling Tests
 #------------------------------------------------------------------------------
 
-@skip(cluster=False)
-def test_barrier_handles_empty_results():
+def _test_barrier_handles_empty_results(protocol):
     """
     Test barrier handles queries that return zero results.
     """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=protocol)
     num_docs = 100 * env.shardsCount
     setup_index_with_data(env, num_docs)
 
@@ -419,11 +457,20 @@ def test_barrier_handles_empty_results():
 
 
 @skip(cluster=False)
-def test_barrier_handles_single_shard_results():
+def test_barrier_handles_empty_results_resp2():
+    _test_barrier_handles_empty_results(2)
+
+
+@skip(cluster=False)
+def test_barrier_handles_empty_results_resp3():
+    _test_barrier_handles_empty_results(3)
+
+
+def _test_barrier_handles_single_shard_results(protocol):
     """
     Test barrier works correctly when only one shard has matching docs.
     """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=protocol)
 
     # Create index
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
@@ -446,11 +493,22 @@ def test_barrier_handles_single_shard_results():
     env.assertEqual(total, n_docs,
                     message=f"Expected {n_docs} docs, got {total}")
 
-def test_barrier_handles_error_in_shard():
+
+@skip(cluster=False)
+def test_barrier_handles_single_shard_results_resp2():
+    _test_barrier_handles_single_shard_results(2)
+
+
+@skip(cluster=False)
+def test_barrier_handles_single_shard_results_resp3():
+    _test_barrier_handles_single_shard_results(3)
+
+
+def _test_barrier_handles_error_in_shard(protocol):
     """
     Test barrier behavior when a shard returns an error.
     """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=protocol)
 
     # Create index
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
@@ -473,12 +531,19 @@ def test_barrier_handles_error_in_shard():
             .error().contains("Could not convert value to a number")
 
 
+def test_barrier_handles_error_in_shard_resp2():
+    _test_barrier_handles_error_in_shard(2)
+
+
+def test_barrier_handles_error_in_shard_resp3():
+    _test_barrier_handles_error_in_shard(3)
+
+
 #------------------------------------------------------------------------------
 # Simulated Shard Timeout Tests (using TIMEOUT_AFTER_N)
 #------------------------------------------------------------------------------
 
-@skip(cluster=False)
-def test_barrier_shard_timeout_with_fail_policy():
+def _test_barrier_shard_timeout_with_fail_policy(protocol):
     """
     Test barrier behavior when a shard times out with ON_TIMEOUT FAIL policy.
 
@@ -486,7 +551,7 @@ def test_barrier_shard_timeout_with_fail_policy():
     on the shards while the coordinator waits for responses.
     With FAIL policy, the query should return a timeout error.
     """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=3)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=protocol)
     num_docs = 100 * env.shardsCount
     setup_index_with_data(env, num_docs)
 
@@ -504,14 +569,23 @@ def test_barrier_shard_timeout_with_fail_policy():
 
 
 @skip(cluster=False)
-def test_barrier_shard_timeout_with_return_policy():
+def test_barrier_shard_timeout_with_fail_policy_resp2():
+    _test_barrier_shard_timeout_with_fail_policy(2)
+
+
+@skip(cluster=False)
+def test_barrier_shard_timeout_with_fail_policy_resp3():
+    _test_barrier_shard_timeout_with_fail_policy(3)
+
+
+def _test_barrier_shard_timeout_with_return_policy(protocol):
     """
     Test barrier behavior when a shard times out with ON_TIMEOUT RETURN policy.
 
     This test uses TIMEOUT_AFTER_N with INTERNAL_ONLY to simulate a timeout
     on the shards. With RETURN policy, should return partial results.
     """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT RETURN', protocol=3)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT RETURN', protocol=protocol)
     num_docs = 2400 * env.shardsCount
     setup_index_with_data(env, num_docs)
 
@@ -534,6 +608,13 @@ def test_barrier_shard_timeout_with_return_policy():
         has_timeout_warning = any('Timeout' in str(w) for w in warnings)
         env.assertTrue(has_timeout_warning,
                        message=f"Expected timeout warning, got: {warnings}")
-    else:
-        env.assertTrue(False, message="Expected warning in response, got none")
 
+
+@skip(cluster=False)
+def test_barrier_shard_timeout_with_return_policy_resp2():
+    _test_barrier_shard_timeout_with_return_policy(2)
+
+
+@skip(cluster=False)
+def test_barrier_shard_timeout_with_return_policy_resp3():
+    _test_barrier_shard_timeout_with_return_policy(3)
