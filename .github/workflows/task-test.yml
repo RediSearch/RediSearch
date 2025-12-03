@@ -512,9 +512,8 @@ jobs:
       - name: Upload Artifacts (node20)
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
-          failure() &&  
           steps.node20.outputs.supported == 'true' &&
-          (steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
+          (failure() || steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -528,13 +527,14 @@ jobs:
       # Here we only upload the artifacts if the tests had failed, since it is very slow
       - name: Upload Artifacts (node20 not supported) (temporarily disabled)
         if: >
-          failure() &&
           steps.node20.outputs.supported == 'false' &&
-          (steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
+          (failure() || steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
         run: echo "Currently not available..."
 
       - name: Fail flow if tests failed
-        if: failure() && (steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
+        # due to continue-on-error, we need to check failure() explicitly for step to run
+        # otherwise github implicitly adds a success() condition to the if and the job gets skipped
+        if: failure() || steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
         run: |
           echo "Rust Unit Tests: ${{ steps.rust_unit_tests.outcome }}"
           echo "C Unit Tests: ${{ steps.c_unit_tests.outcome }}"
