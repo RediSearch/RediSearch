@@ -113,7 +113,7 @@ impl Chain {
 
     /// Append a new result processor at the end of the chain. It will have its `upstream`
     /// field set to the previous last result processor.
-    pub fn append<P>(&mut self, result_processor: P)
+    pub fn append<P>(mut self, result_processor: P) -> Self
     where
         P: ResultProcessor + 'static,
     {
@@ -134,7 +134,9 @@ impl Chain {
         let result_processor_ptr: *mut ffi::ResultProcessor = unsafe { header_ptr.cast().as_mut() };
 
         self.query_processing_context
-            .append_raw(result_processor_ptr)
+            .append_raw(result_processor_ptr);
+
+        self
     }
 
     /// Append a new result processor at the end of the chain. It will have its `upstream`
