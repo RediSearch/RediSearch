@@ -1378,7 +1378,6 @@ void AREQ_Free(AREQ *req) {
   }
 
   if (req->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
-    RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "Decreasing query count for version %u\n", req->keySpaceVersion);
     ASM_KeySpaceVersionTracker_DecreaseQueryCount(req->keySpaceVersion);
   }
   rm_free((void *)req->querySlots);
