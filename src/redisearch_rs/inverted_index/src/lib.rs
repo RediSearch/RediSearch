@@ -1177,7 +1177,7 @@ pub trait IndexReader<'index> {
     fn reset(&mut self);
 
     /// Return the number of unique documents in the underlying index.
-    fn unique_docs(&self) -> u32;
+    fn unique_docs(&self) -> u64;
 
     /// Returns true if the underlying index has duplicate document IDs.
     fn has_duplicates(&self) -> bool;
@@ -1299,8 +1299,8 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
     }
 
-    fn unique_docs(&self) -> u32 {
-        self.ii.unique_docs()
+    fn unique_docs(&self) -> u64 {
+        self.ii.unique_docs() as u64
     }
 
     fn has_duplicates(&self) -> bool {
@@ -1447,7 +1447,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
         self.inner.reset();
     }
 
-    fn unique_docs(&self) -> u32 {
+    fn unique_docs(&self) -> u64 {
         self.inner.unique_docs()
     }
 
@@ -1580,7 +1580,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
         self.inner.reset();
     }
 
-    fn unique_docs(&self) -> u32 {
+    fn unique_docs(&self) -> u64 {
         self.inner.unique_docs()
     }
 
@@ -1740,7 +1740,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
         self.inner.reset();
     }
 
-    fn unique_docs(&self) -> u32 {
+    fn unique_docs(&self) -> u64 {
         self.inner.unique_docs()
     }
 
