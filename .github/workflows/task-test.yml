@@ -51,7 +51,7 @@ env:
   COV: ${{ inputs.coverage && 1 || 0 }} # convert the boolean input to numeric
   # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
   RUST_BACKTRACE: "full"
-  BUILD_INTEL_SVS_OPT: "yes"
+  # BUILD_INTEL_SVS_OPT: "yes"
 
 jobs:
   # Get configuration for this specific platform and architecture

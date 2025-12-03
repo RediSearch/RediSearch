@@ -146,9 +146,7 @@ RSValue *RSValue_NewWithType(RSValueType t);
  * The returned value is not allocated on the heap and should not be freed.
  * @return A stack-allocated RSValue of type RSValueType_Undef
  */
-#ifndef __cplusplus
 RSValue RSValue_Undefined();
-#endif
 
 #ifndef __cplusplus
 /**
@@ -174,9 +172,7 @@ static RSValue RSValue_WithType(RSValueType t) {
  * @param n The numeric value to wrap
  * @return A stack-allocated RSValue of type RSValueType_Number
  */
-#ifndef __cplusplus
 RSValue RSValue_Number(double n);
-#endif
 
 /**
  * Creates a stack-allocated RSValue containing a malloc'd string.
@@ -185,9 +181,7 @@ RSValue RSValue_Number(double n);
  * @param len The length of the string
  * @return A stack-allocated RSValue of type RSValue_String with RSString_Malloc subtype
  */
-#ifndef __cplusplus
 RSValue RSValue_String(char *str, uint32_t len);
-#endif
 
 /**
  * Creates a heap-allocated RSValue wrapping a string.
