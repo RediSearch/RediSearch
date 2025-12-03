@@ -15,7 +15,7 @@
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
-#include "iterators/empty_iterator.h"
+#include "iterators_rs.h"
 #include "rs_wall_clock.h"
 #include <stdatomic.h>
 #include <pthread.h>
