@@ -442,7 +442,11 @@ where
     /// Filtering the results can be achieved by wrapping the reader with
     /// a [`NumericReader`] such as [`inverted_index::FilterNumericReader`]
     /// or [`inverted_index::FilterGeoReader`].
-    pub fn new(reader: R) -> Self {
+    ///
+    /// This constructor should only used in tests, production code should use
+    /// [`Numeric::with_context`] instead.
+    #[doc(hidden)]
+    pub fn new_simple(reader: R) -> Self {
         let result = RSIndexResult::numeric(0.0);
         Self {
             it: InvIndIterator::new(reader, result, None),
@@ -553,7 +557,11 @@ where
     ///
     /// Filtering the results can be achieved by wrapping the reader with
     /// a [`inverted_index::FilterMaskReader`].
-    pub fn new(reader: R) -> Self {
+    ///
+    /// This constructor should only used in tests, production code should use
+    /// [`Term::with_context`] instead.
+    #[doc(hidden)]
+    pub fn new_simple(reader: R) -> Self {
         let result = RSIndexResult::term();
         Self {
             it: InvIndIterator::new(reader, result, None),

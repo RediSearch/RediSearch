@@ -45,7 +45,7 @@ impl NumericTest {
 fn numeric_full_read() {
     let test = NumericTest::new(100);
     let reader = test.test.ii.reader();
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
     test.test.read(&mut it, test.test.docs_ids_iter());
 
     // same but using a passthrough filter
@@ -53,7 +53,7 @@ fn numeric_full_read() {
     let filter = NumericFilter::default();
     let reader = test.test.ii.reader();
     let reader = FilterNumericReader::new(&filter, reader);
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
@@ -62,7 +62,7 @@ fn numeric_full_read() {
 fn numeric_full_skip_to() {
     let test = NumericTest::new(100);
     let reader = test.test.ii.reader();
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
     test.test.skip_to(&mut it);
 }
 
@@ -76,7 +76,7 @@ fn numeric_filter() {
         ..Default::default()
     };
     let reader = FilterNumericReader::new(&filter, test.test.ii.reader());
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
     let docs_ids = test
         .test
         .docs_ids_iter()
@@ -89,7 +89,7 @@ fn numeric_filter() {
 fn numeric_full_revalidate_basic() {
     let test = NumericTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
     test.revalidate_test.revalidate_basic(&mut it);
 }
 
@@ -97,7 +97,7 @@ fn numeric_full_revalidate_basic() {
 fn numeric_full_revalidate_at_eof() {
     let test = NumericTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
     test.revalidate_test.revalidate_at_eof(&mut it);
 }
 
@@ -105,7 +105,7 @@ fn numeric_full_revalidate_at_eof() {
 fn numeric_full_revalidate_after_index_disappears() {
     let test = NumericTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
     test.revalidate_test
         .revalidate_after_index_disappears(&mut it, true);
 }
@@ -115,7 +115,7 @@ fn numeric_full_revalidate_after_index_disappears() {
 fn numeric_full_revalidate_after_document_deleted() {
     let test = NumericTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
     test.revalidate_test
         .revalidate_after_document_deleted(&mut it);
 }
@@ -129,7 +129,7 @@ fn skip_multi_id() {
     let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
     let _ = ii.add_record(&RSIndexResult::numeric(3.0).doc_id(1));
 
-    let mut it = Numeric::new(ii.reader());
+    let mut it = Numeric::new_simple(ii.reader());
 
     // Read the first entry. Expect to get the entry with value 1.0
     let record = it
@@ -155,7 +155,7 @@ fn skip_multi_id_and_value() {
     let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
     let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
 
-    let mut it = Numeric::new(ii.reader());
+    let mut it = Numeric::new_simple(ii.reader());
 
     // Read the first entry. Expect to get the entry with value 1.0
     let record = it
@@ -188,7 +188,7 @@ fn get_correct_value() {
         ..Default::default()
     };
     let reader = FilterNumericReader::new(&filter, ii.reader());
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
 
     // Read the first entry. Expect to get the entry with value 2.0
     let record = it
@@ -222,7 +222,7 @@ fn eof_after_filtering() {
         ..Default::default()
     };
     let reader = FilterNumericReader::new(&filter, ii.reader());
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
 
     // Attempt to skip to the first entry, expecting EOF since no entries match the filter
     assert_eq!(it.skip_to(1).expect("skip_to failed"), None);

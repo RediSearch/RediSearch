@@ -97,7 +97,7 @@ impl TermTest {
 fn term_full_read() {
     let test = TermTest::new(100);
     let reader = test.test.ii.reader();
-    let mut it = Term::new(reader);
+    let mut it = Term::new_simple(reader);
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
@@ -106,7 +106,7 @@ fn term_full_read() {
 fn term_full_skip_to() {
     let test = TermTest::new(100);
     let reader = test.test.ii.reader();
-    let mut it = Term::new(reader);
+    let mut it = Term::new_simple(reader);
     test.test.skip_to(&mut it);
 }
 
@@ -115,7 +115,7 @@ fn term_full_skip_to() {
 fn term_filter() {
     let test = TermTest::new(10);
     let reader = FilterMaskReader::new(1, test.test.ii.reader());
-    let mut it = Term::new(reader);
+    let mut it = Term::new_simple(reader);
     // results have their doc id as field mask so we filter by odd ids
     let docs_ids = test.test.docs_ids_iter().filter(|id| id % 2 == 1);
     test.test.read(&mut it, docs_ids);
@@ -125,7 +125,7 @@ fn term_filter() {
 fn term_full_revalidate_basic() {
     let test = TermTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Term::new(reader);
+    let mut it = Term::new_simple(reader);
     test.revalidate_test.revalidate_basic(&mut it);
 }
 
@@ -133,7 +133,7 @@ fn term_full_revalidate_basic() {
 fn term_full_revalidate_at_eof() {
     let test = TermTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Term::new(reader);
+    let mut it = Term::new_simple(reader);
     test.revalidate_test.revalidate_at_eof(&mut it);
 }
 
@@ -141,7 +141,7 @@ fn term_full_revalidate_at_eof() {
 fn term_full_revalidate_after_index_disappears() {
     let test = TermTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Term::new(reader);
+    let mut it = Term::new_simple(reader);
     test.revalidate_test
         .revalidate_after_index_disappears(&mut it, true);
 }
@@ -150,7 +150,7 @@ fn term_full_revalidate_after_index_disappears() {
 fn term_full_revalidate_after_document_deleted() {
     let test = TermTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Term::new(reader);
+    let mut it = Term::new_simple(reader);
     test.revalidate_test
         .revalidate_after_document_deleted(&mut it);
 }
