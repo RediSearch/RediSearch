@@ -13,12 +13,9 @@
 #include <chrono>
 #include <thread>
 #include <atomic>
-
-extern "C" {
 #include "coord/rmr/rq.h"
 #include "concurrent_ctx.h"
 #include "info/global_stats.h"
-}
 
 class ActiveIoThreadsTest : public ::testing::Test {
 protected:
