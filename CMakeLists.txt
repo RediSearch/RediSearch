@@ -26,7 +26,7 @@ function(setup_cc_options)
     set(CMAKE_CXX_FLAGS "-v -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
     set(CMAKE_CXX_STANDARD 20 PARENT_SCOPE)
     # if (CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "20.0")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-fuse-ld=lld")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-fuse-ld=lld" PARENT_SCOPE)
         message(STATUS "Clang ${CMAKE_CXX_COMPILER_VERSION}: Using lld linker")
     # endif()
 
