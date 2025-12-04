@@ -21,6 +21,51 @@
 // Variant Values - will be used in documents as well
 ///////////////////////////////////////////////////////////////
 
+#pragma pack(4)
+// Variant value union
+struct RSValue {
+
+  union {
+    // numeric value
+    double _numval;
+
+    // int64_t intval;
+
+    // string value
+    struct {
+      char *str;
+      uint32_t len : 29;
+      // sub type for string
+      RSStringType stype : 3;
+    } _strval;
+
+    // array value
+    struct {
+      struct RSValue **vals;
+      uint32_t len;
+    } _arrval;
+
+    // map value
+    RSValueMap _mapval;
+
+    // trio value
+    struct {
+      // An array of 3 RSValue *'s
+      struct RSValue **vals;
+    } _trioval;
+
+    // redis string value
+    struct RedisModuleString *_rstrval;
+
+    // reference to another value
+    struct RSValue *_ref;
+  };
+  RSValueType _t : 7;
+  uint8_t _allocated : 1;
+  uint16_t _refcount;
+};
+#pragma pack()
+
 pthread_key_t mempoolKey_g;
 
 static void *_valueAlloc() {
