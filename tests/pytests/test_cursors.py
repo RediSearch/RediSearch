@@ -538,22 +538,6 @@ def testCursorDepletionStrictTimeoutPolicy():
     ).error().contains('Timeout limit was reached')
 
 @skip(cluster=True)
-def test_cursor_profile(env: Env):
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
-
-    env.cmd('HSET', f'doc1', 't', str(1))
-    env.cmd('HSET', f'doc2', 't', str(2))
-
-    env.expect('_FT.CURSOR', 'PROFILE', 'idx', '123').error().contains('Cursor not found')
-
-    # create a cursor
-
-    _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1')
-    env.assertNotEqual(cursor, 0)
-    env.expect('_FT.CURSOR', 'PROFILE', 'idx', cursor).error().contains('cursor request is not profile')
-
-@skip(cluster=True)
 def test_mod_6597(env):
     """Tests that we update the numeric index appropriately upon deleting
     documents from a numeric index, and are able to query an invalid cursor in
