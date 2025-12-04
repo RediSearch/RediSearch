@@ -32,19 +32,6 @@ fn debug_assert_valid_ranges(ranges: &[SlotRange]) {
     debug_assert!(ranges.iter().all(|r| r.start <= r.end && r.end <= 16383));
 }
 
-/// Validates that ranges are sorted and normalized (no overlaps or adjacent ranges).
-#[inline]
-fn debug_assert_normalized_ranges(ranges: &[SlotRange]) {
-    debug_assert!(ranges.windows(2).all(|w| w[0].end + 1 < w[1].start));
-}
-
-/// Validates that ranges are valid, sorted, and normalized.
-#[inline]
-fn debug_assert_valid_normalized_input(ranges: &[SlotRange]) {
-    debug_assert_valid_ranges(ranges);
-    debug_assert_normalized_ranges(ranges);
-}
-
 /// A collection of slot ranges with set operation capabilities.
 ///
 /// This is an internal type used only within this crate to manage slot sets.
@@ -71,19 +58,21 @@ impl SlotSet {
     ///
     /// The input is required to be sorted and normalized.
     pub(crate) fn from_ranges(ranges: &[SlotRange]) -> Self {
-        debug_assert_valid_normalized_input(ranges);
+        debug_assert_valid_ranges(ranges);
 
         // Input is already normalized, just replace our vector
-        Self {
+        let mut set = Self {
             ranges: ranges.to_vec(),
-        }
+        };
+        set.normalize();
+        set
     }
 
     /// Adds/merges ranges into the set (union operation).
     ///
     /// The input is required to be sorted and normalized.
     pub(crate) fn add_ranges(&mut self, ranges: &[SlotRange]) {
-        debug_assert_valid_normalized_input(ranges);
+        debug_assert_valid_ranges(ranges);
 
         // Simply add all ranges and normalize once at the end
         self.ranges.extend_from_slice(ranges);
@@ -96,7 +85,7 @@ impl SlotSet {
     ///
     /// **Optimized**: Takes advantage of sorted input to avoid re-scanning from the beginning.
     pub(crate) fn remove_ranges(&mut self, ranges: &[SlotRange]) {
-        debug_assert_valid_normalized_input(ranges);
+        debug_assert_valid_ranges(ranges);
 
         let old_ranges = std::mem::take(&mut self.ranges);
         let mut remove_iter = ranges.iter().peekable();
@@ -142,6 +131,7 @@ impl SlotSet {
             // Keep what remains of current
             self.ranges.push(current);
         }
+        self.normalize();
     }
 
     /// Checks if any of the given ranges overlap with any ranges in this set.
@@ -150,7 +140,7 @@ impl SlotSet {
     ///
     /// **Optimized**: Uses iterators with two-pointer technique since both inputs are sorted.
     pub(crate) fn has_overlap(&self, ranges: &[SlotRange]) -> bool {
-        debug_assert_valid_normalized_input(ranges);
+        debug_assert_valid_ranges(ranges);
 
         let mut their_iter = ranges.iter().peekable();
 
@@ -181,7 +171,7 @@ impl SlotSet {
     /// - If we cover exactly the input slots: returns `Equals`
     /// - If we cover all input slots plus extras: returns `Covers`
     pub(crate) fn coverage_relation(&self, ranges: &[SlotRange]) -> CoverageRelation {
-        debug_assert_valid_normalized_input(ranges);
+        debug_assert_valid_ranges(ranges);
 
         let mut our_iter = self.ranges.iter().peekable();
         let mut has_extra = false;
