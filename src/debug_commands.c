@@ -1566,7 +1566,7 @@ DEBUG_COMMAND(VecSimMockTimeout) {
  * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_RP_RESUME
  */
 DEBUG_COMMAND(setPauseRPResume) {
-  if (argc != 2) {
+  if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
 
@@ -1583,7 +1583,7 @@ DEBUG_COMMAND(setPauseRPResume) {
  * FT.DEBUG QUERY_CONTROLLER GET_IS_RP_PAUSED
  */
 DEBUG_COMMAND(getIsRPPaused) {
-  if (argc != 2) {
+  if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
 
@@ -1594,7 +1594,7 @@ DEBUG_COMMAND(getIsRPPaused) {
  * FT.DEBUG QUERY_CONTROLLER PRINT_RP_STREAM
  */
 DEBUG_COMMAND(printRPStream) {
-  if (argc != 2) {
+  if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
 
@@ -1629,20 +1629,20 @@ DEBUG_COMMAND(printRPStream) {
  * FT.DEBUG QUERY_CONTROLLER <command> [options]
  */
 DEBUG_COMMAND(queryController) {
-  if (argc < 3) {
+  if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+  const char *op = RedisModule_StringPtrLen(argv[0], NULL);
 
   // Check here all background indexing possible commands
   if (!strcmp("SET_PAUSE_RP_RESUME", op)) {
-    return setPauseRPResume(ctx, argv + 1, argc - 1);
+    return setPauseRPResume(ctx, argv, argc);
   }
   if (!strcmp("GET_IS_RP_PAUSED", op)) {
-    return getIsRPPaused(ctx, argv + 1, argc - 1);
+    return getIsRPPaused(ctx, argv, argc);
   }
   if (!strcmp("PRINT_RP_STREAM", op)) {
-    return printRPStream(ctx, argv + 1, argc - 1);
+    return printRPStream(ctx, argv, argc);
   }
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");
 }
