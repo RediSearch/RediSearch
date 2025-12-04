@@ -180,7 +180,7 @@ jobs:
                       'container': 'alpine:3.22',
                       'setup_script': 'apk add bash gcompat libstdc++ libgcc git',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV',
-                      'name': 'Alpine 3.22 ARM64'
+                      'name': 'Alpine 3 ARM64'
                   }
               },
               "debian:bullseye": {
