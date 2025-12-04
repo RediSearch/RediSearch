@@ -140,12 +140,6 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: Debug - Check build-image output
-        if: always()
-        run: |
-          echo "build-image.result: ${{ needs.build-image.result }}"
-          echo "build-image.outputs.succeeded: ${{ needs.build-image.outputs.succeeded }}"
-          echo "build-image.outputs.image: ${{ needs.build-image.outputs.image }}"
       - name: Fix HOME Directory
         if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
         shell: bash
