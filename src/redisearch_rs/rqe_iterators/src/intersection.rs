@@ -21,13 +21,8 @@ use crate::{Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutco
 pub struct Intersection<'index, I> {
     /// Child iterators, sorted by estimated count (smallest first).
     children: Vec<I>,
-    /// Cached last doc_id from each child.
-    doc_ids: Vec<t_docId>,
-    /// Last doc_id read from the first child (returned by `last_doc_id()`).
-    last_doc_id: t_docId,
     /// Last doc_id successfully found in ALL children (returned by `last_doc_id()`).
-    last_found_id: t_docId,
-    len: usize,
+    last_doc_id: t_docId,
     num_expected: usize,
     is_eof: bool,
     /// Aggregate result combining children's results, reused to avoid allocations.
@@ -46,16 +41,14 @@ where
 {
     /// Creates a new intersection iterator. Children are sorted by estimated count. If `children`
     /// is empty, returns an iterator immediately at EOF.
+    #[must_use]
     pub fn new(mut children: Vec<I>) -> Self {
         let num_children = children.len();
 
         if num_children == 0 {
             return Self {
                 children,
-                doc_ids: Vec::new(),
                 last_doc_id: 0,
-                last_found_id: 0,
-                len: 0,
                 num_expected: 0,
                 is_eof: true,
                 result: RSIndexResult::intersect(0),
@@ -64,14 +57,10 @@ where
 
         children.sort_by_cached_key(|c| c.num_estimated());
         let num_expected = children.first().map(|c| c.num_estimated()).unwrap_or(0);
-        let doc_ids = vec![0; num_children];
 
         Self {
             children,
-            doc_ids,
             last_doc_id: 0,
-            last_found_id: 0,
-            len: 0,
             num_expected,
             is_eof: false,
             result: RSIndexResult::intersect(num_children),
@@ -83,10 +72,7 @@ where
         debug_assert!(!self.children.is_empty());
 
         match self.children[0].read()? {
-            Some(r) => {
-                self.doc_ids[0] = r.doc_id;
-                Ok(Some(r.doc_id))
-            }
+            Some(r) => Ok(Some(r.doc_id)),
             None => {
                 self.is_eof = true;
                 Ok(None)
@@ -96,8 +82,9 @@ where
 
     /// Tries to get all children to agree on the target doc_id.
     fn agree_on_doc_id(&mut self, target: t_docId) -> Result<AgreeResult, RQEIteratorError> {
-        for (i, child) in self.children.iter_mut().enumerate() {
-            if self.doc_ids[i] == target {
+        for child in &mut self.children {
+            // Use child's cached last_doc_id instead of maintaining a parallel array
+            if child.last_doc_id() == target {
                 continue;
             }
 
@@ -106,11 +93,10 @@ where
                     self.is_eof = true;
                     return Ok(AgreeResult::Eof);
                 }
-                Some(SkipToOutcome::Found(r)) => {
-                    self.doc_ids[i] = r.doc_id;
+                Some(SkipToOutcome::Found(_)) => {
+                    // Child's last_doc_id is automatically updated by skip_to
                 }
                 Some(SkipToOutcome::NotFound(r)) => {
-                    self.doc_ids[i] = r.doc_id;
                     return Ok(AgreeResult::Ahead(r.doc_id));
                 }
             }
@@ -136,12 +122,10 @@ where
     ///
     /// Uses `unsafe` for split borrow: we need to iterate `&mut self.children` while
     /// mutating `self.result`. These are disjoint fields, but the borrow checker can't
-    /// verify this through `&mut self`
-
+    /// verify this through `&mut self`. Additionally, `push_borrowed` requires `'index`
+    /// lifetime which the safe borrow pattern cannot provide.
     fn build_aggregate_result(&mut self, doc_id: t_docId) {
-        self.last_found_id = doc_id;
         self.last_doc_id = doc_id;
-        self.len += 1;
 
         if let Some(agg) = self.result.as_aggregate_mut() {
             agg.reset();
@@ -149,7 +133,9 @@ where
         self.result.doc_id = doc_id;
 
         // SAFETY: `children` and `result` are disjoint fields. We only call `current()`
-        // on children (doesn't invalidate results). Result is reset before adding new refs.
+        // on children (doesn't invalidate results). Child results reference data from
+        // the index with lifetime `'index`, and our result also has `'index` lifetime,
+        // so the borrowed references remain valid. Result is reset before adding new refs.
         let result_ptr: *mut RSIndexResult<'index> = &mut self.result;
         for child in &mut self.children {
             if let Some(child_result) = child.current() {
@@ -168,7 +154,11 @@ where
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        Some(&mut self.result)
+        if self.is_eof {
+            None
+        } else {
+            Some(&mut self.result)
+        }
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
@@ -214,10 +204,7 @@ where
     #[inline(always)]
     fn rewind(&mut self) {
         self.last_doc_id = 0;
-        self.last_found_id = 0;
-        self.len = 0;
         self.is_eof = self.children.is_empty();
-        self.doc_ids.fill(0);
         self.children.iter_mut().for_each(|c| c.rewind());
     }
 
@@ -228,7 +215,7 @@ where
 
     #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
-        self.last_found_id
+        self.last_doc_id
     }
 
     #[inline(always)]
@@ -242,14 +229,14 @@ where
         let mut max_child_doc_id: t_docId = 0;
         let mut moved_to_eof = false;
 
-        for (i, child) in self.children.iter_mut().enumerate() {
+        for child in &mut self.children {
             match child.revalidate()? {
                 RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
                 RQEValidateStatus::Moved { current } => {
                     any_child_moved = true;
                     match current {
                         Some(result) => {
-                            self.doc_ids[i] = result.doc_id;
+                            // Child's last_doc_id is automatically updated by revalidate
                             max_child_doc_id = max_child_doc_id.max(result.doc_id);
                         }
                         None => moved_to_eof = true,
@@ -292,6 +279,7 @@ pub enum ReducedIntersection<'index, I> {
 }
 
 /// Reduces children by removing wildcards and optimizing edge cases.
+#[must_use]
 pub fn reduce<'index, I>(children: Vec<I>) -> ReducedIntersection<'index, I>
 where
     I: RQEIterator<'index>,
@@ -321,74 +309,53 @@ where
     }
 }
 
+/// Delegates a method call to the inner variant of `ReducedIntersection`.
+macro_rules! delegate {
+    ($self:expr, $method:ident $(, $arg:expr)*) => {
+        match $self {
+            ReducedIntersection::Empty(e) => e.$method($($arg),*),
+            ReducedIntersection::Single(s) => s.$method($($arg),*),
+            ReducedIntersection::Intersection(i) => i.$method($($arg),*),
+        }
+    };
+}
+
 impl<'index, I> RQEIterator<'index> for ReducedIntersection<'index, I>
 where
     I: RQEIterator<'index>,
 {
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        match self {
-            ReducedIntersection::Empty(e) => e.read(),
-            ReducedIntersection::Single(s) => s.read(),
-            ReducedIntersection::Intersection(i) => i.read(),
-        }
+        delegate!(self, read)
     }
 
     fn skip_to(
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        match self {
-            ReducedIntersection::Empty(e) => e.skip_to(doc_id),
-            ReducedIntersection::Single(s) => s.skip_to(doc_id),
-            ReducedIntersection::Intersection(i) => i.skip_to(doc_id),
-        }
+        delegate!(self, skip_to, doc_id)
     }
 
     fn rewind(&mut self) {
-        match self {
-            ReducedIntersection::Empty(e) => e.rewind(),
-            ReducedIntersection::Single(s) => s.rewind(),
-            ReducedIntersection::Intersection(i) => i.rewind(),
-        }
+        delegate!(self, rewind)
     }
 
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        match self {
-            ReducedIntersection::Empty(e) => e.current(),
-            ReducedIntersection::Single(s) => s.current(),
-            ReducedIntersection::Intersection(i) => i.current(),
-        }
+        delegate!(self, current)
     }
 
     fn last_doc_id(&self) -> t_docId {
-        match self {
-            ReducedIntersection::Empty(e) => e.last_doc_id(),
-            ReducedIntersection::Single(s) => s.last_doc_id(),
-            ReducedIntersection::Intersection(i) => i.last_doc_id(),
-        }
+        delegate!(self, last_doc_id)
     }
 
     fn at_eof(&self) -> bool {
-        match self {
-            ReducedIntersection::Empty(e) => e.at_eof(),
-            ReducedIntersection::Single(s) => s.at_eof(),
-            ReducedIntersection::Intersection(i) => i.at_eof(),
-        }
+        delegate!(self, at_eof)
     }
 
     fn num_estimated(&self) -> usize {
-        match self {
-            ReducedIntersection::Empty(e) => e.num_estimated(),
-            ReducedIntersection::Single(s) => s.num_estimated(),
-            ReducedIntersection::Intersection(i) => i.num_estimated(),
-        }
+        delegate!(self, num_estimated)
     }
 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        match self {
-            ReducedIntersection::Empty(e) => e.revalidate(),
-            ReducedIntersection::Single(s) => s.revalidate(),
-            ReducedIntersection::Intersection(i) => i.revalidate(),
-        }
+        delegate!(self, revalidate)
     }
 }
