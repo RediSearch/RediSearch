@@ -58,6 +58,7 @@ typedef enum {
   RP_METRICS,
   RP_KEY_NAME_LOADER,
   RP_MAX_SCORE_NORMALIZER,
+  RP_DEPLETER,
   RP_TIMEOUT, // DEBUG ONLY
   RP_MAX,
 } ResultProcessorType;

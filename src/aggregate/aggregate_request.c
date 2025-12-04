@@ -282,9 +282,34 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
-    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
+    // Handle SORTBY (also covers SORTBY 0 MAX n)
+    req->reqflags |= QEXEC_F_HAS_SORTBY;
+    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+    bool existingSort = (arng != NULL);
+    if (!arng) {
+      arng = NewArrangeStep();
+    }
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
+      if (!existingSort) {
+        arng->base.dtor(&arng->base);
+      }
       return ARG_ERROR;
+    }
+    if (array_len(arng->sortKeys) == 0) {
+      // No need to sort
+      req->reqflags &= ~QEXEC_F_HAS_SORTBY;
+      if (!existingSort) {
+        if (arng->limit > 0) {
+          // To support SORTBY 0 MAX n, we have a SORTER without any keys,
+          // but with a limit.
+          AGPLN_AddStep(&req->ap, &arng->base);
+        } else {
+          arng->base.dtor(&arng->base);
+        }
+      }
+    } else if (!existingSort) {
+      // Need to sort (add a sorter step if not yet added)
+      AGPLN_AddStep(&req->ap, &arng->base);
     }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
     if (AC_NumRemaining(ac) < 1) {
@@ -296,6 +321,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
+    if (IsAggregate(req) && HasWithCount(req)) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
+      return ARG_ERROR;
+    }
     if (parseCursorSettings(req, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -551,6 +580,13 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
       req->reqflags &= ~QEXEC_OPTIMIZE;
+      if (IsAggregate(req)) {
+        AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
+        if (IsCursor(req) && !IsInternal(req)) {
+          QueryError_SetError(status, QUERY_EPARSEARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
+          return REDISMODULE_ERR;
+        }
+      }
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
       req->reqflags |= QEXEC_OPTIMIZE;
@@ -899,6 +935,10 @@ AREQ *AREQ_New(void) {
 
 static bool hasQuerySortby(const AGGPlan *pln);
 
+static bool IsNeededDepleter(AREQ *req) {
+  return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req);
+}
+
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
   req->args = rm_malloc(sizeof(*req->args) * argc);
   req->nargs = argc;
@@ -946,6 +986,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       if (parseGroupby(req, &ac, status) != REDISMODULE_OK) {
         goto error;
       }
+      req->reqflags |= QEXEC_F_HAS_GROUPBY;
     } else if (AC_AdvanceIfMatch(&ac, "APPLY")) {
       if (handleApplyOrFilter(req, &ac, status, 1) != REDISMODULE_OK) {
         goto error;
@@ -970,6 +1011,13 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     // 2. We are not required to return scores explicitly,
     // 3. This is not a search query with implicit sorting by query score.
     searchOpts->flags |= Search_CanSkipRichResults;
+  }
+
+  // Define if we need a depleter in the pipeline to get accurate total results
+  if (IsAggregate(req) && HasWithCount(req)) {
+    if (IsNeededDepleter(req)) {
+      AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
+    }
   }
 
   return REDISMODULE_OK;
