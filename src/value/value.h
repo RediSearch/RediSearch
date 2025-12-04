@@ -142,22 +142,6 @@ typedef struct RSValue {
 RSValue RSValue_Undefined();
 
 /**
- * Creates a stack-allocated RSValue of the specified type.
- * The returned value is not heap-allocated and should not be freed.
- * This is a generic constructor for stack-allocated RSValues.
- * @param t The type of RSValue to create
- * @return A stack-allocated RSValue
- */
-static RSValue RSValue_WithType(RSValueType t) {
-  RSValue v = (RSValue){
-      ._t = t,
-      ._refcount = 1,
-      ._allocated = 0,
-  };
-  return v;
-}
-
-/**
  * Creates a stack-allocated RSValue containing a number.
  * The returned value is not allocated on the heap and should not be freed.
  * @param n The numeric value to wrap
