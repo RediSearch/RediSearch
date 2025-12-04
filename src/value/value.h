@@ -166,6 +166,14 @@ RSValue RSValue_String(char *str, uint32_t len);
 RSValue *RSValue_NewUndefined();
 
 /**
+ * Creates a heap-allocated Null RSValue.
+ * This differs from NullStatic in that it doesn't use a shared static instance,
+ * but it's own instance that can be changed of its type.
+ * @return A pointer to a heap-allocated RSValue
+ */
+RSValue *RSValue_NewNull();
+
+/**
  * Creates a heap-allocated RSValue wrapping a string.
  * Doesn't duplicate the string. Use strdup if the value needs to be detached.
  * @param str The string to wrap (ownership is transferred)
