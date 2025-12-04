@@ -15,10 +15,12 @@
 #include "common.h"
 #include "module.h"
 
+#include <vector>
+
 // Macro for BLOB data that all tests using $BLOB should use
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
-
-#include <vector>
+#define VECTOR_REQUEST_INDEX 1
+#define SEARCH_REQUEST_INDEX 0
 
 class HybridRequestParseTest : public ::testing::Test {
 protected:
@@ -148,8 +150,8 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   CursorConfig cursorConfig = {0};
 
   ParseHybridCommandCtx cmd = {
-    .search = hybridReq->requests[0],
-    .vector = hybridReq->requests[1],
+    .search = hybridReq->requests[SEARCH_REQUEST_INDEX],
+    .vector = hybridReq->requests[VECTOR_REQUEST_INDEX],
     .tailPlan = &hybridReq->tailPipeline->ap,
     .hybridParams = &hybridParams,
     .reqConfig = &reqConfig,
@@ -686,15 +688,9 @@ TEST_F(HybridRequestParseTest, testFilterBatchSize) {
   IndexSpec *spec = CreateStandardTestIndexSpec(ctx, "test_batch_size", &status);
   ASSERT_TRUE(spec != NULL) << "Failed to create index spec: " << QueryError_GetUserError(&status);
 
-  // RAII cleanup for spec
-  struct SpecCleanup {
-    IndexSpec* sp;
-    ~SpecCleanup() { if (sp) IndexSpec_RemoveFromGlobals(sp->own_ref, false); }
-  } specCleanup{spec};
-
   const char *specName = HiddenString_GetUnsafe(spec->specName, NULL);
 
-  // Step 2: Insert document BEFORE building the pipeline (so iterator sees it)
+  // Step 2: Insert document BEFORE building the pipeline (so iterator won't be empty)
   ASSERT_TRUE(RS::addDocument(ctx, spec->own_ref.rm, "doc:1", "title", "hello", "score", "42", "vector_field", TEST_BLOB_DATA));
 
   // Step 3: Create search context and hybrid request
@@ -704,20 +700,14 @@ TEST_F(HybridRequestParseTest, testFilterBatchSize) {
   HybridRequest* hybridReq = MakeDefaultHybridRequest(test_sctx);
   ASSERT_TRUE(hybridReq != NULL);
 
-  // RAII cleanup for hybridReq
-  struct HybridCleanup {
-    HybridRequest* req;
-    ~HybridCleanup() { if (req) HybridRequest_Free(req); }
-  } hybridCleanup{hybridReq};
-
   // Step 4: Parse the hybrid command (but don't build pipeline yet)
   HybridPipelineParams hybridParams = {0};
   RequestConfig reqConfig = {0};
   CursorConfig cursorConfig = {0};
 
   ParseHybridCommandCtx cmd = {
-    .search = hybridReq->requests[0],
-    .vector = hybridReq->requests[1],
+    .search = hybridReq->requests[SEARCH_REQUEST_INDEX],
+    .vector = hybridReq->requests[VECTOR_REQUEST_INDEX],
     .tailPlan = &hybridReq->tailPipeline->ap,
     .hybridParams = &hybridParams,
     .reqConfig = &reqConfig,
@@ -736,7 +726,7 @@ TEST_F(HybridRequestParseTest, testFilterBatchSize) {
   int rc = parseHybridCommand(ctx, &ac, test_sctx, &cmd, &status, false);
   ASSERT_EQ(rc, REDISMODULE_OK) << "Failed to parse hybrid command: " << QueryError_GetUserError(&status);
 
-  AREQ *vecReq = hybridReq->requests[1];
+  AREQ *vecReq = hybridReq->requests[VECTOR_REQUEST_INDEX];
   QueryError error = QueryError_Default();
   QueryIterator *rootiter = QAST_Iterate(&vecReq->ast, &vecReq->searchopts, AREQ_SearchCtx(vecReq), vecReq->reqflags, &error);
   ASSERT_TRUE(QueryError_IsOk(&error)) << "Failed to iterate vector AST: " << QueryError_GetUserError(&error);
@@ -744,6 +734,9 @@ TEST_F(HybridRequestParseTest, testFilterBatchSize) {
   ASSERT_EQ(rootiter->type, HYBRID_ITERATOR) << "Failed to iterate vector AST: " << QueryError_GetUserError(&error);
   HybridIterator *hi = (HybridIterator *)rootiter;
   ASSERT_EQ(hi->runtimeParams.batchSize, 100) << "Failed to iterate vector AST: " << QueryError_GetUserError(&error);
+
+  HybridRequest_Free(hybridReq);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
 TEST_F(HybridRequestParseTest, testPolicyBatchesWithBatchSize) {
@@ -754,15 +747,9 @@ TEST_F(HybridRequestParseTest, testPolicyBatchesWithBatchSize) {
   IndexSpec *spec = CreateStandardTestIndexSpec(ctx, "test_policy_batches", &status);
   ASSERT_TRUE(spec != NULL) << "Failed to create index spec: " << QueryError_GetUserError(&status);
 
-  // RAII cleanup for spec
-  struct SpecCleanup {
-    IndexSpec* sp;
-    ~SpecCleanup() { if (sp) IndexSpec_RemoveFromGlobals(sp->own_ref, false); }
-  } specCleanup{spec};
-
   const char *specName = HiddenString_GetUnsafe(spec->specName, NULL);
 
-  // Step 2: Insert document BEFORE building the pipeline (so iterator sees it)
+  // Step 2: Insert document BEFORE building the pipeline (so iterator won't be empty)
   ASSERT_TRUE(RS::addDocument(ctx, spec->own_ref.rm, "doc:1", "title", "hello", "score", "42", "vector_field", TEST_BLOB_DATA));
 
   // Step 3: Create search context and hybrid request
@@ -772,20 +759,14 @@ TEST_F(HybridRequestParseTest, testPolicyBatchesWithBatchSize) {
   HybridRequest* hybridReq = MakeDefaultHybridRequest(test_sctx);
   ASSERT_TRUE(hybridReq != NULL);
 
-  // RAII cleanup for hybridReq
-  struct HybridCleanup {
-    HybridRequest* req;
-    ~HybridCleanup() { if (req) HybridRequest_Free(req); }
-  } hybridCleanup{hybridReq};
-
   // Step 4: Parse the hybrid command (but don't build pipeline yet)
   HybridPipelineParams hybridParams = {0};
   RequestConfig reqConfig = {0};
   CursorConfig cursorConfig = {0};
 
   ParseHybridCommandCtx cmd = {
-    .search = hybridReq->requests[0],
-    .vector = hybridReq->requests[1],
+    .search = hybridReq->requests[SEARCH_REQUEST_INDEX],
+    .vector = hybridReq->requests[VECTOR_REQUEST_INDEX],
     .tailPlan = &hybridReq->tailPipeline->ap,
     .hybridParams = &hybridParams,
     .reqConfig = &reqConfig,
@@ -804,7 +785,7 @@ TEST_F(HybridRequestParseTest, testPolicyBatchesWithBatchSize) {
   int rc = parseHybridCommand(ctx, &ac, test_sctx, &cmd, &status, false);
   ASSERT_EQ(rc, REDISMODULE_OK) << "Failed to parse hybrid command: " << QueryError_GetUserError(&status);
 
-  AREQ *vecReq = hybridReq->requests[1];
+  AREQ *vecReq = hybridReq->requests[VECTOR_REQUEST_INDEX];
   QueryError error = QueryError_Default();
   QueryIterator *rootiter = QAST_Iterate(&vecReq->ast, &vecReq->searchopts, AREQ_SearchCtx(vecReq), vecReq->reqflags, &error);
   ASSERT_TRUE(QueryError_IsOk(&error)) << "Failed to iterate vector AST: " << QueryError_GetUserError(&error);
@@ -813,6 +794,9 @@ TEST_F(HybridRequestParseTest, testPolicyBatchesWithBatchSize) {
   HybridIterator *hi = (HybridIterator *)rootiter;
   ASSERT_EQ(hi->searchMode, VECSIM_HYBRID_BATCHES) << "Failed to iterate vector AST: " << QueryError_GetUserError(&error);
   ASSERT_EQ(hi->runtimeParams.batchSize, 50) << "Failed to iterate vector AST: " << QueryError_GetUserError(&error);
+
+  HybridRequest_Free(hybridReq);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
 TEST_F(HybridRequestParseTest, testPolicyAdhoc) {
@@ -823,15 +807,9 @@ TEST_F(HybridRequestParseTest, testPolicyAdhoc) {
   IndexSpec *spec = CreateStandardTestIndexSpec(ctx, "test_policy_adhoc", &status);
   ASSERT_TRUE(spec != NULL) << "Failed to create index spec: " << QueryError_GetUserError(&status);
 
-  // RAII cleanup for spec
-  struct SpecCleanup {
-    IndexSpec* sp;
-    ~SpecCleanup() { if (sp) IndexSpec_RemoveFromGlobals(sp->own_ref, false); }
-  } specCleanup{spec};
-
   const char *specName = HiddenString_GetUnsafe(spec->specName, NULL);
 
-  // Step 2: Insert document BEFORE building the pipeline (so iterator sees it)
+  // Step 2: Insert document BEFORE building the pipeline (so iterator won't be empty)
   ASSERT_TRUE(RS::addDocument(ctx, spec->own_ref.rm, "doc:1", "title", "hello", "score", "42", "vector_field", TEST_BLOB_DATA));
 
   // Step 3: Create search context and hybrid request
@@ -841,20 +819,14 @@ TEST_F(HybridRequestParseTest, testPolicyAdhoc) {
   HybridRequest* hybridReq = MakeDefaultHybridRequest(test_sctx);
   ASSERT_TRUE(hybridReq != NULL);
 
-  // RAII cleanup for hybridReq
-  struct HybridCleanup {
-    HybridRequest* req;
-    ~HybridCleanup() { if (req) HybridRequest_Free(req); }
-  } hybridCleanup{hybridReq};
-
   // Step 4: Parse the hybrid command (but don't build pipeline yet)
   HybridPipelineParams hybridParams = {0};
   RequestConfig reqConfig = {0};
   CursorConfig cursorConfig = {0};
 
   ParseHybridCommandCtx cmd = {
-    .search = hybridReq->requests[0],
-    .vector = hybridReq->requests[1],
+    .search = hybridReq->requests[SEARCH_REQUEST_INDEX],
+    .vector = hybridReq->requests[VECTOR_REQUEST_INDEX],
     .tailPlan = &hybridReq->tailPipeline->ap,
     .hybridParams = &hybridParams,
     .reqConfig = &reqConfig,
@@ -873,7 +845,7 @@ TEST_F(HybridRequestParseTest, testPolicyAdhoc) {
   int rc = parseHybridCommand(ctx, &ac, test_sctx, &cmd, &status, false);
   ASSERT_EQ(rc, REDISMODULE_OK) << "Failed to parse hybrid command: " << QueryError_GetUserError(&status);
 
-  AREQ *vecReq = hybridReq->requests[1];
+  AREQ *vecReq = hybridReq->requests[VECTOR_REQUEST_INDEX];
   QueryError error = QueryError_Default();
   QueryIterator *rootiter = QAST_Iterate(&vecReq->ast, &vecReq->searchopts, AREQ_SearchCtx(vecReq), vecReq->reqflags, &error);
   ASSERT_TRUE(QueryError_IsOk(&error)) << "Failed to iterate vector AST: " << QueryError_GetUserError(&error);
@@ -881,4 +853,7 @@ TEST_F(HybridRequestParseTest, testPolicyAdhoc) {
   ASSERT_EQ(rootiter->type, HYBRID_ITERATOR) << "Failed to iterate vector AST: " << QueryError_GetUserError(&error);
   HybridIterator *hi = (HybridIterator *)rootiter;
   ASSERT_EQ(hi->searchMode, VECSIM_HYBRID_ADHOC_BF) << "Failed to iterate vector AST: " << QueryError_GetUserError(&error);
+
+  HybridRequest_Free(hybridReq);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
