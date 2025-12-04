@@ -25,7 +25,7 @@
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "rpnet.h"
-#include "coord/hybrid/dist_utils.h"
+#include "coord/dist_utils.h"
 #include "info/global_stats.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {

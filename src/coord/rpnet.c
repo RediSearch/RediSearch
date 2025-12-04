@@ -12,7 +12,7 @@
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
 #include "hiredis/sds.h"
-#include "coord/hybrid/dist_utils.h"
+#include "coord/dist_utils.h"
 
 
 #define CURSOR_EOF 0

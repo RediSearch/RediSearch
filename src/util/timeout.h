@@ -51,7 +51,7 @@ static inline void rs_timersub(struct timespec *a, struct timespec *b, struct ti
   }
 }
 
-static inline void rs_timerdelta(struct timespec *a, struct timespec *b, struct timespec *result) {
+static inline void rs_timerremaining(struct timespec *a, struct timespec *b, struct timespec *result) {
   rs_timersub(a, b, result);
   // If we ended up with a negative result, set to 0
   if (result->tv_sec < 0) {

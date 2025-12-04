@@ -140,6 +140,11 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
   return RPMetricsLoader_New();
 }
 
+// Returns true if the pipeline requires a sorter.
+// True for Hybrid where we did not run the optimization or when the optimizer
+// decided we need a sorter.
+// This is always true for FT.AGGREGATE + WITHCOUNT, because the optimizer does
+// not run and the type is Q_OPT_UNDECIDED)
 static bool PipelineRequiresSorter(AggregationPipelineParams *params) {
   bool result = false;
   result = IsHybrid(&params->common) ||

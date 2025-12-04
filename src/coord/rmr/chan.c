@@ -141,7 +141,7 @@ static bool condTimedWait(pthread_cond_t *cond, pthread_mutex_t *lock,
   // Calculate remaining time from CLOCK_MONOTONIC_RAW
   struct timespec nowRaw, remaining;
   clock_gettime(CLOCK_MONOTONIC_RAW, &nowRaw);
-  rs_timerdelta((struct timespec *)abstimeMono, &nowRaw, &remaining);
+  rs_timerremaining((struct timespec *)abstimeMono, &nowRaw, &remaining);
   // Check if already past deadline
   if (remaining.tv_sec == 0 && remaining.tv_nsec == 0) {
     return true;  // timed out
