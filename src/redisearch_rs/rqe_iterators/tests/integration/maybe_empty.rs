@@ -11,8 +11,6 @@ use rqe_iterators::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
 };
 
-mod c_mocks;
-
 #[derive(Default)]
 struct Infinite<'index>(inverted_index::RSIndexResult<'index>);
 
@@ -31,7 +29,7 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
     fn skip_to(
         &mut self,
         doc_id: ffi::t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, 'index>>, crate::RQEIteratorError> {
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.0.doc_id = doc_id;
         Ok(Some(SkipToOutcome::Found(&mut self.0)))
     }
@@ -52,7 +50,7 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
         false
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, crate::RQEIteratorError> {
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
 }

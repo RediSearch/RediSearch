@@ -7,27 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{
-    IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
-    IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets,
-    t_docId, t_fieldMask,
-};
+use ffi::{IndexFlags, t_docId};
 use inverted_index::{
-    DecodedBy, Encoder, FilterNumericReader, InvertedIndex, NumericFilter, RSIndexResult,
-    RSOffsetVector, RSResultKind, full::Full, numeric::Numeric, test_utils::TermRecordCompare,
+    DecodedBy, Encoder, InvertedIndex, RSIndexResult, RSResultKind, test_utils::TermRecordCompare,
 };
-use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome,
-    inverted_index::{NumericFull, TermFull},
-};
+use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
 use std::cell::UnsafeCell;
 
-mod c_mocks;
-
 /// Test basic read and skip_to functionality for a given iterator.
-struct BaseTest<E> {
+pub(super) struct BaseTest<E> {
     doc_ids: Vec<t_docId>,
-    ii: InvertedIndex<E>,
+    pub(super) ii: InvertedIndex<E>,
     expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
 }
 
@@ -42,7 +32,7 @@ fn check_record(record: &RSIndexResult, expected: &RSIndexResult) {
 }
 
 impl<E: Encoder> BaseTest<E> {
-    fn new(
+    pub(super) fn new(
         ii_flags: IndexFlags,
         expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
         n_docs: u64,
@@ -67,34 +57,34 @@ impl<E: Encoder> BaseTest<E> {
         }
     }
 
+    /// Iterator over all the document ids present in the inverted index.
+    pub(super) fn docs_ids_iter(&self) -> impl Iterator<Item = u64> {
+        self.doc_ids.iter().map(|id| *id)
+    }
+
     /// test read functionality for a given iterator.
-    fn read<'index, I>(&self, it: &mut I)
+    ///
+    /// `docs_ids` is an iterator over the expected document ids to read.
+    pub(super) fn read<'index, I>(&self, it: &mut I, doc_ids: impl Iterator<Item = u64>)
     where
         I: RQEIterator<'index>,
     {
         let expected_record = &*self.expected_record;
-        let mut i = 0;
 
-        for _ in 0..=self.doc_ids.len() {
-            let result = it.read();
-            match result {
-                Ok(Some(record)) => {
-                    check_record(record, &expected_record(record.doc_id));
-                    assert_eq!(it.last_doc_id(), self.doc_ids[i]);
-                    assert_eq!(it.current().unwrap().doc_id, self.doc_ids[i]);
-                    assert!(!it.at_eof());
-                }
-                _ => break,
-            }
-            i += 1;
+        for doc_id in doc_ids {
+            let record = it
+                .read()
+                .expect("failed to read")
+                .expect("expected result not eof");
+
+            check_record(record, &expected_record(record.doc_id));
+            assert_eq!(it.last_doc_id(), doc_id);
+            assert_eq!(it.current().unwrap().doc_id, doc_id);
+            assert!(!it.at_eof());
         }
 
-        assert_eq!(
-            i,
-            self.doc_ids.len(),
-            "expected to read {} documents but only got {i}",
-            self.doc_ids.len()
-        );
+        // We should have read all the documents
+        assert_eq!(it.read().unwrap(), None);
         assert!(it.at_eof());
         assert_eq!(it.num_estimated(), self.doc_ids.len());
         assert_eq!(it.num_estimated(), self.ii.unique_docs() as usize);
@@ -108,7 +98,7 @@ impl<E: Encoder> BaseTest<E> {
     ///
     /// Since the index contains only ODD doc IDs (1, 3, 5, 7, ...), when we skip to an EVEN doc ID,
     /// we expect `NotFound` with the next odd doc ID returned.
-    fn skip_to<'index, I>(&self, it: &mut I)
+    pub(super) fn skip_to<'index, I>(&self, it: &mut I)
     where
         I: RQEIterator<'index>,
     {
@@ -184,16 +174,16 @@ impl<E: Encoder> BaseTest<E> {
 }
 
 /// Test the revalidation of the iterator.
-struct RevalidateTest<E> {
+pub(super) struct RevalidateTest<E> {
     #[allow(dead_code)]
     doc_ids: Vec<t_docId>,
     // FIXME: horrible hack so we can get a mutable reference to the InvertedIndex while holding an immutable one through the iterator.
     // We should get rid of it once we have designed a proper way to manage concurrent access to the II.
-    ii: UnsafeCell<InvertedIndex<E>>,
+    pub(super) ii: UnsafeCell<InvertedIndex<E>>,
 }
 
 impl<E: Encoder + DecodedBy> RevalidateTest<E> {
-    fn new(
+    pub(super) fn new(
         ii_flags: IndexFlags,
         expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
         n_docs: u64,
@@ -217,7 +207,7 @@ impl<E: Encoder + DecodedBy> RevalidateTest<E> {
     }
 
     /// test basic revalidation functionality - should return `RQEValidateStatus::Ok`` when index is valid
-    fn revalidate_basic<'index, I>(&self, it: &mut I)
+    pub(super) fn revalidate_basic<'index, I>(&self, it: &mut I)
     where
         I: for<'iterator> RQEIterator<'index>,
     {
@@ -233,7 +223,7 @@ impl<E: Encoder + DecodedBy> RevalidateTest<E> {
     }
 
     /// test revalidation functionality when iterator is at EOF
-    fn revalidate_at_eof<'index, I>(&self, it: &mut I)
+    pub(super) fn revalidate_at_eof<'index, I>(&self, it: &mut I)
     where
         I: for<'iterator> RQEIterator<'index>,
     {
@@ -247,8 +237,11 @@ impl<E: Encoder + DecodedBy> RevalidateTest<E> {
     }
 
     /// test revalidate returns `Aborted` when the underlying index disappears
-    fn revalidate_after_index_disappears<'index, I>(&self, it: &mut I, full_iterator: bool)
-    where
+    pub(super) fn revalidate_after_index_disappears<'index, I>(
+        &self,
+        it: &mut I,
+        full_iterator: bool,
+    ) where
         I: for<'iterator> RQEIterator<'index>,
     {
         // First, verify the iterator works normally and read at least one document
@@ -278,7 +271,7 @@ impl<E: Encoder + DecodedBy> RevalidateTest<E> {
 
     /// Remove the document with the given id from the inverted index.
     #[cfg(not(miri))] // Miri does not like UnsafeCell
-    fn remove_document(&self, doc_id: t_docId) {
+    pub(super) fn remove_document(&self, doc_id: t_docId) {
         let ii = unsafe { &mut *self.ii.get() };
 
         let scan_delta = ii
@@ -294,7 +287,7 @@ impl<E: Encoder + DecodedBy> RevalidateTest<E> {
 
     /// test revalidate returns `Moved` when the document at the iterator position is deleted from the index.
     #[cfg(not(miri))] // Miri does not like UnsafeCell
-    fn revalidate_after_document_deleted<'index, I>(&self, it: &mut I)
+    pub(super) fn revalidate_after_document_deleted<'index, I>(&self, it: &mut I)
     where
         I: for<'iterator> RQEIterator<'index>,
     {
@@ -390,215 +383,4 @@ impl<E: Encoder + DecodedBy> RevalidateTest<E> {
         assert!(matches!(res, RQEValidateStatus::Moved { current: None }));
         assert!(it.at_eof());
     }
-}
-
-struct NumericTest {
-    test: BaseTest<Numeric>,
-    revalidate_test: RevalidateTest<Numeric>,
-}
-
-impl NumericTest {
-    fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
-        // The numeric record has a value of `doc_id * 2.0`.
-        RSIndexResult::numeric(doc_id as f64 * 2.0).doc_id(doc_id)
-    }
-
-    fn new(n_docs: u64) -> Self {
-        Self {
-            test: BaseTest::new(
-                IndexFlags_Index_StoreNumeric,
-                Box::new(Self::expected_record),
-                n_docs,
-            ),
-            revalidate_test: RevalidateTest::new(
-                IndexFlags_Index_StoreNumeric,
-                Box::new(Self::expected_record),
-                n_docs,
-            ),
-        }
-    }
-}
-
-#[test]
-/// test reading from NumericFull iterator
-fn numeric_full_read() {
-    let test = NumericTest::new(100);
-    let reader = test.test.ii.reader();
-    let mut it = NumericFull::new(reader);
-    test.test.read(&mut it);
-
-    // same but using a passthrough filter
-    let test = NumericTest::new(100);
-    let filter = NumericFilter::default();
-    let reader = test.test.ii.reader();
-    let reader = FilterNumericReader::new(&filter, reader);
-    let mut it = NumericFull::new(reader);
-    test.test.read(&mut it);
-}
-
-#[test]
-/// test skipping from NumericFull iterator
-fn numeric_full_skip_to() {
-    let test = NumericTest::new(100);
-    let reader = test.test.ii.reader();
-    let mut it = NumericFull::new(reader);
-    test.test.skip_to(&mut it);
-}
-
-#[test]
-fn numeric_full_revalidate_basic() {
-    let test = NumericTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = NumericFull::new(reader);
-    test.revalidate_test.revalidate_basic(&mut it);
-}
-
-#[test]
-fn numeric_full_revalidate_at_eof() {
-    let test = NumericTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = NumericFull::new(reader);
-    test.revalidate_test.revalidate_at_eof(&mut it);
-}
-
-#[test]
-fn numeric_full_revalidate_after_index_disappears() {
-    let test = NumericTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = NumericFull::new(reader);
-    test.revalidate_test
-        .revalidate_after_index_disappears(&mut it, true);
-}
-
-#[cfg(not(miri))] // Miri does not like UnsafeCell
-#[test]
-fn numeric_full_revalidate_after_document_deleted() {
-    let test = NumericTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = NumericFull::new(reader);
-    test.revalidate_test
-        .revalidate_after_document_deleted(&mut it);
-}
-
-struct TermTest {
-    test: BaseTest<Full>,
-    revalidate_test: RevalidateTest<Full>,
-}
-
-impl TermTest {
-    // # Safety
-    // The returned RSIndexResult contains raw pointers to `term` and `offsets`.
-    // These pointers are valid for 'static because the data is moved into the closure
-    // in `new()` and lives for the entire duration of the test. The raw pointers are
-    // only used within the test's lifetime, making this safe despite the 'static claim.
-    fn expected_record(
-        doc_id: t_docId,
-        term: &Box<ffi::RSQueryTerm>,
-        offsets: &Vec<u8>,
-    ) -> RSIndexResult<'static> {
-        let term: *const _ = &*term;
-
-        RSIndexResult::term_with_term_ptr(
-            term as _,
-            RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
-            doc_id,
-            (doc_id / 2) as t_fieldMask + 1,
-            (doc_id / 2) as u32 + 1,
-        )
-    }
-
-    fn new(n_docs: u64) -> Self {
-        let flags = IndexFlags_Index_StoreFreqs
-            | IndexFlags_Index_StoreTermOffsets
-            | IndexFlags_Index_StoreFieldFlags
-            | IndexFlags_Index_StoreByteOffsets;
-
-        const TEST_STR: &str = "term";
-        let test_str_ptr = TEST_STR.as_ptr() as *mut _;
-        let term = Box::new(ffi::RSQueryTerm {
-            str_: test_str_ptr,
-            len: TEST_STR.len(),
-            idf: 5.0,
-            id: 1,
-            flags: 0,
-            bm25_idf: 10.0,
-        });
-        let term2 = Box::new(ffi::RSQueryTerm {
-            str_: test_str_ptr,
-            len: TEST_STR.len(),
-            idf: 5.0,
-            id: 1,
-            flags: 0,
-            bm25_idf: 10.0,
-        });
-
-        let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let offsets_clone = offsets.clone();
-
-        Self {
-            test: BaseTest::new(
-                flags,
-                Box::new(move |doc_id| Self::expected_record(doc_id, &term, &offsets)),
-                n_docs,
-            ),
-            revalidate_test: RevalidateTest::new(
-                IndexFlags_Index_StoreTermOffsets,
-                Box::new(move |doc_id| Self::expected_record(doc_id, &term2, &offsets_clone)),
-                n_docs,
-            ),
-        }
-    }
-}
-
-#[test]
-/// test reading from TermFull iterator
-fn term_full_read() {
-    let test = TermTest::new(100);
-    let reader = test.test.ii.reader();
-    let mut it = TermFull::new(reader);
-    test.test.read(&mut it);
-}
-
-#[test]
-/// test skipping from TermFull iterator
-fn term_full_skip_to() {
-    let test = TermTest::new(100);
-    let reader = test.test.ii.reader();
-    let mut it = TermFull::new(reader);
-    test.test.skip_to(&mut it);
-}
-
-#[test]
-fn term_full_revalidate_basic() {
-    let test = TermTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = TermFull::new(reader);
-    test.revalidate_test.revalidate_basic(&mut it);
-}
-
-#[test]
-fn term_full_revalidate_at_eof() {
-    let test = TermTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = TermFull::new(reader);
-    test.revalidate_test.revalidate_at_eof(&mut it);
-}
-
-#[test]
-fn term_full_revalidate_after_index_disappears() {
-    let test = TermTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = TermFull::new(reader);
-    test.revalidate_test
-        .revalidate_after_index_disappears(&mut it, true);
-}
-
-#[cfg(not(miri))] // Miri does not like UnsafeCell
-#[test]
-fn term_full_revalidate_after_document_deleted() {
-    let test = TermTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = TermFull::new(reader);
-    test.revalidate_test
-        .revalidate_after_document_deleted(&mut it);
 }

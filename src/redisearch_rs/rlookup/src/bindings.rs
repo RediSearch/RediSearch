@@ -41,15 +41,6 @@ pub enum RLookupLoadMode {
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
 #[expect(unused, reason = "Used by followup PRs")]
-pub enum DocumentType {
-    Hash = 0,
-    Json = 1,
-    Unsupported = 2,
-}
-
-#[repr(u32)]
-#[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
-#[expect(unused, reason = "Used by followup PRs")]
 pub enum RLookupCoerceType {
     Str = 0,
     Int = 1,

@@ -7,16 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#pragma once
+pub(crate) mod ffi;
 
-#include "iterator_api.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-QueryIterator *NewEmptyIterator(void);
-
-#ifdef __cplusplus
-}
-#endif
+mod empty;
+mod id_list;
+mod inverted_index;
+mod maybe_empty;
+mod metric;
+mod wildcard;

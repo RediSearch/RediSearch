@@ -1452,6 +1452,9 @@ DEBUG_COMMAND(dumpHNSWData) {
 
 /**
  * FT.DEBUG WORKERS [PAUSE / RESUME / DRAIN / STATS / N_THREADS]
+ *
+ * @warning Calling FT.DEBUG WORKERS DRAIN will block the main thread until all workers are idle, this could lead to a deadlock,
+ *          if there are pending jobs that require to acquire the GIL (like when LOAD is called from a worker thread)
  */
 DEBUG_COMMAND(WorkerThreadsSwitch) {
   if (!debugCommandsEnabled(ctx)) {
@@ -1500,6 +1503,36 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+/**
+ * FT.DEBUG COORD_THREADS [PAUSE / RESUME ]
+ *
+ */
+DEBUG_COMMAND(CoordThreadsSwitch) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcasecmp(op, "pause")) {
+    if (ConcurrentSearch_pause() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: coordinator thread pool doesn't exists"
+                                      " or is not running");
+    }
+  } else if (!strcasecmp(op, "resume")) {
+    if (ConcurrentSearch_resume() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: coordinator thread pool doesn't exists"
+                                        " or is already running");
+    }
+  } else if (!strcasecmp(op, "is_paused")) {
+    return RedisModule_ReplyWithLongLong(ctx, ConcurrentSearch_isPaused());
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'COORD_THREADS' subcommand");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 DEBUG_COMMAND(DistSearchCommand_DebugWrapper) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -1515,7 +1548,7 @@ DEBUG_COMMAND(DistSearchCommand_DebugWrapper) {
     return DEBUG_RSSearchCommand(ctx, ++argv, --argc);
   }
 
-  return DistSearchCommand(ctx, argv, argc);
+  return DistSearchCommandImp(ctx, ++argv, --argc, true);
 }
 
 DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
@@ -1533,7 +1566,7 @@ DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
     return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
   }
 
-  return DistAggregateCommand(ctx, argv, argc);
+  return DistAggregateCommandImp(ctx, ++argv, --argc, true);
 }
 
 DEBUG_COMMAND(RSSearchCommandShard) {
@@ -1548,6 +1581,27 @@ DEBUG_COMMAND(RSAggregateCommandShard) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
+}
+
+DEBUG_COMMAND(RSProfileCommandShard) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  return RSProfileCommandImp(ctx, ++argv, --argc, true);
+}
+
+DEBUG_COMMAND(ProfileCommandCommand_DebugWrapper) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+
+  // at least one debug_param should be provided
+  // (1)_FT.DEBUG (2) FT.PROFILE (3) <index> (4) SEARCH | AGGREGATE [LIMITED] (6) QUERY <query> [query_options] (5) debug_params (6)DEBUG_PARAMS_COUNT (7) <debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return ProfileCommandHandlerImp(ctx, ++argv, --argc, true);
 }
 
 DEBUG_COMMAND(HybridCommand_DebugWrapper) {
@@ -1851,54 +1905,62 @@ DEBUG_COMMAND(getHideUserDataFromLogs) {
   return RedisModule_ReplyWithLongLong(ctx, value);
 }
 
-// Global counter for tracking yield calls during loading
-static size_t g_yieldCallCounter = 0;
+// Global counter for tracking yield calls
+typedef struct {
+  size_t yieldOnLoadCounter;
+  size_t yieldOnBgIndexCounter;
+  size_t indexerSleepBeforeYieldMicros;
+} YieldCallHandler;
 
-// Global variable for sleep time before yielding (in microseconds)
-static unsigned int g_indexerSleepBeforeYieldMicros = 0;
+static YieldCallHandler g_yieldCallHandler = {0};
 
-// Function to increment the yield counter (to be called from IndexerBulkAdd)
-void IncrementYieldCounter(void) {
-  g_yieldCallCounter++;
+// Function to increment the yield counter upon loading (to be called from IndexerBulkAdd)
+void IncrementLoadYieldCounter(void) {
+  g_yieldCallHandler.yieldOnLoadCounter++;
+}
+
+// Function to increment the yield counter upon bg indexing
+void IncrementBgIndexYieldCounter(void) {
+  g_yieldCallHandler.yieldOnBgIndexCounter++;
 }
 
 // Reset the yield counter
-void ResetYieldCounter(void) {
-  g_yieldCallCounter = 0;
+void ResetYieldCounters(void) {
+  g_yieldCallHandler.yieldOnLoadCounter = 0;
+  g_yieldCallHandler.yieldOnBgIndexCounter = 0;
 }
 
 // Get the current sleep time before yielding (in microseconds)
 unsigned int GetIndexerSleepBeforeYieldMicros(void) {
-  return g_indexerSleepBeforeYieldMicros;
+  return g_yieldCallHandler.indexerSleepBeforeYieldMicros;
 }
 
 /**
- * FT.DEBUG YIELDS_ON_LOAD_COUNTER [RESET]
- * Get or reset the counter for yields during loading operations
+ * FT.DEBUG YIELDS_COUNTER LOAD/BG_INDEX/RESET
+ * Get or reset the counter for yields indexing / loading operations
  */
 DEBUG_COMMAND(YieldCounter) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
 
-  if (argc > 3) {
+  if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
 
-  // Check if we need to reset the counter
-  if (argc == 3) {
-    size_t len;
-    const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
-    if (STR_EQCASE(subCmd, len, "RESET")) {
-      ResetYieldCounter();
-      return RedisModule_ReplyWithSimpleString(ctx, "OK");
-    } else {
-      return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
-    }
+  size_t len;
+  const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
+  if (STR_EQCASE(subCmd, len, "RESET")) {
+    ResetYieldCounters();
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-
-  // Return the current counter value
-  return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
+  if (STR_EQCASE(subCmd, len, "BG_INDEX")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_yieldCallHandler.yieldOnBgIndexCounter);
+  }
+  if (STR_EQCASE(subCmd, len, "LOAD")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_yieldCallHandler.yieldOnLoadCounter);
+  }
+  return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
 }
 
 /**
@@ -1921,7 +1983,7 @@ DEBUG_COMMAND(IndexerSleepBeforeYieldMicros) {
       return RedisModule_ReplyWithError(ctx, "Invalid sleep time. Must be a non-negative integer.");
     }
 
-    g_indexerSleepBeforeYieldMicros = (unsigned int)sleepMicros;
+    g_yieldCallHandler.indexerSleepBeforeYieldMicros = (unsigned int)sleepMicros;
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
@@ -2054,6 +2116,43 @@ DEBUG_COMMAND(DumpSchema) {
   return REDISMODULE_OK;
 }
 
+static inline int TimedOut_Always(TimeoutCtx *ctx) {
+  (void)ctx; // Unused parameter
+  return TIMED_OUT;
+}
+
+// Global timeout callback for VecSim searches.
+// Need the redirection so tests can pass a mock function to test timeout behavior.
+// Used in hybrid_reader.c in computeDistances
+extern int (*vecsimTimeoutCallback)(TimeoutCtx *ctx);
+
+/**
+ * FT.DEBUG VECSIM_MOCK_TIMEOUT <enable|disable>
+ * Set the timeout callback for VecSim searches globally
+ * enable - will cause an immediate timeout for all VecSim searches
+ * disable - will remove the timeout callback and restore normal behavior
+ */
+DEBUG_COMMAND(VecSimMockTimeout) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcmp("enable", op)) {
+    vecsimTimeoutCallback = TimedOut_Always;
+    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_Always);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  } else if (!strcmp("disable", op)) {
+    vecsimTimeoutCallback = TimedOut_WithCtx;
+    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid command for 'VECSIM_MOCK_TIMEOUT'");
+  }
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -2085,14 +2184,16 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_HNSW", dumpHNSWData},
                                {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
                                {"WORKERS", WorkerThreadsSwitch},
+                               {"COORD_THREADS", CoordThreadsSwitch},
                                {"BG_SCAN_CONTROLLER", bgScanController},
                                {"INDEXES", ListIndexesSwitch},
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
-                               {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
+                               {"YIELDS_COUNTER", YieldCounter},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                {"QUERY_CONTROLLER", queryController},
                                {"DUMP_SCHEMA", DumpSchema},
+                               {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
@@ -2102,6 +2203,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"_FT.SEARCH", RSSearchCommandShard}, // internal use only, in SA use FT.SEARCH
                                {"FT.HYBRID", HybridCommand_DebugWrapper},
                                {"_FT.HYBRID", HybridCommand_DebugWrapper}, // internal use only, in SA use FT.HYBRID
+                               {"FT.PROFILE", ProfileCommandCommand_DebugWrapper},
+                               {"_FT.PROFILE", RSProfileCommandShard},
                                /* IMPORTANT NOTE: Every debug command starts with
                                 * checking if redis allows this context to execute
                                 * debug commands by calling `debugCommandsEnabled(ctx)`.

@@ -17,6 +17,7 @@
 #include "config.h"
 #include "query_error.h"
 #include "redis_index.h"
+#include "iterators_rs.h"
 #include "tokenize.h"
 #include "triemap.h"
 #include "util/logging.h"
@@ -43,8 +44,7 @@
 #include "iterators/intersection_iterator.h"
 #include "iterators/optional_iterator.h"
 #include "iterators/not_iterator.h"
-#include "iterators/idlist_iterator.h"
-#include "iterators/empty_iterator.h"
+#include "iterators_rs.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
@@ -1017,9 +1017,8 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       handle->key_ptr = &hybridIt->ownKey;
       hybridIt->keyHandle = handle; // Set up back-reference
     } else { // Must be METRIC_ITERATOR due to the condition above
-      MetricIterator *metricIt = (MetricIterator *)it;
-      handle->key_ptr = &metricIt->ownKey;
-      metricIt->keyHandle = handle; // Set up back-reference
+      handle->key_ptr = GetMetricOwnKeyRef(it);
+      SetMetricRLookupHandle(it, handle); // Set up back-reference
     }
 
     request->key_handle = handle;
@@ -1068,7 +1067,7 @@ static QueryIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode 
     num = deduplicateDocIds(it_ids, num);
   }
   // Passing the ownership of the ids to the iterator.
-  return NewIdListIterator(it_ids, num, 1);
+  return NewSortedIdListIterator(it_ids, num, 1);
 }
 
 static QueryIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {

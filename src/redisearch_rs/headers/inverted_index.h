@@ -477,7 +477,7 @@ void IndexReader_Reset(struct IndexReader *ir);
  * The following invariant must be upheld when calling this function:
  * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
  */
-uint32_t IndexReader_NumEstimated(const struct IndexReader *ir);
+uint64_t IndexReader_NumEstimated(const struct IndexReader *ir);
 
 /**
  * Check if the index reader can read from the given inverted index. This is true if the index

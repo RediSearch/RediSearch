@@ -2640,6 +2640,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
       // time to ensure that other threads that are waiting for the GIL will actually have the
       // chance to take it.
       usleep(1);
+      IncrementBgIndexYieldCounter();
     } else {
       sched_yield();
     }
@@ -3075,15 +3076,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     }
   }
 
-  if (isFlex) {
-    // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
-    // we add the `Index_StoreInRAM` flag to the rdb file.
-    RS_ASSERT(disk_db);
-    size_t len;
-    const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
-  }
-
   return sp;
 
 cleanup:
@@ -3121,6 +3113,14 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
     addPendingIndexDrop();
     StrongRef_Release(spec_ref);
   } else {
+    if (isSpecOnDisk(sp)) {
+      // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
+      // we add the `Index_StoreInRAM` flag to the rdb file.
+      RS_ASSERT(disk_db);
+      size_t len;
+      const char* name = HiddenString_GetUnsafe(sp->specName, &len);
+      sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+    }
     IndexSpec_StartGC(spec_ref, sp);
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
 

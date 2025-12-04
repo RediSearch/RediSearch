@@ -9,7 +9,7 @@
 
 #include "not_iterator.h"
 #include "wildcard_iterator.h"
-#include "empty_iterator.h"
+#include "iterators_rs.h"
 
 static void NI_Rewind(QueryIterator *base) {
   NotIterator *ni = (NotIterator *)base;

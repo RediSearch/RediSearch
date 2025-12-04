@@ -30,12 +30,10 @@ typedef struct MRConn{
   uv_loop_t *loop;
 } MRConn;
 
-
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
 static void MRConn_DisconnectCallback(const redisAsyncContext *, int);
 static int MRConn_Connect(MRConn *conn);
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState);
-static void MRConn_Free(void *ptr);
 static void MRConn_Stop(MRConn *conn);
 static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop);
 static int MRConn_StartNewConnection(MRConn *conn);
@@ -90,13 +88,49 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop) 
   return pool;
 }
 
+static void closeTimer(MRConn *conn) {
+  if (conn->timer) {
+    if (uv_is_active(conn->timer)) {
+      // This ensures that the signalCallback will not be called after we free the connection
+      uv_timer_stop(conn->timer);
+    }
+    // "Multiple calls to uv_close() are ignored. The close callback will be invoked exactly once. No double free"
+    uv_close(conn->timer, (uv_close_cb)rm_free);
+    conn->timer = NULL;
+  }
+}
+
+/*
+* This is called when the IORuntime is being shut down. This is called from the uv thread.
+*/
+static void MRConn_Disconnect(MRConn *conn) {
+  CONN_LOG(conn, "Disconnecting connection");
+  conn->state = MRConn_Freeing; // So that DisconnectCallback will free the connection
+  closeTimer(conn);
+  redisAsyncContext *ac = conn->conn;
+  if (ac) {
+    ac->data = NULL;
+    conn->conn = NULL;
+    redisAsyncDisconnect(ac);
+  }
+}
+
+static void freeConn(MRConn *conn) {
+  MREndpoint_Free(&conn->ep);
+  closeTimer(conn);
+  rm_free(conn);
+}
+
+/* Free a connection pool. This is called when the connection pool is removed from the manager
+  This happens in the main thread and while the uv loop has been terminated, so we can safely free the connection
+*/
 static void MRConnPool_Free(void *privdata, void *p) {
-  uv_loop_t *loop = (uv_loop_t *)privdata;
+  UNUSED(privdata);
   MRConnPool *pool = p;
   if (!pool) return;
   for (size_t i = 0; i < pool->num; i++) {
-    /* We stop the connections and the disconnect callback frees them */
-    MRConn_Stop(pool->conns[i]);
+    MRConn *conn = pool->conns[i];
+    freeConn(conn);
   }
   rm_free(pool->conns);
   rm_free(pool);
@@ -134,7 +168,20 @@ void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
   mgr->nodeConns = nodeConns;
 }
 
-/* Free the entire connection manager */
+/* This is called when the IORuntime is being shut down. This is called from the uv thread*/
+void MRConnManager_Stop(MRConnManager *mgr) {
+  dictIterator *it = dictGetIterator(mgr->map);
+  dictEntry *entry;
+  while ((entry = dictNext(it))) {
+    MRConnPool *pool = dictGetVal(entry);
+    for (size_t i = 0; i < pool->num; i++) {
+      MRConn *conn = pool->conns[i];
+      MRConn_Disconnect(conn);
+    }
+  }
+  dictReleaseIterator(it);
+}
+
 void MRConnManager_Free(MRConnManager *mgr) {
   dictRelease(mgr->map);
 }
@@ -195,7 +242,6 @@ void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict) {
 
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
-
   dictEntry *ptr = dictFind(mgr->map, id);
   if (ptr) {
     MRConnPool *pool = dictGetVal(ptr);
@@ -340,18 +386,6 @@ static void MRConn_Stop(MRConn *conn) {
   MRConn_SwitchState(conn, MRConn_Freeing);
 }
 
-static void freeConn(MRConn *conn) {
-  MREndpoint_Free(&conn->ep);
-  if (conn->timer) {
-    if (uv_is_active(conn->timer)) {
-      uv_timer_stop(conn->timer);
-    }
-    uv_close(conn->timer, (uv_close_cb)rm_free);
-  }
-  rm_free(conn);
-}
-
-
 static void signalCallback(uv_timer_t *tm) {
   MRConn *conn = tm->data;
 
@@ -362,6 +396,7 @@ static void signalCallback(uv_timer_t *tm) {
   redisAsyncContext *ac = conn->conn;
 
   if (conn->state == MRConn_Freeing) {
+    CONN_LOG(conn, "Freeing connection");
     if (ac) {
       ac->data = NULL;
       conn->conn = NULL;
@@ -389,11 +424,6 @@ static void signalCallback(uv_timer_t *tm) {
 /* Safely transition to current state */
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   uv_loop_t *loop = conn->loop;
-  if (!conn->timer) {
-    conn->timer = rm_malloc(sizeof(uv_timer_t));
-    uv_timer_init(loop, conn->timer);
-    ((uv_timer_t *)conn->timer)->data = conn;
-  }
   CONN_LOG(conn, "Switching state to %s", MRConnState_Str(nextState));
 
   uint64_t nextTimeout = 0;
@@ -424,7 +454,7 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
     case MRConn_Connected:
       // "Dummy" states:
       conn->state = nextState;
-      if (uv_is_active(conn->timer)) {
+      if (conn->timer && uv_is_active(conn->timer)) {
         uv_timer_stop(conn->timer);
       }
       return;
@@ -434,7 +464,7 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   }
 
 activate_timer:
-  if (!uv_is_active(conn->timer)) {
+  if (conn->timer && !uv_is_active(conn->timer)) {
     uv_timer_t *tm = conn->timer;
     uv_timer_start(conn->timer, signalCallback, nextTimeout, 0);
   }
@@ -713,7 +743,10 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
 
 static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop) {
   MRConn *conn = rm_malloc(sizeof(MRConn));
-  *conn = (MRConn){.state = MRConn_Disconnected, .conn = NULL, .protocol = 0, .loop = loop};
+  *conn = (MRConn){.state = MRConn_Disconnected, .conn = NULL, .protocol = 0, .loop = loop, .timer = NULL};
+  conn->timer = rm_malloc(sizeof(uv_timer_t));
+  uv_timer_init(loop, conn->timer);
+  ((uv_timer_t *)conn->timer)->data = conn;
   MREndpoint_Copy(&conn->ep, ep);
   return conn;
 }

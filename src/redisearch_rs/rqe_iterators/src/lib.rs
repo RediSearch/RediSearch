@@ -21,8 +21,8 @@ pub mod wildcard;
 
 pub use empty::Empty;
 pub use id_list::IdList;
-pub use inverted_index::{NumericFull, TermFull};
-pub use metric::MetricIterator;
+pub use inverted_index::{Numeric, Term};
+pub use metric::Metric;
 pub use wildcard::Wildcard;
 
 #[derive(Debug, PartialEq)]
