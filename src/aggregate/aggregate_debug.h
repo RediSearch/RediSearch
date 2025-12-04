@@ -35,6 +35,18 @@
  *         - Simulates a timeout after processing `<N>` results.
  *         - Internally inserts a result processor (RP) as the downstream processor
  *           of the final execution step (e.g., `RP_INDEX`).
+ *       - **`PAUSE_AFTER_RP_N <RP_TYPE> <N>`**:
+ *         - Inserts a pause RP **after** the first occurrence of `<RP_TYPE>`; pauses after `<N>` results
+ *           flow past that RP. Fails if `<RP_TYPE>` is invalid or not present or if it's the last RP in the stream.
+ *         - `<RP_TYPE>` can be any valid RP type, except for `DEBUG_RP`.
+ *         - The query can be resumed by calling `FT.DEBUG QUERY_CONTROLLER SET_PAUSE_RP_RESUME`.
+ *         - If timeout is specified and the query is paused for longer than the query timeout, the query will timeout **after** it is resumed.
+ *       - **`PAUSE_BEFORE_RP_N <RP_TYPE> <N>`**:
+ *         - Inserts a pause RP **before** the first occurrence of `<RP_TYPE>`; pauses after `<N>` results
+ *           are produced upstream of that insertion point. Fails if `<RP_TYPE>` is invalid or not present.
+ *         - `<RP_TYPE>` can be any valid RP type, except for `DEBUG_RP`.
+ *         - The query can be resumed by calling `FT.DEBUG QUERY_CONTROLLER SET_PAUSE_RP_RESUME`.
+ *         - If timeout is specified and the query is paused for longer than the query timeout, the query will timeout **after** it is resumed.
  *
  *   - `<DEBUG_PARAMS_COUNT>`:
  *     - Specifies the number of expected arguments in `<DEBUG_QUERY_ARGS>`.
@@ -49,7 +61,7 @@
  * -----------------------------------------------------------------------------
  *
  * ### Limitations:
- * - `_FT.DEBUG` does not support `FT.PROFILE`.
+ * - Pause debugging affects at most one query at a time (single debug pause RP at once).
  *
  * -----------------------------------------------------------------------------
  *

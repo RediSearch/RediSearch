@@ -56,8 +56,11 @@ typedef enum {
   RP_PROFILE,
   RP_NETWORK,
   RP_METRICS,
-  RP_TIMEOUT, // DEBUG ONLY
-  RP_MAX,
+  RP_MAX, // Marks the last non-debug RP type
+  // Debug only result processors
+  RP_TIMEOUT,
+  RP_PAUSE,
+  RP_MAX_DEBUG
 } ResultProcessorType;
 
 struct ResultProcessor;
@@ -272,6 +275,15 @@ void Profile_AddRPs(QueryIterator *qiter);
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);
 
+// Return RPType for string
+ResultProcessorType StringToRPType(const char *str);
+
+
+/*******************************************************************************************************************
+ *  Debug only result processors
+ *
+ * *******************************************************************************************************************/
+
 /*******************************************************************************************************************
  *  Timeout Processor - DEBUG ONLY
  *
@@ -279,6 +291,16 @@ const char *RPTypeToString(ResultProcessorType type);
  *******************************************************************************************************************/
 ResultProcessor *RPTimeoutAfterCount_New(size_t count);
 void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
+
+/*******************************************************************************************************************
+ *  Pause Processor - DEBUG ONLY
+ *
+ * Pauses the query after N results, N >= 0.
+ *******************************************************************************************************************/
+ResultProcessor *RPPauseAfterCount_New(size_t count);
+
+// Adds a pause processor after N results, before/after a specific RP type
+bool PipelineAddPauseRPcount(struct AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type, QueryError *status);
 
 #ifdef __cplusplus
 }

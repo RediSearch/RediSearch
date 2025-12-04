@@ -768,12 +768,33 @@ def verifyResultsResp3(env, res, expected_results_count, message="", should_time
     else:
         env.assertFalse(res['warning'], depth=depth+1, message=message + " unexpected warning")
 
+def parseDebugQueryCommandArgs(query_cmd, debug_params):
+    return [*query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)]
+
 def runDebugQueryCommand(env, query_cmd, debug_params):
-    return env.cmd(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params))
+    # Use the helper function to build the argument list
+    args = parseDebugQueryCommandArgs(query_cmd, debug_params)
+    return env.cmd(debug_cmd(), *args)
 
 def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count):
     debug_params = ['TIMEOUT_AFTER_N', timeout_res_count]
     return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def runDebugQueryCommandPauseAfterRPAfterN(env, query_cmd, rp_type, pause_after_n):
+    debug_params = ['PAUSE_AFTER_RP_N', rp_type, pause_after_n]
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def runDebugQueryCommandPauseBeforeRPAfterN(env, query_cmd, rp_type, pause_after_n, extra_args=None):
+    debug_params = ['PAUSE_BEFORE_RP_N', rp_type, pause_after_n]
+    if extra_args:
+        debug_params.extend(extra_args)
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def getIsRPPaused(env):
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_RP_PAUSED')
+
+def setPauseRPResume(env):
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
 
 class vecsimMockTimeoutContext:
     """Context manager for enabling/disabling VECSIM mock timeout on all shards"""
@@ -786,7 +807,7 @@ class vecsimMockTimeoutContext:
 
     def __exit__(self, exc_type, exc_value, traceback):
         run_command_on_all_shards(self.env, debug_cmd(), 'VECSIM_MOCK_TIMEOUT', 'disable')
-        
+
 def waitForIndexFinishScan(env, idx = 'idx'):
     with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
         while index_info(env, idx)['percent_indexed'] not in (1, '1'):
