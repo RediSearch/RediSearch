@@ -28,6 +28,7 @@
 #include "redis_index.h"
 #include "fast_float/fast_float_strtod.h"
 #include "obfuscation/obfuscation_api.h"
+#include "info/global_stats.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -463,6 +464,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     // Decrease the last increment
     aCtx->tokenizer->ctx.lastOffset -= multiTextOffsetDelta;
   }
+  RSGlobalStats.fieldsStats.textTotalDocsIndexed++;
   return 0;
 }
 
@@ -568,6 +570,7 @@ FIELD_BULK_INDEXER(geometryIndexer) {
     //   //TODO: GEOMETRY
     // }
   }
+  RSGlobalStats.fieldsStats.geometryTotalDocsIndexed++;
   return 0;
 }
 
@@ -593,6 +596,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
       ctx->spec->stats.numRecords += rv.numRecords;
     }
   }
+  RSGlobalStats.fieldsStats.numericTotalDocsIndexed++;
   return 0;
 }
 
@@ -637,6 +641,7 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     curr_vec += fdata->vecLen;
   }
   sp->stats.numRecords += fdata->numVec;
+  RSGlobalStats.fieldsStats.vectorTotalDocsIndexed++;
   return 0;
 }
 
@@ -724,7 +729,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       field->multisv = NULL;
     }
   }
-
+  RSGlobalStats.fieldsStats.geoTotalDocsIndexed++;
   return REDISMODULE_OK;
 }
 
@@ -760,6 +765,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
   ctx->spec->stats.invertedSize +=
       TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId);
   ctx->spec->stats.numRecords++;
+  RSGlobalStats.fieldsStats.tagTotalDocsIndexed++;
   return 0;
 }
 

@@ -189,6 +189,17 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
                                      FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_GEOMETRY));
     RedisModule_InfoEndDictField(ctx);
   }
+  // Total number of documents indexed by each field type
+  RedisModule_InfoAddFieldLongLong(ctx, "total_documents_indexed_by_text_fields",
+                                  RSGlobalStats.fieldsStats.textTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_documents_indexed_by_tag_fields",
+                                  RSGlobalStats.fieldsStats.tagTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_documents_indexed_by_numeric_fields",
+                                  RSGlobalStats.fieldsStats.numericTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_documents_indexed_by_geo_fields",
+                                  RSGlobalStats.fieldsStats.geoTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_documents_indexed_by_vector_fields",
+                                  RSGlobalStats.fieldsStats.vectorTotalDocsIndexed);
 }
 
 void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
