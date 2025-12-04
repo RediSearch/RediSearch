@@ -834,6 +834,7 @@ class vecsimMockTimeoutContext:
 
     def __exit__(self, exc_type, exc_value, traceback):
         run_command_on_all_shards(self.env, debug_cmd(), 'VECSIM_MOCK_TIMEOUT', 'disable')
+        
 def waitForIndexFinishScan(env, idx = 'idx'):
     with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
         while index_info(env, idx)['percent_indexed'] not in (1, '1'):
