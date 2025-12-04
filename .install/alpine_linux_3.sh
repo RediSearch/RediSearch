@@ -6,7 +6,7 @@ $MODE apk update
 
 $MODE apk add --no-cache build-base gcc g++ make linux-headers openblas-dev \
     xsimd curl wget git openssl openssl-dev \
-    tar xz which rsync bsd-compat-headers clang clang17-libclang curl \
+    tar xz which rsync bsd-compat-headers clang clang-libclang curl \
     clang-static ncurses-dev llvm-dev bash
 
 # We must install Python via the package manager until
