@@ -97,7 +97,7 @@ KHASH_MAP_INIT_INT(query_key_space_version_tracker, uint32_t);
 extern khash_t(query_key_space_version_tracker) *query_key_space_version_map;
 
 // Mutex for thread-safe hash map operations
-static pthread_mutex_t query_version_tracker_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t query_version_tracker_mutex;
 
 static inline void ASM_KeySpaceVersionTracker_Init() {
   if (query_key_space_version_map != NULL) {
@@ -114,6 +114,7 @@ static inline void ASM_KeySpaceVersionTracker_Init() {
   asm_sanitizer_alloc_count = 0;
   asm_sanitizer_alloc_capacity = ASM_SANITIZER_INITIAL_CAPACITY;
 #endif
+  pthread_mutex_init(&query_version_tracker_mutex, NULL);
 }
 
 static inline void ASM_KeySpaceVersionTracker_Destroy() {
@@ -132,6 +133,7 @@ static inline void ASM_KeySpaceVersionTracker_Destroy() {
     asm_sanitizer_alloc_capacity = 0;
   }
 #endif
+  pthread_mutex_destroy(&query_version_tracker_mutex);
 }
 
 static inline void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_key_space_version) {
@@ -145,8 +147,6 @@ static inline void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_
   } else {
     kh_value(query_key_space_version_map, k) = 1;
   }
-
-  pthread_mutex_unlock(&query_version_tracker_mutex);
 
 #if ASM_SANITIZER_ENABLED
   // Allocate a dummy integer for sanitizer leak detection
@@ -172,6 +172,7 @@ static inline void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_
     }
   }
 #endif
+  pthread_mutex_unlock(&query_version_tracker_mutex);
 }
 
 static inline void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_key_space_version) {
@@ -192,8 +193,6 @@ static inline void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_
     }
   }
 
-  pthread_mutex_unlock(&query_version_tracker_mutex);
-
 #if ASM_SANITIZER_ENABLED
   // Deallocate a dummy integer for sanitizer leak detection
   // We deallocate one for each query count decrease (LIFO order)
@@ -204,6 +203,8 @@ static inline void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_
     }
   }
 #endif
+
+  pthread_mutex_unlock(&query_version_tracker_mutex);
 }
 
 /* Get the number of queries that are using a specific version, this is intended to be used in tests only. */
