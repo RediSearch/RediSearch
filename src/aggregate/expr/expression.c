@@ -19,8 +19,8 @@ static void setReferenceValue(RSValue *dst, RSValue *src) {
   RSValue_MakeReference(dst, src);
 }
 
-extern int func_exists(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result);
-extern int func_case(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result);
+extern int func_exists(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result);
+extern int func_case(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result);
 
 static int evalFuncCase(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   // Evaluate the condition
@@ -52,14 +52,16 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   }
 
   /** First, evaluate every argument */
-  size_t nusedargs = 0;
+  size_t nallocdargs = 0;
   size_t nargs = f->args->len;
-  RSValue args[nargs];
+  RSValue *args[nargs];
 
   // Normal function evaluation
   for (size_t ii = 0; ii < nargs; ii++) {
-    args[ii] = RSValue_Undefined();
-    int internalRes = evalInternal(eval, f->args->args[ii], &args[ii]);
+    args[ii] = RSValue_NewUndefined();
+    nallocdargs++;
+
+    int internalRes = evalInternal(eval, f->args->args[ii], args[ii]);
 
     // Handle NULL values:
     // 1. For func_exists, always allow NULL values
@@ -68,14 +70,13 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
         (internalRes == EXPR_EVAL_NULL && f->Call != func_exists)) {
       goto cleanup;
     }
-    nusedargs++;
   }
 
   rc = f->Call(eval, args, nargs, result);
 
 cleanup:
-  for (size_t ii = 0; ii < nusedargs; ii++) {
-    RSValue_Clear(&args[ii]);
+  for (size_t ii = 0; ii < nallocdargs; ii++) {
+    RSValue_DecrRef(args[ii]);
   }
   return rc;
 }
