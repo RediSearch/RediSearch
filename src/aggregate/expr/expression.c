@@ -340,7 +340,7 @@ EvalCtx *EvalCtx_Create() {
   r->ee.srcrow = &r->row;
   r->ee.err = &r->status;
 
-  r->res = *RSValue_NullStatic();
+  r->res = RSValue_NewNull();
 
   r->_expr = NULL;
 
@@ -373,6 +373,7 @@ error:
 }
 
 void EvalCtx_Destroy(EvalCtx *r) {
+  RSValue_DecrRef(r->res);
   if (r->_expr && r->_own_expr) {
     ExprAST_Free((RSExpr *) r->_expr);
   }
@@ -391,7 +392,7 @@ int EvalCtx_Eval(EvalCtx *r) {
   if (ExprAST_GetLookupKeys((RSExpr *) r->ee.root, (RLookup *) r->ee.lookup, r->ee.err) != EXPR_EVAL_OK) {
     return REDISMODULE_ERR;
   }
-  return ExprEval_Eval(&r->ee, &r->res);
+  return ExprEval_Eval(&r->ee, r->res);
 }
 
 int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr) {

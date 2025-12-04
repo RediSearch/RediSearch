@@ -142,7 +142,7 @@ typedef struct EvalCtx {
   RLookupRow row;
   QueryError status;
   ExprEval ee;
-  RSValue res;
+  RSValue *res;
   RSExpr *_expr;
   bool _own_expr;
 } EvalCtx;
