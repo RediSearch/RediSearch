@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #include <unistd.h>
 #include "aggregate/aggregate.h"
 #include "result_processor.h"
