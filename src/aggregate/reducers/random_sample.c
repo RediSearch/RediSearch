@@ -15,7 +15,8 @@ typedef struct {
 
 typedef struct {
   size_t seen;  // how many items we've seen
-  RSValue *samplesArray;
+  RSValue **samplesArray;
+  RSValue *finalizedRSValue;
 } rsmplCtx;
 
 static void *sampleNewInstance(Reducer *base) {
@@ -23,7 +24,7 @@ static void *sampleNewInstance(Reducer *base) {
   size_t blocksize = MAX(10000, sizeof(rsmplCtx) + r->len * sizeof(RSValue *));
   rsmplCtx *ctx = Reducer_BlkAlloc(base, sizeof(*ctx) + r->len * sizeof(RSValue *), blocksize);
   ctx->seen = 0;
-  ctx->samplesArray = RSValue_NewArray(RSValue_AllocateArray(r->len), 0);
+  ctx->samplesArray = rm_malloc(r->len * sizeof(RSValue *));
   return ctx;
 }
 
@@ -36,13 +37,11 @@ static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   }
 
   if (sc->seen < r->len) {
-    RSVALUE_ARRELEM(sc->samplesArray, sc->seen) = RSValue_IncrRef(v);
-    RSVALUE_ARRLEN(sc->samplesArray)++;
-    RS_ASSERT(RSVALUE_ARRLEN(sc->samplesArray) <= r->len);
+    sc->samplesArray[sc->seen] = RSValue_IncrRef(v);
   } else {
     size_t i = rand() % (sc->seen + 1);
     if (i < r->len) {
-      RSValue_Replace(&((sc->samplesArray)->_arrval.vals[i]), v);
+      RSValue_Replace(&sc->samplesArray[i], v);
     }
   }
   sc->seen++;
@@ -50,13 +49,35 @@ static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
 }
 
 static RSValue *sampleFinalize(Reducer *rbase, void *ctx) {
+  RSMPLReducer *r = (RSMPLReducer *)rbase;
   rsmplCtx *sc = ctx;
-  return RSValue_IncrRef(sc->samplesArray); // return a reference to the array
+
+  if (!sc->finalizedRSValue) {
+    RSValue **array_ptr = rm_realloc(sc->samplesArray, MIN(sc->seen, r->len) * sizeof(RSValue *));
+    sc->finalizedRSValue = RSValue_NewArray(array_ptr, sc->seen);
+    sc->samplesArray = NULL;
+  }
+
+  return RSValue_IncrRef(sc->finalizedRSValue);
 }
 
 static void sampleFreeInstance(Reducer *rbase, void *p) {
+  RSMPLReducer *r = (RSMPLReducer *)rbase;
   rsmplCtx *sc = p;
-  RSValue_DecrRef(sc->samplesArray); // release own reference to the array
+
+  if (sc->samplesArray) {
+    uint32_t len = MIN(sc->seen, r->len);
+    for (uint32_t i = 0; i < len; i++) {
+      RSValue_DecrRef(sc->samplesArray[i]);
+    }
+    rm_free(sc->samplesArray);
+    sc->samplesArray = NULL;
+  }
+
+  if (sc->finalizedRSValue) {
+    RSValue_DecrRef(sc->finalizedRSValue);
+    sc->finalizedRSValue = NULL;
+  }
 }
 
 Reducer *RDCRRandomSample_New(const ReducerOptions *options) {
