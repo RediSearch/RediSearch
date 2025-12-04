@@ -24,11 +24,11 @@
 #define FMT_OUT_STR_MAX_PREALLOC (1024 * 1024)
 #define MAX(i, j) (((i) > (j)) ? (i) : (j))
 
-static int func_matchedTerms(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int func_matchedTerms(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   int maxTerms = 100;
   if (argc == 1) {
     double d;
-    if (RSValue_ToNumber(&argv[0], &d) && 1 <= d && d <= 100) {
+    if (RSValue_ToNumber(argv[0], &d) && 1 <= d && d <= 100) {
       maxTerms = (int)d;
     }
   }
@@ -55,7 +55,7 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
 #define stringfunc_to_generic(func)                      \
   size_t sz;                                             \
   const char *p;                                         \
-  if (!(p = RSValue_StringPtrLen(&argv[0], &sz))) {      \
+  if (!(p = RSValue_StringPtrLen(argv[0], &sz))) {      \
     RSValue_MakeReference(result, RSValue_NullStatic()); \
     return EXPR_EVAL_OK;                                 \
   }                                                      \
@@ -68,30 +68,30 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   return EXPR_EVAL_OK
 
 /* lower(str) */
-static int stringfunc_tolower(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int stringfunc_tolower(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   stringfunc_to_generic(tolower);
 }
 
 /* upper(str) */
-static int stringfunc_toupper(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int stringfunc_toupper(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   stringfunc_to_generic(toupper);
 }
 
 /* substr(str, offset, len) */
-static int stringfunc_substr(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int stringfunc_substr(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   VALIDATE_ARG_TYPE("substr", argv, 1, RSValueType_Number);
   VALIDATE_ARG_TYPE("substr", argv, 2, RSValueType_Number);
 
   size_t sz;
-  const char *str = RSValue_StringPtrLen(&argv[0], &sz);
+  const char *str = RSValue_StringPtrLen(argv[0], &sz);
   if (!str) {
     QueryError_SetError(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS,
                         "Invalid type for substr. Expected string");
     return EXPR_EVAL_ERR;
   }
 
-  int offset = (int)RSValue_Number_Get(RSValue_Dereference(&argv[1]));
-  int len = (int)RSValue_Number_Get(RSValue_Dereference(&argv[2]));
+  int offset = (int)RSValue_Number_Get(RSValue_Dereference(argv[1]));
+  int len = (int)RSValue_Number_Get(RSValue_Dereference(argv[2]));
 
   // for negative offsets we count from the end of the string
   if (offset < 0) {
@@ -111,12 +111,12 @@ static int stringfunc_substr(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   return EXPR_EVAL_OK;
 }
 
-int func_to_number(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+int func_to_number(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
 
   double n;
-  if (!RSValue_ToNumber(&argv[0], &n)) {
+  if (!RSValue_ToNumber(argv[0], &n)) {
     size_t sz = 0;
-    const char *p = RSValue_StringPtrLen(&argv[0], &sz);
+    const char *p = RSValue_StringPtrLen(argv[0], &sz);
     QueryError_SetWithUserDataFmt(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS,
                                   "to_number: cannot convert string", " '%s'", p);
     return EXPR_EVAL_ERR;
@@ -126,8 +126,8 @@ int func_to_number(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   return EXPR_EVAL_OK;
 }
 
-int func_to_str(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
-  RSValue_ToString(result, &argv[0]);
+int func_to_str(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
+  RSValue_ToString(result, argv[0]);
   return EXPR_EVAL_OK;
 }
 
@@ -158,12 +158,12 @@ void append_to_string(char **dst, char **dst_tail, size_t *dst_cap, const char *
   *dst_tail += src_len;
 }
 
-static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   VALIDATE_ARG_ISSTRING("format", argv, 0);
 
   size_t argix = 1;
   size_t fmtsz = 0;
-  const char *fmt = RSValue_StringPtrLen(&argv[0], &fmtsz);
+  const char *fmt = RSValue_StringPtrLen(argv[0], &fmtsz);
   const char *last = fmt, *end = fmt + fmtsz;
 
   size_t out_cap = fmtsz;
@@ -198,7 +198,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
       goto error;
     }
 
-    RSValue *arg = RSValue_Dereference(&argv[argix++]);
+    RSValue *arg = RSValue_Dereference(argv[argix++]);
     if (type == 's') {
       if (arg == RSValue_NullStatic()) {
         // write null value
@@ -254,21 +254,21 @@ static char *str_trim(char *s, size_t sl, const char *cset, size_t *outlen) {
 
   return sp;
 }
-static int stringfunc_split(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int stringfunc_split(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   VALIDATE_ARG_ISSTRING("split", argv, 0);
   const char *sep = ",";
   const char *strp = " ";
   if (argc >= 2) {
     VALIDATE_ARG_ISSTRING("split", argv, 1);
-    sep = RSValue_StringPtrLen(&argv[1], NULL);
+    sep = RSValue_StringPtrLen(argv[1], NULL);
   }
   if (argc == 3) {
     VALIDATE_ARG_ISSTRING("split", argv, 2);
-    strp = RSValue_StringPtrLen(&argv[2], NULL);
+    strp = RSValue_StringPtrLen(argv[2], NULL);
   }
 
   size_t len;
-  char *str = (char *)RSValue_StringPtrLen(&argv[0], &len);
+  char *str = (char *)RSValue_StringPtrLen(argv[0], &len);
   char *ep = str + len;
   size_t l = 0;
   char *next;
@@ -303,8 +303,8 @@ static int stringfunc_split(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *
   return EXPR_EVAL_OK;
 }
 
-int func_exists(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
-  if (RSValue_Type(&argv[0]) != RSValueType_Null) {
+int func_exists(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
+  if (RSValue_Type(argv[0]) != RSValueType_Null) {
     RSValue_IntoNumber(result, 1);
   } else {
     QueryError_ClearError(ctx->err);
@@ -313,7 +313,7 @@ int func_exists(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   return EXPR_EVAL_OK;
 }
 
-int func_case(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+int func_case(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   // This function is never directly called for CASE expressions
   // The actual implementation is in evalFuncCase in expression.c
   // This is just a placeholder for function registration
@@ -321,12 +321,12 @@ int func_case(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   return EXPR_EVAL_OK;
 }
 
-static int stringfunc_startswith(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int stringfunc_startswith(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   VALIDATE_ARG_ISSTRING("startswith", argv, 0);
   VALIDATE_ARG_ISSTRING("startswith", argv, 1);
 
-  RSValue *str = RSValue_Dereference(&argv[0]);
-  RSValue *pref = RSValue_Dereference(&argv[1]);
+  RSValue *str = RSValue_Dereference(argv[0]);
+  RSValue *pref = RSValue_Dereference(argv[1]);
 
   const char *p_str = RSValue_StringPtrLen(str, NULL);
   size_t n;
@@ -335,12 +335,12 @@ static int stringfunc_startswith(ExprEval *ctx, RSValue *argv, size_t argc, RSVa
   return EXPR_EVAL_OK;
 }
 
-static int stringfunc_contains(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int stringfunc_contains(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   VALIDATE_ARG_ISSTRING("contains", argv, 0);
   VALIDATE_ARG_ISSTRING("contains", argv, 1);
 
-  RSValue *str = RSValue_Dereference(&argv[0]);
-  RSValue *pref = RSValue_Dereference(&argv[1]);
+  RSValue *str = RSValue_Dereference(argv[0]);
+  RSValue *pref = RSValue_Dereference(argv[1]);
 
   size_t p_str_size;
   char *p_str = (char *)RSValue_StringPtrLen(str, &p_str_size);
@@ -361,10 +361,10 @@ static int stringfunc_contains(ExprEval *ctx, RSValue *argv, size_t argc, RSValu
   return EXPR_EVAL_OK;
 }
 
-static int stringfunc_strlen(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int stringfunc_strlen(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   VALIDATE_ARG_ISSTRING("strlen", argv, 0);
 
-  RSValue *str = RSValue_Dereference(&argv[0]);
+  RSValue *str = RSValue_Dereference(argv[0]);
 
   size_t n;
   const char *p_pref = (char *)RSValue_StringPtrLen(str, &n);
