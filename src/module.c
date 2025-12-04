@@ -262,7 +262,6 @@ int QueryExplainCLICommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* FT.DEL {index} {doc_id}
@@ -1109,10 +1108,26 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGGET_CMD, RSSuggestGetCommand, "readonly", 1, 1, 1);
 
 #ifndef RS_COORDINATOR
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 2, 2, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, NULL, "readonly", 2, 2, 1);
+  RM_TRY(RedisModule_CreateSubcommand, RedisModule_GetCommand(ctx, RS_CURSOR_CMD),
+         "READ", RSCursorReadCommand, "readonly", 2, 2, 1)
+  RM_TRY(RedisModule_CreateSubcommand, RedisModule_GetCommand(ctx, RS_CURSOR_CMD),
+         "PROFILE", RSCursorProfileCommand, "readonly", 2, 2, 1)
+  RM_TRY(RedisModule_CreateSubcommand, RedisModule_GetCommand(ctx, RS_CURSOR_CMD),
+         "DEL", RSCursorDelCommand, "readonly", 2, 2, 1)
+  RM_TRY(RedisModule_CreateSubcommand, RedisModule_GetCommand(ctx, RS_CURSOR_CMD),
+         "GC", RSCursorGCCommand, "readonly", 2, 2, 1)
 #else
   // we do not want to raise a move error on cluster with coordinator
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 0, 0, 0);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, NULL, "readonly", 0, 0, 0);
+  RM_TRY(RedisModule_CreateSubcommand, RedisModule_GetCommand(ctx, RS_CURSOR_CMD),
+         "READ", RSCursorReadCommand, "readonly", 0, 0, 0)
+  RM_TRY(RedisModule_CreateSubcommand, RedisModule_GetCommand(ctx, RS_CURSOR_CMD),
+         "PROFILE", RSCursorProfileCommand, "readonly", 0, 0, 0)
+  RM_TRY(RedisModule_CreateSubcommand, RedisModule_GetCommand(ctx, RS_CURSOR_CMD),
+         "DEL", RSCursorDelCommand, "readonly", 0, 0, 0)
+  RM_TRY(RedisModule_CreateSubcommand, RedisModule_GetCommand(ctx, RS_CURSOR_CMD),
+         "GC", RSCursorGCCommand, "readonly", 0, 0, 0)
 #endif
 
   // todo: what to do with this?
