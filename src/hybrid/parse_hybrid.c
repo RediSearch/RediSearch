@@ -287,6 +287,9 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
       if (strcasecmp(value, "ADHOC") == 0) {
         value = VECSIM_POLICY_ADHOC_BF;
         len = strlen(VECSIM_POLICY_ADHOC_BF);
+      } else if (strcasecmp(value, "ADHOC_BF") == 0) {
+        value = VECSIM_POLICY_INVALID;
+        len = strlen(VECSIM_POLICY_INVALID);
       }
 
       QueryAttribute attr = {

@@ -140,4 +140,10 @@ def test_hybrid_policy_errors():
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
         'VSIM', '@vector', query_vector,
-        'FILTER', '@category:{"vegetable"}', "POLICY", "ADHOC_BF", "BATCH_SIZE", "100").error().contains("Error parsing vector similarity parameters: 'batch size' is irrelevant for the selected policy")
+        'FILTER', '@category:{"vegetable"}', "POLICY", "ADHOC", "BATCH_SIZE", "100").error().contains("Error parsing vector similarity parameters: 'batch size' is irrelevant for the selected policy")
+
+    env.expect(
+        'FT.HYBRID', 'filter_idx',
+        'SEARCH', '@text:(green)',
+        'VSIM', '@vector', query_vector,
+        'FILTER', '@category:{"vegetable"}', "POLICY", "ADHOC_BF").error().contains("Error parsing vector similarity parameters: invalid hybrid policy was given")
