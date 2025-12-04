@@ -522,7 +522,7 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
     }
     case RSValueType_Number: {
       char tmpbuf[128];
-      size_t len = RSValue_NumToString(v, tmpbuf);
+      size_t len = RSValue_NumToString(v, tmpbuf, sizeof(tmpbuf));
       char *buf = rm_strdup(tmpbuf);
       RSValue_SetString(dst, buf, len);
       break;
@@ -799,7 +799,7 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
         return sdscat(s, Obfuscate_Number(v->_numval));
       } else {
         char buf[128];
-        size_t len = RSValue_NumToString(v, buf);
+        size_t len = RSValue_NumToString(v, buf, sizeof(buf));
         return sdscatlen(s, buf, len);
       }
       break;

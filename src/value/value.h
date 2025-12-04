@@ -708,14 +708,14 @@ static inline int RSValue_BoolTest(const RSValue *v) {
  * Formats the passed numeric RSValue as a string.
  * The passed RSValue must be of type RSValueType_Number.
  */
-static size_t RSValue_NumToString(const RSValue *v, char *buf) {
+static size_t RSValue_NumToString(const RSValue *v, char *buf, size_t buflen) {
   RS_ASSERT(v->_t == RSValueType_Number);
   double dd = v->_numval;
   long long ll = dd;
   if (ll == dd) {
-    return sprintf(buf, "%lld", ll);
+    return snprintf(buf, buflen, "%lld", ll);
   } else {
-    return sprintf(buf, "%.12g", dd);
+    return snprintf(buf, buflen, "%.12g", dd);
   }
 }
 
