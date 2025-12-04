@@ -462,6 +462,7 @@ void handleSlotsInfo(ArgParser *parser, const void *value, void *user_data) {
   }
   OptionSlotTrackerVersion version = slots_tracker_check_availability(slot_array);
   if (!version.is_some) {
+    rm_free((void *)slot_array);
     QueryError_SetError(status, QUERY_ERROR_CODE_UNAVAILABLE_SLOTS, "Query requires unavailable slots");
     return;
   }

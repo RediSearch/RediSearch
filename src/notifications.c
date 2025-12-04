@@ -381,7 +381,7 @@ static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
   enableTrimmingTimerIdScheduled = false;
   // Cancel the checkTrimmingStateCallback timer (Ignore error if it did not exist it does not matter)
   RedisModule_Log(ctx, "notice", "Maximum delay reached. Enabling trimming.");
-  if (ASM_CanStartTrimming()) {
+  if (!ASM_CanStartTrimming()) {
     RedisModule_Log(ctx, "notice", "Queries still using the old version, potential result inaccuracy.");
   }
   RS_ASSERT(checkTrimmingStateTimerIdScheduled);
