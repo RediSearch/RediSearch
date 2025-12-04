@@ -111,6 +111,7 @@ pub fn init_redis_module_mock() {
     unsafe { redis_module::raw::RedisModule_CreateString = Some(RedisModule_CreateString) };
     unsafe { redis_module::raw::RedisModule_StringPtrLen = Some(RedisModule_StringPtrLen) };
     unsafe { redis_module::raw::RedisModule_FreeString = Some(RedisModule_FreeString) };
+    unsafe { redis_module::raw::RedisModule_Strdup = Some(RedisModule_Strdup) };
 
     // register key methods
     unsafe { redis_module::raw::RedisModule_OpenKey = Some(RedisModule_OpenKey) };
