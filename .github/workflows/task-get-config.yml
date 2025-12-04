@@ -173,18 +173,18 @@ jobs:
                       'name': 'Amazon Linux 2 ARM64'
                   }
               },
-              "alpine:3": {
+              "alpine:3.22": {
                   "x86_64": {
-                      'container': 'alpine:3',
+                      'container': 'alpine:3.22',
                       'setup_script': 'apk add bash git',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV',
-                      'name': 'Alpine 3 x86_64'
+                      'name': 'Alpine 3.22 x86_64'
                   },
                   "aarch64": {
-                      'container': 'alpine:3',
+                      'container': 'alpine:3.22',
                       'setup_script': 'apk add bash gcompat libstdc++ libgcc git',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV',
-                      'name': 'Alpine 3 ARM64'
+                      'name': 'Alpine 3.22 ARM64'
                   }
               },
               "debian:bullseye": {
