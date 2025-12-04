@@ -254,6 +254,7 @@ include_directories(
     ${root}/deps/VectorSimilarity/src
     ${root}/src/ttl_table
     ${root}/src/spec
+    ${root}/src/obfuscation
     ${BOOST_DIR}
     ${root})
 
@@ -286,6 +287,7 @@ add_subdirectory(src/coord)
 add_subdirectory(src/redisearch_rs)
 add_subdirectory(src/ttl_table)
 add_subdirectory(src/spec)
+add_subdirectory(src/obfuscation)
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
@@ -310,7 +312,6 @@ file(GLOB SOURCES
     "src/info/info_redis/threads/*.c"
     "src/info/info_redis/types/*.c"
     "src/module-init/*.c"
-    "src/obfuscation/*.c"
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
@@ -341,6 +342,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:redisearch-coord>
     $<TARGET_OBJECTS:ttl_table>
     $<TARGET_OBJECTS:spec>
+    $<TARGET_OBJECTS:obfuscation>
 )
 
 #----------------------------------------------------------------------------------------------
@@ -397,6 +399,7 @@ target_link_libraries(redisearch
         redisearch_rs
         ttl_table
         spec
+        obfuscation
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
         ${CMAKE_LD_LIBS})
