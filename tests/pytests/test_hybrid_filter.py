@@ -147,3 +147,16 @@ def test_hybrid_policy_errors():
         'SEARCH', '@text:(green)',
         'VSIM', '@vector', query_vector,
         'FILTER', '@category:{"vegetable"}', "POLICY", "ADHOC_BF").error().contains("Error parsing vector similarity parameters: invalid hybrid policy was given")
+
+    env.expect(
+        'FT.HYBRID', 'filter_idx',
+        'SEARCH', '@text:(green)',
+        'VSIM', '@vector', query_vector, "RANGE", "2", "RADIUS", "2",
+        'FILTER', '@category:{"vegetable"}', "POLICY", "ADHOC_BF").error().contains("Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query")
+
+    env.expect(
+        'FT.HYBRID', 'filter_idx',
+        'SEARCH', '@text:(green)',
+        'VSIM', '@vector', query_vector, "RANGE", "2", "RADIUS", "2",
+        'FILTER', '@category:{"vegetable"}', "BATCH_SIZE", "5").error().contains("Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query")
+

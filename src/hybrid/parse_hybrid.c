@@ -283,7 +283,7 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
       size_t len;
       AC_GetString(ac, &value, &len, 0);
 
-      // Map user-friendly "ADHOC" to the VecSim value "adhoc_bf"
+      // Map "ADHOC" to the VecSim value "adhoc_bf"
       if (strcasecmp(value, "ADHOC") == 0) {
         value = VECSIM_POLICY_ADHOC_BF;
         len = strlen(VECSIM_POLICY_ADHOC_BF);
