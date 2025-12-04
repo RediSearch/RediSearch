@@ -111,4 +111,3 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'matrix={json.dumps({"include": matrix_items})}\n')
               f.write(f'has-jobs={str(has_jobs).lower()}\n')
-
