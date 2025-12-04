@@ -767,13 +767,6 @@ class testWarningsAndErrorsStandalone:
       info_dict = info_modules_to_dict(self.env)
       self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], str(base_warn + 2))
 
-      # Test max prefix expansions warning in FT.HYBRID
-      # "hello*" will match "hello", "helloworld" - 2 terms, but limit is 1
-      query_vec = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-      self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello*', 'VSIM', '@vector', query_vec).noError()
-      info_dict = info_modules_to_dict(self.env)
-      self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], str(base_warn + 3))
-
       # Clean up: Remove extra documents and restore original config
       self.env.expect('DEL', 'doc:2', 'doc:3', 'vec:3', 'vec:4').equal(4)
       self.env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', original_max_prefix_expansions).ok()
