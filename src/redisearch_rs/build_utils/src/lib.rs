@@ -139,7 +139,7 @@ pub fn link_static_libraries(libs: &[(&str, &str)]) {
             Some(a) => a.to_owned(),
         };
         root.join(format!(
-            "bin/{target_os}-{target_arch}-release/search-community/"
+            "bin/{target_os}-{target_arch}-debug/search-community/"
         ))
     };
 

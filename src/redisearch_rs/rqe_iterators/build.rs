@@ -12,26 +12,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "unittest")]
     {
         build_utils::link_static_libraries(&[
+            ("deps/VectorSimilarity/src/VecSim", "VectorSimilarity"),
             ("deps/libnu", "libnu"),
             ("deps/rmutil", "rmutil"),
             ("deps/thpool", "thpool"),
             ("hiredis", "hiredisd"),
             ("src/aggregate/expr", "aggregate_expr"),
             ("src/aggregate/functions", "aggregate_functions"),
+            ("src/alias", "alias"),
+            ("src/cursor", "cursor"),
             ("src/doc_table", "doc_table"),
+            ("src/field_spec", "field_spec"),
             ("src/hll", "hll"),
             ("src/index_result", "index_result"),
             ("src/info/global_stats", "global_stats"),
             ("src/info/index_error", "index_error"),
             ("src/iterators", "iterators"),
             ("src/language", "language"),
-            ("src/alias", "alias"),
-            ("src/field_spec", "field_spec"),
             ("src/numeric_index", "numeric_index"),
             ("src/obfuscation", "obfuscation"),
             ("src/redis_index", "redis_index"),
             ("src/rlookup", "rlookup"),
             ("src/rules", "rules"),
+            ("src/search_disk", "search_disk"),
             ("src/spec", "spec"),
             ("src/trie", "trie"),
             ("src/ttl_table", "ttl_table"),
@@ -45,8 +48,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ("src/util/workers", "workers"),
             ("src/value", "value"),
             ("src/vector_index", "vector_index"),
-            ("src/cursor", "cursor"),
-            ("deps/VectorSimilarity/src/VecSim", "VectorSimilarity"),
         ]);
     }
 

@@ -679,16 +679,8 @@ pub(super) mod not_miri {
             let fs = ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
 
             // Create the numeric range tree through the proper API
-            let num_field = unsafe {
-                ffi::IndexSpec_GetFormattedKey(
-                    spec.as_ptr(),
-                    fs.as_ptr(),
-                    ffi::FieldType_INDEXFLD_T_NUMERIC,
-                )
-            };
-
             let numeric_range_tree =
-                unsafe { ffi::openNumericKeysDict(spec.as_ptr(), num_field, true) };
+                unsafe { ffi::openNumericOrGeoIndex(spec.as_ptr(), fs.as_ptr(), true) };
             let numeric_range_tree =
                 ptr::NonNull::new(numeric_range_tree).expect("NumericRangeTree should not be null");
 
