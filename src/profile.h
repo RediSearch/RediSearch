@@ -21,7 +21,8 @@
 // If we get a chance to break it then consider splitting the count into separate fields
 #define printProfileCounters(counters) printProfileIteratorCounter(counters->read + counters->skipTo - counters->eof)
 
-#define printProfileGILTime(vtime) RedisModule_ReplyKV_Double(reply, "GIL-Time", (rs_timer_ms(&(vtime))))
+#define printProfileGILTime(vtime) RedisModule_ReplyKV_Double(reply, "GIL-Time", (vtime))
+
 #define printProfileNumBatches(hybrid_reader) \
   RedisModule_ReplyKV_LongLong(reply, "Batches number", (hybrid_reader)->numIterations)
 #define printProfileMaxBatchSize(hybrid_reader) \
