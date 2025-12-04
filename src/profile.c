@@ -98,6 +98,8 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_GROUP:
       case RP_MAX_SCORE_NORMALIZER:
       case RP_NETWORK:
+      case RP_SAFE_DEPLETER:
+      case RP_DEPLETER:
         printProfileType(RPTypeToString(rp->type));
         break;
 
