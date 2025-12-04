@@ -137,7 +137,7 @@ static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRComma
         expectedYieldScoreOffset += 1;
         currentOffset += 1;
         filterExtraArgs += 1;
-        if (currentOffset < argc - 1) {
+        if (currentOffset < argc) {
           MRCommand_AppendRstr(xcmd, argv[currentOffset]); // ADHOC or BATCHES
           expectedYieldScoreOffset += 1;
           currentOffset += 1;
