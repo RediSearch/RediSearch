@@ -9,19 +9,33 @@
 
 use ffi::{
     IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
-    IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, t_docId, t_fieldMask,
+    IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
+    t_docId, t_fieldMask,
 };
+use field::{FieldExpirationPredicate, FieldMaskOrIndex};
 use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetVector, full::Full};
 use rqe_iterators::inverted_index::Term;
 
 use crate::{
     ffi::query_term::QueryTermBuilder,
-    inverted_index::utils::{BaseTest, RevalidateTest},
+    inverted_index::utils::{BaseTest, ExpirationTest, RevalidateTest},
 };
 
 struct TermTest {
     test: BaseTest<Full>,
     revalidate_test: RevalidateTest<Full>,
+    #[cfg(not(miri))]
+    expiration_test: ExpirationTest<Full>,
+    #[cfg(not(miri))]
+    expiration_test_multi: ExpirationTest<Full>,
+    #[cfg(not(miri))]
+    expiration_test_wide_mask: ExpirationTest<Full>,
+}
+
+enum ReadMode {
+    Normal,
+    Multi,
+    Wide,
 }
 
 impl TermTest {
@@ -54,6 +68,12 @@ impl TermTest {
 
         let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         let offsets_clone = offsets.clone();
+        #[cfg(not(miri))]
+        let offsets_clone2 = offsets.clone();
+        #[cfg(not(miri))]
+        let offsets_clone3 = offsets.clone();
+        #[cfg(not(miri))]
+        let offsets_clone4 = offsets.clone();
 
         Self {
             test: BaseTest::new(
@@ -86,7 +106,114 @@ impl TermTest {
                 }),
                 n_docs,
             ),
+            #[cfg(not(miri))]
+            expiration_test: ExpirationTest::new(
+                IndexFlags_Index_StoreTermOffsets,
+                Box::new(move |doc_id| {
+                    let term = QueryTermBuilder {
+                        token: TEST_STR,
+                        idf: 5.0,
+                        id: 1,
+                        flags: 0,
+                        bm25_idf: 10.0,
+                    }
+                    .allocate();
+                    Self::expected_record(doc_id, term, &offsets_clone2)
+                }),
+                n_docs,
+                false,
+            ),
+            #[cfg(not(miri))]
+            expiration_test_multi: ExpirationTest::new(
+                IndexFlags_Index_StoreTermOffsets,
+                Box::new(move |doc_id| {
+                    let term = QueryTermBuilder {
+                        token: TEST_STR,
+                        idf: 5.0,
+                        id: 1,
+                        flags: 0,
+                        bm25_idf: 10.0,
+                    }
+                    .allocate();
+                    Self::expected_record(doc_id, term, &offsets_clone3)
+                }),
+                n_docs,
+                true,
+            ),
+            #[cfg(not(miri))]
+            expiration_test_wide_mask: ExpirationTest::new(
+                IndexFlags_Index_StoreTermOffsets | IndexFlags_Index_WideSchema,
+                Box::new(move |doc_id| {
+                    let term = QueryTermBuilder {
+                        token: TEST_STR,
+                        idf: 5.0,
+                        id: 1,
+                        flags: 0,
+                        bm25_idf: 10.0,
+                    }
+                    .allocate();
+                    Self::expected_record(doc_id, term, &offsets_clone4)
+                }),
+                n_docs,
+                false,
+            ),
         }
+    }
+
+    #[cfg(not(miri))]
+    fn test_read_expiration(&mut self, mode: ReadMode) {
+        let test = match mode {
+            ReadMode::Normal => &mut self.expiration_test,
+            ReadMode::Multi => &mut self.expiration_test_multi,
+            ReadMode::Wide => &mut self.expiration_test_wide_mask,
+        };
+
+        const FIELD_MASK: t_fieldMask = 42;
+        // Make every even document ID field expired
+        let even_ids = test
+            .doc_ids
+            .iter()
+            .filter(|id| **id % 2 == 0)
+            .copied()
+            .collect();
+
+        test.mark_index_expired(even_ids, FieldMaskOrIndex::Mask(FIELD_MASK));
+
+        let reader = test.ii.reader();
+        let mut it = Term::with_context(
+            reader,
+            test.context(),
+            FIELD_MASK,
+            FieldExpirationPredicate::Default,
+        );
+
+        test.read(&mut it);
+    }
+
+    #[cfg(not(miri))]
+    fn test_skip_to_expiration(&mut self) {
+        const FIELD_MASK: t_fieldMask = 42;
+        // Make every even document ID field expired
+        let even_ids = self
+            .expiration_test
+            .doc_ids
+            .iter()
+            .filter(|id| **id % 2 == 0)
+            .copied()
+            .collect();
+
+        self.expiration_test
+            .mark_index_expired(even_ids, FieldMaskOrIndex::Mask(FIELD_MASK));
+
+        let reader = self.expiration_test.ii.reader();
+        let mut it = Term::with_context(
+            reader,
+            self.expiration_test.context(),
+            FIELD_MASK,
+            FieldExpirationPredicate::Default,
+        );
+
+        self.expiration_test.skip_to(&mut it);
     }
 }
 
@@ -151,4 +278,28 @@ fn term_full_revalidate_after_document_deleted() {
     let mut it = Term::new(reader);
     test.revalidate_test
         .revalidate_after_document_deleted(&mut it);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn term_read_expiration() {
+    TermTest::new(100).test_read_expiration(ReadMode::Normal);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn term_read_expiration_wide() {
+    TermTest::new(100).test_read_expiration(ReadMode::Wide);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn term_read_skip_multi_expiration() {
+    TermTest::new(100).test_read_expiration(ReadMode::Multi);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn term_skip_to_expiration() {
+    TermTest::new(100).test_skip_to_expiration();
 }
