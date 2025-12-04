@@ -104,6 +104,19 @@ void *MRChannel_UnsafeForcePop(MRChannel *chan) {
   return ret;
 }
 
+// Must be called with chan->lock held and chan->size > 0
+// Releases chan->lock before returning
+static void *popHeadAndUnlock(MRChannel *chan) {
+  chanItem *item = chan->head;
+  chan->head = item->next;
+  if (!chan->head) chan->tail = NULL;
+  chan->size--;
+  pthread_mutex_unlock(&chan->lock);
+  void *ret = item->ptr;
+  rm_free(item);
+  return ret;
+}
+
 void *MRChannel_Pop(MRChannel *chan) {
   pthread_mutex_lock(&chan->lock);
   while (!chan->size) {
@@ -115,16 +128,7 @@ void *MRChannel_Pop(MRChannel *chan) {
     pthread_cond_wait(&chan->cond, &chan->lock);
   }
 
-  chanItem *item = chan->head;
-  chan->head = item->next;
-  // empty queue...
-  if (!chan->head) chan->tail = NULL;
-  chan->size--;
-  pthread_mutex_unlock(&chan->lock);
-  // discard the item (TODO: recycle items)
-  void *ret = item->ptr;
-  rm_free(item);
-  return ret;
+  return popHeadAndUnlock(chan);
 }
 
 // Platform-specific timed wait on condition variable
@@ -176,16 +180,7 @@ void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstimeMo
     }
   }
 
-  chanItem *item = chan->head;
-  chan->head = item->next;
-  // empty queue...
-  if (!chan->head) chan->tail = NULL;
-  chan->size--;
-  pthread_mutex_unlock(&chan->lock);
-  // discard the item (TODO: recycle items)
-  void *ret = item->ptr;
-  rm_free(item);
-  return ret;
+  return popHeadAndUnlock(chan);
 }
 
 void MRChannel_Unblock(MRChannel *chan) {

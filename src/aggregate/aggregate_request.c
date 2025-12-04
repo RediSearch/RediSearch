@@ -295,9 +295,11 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     bool isSortby0 = AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK
                         && !strcmp(firstArg, "0");
     if (isSortby0 && *papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) {
+      // Special case for SORTBY 0 in hybrid tail.
       AC_Advance(ac);  // Advance without adding SortBy step to the plan
       *papCtx->reqflags |= QEXEC_F_NO_SORT;
     } else {
+      // Handle SORTBY (also covers SORTBY 0 MAX n)
       REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_HAS_SORTBY);
       PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(papCtx->plan);
       bool existingSort = (arng != NULL);
@@ -311,6 +313,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
         return ARG_ERROR;
       }
       if (array_len(arng->sortKeys) == 0) {
+        // No need to sort
         REQFLAGS_RemoveFlags(papCtx->reqflags, QEXEC_F_HAS_SORTBY);
         if (!existingSort) {
           if (arng->limit > 0) {
@@ -322,6 +325,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
           }
         }
       } else if (!existingSort) {
+        // Need to sort (add a sorter step if not yet added)
         AGPLN_AddStep(papCtx->plan, &arng->base);
       }
     }
