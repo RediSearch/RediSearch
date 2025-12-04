@@ -7,9 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Common test utilities shared across iterator tests.
-
 mod mock_iterator;
-
-pub use mock_iterator::{MockIterator, MockRevalidateResult};
+#[allow(unused_imports)] // MockData and MockIteratorError will be used when optional iterator tests are added
+pub(crate) use mock_iterator::{MockData, MockIterator, MockIteratorError, MockRevalidateResult};
 

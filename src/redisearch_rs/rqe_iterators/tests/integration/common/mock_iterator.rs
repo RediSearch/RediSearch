@@ -7,74 +7,211 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! A thin wrapper to override revalidate() behavior for testing.
+use std::{cell::RefCell, rc::Rc};
 
-use std::cell::Cell;
-use std::ops::{Deref, DerefMut};
-
-use ffi::t_docId;
+use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
-use rqe_iterators::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::SortedIdList};
+use rqe_iterators::RQEIterator;
 
-/// What revalidate() should return
-#[derive(Clone, Copy, Debug, Default)]
-pub enum MockRevalidateResult {
-    #[default]
-    Ok,
-    Moved,
-    MovedToEof,
-    Aborted,
+// C-Note: sleep/timeout has not been ported for this mock type
+// as the Rust iterators do not have any facilities around this ATM.
+
+/// Taken from C++ Tests
+///
+/// Original: tests/cpptests/iterator_util.h
+pub struct MockIterator<'index, const N: usize> {
+    result: RSIndexResult<'index>,
+    doc_ids: [t_docId; N],
+    next_index: usize,
+    data: MockData,
 }
 
-/// Wraps SortedIdList to override only revalidate().
-/// Uses Deref so all other methods go directly to inner.
-pub struct MockIterator<'index>(pub SortedIdList<'index>, pub Cell<MockRevalidateResult>);
-
-impl<'index> MockIterator<'index> {
-    pub fn new(doc_ids: Vec<t_docId>) -> Self {
-        Self(SortedIdList::new(doc_ids), Cell::new(MockRevalidateResult::Ok))
-    }
-
-    pub fn set_revalidate_result(&self, result: MockRevalidateResult) {
-        self.1.set(result);
-    }
+#[derive(Debug, Clone, Copy)]
+#[allow(unused)] // Will be used when optional iterator tests are added
+pub enum MockIteratorError {
+    TimeoutError,
 }
 
-// Deref to SortedIdList for convenience (not used by trait, but nice to have)
-impl<'index> Deref for MockIterator<'index> {
-    type Target = SortedIdList<'index>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-impl<'index> DerefMut for MockIterator<'index> {
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.0 }
-}
-
-// Implement trait - delegate everything except revalidate
-impl<'index> RQEIterator<'index> for MockIterator<'index> {
-    #[inline] fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> { self.0.read() }
-    #[inline] fn skip_to(&mut self, id: t_docId) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> { self.0.skip_to(id) }
-    #[inline] fn rewind(&mut self) { self.0.rewind() }
-    #[inline] fn current(&mut self) -> Option<&mut RSIndexResult<'index>> { self.0.current() }
-    #[inline] fn last_doc_id(&self) -> t_docId { self.0.last_doc_id() }
-    #[inline] fn at_eof(&self) -> bool { self.0.at_eof() }
-    #[inline] fn num_estimated(&self) -> usize { self.0.num_estimated() }
-
-    // The only method we actually override
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        match self.1.get() {
-            MockRevalidateResult::Ok => Ok(RQEValidateStatus::Ok),
-            MockRevalidateResult::Moved => {
-                match self.0.read()? {
-                    Some(r) => Ok(RQEValidateStatus::Moved { current: Some(r) }),
-                    None => Ok(RQEValidateStatus::Moved { current: None }),
-                }
-            }
-            MockRevalidateResult::MovedToEof => {
-                while self.0.read()?.is_some() {}
-                Ok(RQEValidateStatus::Moved { current: None })
-            }
-            MockRevalidateResult::Aborted => Ok(RQEValidateStatus::Aborted),
+impl MockIteratorError {
+    fn as_rqe_iterator_error(self) -> rqe_iterators::RQEIteratorError {
+        match self {
+            Self::TimeoutError => rqe_iterators::RQEIteratorError::TimedOut,
         }
     }
 }
 
+pub struct MockData(Rc<RefCell<MockDataInternal>>);
+
+impl MockData {
+    fn new() -> Self {
+        Self(Rc::new(RefCell::new(MockDataInternal {
+            revalidate_result: MockRevalidateResult::default(),
+            validation_count: 0,
+            read_count: 0,
+            error_at_done: None,
+        })))
+    }
+
+    pub fn set_revalidate_result(&mut self, result: MockRevalidateResult) -> &mut Self {
+        self.0.borrow_mut().revalidate_result = result;
+        self
+    }
+
+    #[allow(unused)] // Will be used when optional iterator tests are added
+    pub fn set_error_at_done(&mut self, maybe_err: Option<MockIteratorError>) -> &mut Self {
+        self.0.borrow_mut().error_at_done = maybe_err;
+        self
+    }
+
+    #[allow(unused)] // Will be used when optional iterator tests are added
+    pub fn revalidate_count(&self) -> usize {
+        self.0.borrow().validation_count
+    }
+
+    #[expect(
+        unused,
+        reason = "code will be required later, as we advance in porting Redis C/C++ code"
+    )]
+    pub fn read_count(&self) -> usize {
+        self.0.borrow().read_count
+    }
+}
+
+struct MockDataInternal {
+    revalidate_result: MockRevalidateResult,
+    validation_count: usize,
+    read_count: usize,
+    error_at_done: Option<MockIteratorError>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MockRevalidateResult {
+    #[default]
+    Ok,
+    Abort,
+    Move,
+}
+
+impl<'index, const N: usize> MockIterator<'index, N> {
+    pub fn new(doc_ids: [t_docId; N]) -> Self {
+        Self {
+            result: RSIndexResult::virt()
+                .weight(1.)
+                .field_mask(RS_FIELDMASK_ALL),
+            doc_ids,
+            next_index: 0,
+            data: MockData::new(),
+        }
+    }
+
+    pub fn data(&self) -> MockData {
+        MockData(self.data.0.clone())
+    }
+}
+
+impl<'index, const N: usize> RQEIterator<'index> for MockIterator<'index, N> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        Some(&mut self.result)
+    }
+
+    fn read(
+        &mut self,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, rqe_iterators::RQEIteratorError> {
+        let mut data = self.data.0.borrow_mut();
+
+        data.read_count += 1;
+        if self.at_eof() {
+            return if let Some(err) = data.error_at_done {
+                Err(err.as_rqe_iterator_error())
+            } else {
+                Ok(None)
+            };
+        }
+
+        self.result.doc_id = self.doc_ids[self.next_index];
+        self.next_index += 1;
+
+        Ok(Some(&mut self.result))
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
+    {
+        let mut data = self.data.0.borrow_mut();
+
+        data.read_count += 1;
+
+        assert!(
+            self.result.doc_id < doc_id,
+            "skipTo: requested to skip backwards",
+        );
+
+        if self.at_eof() {
+            return if let Some(err) = data.error_at_done {
+                Err(err.as_rqe_iterator_error())
+            } else {
+                Ok(None)
+            };
+        }
+
+        while self.next_index < N && self.doc_ids[self.next_index] < doc_id {
+            self.next_index += 1;
+        }
+
+        data.read_count -= 1; // Decrement the read count before calling Read
+        drop(data);
+
+        Ok(self.read()?.map(|result| {
+            if result.doc_id == doc_id {
+                rqe_iterators::SkipToOutcome::Found(result)
+            } else {
+                rqe_iterators::SkipToOutcome::NotFound(result)
+            }
+        }))
+    }
+
+    fn revalidate(
+        &mut self,
+    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
+        let mut data = self.data.0.borrow_mut();
+
+        data.validation_count += 1;
+
+        Ok(match data.revalidate_result {
+            MockRevalidateResult::Ok => rqe_iterators::RQEValidateStatus::Ok,
+            MockRevalidateResult::Abort => rqe_iterators::RQEValidateStatus::Aborted,
+            MockRevalidateResult::Move => {
+                rqe_iterators::RQEValidateStatus::Moved {
+                    current: (self.next_index < N).then(|| {
+                        // Simulate a move by incrementing nextIndex
+                        self.result.doc_id = self.doc_ids[self.next_index];
+                        self.next_index += 1;
+                        &mut self.result
+                    }),
+                }
+            }
+        })
+    }
+
+    fn rewind(&mut self) {
+        self.next_index = 0;
+        self.result.doc_id = 0;
+
+        let mut data = self.data.0.borrow_mut();
+        data.read_count = 0;
+    }
+
+    fn num_estimated(&self) -> usize {
+        N
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.result.doc_id
+    }
+
+    fn at_eof(&self) -> bool {
+        self.next_index >= N
+    }
+}

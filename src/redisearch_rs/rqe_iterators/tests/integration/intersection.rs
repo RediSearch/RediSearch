@@ -581,29 +581,33 @@ fn many_children() {
 // Revalidate tests - from IntersectionIteratorRevalidateTest
 // =============================================================================
 
-/// Helper to create mock children for revalidate tests.
-/// Creates 3 children with common docs [10, 20, 30, 40, 50] plus unique docs.
-fn create_revalidate_test_children() -> Vec<MockIterator<'static>> {
-    vec![
-        // Child 0: common + unique
-        MockIterator::new(vec![10, 15, 20, 25, 30, 35, 40, 45, 50, 55]),
-        // Child 1: common + different unique
-        MockIterator::new(vec![5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]),
-        // Child 2: common + different unique
-        MockIterator::new(vec![2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]),
-    ]
-}
+// Note: Mock children for revalidate tests are created inline in each test
+// since the new MockIterator uses const generics for array sizes.
+// Common docs: [10, 20, 30, 40, 50]
+// Child 0: [10, 15, 20, 25, 30, 35, 40, 45, 50, 55] (10 elements)
+// Child 1: [5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60] (11 elements)
+// Child 2: [2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70] (11 elements)
 
 /// Test: All children return VALIDATE_OK
 /// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateOK)
 #[test]
 fn revalidate_ok() {
-    let children = create_revalidate_test_children();
+    // Create mock children with const generic arrays
+    let child0: MockIterator<'static, 10> = MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: MockIterator<'static, 11> = MockIterator::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: MockIterator<'static, 11> = MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
-    // Set all children to return OK on revalidate
-    for child in &children {
-        child.set_revalidate_result(MockRevalidateResult::Ok);
-    }
+    // Set all children to return OK on revalidate (default, but explicit)
+    child0.data().set_revalidate_result(MockRevalidateResult::Ok);
+    child1.data().set_revalidate_result(MockRevalidateResult::Ok);
+    child2.data().set_revalidate_result(MockRevalidateResult::Ok);
+
+    // Use boxed iterators to allow heterogeneous children
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
+        Box::new(child0),
+        Box::new(child1),
+        Box::new(child2),
+    ];
 
     let mut ii = Intersection::new(children);
 
@@ -627,12 +631,20 @@ fn revalidate_ok() {
 /// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateAborted)
 #[test]
 fn revalidate_aborted() {
-    let children = create_revalidate_test_children();
+    let child0: MockIterator<'static, 10> = MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: MockIterator<'static, 11> = MockIterator::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: MockIterator<'static, 11> = MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // Child 1 will abort
-    children[0].set_revalidate_result(MockRevalidateResult::Ok);
-    children[1].set_revalidate_result(MockRevalidateResult::Aborted);
-    children[2].set_revalidate_result(MockRevalidateResult::Ok);
+    child0.data().set_revalidate_result(MockRevalidateResult::Ok);
+    child1.data().set_revalidate_result(MockRevalidateResult::Abort);
+    child2.data().set_revalidate_result(MockRevalidateResult::Ok);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
+        Box::new(child0),
+        Box::new(child1),
+        Box::new(child2),
+    ];
 
     let mut ii = Intersection::new(children);
 
@@ -649,12 +661,20 @@ fn revalidate_aborted() {
 /// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateMoved)
 #[test]
 fn revalidate_moved() {
-    let children = create_revalidate_test_children();
+    let child0: MockIterator<'static, 10> = MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: MockIterator<'static, 11> = MockIterator::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: MockIterator<'static, 11> = MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // All children will move (advance by one document)
-    for child in &children {
-        child.set_revalidate_result(MockRevalidateResult::Moved);
-    }
+    child0.data().set_revalidate_result(MockRevalidateResult::Move);
+    child1.data().set_revalidate_result(MockRevalidateResult::Move);
+    child2.data().set_revalidate_result(MockRevalidateResult::Move);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
+        Box::new(child0),
+        Box::new(child1),
+        Box::new(child2),
+    ];
 
     let mut ii = Intersection::new(children);
 
@@ -683,12 +703,20 @@ fn revalidate_moved() {
 /// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateMixedResults)
 #[test]
 fn revalidate_mixed_results() {
-    let children = create_revalidate_test_children();
+    let child0: MockIterator<'static, 10> = MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: MockIterator<'static, 11> = MockIterator::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: MockIterator<'static, 11> = MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // Mixed: OK, MOVED, OK
-    children[0].set_revalidate_result(MockRevalidateResult::Ok);
-    children[1].set_revalidate_result(MockRevalidateResult::Moved);
-    children[2].set_revalidate_result(MockRevalidateResult::Ok);
+    child0.data().set_revalidate_result(MockRevalidateResult::Ok);
+    child1.data().set_revalidate_result(MockRevalidateResult::Move);
+    child2.data().set_revalidate_result(MockRevalidateResult::Ok);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
+        Box::new(child0),
+        Box::new(child1),
+        Box::new(child2),
+    ];
 
     let mut ii = Intersection::new(children);
 
@@ -706,22 +734,21 @@ fn revalidate_mixed_results() {
 /// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateAfterEOF)
 #[test]
 fn revalidate_after_eof() {
-    let children = create_revalidate_test_children();
+    // Pre-set children to return MOVE on revalidate
+    let child0: MockIterator<'static, 10> = MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: MockIterator<'static, 11> = MockIterator::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: MockIterator<'static, 11> = MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
-    let mut ii = Intersection::new(children);
+    child0.data().set_revalidate_result(MockRevalidateResult::Move);
+    child1.data().set_revalidate_result(MockRevalidateResult::Move);
+    child2.data().set_revalidate_result(MockRevalidateResult::Move);
 
-    // Advance to EOF
-    let outcome = ii.skip_to(51); // Past last common doc (50)
-    assert!(matches!(outcome, Ok(None)));
-    assert!(ii.at_eof());
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
+        Box::new(child0),
+        Box::new(child1),
+        Box::new(child2),
+    ];
 
-    // Now set children to return MOVED (but it shouldn't matter - we're at EOF)
-    // Note: We can't access children after they're moved into Intersection,
-    // so we need a different approach. Let's recreate with pre-set revalidate results.
-    let children = create_revalidate_test_children();
-    for child in &children {
-        child.set_revalidate_result(MockRevalidateResult::Moved);
-    }
     let mut ii = Intersection::new(children);
 
     // Advance to EOF
@@ -743,14 +770,30 @@ fn revalidate_after_eof() {
 
 /// Test: Some children move to EOF during revalidate
 /// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateSomeChildrenMovedToEOF)
+///
+/// Note: The new MockIterator doesn't have a MovedToEof variant. Instead, we simulate
+/// this by using a child that has only 2 elements - after reading doc 10, there's only
+/// one element left (20), so when Move is called during revalidate, it reaches EOF.
 #[test]
 fn revalidate_some_children_moved_to_eof() {
-    let children = create_revalidate_test_children();
+    // Child 0 and 2 have normal data, child 1 is small (only 2 elements: [10, 20])
+    // When we read doc 10 and then call Move, child 1 moves to 20 and the next Move
+    // would go to EOF
+    let child0: MockIterator<'static, 10> = MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    // Child 1 has only doc 10 - after reading it, Move will result in EOF
+    let child1: MockIterator<'static, 1> = MockIterator::new([10]);
+    let child2: MockIterator<'static, 11> = MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
-    // Child 0: OK, Child 1: moves to EOF, Child 2: OK
-    children[0].set_revalidate_result(MockRevalidateResult::Ok);
-    children[1].set_revalidate_result(MockRevalidateResult::MovedToEof);
-    children[2].set_revalidate_result(MockRevalidateResult::Ok);
+    // Child 0: OK, Child 1: moves (to EOF since only 1 element), Child 2: OK
+    child0.data().set_revalidate_result(MockRevalidateResult::Ok);
+    child1.data().set_revalidate_result(MockRevalidateResult::Move);
+    child2.data().set_revalidate_result(MockRevalidateResult::Ok);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
+        Box::new(child0),
+        Box::new(child1),
+        Box::new(child2),
+    ];
 
     let mut ii = Intersection::new(children);
 
@@ -759,7 +802,7 @@ fn revalidate_some_children_moved_to_eof() {
     assert_eq!(result.doc_id, 10);
 
     // Revalidate should return Moved with current=None (EOF)
-    // because if any child is at EOF, intersection is at EOF
+    // because child 1 moves to EOF (it only had 1 element which was already read)
     let status = ii.revalidate().expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: None }),
