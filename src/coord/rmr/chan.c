@@ -31,11 +31,9 @@ struct MRChannel {
 #include "search_ctx.h"
 #include "util/timeout.h"
 
-// Clock for condition variable timeouts
 // Note: pthread_condattr_setclock only supports CLOCK_MONOTONIC (not CLOCK_MONOTONIC_RAW)
 // The timeout parameter (abstimeMono) is in CLOCK_MONOTONIC_RAW, so we convert it
 // to CLOCK_MONOTONIC in condTimedWait()
-#define COND_CLOCK CLOCK_MONOTONIC
 
 MRChannel *MR_NewChannel() {
   MRChannel *chan = rm_malloc(sizeof(*chan));
@@ -49,10 +47,10 @@ MRChannel *MR_NewChannel() {
   // macOS doesn't support pthread_condattr_setclock, use default clock
   pthread_cond_init(&chan->cond, NULL);
 #else
-  // Initialize with COND_CLOCK for use with pthread_cond_timedwait
+  // Initialize with CLOCK_MONOTONIC for use with pthread_cond_timedwait
   pthread_condattr_t cond_attr;
   pthread_condattr_init(&cond_attr);
-  pthread_condattr_setclock(&cond_attr, COND_CLOCK);
+  pthread_condattr_setclock(&cond_attr, CLOCK_MONOTONIC);
   pthread_cond_init(&chan->cond, &cond_attr);
   pthread_condattr_destroy(&cond_attr);
 #endif

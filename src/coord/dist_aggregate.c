@@ -53,7 +53,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
 
   // Initialize shard response barrier if WITHCOUNT is enabled
-  if (HasWithCount(nc->areq) && (nc->areq->reqflags & QEXEC_F_IS_AGGREGATE)) {
+  if (HasWithCount(nc->areq) && IsAggregate(nc->areq)) {
     ShardResponseBarrier *barrier = shardResponseBarrier_New();
     if (!barrier) {
       return RS_RESULT_ERROR;
