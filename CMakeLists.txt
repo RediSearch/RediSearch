@@ -253,6 +253,7 @@ include_directories(
     ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
     ${root}/src/ttl_table
+    ${root}/src/spec
     ${BOOST_DIR}
     ${root})
 
@@ -284,6 +285,7 @@ add_subdirectory(src/util/hash)
 add_subdirectory(src/coord)
 add_subdirectory(src/redisearch_rs)
 add_subdirectory(src/ttl_table)
+add_subdirectory(src/spec)
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
@@ -338,6 +340,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:fast_float_strtod>
     $<TARGET_OBJECTS:redisearch-coord>
     $<TARGET_OBJECTS:ttl_table>
+    $<TARGET_OBJECTS:spec>
 )
 
 #----------------------------------------------------------------------------------------------
@@ -393,6 +396,7 @@ target_link_libraries(redisearch
         uv_a
         redisearch_rs
         ttl_table
+        spec
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
         ${CMAKE_LD_LIBS})
