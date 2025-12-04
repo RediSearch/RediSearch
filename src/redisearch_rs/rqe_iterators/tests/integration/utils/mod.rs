@@ -7,9 +7,5 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub mod empty;
-pub mod id_list;
-//pub mod inverted_index;
-pub mod metric;
-pub mod optional;
-pub mod wildcard;
+mod mock_iterator;
+pub(crate) use mock_iterator::{MockData, MockIterator, MockIteratorError, MockRevalidateResult};
