@@ -142,7 +142,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
 
       //Print total GIL time
         if (profile_verbose){
-          if (AREQ_RequestFlags(req) & QEXEC_F_RUN_IN_BACKGROUND){
+          if (req->reqflags & QEXEC_F_RUN_IN_BACKGROUND){
             RedisModule_ReplyKV_Double(reply, "Total GIL time",
             rs_wall_clock_convert_ns_to_ms_d(req->qiter.queryGILTime));
           } else {
