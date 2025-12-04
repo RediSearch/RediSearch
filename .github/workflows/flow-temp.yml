@@ -17,10 +17,6 @@ jobs:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: all
-      architecture: all
+      platform: alpine:3
+      architecture: x86_64
       redis-ref: unstable
-
-
-
-
