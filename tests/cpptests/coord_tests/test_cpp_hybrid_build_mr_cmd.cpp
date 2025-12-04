@@ -185,6 +185,53 @@ TEST_F(HybridBuildMRCommandTest, testCommandWithCombine) {
     });
 }
 
+
+// Test FILTER with POLICY BATCHES
+TEST_F(HybridBuildMRCommandTest, testFilterWithPolicyBatches) {
+    testCommandTransformationWithoutIndexSpec({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", TEST_BLOB_DATA,
+        "FILTER", "@tag:{test}", "POLICY", "BATCHES"
+    });
+}
+
+// Test FILTER with BATCH_SIZE only
+TEST_F(HybridBuildMRCommandTest, testFilterWithBatchSize) {
+    testCommandTransformationWithoutIndexSpec({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", TEST_BLOB_DATA,
+        "FILTER", "@tag:{test}", "BATCH_SIZE", "100"
+    });
+}
+
+// Test FILTER with POLICY and BATCH_SIZE together
+TEST_F(HybridBuildMRCommandTest, testFilterWithPolicyAndBatchSize) {
+    testCommandTransformationWithoutIndexSpec({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", TEST_BLOB_DATA,
+        "FILTER", "@tag:{test}", "POLICY", "BATCHES", "BATCH_SIZE", "50"
+    });
+}
+
+// Test FILTER with BATCH_SIZE and POLICY (reversed order - order independent)
+TEST_F(HybridBuildMRCommandTest, testFilterWithBatchSizeAndPolicyReversed) {
+    testCommandTransformationWithoutIndexSpec({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", TEST_BLOB_DATA,
+        "FILTER", "@tag:{test}", "BATCH_SIZE", "75", "POLICY", "ADHOC"
+    });
+}
+
+// Test FILTER with POLICY, BATCH_SIZE and COMBINE
+TEST_F(HybridBuildMRCommandTest, testFilterWithPolicyBatchSizeAndCombine) {
+    testCommandTransformationWithoutIndexSpec({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", TEST_BLOB_DATA,
+        "FILTER", "@tag:{test}", "POLICY", "BATCHES", "BATCH_SIZE", "100",
+        "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3"
+    });
+}
+
 // Test complex command with all optional parameters
 TEST_F(HybridBuildMRCommandTest, testComplexCommandWithAllParams) {
     testCommandTransformationWithoutIndexSpec({

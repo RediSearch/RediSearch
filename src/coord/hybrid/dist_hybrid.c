@@ -109,7 +109,7 @@ static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRComma
   }
 
   // Add VSIM FILTER if present at expected position
-  // Format: VSIM <field> <vector> [KNN/RANGE <count> <args...>] FILTER <expression>
+  // Format: VSIM <field> <vector> [KNN/RANGE <count> <args...>] [FILTER <expression> [[POLICY ADHOC/BATCHES] [BATCH_SIZE <value>]]]
   int expectedFilterOffset = vsimOffset + 3; // VSIM + field + vector
   if (vectorMethodOffset != -1) {
     expectedFilterOffset += 2 + methodNargs; // method + count + args
@@ -121,13 +121,38 @@ static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRComma
 
   if (actualFilterOffset == expectedFilterOffset && actualFilterOffset < argc - 1) {
     // This is a VSIM FILTER - append it to the command
+    // Format: FILTER <expression> [[POLICY ADHOC/BATCHES] [BATCH_SIZE <value>]] (order independent)
     MRCommand_AppendRstr(xcmd, argv[actualFilterOffset]);     // FILTER keyword
     MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + 1]); // filter expression
-    expectedYieldScoreOffset += 2; // Update expected offset after processing FILTER
+    expectedYieldScoreOffset += 2;
+
+    int filterExtraArgs = 0;
+    // Process optional FILTER arguments (POLICY, BATCH_SIZE) in any order
+    int currentOffset = actualFilterOffset + 2;
+    while (currentOffset < argc && filterExtraArgs < 4) { // 4 is the maximum number of extra arguments for FILTER - [POLICY ADHOC/BATCHES] [BATCH_SIZE <value>]
+      const char *argStr = RedisModule_StringPtrLen(argv[currentOffset], NULL);
+
+      if (strcasecmp(argStr, "POLICY") == 0 && currentOffset < argc - 1) {
+        MRCommand_AppendRstr(xcmd, argv[currentOffset]);     // POLICY
+        MRCommand_AppendRstr(xcmd, argv[currentOffset + 1]); // ADHOC or BATCHES
+        expectedYieldScoreOffset += 2;
+        currentOffset += 2;
+        filterExtraArgs += 2;
+      } else if (strcasecmp(argStr, "BATCH_SIZE") == 0 && currentOffset < argc - 1) {
+        MRCommand_AppendRstr(xcmd, argv[currentOffset]);     // BATCH_SIZE
+        MRCommand_AppendRstr(xcmd, argv[currentOffset + 1]); // batch size value
+        expectedYieldScoreOffset += 2;
+        currentOffset += 2;
+        filterExtraArgs += 2;
+      } else {
+        // Not a FILTER parameter - we've reached the end of FILTER section
+        break;
+      }
+    }
   }
 
   // Add YIELD_SCORE_AS if present
-  // Format: VSIM <field> <vector> [KNN/RANGE <count> <args...>] [FILTER <expression>] YIELD_SCORE_AS <alias>
+  // Format: ... [FILTER <expression> [[POLICY ADHOC/BATCHES] [BATCH_SIZE <value>]]] YIELD_SCORE_AS <alias>
   int yieldScoreOffset = RMUtil_ArgIndex("YIELD_SCORE_AS", argv + vsimOffset, argc - vsimOffset);
   yieldScoreOffset = yieldScoreOffset != -1 ? yieldScoreOffset + vsimOffset : -1;
 
