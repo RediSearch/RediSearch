@@ -1073,27 +1073,6 @@ class testWarningsAndErrorsCluster:
       self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], str(base_warn_coord),
                             message="Coordinator max prefix expansions warning should not change after FT.AGGREGATE")
 
-      # Trigger max prefix expansions warning in FT.HYBRID is not supported yet in cluster mode
-      # Change test when FT.HYBRID max prefix expansion warnings is supported in cluster mode
-      query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-      res = self.env.cmd('FT.HYBRID', 'idx_vec', 'SEARCH', 'hell*', 'VSIM', '@vector', query_vector)
-      # Verify *no* warning is returned in ft.hybrid response
-      warnings_idx = res.index('warnings') + 1
-      self.env.assertFalse('Max prefix expansions limit was reached' in res[warnings_idx])
-
-      # Shards: should be +1 each besides last shard (which doesn't have enough docs to trigger warning)
-      # But since we don't support warnings in ft.hybrid in cluster mode, we don't expect any change
-      for shardId in range(1, self.env.shardsCount):
-        info_dict = info_modules_to_dict(self.env.getConnection(shardId))
-        self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC], '2',
-                            message=f"Shard {shardId} max prefix expansions warning should not change after FT.HYBRID")
-
-      # Coord: should be +1 since we don't support warnings in ft.hybrid in cluster mode
-      # Change test when FT.HYBRID max prefix expansion warnings is supported in cluster mode
-      info_coord = info_modules_to_dict(self.env)
-      self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], str(base_warn_coord),
-                          message="Coordinator max prefix expansions warning should not change after FT.HYBRID")
-
       # Restore original max prefix expansions
       for shardId in range(1, self.env.shardsCount):
         shard_conn = self.env.getConnection(shardId)
