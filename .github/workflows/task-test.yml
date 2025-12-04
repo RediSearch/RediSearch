@@ -94,7 +94,7 @@ jobs:
           done
           [ $SUCCESS -eq 1 ] || exit 1
       - name: Setup Dependencies (Non-Alpine)
-        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container != '3.22'
+        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3.22'
         run: |
           SUCCESS=0
           for i in {1..5}; do
