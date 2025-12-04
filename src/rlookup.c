@@ -352,7 +352,7 @@ void RLookupRow_Reset(RLookupRow *r) {
   }
 }
 
-void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
+void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
   for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
     RSValue *vv = RLookup_GetItem(kk, src);
     if (vv) {
