@@ -146,33 +146,6 @@ jobs:
           echo "build-image.result: ${{ needs.build-image.result }}"
           echo "build-image.outputs.succeeded: ${{ needs.build-image.outputs.succeeded }}"
           echo "build-image.outputs.image: ${{ needs.build-image.outputs.image }}"
-      - name: Free up disk space (container)
-        # For container jobs - delete mounted host directories
-        if: ${{ needs.get-config.outputs.container }}
-        run: |
-          echo "Before cleanup:"
-          df -h
-          rm -rf /host_usr/dotnet/* 2>/dev/null || true
-          rm -rf /host_usr/android/* 2>/dev/null || true
-          rm -rf /host_opt/ghc/* 2>/dev/null || true
-          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
-      - name: Free up disk space (non-container)
-        # For non-container jobs - delete directly with sudo
-        # Skip macOS - it doesn't have these directories
-        if: ${{ !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
-        run: |
-          echo "Before cleanup:"
-          df -h
-          sudo rm -rf /usr/share/dotnet || true
-          sudo rm -rf /usr/local/lib/android || true
-          sudo rm -rf /opt/ghc || true
-          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
-          sudo rm -rf /usr/local/share/boost || true
-          docker system prune -af 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
       - name: Fix HOME Directory
         if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
         shell: bash
@@ -226,6 +199,34 @@ jobs:
             fi
           done
           [ $SUCCESS -eq 1 ] || exit 1
+      - name: Free up disk space (container)
+        # For container jobs - delete mounted host directories
+        # Moved after Setup Dependencies (Alpine) because Alpine doesn't have bash by default
+        if: ${{ needs.get-config.outputs.container }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          rm -rf /host_usr/dotnet/* 2>/dev/null || true
+          rm -rf /host_usr/android/* 2>/dev/null || true
+          rm -rf /host_opt/ghc/* 2>/dev/null || true
+          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+      - name: Free up disk space (non-container)
+        # For non-container jobs - delete directly with sudo
+        # Skip macOS - it doesn't have these directories
+        if: ${{ !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/share/boost || true
+          docker system prune -af 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
