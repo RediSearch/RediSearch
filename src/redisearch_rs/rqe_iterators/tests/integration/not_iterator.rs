@@ -8,17 +8,16 @@
 */
 
 use inverted_index::RSIndexResult;
-
 use rqe_iterators::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::SortedIdList,
-    not_iterator::NotIterator,
+    not_iterator::Not,
 };
 
 // Basic iterator invariants before any read.
 #[test]
 fn initial_state() {
     let child = SortedIdList::new(vec![2, 4, 6]);
-    let it = NotIterator::new(child, 10);
+    let it = Not::new(child, 10);
 
     // Before first read, cursor is at 0 and we are not at EOF.
     assert_eq!(it.last_doc_id(), 0);
@@ -31,7 +30,7 @@ fn initial_state() {
 #[test]
 fn read_skips_child_docs() {
     let child_ids = vec![2, 4, 7];
-    let mut it = NotIterator::new(SortedIdList::new(child_ids), 10);
+    let mut it = Not::new(SortedIdList::new(child_ids), 10);
 
     // Child has [2, 4, 7]; complement in [1..=10] is [1, 3, 5, 6, 8, 9, 10].
     let expected = vec![1, 3, 5, 6, 8, 9, 10];
@@ -56,7 +55,7 @@ fn read_skips_child_docs() {
 #[test]
 fn read_with_empty_child_behaves_like_wildcard() {
     // When the child is empty, NOT should yield all doc IDs in [1, max_doc_id]
-    let mut it = NotIterator::new(SortedIdList::new(vec![]), 5);
+    let mut it = Not::new(SortedIdList::new(vec![]), 5);
 
     for expected_id in 1u64..=5 {
         let result = it.read();
@@ -76,7 +75,7 @@ fn read_with_empty_child_behaves_like_wildcard() {
 // Child covers full range: NOT should be empty and report EOF.
 #[test]
 fn read_with_child_covering_full_range_yields_no_docs() {
-    let mut it = NotIterator::new(SortedIdList::new(vec![1, 2, 3, 4, 5]), 5);
+    let mut it = Not::new(SortedIdList::new(vec![1, 2, 3, 4, 5]), 5);
 
     // Child already produces 1..=5, so there is no doc left for NOT to return.
     let res = it.read().expect("read() must not error");
@@ -91,7 +90,7 @@ fn read_with_child_covering_full_range_yields_no_docs() {
 // skip_to on ids below, between and inside child: Found vs NotFound semantics.
 #[test]
 fn skip_to_honours_child_membership() {
-    let mut it = NotIterator::new(SortedIdList::new(vec![2, 4, 7]), 10);
+    let mut it = Not::new(SortedIdList::new(vec![2, 4, 7]), 10);
 
     // 5 is not in child {2, 4, 7}, so NOT must return Found(5).
     let outcome = it.skip_to(5).expect("skip_to(5) must not error");
@@ -125,10 +124,66 @@ fn skip_to_honours_child_membership() {
     }
 }
 
+// skip_to to a child doc at max_doc_id: should return None (EOF) since the doc
+// is in child and there's no next doc to return.
+#[test]
+fn skip_to_child_doc_at_max_docid_returns_none() {
+    // Child has doc 10, which is also max_doc_id
+    let mut it = Not::new(SortedIdList::new(vec![2, 5, 10]), 10);
+
+    // Read first to position before the skip
+    let doc = it.read().unwrap().unwrap();
+    assert_eq!(doc.doc_id, 1);
+
+    // skip_to(10) - 10 is in child AND is max_doc_id, so there's no next doc
+    let outcome = it.skip_to(10).expect("skip_to(10) must not error");
+    assert!(outcome.is_none(), "Expected None when skipping to child doc at max_doc_id");
+    assert!(it.at_eof());
+}
+
+// skip_to when child is ahead of docId: Case 1 - child.last_doc_id() > doc_id
+#[test]
+fn skip_to_child_ahead_returns_found() {
+    let mut it = Not::new(SortedIdList::new(vec![5, 10]), 15);
+
+    // Read once to advance child to doc_id=5
+    let doc = it.read().unwrap().unwrap();
+    assert_eq!(doc.doc_id, 1);
+
+    // Now child.last_doc_id()=5, skip_to(3) should hit Case 1: child is ahead
+    let outcome = it.skip_to(3).expect("skip_to(3) must not error");
+    if let Some(SkipToOutcome::Found(doc)) = outcome {
+        assert_eq!(doc.doc_id, 3);
+    } else {
+        panic!("Expected Found outcome for skip_to(3) when child is ahead, got {:?}", outcome);
+    }
+}
+
+// skip_to when child is at EOF: Case 1 - child.at_eof()
+#[test]
+fn skip_to_child_at_eof_returns_found() {
+    let mut it = Not::new(SortedIdList::new(vec![1, 2]), 10);
+
+    // Exhaust the child by reading past its docs
+    while let Some(doc) = it.read().unwrap() {
+        if doc.doc_id >= 3 {
+            break; // Now child should be at EOF (exhausted [1, 2])
+        }
+    }
+
+    // Child is now at EOF, skip_to(8) should hit Case 1
+    let outcome = it.skip_to(8).expect("skip_to(8) must not error");
+    if let Some(SkipToOutcome::Found(doc)) = outcome {
+        assert_eq!(doc.doc_id, 8);
+    } else {
+        panic!("Expected Found outcome for skip_to(8) when child at EOF, got {:?}", outcome);
+    }
+}
+
 // skip_to past max_doc_id: should return None and move to EOF.
 #[test]
 fn skip_to_past_max_docid_returns_none_and_sets_eof() {
-    let mut it = NotIterator::new(SortedIdList::new(vec![2, 4, 7]), 10);
+    let mut it = Not::new(SortedIdList::new(vec![2, 4, 7]), 10);
 
     // 11 > max_doc_id=10, so there is no valid target and we end at EOF.
     let res = it.skip_to(11).expect("skip_to(11) must not error");
@@ -142,7 +197,7 @@ fn skip_to_past_max_docid_returns_none_and_sets_eof() {
 // rewind should restore the initial state and read sequence.
 #[test]
 fn rewind_resets_state() {
-    let mut it = NotIterator::new(SortedIdList::new(vec![2, 4, 7]), 10);
+    let mut it = Not::new(SortedIdList::new(vec![2, 4, 7]), 10);
 
     // For child [2, 4, 7] and max_doc_id=10, the first two NOT results are 1 and 3.
     for expected in [1u64, 3] {
@@ -232,7 +287,7 @@ impl<'index> RQEIterator<'index> for MockChild<'index> {
 // Child revalidate Ok: NOT still excludes the child's doc IDs.
 #[test]
 fn revalidate_child_ok_preserves_exclusions() {
-    let mut it = NotIterator::new(MockChild::new_ok(vec![2, 4]), 5);
+    let mut it = Not::new(MockChild::new_ok(vec![2, 4]), 5);
 
     let status = it.revalidate().expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
@@ -249,7 +304,7 @@ fn revalidate_child_ok_preserves_exclusions() {
 // Child revalidate Aborted: NOT degenerates to wildcard (empty child).
 #[test]
 fn revalidate_child_aborted_replaces_child_with_empty() {
-    let mut it = NotIterator::new(MockChild::new_aborted(vec![2, 4]), 5);
+    let mut it = Not::new(MockChild::new_aborted(vec![2, 4]), 5);
 
     let status = it.revalidate().expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);

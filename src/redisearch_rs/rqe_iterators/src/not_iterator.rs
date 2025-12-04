@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Supporting types for [`NotIterator`].
+//! Supporting types for [`Not`].
 
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
@@ -20,7 +20,7 @@ use crate::{
 ///
 /// Yields all document IDs from 1 to `max_doc_id` (inclusive) that are **not**
 /// present in the child iterator.
-pub struct NotIterator<'index, I> {
+pub struct Not<'index, I> {
     /// The child iterator whose results are negated.
     child: MaybeEmpty<I>,
     /// The maximum document ID to iterate up to (inclusive).
@@ -30,7 +30,7 @@ pub struct NotIterator<'index, I> {
     // TODO: Timeout
 }
 
-impl<'index, I> NotIterator<'index, I>
+impl<'index, I> Not<'index, I>
 where
     I: RQEIterator<'index>,
 {
@@ -43,7 +43,7 @@ where
     }
 }
 
-impl<'index, I> RQEIterator<'index> for NotIterator<'index, I>
+impl<'index, I> RQEIterator<'index> for Not<'index, I>
 where
     I: RQEIterator<'index>,
 {
@@ -158,7 +158,6 @@ where
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Get child status
-
         match self.child.revalidate()? {
             RQEValidateStatus::Aborted => {
                 // Replace aborted child with an empty iterator
@@ -166,7 +165,8 @@ where
                 Ok(RQEValidateStatus::Ok)
             }
             RQEValidateStatus::Moved { .. } => {
-                // Assert that child is at EOF or beyond our last doc id
+                // Invariant: after read/skip_to, child is always ahead of NOT's position (or at EOF).
+                // Moved means child moved forward (can't move backward), so our doc remains valid.
                 debug_assert!(self.child.at_eof() || self.child.last_doc_id() > self.last_doc_id());
                 Ok(RQEValidateStatus::Ok)
             }
