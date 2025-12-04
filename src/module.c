@@ -98,6 +98,7 @@ extern RedisModuleCtx *RSDummyContext;
 
 khash_t(query_key_space_version_tracker) *query_key_space_version_map = NULL;
 uint32_t key_space_version = INVALID_KEYSPACE_VERSION;
+pthread_mutex_t query_version_tracker_mutex;
 
 redisearch_thpool_t *depleterPool = NULL;
 

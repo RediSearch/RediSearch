@@ -97,7 +97,7 @@ KHASH_MAP_INIT_INT(query_key_space_version_tracker, uint32_t);
 extern khash_t(query_key_space_version_tracker) *query_key_space_version_map;
 
 // Mutex for thread-safe hash map operations
-static pthread_mutex_t query_version_tracker_mutex;
+extern pthread_mutex_t query_version_tracker_mutex;
 
 static inline void ASM_KeySpaceVersionTracker_Init() {
   if (query_key_space_version_map != NULL) {
