@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::c_char;
+use std::ffi::{CStr, c_char};
 
 /// Mock implementation of RedisModuleString from redismodule.h for testing purposes.
 #[derive(Default, Copy, Clone)]
@@ -66,4 +66,32 @@ pub(crate) unsafe extern "C" fn RedisModule_FreeString(
 ) {
     // Safety: we own the memory (1) and the caller promised to call this only once (2)
     drop(unsafe { Box::from_raw(s.cast::<UserString>()) });
+}
+
+/// Mock implementation of RedisModule_Strdup from redismodule.h for testing purposes.
+///
+/// # Safety
+/// 1. `s` must be a valid pointer to a NULL-terminated string.
+#[allow(non_snake_case)]
+pub unsafe extern "C" fn RedisModule_Strdup(s: *const i8) -> *mut i8 {
+    if s.is_null() {
+        std::ptr::null_mut()
+    } else {
+        // Safety: s is a valid pointer to a NULL-terminated string (1).
+        let c_str = unsafe { CStr::from_ptr(s) };
+        // Need an extra byte for null terminator
+        let len = c_str.count_bytes() + 1;
+        // Allocate memory using the mock allocator
+        let out = crate::allocator::alloc_shim(len) as *mut i8;
+        assert!(!out.is_null());
+
+        // Safety:
+        // - 1. ensures the source is valid.
+        // - we just allocated the destination memory.
+        unsafe {
+            std::ptr::copy_nonoverlapping(s, out, len);
+        }
+
+        out
+    }
 }
