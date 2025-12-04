@@ -1982,3 +1982,108 @@ class TestCoordHighPriorityPendingJobs(object):
       return
 
     self.verify_coord_high_priority_pending_jobs('HYBRID', num_commands_per_type, hybrid_threads)
+
+
+# Test the 'total_documents_indexed' INFO MODULES metric in standalone mode.
+# This metric counts the total number of documents indexed by all indexes,
+# with potential overlap (a doc counted once per index that indexes it).
+@skip(cluster=True)
+def test_total_docs_indexed_metric_SA(env):
+
+  conn = getConnectionByEnv(env)
+
+  # Helper to get the total_documents_indexed metric
+  def get_total_docs_indexed():
+    info = conn.execute_command('INFO', 'MODULES')
+    return info['search_total_documents_indexed']
+
+  # Baseline: no indexes, no docs indexed
+  baseline = get_total_docs_indexed()
+  env.assertEqual(baseline, 0, message="Baseline should be 0 with no indexes")
+
+  # ==========================================================================
+  # 1. Regular flow: create index, create doc, check metric incremented
+  # ==========================================================================
+  # Create first index with prefix 'do' (will match 'doc:*')
+  env.expect('FT.CREATE', 'idx1', 'PREFIX', 1, 'do', 'SCHEMA', 'text', 'TEXT').ok()
+  waitForIndex(env, 'idx1')
+  env.assertEqual(get_total_docs_indexed(), 0, message="No docs yet, metric should be 0")
+
+  # Add first document
+  conn.execute_command('HSET', 'doc:1', 'text', 'hello world')
+  # For inline indexing (foreground), the doc is indexed immediately
+  env.assertEqual(get_total_docs_indexed(), 1, message="After adding 1 doc to 1 index")
+
+  # ==========================================================================
+  # 2. Double counting: create another index, check metric increments again
+  #    for the same document (background indexing)
+  # ==========================================================================
+  # Create second index with prefix 'doc' (more specific, also matches 'doc:*')
+  env.expect('FT.CREATE', 'idx2', 'PREFIX', 1, 'doc', 'SCHEMA', 'text', 'TEXT').ok()
+  # Wait for background indexing to complete
+  waitForIndex(env, 'idx2')
+
+  # The existing doc 'doc:1' should now be indexed by idx2 as well
+  env.assertEqual(get_total_docs_indexed(), 2,
+                  message="doc:1 indexed by both idx1 and idx2")
+
+  # ==========================================================================
+  # 3. Multiple docs: add more docs, each indexed by both indexes
+  # ==========================================================================
+  conn.execute_command('HSET', 'doc:2', 'text', 'foo bar')
+  conn.execute_command('HSET', 'doc:3', 'text', 'baz qux')
+
+  # Each doc is indexed by both indexes (inline indexing)
+  # doc:1 was indexed 2 times (by idx1 and idx2)
+  # doc:2 is indexed 2 times (by idx1 and idx2)
+  # doc:3 is indexed 2 times (by idx1 and idx2)
+  # Total = 6
+  env.assertEqual(get_total_docs_indexed(), 6,
+                  message="3 docs, each indexed by 2 indexes = 6")
+
+  # ==========================================================================
+  # 4. Partial indexing: create a doc that only matches one index's prefix
+  # ==========================================================================
+  # 'doar:1' matches 'do' prefix (idx1) but NOT 'doc' prefix (idx2)
+  conn.execute_command('HSET', 'doar:1', 'text', 'partial match')
+
+  # Only idx1 should index this doc
+  # Previous total was 6, now should be 7
+  env.assertEqual(get_total_docs_indexed(), 7,
+                  message="'doar:1' only indexed by idx1 (prefix 'do'), not idx2 (prefix 'doc')")
+
+  # ==========================================================================
+  # 5. Delete doc: verify metric is updated correctly
+  # ==========================================================================
+  # Delete doc:2 (which was indexed by both indexes)
+  conn.execute_command('DEL', 'doc:2')
+
+  # Force GC to clean up the deleted doc from both indexes
+  forceInvokeGC(env, 'idx1')
+  forceInvokeGC(env, 'idx2')
+
+  # After deletion:
+  # - doc:1 still indexed by both indexes (2)
+  # - doc:2 deleted (was 2, now 0)
+  # - doc:3 indexed by both indexes (2)
+  # - doar:1 indexed by idx1 only (1)
+  # Total = 5
+  env.assertEqual(get_total_docs_indexed(), 5,
+                  message="After deleting doc:2 (was indexed by 2 indexes)")
+
+  # ==========================================================================
+  # 6. Delete index: verify metric is updated correctly
+  # ==========================================================================
+  # Drop idx2 (which indexed doc:1 and doc:3)
+  conn.execute_command('FT.DROPINDEX', 'idx2')
+
+  # Wait for cleanup to complete
+  waitForNoCleanup(env, 'idx1')
+
+  # After dropping idx2:
+  # - doc:1 indexed by idx1 only (1)
+  # - doc:3 indexed by idx1 only (1)
+  # - doar:1 indexed by idx1 only (1)
+  # Total = 3
+  env.assertEqual(get_total_docs_indexed(), 3,
+                  message="After dropping idx2, only idx1 remains")
