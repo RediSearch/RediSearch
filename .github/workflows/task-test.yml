@@ -76,7 +76,7 @@ jobs:
     steps:
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Setup Dependencies (Alpine)
-        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3'
+        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3.22'
         shell: sh -l -eo pipefail {0}
         run: |
           SUCCESS=0
@@ -94,7 +94,7 @@ jobs:
           done
           [ $SUCCESS -eq 1 ] || exit 1
       - name: Setup Dependencies (Non-Alpine)
-        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3'
+        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container != '3.22'
         run: |
           SUCCESS=0
           for i in {1..5}; do
@@ -120,7 +120,7 @@ jobs:
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
-          for platform in amazonlinux:2 alpine:3; do
+          for platform in amazonlinux:2 alpine:3.22; do
             if [[ "${{ needs.get-config.outputs.container }}" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
@@ -142,7 +142,7 @@ jobs:
           CONTAINER="${{ needs.get-config.outputs.container }}"
           echo "Detected platform: $CONTAINER"
           case "$CONTAINER" in
-            amazonlinux:2 | alpine:3)
+            amazonlinux:2 | alpine:3.22)
 
               # Configure the safe directory
               git config --global --add safe.directory "/__w/$GITHUB_REPO"
