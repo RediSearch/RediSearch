@@ -370,7 +370,7 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
     RedisModule_ClusterEnableTrim(ctx);
   } else {
     RedisModule_Log(ctx, "notice", "Queries still using the old version, rescheduling check in %d milliseconds.", TRIMMING_STATE_CHECK_DELAY);
-    checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, TRIMMING_STATE_CHECK_DELAY, checkTrimmingStateCallback, NULL);
+    checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, TRIMMING_STATE_CHECK_DELAY, checkTrimmingStateCallback, slots);
     checkTrimmingStateTimerIdScheduled = true;
   }
 }
