@@ -55,26 +55,26 @@ fn main() {
 
     let src = root.join("src");
     let headers = [
-        src.join("redisearch.h"),
         root.join("deps")
             .join("RedisModulesSDK")
             .join("redismodule.h"),
         src.join("buffer/buffer.h"),
-        src.join("search_result.h"),
-        src.join("index_result").join("index_result.h"),
         src.join("config.h"),
-        src.join("result_processor.h"),
-        src.join("sortable.h"),
-        src.join("value").join("value.h"),
-        src.join("obfuscation").join("hidden.h"),
-        src.join("spec.h"),
         src.join("doc_table.h"),
-        src.join("score_explain.h"),
-        src.join("rlookup.h"),
+        src.join("index_result").join("index_result.h"),
+        src.join("obfuscation").join("hidden.h"),
         src.join("query.h"),
-        src.join("util").join("arr").join("arr.h"),
+        src.join("redisearch.h"),
+        src.join("result_processor.h"),
+        src.join("rlookup.h"),
+        src.join("score_explain.h"),
         src.join("search_disk_api.h"),
+        src.join("search_result.h"),
+        src.join("sortable.h"),
+        src.join("spec.h"),
         src.join("ttl_table").join("ttl_table.h"),
+        src.join("util").join("arr").join("arr.h"),
+        src.join("value").join("value.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();
