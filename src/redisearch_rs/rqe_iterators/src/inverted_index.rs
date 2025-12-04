@@ -12,8 +12,8 @@
 use std::ptr::NonNull;
 
 use ffi::{
-    IndexFlags_Index_WideSchema, RS_INVALID_FIELD_INDEX, RedisSearchCtx, t_docId, t_fieldIndex,
-    t_fieldMask,
+    IndexFlags_Index_WideSchema, NumericRangeTree, RS_INVALID_FIELD_INDEX, RedisSearchCtx, t_docId,
+    t_fieldIndex, t_fieldMask,
 };
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{IndexReader, NumericReader, RSIndexResult, TermReader};
@@ -392,8 +392,6 @@ where
     }
 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // TODO: NumericCheckAbort when implementing queries
-
         if !self.reader.needs_revalidation() {
             return Ok(RQEValidateStatus::Ok);
         }
@@ -429,8 +427,13 @@ where
 /// # Type Parameters
 ///
 /// * `'index` - The lifetime of the index being iterated over.
+/// * `R` - The type of the numeric reader.
 pub struct Numeric<'index, R> {
     it: InvIndIterator<'index, R>,
+    /// The numeric range tree used to query the inverted index.
+    range_tree: Option<NonNull<ffi::NumericRangeTree>>,
+    /// The revision ID of the numeric range tree. Used to detect changes to the tree when revalidating.
+    revision_id: u32,
 }
 
 impl<'index, R> Numeric<'index, R>
@@ -450,6 +453,8 @@ where
         let result = RSIndexResult::numeric(0.0);
         Self {
             it: InvIndIterator::new(reader, result, None),
+            range_tree: None,
+            revision_id: 0,
         }
     }
 
@@ -462,18 +467,28 @@ where
     /// `context`, `index` and `predicate` are used to check for expired
     /// documents when reading from the inverted index.
     ///
+    /// `range_tree` is the underlying range tree backing the iterator.
+    /// It is used during revalidation to check if the iterator is still valid.
+    ///
     /// # Safety
     ///
     /// 1. `context` is a valid pointer to a `RedisSearchCtx`.
     /// 2. `context.spec` is a valid pointer to an `IndexSpec`.
     /// 3. 1 and 2 must stay valid during the iterator's lifetime.
+    /// 4. `range_tree` is a valid pointer to a `NumericRangeTree`.
+    /// 5. `range_tree` must stay valid during the iterator's lifetime.
     pub fn new(
         reader: R,
         context: NonNull<RedisSearchCtx>,
         index: t_fieldIndex,
         predicate: FieldExpirationPredicate,
+        range_tree: NonNull<NumericRangeTree>,
     ) -> Self {
         let result = RSIndexResult::numeric(0.0);
+
+        // SAFETY: 4.
+        let rt = unsafe { range_tree.as_ref() };
+
         Self {
             it: InvIndIterator::new(
                 reader,
@@ -486,7 +501,25 @@ where
                     },
                 }),
             ),
+            range_tree: Some(range_tree),
+            revision_id: rt.revisionId,
         }
+    }
+
+    const fn check_abort(&self) -> bool {
+        if self.it.query_ctx.is_none() {
+            return true;
+        };
+
+        let Some(range_tree) = &self.range_tree else {
+            return true;
+        };
+
+        // SAFETY: 5. from [`Self::new`]
+        let rt = unsafe { range_tree.as_ref() };
+        // If the revision id changed the numeric tree was either completely deleted or a node was split or removed.
+        // The cursor is invalidated so we cannot revalidate the iterator.
+        rt.revisionId == self.revision_id
     }
 }
 
@@ -534,6 +567,10 @@ where
 
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        if !self.check_abort() {
+            return Ok(RQEValidateStatus::Aborted);
+        }
+
         self.it.revalidate()
     }
 }

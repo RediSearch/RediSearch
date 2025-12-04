@@ -175,25 +175,34 @@ impl<E: Encoder> BaseTest<E> {
 #[cfg(not(miri))]
 // Those tests rely on ffi calls which are not supported in miri.
 pub(super) mod not_miri {
+    use super::*;
     use ffi::{
         FieldExpiration, IndexFlags, IndexFlags_Index_StoreByteOffsets,
         IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs,
-        IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets, IndexSpec, QueryEvalCtx,
-        RedisSearchCtx, SchemaRule, t_docId, t_expirationTimePoint, t_fieldIndex,
+        IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets, IndexSpec,
+        NumericRangeTree, QueryEvalCtx, RedisSearchCtx, SchemaRule, t_docId, t_expirationTimePoint,
+        t_fieldIndex,
     };
     use field::FieldMaskOrIndex;
     use inverted_index::{DecodedBy, Encoder, InvertedIndex, RSIndexResult};
+    use query_error::QueryError;
     use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
-    use std::{cell::UnsafeCell, pin::Pin, ptr};
+    use std::{
+        cell::UnsafeCell,
+        ffi::CString,
+        pin::Pin,
+        ptr,
+        sync::atomic::{AtomicBool, Ordering},
+    };
 
-    use super::check_record;
+    /// ---------- Expiration Tests ----------
 
     /// Test fields expiration.
     pub struct ExpirationTest<E> {
         pub(crate) doc_ids: Vec<t_docId>,
         pub(crate) ii: InvertedIndex<E>,
         expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
-        mock_ctx: Pin<Box<MockContext>>,
+        pub(crate) mock_ctx: Pin<Box<MockContext>>,
     }
 
     impl<E: Encoder> ExpirationTest<E> {
@@ -232,11 +241,6 @@ pub(super) mod not_miri {
         pub(crate) fn mark_index_expired(&mut self, ids: Vec<t_docId>, index: FieldMaskOrIndex) {
             let mock_ctx = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.mock_ctx)) };
             mock_ctx.mark_index_expired(ids, index);
-        }
-
-        pub(crate) fn context(&self) -> ptr::NonNull<RedisSearchCtx> {
-            ptr::NonNull::new(&self.mock_ctx.sctx as *const _ as *mut _)
-                .expect("mock context should not be null")
         }
 
         /// test read of expired documents.
@@ -335,12 +339,16 @@ pub(super) mod not_miri {
         }
     }
 
-    /// Mock search context used in tests requiring access to the context.
-    struct MockContext {
+    /// Mock search context creating fake objects for testing.
+    /// It can be used to test expiration but not validation.
+    /// Use [`TestContext`] instead to test revalidation.
+    pub(crate) struct MockContext {
         rule: SchemaRule,
         spec: IndexSpec,
         sctx: RedisSearchCtx,
         qctx: QueryEvalCtx,
+        /// fake NumericRangeTree, cannot be used but those tests do not call revalidate()
+        numeric_range_tree: NumericRangeTree,
     }
 
     impl Default for MockContext {
@@ -349,12 +357,14 @@ pub(super) mod not_miri {
             let spec: IndexSpec = unsafe { std::mem::zeroed() };
             let sctx: RedisSearchCtx = unsafe { std::mem::zeroed() };
             let qctx: QueryEvalCtx = unsafe { std::mem::zeroed() };
+            let numeric_range_tree: NumericRangeTree = unsafe { std::mem::zeroed() };
 
             Self {
                 rule,
                 spec,
                 sctx,
                 qctx,
+                numeric_range_tree,
             }
         }
     }
@@ -517,6 +527,252 @@ pub(super) mod not_miri {
                 ffi::TimeToLiveTable_VerifyInit(&mut self.spec.docs.ttl);
             }
         }
+
+        pub(crate) fn sctx(&self) -> ptr::NonNull<RedisSearchCtx> {
+            ptr::NonNull::new(&self.sctx as *const _ as *mut _)
+                .expect("mock context should not be null")
+        }
+
+        pub(crate) fn numeric_range_tree(&self) -> ptr::NonNull<NumericRangeTree> {
+            ptr::NonNull::new(&self.numeric_range_tree as *const _ as *mut _)
+                .expect("NumericRangeTree should not be null")
+        }
+    }
+
+    /// ---------- Revalidate Tests ----------
+
+    /// Wrapper around RedisModuleCtx ensuring its resources are properly cleaned up.
+    struct ModuleCtx {
+        ctx: ptr::NonNull<ffi::RedisModuleCtx>,
+    }
+
+    impl ModuleCtx {
+        fn new() -> Self {
+            // The ffi calls we call here relies on the Redis module API being initialized.
+            redis_mock::init_redis_module_mock();
+
+            let ctx = unsafe {
+                let get_thread_safe_context = ffi::RedisModule_GetThreadSafeContext
+                    .expect("RedisModule_GetThreadSafeContext not implemented");
+                get_thread_safe_context(ptr::null_mut())
+            };
+
+            unsafe {
+                // init global variables needed by C code
+                ffi::Indexes_Init(ctx);
+            }
+
+            Self {
+                ctx: ptr::NonNull::new(ctx).expect("Failed to create ModuleCtx"),
+            }
+        }
+
+        fn as_ptr(&self) -> *mut ffi::RedisModuleCtx {
+            self.ctx.as_ptr()
+        }
+    }
+
+    impl Drop for ModuleCtx {
+        fn drop(&mut self) {
+            unsafe {
+                let free_thread_safe_context = ffi::RedisModule_FreeThreadSafeContext
+                    .expect("RedisModule_FreeThreadSafeContext not implemented");
+                free_thread_safe_context(self.ctx.as_ptr());
+            }
+        }
+    }
+
+    /// Search context created using ffi calls to be able to test revalidation.
+    pub struct TestContext {
+        _ctx: ModuleCtx,
+        pub sctx: ptr::NonNull<ffi::RedisSearchCtx>,
+        pub spec: ptr::NonNull<ffi::IndexSpec>,
+
+        inner: TestContextInner,
+    }
+
+    enum TestContextInner {
+        Numeric {
+            field_spec: ptr::NonNull<ffi::FieldSpec>,
+            numeric_range_tree: ptr::NonNull<ffi::NumericRangeTree>,
+        },
+        Term,
+    }
+
+    /// Create a spec and search context from the given schema and index name.
+    fn create_spec_sctx(
+        ctx: &ModuleCtx,
+        schema: &str,
+        index_name: &str,
+    ) -> (
+        ptr::NonNull<ffi::IndexSpec>,
+        ptr::NonNull<ffi::RedisSearchCtx>,
+    ) {
+        let args = schema
+            .split(" ")
+            .map(|s| CString::new(s).expect("Failed to create CString"))
+            .collect::<Vec<_>>();
+        let mut args_ptr = args.iter().map(|s| s.as_ptr()).collect::<Vec<_>>();
+
+        let index_name = CString::new(index_name).unwrap();
+        let mut query_error = QueryError::default();
+
+        let spec_ref = unsafe {
+            ffi::IndexSpec_ParseC(
+                index_name.as_ptr(),
+                args_ptr.as_mut_ptr(),
+                args_ptr.len() as i32,
+                &mut query_error as *mut QueryError as _,
+            )
+        };
+        assert!(query_error.is_ok());
+
+        let spec = unsafe { ffi::StrongRef_Get(spec_ref) as *mut ffi::IndexSpec };
+        let spec = ptr::NonNull::new(spec).expect("IndexSpec should not be null");
+
+        // Add the spec to the global dictionary so it can be found by name
+        unsafe {
+            ffi::Spec_AddToDict(spec.as_ref().own_ref.rm);
+        }
+
+        // Create RedisSearchCtx
+        let sctx = unsafe { ffi::NewSearchCtxC(ctx.as_ptr(), index_name.as_ptr(), false) };
+        let sctx = ptr::NonNull::new(sctx).expect("RedisSearchCtx should not be null");
+
+        (spec, sctx)
+    }
+
+    impl TestContext {
+        fn numeric() -> Self {
+            let ctx = ModuleCtx::new();
+            // Create IndexSpec for NUMERIC field
+            let (spec, sctx) = create_spec_sctx(&ctx, "SCHEMA num_field NUMERIC", "numeric_idx");
+
+            // We need to properly set up the numeric range tree
+            // so that NumericCheckAbort can find it and check revision IDs
+            let field_name = CString::new("num_field").unwrap();
+            let fs = unsafe {
+                ffi::IndexSpec_GetFieldWithLength(
+                    spec.as_ptr(),
+                    field_name.as_ptr(),
+                    field_name.as_bytes().len(),
+                )
+            };
+            let fs = ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
+
+            // Create the numeric range tree through the proper API
+            let numeric_range_tree =
+                unsafe { ffi::openNumericOrGeoIndex(spec.as_ptr(), fs.as_ptr(), true) };
+            let numeric_range_tree =
+                ptr::NonNull::new(numeric_range_tree).expect("NumericRangeTree should not be null");
+
+            Self {
+                _ctx: ctx,
+                sctx,
+                spec,
+                inner: TestContextInner::Numeric {
+                    field_spec: fs,
+                    numeric_range_tree,
+                },
+            }
+        }
+
+        fn term() -> Self {
+            let ctx = ModuleCtx::new();
+            let (spec, sctx) = create_spec_sctx(&ctx, "SCHEMA text_field TEXT", "term_idx");
+
+            Self {
+                _ctx: ctx,
+                sctx,
+                spec,
+                inner: TestContextInner::Term,
+            }
+        }
+
+        pub fn numeric_range_tree(&self) -> ptr::NonNull<ffi::NumericRangeTree> {
+            match self.inner {
+                TestContextInner::Numeric {
+                    numeric_range_tree, ..
+                } => numeric_range_tree,
+                _ => panic!("TestContext is not a Numeric context"),
+            }
+        }
+
+        pub fn field_spec(&self) -> &ffi::FieldSpec {
+            match self.inner {
+                TestContextInner::Numeric { field_spec, .. } => unsafe { field_spec.as_ref() },
+                _ => panic!("TestContext is not a Numeric context"),
+            }
+        }
+    }
+
+    impl Drop for TestContext {
+        fn drop(&mut self) {
+            unsafe {
+                ffi::SearchCtx_Free(self.sctx.as_ptr());
+            }
+
+            unsafe {
+                // Use the main thread to free resources
+                ffi::RSGlobalConfig.freeResourcesThread = false;
+            }
+
+            // Remove spec from globals (this may free associated indices)
+            unsafe {
+                ffi::IndexSpec_RemoveFromGlobals(self.spec.as_ref().own_ref, false);
+            }
+        }
+    }
+
+    /// Guard object that manages globally allocated resources.
+    /// Uses libc::atexit to register a cleanup function that releases globally allocated resources
+    /// when the process exits, ensuring it's called exactly once after all tests complete.
+    struct GlobalGuard;
+
+    impl GlobalGuard {
+        // atexit() is only available on Linux.
+        // This means means global resources are not cleaned up on non-Linux platforms.
+        // It's not that bad as those are tests and the real goal here is to detect actual memory leaks
+        // using Valgrind which is only available on Linux as well.
+        #[cfg(target_os = "linux")]
+        fn new() -> Self {
+            static REGISTERED: AtomicBool = AtomicBool::new(false);
+
+            // Register cleanup function exactly once using atexit
+            if !REGISTERED.swap(true, Ordering::SeqCst) {
+                extern "C" fn cleanup() {
+                    unsafe {
+                        // specDict_g is allocated when calling Indexes_Init()
+                        if !ffi::specDict_g.is_null() {
+                            ffi::RS_dictRelease(ffi::specDict_g);
+                        }
+                    }
+
+                    unsafe {
+                        // SchemaPrefixes_g is allocated when calling Indexes_Init()
+                        if !ffi::SchemaPrefixes_g.is_null() {
+                            ffi::SchemaPrefixes_Free(ffi::SchemaPrefixes_g);
+                        }
+                    }
+
+                    unsafe {
+                        // DefaultStopWordList is allocated when calling IndexSpec_ParseC()
+                        ffi::StopWordList_FreeGlobals();
+                    }
+                }
+
+                unsafe {
+                    libc::atexit(cleanup);
+                }
+            }
+
+            Self
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        fn new() -> Self {
+            Self {}
+        }
     }
 
     pub enum RevalidateIndexType {
@@ -531,6 +787,8 @@ pub(super) mod not_miri {
         // FIXME: horrible hack so we can get a mutable reference to the InvertedIndex while holding an immutable one through the iterator.
         // We should get rid of it once we have designed a proper way to manage concurrent access to the II.
         pub ii: UnsafeCell<InvertedIndex<E>>,
+        pub context: TestContext,
+        _guard: GlobalGuard,
     }
 
     impl<E: Encoder + DecodedBy> RevalidateTest<E> {
@@ -545,14 +803,17 @@ pub(super) mod not_miri {
                 .map(|i| (2 * i + 1) as t_docId)
                 .collect::<Vec<_>>();
 
-            let ii_flags = match index_type {
-                RevalidateIndexType::Numeric => IndexFlags_Index_StoreNumeric,
-                RevalidateIndexType::Term => {
+            let (ii_flags, context) = match index_type {
+                RevalidateIndexType::Numeric => {
+                    (IndexFlags_Index_StoreNumeric, TestContext::numeric())
+                }
+                RevalidateIndexType::Term => (
                     IndexFlags_Index_StoreFreqs
                         | IndexFlags_Index_StoreTermOffsets
                         | IndexFlags_Index_StoreFieldFlags
-                        | IndexFlags_Index_StoreByteOffsets
-                }
+                        | IndexFlags_Index_StoreByteOffsets,
+                    TestContext::term(),
+                ),
             };
 
             let mut ii = InvertedIndex::<E>::new(ii_flags);
@@ -564,6 +825,8 @@ pub(super) mod not_miri {
             Self {
                 doc_ids,
                 ii: UnsafeCell::new(ii),
+                context,
+                _guard: GlobalGuard::new(),
             }
         }
 
@@ -595,36 +858,6 @@ pub(super) mod not_miri {
                 it.revalidate().expect("revalidate failed"),
                 RQEValidateStatus::Ok
             );
-        }
-
-        /// test revalidate returns `Aborted` when the underlying index disappears
-        pub fn revalidate_after_index_disappears<'index, I>(&self, it: &mut I, full_iterator: bool)
-        where
-            I: for<'iterator> RQEIterator<'index>,
-        {
-            // First, verify the iterator works normally and read at least one document
-            // TODO: update this comment once we actually implement CheckAbort:
-            // This is important because CheckAbort functions need current->data.term.term to be set
-            assert_eq!(
-                it.revalidate().expect("revalidate failed"),
-                RQEValidateStatus::Ok
-            );
-            assert!(it.read().expect("failed to read").is_some());
-            assert_eq!(
-                it.revalidate().expect("revalidate failed"),
-                RQEValidateStatus::Ok
-            );
-
-            if full_iterator {
-                // Full iterators don't have sctx, so they can't detect disappearance
-                // They will always return Ok regardless of index state
-                assert_eq!(
-                    it.revalidate().expect("revalidate failed"),
-                    RQEValidateStatus::Ok
-                );
-            } else {
-                todo!()
-            }
         }
 
         /// Remove the document with the given id from the inverted index.
