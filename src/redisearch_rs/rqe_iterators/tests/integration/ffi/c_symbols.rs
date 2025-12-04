@@ -13,8 +13,11 @@ use std::ffi::c_void;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
-// `types_ffi` brings in some of the C symbols we need, even if it
-// isn't used directly.
+// Those ffi crates bring in C symbols we need, even if they are not used directly.
+#[expect(unused_imports)]
+pub use inverted_index_ffi;
+#[expect(unused_imports)]
+pub use triemap_ffi;
 #[expect(unused_imports)]
 pub use types_ffi;
 
