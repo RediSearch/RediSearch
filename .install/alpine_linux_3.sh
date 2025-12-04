@@ -6,13 +6,16 @@ $MODE apk update
 
 $MODE apk add --no-cache build-base gcc g++ make linux-headers openblas-dev \
     xsimd curl wget git openssl openssl-dev \
-    tar xz which rsync bsd-compat-headers clang clang-libclang curl \
-    clang-static ncurses-dev llvm-dev bash
+    tar xz which rsync bsd-compat-headers clang18 clang18-libclang curl \
+    clang18-static ncurses-dev llvm18-dev bash
 
-# Create symlink for llvm-config (Alpine uses versioned names like llvm21-config)
-LLVM_CONFIG=$(find /usr/bin -name 'llvm*-config' 2>/dev/null | head -1)
-if [ -n "$LLVM_CONFIG" ] && [ ! -e /usr/bin/llvm-config ]; then
-    $MODE ln -sf "$LLVM_CONFIG" /usr/bin/llvm-config
+# Create symlinks for clang and llvm-config (Alpine uses versioned names)
+if [ ! -e /usr/bin/clang ] && [ -e /usr/bin/clang-18 ]; then
+    $MODE ln -sf /usr/bin/clang-18 /usr/bin/clang
+    $MODE ln -sf /usr/bin/clang++-18 /usr/bin/clang++
+fi
+if [ ! -e /usr/bin/llvm-config ]; then
+    $MODE ln -sf /usr/bin/llvm18-config /usr/bin/llvm-config
 fi
 
 # We must install Python via the package manager until
