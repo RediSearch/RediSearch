@@ -58,6 +58,7 @@ class TestDebugCommands(object):
             'YIELDS_ON_LOAD_COUNTER',
             'BG_SCAN_CONTROLLER',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
+            'VECSIM_MOCK_TIMEOUT',
             'FT.AGGREGATE',
             'FT.SEARCH',
         ]
