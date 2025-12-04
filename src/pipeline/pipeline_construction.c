@@ -140,12 +140,12 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
   return RPMetricsLoader_New();
 }
 
-// Returns true if the pipeline requires a sorter.
+// Returns true if the pipeline requires an arrange step.
 // True for Hybrid where we did not run the optimization or when the optimizer
-// decided we need a sorter.
+// decided we need an arrange step.
 // This is always true for FT.AGGREGATE + WITHCOUNT, because the optimizer does
 // not run and the type is Q_OPT_UNDECIDED)
-static bool PipelineRequiresSorter(AggregationPipelineParams *params) {
+static bool PipelineRequiresArrange(AggregationPipelineParams *params) {
   bool result = false;
   result = IsHybrid(&params->common) ||
           (params->common.optimizer->type != Q_OPT_NO_SORTER);
@@ -183,7 +183,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   bool RPDepleterAdded = false;
   bool RPPagerAdded = false;
 
-  if (PipelineRequiresSorter(params)) {
+  if (PipelineRequiresArrange(params)) {
     if (array_len(astp->sortKeys)) {
       size_t nkeys = array_len(astp->sortKeys);
       astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
