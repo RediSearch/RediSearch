@@ -462,7 +462,6 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM trim started event.");
       workersThreadPool_OnEventStart();
-      ASM_StateMachine_StartTrim(slots);
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM trim completed event.");
