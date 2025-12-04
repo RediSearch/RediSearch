@@ -60,6 +60,7 @@ env:
 jobs:
   # Get configuration for this specific platform and architecture
   get-config:
+    name: Get build configurations for platform
     uses: ./.github/workflows/task-get-config.yml
     with:
       platform: ${{ inputs.platform }}
@@ -68,7 +69,7 @@ jobs:
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
     continue-on-error: true
-    name: Build container for ${{ needs.get-config.outputs.container  || needs.get-config.outputs.env }}, Redis ${{ inputs.get-redis || 'trim-delay' }}
+    name: Build container for platform
     runs-on: ${{ needs.get-config.outputs.env }}
     permissions:
       contents: read
@@ -139,17 +140,44 @@ jobs:
       needs.get-config.result == 'success' &&
       (inputs.standalone || inputs.coordinator)
     runs-on: ${{ inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
-    container: ${{ needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container || null }}
+    container: ${{ needs.get-config.outputs.container
+       && fromJSON(
+              format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache"}}',
+                     needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container)
+          )
+       || null }}
+
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: Debug - Check build-image output
-        if: always()
+      - name: Free up disk space (container)
+        # For container jobs - delete mounted host directories
+        if: ${{ needs.get-config.outputs.container }}
         run: |
-          echo "build-image.result: ${{ needs.build-image.result }}"
-          echo "build-image.outputs.succeeded: ${{ needs.build-image.outputs.succeeded }}"
-          echo "build-image.outputs.image: ${{ needs.build-image.outputs.image }}"
+          echo "Before cleanup:"
+          df -h
+          rm -rf /host_usr/dotnet/* 2>/dev/null || true
+          rm -rf /host_usr/android/* 2>/dev/null || true
+          rm -rf /host_opt/ghc/* 2>/dev/null || true
+          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+      - name: Free up disk space (non-container)
+        # For non-container jobs - delete directly with sudo
+        # Skip macOS - it doesn't have these directories
+        if: ${{ !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/share/boost || true
+          docker system prune -af 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
       - name: Fix HOME Directory
         if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
         shell: bash
@@ -421,6 +449,12 @@ jobs:
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
+      - name: Check disk space after build
+        run: |
+          echo "Disk space after build:"
+          df -h
+          echo "Total Repo Size:"
+          du -sh . 2>/dev/null || echo "Failed to get repo size"
       - name: "C/C++ tests"
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: c_unit_tests
@@ -474,6 +508,8 @@ jobs:
       - name: Check test logs folder size
         if: always()
         run: |
+          echo "=== Total Repo Size ==="
+          du -sh . 2>/dev/null || echo "Failed to get repo size"
           echo "=== Test Logs Folder Size ==="
           if [ -d "tests" ]; then
             echo "Total tests directory size:"

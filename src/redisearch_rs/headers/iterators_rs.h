@@ -23,6 +23,11 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Creates a new empty iterator.
+ */
+QueryIterator *NewEmptyIterator(void);
+
+/**
  * Creates a new iterator over a list of sorted document IDs.
  *
  * # Safety

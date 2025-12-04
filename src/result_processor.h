@@ -92,7 +92,7 @@ typedef struct QueryProcessingCtx {
   struct ResultProcessor *endProc;
 
   rs_wall_clock initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
-  rs_wall_clock_ns_t GILTime;  //Time accumulated in nanoseconds
+  rs_wall_clock_ns_t queryGILTime;  //Time accumulated in nanoseconds
 
   // the minimal score applicable for a result. It can be used to optimize the
   // scorers
@@ -159,7 +159,8 @@ typedef struct ResultProcessor {
   // Type of result processor
   ResultProcessorType type;
 
-  struct timespec GILTime;
+  rs_wall_clock_ns_t rpGILTime; // Accumulated GIL time of the ResultProcessor, if applicable (e.g. RP_SAFE_LOADER)
+
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
    * not read, so it is the responsibility of the caller to ensure that there
