@@ -67,6 +67,28 @@ unsafe extern "C" {
         iterations_out: *mut u64,
         time_ns_out: *mut u64,
     );
+
+    /// Benchmark NOT iterator read with sparse exclusions directly in C
+    fn benchmark_not_read_sparse_c(max_id: u64, iterations_out: *mut u64, time_ns_out: *mut u64);
+
+    /// Benchmark NOT iterator read with dense exclusions directly in C
+    fn benchmark_not_read_dense_c(max_id: u64, iterations_out: *mut u64, time_ns_out: *mut u64);
+
+    /// Benchmark NOT iterator skip_to with sparse exclusions directly in C
+    fn benchmark_not_skip_to_sparse_c(
+        max_id: u64,
+        step: u64,
+        iterations_out: *mut u64,
+        time_ns_out: *mut u64,
+    );
+
+    /// Benchmark NOT iterator skip_to with dense exclusions directly in C
+    fn benchmark_not_skip_to_dense_c(
+        max_id: u64,
+        step: u64,
+        iterations_out: *mut u64,
+        time_ns_out: *mut u64,
+    );
 }
 
 /// Simple wrapper around the C `QueryIterator` type.
@@ -192,6 +214,58 @@ impl QueryIterator {
         let mut time_ns = 0u64;
         unsafe {
             benchmark_wildcard_skip_to_direct_c(max_id, step, &mut iterations, &mut time_ns);
+        }
+        DirectBenchmarkResult {
+            iterations,
+            time_ns,
+        }
+    }
+
+    /// Run direct C benchmark for NOT iterator read with sparse exclusions
+    pub fn benchmark_not_read_sparse_direct(max_id: u64) -> DirectBenchmarkResult {
+        let mut iterations = 0u64;
+        let mut time_ns = 0u64;
+        unsafe {
+            benchmark_not_read_sparse_c(max_id, &mut iterations, &mut time_ns);
+        }
+        DirectBenchmarkResult {
+            iterations,
+            time_ns,
+        }
+    }
+
+    /// Run direct C benchmark for NOT iterator read with dense exclusions
+    pub fn benchmark_not_read_dense_direct(max_id: u64) -> DirectBenchmarkResult {
+        let mut iterations = 0u64;
+        let mut time_ns = 0u64;
+        unsafe {
+            benchmark_not_read_dense_c(max_id, &mut iterations, &mut time_ns);
+        }
+        DirectBenchmarkResult {
+            iterations,
+            time_ns,
+        }
+    }
+
+    /// Run direct C benchmark for NOT iterator skip_to with sparse exclusions
+    pub fn benchmark_not_skip_to_sparse_direct(max_id: u64, step: u64) -> DirectBenchmarkResult {
+        let mut iterations = 0u64;
+        let mut time_ns = 0u64;
+        unsafe {
+            benchmark_not_skip_to_sparse_c(max_id, step, &mut iterations, &mut time_ns);
+        }
+        DirectBenchmarkResult {
+            iterations,
+            time_ns,
+        }
+    }
+
+    /// Run direct C benchmark for NOT iterator skip_to with dense exclusions
+    pub fn benchmark_not_skip_to_dense_direct(max_id: u64, step: u64) -> DirectBenchmarkResult {
+        let mut iterations = 0u64;
+        let mut time_ns = 0u64;
+        unsafe {
+            benchmark_not_skip_to_dense_c(max_id, step, &mut iterations, &mut time_ns);
         }
         DirectBenchmarkResult {
             iterations,
