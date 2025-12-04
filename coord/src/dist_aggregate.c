@@ -21,6 +21,7 @@
 #include "config.h"
 #include "shard_window_ratio.h"
 #include "rs_wall_clock.h"
+#include "info/global_stats.h"
 
 #include <err.h>
 
@@ -862,6 +863,7 @@ static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Rep
 
 static void DistAggregateCleanups(RedisModuleCtx *ctx, specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply, QueryError *status) {
   RS_ASSERT(QueryError_HasError(status));
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
   QueryError_ReplyAndClear(ctx, status);
   SpecialCaseCtx_Free(knnCtx);
   if (r) AREQ_Free(r);

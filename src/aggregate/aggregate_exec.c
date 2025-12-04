@@ -1131,6 +1131,10 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 
 error:
+  // Update global query errors statistics before freeing the request.
+  // Both SA and internal are considered shards.
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, SHARD_ERR_WARN);
+
   if (r) {
     AREQ_Free(r);
   }
