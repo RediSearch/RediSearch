@@ -532,7 +532,7 @@ done_2:
       // Assuming that if we reached here, timeout is not an error.
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
     }
-    if (QueryError_HasReachedMaxPrefixExpansionsWarning(req->qiter.err)) {
+    if (req->qiter.err->reachedMaxPrefixExpansions) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
     }
 
