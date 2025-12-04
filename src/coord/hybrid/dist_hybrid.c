@@ -132,18 +132,28 @@ static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRComma
     while (currentOffset < argc && filterExtraArgs < 4) { // 4 is the maximum number of extra arguments for FILTER - [POLICY ADHOC/BATCHES] [BATCH_SIZE <value>]
       const char *argStr = RedisModule_StringPtrLen(argv[currentOffset], NULL);
 
-      if (strcasecmp(argStr, "POLICY") == 0 && currentOffset < argc - 1) {
+      if (strcasecmp(argStr, "POLICY") == 0 ) {
         MRCommand_AppendRstr(xcmd, argv[currentOffset]);     // POLICY
-        MRCommand_AppendRstr(xcmd, argv[currentOffset + 1]); // ADHOC or BATCHES
-        expectedYieldScoreOffset += 2;
-        currentOffset += 2;
-        filterExtraArgs += 2;
-      } else if (strcasecmp(argStr, "BATCH_SIZE") == 0 && currentOffset < argc - 1) {
+        expectedYieldScoreOffset += 1;
+        currentOffset += 1;
+        filterExtraArgs += 1;
+        if (currentOffset < argc - 1) {
+          MRCommand_AppendRstr(xcmd, argv[currentOffset + 1]); // ADHOC or BATCHES
+          expectedYieldScoreOffset += 1;
+          currentOffset += 1;
+          filterExtraArgs += 1;
+        }
+      } else if (strcasecmp(argStr, "BATCH_SIZE") == 0 ) {
         MRCommand_AppendRstr(xcmd, argv[currentOffset]);     // BATCH_SIZE
-        MRCommand_AppendRstr(xcmd, argv[currentOffset + 1]); // batch size value
-        expectedYieldScoreOffset += 2;
-        currentOffset += 2;
-        filterExtraArgs += 2;
+        expectedYieldScoreOffset += 1;
+        currentOffset += 1;
+        filterExtraArgs += 1;
+        if (currentOffset < argc) {
+          MRCommand_AppendRstr(xcmd, argv[currentOffset + 1]); // batch size value
+          expectedYieldScoreOffset += 1;
+          currentOffset += 1;
+          filterExtraArgs += 1;
+        }
       } else {
         // Not a FILTER parameter - we've reached the end of FILTER section
         break;
