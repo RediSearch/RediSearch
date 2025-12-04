@@ -20,6 +20,8 @@ build_utils = { path = "../build_utils" }
 ffi.workspace = true
 field.workspace = true
 inverted_index.workspace = true
+libc.workspace = true
+query_error.workspace = true
 thiserror.workspace = true
 redis_mock.workspace = true
 value_ffi = { path = "../c_entrypoint/value_ffi" }

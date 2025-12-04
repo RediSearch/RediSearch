@@ -193,6 +193,7 @@ mod not_miri {
     use crate::inverted_index::utils::{ExpirationTest, RevalidateIndexType, RevalidateTest};
     use ffi::t_fieldIndex;
     use field::FieldExpirationPredicate;
+    use rqe_iterators::RQEValidateStatus;
 
     struct NumericExpirationTest {
         test: ExpirationTest<inverted_index::numeric::Numeric>,
@@ -215,6 +216,22 @@ mod not_miri {
             }
         }
 
+        fn create_iterator(
+            &self,
+            index: t_fieldIndex,
+        ) -> Numeric<'_, inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>>
+        {
+            let reader = self.test.ii.reader();
+
+            Numeric::new(
+                reader,
+                self.test.mock_ctx.sctx(),
+                index,
+                FieldExpirationPredicate::Default,
+                self.test.mock_ctx.numeric_range_tree(),
+            )
+        }
+
         fn test_read_expiration(&mut self) {
             const FIELD_INDEX: t_fieldIndex = 42;
             // Make every even document ID field expired
@@ -229,14 +246,7 @@ mod not_miri {
             self.test
                 .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(FIELD_INDEX));
 
-            let reader = self.test.ii.reader();
-            let mut it = Numeric::new(
-                reader,
-                self.test.context(),
-                FIELD_INDEX,
-                FieldExpirationPredicate::Default,
-            );
-
+            let mut it = self.create_iterator(FIELD_INDEX);
             self.test.read(&mut it);
         }
 
@@ -254,14 +264,7 @@ mod not_miri {
             self.test
                 .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(FIELD_INDEX));
 
-            let reader = self.test.ii.reader();
-            let mut it = Numeric::new(
-                reader,
-                self.test.context(),
-                FIELD_INDEX,
-                FieldExpirationPredicate::Default,
-            );
-
+            let mut it = self.create_iterator(FIELD_INDEX);
             self.test.skip_to(&mut it);
         }
     }
@@ -300,37 +303,84 @@ mod not_miri {
                 ),
             }
         }
+
+        fn create_iterator(
+            &self,
+        ) -> Numeric<'_, inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>>
+        {
+            let reader = unsafe { (*self.test.ii.get()).reader() };
+            let context = &self.test.context;
+            let fs = context.field_spec();
+
+            Numeric::new(
+                reader,
+                context.sctx,
+                fs.index,
+                FieldExpirationPredicate::Default,
+                context.numeric_range_tree(),
+            )
+        }
     }
 
     #[test]
     fn numeric_revalidate_basic() {
         let test = NumericRevalidateTest::new(10);
-        let reader = unsafe { (*test.test.ii.get()).reader() };
-        let mut it = Numeric::new_simple(reader);
+        let mut it = test.create_iterator();
         test.test.revalidate_basic(&mut it);
     }
 
     #[test]
     fn numeric_revalidate_at_eof() {
         let test = NumericRevalidateTest::new(10);
-        let reader = unsafe { (*test.test.ii.get()).reader() };
-        let mut it = Numeric::new_simple(reader);
+        let mut it = test.create_iterator();
         test.test.revalidate_at_eof(&mut it);
     }
 
     #[test]
     fn numeric_revalidate_after_index_disappears() {
         let test = NumericRevalidateTest::new(10);
-        let reader = unsafe { (*test.test.ii.get()).reader() };
-        let mut it = Numeric::new_simple(reader);
-        test.test.revalidate_after_index_disappears(&mut it, true);
+        let mut it = test.create_iterator();
+
+        // First, verify the iterator works normally and read at least one document
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok
+        );
+        assert!(it.read().expect("failed to read").is_some());
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok
+        );
+
+        // For numeric iterators, we can simulate index disappearance by
+        // manipulating the revision ID. check_abort() compares the stored
+        // revision ID with the current one from the NumericRangeTree.
+        let context = &test.test.context;
+        let mut rt = context.numeric_range_tree();
+        // Simulate the range tree being modified by incrementing its revision ID
+        // This simulates a scenario where the tree was modified (e.g., node split, removal)
+        // while the iterator was suspended.
+        unsafe {
+            let rt = rt.as_mut();
+            rt.revisionId += 1;
+        }
+        // Now Revalidate should return Aborted because the revision IDs don't match
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Aborted
+        );
+
+        // Restore the original revision ID for proper cleanup
+        unsafe {
+            let rt = rt.as_mut();
+            rt.revisionId -= 1;
+        }
     }
 
     #[test]
     fn numeric_revalidate_after_document_deleted() {
         let test = NumericRevalidateTest::new(10);
-        let reader = unsafe { (*test.test.ii.get()).reader() };
-        let mut it = Numeric::new_simple(reader);
+        let mut it = test.create_iterator();
         test.test.revalidate_after_document_deleted(&mut it);
     }
 }
