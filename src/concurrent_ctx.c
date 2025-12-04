@@ -12,6 +12,7 @@
 #include "rmutil/rm_assert.h"
 #include "module.h"
 #include "util/logging.h"
+#include "coord/config.h"
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 
@@ -60,6 +61,13 @@ size_t ConcurrentSearchPool_WorkingThreadCount() {
   // Assert we only have 1 pool
   RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
   return redisearch_thpool_num_jobs_in_progress(threadpools_g[0]);
+}
+
+size_t ConcurrentSearchPool_HighPriorityPendingJobsCount() {
+  RS_ASSERT(threadpools_g);
+  // Assert we only have 1 pool
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+  return redisearch_thpool_high_priority_pending_jobs(threadpools_g[0]);
 }
 
 static void threadHandleCommand(void *p) {
@@ -182,4 +190,36 @@ void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, ConcurrentReopenCallback 
   ctx->openKeys[ctx->numOpenKeys - 1] = (ConcurrentKeyCtx){.cb = cb,
                                                            .privdata = privdata,
                                                            .freePrivData = freePrivDataCallback};
+}
+
+/********************************************* for debugging **********************************/
+
+int ConcurrentSearch_isPaused() {
+  RS_ASSERT(threadpools_g);
+  // Assert we only have 1 pool
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+  return redisearch_thpool_paused(threadpools_g[0]);
+}
+
+int ConcurrentSearch_pause() {
+  RS_ASSERT(threadpools_g);
+  // Assert we only have 1 pool
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+
+  if (clusterConfig.coordinatorPoolSize == 0 || ConcurrentSearch_isPaused()) {
+    return REDISMODULE_ERR;
+  }
+  redisearch_thpool_pause_threads(threadpools_g[0]);
+  return REDISMODULE_OK;
+}
+
+int ConcurrentSearch_resume() {
+  RS_ASSERT(threadpools_g);
+  // Assert we only have 1 pool
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+  if (clusterConfig.coordinatorPoolSize == 0 || !ConcurrentSearch_isPaused()) {
+    return REDISMODULE_ERR;
+  }
+  redisearch_thpool_resume_threads(threadpools_g[0]);
+  return REDISMODULE_OK;
 }

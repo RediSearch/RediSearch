@@ -275,6 +275,7 @@ void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_i
   RedisModule_InfoAddFieldULongLong(ctx, "active_coord_threads", stats.active_coord_threads);
   RedisModule_InfoAddFieldULongLong(ctx, "workers_low_priority_pending_jobs", stats.workers_low_priority_pending_jobs);
   RedisModule_InfoAddFieldULongLong(ctx, "workers_high_priority_pending_jobs", stats.workers_high_priority_pending_jobs);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_high_priority_pending_jobs", stats.coord_high_priority_pending_jobs);
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {

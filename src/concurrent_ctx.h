@@ -117,6 +117,9 @@ void ConcurrentSearchCtx_ReopenKeys(ConcurrentSearchCtx *ctx);
 /* return number of currently working threads */
 size_t ConcurrentSearchPool_WorkingThreadCount();
 
+/* return number of pending high priority jobs */
+size_t ConcurrentSearchPool_HighPriorityPendingJobsCount();
+
 struct ConcurrentCmdCtx;
 typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
                                      struct ConcurrentCmdCtx *);
@@ -147,6 +150,15 @@ int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handl
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           WeakRef spec_ref);
+
+/********************************************* for debugging **********************************/
+
+int ConcurrentSearch_isPaused();
+
+int ConcurrentSearch_pause();
+
+int ConcurrentSearch_resume();
+
 #ifdef __cplusplus
 }
 #endif
