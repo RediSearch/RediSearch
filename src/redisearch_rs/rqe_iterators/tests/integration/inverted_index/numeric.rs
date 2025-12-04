@@ -7,15 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#[cfg(not(miri))]
+use ffi::t_fieldIndex;
 use ffi::{IndexFlags_Index_StoreNumeric, t_docId};
+#[cfg(not(miri))]
+use field::FieldExpirationPredicate;
 use inverted_index::{FilterNumericReader, InvertedIndex, NumericFilter, RSIndexResult};
 use rqe_iterators::{RQEIterator, inverted_index::Numeric};
 
+#[cfg(not(miri))]
+use crate::inverted_index::utils::ExpirationTest;
 use crate::inverted_index::utils::{BaseTest, RevalidateTest};
 
 struct NumericTest {
     test: BaseTest<inverted_index::numeric::Numeric>,
     revalidate_test: RevalidateTest<inverted_index::numeric::Numeric>,
+    #[cfg(not(miri))]
+    expiration_test: ExpirationTest<inverted_index::numeric::Numeric>,
+    #[cfg(not(miri))]
+    expiration_test_multi: ExpirationTest<inverted_index::numeric::Numeric>,
 }
 
 impl NumericTest {
@@ -36,7 +46,77 @@ impl NumericTest {
                 Box::new(Self::expected_record),
                 n_docs,
             ),
+            #[cfg(not(miri))]
+            expiration_test: ExpirationTest::new(
+                IndexFlags_Index_StoreNumeric,
+                Box::new(Self::expected_record),
+                n_docs,
+                false,
+            ),
+            #[cfg(not(miri))]
+            expiration_test_multi: ExpirationTest::new(
+                IndexFlags_Index_StoreNumeric,
+                Box::new(Self::expected_record),
+                n_docs,
+                true,
+            ),
         }
+    }
+
+    #[cfg(not(miri))]
+    fn test_read_expiration(&mut self, multi: bool) {
+        let test = if multi {
+            &mut self.expiration_test_multi
+        } else {
+            &mut self.expiration_test
+        };
+
+        const FIELD_INDEX: t_fieldIndex = 42;
+        // Make every even document ID field expired
+        let even_ids = test
+            .doc_ids
+            .iter()
+            .filter(|id| **id % 2 == 0)
+            .copied()
+            .collect();
+
+        test.mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(FIELD_INDEX));
+
+        let reader = test.ii.reader();
+        let mut it = Numeric::with_context(
+            reader,
+            test.context(),
+            FIELD_INDEX,
+            FieldExpirationPredicate::Default,
+        );
+
+        test.read(&mut it);
+    }
+
+    #[cfg(not(miri))]
+    fn test_skip_to_expiration(&mut self) {
+        const FIELD_INDEX: t_fieldIndex = 42;
+        // Make every even document ID field expired
+        let even_ids = self
+            .expiration_test
+            .doc_ids
+            .iter()
+            .filter(|id| **id % 2 == 0)
+            .copied()
+            .collect();
+
+        self.expiration_test
+            .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(FIELD_INDEX));
+
+        let reader = self.expiration_test.ii.reader();
+        let mut it = Numeric::with_context(
+            reader,
+            self.expiration_test.context(),
+            FIELD_INDEX,
+            FieldExpirationPredicate::Default,
+        );
+
+        self.expiration_test.skip_to(&mut it);
     }
 }
 
@@ -226,4 +306,22 @@ fn eof_after_filtering() {
 
     // Attempt to skip to the first entry, expecting EOF since no entries match the filter
     assert_eq!(it.skip_to(1).expect("skip_to failed"), None);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn numeric_read_expiration() {
+    NumericTest::new(100).test_read_expiration(false);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn numeric_read_skip_multi_expiration() {
+    NumericTest::new(100).test_read_expiration(true);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn numeric_skip_to_expiration() {
+    NumericTest::new(100).test_skip_to_expiration();
 }

@@ -15,6 +15,7 @@ disable_sort_checks_in_idlist = []
 
 [dependencies]
 ffi.workspace = true
+field.workspace = true
 inverted_index.workspace = true
 thiserror.workspace = true
 redis_mock.workspace = true

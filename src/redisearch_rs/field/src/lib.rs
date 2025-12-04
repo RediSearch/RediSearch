@@ -33,7 +33,7 @@ impl FieldMaskOrIndex {
 }
 
 /// Field expiration predicate used when checking fields.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(C)]
 /// cbindgen:prefix-with-name
 /// cbindgen:rename-all=ScreamingSnakeCase
@@ -42,6 +42,13 @@ pub enum FieldExpirationPredicate {
     Default = 0,
     /// one of the fields need to be expired for the entry to be considered missing.
     Missing = 1,
+}
+
+impl FieldExpirationPredicate {
+    /// Returns the raw value of the expiration predicate.
+    pub const fn as_u32(self) -> u32 {
+        self as u32
+    }
 }
 
 /// Field filter context used when querying fields.
