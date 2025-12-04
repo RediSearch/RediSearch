@@ -482,21 +482,19 @@ def testCursorDepletionStrictTimeoutPolicy():
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t', 'GROUPBY', '1', '@t', 'WITHCURSOR', 'COUNT', str(num_docs), 'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
 
-@skip(cluster=True)
 def test_cursor_profile(env: Env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+    conn = getConnectionByEnv(env)
 
-    env.cmd('HSET', f'doc1', 't', str(1))
-    env.cmd('HSET', f'doc2', 't', str(2))
+    conn.execute_command('HSET', f'doc1', 't', str(1))
+    conn.execute_command('HSET', f'doc2', 't', str(2))
 
-    env.expect('_FT.CURSOR', 'PROFILE', 'idx', '123').error().contains('Cursor not found')
+    env.expect('FT.CURSOR', 'PROFILE', 'idx', '123').error().contains('Cursor not found')
 
     # create a cursor
-
     _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1')
     env.assertNotEqual(cursor, 0)
-    env.expect('_FT.CURSOR', 'PROFILE', 'idx', cursor).error().contains('cursor request is not profile')
+    env.expect('FT.CURSOR', 'PROFILE', 'idx', cursor).error().contains('cursor request is not profile')
 
 @skip(cluster=True)
 def test_mod_6597(env):
