@@ -61,7 +61,7 @@ jobs:
       # Setup
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Setup Dependencies (Alpine)
-        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3'
+        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3.22'
         shell: sh -l -eo pipefail {0}
         run: |
           SUCCESS=0
@@ -79,7 +79,7 @@ jobs:
           done
           [ $SUCCESS -eq 1 ] || exit 1
       - name: Setup Dependencies (Non-Alpine)
-        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3'
+        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3.22'
         run: |
           SUCCESS=0
           for i in {1..5}; do

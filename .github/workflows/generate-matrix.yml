@@ -67,8 +67,8 @@ jobs:
               ('mariner:2', 'x86_64'),
               ('azurelinux:3', 'x86_64'),
               ('azurelinux:3', 'aarch64'),
-              # ('alpine:3', 'x86_64'),
-              # ('alpine:3', 'aarch64'),
+              ('alpine:3.22', 'x86_64'),
+              ('alpine:3.22', 'aarch64'),
               ('macos', 'aarch64')
           ]
 
