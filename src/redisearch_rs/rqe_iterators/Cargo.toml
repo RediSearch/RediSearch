@@ -17,6 +17,8 @@ disable_sort_checks_in_idlist = []
 ffi.workspace = true
 field.workspace = true
 inverted_index.workspace = true
+libc.workspace = true
+query_error.workspace = true
 thiserror.workspace = true
 redis_mock.workspace = true
 value_ffi = { path = "../c_entrypoint/value_ffi" }
@@ -31,6 +33,8 @@ build_utils = { path = "../build_utils" }
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
 rqe_iterators = { path = ".", features = ["unittest"] }
+triemap_ffi = { path = "../c_entrypoint/triemap_ffi" }
+inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi" }
 
 [lints]
 workspace = true
