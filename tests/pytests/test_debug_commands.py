@@ -1,4 +1,6 @@
 from common import *
+import threading
+import time
 
 class TestDebugCommands(object):
 
@@ -56,6 +58,7 @@ class TestDebugCommands(object):
             'YIELDS_ON_LOAD_COUNTER',
             'BG_SCAN_CONTROLLER',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
+            'QUERY_CONTROLLER',
             'VECSIM_MOCK_TIMEOUT',
             'FT.AGGREGATE',
             'FT.SEARCH',
@@ -866,3 +869,263 @@ def test_update_debug_scanner_config(env):
     # Test error handling
     # Giving non existing index name
     checkDebugScannerUpdateError(env, 'non_existing', 'Unknown index name')
+
+@skip(cluster=True)
+def test_query_controller(env):
+    # Giving wrong arity
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER').error()\
+    .contains('wrong number of arguments')
+    # Giving wrong subcommand
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'NOT_A_COMMAND').error()\
+    .contains("Invalid command for 'QUERY_CONTROLLER'")
+
+@skip(cluster=True)
+def test_query_controller_pause_and_resume(env):
+
+    # Giving wrong arity
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME', 'ExtraARG').error()\
+    .contains('wrong number of arguments')
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_RP_PAUSED', 'ExtraARG').error()\
+    .contains('wrong number of arguments')
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM', 'ExtraARG').error()\
+    .contains('wrong number of arguments')
+
+    # Test error when trying to resume when no query is paused
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME').error()\
+    .contains('Query is not paused')
+
+    # Test error when trying to print RP stream when no debug RP is set
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM').error()\
+    .contains('No debug RP is set')
+
+    # Set workers to 2 to make sure the query can be paused
+    # 1 worker is for testing we can't debug multiple queries
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', 2).ok()
+
+    # Create 1 docs
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
+
+    # Helper to call a function and push its return value into a list
+    def _call_and_store(fn, args, out_list):
+        out_list.append(fn(*args))
+
+    queries_completed = 0
+
+    for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
+        # We need to call the queries in MT so the paused query won't block the test
+        query_result = []
+
+        # Build threads
+        t_query = threading.Thread(
+            target=_call_and_store,
+            args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                (env, [query_type, 'idx', '*'], 'Index', 0, ['INTERNAL_ONLY'] if query_type == 'FT.AGGREGATE' else None),
+                query_result),
+            daemon=True
+        )
+
+        # Start the query and the pause-check in parallel
+        t_query.start()
+
+        while getIsRPPaused(env) != 1:
+            time.sleep(0.1)
+
+        # Test error when trying to create multiple debug RPs (should fail with "Failed to create pause RP or another debug RP is already set")
+        # This tests the error case in PipelineAddPauseRPcount when RPPauseAfterCount_New returns NULL
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_BEFORE_RP_N', 'Index', 0, 'PAUSE_AFTER_RP_N', 'Sorter', 0, 'DEBUG_PARAMS_COUNT', 6).error()\
+        .contains('Failed to create pause RP or another debug RP is already set')
+        # The query above completed even though it failed
+        queries_completed += 1
+
+        # If we are here, the query is paused
+        # Verify we have 1 active query
+        active_queries = env.cmd('INFO', 'MODULES')['search_total_active_queries']
+        env.assertEqual(active_queries, 1)
+
+        # Test PRINT_RP_STREAM
+        rp_stream = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM')
+        if query_type == 'FT.SEARCH':
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','Sorter','Scorer','DEBUG_RP','Index'])
+        if query_type == 'FT.AGGREGATE':
+            env.assertEqual(rp_stream, ['DEBUG_RP','Index'])
+
+        # Resume the query
+        setPauseRPResume(env)
+
+        t_query.join()
+
+        queries_completed += 1
+
+        # Verify the query returned only 1 result
+        env.assertEqual(query_result[0][0], 1)
+
+@skip(cluster=True)
+def test_query_controller_add_before_after(env):
+    # Set workers to 1 to make sure the query can be paused
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    # Create 1 docs
+    env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
+
+    # Check error when workers is 0
+    env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_BEFORE_RP_N', 'Index', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+    .contains("Query PAUSE_BEFORE_RP_N is only supported with WORKERS")
+
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', 1).ok()
+
+    # Check error when insert after Index RP
+    env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_AFTER_RP_N', 'Index', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+    .contains("Index RP type not found in stream or tried to insert after last RP")
+
+    for before in [True, False]:
+
+        target_func = runDebugQueryCommandPauseBeforeRPAfterN if before else runDebugQueryCommandPauseAfterRPAfterN
+
+        # Check wrong RP type error
+        cmd_str = 'BEFORE' if before else 'AFTER'
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'InvalidRP', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+        .contains(f"InvalidRP is an invalid PAUSE_{cmd_str}_RP_N RP type")
+        # Check RP type that is not in the stream
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'Highlighter', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+        .contains(f"Highlighter RP type not found in stream or tried to insert after last RP")
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'Highlighter', -1, 'DEBUG_PARAMS_COUNT', 3).error()\
+        .contains(f"Invalid PAUSE_{cmd_str}_RP_N count")
+        # Build threads
+        t_query = threading.Thread(
+            target=target_func,
+            args=(env,['FT.SEARCH', 'idx', '*'], 'Sorter', 0),
+            daemon=True
+        )
+
+        # Start the query and the pause-check in parallel
+        t_query.start()
+
+        while getIsRPPaused(env) != 1:
+            time.sleep(0.1)
+        rp_stream = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM')
+        if before:
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','DEBUG_RP','Sorter','Scorer','Index'])
+        else:
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','Sorter','DEBUG_RP','Scorer','Index'])
+
+        # Resume the query
+        setPauseRPResume(env)
+        t_query.join()
+
+@skip(cluster=False)
+def test_cluster_query_controller_pause_and_resume():
+    # Set workers to 1 on all shards to make sure queries can be paused
+    env = Env(moduleArgs='WORKERS 1')
+
+    conn = getConnectionByEnv(env)
+
+    # Create index
+    res = conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.assertEqual(res, 'OK')
+
+    n_docs_per_shard = 100
+    # Enough docs to make sure we have results from all shards
+    n_docs = n_docs_per_shard * env.shardsCount
+    for i in range(n_docs):
+        res = conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
+        env.assertEqual(res, 1)
+
+
+    # Helper to call a function and push its return value into a list
+    def _call_and_store(fn, args, out_list):
+        out_list.append(fn(*args))
+
+    for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
+        # We need to call the queries in MT so the paused query won't block the test
+        query_result = []
+
+        # Build threads
+        query_args = [query_type, 'idx', '*']
+        if query_type == 'FT.AGGREGATE':
+            query_args.append('LOAD')
+            query_args.append(1)
+            query_args.append('@t')
+
+        t_query = threading.Thread(
+            target=_call_and_store,
+            args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                (env, query_args, 'Index', 0, ['INTERNAL_ONLY'] if query_type == 'FT.AGGREGATE' else None),
+                query_result),
+            daemon=True
+        )
+
+        # Start the query and the pause-check in parallel
+        t_query.start()
+
+        # Wait for any shard to be paused
+        while False in allShards_getIsRPPaused(env):
+            time.sleep(0.1)
+
+        # If we are here, at least one query is paused
+        # Verify that we have active queries across the cluster
+        for shard_id in range(1, env.shardsCount + 1):
+            active_queries = env.getConnection(shard_id).execute_command('INFO', 'MODULES')['search_total_active_queries']
+            env.assertEqual(active_queries, 1)
+
+        # Resume all shards
+        allShards_setPauseRPResume(env)
+
+        t_query.join()
+
+        if query_type == 'FT.SEARCH':
+            env.assertEqual(query_result[0][0], n_docs)
+        else:
+            env.assertEqual(len(query_result[0]) - 1, n_docs)
+
+@skip(cluster=False)
+def test_cluster_query_controller_pause_and_resume_coord(env):
+
+    conn = getConnectionByEnv(env)
+
+    # Create index
+    res = conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.assertEqual(res, 'OK')
+
+    n_docs_per_shard = 100
+    # Enough docs to make sure we have results from all shards
+    n_docs = n_docs_per_shard * env.shardsCount
+    for i in range(n_docs):
+        res = conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
+        env.assertEqual(res, 1)
+
+    # Check error when insert after Network RP
+    env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'PAUSE_AFTER_RP_N', 'Network', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+    .contains("Network RP type not found in stream or tried to insert after last RP")
+
+    # Helper to call a function and push its return value into a list
+    def _call_and_store(fn, args, out_list):
+        out_list.append(fn(*args))
+
+    # We need to call the queries in MT so the paused query won't block the test
+    query_result = []
+
+    # Build threads
+    query_args = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t']
+
+    t_query = threading.Thread(
+        target=_call_and_store,
+        args=(runDebugQueryCommandPauseBeforeRPAfterN,
+            (env, query_args, 'Network', 0),
+            query_result),
+        daemon=True
+    )
+
+    # Start the query and the pause-check in parallel
+    t_query.start()
+
+    # Wait for the coordinator to be paused
+    while getIsRPPaused(env) != 1:
+        time.sleep(0.1)
+
+    # Resume the coordinator
+    setPauseRPResume(env)
+
+    t_query.join()
+
+    env.assertEqual(len(query_result[0]) - 1, n_docs)
