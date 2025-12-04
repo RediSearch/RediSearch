@@ -9,6 +9,12 @@ $MODE apk add --no-cache build-base gcc g++ make linux-headers openblas-dev \
     tar xz which rsync bsd-compat-headers clang clang-libclang curl \
     clang-static ncurses-dev llvm-dev bash
 
+# Create symlink for llvm-config (Alpine uses versioned names like llvm21-config)
+LLVM_CONFIG=$(find /usr/bin -name 'llvm*-config' 2>/dev/null | head -1)
+if [ -n "$LLVM_CONFIG" ] && [ ! -e /usr/bin/llvm-config ]; then
+    $MODE ln -sf "$LLVM_CONFIG" /usr/bin/llvm-config
+fi
+
 # We must install Python via the package manager until
 # `uv` starts providing aarch64-musl builds.
 # See https://github.com/astral-sh/python-build-standalone/pull/569
