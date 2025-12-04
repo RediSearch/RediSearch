@@ -26,32 +26,30 @@ fn buffer_creation() {
     free_test_buffer(buffer);
 }
 
-#[test]
-// `miri` will complain about leaked memory, since we don't clean up
+// `miri` and the sanitizer will complain about leaked memory, since we don't clean up
 // the allocated buffer when the panic unwinds.
-#[cfg_attr(miri, ignore)]
+#[cfg(feature = "leaky_tests")]
+#[test]
 #[should_panic]
 fn reader_position_must_be_in_bounds() {
     let buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
     BufferReader::new_at(&buffer, 6);
 }
 
-#[test]
-#[cfg(debug_assertions)]
-// `miri` will complain about leaked memory, since we don't clean up
+// `miri` and the sanitizer will complain about leaked memory, since we don't clean up
 // the allocated buffer when the panic unwinds.
-#[cfg_attr(miri, ignore)]
+#[cfg(feature = "leaky_tests")]
+#[test]
 #[should_panic = "The requested buffer capacity would overflow usize::MAX"]
 fn cannot_overflow_usize() {
     let mut buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
     buffer.reserve(usize::MAX - 3);
 }
 
-#[test]
-#[cfg(debug_assertions)]
-// `miri` will complain about leaked memory, since we don't clean up
+// `miri` and the sanitizer will complain about leaked memory, since we don't clean up
 // the allocated buffer when the panic unwinds.
-#[cfg_attr(miri, ignore)]
+#[cfg(feature = "leaky_tests")]
+#[test]
 #[should_panic = "The requested buffer capacity would overflow isize::MAX"]
 fn cannot_overflow_isize() {
     let mut buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
@@ -73,10 +71,10 @@ fn read_from_arbitrary_position() {
     free_test_buffer(buffer);
 }
 
-#[test]
-// `miri` will complain about leaked memory, since we don't clean up
+// `miri` and the sanitizer will complain about leaked memory, since we don't clean up
 // the allocated buffer when the panic unwinds.
-#[cfg_attr(miri, ignore)]
+#[cfg(feature = "leaky_tests")]
+#[test]
 #[should_panic]
 fn writer_position_must_be_in_bounds() {
     let mut buffer = buffer_from_array([1u8, 2, 3, 4, 5]);

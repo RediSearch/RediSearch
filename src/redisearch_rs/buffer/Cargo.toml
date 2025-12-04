@@ -10,3 +10,8 @@ workspace = true
 
 [dependencies]
 ffi.workspace = true
+
+[features]
+# Feature to enable tests that intentionally leak memory. We don't want to run these under miri
+# and sanitizer tests
+leaky_tests = []
