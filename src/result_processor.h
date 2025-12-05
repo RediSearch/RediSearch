@@ -297,6 +297,15 @@ void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
   *******************************************************************************************************************/
  ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
 
+/*******************************************************************************
+* Depleter Result Processor
+*
+*******************************************************************************/
+/**
+* Constructs a new depleter processor that runs in the current thread.
+*/
+ResultProcessor *RPDepleter_New();
+
 #ifdef __cplusplus
 }
 #endif
