@@ -47,7 +47,7 @@ static bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_tot
   return false;
 }
 
-static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
   // If the root command of this reply is a DEL command, we don't want to
@@ -160,7 +160,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
 // Get cursor command using a cursor id and an existing aggregate command
 // Returns true if the cursor is not done (i.e., not depleted)
-static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
+bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
   if (cursorId == 0) {
     // Cursor was set to 0, end of reply chain. cmd->depleted will be set in `MRIteratorCallback_Done`.
     return false;

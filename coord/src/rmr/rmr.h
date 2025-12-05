@@ -17,6 +17,8 @@
 struct MRCtx;
 struct RedisModuleCtx;
 
+void iterStartCb(void *p);
+
 /* Prototype for all reduce functions */
 typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
 

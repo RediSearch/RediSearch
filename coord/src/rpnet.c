@@ -13,6 +13,7 @@
 #include "rmr/rmr.h"
 #include "hiredis/sds.h"
 #include "dist_utils.h"
+#include "coord/src/coord_module.h"
 
 
 #define CURSOR_EOF 0
@@ -178,7 +179,7 @@ static struct timespec *getAbsTimeout(RPNet *nc) {
   if (!nc->areq || !nc->areq->sctx) {
     return NULL;
   }
-  return (struct timespec *)&nc->areq->sctx->time.timeout;
+  return (struct timespec *)&nc->areq->sctx->timeout;
 }
 
 // Handle timeout (not enough shards responded) only if there were no errors
@@ -224,7 +225,52 @@ static bool shardResponseBarrier_HandleError(RPNet *nc) {
   return false;  // No error
 }
 
-static int getNextReply(RPNet *nc) {
+int getNextReply(RPNet *nc) {
+  // Wait for all shards' first responses before returning any results
+  // This ensures accurate total_results from the start
+  MRReply *root = NULL;
+  if (nc->shardResponseBarrier && !nc->waitedForAllShards) {
+    // Get at least 1 response from each shard
+    // Notice: numShards is re-read on each iteration because it may initially be 0
+    // (in case the IO thread iterStartCb did not run yet and did not initialize the barrier yet).
+    // Once a reply arrives, iterStartCb has finished and numShards will be set.
+    size_t numShards;
+    while ((numShards = atomic_load(&nc->shardResponseBarrier->numShards)) == 0 ||
+           atomic_load(&nc->shardResponseBarrier->numResponded) < numShards) {
+      // Check for timeout to avoid blocking indefinitely
+      if (nc->areq && nc->areq->sctx && TimedOut(&nc->areq->sctx->timeout)) {
+        break;
+      }
+      // Get next reply with timeout (uses CLOCK_MONOTONIC_RAW based timeout)
+      bool nextTimedOut = false;
+      MRReply *reply = MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), &nextTimedOut);
+      if (reply == NULL) {
+        break;  // No more replies or timed out
+      }
+
+      // Store reply for later processing
+      if (!nc->pendingReplies) {
+        nc->pendingReplies = array_new(MRReply *, numShards);
+      }
+      array_append(nc->pendingReplies, reply);
+
+      // Check for errors
+      if (shardResponseBarrier_HandleError(nc)) {
+        nc->waitedForAllShards = true;
+        return RS_RESULT_OK;
+      }
+    }
+
+    // Mark that we've waited (even if not all shards responded due to time out - to avoid infinite loop)
+    nc->waitedForAllShards = true;
+
+    // Handle timeout or not enough shards responded
+    if (shardResponseBarrier_HandleTimeout(nc)) {
+      return RS_RESULT_TIMEDOUT;
+    }
+    shardResponseBarrier_UpdateTotalResults(nc);
+  }
+
   if (nc->cmd.forCursor) {
     // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
     // TODO: could be replaced with a query specific configuration
@@ -234,7 +280,7 @@ static int getNextReply(RPNet *nc) {
       return 0;
     }
   }
-  MRReply *root = MRIterator_Next(nc->it);
+  root = MRIterator_Next(nc->it);
   if (root == NULL) {
     // No more replies
     RPNet_resetCurrent(nc);
@@ -275,8 +321,15 @@ static int getNextReply(RPNet *nc) {
   return 1;
 }
 
-static void rpnetFree(ResultProcessor *rp) {
+void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
+
+  // Note: shardResponseBarrier is freed by MRIterator_Free via the destructor callback
+  // but pendingReplies must be freed by RPNet since it's used only in rpnetNext.
+  // This ensures barrier is not freed while I/O callbacks may still be accessing it.
+
+  // Free any pending replies that weren't consumed
+  shardResponseBarrier_PendingReplies_Free(nc);
 
   if (nc->it) {
     RS_DEBUG_LOG("rpnetFree: calling MRIterator_Release");
@@ -298,7 +351,7 @@ static void rpnetFree(ResultProcessor *rp) {
   rm_free(rp);
 }
 
-static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
+int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
 
   // Initialize shard response barrier if WITHCOUNT is enabled
@@ -335,7 +388,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 }
 
 
-static RPNet *RPNet_New(const MRCommand *cmd) {
+RPNet *RPNet_New(const MRCommand *cmd) {
   RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd; // Take ownership of the command's internal allocations
   nc->areq = NULL;
@@ -346,12 +399,12 @@ static RPNet *RPNet_New(const MRCommand *cmd) {
   return nc;
 }
 
-static void RPNet_resetCurrent(RPNet *nc) {
+void RPNet_resetCurrent(RPNet *nc) {
     nc->current.root = NULL;
     nc->current.rows = NULL;
 }
 
-static int rpnetNext(ResultProcessor *self, SearchResult *r) {
+int rpnetNext(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
   MRReply *root = nc->current.root, *rows = nc->current.rows;
 
@@ -432,8 +485,12 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
     }
 
-    if (!getNextReply(nc)) {
+    int ret = getNextReply(nc);
+    if (ret == RS_RESULT_EOF) {
       return RS_RESULT_EOF;
+    } else if (ret == RS_RESULT_TIMEDOUT) {
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+      return RS_RESULT_TIMEDOUT;
     }
 
     // If an error was returned, propagate it
@@ -460,13 +517,23 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   if (new_reply) {
     if (resp3) { // RESP3
       nc->curIdx = 0;
-      MRReply *results = MRReply_MapElement(rows, "results");
-      RS_LOG_ASSERT(results, "invalid results record: missing 'results' key");
-      nc->base.parent->totalResults += MRReply_Length(results);
+      // Note: For WITHCOUNT in multi-shard aggregate, totalResults is already set
+      // by the waiting logic above. We skip accumulation here to avoid double-counting.
+      // For non-WITHCOUNT or single-shard cases, we still need to count.
+      if (!nc->shardResponseBarrier) {
+        MRReply *results = MRReply_MapElement(rows, "results");
+        RS_LOG_ASSERT(results, "invalid results record: missing 'results' key");
+        nc->base.parent->totalResults += MRReply_Length(results);
+      }
     } else { // RESP2
       // Get the index from the first
-      nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
       nc->curIdx = 1;
+      // For WITHCOUNT in multi-shard aggregate, totalResults is already set
+      // by the callback accumulation logic. Skip to avoid double-counting.
+      if (!nc->shardResponseBarrier) {
+        // Without WITHCOUNT, accumulate total_results from each shard reply
+        nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
+      }
     }
   }
 

@@ -22,27 +22,11 @@
 #include "config.h"
 #include "shard_window_ratio.h"
 #include "rs_wall_clock.h"
+#include "rpnet.h"
 #include "coord/src/dist_utils.h"
 
 #include <err.h>
 
-
-typedef struct {
-  ResultProcessor base;
-  struct {
-    MRReply *root;  // Root reply. We need to free this when done with the rows
-    MRReply *rows;  // Array containing reply rows for quick access
-  } current;
-  // Lookup - the rows are written in here
-  RLookup *lookup;
-  size_t curIdx;
-  MRIterator *it;
-  MRCommand cmd;
-  AREQ *areq;
-
-  // profile vars
-  arrayof(MRReply *) shardsProfile;
-} RPNet;
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   for (const RLookupKey *kk = nc->lookup->head; kk; kk = kk->next) {
@@ -247,7 +231,7 @@ void printAggProfile(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
   // We may have pulled all the replies from the channel and arrived here due to a timeout,
   // and now we're waiting for the profile results.
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
-    while (getNextReply(rpnet) != RS_RESULT_EOF)) {
+    while (getNextReply(rpnet) != RS_RESULT_EOF) {
       MRReply *root = rpnet->current.root;
       // skip if we get an empty result.
       // This is a bug because we discard the profile info as well
