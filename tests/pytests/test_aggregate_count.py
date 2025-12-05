@@ -50,7 +50,6 @@ def _get_cluster_RP_profile(env, res) -> list:
         return [shard_RP_and_count, coord_RP_and_count]
 
     else:
-        print(res[2])
         shard = res[2][6][1:]
         shard_RP_and_count.append([(item[1], item[5]) for item in shard])
 

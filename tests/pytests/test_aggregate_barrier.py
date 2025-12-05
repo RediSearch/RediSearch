@@ -272,7 +272,7 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
     # --------------------------------------------------------------------------
     # Case 3: Timeout - ON_TIMEOUT RETURN
     # --------------------------------------------------------------------------
-    config_commad = [config_cmd(), 'SET', 'search-on-timeout', 'RETURN']
+    config_commad = [config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN']
     query_result = []
     verify_command_OK_on_all_shards(env, *config_commad)
     cmd = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 2, 'TIMEOUT', 1]
