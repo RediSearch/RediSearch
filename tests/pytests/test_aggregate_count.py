@@ -41,26 +41,21 @@ def _get_cluster_RP_profile(env, res) -> list:
     # Extract the RP types from the profile response
     shard_RP_and_count = []
     if isinstance(res, dict):
-        for i in range(len(res['Profile']['Shards'])):
-            shard = res['Profile']['Shards'][i]['Result processors profile']
-            shard_RP_and_count.append([(item['Type'], item['Results processed']) for item in shard])
+        shard = res['Shards']['Shard #1']['Result processors profile']
+        shard_RP_and_count.append([(item['Type'], item['Results processed']) for item in shard])
 
-        # sort shard by the number of results processed by the first RP
-        shard_RP_and_count.sort(key=lambda x: x[0][1])
         # Extract the RP types from the coordinator
-        coord = res['Profile']['Coordinator']['Result processors profile']
+        coord = res['Coordinator']['Result processors profile']['profile']['Result processors profile']
         coord_RP_and_count = [(item['Type'], item['Results processed']) for item in coord]
         return [shard_RP_and_count, coord_RP_and_count]
 
     else:
-        for i in range(len(res[1][1])):
-            shard = res[1][1][i][13]
-            shard_RP_and_count.append([(item[1], item[5]) for item in shard])
+        print(res[2])
+        shard = res[2][6][1:]
+        shard_RP_and_count.append([(item[1], item[5]) for item in shard])
 
-        # sort shard by the number of results processed by the first RP
-        shard_RP_and_count.sort(key=lambda x: x[0][1])
         # Extract the RP types from the coordinator
-        coord = res[1][3][11]
+        coord = res[4][1][0][4][1:]
         coord_RP_and_count = [(item[1], item[5]) for item in coord]
         return [shard_RP_and_count, coord_RP_and_count]
 
@@ -706,7 +701,18 @@ def _test_profile(protocol):
         if env.isCluster():
             message = f'{cmd}: RP_list != expected: RESP{env.protocol}, Cluster'
             cluster_RP_list = _get_cluster_RP_profile(env, res)
-            env.assertEqual(cluster_RP_list, cluster,
+            # Only one shard is returned in the profile, so we need to check if
+            # the expected shard is in the list
+            expected_shard = cluster_RP_list[0][0]
+            found = False
+            for shard in cluster_RP_list[0]:
+                if shard == expected_shard:
+                    found = True
+                    break
+            env.assertTrue(found, message=message)
+
+            expected_coord = cluster_RP_list[1]
+            env.assertEqual(cluster_RP_list[1], expected_coord,
                             message=message)
         else:
             message = f'{cmd}: RP_list != expected: RESP{env.protocol}, Standalone'

@@ -86,94 +86,95 @@ def run_query_with_delayed_shard(env, cmd, query_result, sleep_duration):
         query_result.append(e)
 
 
-def _test_barrier_waits_for_delayed_shard(protocol):
-    """
-    Test that the barrier waits for all shards before returning results.
+# runDebugQueryCommandPauseBeforeRPAfterN not supported in 2.10
+# def _test_barrier_waits_for_delayed_shard(protocol):
+#     """
+#     Test that the barrier waits for all shards before returning results.
 
-    This test uses PAUSE_BEFORE_RP_N to pause query execution on shards,
-    then selectively resumes them to simulate one shard being slower.
-    We verify that the coordinator waits for all shards and returns
-    accurate total_results.
-    """
-    # WORKERS must be set to use PAUSE_BEFORE_RP_N
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', protocol=protocol)
-    num_docs = 3000 * env.shardsCount
-    setup_index_with_data(env, num_docs)
+#     This test uses PAUSE_BEFORE_RP_N to pause query execution on shards,
+#     then selectively resumes them to simulate one shard being slower.
+#     We verify that the coordinator waits for all shards and returns
+#     accurate total_results.
+#     """
+#     # WORKERS must be set to use PAUSE_BEFORE_RP_N
+#     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', protocol=protocol)
+#     num_docs = 3000 * env.shardsCount
+#     setup_index_with_data(env, num_docs)
 
-    conn = getConnectionByEnv(env)
+#     conn = getConnectionByEnv(env)
 
-    # First verify baseline without pausing
-    baseline_res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', num_docs//2)
-    baseline_total = _get_total_results(baseline_res)
-    env.assertEqual(baseline_total, num_docs,
-                    message=f"Baseline should return {num_docs}, got {baseline_total}")
+#     # First verify baseline without pausing
+#     baseline_res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', num_docs//2)
+#     baseline_total = _get_total_results(baseline_res)
+#     env.assertEqual(baseline_total, num_docs,
+#                     message=f"Baseline should return {num_docs}, got {baseline_total}")
 
-    # Now test with delayed shard using PAUSE_BEFORE_RP_N
-    query_result = []
-    query_args = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', num_docs//2]
+#     # Now test with delayed shard using PAUSE_BEFORE_RP_N
+#     query_result = []
+#     query_args = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', num_docs//2]
 
-    # Start query in background thread - it will pause on all shards at Index RP
-    t_query = threading.Thread(
-        target=call_and_store,
-        args=(runDebugQueryCommandPauseBeforeRPAfterN,
-              (env, query_args, 'Index', 0, ['INTERNAL_ONLY']),
-              query_result),
-        daemon=True
-    )
-    t_query.start()
+#     # Start query in background thread - it will pause on all shards at Index RP
+#     t_query = threading.Thread(
+#         target=call_and_store,
+#         args=(runDebugQueryCommandPauseBeforeRPAfterN,
+#               (env, query_args, 'Index', 0, ['INTERNAL_ONLY']),
+#               query_result),
+#         daemon=True
+#     )
+#     t_query.start()
 
-    # Wait for all shards to be paused
-    max_wait = 5  # seconds
-    start = time.time()
-    while time.time() - start < max_wait:
-        paused_states = allShards_getIsRPPaused(env)
-        if all(state == 1 for state in paused_states):
-            break
-        time.sleep(0.05)
+#     # Wait for all shards to be paused
+#     max_wait = 5  # seconds
+#     start = time.time()
+#     while time.time() - start < max_wait:
+#         paused_states = allShards_getIsRPPaused(env)
+#         if all(state == 1 for state in paused_states):
+#             break
+#         time.sleep(0.05)
 
-    # Verify all shards are paused
-    paused_states = allShards_getIsRPPaused(env)
-    env.assertTrue(all(state == 1 for state in paused_states),
-                   message=f"Expected all shards to be paused, got: {paused_states}")
+#     # Verify all shards are paused
+#     paused_states = allShards_getIsRPPaused(env)
+#     env.assertTrue(all(state == 1 for state in paused_states),
+#                    message=f"Expected all shards to be paused, got: {paused_states}")
 
-    # Resume all shards except shard 1 (simulating shard 1 being slow)
-    # start_shard=2 means resume shards 2, 3, ... (skipping shard 1)
-    if env.shardsCount > 1:
-        allShards_setPauseRPResume(env, start_shard=2)
+#     # Resume all shards except shard 1 (simulating shard 1 being slow)
+#     # start_shard=2 means resume shards 2, 3, ... (skipping shard 1)
+#     if env.shardsCount > 1:
+#         allShards_setPauseRPResume(env, start_shard=2)
 
-    # Small delay to let fast shards respond
-    time.sleep(0.1)
+#     # Small delay to let fast shards respond
+#     time.sleep(0.1)
 
-    # Query should still be running (waiting for shard 1)
-    env.assertTrue(len(query_result) == 0,
-                   message="Query should still be waiting for slow shard")
+#     # Query should still be running (waiting for shard 1)
+#     env.assertTrue(len(query_result) == 0,
+#                    message="Query should still be waiting for slow shard")
 
-    # Now resume shard 1 (the "slow" shard)
-    env.getConnection(1).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
+#     # Now resume shard 1 (the "slow" shard)
+#     env.getConnection(1).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
 
-    # Wait for query to complete
-    t_query.join(timeout=5)
+#     # Wait for query to complete
+#     t_query.join(timeout=5)
 
-    # Verify query completed and returned correct total
-    env.assertEqual(len(query_result), 1,
-                    message="Query should have completed")
+#     # Verify query completed and returned correct total
+#     env.assertEqual(len(query_result), 1,
+#                     message="Query should have completed")
 
-    if isinstance(query_result[0], Exception):
-        env.assertTrue(False, message=f"Query failed with: {query_result[0]}")
-    else:
-        total = _get_total_results(query_result[0])
-        env.assertEqual(total, num_docs,
-                        message=f"WITHCOUNT after delayed shard should return {num_docs}, got {total}")
-
-
-@skip(cluster=False)
-def test_barrier_waits_for_delayed_shard_resp2():
-    _test_barrier_waits_for_delayed_shard(2)
+#     if isinstance(query_result[0], Exception):
+#         env.assertTrue(False, message=f"Query failed with: {query_result[0]}")
+#     else:
+#         total = _get_total_results(query_result[0])
+#         env.assertEqual(total, num_docs,
+#                         message=f"WITHCOUNT after delayed shard should return {num_docs}, got {total}")
 
 
-@skip(cluster=False)
-def test_barrier_waits_for_delayed_shard_resp3():
-    _test_barrier_waits_for_delayed_shard(3)
+# @skip(cluster=False)
+# def test_barrier_waits_for_delayed_shard_resp2():
+#     _test_barrier_waits_for_delayed_shard(2)
+
+
+# @skip(cluster=False)
+# def test_barrier_waits_for_delayed_shard_resp3():
+#     _test_barrier_waits_for_delayed_shard(3)
 
 
 def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
@@ -313,64 +314,65 @@ def test_barrier_waits_for_delayed_unbalanced_shard_resp3():
     _test_barrier_waits_for_delayed_unbalanced_shard(3)
 
 
-def _test_barrier_all_shards_delayed_then_resume(protocol):
-    """
-    Test barrier with all shards paused, then resumed together.
+# runDebugQueryCommandPauseBeforeRPAfterN not supported in 2.10
+# def _test_barrier_all_shards_delayed_then_resume(protocol):
+#     """
+#     Test barrier with all shards paused, then resumed together.
 
-    This verifies the barrier correctly accumulates results when all
-    shards respond at roughly the same time.
-    """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', protocol=protocol)
-    num_docs = 100 * env.shardsCount
-    setup_index_with_data(env, num_docs)
+#     This verifies the barrier correctly accumulates results when all
+#     shards respond at roughly the same time.
+#     """
+#     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', protocol=protocol)
+#     num_docs = 100 * env.shardsCount
+#     setup_index_with_data(env, num_docs)
 
-    query_result = []
-    query_args = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', '0']
+#     query_result = []
+#     query_args = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', '0']
 
-    # Start query - will pause on all shards
-    t_query = threading.Thread(
-        target=call_and_store,
-        args=(runDebugQueryCommandPauseBeforeRPAfterN,
-              (env, query_args, 'Index', 0, ['INTERNAL_ONLY']),
-              query_result),
-        daemon=True
-    )
-    t_query.start()
+#     # Start query - will pause on all shards
+#     t_query = threading.Thread(
+#         target=call_and_store,
+#         args=(runDebugQueryCommandPauseBeforeRPAfterN,
+#               (env, query_args, 'Index', 0, ['INTERNAL_ONLY']),
+#               query_result),
+#         daemon=True
+#     )
+#     t_query.start()
 
-    # Wait for all shards to be paused
-    max_wait = 5
-    start = time.time()
-    while time.time() - start < max_wait:
-        paused_states = allShards_getIsRPPaused(env)
-        if all(state == 1 for state in paused_states):
-            break
-        time.sleep(0.05)
+#     # Wait for all shards to be paused
+#     max_wait = 5
+#     start = time.time()
+#     while time.time() - start < max_wait:
+#         paused_states = allShards_getIsRPPaused(env)
+#         if all(state == 1 for state in paused_states):
+#             break
+#         time.sleep(0.05)
 
-    # Resume all shards at once
-    allShards_setPauseRPResume(env, start_shard=1)
+#     # Resume all shards at once
+#     allShards_setPauseRPResume(env, start_shard=1)
 
-    # Wait for query to complete
-    t_query.join(timeout=5)
+#     # Wait for query to complete
+#     t_query.join(timeout=5)
 
-    # Verify correct result
-    env.assertEqual(len(query_result), 1, message="Query should have completed")
+#     # Verify correct result
+#     env.assertEqual(len(query_result), 1, message="Query should have completed")
 
-    if isinstance(query_result[0], Exception):
-        env.assertTrue(False, message=f"Query failed with: {query_result[0]}")
-    else:
-        total = _get_total_results(query_result[0])
-        env.assertEqual(total, num_docs,
-                        message=f"WITHCOUNT should return {num_docs}, got {total}")
-
-
-@skip(cluster=False)
-def test_barrier_all_shards_delayed_then_resume_resp2():
-    _test_barrier_all_shards_delayed_then_resume(2)
+#     if isinstance(query_result[0], Exception):
+#         env.assertTrue(False, message=f"Query failed with: {query_result[0]}")
+#     else:
+#         total = _get_total_results(query_result[0])
+#         env.assertEqual(total, num_docs,
+#                         message=f"WITHCOUNT should return {num_docs}, got {total}")
 
 
-@skip(cluster=False)
-def test_barrier_all_shards_delayed_then_resume_resp3():
-    _test_barrier_all_shards_delayed_then_resume(3)
+# @skip(cluster=False)
+# def test_barrier_all_shards_delayed_then_resume_resp2():
+#     _test_barrier_all_shards_delayed_then_resume(2)
+
+
+# @skip(cluster=False)
+# def test_barrier_all_shards_delayed_then_resume_resp3():
+#     _test_barrier_all_shards_delayed_then_resume(3)
 
 
 #------------------------------------------------------------------------------
