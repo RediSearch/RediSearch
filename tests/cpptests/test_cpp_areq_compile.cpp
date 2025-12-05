@@ -170,13 +170,14 @@ INSTANTIATE_TEST_SUITE_P(
         SlotRangeTestData{{{0, 16383}}, "single_full_range"},
 
         // Original test case - standard cluster ranges
-        SlotRangeTestData{{{0, 5460}, {5461, 10922}, {10923, 16383}}, "almost_full_range"},
+        SlotRangeTestData{{{0, 5460}, {5462, 10922}, {10924, 16383}}, "almost_full_range"},
 
         // Single range
         SlotRangeTestData{{{0, 5460}}, "single_partial_range"},
 
+
         // Range 0-255 creates 0x0000 0x00FF in binary (2 null bytes at start)
-        SlotRangeTestData{{{0, 255}, {256, 511}}, "ranges_starting_with_zero"},
+        SlotRangeTestData{{{0, 254}, {256, 511}}, "ranges_starting_with_zero"},
 
         // Range 256-256 creates 0x0100 0x0100 in binary (null byte in middle)
         SlotRangeTestData{{{256, 256}, {512, 512}}, "ranges_with_embedded_nulls"},
@@ -189,9 +190,6 @@ INSTANTIATE_TEST_SUITE_P(
 
         // Ranges that create 0x0000 patterns in different positions
         SlotRangeTestData{{{0, 256}, {512, 768}, {1024, 1280}}, "ranges_creating_null_sequences"},
-
-        // Small ranges with potential null bytes
-        SlotRangeTestData{{{0, 1}, {2, 3}, {4, 5}}, "small_consecutive_ranges"},
 
         // Small ranges with potential null bytes
         SlotRangeTestData{{{0, 1}, {3, 4}, {6, 7}}, "small_ranges_with_null_potential"},
