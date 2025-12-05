@@ -67,11 +67,11 @@ def _get_cluster_RP_profile(env, res) -> list:
 
 def _get_standalone_RP_profile(env, res) -> list:
     if isinstance(res, dict):
-        profile = res['Profile']['Shards'][0]['Result processors profile']
+        profile = res['profile']['Result processors profile']
         RP_and_count = [(item['Type'], item['Results processed']) for item in profile]
         return RP_and_count
     else:
-        profile = res[1][1][0][13]
+        profile = res[1][5][1:]
         RP_and_count = [(item[1], item[5]) for item in profile]
         return RP_and_count
 
@@ -91,8 +91,8 @@ def _test_limit00(protocol):
     _setup_index_and_data(env, docs)
 
     for on_timeout_policy in ['return', 'fail']:
-        config_cmd = ['CONFIG', 'SET', 'search-on-timeout', on_timeout_policy]
-        verify_command_OK_on_all_shards(env, *config_cmd)
+        config_command = [config_cmd(), 'SET', 'ON_TIMEOUT', on_timeout_policy]
+        verify_command_OK_on_all_shards(env, *config_command)
         queries_and_results = [
             (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 0], docs),
             (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LIMIT', 0, 0], ANY),
@@ -103,8 +103,8 @@ def _test_limit00(protocol):
         for query, expected_results in queries_and_results:
             cmd=' '.join(str(x) for x in query)
             for dialect in [1, 2, 3, 4]:
-                config_cmd = ['CONFIG', 'SET', 'search-default-dialect', dialect]
-                verify_command_OK_on_all_shards(env, *config_cmd)
+                config_command = [config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect]
+                verify_command_OK_on_all_shards(env, *config_command)
                 res = env.cmd(*query)
                 total_results = _get_total_results(res)
                 results = _get_results(res)
@@ -229,8 +229,8 @@ def _test_withcount(protocol):
     for query, expected_total_results, expected_results in queries_and_results:
         cmd=' '.join(str(x) for x in query)
         for dialect in [1, 2, 3, 4]:
-            config_cmd = ['CONFIG', 'SET', 'search-default-dialect', dialect]
-            verify_command_OK_on_all_shards(env, *config_cmd)
+            config_command = [config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect]
+            verify_command_OK_on_all_shards(env, *config_command)
             res = env.cmd(*query)
             total_results = _get_total_results(res)
             results = _get_results(res)
@@ -341,8 +341,8 @@ def _test_withoutcount(protocol):
         res_default = env.cmd(*query_default)
 
         for dialect in [1, 2, 3, 4]:
-            config_cmd = ['CONFIG', 'SET', 'search-default-dialect', dialect]
-            verify_command_OK_on_all_shards(env, *config_cmd)
+            config_command = [config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect]
+            verify_command_OK_on_all_shards(env, *config_command)
             res = env.cmd(*query)
 
             results = _get_results(res)
