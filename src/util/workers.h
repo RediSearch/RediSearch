@@ -15,6 +15,10 @@
 #include <stddef.h>
 #include <assert.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // create workers thread pool
 // returns REDISMODULE_OK if thread pool created, REDISMODULE_ERR otherwise
 int workersThreadPool_CreatePool(size_t worker_count);
@@ -72,3 +76,7 @@ int workersThreadPool_resume();
 thpool_stats workersThreadPool_getStats();
 
 void workersThreadPool_wait();
+
+#ifdef __cplusplus
+}
+#endif

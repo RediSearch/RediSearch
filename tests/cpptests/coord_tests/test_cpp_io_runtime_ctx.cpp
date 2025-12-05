@@ -247,6 +247,6 @@ TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
 
   ASSERT_TRUE(success) << "Timeout waiting for active_io_threads to return to 0, current value: " << stats.active_io_threads;
 
-  // Free ConcurrentSearch and WorkersPool
+  // Free ConcurrentSearch
   ConcurrentSearch_ThreadPoolDestroy();
 }
