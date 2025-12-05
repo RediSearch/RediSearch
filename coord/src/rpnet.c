@@ -271,26 +271,35 @@ int getNextReply(RPNet *nc) {
     shardResponseBarrier_UpdateTotalResults(nc);
   }
 
-  if (nc->cmd.forCursor) {
-    // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
-    // TODO: could be replaced with a query specific configuration
-    if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
-      // No more replies
-      RPNet_resetCurrent(nc);
-      return 0;
+    // First, return any pending replies collected during the wait
+  if (nc->pendingReplies && array_len(nc->pendingReplies) > 0) {
+    // Pop the first pending reply
+    root = nc->pendingReplies[0];
+    array_del(nc->pendingReplies, 0);
+  } else {
+    // No pending replies, get from channel
+    if (nc->cmd.forCursor) {
+      // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
+      // TODO: could be replaced with a query specific configuration
+      if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
+        // No more replies
+        RPNet_resetCurrent(nc);
+        return RS_RESULT_EOF;
+      }
     }
+    root = MRIterator_Next(nc->it);
   }
-  root = MRIterator_Next(nc->it);
+
   if (root == NULL) {
     // No more replies
     RPNet_resetCurrent(nc);
-    return MRIterator_GetPending(nc->it);
+    return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
   }
 
   // Check if an error was returned
   if(MRReply_Type(root) == MR_REPLY_ERROR) {
     nc->current.root = root;
-    return 1;
+    return RS_RESULT_OK;
   }
 
   MRReply *rows = MRReply_ArrayElement(root, 0);
@@ -318,7 +327,7 @@ int getNextReply(RPNet *nc) {
   RS_ASSERT(!nc->current.rows
          || MRReply_Type(nc->current.rows) == MR_REPLY_ARRAY
          || MRReply_Type(nc->current.rows) == MR_REPLY_MAP);
-  return 1;
+  return RS_RESULT_OK;
 }
 
 void rpnetFree(ResultProcessor *rp) {
