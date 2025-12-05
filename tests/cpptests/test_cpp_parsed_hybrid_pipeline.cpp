@@ -699,6 +699,7 @@ struct HybridIteratorTestCtx {
   ~HybridIteratorTestCtx() {
     if (hybridReq) HybridRequest_Free(hybridReq);
     if (spec) IndexSpec_RemoveFromGlobals(spec->own_ref, false);
+    if (rootiter) rootiter->Free(rootiter);
   }
 };
 
