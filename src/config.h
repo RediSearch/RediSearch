@@ -192,6 +192,8 @@ typedef struct {
   // Set how much time after OOM is detected we should wait to enable the resource manager to
   // allocate more memory.
   uint32_t bgIndexingOomPauseTimeBeforeRetry;
+
+  bool debugDisableTrimming; // Debug flag to disable trimming. If TRUE, we will not allow redis to trim slots.
 } RSConfig;
 
 typedef enum {
@@ -367,6 +369,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
     .requestConfigParams.oomPolicy = OomPolicy_Return,                         \
+    .debugDisableTrimming = DEFAULT_DEBUG_DISABLE_TRIMMING,                                             \
   }
 
 #define REDIS_ARRAY_LIMIT 7
