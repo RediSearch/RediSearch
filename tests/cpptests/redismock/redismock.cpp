@@ -497,17 +497,37 @@ ModuleValue::~ModuleValue() {
 }
 
 Datatype::TypemapType Datatype::typemap;
-Command::CommandMap Command::commands;
+RedisModuleCommand::CommandMap RedisModuleCommand::commands;
 
 int RMCK_CreateCommand(RedisModuleCtx *ctx, const char *s, RedisModuleCmdFunc handler, const char *,
                        int, int, int) {
-  if (Command::commands.find(s) != Command::commands.end()) {
+  if (RedisModuleCommand::commands.find(s) != RedisModuleCommand::commands.end()) {
     return REDISMODULE_ERR;
   }
-  Command *c = new Command();
+  RedisModuleCommand *c = new RedisModuleCommand();
   c->name = s;
   c->handler = handler;
-  Command::commands[s] = c;
+  RedisModuleCommand::commands[s] = c;
+  return REDISMODULE_OK;
+}
+
+RedisModuleCommand *RMCK_GetCommand(RedisModuleCtx *ctx, const char *s) {
+  auto it = RedisModuleCommand::commands.find(s);
+  if (it == RedisModuleCommand::commands.end()) {
+    return NULL;
+  }
+  return it->second;
+}
+
+int RMCK_CreateSubcommand(RedisModuleCommand *parent, const char *s, RedisModuleCmdFunc handler, const char *,
+                          int, int, int) {
+  if (!parent || parent->handler || parent->subcommands.find(s) != parent->subcommands.end()) {
+    return REDISMODULE_ERR;
+  }
+  RedisModuleCommand *c = new RedisModuleCommand();
+  c->name = s;
+  c->handler = handler;
+  parent->subcommands[s] = c;
   return REDISMODULE_OK;
 }
 
@@ -939,6 +959,8 @@ static void registerApis() {
   REGISTER_API(StringToLongLong);
 
   REGISTER_API(CreateCommand);
+  REGISTER_API(GetCommand);
+  REGISTER_API(CreateSubcommand);
   REGISTER_API(CreateDataType);
   REGISTER_API(ModuleTypeSetValue);
   REGISTER_API(ModuleTypeGetValue);
@@ -1011,7 +1033,7 @@ void RMCK_Shutdown(void) {
   }
   KVDB::dbs.clear();
 
-  for (auto c : Command::commands) {
+  for (auto c : RedisModuleCommand::commands) {
     delete c.second;
   }
 
@@ -1020,7 +1042,7 @@ void RMCK_Shutdown(void) {
   }
   Datatype::typemap.clear();
 
-  Command::commands.clear();
+  RedisModuleCommand::commands.clear();
   rm_free((void *)RSGlobalConfig.defaultScorer);
   RSGlobalConfig.defaultScorer = NULL;
 }
