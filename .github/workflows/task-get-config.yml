@@ -76,10 +76,6 @@ jobs:
           # Platform configurations
           platform_configs = {
               "macos": {
-                  "x86_64": {
-                      'env': 'macos-15-intel',
-                      'name': 'macOS x86_64'
-                  },
                   "aarch64": {
                       'env': 'macos-latest',
                       'name': 'macOS ARM64'

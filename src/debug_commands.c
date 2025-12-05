@@ -1525,6 +1525,8 @@ DEBUG_COMMAND(CoordThreadsSwitch) {
       return RedisModule_ReplyWithError(ctx, "Operation failed: coordinator thread pool doesn't exists"
                                         " or is already running");
     }
+  } else if (!strcasecmp(op, "is_paused")) {
+    return RedisModule_ReplyWithLongLong(ctx, ConcurrentSearch_isPaused());
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'COORD_THREADS' subcommand");
   }

@@ -31,7 +31,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Generate C bindings - fail build if this doesn't work
     let headers = [
         "iterator_api.h",
-        "empty_iterator.h",
         "inverted_index_iterator.h",
         "wildcard_iterator.h",
     ]

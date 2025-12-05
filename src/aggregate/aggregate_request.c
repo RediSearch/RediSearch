@@ -376,6 +376,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
     OptionSlotTrackerVersion version = slots_tracker_check_availability(slot_array);
     if (!version.is_some) {
+      rm_free((void *)slot_array);
       QueryError_SetError(status, QUERY_ERROR_CODE_UNAVAILABLE_SLOTS, "Query requires unavailable slots");
       return REDISMODULE_ERR;
     }
@@ -981,6 +982,7 @@ AREQ *AREQ_New(void) {
   req->prefixesOffset = 0;
   req->has_timedout = false;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
+  req->querySlots = NULL;
   return req;
 }
 

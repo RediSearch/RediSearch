@@ -348,7 +348,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   MRReply *score = NULL;
   MRReply *fields = MRReply_ArrayElement(rows, nc->curIdx++);
-  bool has_fields = false;
+  size_t fields_length = 0;
   if (resp3) {
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid result record");
     // extract score if it exists, WITHSCORES was specified
@@ -356,10 +356,10 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     fields = MRReply_MapElement(fields, "extra_attributes");
     // It could happen if Result_ExpiredDoc is set by the Loader on the shard, that no extra attributes is returned. In that case
     // we do not have keys to return.
-    has_fields = fields && MRReply_Type(fields) == MR_REPLY_MAP;
+    fields_length = fields && MRReply_Type(fields) == MR_REPLY_MAP ? MRReply_Length(fields) : 0;
   } else {
-    has_fields = fields && MRReply_Type(fields) == MR_REPLY_ARRAY;
-    RS_LOG_ASSERT(!has_fields || has_fields && MRReply_Length(fields) % 2 == 0, "invalid fields record");
+    fields_length = fields && MRReply_Type(fields) == MR_REPLY_ARRAY ? MRReply_Length(fields) : 0;
+    RS_LOG_ASSERT(fields_length % 2 == 0, "invalid fields record");
   }
 
   // The score is optional, in hybrid we need the score for the sorter and hybrid merger
@@ -370,15 +370,14 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     SearchResult_SetScore(r, MRReply_Double(score));
   }
 
-  if (has_fields) {
-    for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
-      size_t len;
-      const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
-      MRReply *val = MRReply_ArrayElement(fields, i + 1);
-      RSValue *v = MRReply_ToValue(val);
-      RLookup_WriteOwnKeyByName(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);
-    }
+  for (size_t i = 0; i < fields_length; i += 2) {
+    size_t len;
+    const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
+    MRReply *val = MRReply_ArrayElement(fields, i + 1);
+    RSValue *v = MRReply_ToValue(val);
+    RLookup_WriteOwnKeyByName(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);
   }
+
   return RS_RESULT_OK;
 }
 

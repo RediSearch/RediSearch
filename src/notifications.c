@@ -374,7 +374,7 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
     RedisModule_ClusterEnableTrim(ctx);
   } else {
     RedisModule_Log(ctx, "notice", "Queries still using the old version, rescheduling check in %d milliseconds.", TRIMMING_STATE_CHECK_DELAY);
-    checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, TRIMMING_STATE_CHECK_DELAY, checkTrimmingStateCallback, NULL);
+    checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, TRIMMING_STATE_CHECK_DELAY, checkTrimmingStateCallback, slots);
     checkTrimmingStateTimerIdScheduled = true;
   }
 }
@@ -384,12 +384,12 @@ static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
   enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
   enableTrimmingTimerIdScheduled = false;
   // Cancel the checkTrimmingStateCallback timer (Ignore error if it did not exist it does not matter)
+  if (RSGlobalConfig.debugDisableTrimming) {
+    RedisModule_Log(ctx, "notice", "Trimming disabled by debug flag, skipping EnableTrim.");
+    return;
+  }
   RedisModule_Log(ctx, "notice", "Maximum delay reached. Enabling trimming.");
-  if (ASM_CanStartTrimming()) {
-    if (RSGlobalConfig.debugDisableTrimming) {
-      RedisModule_Log(ctx, "notice", "Trimming disabled by debug flag, skipping EnableTrim.");
-      return;
-    }
+  if (!ASM_CanStartTrimming()) {
     RedisModule_Log(ctx, "notice", "Queries still using the old version, potential result inaccuracy.");
   }
   RS_ASSERT(checkTrimmingStateTimerIdScheduled);
@@ -470,7 +470,6 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM trim started event.");
       workersThreadPool_OnEventStart();
-      ASM_StateMachine_StartTrim(slots);
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM trim completed event.");

@@ -13,7 +13,7 @@
 #include "gtest/gtest.h"
 
 #include "src/iterators/optional_iterator.h"
-#include "src/iterators/empty_iterator.h"
+#include "iterators_rs.h"
 #include "iterator_util.h"
 #include "index_utils.h"
 #include "src/iterators/wildcard_iterator.h"
