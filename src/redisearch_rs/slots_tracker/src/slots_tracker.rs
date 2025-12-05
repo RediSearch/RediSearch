@@ -143,8 +143,8 @@ impl SlotsTracker {
 
         // Update local slots and remove from other sets
         self.local = SlotSet::from_ranges(ranges);
-        self.fully_available.remove_ranges(ranges);
-        self.partially_available.remove_ranges(ranges);
+        self.fully_available = SlotSet::new();
+        self.partially_available = SlotSet::new();
         self.increment_version();
     }
 
@@ -609,8 +609,8 @@ mod tests {
             tracker,
             (
                 [(0, 5)],
-                [(6, 6)],
-                [(20, 30)],
+                [],
+                [],
                 Some(initial_version.increment().increment().increment())
             )
         );

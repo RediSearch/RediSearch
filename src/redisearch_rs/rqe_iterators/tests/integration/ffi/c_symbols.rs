@@ -97,6 +97,8 @@ stub_c_fn! {
     RedisModule_ClusterGetLocalSlotRanges,
     RedisModule_ClusterKeySlotC,
     RedisModule_ClusterPropagateForSlotMigration,
+    RedisModule_ClusterEnableTrim,
+    RedisModule_ClusterDisableTrim,
     RedisModule_ConfigGet,
     RedisModule_ConfigGetBool,
     RedisModule_ConfigGetEnum,

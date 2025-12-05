@@ -697,7 +697,7 @@ def test_cursor_gc_edge_cases(env: Env):
     env.expect('_FT.CURSOR', 'GC', 'idx', '0').equal(0, message='Expected 0 cursors to be collected when none exist')
 
     # Test with only internal cursors
-    _, cid = env.cmd('_FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1', '_SLOTS_INFO', generate_slots())
+    _, cid = env.cmd('_FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1', '_SLOTS_INFO', generate_slots(range(0, int((2 ** 14)/ 3))))
     env.expect('_FT.CURSOR', 'GC', 'idx', '0').equal(0, message='Expected 0 cursors to be collected when only internal cursors exist')
     env.expect('_FT.CURSOR', 'DEL', 'idx', cid).ok()
 

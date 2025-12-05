@@ -18,6 +18,7 @@ on:
         default: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
       redis-ref:
         type: string
+        default: trim-delay
       rejson-branch:
         type: string
         default: master
@@ -61,8 +62,9 @@ on:
         type: string
         default: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
       redis-ref:
-        description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
+        description: 'Redis version to use (e.g. "7.2.3", "trim-delay"). Defaults to "trim-delay"'
         type: string
+        default: trim-delay
       rejson-branch:
         type: string
         default: master

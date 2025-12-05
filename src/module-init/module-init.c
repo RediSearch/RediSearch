@@ -33,6 +33,7 @@
 #include "profile.h"
 #include "info/info_redis/info_redis.h"
 #include "util/logging.h"
+#include "asm_state_machine.h"
 
 #define DEPLETER_POOL_SIZE 4
 
@@ -207,6 +208,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     return REDISMODULE_ERR;
   }
 
+  ASM_StateMachine_Init();
   Initialize_ServerEventNotifications(ctx);
   Initialize_CommandFilter(ctx);
   Initialize_RdbNotifications(ctx);
