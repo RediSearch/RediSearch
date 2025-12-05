@@ -536,6 +536,10 @@ void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRChannel_Push(ctx->it->ctx.chan, rep);
 }
 
+void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx) {
+  return ctx->privateData;
+}
+
 void iterStartCb(void *p) {
   MRIterator *it = p;
 
@@ -553,11 +557,15 @@ void iterStartCb(void *p) {
   it->cbxs = rm_realloc(it->cbxs, len * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
   cmd->targetSlot = cluster_g->topo->shards[0].startSlot; // Set the first command to target the first shard
+  cmd->targetShard = 0; // Initialize targetShard for the first shard
   for (size_t i = 1; i < len; i++) {
     it->cbxs[i].it = it;
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
     it->cbxs[i].cmd.targetSlot = cluster_g->topo->shards[i].startSlot;
+    it->cbxs[i].cmd.targetShard = i; // Initialize targetShard for each shard
+
+    it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
   }
 
   for (size_t i = 0; i < it->len; i++) {

@@ -49,6 +49,7 @@ static bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_tot
 
 void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
+  ShardResponseBarrier *barrier = (ShardResponseBarrier *)MRIteratorCallback_GetPrivateData(ctx);
 
   // If the root command of this reply is a DEL command, we don't want to
   // propagate it up the chain to the client
@@ -64,6 +65,10 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     const char* error = MRReply_String(rep, NULL);
     RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
     RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
+    if (barrier && barrier->notifyCallback) {
+      // Notify an error was received
+      barrier->notifyCallback(cmd->targetShard, 0, true, barrier);
+    }
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return;
@@ -98,6 +103,19 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRReply* cursor = MRReply_ArrayElement(rep, 1);
   if (!MRReply_ToInteger(cursor, &cursorId)) {
     cursorId = 0;
+  }
+
+  // Extract total_results and notify barrier via callback (if registered)
+  if (barrier && barrier->notifyCallback) {
+    long long shardTotal;
+    if (!extractTotalResults(rep, cmd, &shardTotal)) {
+      // If no error was detected earlier, and still we failed to extract total_results,
+      // Response is malformed: log a warning and set total to 0.
+      // Notice: must still call the notify callback since a response was received
+      shardTotal = 0;
+      RedisModule_Log(RSDummyContext, "notice", "Coordinator could not extract total_results from shard %d reply", cmd->targetShard);
+    }
+    barrier->notifyCallback(cmd->targetShard, shardTotal, false, barrier);
   }
 
   if (cmd->forProfiling && cmd->protocol == 3) {
@@ -200,6 +218,7 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
     MRIteratorCallback_ResetTimedOut(ctx);
   }
 
+  newCmd.targetShard = cmd->targetShard;
   newCmd.targetSlot = cmd->targetSlot;
   newCmd.protocol = cmd->protocol;
   newCmd.forCursor = cmd->forCursor;
