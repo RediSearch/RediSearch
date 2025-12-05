@@ -20,7 +20,6 @@ metadata:
 setups:
   - oss-cluster-02-primaries
   - oss-cluster-04-primaries
-  - oss-cluster-08-primaries
   - oss-cluster-04-primaries-threads-6
 
 dbconfig:
@@ -28,7 +27,22 @@ dbconfig:
   - init_commands:
     - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
     - '"CONFIG" "SET" "DEBUG_DISABLE_TRIMMING" "yes"'
-    - "Some command thar forces moving hash slots between all the nodes"
+  - asm_cluster_state:
+    - shards:
+      - - start: 0
+          end: 2500
+        - start: 5000
+          end: 7500
+        - start: 10000
+          end: 12500
+        - start: 15000
+          end: 16000
+      - - start: 2501
+          end: 4999
+        - start: 5001
+          end: 9999
+        - start: 12501
+          end: 14999
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64

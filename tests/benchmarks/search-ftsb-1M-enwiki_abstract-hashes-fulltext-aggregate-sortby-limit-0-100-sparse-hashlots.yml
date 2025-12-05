@@ -21,14 +21,13 @@ metadata:
 setups:
   - oss-cluster-02-primaries
   - oss-cluster-04-primaries
-  - oss-cluster-08-primaries
-  - oss-cluster-04-primaries-threads-6
 
 dbconfig:
   - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
   - init_commands:
     - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
-    - "MOVE commands to distribute the hash slots between all the nodes (even and odd slots in different shards)"
+  - asm_cluster_state:
+    - 'SPARSE'
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64
