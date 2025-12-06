@@ -196,7 +196,7 @@ static bool shardResponseBarrier_HandleTimeout(RPNet *nc) {
     // Set error in AREQ context
     QueryError_SetError(
       nc->areq->qiter.err,
-      QUERY_EGENERIC,
+      QUERY_ETIMEDOUT,
       "ShardResponseBarrier: Timeout while waiting for first responses from all shards");
     return true;
   }
