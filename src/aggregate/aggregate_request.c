@@ -581,6 +581,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
       req->reqflags &= ~QEXEC_OPTIMIZE;
       if (IsAggregate(req)) {
+        if (!RSGlobalConfig.enableUnstableFeatures) {
+          QueryError_SetError(status, QUERY_EPARSEARGS, "FT.AGGREGATE + WITHCOUNT is not available when `ENABLE_UNSTABLE_FEATURES` is off");
+          return REDISMODULE_ERR;
+        }
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
         if (IsCursor(req) && !IsInternal(req)) {
           QueryError_SetError(status, QUERY_EPARSEARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");

@@ -81,6 +81,7 @@ def _translate_query_to_profile_query(query) -> list:
 
 def _test_limit00(protocol):
     env = Env(protocol=protocol)
+    enable_unstable_features(env)
     docs = 2265
     _setup_index_and_data(env, docs)
 
@@ -122,6 +123,7 @@ def test_limit00_resp2():
 
 def _test_withcount(protocol):
     env = Env(protocol=protocol)
+    enable_unstable_features(env)
     docs = 2265
     _setup_index_and_data(env, docs)
 
@@ -237,6 +239,7 @@ def _test_withcount(protocol):
                 len(results), expected_results,
                 message=f'{cmd}: len(results) != expected. Dialect: {dialect}')
 
+
 def test_withcount_resp3():
     _test_withcount(3)
 
@@ -247,6 +250,7 @@ def test_withcount_resp2():
 
 def _test_withoutcount(protocol):
     env = Env(protocol=protocol)
+    enable_unstable_features(env)
     docs = 2265
     _setup_index_and_data(env, docs)
 
@@ -352,8 +356,10 @@ def _test_withoutcount(protocol):
                 len(results_default), expected_results,
                 message=f'{cmd_default}: len(results) != results_default. Dialect: {dialect}')
 
+
 def test_withoutcount_resp3():
     _test_withoutcount(3)
+
 
 def test_withoutcount_resp2():
     _test_withoutcount(2)
@@ -361,6 +367,7 @@ def test_withoutcount_resp2():
 
 def _test_profile(protocol):
     env = Env(protocol=protocol)
+    enable_unstable_features(env)
     docs = 3100
     _setup_index_and_data(env, docs)
 
@@ -728,6 +735,7 @@ def test_profile_resp3():
 
 def test_withcursor(env):
     env = Env()
+    enable_unstable_features(env)
     docs = 5
     _setup_index_and_data(env, docs)
 
@@ -750,6 +758,7 @@ def test_withcursor(env):
 
 def _test_pagers(protocol):
     env = Env(protocol=protocol)
+    enable_unstable_features(env)
     docs = 10
     _setup_index_and_data(env, docs)
 
@@ -783,8 +792,18 @@ def _test_pagers(protocol):
             env.assertEqual(results1[offset:limit + offset + 1],
                             results2[0:limit - offset], message=query)
 
+
 def test_pagers_resp2():
     _test_pagers(2)
 
+
 def test_pagers_resp3():
     _test_pagers(3)
+
+
+def test_unstable_features_guard(env):
+    """Test that unstable features are disabled by default"""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _setup_index_and_data(env, 1)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT').error()\
+        .contains('FT.AGGREGATE + WITHCOUNT is not available when `ENABLE_UNSTABLE_FEATURES` is off')
