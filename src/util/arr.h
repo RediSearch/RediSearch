@@ -300,7 +300,7 @@ static void array_free(array_t arr) {
   ({                                                                              \
     RS_ASSERT(array_len(arr) > ix);                                               \
     if (array_len(arr) - 1 > ix) {                                                \
-      memcpy(arr + ix, arr + ix + 1, sizeof(*arr) * (array_len(arr) - (ix + 1))); \
+      memmove(arr + ix, arr + ix + 1, sizeof(*arr) * (array_len(arr) - (ix + 1)));\
     }                                                                             \
     --array_hdr(arr)->len;                                                        \
     arr;                                                                          \
