@@ -133,38 +133,13 @@ typedef struct RSValue {
 // Constructors
 ///////////////////////////////////////////////////////////////
 
-/**
- * Creates a heap-allocated RSValue of the specified type.
- * The returned value must be freed when no longer needed.
- * @param t The type of RSValue to create
- * @return A pointer to a heap-allocated RSValue
- */
-RSValue *RSValue_NewWithType(RSValueType t);
-
+#ifndef __cplusplus
 /**
  * Creates a stack-allocated undefined RSValue.
  * The returned value is not allocated on the heap and should not be freed.
  * @return A stack-allocated RSValue of type RSValueType_Undef
  */
 RSValue RSValue_Undefined();
-
-#ifndef __cplusplus
-/**
- * Creates a stack-allocated RSValue of the specified type.
- * The returned value is not heap-allocated and should not be freed.
- * This is a generic constructor for stack-allocated RSValues.
- * @param t The type of RSValue to create
- * @return A stack-allocated RSValue
- */
-static RSValue RSValue_WithType(RSValueType t) {
-  RSValue v = (RSValue){
-      ._t = t,
-      ._refcount = 1,
-      ._allocated = 0,
-  };
-  return v;
-}
-#endif
 
 /**
  * Creates a stack-allocated RSValue containing a number.
@@ -182,6 +157,13 @@ RSValue RSValue_Number(double n);
  * @return A stack-allocated RSValue of type RSValue_String with RSString_Malloc subtype
  */
 RSValue RSValue_String(char *str, uint32_t len);
+#endif
+
+/**
+ * Creates a heap-allocated Undefined RSValue.
+ * @return A pointer to a heap-allocated RSValue
+ */
+RSValue *RSValue_NewUndefined();
 
 /**
  * Creates a heap-allocated RSValue wrapping a string.
@@ -708,14 +690,14 @@ static inline int RSValue_BoolTest(const RSValue *v) {
  * Formats the passed numeric RSValue as a string.
  * The passed RSValue must be of type RSValueType_Number.
  */
-static size_t RSValue_NumToString(const RSValue *v, char *buf) {
+static size_t RSValue_NumToString(const RSValue *v, char *buf, size_t buflen) {
   RS_ASSERT(v->_t == RSValueType_Number);
   double dd = v->_numval;
   long long ll = dd;
   if (ll == dd) {
-    return sprintf(buf, "%lld", ll);
+    return snprintf(buf, buflen, "%lld", ll);
   } else {
-    return sprintf(buf, "%.12g", dd);
+    return snprintf(buf, buflen, "%.12g", dd);
   }
 }
 

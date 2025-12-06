@@ -53,7 +53,7 @@ static int rm_vasprintf(char **__restrict __ptr, const char *__restrict __fmt, v
   size_t needed = vsnprintf(NULL, 0, __fmt, __arg) + 1;
   *__ptr = (char *)rm_malloc(needed);
 
-  int res = vsprintf(*__ptr, __fmt, args_copy);
+  int res = vsnprintf(*__ptr, needed, __fmt, args_copy);
 
   va_end(args_copy);
 

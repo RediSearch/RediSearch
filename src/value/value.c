@@ -158,6 +158,11 @@ RSValue RSValue_String(char *str, uint32_t len) {
   return v;
 }
 
+RSValue *RSValue_NewUndefined() {
+  RSValue *v = RSValue_NewWithType(RSValueType_Undef);
+  return v;
+}
+
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
  * the value needs to be detached */
 inline RSValue *RSValue_NewString(char *str, uint32_t len) {
@@ -522,7 +527,7 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
     }
     case RSValueType_Number: {
       char tmpbuf[128];
-      size_t len = RSValue_NumToString(v, tmpbuf);
+      size_t len = RSValue_NumToString(v, tmpbuf, sizeof(tmpbuf));
       char *buf = rm_strdup(tmpbuf);
       RSValue_SetString(dst, buf, len);
       break;
@@ -799,7 +804,7 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
         return sdscat(s, Obfuscate_Number(v->_numval));
       } else {
         char buf[128];
-        size_t len = RSValue_NumToString(v, buf);
+        size_t len = RSValue_NumToString(v, buf, sizeof(buf));
         return sdscatlen(s, buf, len);
       }
       break;
@@ -809,6 +814,7 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
       break;
     case RSValueType_Undef:
       return sdscat(s, "<Undefined>");
+      break;
     case RSValueType_Array:
       s = sdscat(s, "[");
       for (uint32_t i = 0; i < v->_arrval.len; i++) {
@@ -827,12 +833,11 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
         s = sdscat(s, ": ");
         s = RSValue_DumpSds(v->_mapval.entries[i].value, s, obfuscate);
       }
-      s = sdscat(s, "}");
+      return sdscat(s, "}");
       break;
     case RSValueType_Reference:
       return RSValue_DumpSds(v->_ref, s, obfuscate);
       break;
-
     case RSValueType_Trio:
       return RSValue_DumpSds(RSValue_Trio_GetLeft(v), s, obfuscate);
       break;
