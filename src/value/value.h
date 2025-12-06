@@ -141,6 +141,7 @@ typedef struct RSValue {
  */
 RSValue *RSValue_NewWithType(RSValueType t);
 
+#ifndef __cplusplus
 /**
  * Creates a stack-allocated undefined RSValue.
  * The returned value is not allocated on the heap and should not be freed.
@@ -148,7 +149,6 @@ RSValue *RSValue_NewWithType(RSValueType t);
  */
 RSValue RSValue_Undefined();
 
-#ifndef __cplusplus
 /**
  * Creates a stack-allocated RSValue of the specified type.
  * The returned value is not heap-allocated and should not be freed.
@@ -164,7 +164,6 @@ static RSValue RSValue_WithType(RSValueType t) {
   };
   return v;
 }
-#endif
 
 /**
  * Creates a stack-allocated RSValue containing a number.
@@ -182,6 +181,7 @@ RSValue RSValue_Number(double n);
  * @return A stack-allocated RSValue of type RSValue_String with RSString_Malloc subtype
  */
 RSValue RSValue_String(char *str, uint32_t len);
+#endif
 
 /**
  * Creates a heap-allocated RSValue wrapping a string.
