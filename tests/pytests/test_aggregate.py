@@ -47,6 +47,7 @@ def _test_withcount(env, cmd:list, limit=10000):
 class TestAggregate():
     def __init__(self):
         self.env = Env()
+        enable_unstable_features(self.env)
         add_values(self.env)
 
     def testGroupBy(self):
@@ -698,6 +699,7 @@ class TestAggregate():
 class TestAggregateSecondUseCases():
     def __init__(self):
         self.env = Env()
+        enable_unstable_features(self.env)
         add_values(self.env, 2)
 
     def testSimpleAggregate(self):
@@ -755,6 +757,7 @@ def test_groupby_array(env: Env):
   env.assertEqual(len(res), len(exp), message=f'{res} != {exp}')
 
 def testMultiSortBy(env):
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'sb_idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
     conn.execute_command('hset', 'doc1', 't1', 'a', 't2', 'a')
@@ -1203,6 +1206,7 @@ def testGroupAfterSort(env):
 
 
 def testWithKNN(env):
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     dim = 4
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
