@@ -1210,6 +1210,15 @@ DEBUG_COMMAND(RSAggregateCommandShard) {
   return DEBUG_RSAggregateCommand(ctx, argv, argc);
 }
 
+DEBUG_COMMAND(RSProfileCommandShard) {
+  // at least one debug_param should be provided
+  // (1) FT.PROFILE (2) <index> (3) SEARCH | AGGREGATE [LIMITED] (4) QUERY <query> [query_options] (5) [debug_params] (6) DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+  return RSProfileCommandImp(ctx, argv, argc, true);
+}
+
 typedef struct DebugCommandType {
   char *name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -1685,6 +1694,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                 */
                                {"FT.AGGREGATE", RSAggregateCommandShard},
                                {"FT.SEARCH", RSSearchCommandShard},
+                               {"FT.PROFILE", RSProfileCommandShard},
 #ifdef MT_BUILD
                                {"WORKER_THREADS", WorkerThreadsSwitch},
 #endif

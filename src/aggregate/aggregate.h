@@ -119,6 +119,7 @@ typedef enum {
 // Forward declaration of ProfilePrinterCtx
 typedef struct ProfilePrinterCtx ProfilePrinterCtx;
 typedef void (*profiler_func)(RedisModule_Reply *reply, ProfilePrinterCtx *ctx);
+int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
 
 typedef enum {
   /* Received EOF from iterator */
