@@ -8,6 +8,14 @@
 */
 
 //! Intersection iterator - finds documents appearing in ALL child iterators.
+//!
+//! # TODO (MOD-12717)
+//!
+//! The following features from the C++ implementation are not yet ported:
+//! - `max_slop`: Maximum allowed slop between term positions
+//! - `in_order`: Require terms to appear in order
+//!
+//! Currently, the iterator operates with `max_slop = -1` semantics (no slop validation).
 
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
@@ -167,6 +175,19 @@ impl<'index, I> RQEIterator<'index> for Intersection<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    /// Returns a mutable reference to the current aggregate result.
+    ///
+    /// # Behavior
+    ///
+    /// - Returns `None` if the iterator is at EOF.
+    /// - Returns `Some(&mut result)` otherwise.
+    ///
+    /// # Note
+    ///
+    /// Before the first call to [`read()`](RQEIterator::read) or
+    /// [`skip_to()`](RQEIterator::skip_to), this returns a reference to the
+    /// uninitialized result buffer (with `doc_id = 0`). Callers should only
+    /// rely on `current()` after a successful read operation.
     #[inline]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.is_eof {
@@ -218,6 +239,7 @@ where
 
     fn rewind(&mut self) {
         self.last_doc_id = 0;
+        self.result.doc_id = 0;
         self.is_eof = self.children.is_empty();
         self.children.iter_mut().for_each(|c| c.rewind());
     }

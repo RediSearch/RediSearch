@@ -336,10 +336,6 @@ fn rewind_test_case(num_children: usize, result_set: &[t_docId]) {
 // single child directly). These tests will be added once the constructor
 // semantics are finalized.
 
-// TODO: Add test for empty children (should return empty/no results)
-// TODO: Add test for single child (should behave like the child itself)
-// TODO: Add test for revalidate functionality
-
 #[test]
 fn empty_result_set() {
     // When the intersection has no common documents, should immediately EOF
@@ -1024,13 +1020,19 @@ fn current_after_operations() {
     assert!(current.is_some());
     assert_eq!(current.unwrap().doc_id, 40);
 
-    // After rewind, current() returns Some (not at EOF) but last_doc_id is reset
+    // After rewind, current() returns Some (not at EOF) and both last_doc_id
+    // and current().doc_id should be reset to 0
     ii.rewind();
     assert!(
         ii.current().is_some(),
         "current() after rewind returns Some (not at EOF)"
     );
     assert_eq!(ii.last_doc_id(), 0, "last_doc_id should be 0 after rewind");
+    assert_eq!(
+        ii.current().unwrap().doc_id,
+        0,
+        "current().doc_id should be 0 after rewind"
+    );
 
     // After EOF, current() should return None
     while ii.read().expect("read failed").is_some() {}
