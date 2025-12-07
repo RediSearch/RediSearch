@@ -44,7 +44,7 @@ on:
           - amazonlinux:2023
           - mariner:2
           - azurelinux:3
-          - alpine:3
+          - alpine:3.22
           - macos
         description: 'Platform to test on. Use "all" to test on all platforms'
         default: all

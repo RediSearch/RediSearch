@@ -1632,9 +1632,10 @@ ACTIVE_WORKER_THREADS_METRIC = f'{SEARCH_PREFIX}active_worker_threads'
 ACTIVE_COORD_THREADS_METRIC = f'{SEARCH_PREFIX}active_coord_threads'
 WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}workers_low_priority_pending_jobs'
 WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}workers_high_priority_pending_jobs'
+WORKERS_ADMIN_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}workers_admin_priority_pending_jobs'
 COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}coord_high_priority_pending_jobs'
 
-def test_active_io_threads_stats(env):
+def test_initial_multi_threading_stats(env):
   conn = getConnectionByEnv(env)
   # Setup: Create index with some data
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'age', 'NUMERIC').ok()
@@ -1651,12 +1652,18 @@ def test_active_io_threads_stats(env):
   # Verify all expected fields exist
   env.assertTrue(ACTIVE_IO_THREADS_METRIC in info_dict[MULTI_THREADING_SECTION],
                  message=f"{ACTIVE_IO_THREADS_METRIC} field should exist in multi_threading section")
+  env.assertTrue(WORKERS_ADMIN_PRIORITY_PENDING_JOBS_METRIC in info_dict[MULTI_THREADING_SECTION],
+                 message=f"{WORKERS_ADMIN_PRIORITY_PENDING_JOBS_METRIC} field should exist in multi_threading section")
 
   # Verify all fields initialized to 0.
   env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_IO_THREADS_METRIC], '0',
                  message=f"{ACTIVE_IO_THREADS_METRIC} should be 0 when idle")
+  env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_WORKER_THREADS_METRIC], '0',
+                 message=f"{ACTIVE_WORKER_THREADS_METRIC} should be 0 when idle")
   # There's no deterministic way to test active_io_threads increases while a query is running,
   # we test it in unit tests.
+  # Also, we can't pause workers threads while trying to modify the workers thpool, so no way to verify active_worker_threads increases.
+  # This will also be tested in unit tests.
 
 # --- Helper Function (to be shared by both SA and Cluster tests) ---
 # NOTE: Currently query debug pause mechanism only supports pausing one query at a time.
