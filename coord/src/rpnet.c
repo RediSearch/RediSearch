@@ -193,7 +193,7 @@ static bool shardResponseBarrier_HandleTimeout(RPNet *nc) {
     // cleanup pending replies
     shardResponseBarrier_PendingReplies_Free(nc);
 
-    // Set error in AREQ context
+    // Set timeout error in AREQ context
     QueryError_SetError(
       nc->areq->qiter.err,
       QUERY_ETIMEDOUT,
