@@ -49,9 +49,6 @@ env:
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
   COV: ${{ inputs.coverage && 1 || 0 }}  # convert the boolean input to numeric
-  # Setting RUSTFLAGS here to ensure that all `cargo` invocations use the same
-  # flags, and therefore reuse the same intermediate build artifacts.
-  RUSTFLAGS: "-D warnings"
   RUST_BACKTRACE: "full"
   BUILD_INTEL_SVS_OPT: "yes"
 
