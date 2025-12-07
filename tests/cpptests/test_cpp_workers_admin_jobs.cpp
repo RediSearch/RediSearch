@@ -106,6 +106,9 @@ TEST_F(WorkersAdminJobsMetricTest, MetricIncreasesOnThreadResize) {
         flags[i].should_finish.store(true);
     }
 
+    // Drain the thread pool to make sure all jobs are done
+    workersThreadPool_Drain(RSDummyContext, 0);
+
     // Wait for metric to return to 0 with timeout
     success = RS::WaitForCondition([&]() {
         stats = GlobalStats_GetMultiThreadingStats();
