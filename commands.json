@@ -1,18 +1,17 @@
 {
   "FT.CREATE": {
     "summary": "Creates an index with the given spec",
-    "complexity":
-      "O(K) at creation where K is the number of fields, O(N) if scanning the keyspace is triggered, where N is the number of keys in the keyspace",
-      "history": [
-        [
-          "2.0.0",
-          "Added `PAYLOAD_FIELD` argument for backward support of `FT.SEARCH` deprecated `WITHPAYLOADS` argument"
-        ],
-        [
-          "2.0.0",
-          "Deprecated `PAYLOAD_FIELD` argument"
-        ]
+    "complexity": "O(K) at creation where K is the number of fields, O(N) if scanning the keyspace is triggered, where N is the number of keys in the keyspace",
+    "history": [
+      [
+        "2.0.0",
+        "Added `PAYLOAD_FIELD` argument for backward support of `FT.SEARCH` deprecated `WITHPAYLOADS` argument"
       ],
+      [
+        "2.0.0",
+        "Deprecated `PAYLOAD_FIELD` argument"
+      ]
+    ],
     "arguments": [
       {
         "name": "index",
@@ -24,14 +23,14 @@
         "type": "oneof",
         "arguments": [
           {
-              "name": "hash",
-              "type": "pure-token",
-              "token": "HASH"
+            "name": "hash",
+            "type": "pure-token",
+            "token": "HASH"
           },
           {
-              "name": "json",
-              "type": "pure-token",
-              "token": "JSON"
+            "name": "json",
+            "type": "pure-token",
+            "token": "JSON"
           }
         ],
         "optional": true
@@ -44,7 +43,7 @@
           {
             "name": "count",
             "type": "integer",
-            "token":"PREFIX"
+            "token": "PREFIX"
           },
           {
             "name": "prefix",
@@ -62,43 +61,43 @@
       {
         "name": "default_lang",
         "type": "string",
-        "token":"LANGUAGE",
+        "token": "LANGUAGE",
         "optional": true
       },
       {
         "name": "lang_attribute",
         "type": "string",
-        "token":"LANGUAGE_FIELD",
+        "token": "LANGUAGE_FIELD",
         "optional": true
       },
       {
         "name": "default_score",
         "type": "double",
-        "token":"SCORE",
+        "token": "SCORE",
         "optional": true
       },
       {
         "name": "score_attribute",
         "type": "string",
-        "token":"SCORE_FIELD",
+        "token": "SCORE_FIELD",
         "optional": true
       },
       {
         "name": "payload_attribute",
         "type": "string",
-        "token":"PAYLOAD_FIELD",
+        "token": "PAYLOAD_FIELD",
         "optional": true
       },
       {
-          "name": "maxtextfields",
-          "type": "pure-token",
-          "token": "MAXTEXTFIELDS",
-          "optional": true
+        "name": "maxtextfields",
+        "type": "pure-token",
+        "token": "MAXTEXTFIELDS",
+        "optional": true
       },
       {
         "name": "seconds",
         "type": "double",
-        "token":"TEMPORARY",
+        "token": "TEMPORARY",
         "optional": true
       },
       {
@@ -129,7 +128,7 @@
         "name": "stopwords",
         "type": "block",
         "optional": true,
-        "token":"STOPWORDS",
+        "token": "STOPWORDS",
         "arguments": [
           {
             "name": "count",
@@ -357,7 +356,7 @@
           {
             "name": "delete docs",
             "type": "pure-token",
-            "token":"DD"
+            "token": "DD"
           }
         ],
         "optional": true
@@ -449,16 +448,16 @@
           {
             "name": "incr",
             "type": "pure-token",
-            "token":"INCR"
+            "token": "INCR"
           }
         ],
         "optional": true
       },
       {
-          "name": "payload",
-          "token": "PAYLOAD",
-          "type": "string",
-          "optional": true
+        "name": "payload",
+        "token": "PAYLOAD",
+        "type": "string",
+        "optional": true
       }
     ],
     "since": "1.0.0",
@@ -495,10 +494,10 @@
         "optional": true
       },
       {
-          "name": "max",
-          "token": "MAX",
-          "type": "integer",
-          "optional": true
+        "name": "max",
+        "token": "MAX",
+        "type": "integer",
+        "optional": true
       }
     ],
     "since": "1.0.0",
@@ -584,10 +583,10 @@
         "type": "string"
       },
       {
-          "name": "distance",
-          "token": "DISTANCE",
-          "type": "integer",
-          "optional": true
+        "name": "distance",
+        "token": "DISTANCE",
+        "type": "integer",
+        "optional": true
       },
       {
         "name": "terms",
@@ -737,8 +736,8 @@
     "complexity": "O(N)",
     "history": [
       [
-          "2.0.0",
-          "Deprecated `WITHPAYLOADS` and `PAYLOAD` arguments"
+        "2.0.0",
+        "Deprecated `WITHPAYLOADS` and `PAYLOAD` arguments"
       ]
     ],
     "arguments": [
@@ -759,7 +758,7 @@
       {
         "name": "verbatim",
         "type": "pure-token",
-        "token":"VERBATIM",
+        "token": "VERBATIM",
         "optional": true
       },
       {
@@ -795,7 +794,7 @@
           {
             "name": "numeric_field",
             "type": "string",
-            "token":"FILTER"
+            "token": "FILTER"
           },
           {
             "name": "min",
@@ -816,7 +815,7 @@
           {
             "name": "geo_field",
             "type": "string",
-            "token":"GEOFILTER"
+            "token": "GEOFILTER"
           },
           {
             "name": "lon",
@@ -866,7 +865,7 @@
           {
             "name": "count",
             "type": "string",
-            "token":"INKEYS"
+            "token": "INKEYS"
           },
           {
             "name": "key",
@@ -883,7 +882,7 @@
           {
             "name": "count",
             "type": "string",
-            "token":"INFIELDS"
+            "token": "INFIELDS"
           },
           {
             "name": "field",
@@ -900,7 +899,7 @@
           {
             "name": "count",
             "type": "string",
-            "token":"RETURN"
+            "token": "RETURN"
           },
           {
             "name": "identifiers",
@@ -939,7 +938,7 @@
               {
                 "name": "count",
                 "type": "string",
-                "token":"FIELDS"
+                "token": "FIELDS"
               },
               {
                 "name": "field",
@@ -951,19 +950,19 @@
           {
             "name": "num",
             "type": "integer",
-            "token":"FRAGS",
+            "token": "FRAGS",
             "optional": true
           },
           {
             "name": "fragsize",
             "type": "integer",
-            "token":"LEN",
+            "token": "LEN",
             "optional": true
           },
           {
             "name": "separator",
             "type": "string",
-            "token":"SEPARATOR",
+            "token": "SEPARATOR",
             "optional": true
           }
         ]
@@ -986,7 +985,7 @@
               {
                 "name": "count",
                 "type": "string",
-                "token":"FIELDS"
+                "token": "FIELDS"
               },
               {
                 "name": "field",
@@ -1021,13 +1020,13 @@
         "name": "slop",
         "type": "integer",
         "optional": true,
-        "token":"SLOP"
+        "token": "SLOP"
       },
       {
         "name": "timeout",
         "type": "integer",
         "optional": true,
-        "token":"TIMEOUT"
+        "token": "TIMEOUT"
       },
       {
         "name": "inorder",
@@ -1039,19 +1038,19 @@
         "name": "language",
         "type": "string",
         "optional": true,
-        "token":"LANGUAGE"
+        "token": "LANGUAGE"
       },
       {
         "name": "expander",
         "type": "string",
         "optional": true,
-        "token":"EXPANDER"
+        "token": "EXPANDER"
       },
       {
         "name": "scorer",
         "type": "string",
         "optional": true,
-        "token":"SCORER"
+        "token": "SCORER"
       },
       {
         "name": "explainscore",
@@ -1063,7 +1062,7 @@
         "name": "payload",
         "type": "string",
         "optional": true,
-        "token":"PAYLOAD"
+        "token": "PAYLOAD"
       },
       {
         "name": "sortby",
@@ -1073,7 +1072,7 @@
           {
             "name": "sortby",
             "type": "string",
-            "token":"SORTBY"
+            "token": "SORTBY"
           },
           {
             "name": "order",
@@ -1156,7 +1155,6 @@
     "since": "1.0.0",
     "group": "search"
   },
-
   "FT.AGGREGATE": {
     "summary": "Run a search query on an index and perform aggregate transformations on the results",
     "complexity": "O(1)",
@@ -1816,7 +1814,6 @@
     "since": "1.1.0",
     "group": "search"
   },
-
   "FT.PROFILE": {
     "summary": "Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance information",
     "complexity": "O(N)",
@@ -1860,7 +1857,6 @@
     "since": "2.2.0",
     "group": "search"
   },
-
   "FT.CURSOR READ": {
     "summary": "Reads from a cursor",
     "complexity": "O(1)",
@@ -1877,7 +1873,7 @@
         "name": "read size",
         "type": "integer",
         "optional": true,
-        "token":"COUNT"
+        "token": "COUNT"
       }
     ],
     "since": "1.1.0",
@@ -1899,7 +1895,6 @@
     "since": "1.1.0",
     "group": "search"
   },
-
   "FT.HYBRID": {
     "summary": "Performs hybrid search combining text search and vector similarity search",
     "complexity": "O(N+M) where N is the complexity of the text search and M is the complexity of the vector search",
@@ -2730,10 +2725,40 @@
       },
       {
         "name": "filter",
-        "type": "string",
+        "type": "block",
         "optional": true,
-        "expression": true,
-        "token": "FILTER"
+        "arguments": [
+          {
+            "name": "filter_expression",
+            "type": "string",
+            "token": "FILTER",
+            "expression": true
+          },
+          {
+            "name": "policy",
+            "type": "oneof",
+            "optional": true,
+            "arguments": [
+              {
+                "name": "adhoc",
+                "type": "pure-token",
+                "token": "ADHOC"
+              },
+              {
+                "name": "batches",
+                "type": "pure-token",
+                "token": "BATCHES"
+              }
+            ],
+            "token": "POLICY"
+          },
+          {
+            "name": "batch_size_value",
+            "type": "integer",
+            "token": "BATCH_SIZE",
+            "optional": true
+          }
+        ]
       }
     ],
     "since": "8.4.0",
