@@ -144,18 +144,17 @@ where
         }
         self.result.doc_id = doc_id;
 
-        // SAFETY: `children` and `result` are disjoint fields. We only call `current()`
-        // on children (read-only, doesn't invalidate their results). Child results
-        // reference data from the index with lifetime `'index`, and our aggregate result
-        // also has `'index` lifetime, so the borrowed references remain valid for as long
-        // as this iterator exists. We reset the aggregate before adding new references.
         let result_ptr: *mut RSIndexResult<'index> = &mut self.result;
         for child in &mut self.children {
             if let Some(child_result) = child.current() {
                 let child_ptr: *const RSIndexResult<'index> = child_result;
-                unsafe {
-                    (*result_ptr).push_borrowed(&*child_ptr);
-                }
+                // SAFETY: result_ptr points to self.result which is valid for this method's
+                // duration. `children` and `result` are disjoint fields.
+                let result_ref = unsafe { &mut *result_ptr };
+                // SAFETY: child_ptr points to child's result containing data with 'index
+                // lifetime. Children are owned by self, so their results remain valid.
+                let child_ref = unsafe { &*child_ptr };
+                result_ref.push_borrowed(child_ref);
             }
         }
     }
