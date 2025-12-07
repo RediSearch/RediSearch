@@ -3452,7 +3452,6 @@ CURSOR_SUBCOMMAND(Read)
 CURSOR_SUBCOMMAND(Del)
 CURSOR_SUBCOMMAND(GC)
 
-
 // This function sits next to RegisterCoordCursorCommands function
 // RegisterCoordCursorCommands currently has too many dependencies to be easily moved up where CreateSubCommands is defined
 static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
@@ -3482,13 +3481,13 @@ static int RegisterCoordCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *
      .handler = SafeCmd(CursorReadCommand),
      .setCommandInfo = SetFtCursorReadInfo, .position = keys},
     {.name = "DEL",     .fullName = "FT.CURSOR" "|DEL",     .flags = "write",
-     .handler = SafeCmd(CursorReadCommand),
+     .handler = SafeCmd(CursorDelCommand),
      .setCommandInfo = SetFtCursorDelInfo, .position = keys},
     {.name = "GC",      .fullName = "FT.CURSOR" "|GC",      .flags = "write",
-     .handler = SafeCmd(CursorReadCommand),
+     .handler = SafeCmd(CursorGCCommand),
      .setCommandInfo = NULL, .position = keys}
     };
-  return CreateSubCommands(ctx, SafeCmd(cursorCommand), subcommands, sizeof(subcommands) / sizeof(SubCommand));
+  return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
 }
 
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
