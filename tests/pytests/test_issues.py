@@ -1784,7 +1784,6 @@ def test_mod_12493(env:Env):
   # Check command stats for internal cursors command. We expect a single one (READ) on each shard
   for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
     stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR|READ']
-    stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR|READ']
     env.assertEqual(stats['calls'], 1, message=f'Expected 1 call on shard {i}, got {stats["calls"]}')
 
   # Delete the cursor. This should delete the internal cursors on all shards.
