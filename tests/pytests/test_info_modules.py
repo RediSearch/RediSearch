@@ -621,9 +621,8 @@ def test_active_io_threads_stats(env):
   # we test it in unit tests.
 
 # NOTE: Currently query debug pause mechanism only supports pausing one query at a time, and is not supported on cluster.
+@skip(cluster=True, noWorkers=True)
 def test_active_worker_threads():
-    if COORD or not MT_BUILD:
-      raise SkipTest()
     env = Env(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL')
     num_queries = 1
     conn = getConnectionByEnv(env)

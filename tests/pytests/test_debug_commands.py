@@ -912,10 +912,6 @@ def test_query_controller_pause_and_resume():
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
 
-    # Helper to call a function and push its return value into a list
-    def _call_and_store(fn, args, out_list):
-        out_list.append(fn(*args))
-
     queries_completed = 0
 
     for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
@@ -924,7 +920,7 @@ def test_query_controller_pause_and_resume():
 
         # Build threads
         t_query = threading.Thread(
-            target=_call_and_store,
+            target=call_and_store,
             args=(runDebugQueryCommandPauseBeforeRPAfterN,
                 (env, [query_type, 'idx', '*'], 'Index', 0),
                 query_result),
