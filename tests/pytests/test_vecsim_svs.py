@@ -580,18 +580,17 @@ def test_gc():
 
         # Phase 2: Force garbage collection to reclaim memory
         # Explicit GC should reduce memory usage after marked deletions
-        orig_workers_stats = getWorkersThpoolStats(env)
+        env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+        jobs_done_before = getWorkersThpoolStats(env)['totalJobsDone']
         forceInvokeGC(env, DEFAULT_INDEX_NAME)
         cur_workers_stats = getWorkersThpoolStats(env)
 
-        # GC background jobs for SVS should be either pending in low priority queue, in progress or already done.
-        env.assertEqual(orig_workers_stats['totalJobsDone'] + num_workers,
-                        cur_workers_stats['totalJobsDone'] + cur_workers_stats['lowPriorityPendingJobs']
-                        + cur_workers_stats['numJobsInProgress'],
-                        message=f"{message_prefix}")
+        # GC background jobs for SVS should be pending in low priority queue.
+        env.assertEqual(cur_workers_stats['lowPriorityPendingJobs'], num_workers, message=f"{message_prefix}")
+        env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
 
-        with TimeLimit(10, message=f"Waiting for GC jobs to finish timed out.{message_prefix}"):
-            while getWorkersThpoolStats(env)['numJobsInProgress'] != 0:
+        with TimeLimit(100, message=f"Waiting for GC jobs to finish timed out.{message_prefix}"):
+            while getWorkersThpoolStats(env)['totalJobsDone'] != jobs_done_before + num_workers:
                 time.sleep(0.1)
 
         tiered_backend_debug_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
