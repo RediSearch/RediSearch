@@ -24,7 +24,6 @@ extern "C" {
 #include "src/iterators/union_iterator.h"
 #include "src/iterators/intersection_iterator.h"
 #include "src/iterators/not_iterator.h"
-#include "src/iterators/empty_iterator.h"
 #include "src/iterators/wildcard_iterator.h"
 #include "src/util/arr.h"
 #include "src/util/references.h"
@@ -1498,7 +1497,7 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
 
   // Mock the WILDCARD_ITERATOR consideration
-  QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, n, 1.0);
+  QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, 1.0);
 
   HybridIteratorParams hParams = {
     .sctx = NULL,

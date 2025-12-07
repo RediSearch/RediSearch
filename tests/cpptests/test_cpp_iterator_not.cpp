@@ -16,8 +16,7 @@
 #include <vector>
 
 #include "src/iterators/not_iterator.h"
-#include "src/iterators/wildcard_iterator.h"
-#include "src/iterators/empty_iterator.h"
+#include "iterators_rs.h"
 #include "src/iterators/inverted_index_iterator.h"
 #include "inverted_index.h"
 #include "index_utils.h"
@@ -683,7 +682,7 @@ TEST_F(NotIteratorReducerTest, TestNotWithWildcardChild) {
   std::vector<t_docId> wildcard = {1, 2, 3};
   MockQueryEvalCtx mockQctx(wildcard);
 
-  QueryIterator *wildcardChild = NewWildcardIterator_NonOptimized(maxDocId, maxDocId, 1.0);
+  QueryIterator *wildcardChild = NewWildcardIterator_NonOptimized(maxDocId, 1.0);
   QueryIterator *it = NewNotIterator(wildcardChild, maxDocId, 1.0, timeout, &mockQctx.qctx);
 
   // Should return an empty iterator

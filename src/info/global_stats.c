@@ -107,6 +107,8 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   stats.coord_warnings.timeout = READ(RSGlobalStats.totalStats.queries.coord_warnings.timeout);
   stats.shard_warnings.oom = READ(RSGlobalStats.totalStats.queries.shard_warnings.oom);
   stats.coord_warnings.oom = READ(RSGlobalStats.totalStats.queries.coord_warnings.oom);
+  stats.shard_warnings.maxPrefixExpansion = READ(RSGlobalStats.totalStats.queries.shard_warnings.maxPrefixExpansion);
+  stats.coord_warnings.maxPrefixExpansion = READ(RSGlobalStats.totalStats.queries.coord_warnings.maxPrefixExpansion);
   return stats;
 }
 
@@ -160,6 +162,9 @@ void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bo
     case QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD:
       INCR_BY(queries_warnings->oom, toAdd);
       break;
+    case QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS:
+      INCR_BY(queries_warnings->maxPrefixExpansion, toAdd);
+      break;
   }
 }
 
@@ -178,7 +183,16 @@ void GlobalStats_UpdateActiveIoThreads(int toAdd) {
 MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   MultiThreadingStats stats;
   stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
+
+  // Workers stats
+  // We don't use workersThreadPool_getStats here to avoid the overhead of locking the thread pool.
   stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
+  stats.workers_low_priority_pending_jobs = workersThreadPool_LowPriorityPendingJobsCount();
+  stats.workers_high_priority_pending_jobs = workersThreadPool_HighPriorityPendingJobsCount();
+  stats.workers_admin_priority_pending_jobs = workersThreadPool_AdminPriorityPendingJobsCount();
+
+  // Coordinator stats
   stats.active_coord_threads = ConcurrentSearchPool_WorkingThreadCount();
+  stats.coord_high_priority_pending_jobs = ConcurrentSearchPool_HighPriorityPendingJobsCount();
   return stats;
 }

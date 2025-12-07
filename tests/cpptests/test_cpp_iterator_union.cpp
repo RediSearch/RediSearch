@@ -10,8 +10,7 @@
 #include "iterator_util.h"
 
 #include "src/iterators/union_iterator.h"
-#include "src/iterators/empty_iterator.h"
-#include "src/iterators/wildcard_iterator.h"
+#include "iterators_rs.h"
 #include "src/iterators/inverted_index_iterator.h"
 #include "inverted_index.h"
 
@@ -323,7 +322,7 @@ TEST_F(UnionIteratorReducerTest, TestUnionRemovesEmptyChildrenOnlyOneLeft) {
 TEST_F(UnionIteratorReducerTest, TestUnionQuickWithWildcard) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
   children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
-  children[1] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
+  children[1] = NewWildcardIterator_NonOptimized(30, 1.0);
   children[2] = nullptr;
   children[3] = NewEmptyIterator();
   QueryIterator *ui_base = NewUnionIterator(children, 4, true, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);

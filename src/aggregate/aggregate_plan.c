@@ -185,6 +185,13 @@ PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, const char *dis
   return newStp;
 }
 
+PLN_ArrangeStep *NewArrangeStep() {
+  PLN_ArrangeStep *newStp = rm_calloc(1, sizeof(*newStp));
+  newStp->base.type = PLN_T_ARRANGE;
+  newStp->base.dtor = arrangeDtor;
+  return newStp;
+}
+
 PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
   PLN_ArrangeStep *ret = AGPLN_GetArrangeStep(pln);
   if (ret) {
@@ -303,7 +310,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
           printf("  OFFSET:%lu LIMIT:%lu\n", (unsigned long)astp->offset,
                  (unsigned long)astp->limit);
         }
-        if (astp->sortKeys) {
+        if (array_len(astp->sortKeys)) {
           printf("  SORT:\n");
           for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
             const char *dir = SORTASCMAP_GETASC(astp->sortAscMap, ii) ? "ASC" : "DESC";

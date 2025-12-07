@@ -66,6 +66,7 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
     // Non-fatal error
     ReplyWarning(reply, QueryError_GetUserError(err), suffix);
   } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, COORD_ERR_WARN);
     ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix);
   }
 
@@ -429,7 +430,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
       if (backgroundDepletion) {
-        if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
+        if (areq->pipeline.qctx.endProc->type != RP_SAFE_DEPLETER) {
           break;
         }
         array_ensure_append_1(depleters, areq->pipeline.qctx.endProc);
@@ -456,7 +457,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     }
 
     if (backgroundDepletion) {
-      int rc = RPDepleter_DepleteAll(depleters);
+      int rc = RPSafeDepleter_DepleteAll(depleters);
       array_free(depleters);
       if (rc != RS_RESULT_OK) {
         array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
