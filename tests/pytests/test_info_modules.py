@@ -2010,7 +2010,6 @@ def test_total_docs_indexed_metric_SA(env):
   # 1. Regular flow: create index, create doc, check metric incremented
   # Create first index with prefix 'do' (will match 'doc:*')
   env.expect('FT.CREATE', 'idx1', 'PREFIX', 1, 'do', 'SCHEMA', 'text', 'TEXT').ok()
-  waitForIndex(env, 'idx1')
   env.assertEqual(get_total_docs_indexed(), 0, message="No docs yet, metric should be 0")
 
   # Add first document
