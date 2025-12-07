@@ -5,38 +5,6 @@ from common import *
 READ_SEARCH_COMMANDS = ['FT.SEARCH', 'FT.AGGREGATE', 'FT.CURSOR',
                  'FT.PROFILE', 'FT.SUGGET', 'FT.SUGLEN', 'FT.HYBRID']
 WRITE_SEARCH_COMMANDS = ['FT.DROPINDEX', 'FT.SUGADD', 'FT.SUGDEL']
-INTERNAL_SEARCH_COMMANDS = {
-        '_FT.ALIASDEL': 'alias',
-        '_FT.AGGREGATE': 'idx *',
-        '_FT.ALIASADD': 'idx alias',
-        '_FT.ALIASUPDATE': 'idx alias2',
-        '_FT.CURSOR': ['READ 1234', 'DEL 1234'],
-        '_FT.INFO': 'idx',
-        '_FT.ALTER': 'idx SCHEMA ADD f2 NUMERIC',
-        '_FT.DICTDEL': 'dict word',
-        '_FT.SYNUPDATE': 'synonym hello hi',
-        '_FT.SPELLCHECK': 'idx held DISTANCE 2',
-        '_FT.CREATE': 'idx SCHEMA f1 NUMERIC',
-        '_FT.DICTADD': 'dict word',
-        '_FT.PROFILE': 'idx SEARCH *',
-        '_FT.SEARCH': 'idx *',
-        '_FT.DEBUG': 'DUMP_PREFIX_TRIE',
-        '_FT.CONFIG': 'GET foo',
-        '_FT.TAGVALS': 'idx tag',
-        '_FT._ALTERIFNX': 'idx SCHEMA ADD f2 NUMERIC',
-        '_FT._ALIASDELIFX': 'alias',
-        '_FT._ALIASADDIFNX': 'idx alias',
-        '_FT._DROPINDEXIFX': 'idx',
-        '_FT.DROPINDEX': 'idx',
-        '_FT.ADD': 'idx doc:1 fields f1 val',
-        '_FT.DROP': 'idx',
-        '_FT.GET': 'doc:1',
-        '_FT._CREATEIFNX': 'idx SCHEMA f1 NUMERIC',
-        '_FT.MGET': 'doc:1 doc:2',
-        '_FT.DEL': 'doc:1',
-        '_FT._DROPIFX': 'idx',
-        '_FT.SAFEADD': 'idx doc:1 fields f1 val'
-}
 
 def test_acl_category(env):
     """Test that the `search` category was added appropriately in module
