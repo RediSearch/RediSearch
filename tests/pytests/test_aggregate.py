@@ -317,6 +317,7 @@ class TestAggregate():
         if self.env.isCluster():
             # On cluster, filter can implicitly load any field
             res = self.env.cmd(*cmd)
+            _test_withcount(self.env, cmd)
             self.env.assertEqual([
                 ['price', '759.12', 'categories', 'Accessories,Controllers,PC,Steering Wheels,Video Games'],
                 ['price', '695.8', 'categories', 'Consoles,Sony PSP,Video Games'],
@@ -336,6 +337,7 @@ class TestAggregate():
 
         # FIXME: should yield the same results in standalone cluster modes (sony vs Sony)
         res = self.env.cmd(*cmd)
+        _test_withcount(self.env, cmd)
         if self.env.isCluster():
             self.env.assertEqual([
                 ['brand', 'Sony', 'categories', 'Accessories,Cables,Cables & Adapters,PlayStation 3,Video Games', 'price', '5.88'],
