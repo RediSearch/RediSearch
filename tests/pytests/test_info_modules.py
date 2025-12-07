@@ -1990,7 +1990,6 @@ class TestCoordHighPriorityPendingJobs(object):
 
     self.verify_coord_high_priority_pending_jobs('HYBRID', num_commands_per_type, hybrid_threads)
 
-
 # Test the 'total_documents_indexed' INFO MODULES metric in standalone mode.
 # This metric counts the total number of documents indexed by all indexes,
 # with potential overlap (a doc counted once per index that indexes it).
