@@ -1575,7 +1575,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_PROFILE_CMD,   RSProfileCommand,         RS_READ_ONLY_FLAGS_DEFAULT, SetFtProfileInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_MGET_CMD,      GetDocumentsCommand,      RS_READ_ONLY_FLAGS_DEFAULT, NULL,                      NONE,                  "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_TAGVALS_CMD,   TagValsCommand,           RS_READ_ONLY_FLAGS_DEFAULT, SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_CURSOR_CMD,    NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterCursorCommands,    SUBSCRIBE_SUBCOMMANDS, "read",                 true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_CURSOR_CMD,    NULL,                     "readonly"                , RegisterCursorCommands,    SUBSCRIBE_SUBCOMMANDS, "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "",                     true,             indexOnlyCmdArgs, false),
     DEFINE_COMMAND(RS_SPELL_CHECK,   SpellCheckCommand,        RS_READ_ONLY_FLAGS_DEFAULT, SetFtSpellcheckInfo,       SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CONFIG,        NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                true,             indexOnlyCmdArgs, false),
@@ -3439,6 +3439,20 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
                                                (WeakRef){0});
 }
 
+
+#define CURSOR_SUBCOMMAND(name) \
+static void Cursor##name##CommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) { \
+  RSCursor##name##Command(ctx, argv, argc);                                                                                           \
+}                                                                                                                                     \
+int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {                                                  \
+  return CursorCommand(ctx, argv, argc, RSCursor##name##Command, Cursor##name##CommandInternal);                                      \
+}
+
+CURSOR_SUBCOMMAND(Read)
+CURSOR_SUBCOMMAND(Del)
+CURSOR_SUBCOMMAND(GC)
+
+
 // This function sits next to RegisterCoordCursorCommands function
 // RegisterCoordCursorCommands currently has too many dependencies to be easily moved up where CreateSubCommands is defined
 static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
@@ -3465,13 +3479,13 @@ static int RegisterCoordCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *
   CommandKeys keys = clusterConfig.type == ClusterType_RedisLabs ? DEFINE_COMMAND_KEYS(3,1,-3) : DEFINE_COMMAND_KEYS(0,0,-1);
   SubCommand subcommands[] = {
     {.name = "READ",    .fullName = "FT.CURSOR" "|READ",    .flags = "readonly",
-     .handler = SafeCmd(RSCursorReadCommand),
+     .handler = SafeCmd(CursorReadCommand),
      .setCommandInfo = SetFtCursorReadInfo, .position = keys},
     {.name = "DEL",     .fullName = "FT.CURSOR" "|DEL",     .flags = "write",
-     .handler = SafeCmd(RSCursorDelCommand),
+     .handler = SafeCmd(CursorReadCommand),
      .setCommandInfo = SetFtCursorDelInfo, .position = keys},
     {.name = "GC",      .fullName = "FT.CURSOR" "|GC",      .flags = "write",
-     .handler = SafeCmd(RSCursorGCCommand),
+     .handler = SafeCmd(CursorReadCommand),
      .setCommandInfo = NULL, .position = keys}
     };
   return CreateSubCommands(ctx, SafeCmd(cursorCommand), subcommands, sizeof(subcommands) / sizeof(SubCommand));
