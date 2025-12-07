@@ -15,8 +15,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index."
+        "type": "string"
       },
       {
         "name": "data_type",
@@ -34,8 +33,7 @@
             "token": "JSON"
           }
         ],
-        "optional": true,
-        "summary": "Specifies the type of data to index, such as HASH or JSON."
+        "optional": true
       },
       {
         "name": "prefix",
@@ -50,95 +48,81 @@
           {
             "name": "prefix",
             "type": "string",
-            "multiple": true,
-            "summary": "Filters indexed documents to include only keys that start with the specified prefix."
+            "multiple": true
           }
-        ],
-        "summary": "Filters indexed documents to include only keys that start with the specified prefix."
+        ]
       },
       {
         "name": "filter",
         "type": "string",
         "optional": true,
-        "token": "FILTER",
-        "summary": "Applies a numeric range filter to restrict results to documents with field values within the specified range."
+        "token": "FILTER"
       },
       {
         "name": "default_lang",
         "type": "string",
         "token": "LANGUAGE",
-        "optional": true,
-        "summary": "Defines the default language for the index."
+        "optional": true
       },
       {
         "name": "lang_attribute",
         "type": "string",
         "token": "LANGUAGE_FIELD",
-        "optional": true,
-        "summary": "Specifies the attribute from which the language is determined."
+        "optional": true
       },
       {
         "name": "default_score",
         "type": "double",
         "token": "SCORE",
-        "optional": true,
-        "summary": "Sets the default score for documents in the index."
+        "optional": true
       },
       {
         "name": "score_attribute",
         "type": "string",
         "token": "SCORE_FIELD",
-        "optional": true,
-        "summary": "Specifies the attribute from which the score is derived."
+        "optional": true
       },
       {
         "name": "payload_attribute",
         "type": "string",
         "token": "PAYLOAD_FIELD",
-        "optional": true,
-        "summary": "Defines the attribute used for payloads in the index."
+        "optional": true
       },
       {
         "name": "maxtextfields",
         "type": "pure-token",
         "token": "MAXTEXTFIELDS",
-        "optional": true,
-        "summary": "Increases the maximum number of text fields allowed in the schema."
+        "optional": true
       },
       {
         "name": "seconds",
         "type": "double",
         "token": "TEMPORARY",
-        "optional": true,
-        "summary": "Specifies the duration (in seconds) for which the index remains active (temporary index)."
+        "optional": true
       },
       {
         "name": "nooffsets",
         "type": "pure-token",
         "token": "NOOFFSETS",
-        "optional": true,
-        "summary": "Disables storage of term offsets for index entries."
+        "optional": true
       },
       {
         "name": "nohl",
         "type": "pure-token",
         "token": "NOHL",
-        "optional": true,
-        "summary": "Disables support for highlighting in search results."
+        "optional": true
       },
       {
         "name": "nofields",
         "type": "pure-token",
         "token": "NOFIELDS",
-        "optional": true,
-        "summary": "Omits returning fields from search results."
+        "optional": true
       },
       {
         "name": "nofreqs",
         "type": "pure-token",
         "token": "NOFREQS",
-        "optional": true,
-        "summary": "Disables storage of term frequencies in the index."
+        "optional": true
       },
       {
         "name": "stopwords",
@@ -156,21 +140,18 @@
             "multiple": true,
             "optional": true
           }
-        ],
-        "summary": "Defines custom stop words for the index, which will be ignored during full-text search."
+        ]
       },
       {
         "name": "skipinitialscan",
         "type": "pure-token",
         "token": "SKIPINITIALSCAN",
-        "optional": true,
-        "summary": "Skips the initial scan of the database when creating the index."
+        "optional": true
       },
       {
         "name": "schema",
         "type": "pure-token",
-        "token": "SCHEMA",
-        "summary": "Defines the fields in the index and their properties, such as type (`TEXT`, `TAG`, `NUMERIC`, etc.)."
+        "token": "SCHEMA"
       },
       {
         "name": "field",
@@ -260,8 +241,7 @@
             "token": "NOINDEX",
             "optional": true
           }
-        ],
-        "summary": "Specifies a field in the index schema with its properties."
+        ]
       }
     ],
     "since": "1.0.0",
@@ -273,8 +253,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       }
     ],
     "since": "1.0.0",
@@ -286,21 +265,18 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       },
       {
         "name": "query",
-        "type": "string",
-        "summary": "Specifies the query to profile and analyze performance."
+        "type": "string"
       },
       {
         "name": "dialect",
         "type": "integer",
         "optional": true,
         "token": "DIALECT",
-        "since": "2.4.3",
-        "summary": "Sets the query dialect version to be used."
+        "since": "2.4.3"
       }
     ],
     "since": "1.0.0",
@@ -312,21 +288,18 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       },
       {
         "name": "query",
-        "type": "string",
-        "summary": "Specifies the query to profile and analyze performance."
+        "type": "string"
       },
       {
         "name": "dialect",
         "type": "integer",
         "optional": true,
         "token": "DIALECT",
-        "since": "2.4.3",
-        "summary": "Sets the query dialect version to be used."
+        "since": "2.4.3"
       }
     ],
     "since": "1.0.0",
@@ -338,21 +311,18 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       },
       {
         "name": "skipinitialscan",
         "type": "pure-token",
         "token": "SKIPINITIALSCAN",
-        "optional": true,
-        "summary": "Skips the initial scan of the database when creating the index."
+        "optional": true
       },
       {
         "name": "schema",
         "type": "pure-token",
-        "token": "SCHEMA",
-        "summary": "Defines the fields in the index and their properties, such as type (`TEXT`, `TAG`, `NUMERIC`, etc.)."
+        "token": "SCHEMA"
       },
       {
         "name": "add",
@@ -361,8 +331,7 @@
       },
       {
         "name": "field",
-        "type": "string",
-        "summary": "Specifies a field in the index schema with its properties."
+        "type": "string"
       },
       {
         "name": "options",
@@ -378,8 +347,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       },
       {
         "name": "delete docs",
@@ -407,8 +375,7 @@
       },
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       }
     ],
     "since": "1.0.0",
@@ -424,8 +391,7 @@
       },
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       }
     ],
     "since": "1.0.0",
@@ -449,8 +415,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       },
       {
         "name": "field_name",
@@ -463,12 +428,6 @@
   "FT.SUGADD": {
     "summary": "Adds a suggestion string to an auto-complete suggestion dictionary",
     "complexity": "O(1)",
-    "history": [
-      [
-        "2.0.0",
-        "Deprecated `PAYLOAD` argument"
-      ]
-    ],
     "arguments": [
       {
         "name": "key",
@@ -507,12 +466,6 @@
   "FT.SUGGET": {
     "summary": "Gets completion suggestions for a prefix",
     "complexity": "O(1)",
-    "history": [
-      [
-        "2.0.0",
-        "Deprecated `WITHPAYLOADS` argument"
-      ]
-    ],
     "arguments": [
       {
         "name": "key",
@@ -520,8 +473,7 @@
       },
       {
         "name": "prefix",
-        "type": "string",
-        "summary": "Filters indexed documents to include only keys that start with the specified prefix."
+        "type": "string"
       },
       {
         "name": "fuzzy",
@@ -533,8 +485,7 @@
         "name": "withscores",
         "type": "pure-token",
         "token": "WITHSCORES",
-        "optional": true,
-        "summary": "Includes the relative scores of each document in the search results."
+        "optional": true
       },
       {
         "name": "withpayloads",
@@ -586,8 +537,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       },
       {
         "name": "synonym_group_id",
@@ -597,8 +547,7 @@
         "name": "skipinitialscan",
         "type": "pure-token",
         "token": "SKIPINITIALSCAN",
-        "optional": true,
-        "summary": "Skips the initial scan of the database when creating the index."
+        "optional": true
       },
       {
         "name": "term",
@@ -615,8 +564,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       }
     ],
     "since": "1.2.0",
@@ -628,13 +576,11 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       },
       {
         "name": "query",
-        "type": "string",
-        "summary": "Specifies the query to profile and analyze performance."
+        "type": "string"
       },
       {
         "name": "distance",
@@ -681,8 +627,7 @@
         "type": "integer",
         "optional": true,
         "token": "DIALECT",
-        "since": "2.4.3",
-        "summary": "Sets the query dialect version to be used."
+        "since": "2.4.3"
       }
     ],
     "since": "1.4.0",
@@ -798,27 +743,23 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       },
       {
         "name": "query",
-        "type": "string",
-        "summary": "Specifies the query to profile and analyze performance."
+        "type": "string"
       },
       {
         "name": "nocontent",
         "type": "pure-token",
         "token": "NOCONTENT",
-        "optional": true,
-        "summary": "Returns only the document IDs in the search results, excluding the content."
+        "optional": true
       },
       {
         "name": "verbatim",
         "type": "pure-token",
         "token": "VERBATIM",
-        "optional": true,
-        "summary": "Searches using the exact query terms without stemming or query expansion."
+        "optional": true
       },
       {
         "name": "nostopwords",
@@ -830,8 +771,7 @@
         "name": "withscores",
         "type": "pure-token",
         "token": "WITHSCORES",
-        "optional": true,
-        "summary": "Includes the relative scores of each document in the search results."
+        "optional": true
       },
       {
         "name": "withpayloads",
@@ -843,8 +783,7 @@
         "name": "withsortkeys",
         "type": "pure-token",
         "token": "WITHSORTKEYS",
-        "optional": true,
-        "summary": "Returns the sorting key value alongside the document ID."
+        "optional": true
       },
       {
         "name": "filter",
@@ -865,8 +804,7 @@
             "name": "max",
             "type": "double"
           }
-        ],
-        "summary": "Applies a numeric range filter to restrict results to documents with field values within the specified range."
+        ]
       },
       {
         "name": "geo_filter",
@@ -949,8 +887,7 @@
           {
             "name": "field",
             "type": "string",
-            "multiple": true,
-            "summary": "Specifies a field in the index schema with its properties."
+            "multiple": true
           }
         ]
       },
@@ -1006,8 +943,7 @@
               {
                 "name": "field",
                 "type": "string",
-                "multiple": true,
-                "summary": "Specifies a field in the index schema with its properties."
+                "multiple": true
               }
             ]
           },
@@ -1029,8 +965,7 @@
             "token": "SEPARATOR",
             "optional": true
           }
-        ],
-        "summary": "Splits a field into contextual fragments surrounding the found terms, Note that summarize for JSON documents is not currently supported."
+        ]
       },
       {
         "name": "highlight",
@@ -1040,8 +975,7 @@
           {
             "name": "highlight",
             "type": "pure-token",
-            "token": "HIGHLIGHT",
-            "summary": "Highlights terms in the search results, with customizable tags for emphasis."
+            "token": "HIGHLIGHT"
           },
           {
             "name": "fields",
@@ -1056,8 +990,7 @@
               {
                 "name": "field",
                 "type": "string",
-                "multiple": true,
-                "summary": "Specifies a field in the index schema with its properties."
+                "multiple": true
               }
             ]
           },
@@ -1081,8 +1014,7 @@
               }
             ]
           }
-        ],
-        "summary": "Highlights terms in the search results, with customizable tags for emphasis. Note that highlight for JSON documents is not currently supported."
+        ]
       },
       {
         "name": "slop",
@@ -1094,8 +1026,7 @@
         "name": "timeout",
         "type": "integer",
         "optional": true,
-        "token": "TIMEOUT",
-        "summary": "Sets a time limit for query execution, specified in milliseconds."
+        "token": "TIMEOUT"
       },
       {
         "name": "inorder",
@@ -1107,8 +1038,7 @@
         "name": "language",
         "type": "string",
         "optional": true,
-        "token": "LANGUAGE",
-        "summary": "Specifies the default language for full-text search, influencing stemming and stop-word behavior."
+        "token": "LANGUAGE"
       },
       {
         "name": "expander",
@@ -1219,8 +1149,7 @@
         "type": "integer",
         "optional": true,
         "token": "DIALECT",
-        "since": "2.4.3",
-        "summary": "Sets the query dialect version to be used."
+        "since": "2.4.3"
       }
     ],
     "since": "1.0.0",
@@ -1232,20 +1161,17 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       },
       {
         "name": "query",
-        "type": "string",
-        "summary": "Specifies the query to profile and analyze performance."
+        "type": "string"
       },
       {
         "name": "verbatim",
         "type": "pure-token",
         "token": "VERBATIM",
-        "optional": true,
-        "summary": "Searches using the exact query terms without stemming or synonym expansion."
+        "optional": true
       },
       {
         "name": "load",
@@ -1260,8 +1186,7 @@
           {
             "name": "field",
             "type": "string",
-            "multiple": true,
-            "summary": "Specifies a field in the index schema with its properties."
+            "multiple": true
           }
         ]
       },
@@ -1269,8 +1194,7 @@
         "name": "timeout",
         "type": "integer",
         "optional": true,
-        "token": "TIMEOUT",
-        "summary": "Sets a time limit for query execution, specified in milliseconds."
+        "token": "TIMEOUT"
       },
       {
         "name": "loadall",
@@ -1386,11 +1310,9 @@
                 "token": "AS",
                 "optional": true
               }
-            ],
-            "summary": "Applies a reducer function, like `SUM` or `COUNT`, on grouped results."
+            ]
           }
-        ],
-        "summary": "Groups results by specified fields, often used for aggregations."
+        ]
       },
       {
         "name": "sortby",
@@ -1446,7 +1368,7 @@
         "arguments": [
           {
             "name": "expression",
-            "type": "block",
+            "type": "string",
             "expression": true,
             "token": "APPLY",
             "arguments": [
@@ -1457,7 +1379,8 @@
                 "summary": "Checks whether a field exists in a document.",
                 "arguments": [
                   {
-                    "token": "s"
+                    "token": "s",
+                    "type": "string"
                   }
                 ]
               },
@@ -1468,7 +1391,8 @@
                 "summary": "Return the logarithm of a number, property or subexpression",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   }
                 ]
               },
@@ -1479,7 +1403,8 @@
                 "summary": "Return the absolute value of a numeric expression",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   }
                 ]
               },
@@ -1490,7 +1415,8 @@
                 "summary": "Round to the smallest integer not less than x",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   }
                 ]
               },
@@ -1501,7 +1427,8 @@
                 "summary": "Round to largest integer not greater than x",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   }
                 ]
               },
@@ -1512,7 +1439,8 @@
                 "summary": "Return the logarithm of x to base 2",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   }
                 ]
               },
@@ -1523,7 +1451,8 @@
                 "summary": "Return the exponent of x, e.g., e^x",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   }
                 ]
               },
@@ -1534,7 +1463,8 @@
                 "summary": "Return the square root of x",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   }
                 ]
               },
@@ -1545,7 +1475,8 @@
                 "summary": "Return the uppercase conversion of s",
                 "arguments": [
                   {
-                    "token": "s"
+                    "token": "s",
+                    "type": "string"
                   }
                 ]
               },
@@ -1556,7 +1487,8 @@
                 "summary": "Return the lowercase conversion of s",
                 "arguments": [
                   {
-                    "token": "s"
+                    "token": "s",
+                    "type": "string"
                   }
                 ]
               },
@@ -1567,10 +1499,12 @@
                 "summary": "Return 1 if s2 is the prefix of s1, 0 otherwise.",
                 "arguments": [
                   {
-                    "token": "s1"
+                    "token": "s1",
+                    "type": "string"
                   },
                   {
-                    "token": "s2"
+                    "token": "s2",
+                    "type": "string"
                   }
                 ]
               },
@@ -1581,10 +1515,12 @@
                 "summary": "Return the number of occurrences of s2 in s1, 0 otherwise. If s2 is an empty string, return length(s1) + 1.",
                 "arguments": [
                   {
-                    "token": "s1"
+                    "token": "s1",
+                    "type": "string"
                   },
                   {
-                    "token": "s2"
+                    "token": "s2",
+                    "type": "string"
                   }
                 ]
               },
@@ -1595,7 +1531,8 @@
                 "summary": "Return the length of s",
                 "arguments": [
                   {
-                    "token": "s"
+                    "token": "s",
+                    "type": "string"
                   }
                 ]
               },
@@ -1606,13 +1543,16 @@
                 "summary": "Return the substring of s, starting at offset and having count characters. If offset is negative, it represents the distance from the end of the string. If count is -1, it means \"the rest of the string starting at offset\".",
                 "arguments": [
                   {
-                    "token": "s"
+                    "token": "s",
+                    "type": "string"
                   },
                   {
-                    "token": "offset"
+                    "token": "offset",
+                    "type": "integer"
                   },
                   {
-                    "token": "count"
+                    "token": "count",
+                    "type": "integer"
                   }
                 ]
               },
@@ -1623,7 +1563,8 @@
                 "summary": "Use the arguments following fmt to format a string. Currently the only format argument supported is %s and it applies to all types of arguments.",
                 "arguments": [
                   {
-                    "token": "fmt"
+                    "token": "fmt",
+                    "type": "string"
                   }
                 ]
               },
@@ -1635,6 +1576,7 @@
                 "arguments": [
                   {
                     "token": "max_terms=100",
+                    "type": "integer",
                     "optional": true
                   }
                 ]
@@ -1646,7 +1588,8 @@
                 "summary": "Split a string by any character in the string sep, and strip any characters in strip. If only s is specified, it is split by commas and spaces are stripped. The output is an array.",
                 "arguments": [
                   {
-                    "token": "s"
+                    "token": "s",
+                    "type": "string"
                   }
                 ]
               },
@@ -1657,10 +1600,12 @@
                 "summary": "Return a formatted time string based on a numeric timestamp value x.",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   },
                   {
                     "token": "fmt",
+                    "type": "string",
                     "optional": true
                   }
                 ]
@@ -1672,10 +1617,12 @@
                 "summary": "The opposite of timefmt() - parse a time format using a given format string",
                 "arguments": [
                   {
-                    "token": "timesharing"
+                    "token": "timesharing",
+                    "type": "string"
                   },
                   {
                     "token": "fmt",
+                    "type": "string",
                     "optional": true
                   }
                 ]
@@ -1687,7 +1634,8 @@
                 "summary": "Round a Unix timestamp to midnight (00:00) start of the current day.",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -1698,7 +1646,8 @@
                 "summary": "Round a Unix timestamp to the beginning of the current hour.",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -1709,7 +1658,8 @@
                 "summary": "Round a Unix timestamp to the beginning of the current minute.",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -1720,7 +1670,8 @@
                 "summary": "Round a unix timestamp to the beginning of the current month.",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -1731,7 +1682,8 @@
                 "summary": "Convert a Unix timestamp to the day number (Sunday = 0).",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -1742,7 +1694,8 @@
                 "summary": "Convert a Unix timestamp to the day of month number (1 .. 31).",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -1753,7 +1706,8 @@
                 "summary": "Convert a Unix timestamp to the day of year number (0 .. 365).",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -1764,7 +1718,8 @@
                 "summary": "Convert a Unix timestamp to the current year (e.g. 2018).",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -1775,7 +1730,8 @@
                 "summary": "Convert a Unix timestamp to the current month (0 .. 11).",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -1823,8 +1779,8 @@
         "name": "filter",
         "type": "string",
         "optional": true,
-        "token": "FILTER",
-        "summary": "Applies a numeric range filter to restrict results to documents with field values within the specified range."
+        "expression": true,
+        "token": "FILTER"
       },
       {
         "name": "cursor",
@@ -1886,8 +1842,7 @@
         "type": "integer",
         "optional": true,
         "token": "DIALECT",
-        "since": "2.4.3",
-        "summary": "Sets the query dialect version to be used."
+        "since": "2.4.3"
       }
     ],
     "since": "1.1.0",
@@ -1899,8 +1854,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       },
       {
         "name": "querytype",
@@ -1922,8 +1876,7 @@
         "name": "limited",
         "type": "pure-token",
         "token": "LIMITED",
-        "optional": true,
-        "summary": "Restricts profiling to the initial phase of the query execution."
+        "optional": true
       },
       {
         "name": "queryword",
@@ -1932,8 +1885,7 @@
       },
       {
         "name": "query",
-        "type": "string",
-        "summary": "Specifies the query to profile and analyze performance."
+        "type": "string"
       }
     ],
     "since": "2.2.0",
@@ -1945,8 +1897,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       },
       {
         "name": "cursor_id",
@@ -1959,9 +1910,6 @@
         "token": "COUNT"
       }
     ],
-    "command_tips": [
-      "REQUEST_POLICY:SPECIAL"
-    ],
     "since": "1.1.0",
     "group": "search"
   },
@@ -1971,16 +1919,12 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "type": "string"
       },
       {
         "name": "cursor_id",
         "type": "integer"
       }
-    ],
-    "command_tips": [
-      "REQUEST_POLICY:SPECIAL"
     ],
     "since": "1.1.0",
     "group": "search"
@@ -2460,7 +2404,7 @@
         "arguments": [
           {
             "name": "expression",
-            "type": "block",
+            "type": "string",
             "expression": true,
             "token": "APPLY",
             "arguments": [
@@ -2471,7 +2415,8 @@
                 "summary": "Checks whether a field exists in a document.",
                 "arguments": [
                   {
-                    "token": "s"
+                    "token": "s",
+                    "type": "string"
                   }
                 ]
               },
@@ -2482,7 +2427,8 @@
                 "summary": "Return the logarithm of a number, property or subexpression",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   }
                 ]
               },
@@ -2493,7 +2439,8 @@
                 "summary": "Return the absolute value of a numeric expression",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   }
                 ]
               },
@@ -2504,7 +2451,8 @@
                 "summary": "Round to the smallest integer not less than x",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   }
                 ]
               },
@@ -2515,7 +2463,8 @@
                 "summary": "Round to largest integer not greater than x",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   }
                 ]
               },
@@ -2526,7 +2475,8 @@
                 "summary": "Return the logarithm of x to base 2",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   }
                 ]
               },
@@ -2537,7 +2487,8 @@
                 "summary": "Return the exponent of x, e.g., e^x",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   }
                 ]
               },
@@ -2548,7 +2499,8 @@
                 "summary": "Return the square root of x",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   }
                 ]
               },
@@ -2559,7 +2511,8 @@
                 "summary": "Return the uppercase conversion of s",
                 "arguments": [
                   {
-                    "token": "s"
+                    "token": "s",
+                    "type": "string"
                   }
                 ]
               },
@@ -2570,7 +2523,8 @@
                 "summary": "Return the lowercase conversion of s",
                 "arguments": [
                   {
-                    "token": "s"
+                    "token": "s",
+                    "type": "string"
                   }
                 ]
               },
@@ -2581,10 +2535,12 @@
                 "summary": "Return 1 if s2 is the prefix of s1, 0 otherwise.",
                 "arguments": [
                   {
-                    "token": "s1"
+                    "token": "s1",
+                    "type": "string"
                   },
                   {
-                    "token": "s2"
+                    "token": "s2",
+                    "type": "string"
                   }
                 ]
               },
@@ -2595,10 +2551,12 @@
                 "summary": "Return the number of occurrences of s2 in s1, 0 otherwise. If s2 is an empty string, return length(s1) + 1.",
                 "arguments": [
                   {
-                    "token": "s1"
+                    "token": "s1",
+                    "type": "string"
                   },
                   {
-                    "token": "s2"
+                    "token": "s2",
+                    "type": "string"
                   }
                 ]
               },
@@ -2609,7 +2567,8 @@
                 "summary": "Return the length of s",
                 "arguments": [
                   {
-                    "token": "s"
+                    "token": "s",
+                    "type": "string"
                   }
                 ]
               },
@@ -2620,13 +2579,16 @@
                 "summary": "Return the substring of s, starting at offset and having count characters. If offset is negative, it represents the distance from the end of the string. If count is -1, it means \"the rest of the string starting at offset\".",
                 "arguments": [
                   {
-                    "token": "s"
+                    "token": "s",
+                    "type": "string"
                   },
                   {
-                    "token": "offset"
+                    "token": "offset",
+                    "type": "integer"
                   },
                   {
-                    "token": "count"
+                    "token": "count",
+                    "type": "integer"
                   }
                 ]
               },
@@ -2637,7 +2599,8 @@
                 "summary": "Use the arguments following fmt to format a string. Currently the only format argument supported is %s and it applies to all types of arguments.",
                 "arguments": [
                   {
-                    "token": "fmt"
+                    "token": "fmt",
+                    "type": "string"
                   }
                 ]
               },
@@ -2649,6 +2612,7 @@
                 "arguments": [
                   {
                     "token": "max_terms=100",
+                    "type": "integer",
                     "optional": true
                   }
                 ]
@@ -2660,7 +2624,8 @@
                 "summary": "Split a string by any character in the string sep, and strip any characters in strip. If only s is specified, it is split by commas and spaces are stripped. The output is an array.",
                 "arguments": [
                   {
-                    "token": "s"
+                    "token": "s",
+                    "type": "string"
                   }
                 ]
               },
@@ -2671,10 +2636,12 @@
                 "summary": "Return a formatted time string based on a numeric timestamp value x.",
                 "arguments": [
                   {
-                    "token": "x"
+                    "token": "x",
+                    "type": "number"
                   },
                   {
                     "token": "fmt",
+                    "type": "string",
                     "optional": true
                   }
                 ]
@@ -2686,10 +2653,12 @@
                 "summary": "The opposite of timefmt() - parse a time format using a given format string",
                 "arguments": [
                   {
-                    "token": "timesharing"
+                    "token": "timesharing",
+                    "type": "string"
                   },
                   {
                     "token": "fmt",
+                    "type": "string",
                     "optional": true
                   }
                 ]
@@ -2701,7 +2670,8 @@
                 "summary": "Round a Unix timestamp to midnight (00:00) start of the current day.",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -2712,7 +2682,8 @@
                 "summary": "Round a Unix timestamp to the beginning of the current hour.",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -2723,7 +2694,8 @@
                 "summary": "Round a Unix timestamp to the beginning of the current minute.",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -2734,7 +2706,8 @@
                 "summary": "Round a unix timestamp to the beginning of the current month.",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -2745,7 +2718,8 @@
                 "summary": "Convert a Unix timestamp to the day number (Sunday = 0).",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -2756,7 +2730,8 @@
                 "summary": "Convert a Unix timestamp to the day of month number (1 .. 31).",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -2767,7 +2742,8 @@
                 "summary": "Convert a Unix timestamp to the day of year number (0 .. 365).",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -2778,7 +2754,8 @@
                 "summary": "Convert a Unix timestamp to the current year (e.g. 2018).",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },
@@ -2789,7 +2766,8 @@
                 "summary": "Convert a Unix timestamp to the current month (0 .. 11).",
                 "arguments": [
                   {
-                    "token": "timestamp"
+                    "token": "timestamp",
+                    "type": "number"
                   }
                 ]
               },

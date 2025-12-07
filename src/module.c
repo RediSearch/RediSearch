@@ -3460,13 +3460,13 @@ static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *curso
     {.name = "READ",    .fullName = RS_CURSOR_CMD "|READ",    .flags = "readonly",
      .handler = RSCursorReadCommand,
      .setCommandInfo = SetFtCursorReadInfo, .position = keys},
-    {.name = "DEL",     .fullName = RS_CURSOR_CMD "|DEL",     .flags = "write",
+    {.name = "DEL",     .fullName = RS_CURSOR_CMD "|DEL",     .flags = "readonly",
      .handler = RSCursorDelCommand,
      .setCommandInfo = SetFtCursorDelInfo, .position = keys},
     {.name = "PROFILE", .fullName = RS_CURSOR_CMD "|PROFILE", .flags = "readonly",
      .handler = RSCursorProfileCommand,
      .setCommandInfo = NULL, .position = keys},
-    {.name = "GC",      .fullName = RS_CURSOR_CMD "|GC",      .flags = "write",
+    {.name = "GC",      .fullName = RS_CURSOR_CMD "|GC",      .flags = "readonly",
      .handler = RSCursorGCCommand,
      .setCommandInfo = NULL, .position = keys}
     };
@@ -3480,10 +3480,10 @@ static int RegisterCoordCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *
     {.name = "READ",    .fullName = "FT.CURSOR" "|READ",    .flags = "readonly",
      .handler = SafeCmd(CursorReadCommand),
      .setCommandInfo = SetFtCursorReadInfo, .position = keys},
-    {.name = "DEL",     .fullName = "FT.CURSOR" "|DEL",     .flags = "write",
+    {.name = "DEL",     .fullName = "FT.CURSOR" "|DEL",     .flags = "readonly",
      .handler = SafeCmd(CursorDelCommand),
      .setCommandInfo = SetFtCursorDelInfo, .position = keys},
-    {.name = "GC",      .fullName = "FT.CURSOR" "|GC",      .flags = "write",
+    {.name = "GC",      .fullName = "FT.CURSOR" "|GC",      .flags = "readonly",
      .handler = SafeCmd(CursorGCCommand),
      .setCommandInfo = NULL, .position = keys}
     };
