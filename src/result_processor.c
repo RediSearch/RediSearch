@@ -900,7 +900,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
 
   if (isQueryProfile) {
-    rs_wall_clock_ns_t GILTime = rs_wall_clock_elapsed_ns(&rpStartTime);
+    // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
+    rs_wall_clock_ns_t GILTime = rs_wall_clock_elapsed_ns(&rpStartTime) + 1;
     // GIL time is time passed since rpStartTime combined with the time we already accumulated in the rp->queryGILTime
     rp->parent->queryGILTime += GILTime;
     // Add the loader's GIL time to the query's GIL time

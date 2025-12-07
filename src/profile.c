@@ -141,7 +141,8 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
         RedisModule_ReplyKV_Double(reply, "Total GIL time",
                                    rs_wall_clock_convert_ns_to_ms_d(req->qiter.queryGILTime));
       } else {
-        rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime);
+        // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
+        rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime) + 1;
         RedisModule_ReplyKV_Double(reply, "Total GIL time",
                                    rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
       }
@@ -156,7 +157,7 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
                                        QueryError_Strerror(QUERY_ETIMEDOUT));
     } else if (ctx->reachedMaxPrefixExpansions) {
       RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
-    } else if (!ctx->bgScanOOM) {
+    } else {
       RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
     }
 
@@ -219,7 +220,8 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
         RedisModule_Reply_Double(reply,
                                  rs_wall_clock_convert_ns_to_ms_d(req->qiter.queryGILTime));
       } else {
-        rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime);
+        // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
+        rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime) + 1;
         RedisModule_Reply_Double(reply,
                                  rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
       }
