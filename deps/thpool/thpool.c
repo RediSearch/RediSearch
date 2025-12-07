@@ -560,6 +560,7 @@ thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *thpool_p) {
           thpool_p->jobqueues.admin_priority_jobqueue.len,
       .total_pending_jobs = priority_queue_len_unsafe(&thpool_p->jobqueues),
       .num_threads_alive = thpool_p->num_threads_alive,
+      .num_jobs_in_progress = thpool_p->jobqueues.num_jobs_in_progress
   };
   redisearch_thpool_unlock(thpool_p);
   return res;
