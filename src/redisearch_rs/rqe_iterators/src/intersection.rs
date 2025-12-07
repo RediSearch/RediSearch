@@ -414,4 +414,14 @@ where
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         delegate!(self, revalidate)
     }
+
+    #[inline(always)]
+    fn is_empty(&self) -> bool {
+        delegate!(self, is_empty)
+    }
+
+    #[inline(always)]
+    fn is_wildcard(&self) -> bool {
+        delegate!(self, is_wildcard)
+    }
 }

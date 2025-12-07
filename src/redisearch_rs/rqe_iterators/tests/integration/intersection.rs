@@ -1289,6 +1289,15 @@ fn reduced_intersection_trait_methods() {
     assert_eq!(empty_result.last_doc_id(), 0);
     assert_eq!(empty_result.num_estimated(), 0);
     assert!(matches!(empty_result.skip_to(10), Ok(None)));
+    // Verify is_empty() delegates correctly to Empty variant
+    assert!(
+        empty_result.is_empty(),
+        "ReducedIntersection::Empty should delegate is_empty() to return true"
+    );
+    assert!(
+        !empty_result.is_wildcard(),
+        "ReducedIntersection::Empty should not be a wildcard"
+    );
 
     // Test Single variant (all wildcards returns last)
     let children: Vec<Wildcard<'static>> = vec![Wildcard::new(50, 1.0)];
@@ -1296,6 +1305,15 @@ fn reduced_intersection_trait_methods() {
     assert!(matches!(single_result, ReducedIntersection::Single(_)));
     assert!(!single_result.at_eof());
     assert_eq!(single_result.num_estimated(), 50);
+    // Verify is_wildcard() delegates correctly to Wildcard variant
+    assert!(
+        single_result.is_wildcard(),
+        "ReducedIntersection::Single(Wildcard) should delegate is_wildcard() to return true"
+    );
+    assert!(
+        !single_result.is_empty(),
+        "ReducedIntersection::Single(Wildcard) should not be empty"
+    );
 
     // Test Intersection variant
     let children: Vec<SortedIdList<'static>> = vec![
@@ -1308,6 +1326,15 @@ fn reduced_intersection_trait_methods() {
         ReducedIntersection::Intersection(_)
     ));
     assert!(!intersect_result.at_eof());
+    // Intersection should not report as empty or wildcard
+    assert!(
+        !intersect_result.is_empty(),
+        "ReducedIntersection::Intersection should not be empty"
+    );
+    assert!(
+        !intersect_result.is_wildcard(),
+        "ReducedIntersection::Intersection should not be a wildcard"
+    );
 
     // Common docs are 2, 3
     assert_eq!(intersect_result.read().unwrap().unwrap().doc_id, 2);
