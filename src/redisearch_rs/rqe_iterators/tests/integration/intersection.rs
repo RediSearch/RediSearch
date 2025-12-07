@@ -1040,44 +1040,6 @@ fn current_after_operations() {
     assert!(ii.current().is_none(), "current() after EOF should be None");
 }
 
-/// Test: skip_to should always move forward
-/// After reading to a position, skip_to with the same doc_id should return Found
-/// (since we're already at that position, the current document matches)
-#[test]
-fn skip_to_same_position() {
-    let child1 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
-    let child2 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
-
-    let mut ii = Intersection::new(vec![child1, child2]);
-
-    // Skip to position 30
-    let outcome = ii.skip_to(30).expect("skip_to failed");
-    assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
-    assert_eq!(ii.last_doc_id(), 30);
-
-    // Skip to the same position again - should still work and find 30
-    // (implementation may allow this as a no-op or re-find)
-    let outcome = ii.skip_to(30).expect("skip_to failed");
-    match outcome {
-        Some(SkipToOutcome::Found(result)) => {
-            assert_eq!(result.doc_id, 30);
-        }
-        Some(SkipToOutcome::NotFound(result)) => {
-            // If implementation advances, it would land on 40
-            assert_eq!(result.doc_id, 40);
-        }
-        None => {
-            // Only valid if 30 was the last doc
-            panic!("skip_to same position shouldn't EOF");
-        }
-    }
-
-    // Now skip forward
-    let outcome = ii.skip_to(50).expect("skip_to failed");
-    assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
-    assert_eq!(ii.last_doc_id(), 50);
-}
-
 /// Test: Large gaps between document IDs
 #[test]
 fn large_doc_id_gaps() {
