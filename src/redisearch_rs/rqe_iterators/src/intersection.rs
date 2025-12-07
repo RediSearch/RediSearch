@@ -105,7 +105,10 @@ where
     }
 
     /// Loops until all children agree on a doc_id, or EOF is reached.
-    fn find_consensus(&mut self, initial_target: t_docId) -> Result<Option<t_docId>, RQEIteratorError> {
+    fn find_consensus(
+        &mut self,
+        initial_target: t_docId,
+    ) -> Result<Option<t_docId>, RQEIteratorError> {
         let mut curr_target = initial_target;
         loop {
             match self.agree_on_doc_id(curr_target)? {

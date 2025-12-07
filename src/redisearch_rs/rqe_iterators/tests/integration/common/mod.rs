@@ -8,6 +8,6 @@
 */
 
 mod mock_iterator;
-#[allow(unused_imports)] // MockData and MockIteratorError will be used when optional iterator tests are added
+#[allow(unused_imports)]
+// MockData and MockIteratorError will be used when optional iterator tests are added
 pub(crate) use mock_iterator::{MockData, MockIterator, MockIteratorError, MockRevalidateResult};
-
