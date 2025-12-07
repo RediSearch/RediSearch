@@ -14,7 +14,7 @@ use inverted_index::RSIndexResult;
 
 use crate::{Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
-/// Yields documents appearing in ALL child iterators using a merge/zipper algorithm.
+/// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
 ///
 /// Children are sorted by estimated result count (smallest first) to minimize iterations.
 /// A document is only yielded when ALL children have a matching entry for it.
@@ -118,12 +118,24 @@ where
 
     /// Builds the aggregate result from all children's current results.
     ///
-    /// # Safety
+    /// # Why `unsafe` is used here
     ///
-    /// Uses `unsafe` for split borrow: we need to iterate `&mut self.children` while
-    /// mutating `self.result`. These are disjoint fields, but the borrow checker can't
-    /// verify this through `&mut self`. Additionally, `push_borrowed` requires `'index`
-    /// lifetime which the safe borrow pattern cannot provide.
+    /// We attempted to solve this with safe split borrows (standalone function taking
+    /// `&mut self.result` and `&mut self.children` separately), but it doesn't work due
+    /// to a fundamental lifetime mismatch:
+    ///
+    /// - `push_borrowed` requires `&'index RSIndexResult` - a reference with `'index` lifetime
+    /// - `child.current()` returns `&mut RSIndexResult<'index>` - the *data* has `'index`
+    ///   lifetime, but the *reference* is bounded by `&mut self`
+    ///
+    /// The compiler cannot verify that children's internal results live for `'index`,
+    /// even though we know they reference index data that does. Splitting the borrow
+    /// doesn't help because `current()` still returns a reference bounded by the call.
+    ///
+    /// Potential alternatives worth exploring:
+    /// - Store owned copies instead of borrowed references (memory/perf tradeoff)
+    /// - Restructure `RSAggregateResult` to not require `'index` on stored references
+    /// - Use a different aggregate pattern that doesn't store child references
     fn build_aggregate_result(&mut self, doc_id: t_docId) {
         self.last_doc_id = doc_id;
 
@@ -133,9 +145,10 @@ where
         self.result.doc_id = doc_id;
 
         // SAFETY: `children` and `result` are disjoint fields. We only call `current()`
-        // on children (doesn't invalidate results). Child results reference data from
-        // the index with lifetime `'index`, and our result also has `'index` lifetime,
-        // so the borrowed references remain valid. Result is reset before adding new refs.
+        // on children (read-only, doesn't invalidate their results). Child results
+        // reference data from the index with lifetime `'index`, and our aggregate result
+        // also has `'index` lifetime, so the borrowed references remain valid for as long
+        // as this iterator exists. We reset the aggregate before adding new references.
         let result_ptr: *mut RSIndexResult<'index> = &mut self.result;
         for child in &mut self.children {
             if let Some(child_result) = child.current() {
@@ -152,7 +165,7 @@ impl<'index, I> RQEIterator<'index> for Intersection<'index, I>
 where
     I: RQEIterator<'index>,
 {
-    #[inline(always)]
+    #[inline]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.is_eof {
             None
@@ -201,7 +214,6 @@ where
         }
     }
 
-    #[inline(always)]
     fn rewind(&mut self) {
         self.last_doc_id = 0;
         self.is_eof = self.children.is_empty();
@@ -223,7 +235,6 @@ where
         self.is_eof
     }
 
-    #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         let mut any_child_moved = false;
         let mut max_child_doc_id: t_docId = 0;
@@ -310,6 +321,19 @@ where
 }
 
 /// Delegates a method call to the inner variant of `ReducedIntersection`.
+///
+/// This macro implements static dispatch for the enum, forwarding each trait method
+/// to the underlying variant (`Empty`, `Single`, or `Intersection`). This avoids
+/// the overhead of dynamic dispatch (vtable) while keeping the code DRY.
+///
+/// Example: `delegate!(self, skip_to, doc_id)` expands to:
+/// ```ignore
+/// match self {
+///     ReducedIntersection::Empty(e) => e.skip_to(doc_id),
+///     ReducedIntersection::Single(s) => s.skip_to(doc_id),
+///     ReducedIntersection::Intersection(i) => i.skip_to(doc_id),
+/// }
+/// ```
 macro_rules! delegate {
     ($self:expr, $method:ident $(, $arg:expr)*) => {
         match $self {
@@ -324,10 +348,12 @@ impl<'index, I> RQEIterator<'index> for ReducedIntersection<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         delegate!(self, read)
     }
 
+    #[inline(always)]
     fn skip_to(
         &mut self,
         doc_id: t_docId,
@@ -335,26 +361,32 @@ where
         delegate!(self, skip_to, doc_id)
     }
 
+    #[inline(always)]
     fn rewind(&mut self) {
         delegate!(self, rewind)
     }
 
+    #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         delegate!(self, current)
     }
 
+    #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
         delegate!(self, last_doc_id)
     }
 
+    #[inline(always)]
     fn at_eof(&self) -> bool {
         delegate!(self, at_eof)
     }
 
+    #[inline(always)]
     fn num_estimated(&self) -> usize {
         delegate!(self, num_estimated)
     }
 
+    #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         delegate!(self, revalidate)
     }
