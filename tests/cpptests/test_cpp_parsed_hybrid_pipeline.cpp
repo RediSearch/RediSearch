@@ -695,11 +695,13 @@ struct HybridIteratorTestCtx {
   HybridIterator *hi = nullptr;
   QueryError status = QueryError_Default();
   QueryError iterError = QueryError_Default();
+  HybridPipelineParams hybridParams = {0};
 
   ~HybridIteratorTestCtx() {
-    if (hybridReq) HybridRequest_Free(hybridReq);
-    if (spec) IndexSpec_RemoveFromGlobals(spec->own_ref, false);
     if (rootiter) rootiter->Free(rootiter);
+    if (hybridReq) HybridRequest_Free(hybridReq);
+    if (hybridParams.scoringCtx) HybridScoringContext_Free(hybridParams.scoringCtx);
+    if (spec) IndexSpec_RemoveFromGlobals(spec->own_ref, false);
   }
 };
 
@@ -739,7 +741,6 @@ bool SetupHybridIteratorTest(RedisModuleCtx *ctx,
   if (!testCtx->hybridReq) return false;
 
   // Step 4: Parse the hybrid command
-  HybridPipelineParams hybridParams = {0};
   RequestConfig reqConfig = {0};
   CursorConfig cursorConfig = {0};
 
@@ -747,7 +748,7 @@ bool SetupHybridIteratorTest(RedisModuleCtx *ctx,
     .search = testCtx->hybridReq->requests[SEARCH_REQUEST_INDEX],
     .vector = testCtx->hybridReq->requests[VECTOR_REQUEST_INDEX],
     .tailPlan = &testCtx->hybridReq->tailPipeline->ap,
-    .hybridParams = &hybridParams,
+    .hybridParams = &testCtx->hybridParams,
     .reqConfig = &reqConfig,
     .cursorConfig = &cursorConfig
   };
