@@ -22,7 +22,7 @@ use rqe_iterators::{
     intersection::{Intersection, ReducedIntersection, reduce},
 };
 
-use crate::common::{MockIterator, MockRevalidateResult};
+use crate::utils::{MockIterator, MockRevalidateResult};
 
 /// Helper function to create child iterators for intersection tests.
 ///

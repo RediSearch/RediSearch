@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub(crate) mod common;
+pub(crate) mod utils;
 pub(crate) mod ffi;
 
 mod empty;
