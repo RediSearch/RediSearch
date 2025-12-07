@@ -3438,24 +3438,38 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                (WeakRef){0});
 }
-#define CURSOR_SUBCOMMANDS(command, func)                                                                                                                           \
-  SubCommand subcommands[] = {                                                                                                                                        \
-    {.name = "READ", .fullName = command "|READ", .flags = "readonly", .handler = func, .setCommandInfo = SetFtCursorReadInfo, .position = {0, 0, 0}}, \
-    {.name = "DEL", .fullName = command "|DEL", .flags = "write", .handler = func, .setCommandInfo = SetFtCursorDelInfo, .position = {0, 0, 0}},       \
-    {.name = "PROFILE", .fullName = command "|PROFILE", .flags = "readonly", .handler = func, .setCommandInfo = NULL, .position = {0, 0, 0}},       \
-    {.name = "GC", .fullName = command "|GC", .flags = "write", .handler = func, .setCommandInfo = NULL, .position = {0, 0, 0}},                       \
+
+#define CURSOR_SUBCOMMANDS(command, isSafeCmd)                                                       \
+  int firstkey, lastkey, keystep = 0;                                                                \
+  if (clusterConfig.type == ClusterType_RedisLabs) {                                                 \
+    firstkey = 3; lastkey = 1; keystep = -3;                                                         \
+  } else {                                                                                           \
+    firstkey = 0; lastkey = 0; keystep = -1;                                                         \
+  }                                                                                                  \
+  SubCommand subcommands[] = {                                                                       \
+    {.name = "READ",    .fullName = command "|READ",    .flags = "readonly",                         \
+     .handler = isSafeCmd ? SafeCmd(RSCursorReadCommand) : RSCursorReadCommand,                      \
+     .setCommandInfo = SetFtCursorReadInfo, .position = {firstkey, lastkey, keystep}},               \
+    {.name = "DEL",     .fullName = command "|DEL",     .flags = "write",                            \
+     .handler = isSafeCmd ? SafeCmd(RSCursorDelCommand) : RSCursorDelCommand,                        \
+     .setCommandInfo = SetFtCursorDelInfo, .position = {firstkey, lastkey, keystep}},                \
+    {.name = "PROFILE", .fullName = command "|PROFILE", .flags = "readonly",                         \
+     .handler = isSafeCmd ? SafeCmd(RSCursorProfileCommand) : RSCursorProfileCommand,                \
+     .setCommandInfo = NULL, .position = {firstkey, lastkey, keystep}},                              \
+    {.name = "GC",      .fullName = command "|GC",      .flags = "write",                            \
+     .handler = isSafeCmd ? SafeCmd(RSCursorGCCommand) : RSCursorGCCommand,                          \
+     .setCommandInfo = NULL, .position = {firstkey, lastkey, keystep}},                              \
   }
 
 // This function sits next to RegisterCoordCursorCommands function
 // RegisterCoordCursorCommands currently has too many dependencies to be easily moved up where CreateSubCommands is defined
 static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
-  CURSOR_SUBCOMMANDS(RS_CURSOR_CMD, RSCursorCommand);
+  CURSOR_SUBCOMMANDS(RS_CURSOR_CMD, false);
   return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
 }
 
 static int RegisterCoordCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
-  RedisModuleCmdFunc func = SafeCmd(CursorCommand);
-  CURSOR_SUBCOMMANDS("FT.CURSOR", func);
+  CURSOR_SUBCOMMANDS("FT.CURSOR", true);
   return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
 }
 
