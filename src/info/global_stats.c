@@ -112,8 +112,11 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   MultiThreadingStats stats;
   stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
 #ifdef MT_BUILD
-  RS_ASSERT(workersThreadPool_isCreated()); // In production workers threadpool is created at startup.
-  stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
+  if (RSGlobalConfig.numWorkerThreads) {
+    stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
+  } else {
+    stats.active_worker_threads = 0;
+  }
 #else
   stats.active_worker_threads = 0;
 #endif // MT_BUILD
