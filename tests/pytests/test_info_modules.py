@@ -2008,9 +2008,7 @@ def test_total_docs_indexed_metric_SA(env):
   baseline = get_total_docs_indexed()
   env.assertEqual(baseline, 0, message="Baseline should be 0 with no indexes")
 
-  # ==========================================================================
   # 1. Regular flow: create index, create doc, check metric incremented
-  # ==========================================================================
   # Create first index with prefix 'do' (will match 'doc:*')
   env.expect('FT.CREATE', 'idx1', 'PREFIX', 1, 'do', 'SCHEMA', 'text', 'TEXT').ok()
   waitForIndex(env, 'idx1')
@@ -2021,10 +2019,7 @@ def test_total_docs_indexed_metric_SA(env):
   # For inline indexing (foreground), the doc is indexed immediately
   env.assertEqual(get_total_docs_indexed(), 1, message="After adding 1 doc to 1 index")
 
-  # ==========================================================================
   # 2. Double counting: create another index, check metric increments again
-  #    for the same document (background indexing)
-  # ==========================================================================
   # Create second index with prefix 'doc' (more specific, also matches 'doc:*')
   env.expect('FT.CREATE', 'idx2', 'PREFIX', 1, 'doc', 'SCHEMA', 'text', 'TEXT').ok()
   # Wait for background indexing to complete
@@ -2034,9 +2029,7 @@ def test_total_docs_indexed_metric_SA(env):
   env.assertEqual(get_total_docs_indexed(), 2,
                   message="doc:1 indexed by both idx1 and idx2")
 
-  # ==========================================================================
   # 3. Multiple docs: add more docs, each indexed by both indexes
-  # ==========================================================================
   conn.execute_command('HSET', 'doc:2', 'text', 'foo bar')
   conn.execute_command('HSET', 'doc:3', 'text', 'baz qux')
 
@@ -2048,9 +2041,7 @@ def test_total_docs_indexed_metric_SA(env):
   env.assertEqual(get_total_docs_indexed(), 6,
                   message="3 docs, each indexed by 2 indexes = 6")
 
-  # ==========================================================================
   # 4. Partial indexing: create a doc that only matches one index's prefix
-  # ==========================================================================
   # 'doar:1' matches 'do' prefix (idx1) but NOT 'doc' prefix (idx2)
   conn.execute_command('HSET', 'doar:1', 'text', 'partial match')
 
@@ -2059,9 +2050,7 @@ def test_total_docs_indexed_metric_SA(env):
   env.assertEqual(get_total_docs_indexed(), 7,
                   message="'doar:1' only indexed by idx1 (prefix 'do'), not idx2 (prefix 'doc')")
 
-  # ==========================================================================
   # 5. Delete doc: verify metric is updated correctly
-  # ==========================================================================
   # Delete doc:2 (which was indexed by both indexes)
   conn.execute_command('DEL', 'doc:2')
 
@@ -2078,9 +2067,7 @@ def test_total_docs_indexed_metric_SA(env):
   env.assertEqual(get_total_docs_indexed(), 5,
                   message="After deleting doc:2 (was indexed by 2 indexes)")
 
-  # ==========================================================================
   # 6. Delete index: verify metric is updated correctly
-  # ==========================================================================
   # Drop idx2 (which indexed doc:1 and doc:3)
   conn.execute_command('FT.DROPINDEX', 'idx2')
 
@@ -2095,13 +2082,10 @@ def test_total_docs_indexed_metric_SA(env):
   env.assertEqual(get_total_docs_indexed(), 3,
                   message="After dropping idx2, only idx1 remains")
 
-
+# Test the 'total_documents_indexed_by_<field_type>_fields' INFO MODULES metrics.
+# These metrics count how many times each field type has indexed a document.
 @skip(cluster=True)
 def test_total_docs_indexed_by_field_type_SA(env):
-  """
-  Test the 'total_documents_indexed_by_<field_type>_fields' INFO MODULES metrics.
-  These metrics count how many times each field type has indexed a document.
-  """
   conn = getConnectionByEnv(env)
 
   # Helper to get all field-type metrics
@@ -2115,9 +2099,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
       'vector': info['search_total_documents_indexed_by_vector_fields'],
     }
 
-  # ==========================================================================
   # Baseline: all metrics should be 0
-  # ==========================================================================
   metrics = get_field_metrics()
   env.assertEqual(metrics['text'], 0, message="Baseline text should be 0")
   env.assertEqual(metrics['tag'], 0, message="Baseline tag should be 0")
@@ -2125,9 +2107,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   env.assertEqual(metrics['geo'], 0, message="Baseline geo should be 0")
   env.assertEqual(metrics['vector'], 0, message="Baseline vector should be 0")
 
-  # ==========================================================================
   # 1. Test TEXT field indexing
-  # ==========================================================================
   env.expect('FT.CREATE', 'idx_text', 'PREFIX', 1, 'text:', 'SCHEMA', 't', 'TEXT').ok()
   waitForIndex(env, 'idx_text')
 
@@ -2139,9 +2119,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['text'], 2, message="After 2 text docs")
 
-  # ==========================================================================
   # 2. Test TAG field indexing
-  # ==========================================================================
   env.expect('FT.CREATE', 'idx_tag', 'PREFIX', 1, 'tag:', 'SCHEMA', 'tag', 'TAG').ok()
   waitForIndex(env, 'idx_tag')
 
@@ -2153,9 +2131,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['tag'], 2, message="After 2 tag docs")
 
-  # ==========================================================================
   # 3. Test NUMERIC field indexing
-  # ==========================================================================
   env.expect('FT.CREATE', 'idx_num', 'PREFIX', 1, 'num:', 'SCHEMA', 'n', 'NUMERIC').ok()
   waitForIndex(env, 'idx_num')
 
@@ -2167,9 +2143,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['numeric'], 2, message="After 2 numeric docs")
 
-  # ==========================================================================
   # 4. Test GEO field indexing
-  # ==========================================================================
   env.expect('FT.CREATE', 'idx_geo', 'PREFIX', 1, 'geo:', 'SCHEMA', 'g', 'GEO').ok()
   waitForIndex(env, 'idx_geo')
 
@@ -2181,9 +2155,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['geo'], 2, message="After 2 geo docs")
 
-  # ==========================================================================
   # 5. Test VECTOR field indexing
-  # ==========================================================================
   env.expect('FT.CREATE', 'idx_vec', 'PREFIX', 1, 'vec:',
              'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
              'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
@@ -2200,9 +2172,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['vector'], 2, message="After 2 vector docs")
 
-  # ==========================================================================
   # 6. Test multiple fields in same document
-  # ==========================================================================
   env.expect('FT.CREATE', 'idx_multi', 'PREFIX', 1, 'multi:',
              'SCHEMA', 't', 'TEXT', 'tag', 'TAG', 'n', 'NUMERIC').ok()
   waitForIndex(env, 'idx_multi')
@@ -2219,9 +2189,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   env.assertEqual(metrics['numeric'], prev_metrics['numeric'] + 1,
                   message="Multi-field doc increments numeric")
 
-  # ==========================================================================
   # 7. Test double counting with overlapping indexes
-  # ==========================================================================
   # Create another text index that will also match 'text:*' docs
   env.expect('FT.CREATE', 'idx_text2', 'PREFIX', 1, 'text:', 'SCHEMA', 't', 'TEXT').ok()
   waitForIndex(env, 'idx_text2')
@@ -2232,9 +2200,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   env.assertEqual(metrics['text'], 5,
                   message="After creating overlapping text index, existing docs re-indexed")
 
-  # ==========================================================================
   # 8. Test partial field matching (doc with only some fields)
-  # ==========================================================================
   prev_metrics = get_field_metrics()
 
   # Add doc with only text field (no tag or numeric)
