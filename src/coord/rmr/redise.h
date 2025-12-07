@@ -11,4 +11,12 @@
 
 #include "cluster.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, uint32_t *my_shard_idx);
+
+#ifdef __cplusplus
+}
+#endif

@@ -275,6 +275,12 @@ thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *);
 
 size_t redisearch_thpool_get_num_threads(redisearch_thpool_t *);
 
+size_t redisearch_thpool_high_priority_pending_jobs(redisearch_thpool_t *);
+
+size_t redisearch_thpool_low_priority_pending_jobs(redisearch_thpool_t *);
+
+size_t redisearch_thpool_admin_priority_pending_jobs(redisearch_thpool_t *);
+
 /**
  * @brief Schedule a job to reduce the number of threads in the threadpool in an asynchronous manner.
  *

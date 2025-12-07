@@ -66,6 +66,7 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
     // Non-fatal error
     ReplyWarning(reply, QueryError_GetUserError(err), suffix);
   } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, COORD_ERR_WARN);
     ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix);
   }
 
@@ -287,6 +288,7 @@ done:
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
       // Cluster mode only: handled directly here instead of through handleAndReplyWarning()
       // because this warning is not related to subqueries or post-processing terminology
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
@@ -325,6 +327,7 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
     // warning
     RedisModule_Reply_SimpleString(reply, "warnings");
     if (QueryError_HasQueryOOMWarning(err)) {
+        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
         RedisModule_Reply_Array(reply);
         // This function is called by Coordinator or SA
         RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
@@ -427,7 +430,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
       if (backgroundDepletion) {
-        if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
+        if (areq->pipeline.qctx.endProc->type != RP_SAFE_DEPLETER) {
           break;
         }
         array_ensure_append_1(depleters, areq->pipeline.qctx.endProc);
@@ -454,7 +457,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     }
 
     if (backgroundDepletion) {
-      int rc = RPDepleter_DepleteAll(depleters);
+      int rc = RPSafeDepleter_DepleteAll(depleters);
       array_free(depleters);
       if (rc != RS_RESULT_OK) {
         array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
@@ -590,6 +593,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, !internal);
       return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail

@@ -15,13 +15,16 @@ if (NOT TEST_MODULE)
 endif()
 # redismock is a mock library for using redis module API in tests, defined in main CMakeLists.txt.
 
+include(GoogleTest)
+
 file(GLOB TEST_SOURCES "test_cpp_*.cpp")
 add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp iterator_util.cpp)
 target_link_libraries(rstest gtest ${TEST_MODULE} redismock ${CMAKE_LD_LIBS})
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
 add_dependencies(rstest example_extension)
-add_test(NAME rstest COMMAND rstest)
-
+gtest_discover_tests(rstest
+    PROPERTIES TIMEOUT 300  # Timeout for each individual test
+)
 
 add_executable(test_distagg ${root}/tests/cpptests/test_distagg.cpp)
 target_link_libraries(test_distagg ${TEST_MODULE} redismock)

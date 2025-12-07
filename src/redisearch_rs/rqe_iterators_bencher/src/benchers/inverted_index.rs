@@ -11,7 +11,7 @@
 
 use std::{marker::PhantomData, time::Duration};
 
-use ::ffi::RSQueryTerm;
+use ::ffi::{RSQueryTerm, Term_Free};
 use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
@@ -24,7 +24,7 @@ use rqe_iterators::{
     inverted_index::{NumericFull, TermFull},
 };
 
-use crate::ffi;
+use crate::ffi::{self, QueryTermBuilder};
 
 const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
 const WARMUP_TIME: Duration = Duration::from_millis(200);
@@ -256,7 +256,7 @@ pub struct TermFullBencher<E> {
 impl<E> Drop for TermFullBencher<E> {
     fn drop(&mut self) {
         unsafe {
-            let _ = Box::from_raw(self.term);
+            let _ = Term_Free(self.term);
         }
     }
 }
@@ -269,16 +269,14 @@ where
     pub fn new(decoder_name: &str, ii_flags: u32) -> Self {
         let group_name = format!("TermFull - {decoder_name}");
         const TEST_STR: &str = "term";
-        let test_str_ptr = TEST_STR.as_ptr() as *mut _;
-        let term = Box::new(RSQueryTerm {
-            str_: test_str_ptr,
-            len: TEST_STR.len(),
+        let term = QueryTermBuilder {
+            token: TEST_STR,
             idf: 5.0,
             id: 1,
             flags: 0,
             bm25_idf: 10.0,
-        });
-        let term = Box::into_raw(term);
+        }
+        .allocate();
 
         Self {
             group_name,

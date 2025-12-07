@@ -817,6 +817,10 @@ std::vector<std::vector<std::string>> &RMCK_GetPropagatedCommands(RedisModuleCtx
   return ctx->propagated_commands;
 }
 
+std::string &RMCK_GetLastError(RedisModuleCtx *ctx) {
+  return ctx->last_error;
+}
+
 RedisModuleSlotRangeArray *RMCK_ClusterGetLocalSlotRanges(RedisModuleCtx *ctx) {
   constexpr RedisModuleSlotRange dummy_ranges[] = {
       {0, 5460},
@@ -885,13 +889,32 @@ void RMCK_ResetRdbIO(RedisModuleIO *io) {
 
 REPLY_FUNC(WithLongLong, long long)
 REPLY_FUNC(WithSimpleString, const char *)
-REPLY_FUNC(WithError, const char *);
 REPLY_FUNC(WithArray, size_t)
 REPLY_FUNC(WithStringBuffer, const char *, size_t)
 REPLY_FUNC(WithDouble, double)
 REPLY_FUNC(WithString, RedisModuleString)
 
 int RMCK_ReplyWithNull(RedisModuleCtx *) {
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplyWithError(RedisModuleCtx *ctx, const char *err) {
+  if (ctx && err) {
+    ctx->last_error = err;
+  }
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplyWithErrorFormat(RedisModuleCtx *ctx, const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  char *outp = NULL;
+  __ignore__(vasprintf(&outp, fmt, ap));
+  va_end(ap);
+  if (ctx && outp) {
+    ctx->last_error = outp;
+  }
+  free(outp);
   return REDISMODULE_OK;
 }
 
@@ -1440,6 +1463,16 @@ static void registerApis() {
   REGISTER_API(SetModuleAttribs);
   REGISTER_API(Log);
   REGISTER_API(Call);
+
+  // REGISTER_API(ReplyWithLongLong);
+  // REGISTER_API(ReplyWithSimpleString);
+  // REGISTER_API(ReplyWithArray);
+  // REGISTER_API(ReplyWithStringBuffer);
+  // REGISTER_API(ReplyWithDouble);
+  // REGISTER_API(ReplyWithString);
+  // REGISTER_API(ReplyWithNull);
+  REGISTER_API(ReplyWithError);
+  REGISTER_API(ReplyWithErrorFormat);
 
   REGISTER_API(FreeCallReply);
   REGISTER_API(CallReplyLength);

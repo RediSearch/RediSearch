@@ -13,9 +13,9 @@
 #include "iterators/optional_iterator.h"
 #include "iterators/union_iterator.h"
 #include "iterators/intersection_iterator.h"
-#include "iterators/idlist_iterator.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
+#include "iterators_rs.h"
 #include "reply_macros.h"
 #include "util/units.h"
 
@@ -76,6 +76,11 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
   }
   double upstreamTime = _recursiveProfilePrint(reply, rp->upstream, printProfileClock);
 
+  if (rp->type > RP_MAX) {
+    RS_LOG_ASSERT_FMT(rp->type < RP_MAX_DEBUG, "RPType error, type: %d", rp->type);
+    return upstreamTime;
+  }
+
   // Array is filled backward in pair of [common, profile] result processors
   if (rp->type != RP_PROFILE) {
     RedisModule_Reply_Map(reply); // start of recursive map
@@ -93,6 +98,8 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_GROUP:
       case RP_MAX_SCORE_NORMALIZER:
       case RP_NETWORK:
+      case RP_SAFE_DEPLETER:
+      case RP_DEPLETER:
         printProfileType(RPTypeToString(rp->type));
         break;
 
@@ -103,18 +110,16 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
       case RP_SAFE_LOADER:
         printProfileType(RPTypeToString(rp->type));
-        printProfileGILTime(rp->GILTime);
+        printProfileGILTime(rs_wall_clock_convert_ns_to_ms_d(rp->rpGILTime));
         break;
 
-      case RP_PROFILE:
-      case RP_MAX:
+      default:
         RS_ABORT("RPType error");
         break;
     }
 
     return upstreamTime;
   }
-
   double totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPProfile_GetClock(rp));
   if (printProfileClock) {
     printProfileTime(totalRPTime - upstreamTime);
@@ -138,69 +143,72 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
-  //-------------------------------------------------------------------------------------------
   RedisModule_Reply_Map(reply);
-      int profile_verbose = req->reqConfig.printProfileClock;
-      // Print total time
-      if (profile_verbose)
-        RedisModule_ReplyKV_Double(reply, "Total profile time",
-          rs_wall_clock_convert_ns_to_ms_d(req->profileTotalTime));
+  int profile_verbose = req->reqConfig.printProfileClock;
 
-      // Print query parsing time
-      if (profile_verbose)
-        RedisModule_ReplyKV_Double(reply, "Parsing time",
-          rs_wall_clock_convert_ns_to_ms_d(req->profileParseTime));
+  // Print total time
+  if (profile_verbose) {
+    RedisModule_ReplyKV_Double(reply, "Total profile time",
+                               rs_wall_clock_convert_ns_to_ms_d(req->profileTotalTime));
+  }
 
-      // Print iterators creation time
-        if (profile_verbose)
-          RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
-            rs_wall_clock_convert_ns_to_ms_d(req->profilePipelineBuildTime));
+  // Print query parsing time
+  if (profile_verbose) {
+    RedisModule_ReplyKV_Double(reply, "Parsing time",
+                               rs_wall_clock_convert_ns_to_ms_d(req->profileParseTime));
+  }
 
-      //Print total GIL time
-        if (profile_verbose){
-          if (RunInThread()){
-            RedisModule_ReplyKV_Double(reply, "Total GIL time",
-            rs_wall_clock_convert_ns_to_ms_d(qctx->GILTime));
-          } else {
-            rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&qctx->initTime);
-            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
-          }
-        }
+  // Print iterators creation time
+  if (profile_verbose) {
+    RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
+                               rs_wall_clock_convert_ns_to_ms_d(req->profilePipelineBuildTime));
+  }
 
-      // Print whether a warning was raised throughout command execution
-      bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions;
-      if (bgScanOOM) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WINDEXING_FAILURE);
-      }
-      if (queryOOM) {
-        // This function is called by Shard or SA, so always return SHARD warning.
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WOOM_SHARD);
-      }
-      if (timedout) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-      } else if (reachedMaxPrefixExpansions) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
-      } else if (!warningRaised) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
-      }
+  // Print total GIL time
+  if (profile_verbose) {
+    if (AREQ_RequestFlags(req) & QEXEC_F_RUN_IN_BACKGROUND) {
+      RedisModule_ReplyKV_Double(reply, "Total GIL time",
+                                 rs_wall_clock_convert_ns_to_ms_d(qctx->queryGILTime));
+    } else {
+      rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&qctx->initTime);
+      RedisModule_ReplyKV_Double(reply, "Total GIL time",
+                                 rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
+    }
+  }
 
-      // print into array with a recursive function over result processors
+  // Print whether a warning was raised throughout command execution
+  bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions;
+  if (bgScanOOM) {
+    RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WINDEXING_FAILURE);
+  }
+  if (queryOOM) {
+    // This function is called by Shard or SA, so always return SHARD warning.
+    RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WOOM_SHARD);
+  }
+  if (timedout) {
+    RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+  } else if (reachedMaxPrefixExpansions) {
+    RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
+  } else if (!warningRaised) {
+    RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
+  }
 
-      // Print profile of iterators
-      QueryIterator *root = QITR_GetRootFilter(qctx);
-      // Coordinator does not have iterators
-      if (root) {
-        RedisModule_Reply_SimpleString(reply, "Iterators profile");
-        PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
-                                     .printProfileClock = profile_verbose};
-        printIteratorProfile(reply, root, 0, 0, 2, AREQ_RequestFlags(req) & QEXEC_F_PROFILE_LIMITED, &config);
-      }
+  // Print profile of iterators
+  QueryIterator *root = QITR_GetRootFilter(qctx);
+  // Coordinator does not have iterators
+  if (root) {
+    RedisModule_Reply_SimpleString(reply, "Iterators profile");
+    PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
+                                 .printProfileClock = profile_verbose};
+    printIteratorProfile(reply, root, 0, 0, 2,
+                         AREQ_RequestFlags(req) & QEXEC_F_PROFILE_LIMITED, &config);
+  }
 
-      // Print profile of result processors
-      ResultProcessor *rp = qctx->endProc;
-      RedisModule_ReplyKV_Array(reply, "Result processors profile");
-        printProfileRP(reply, rp, req->reqConfig.printProfileClock);
-      RedisModule_Reply_ArrayEnd(reply);
+  // Print profile of result processors
+  ResultProcessor *rp = qctx->endProc;
+  RedisModule_ReplyKV_Array(reply, "Result processors profile");
+  printProfileRP(reply, rp, req->reqConfig.printProfileClock);
+  RedisModule_Reply_ArrayEnd(reply);
   RedisModule_Reply_MapEnd(reply);
 }
 
@@ -388,9 +396,9 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
 
 PRINT_PROFILE_FUNC(printMetricIt) {
   RedisModule_Reply_Map(reply);
-  MetricIterator *it = (MetricIterator *)root;
+  MetricType type = GetMetricType(root);
 
-  switch (it->type) {
+  switch (type) {
     case VECTOR_DISTANCE: {
       printProfileType("METRIC - VECTOR DISTANCE");
       break;
@@ -409,7 +417,7 @@ PRINT_PROFILE_FUNC(printMetricIt) {
 
   printProfileCounters(counters);
 
-  if (it->type == VECTOR_DISTANCE) {
+  if (type == VECTOR_DISTANCE) {
     printProfileVectorSearchMode(VECSIM_RANGE_QUERY);
   }
 

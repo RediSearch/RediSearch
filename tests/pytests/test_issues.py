@@ -1444,8 +1444,8 @@ def test_mod_8809_single_index_single_field(env:Env):
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
 
     # Reset yield counter
-    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
-    initial_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.expect(debug_cmd(), 'YIELDS_COUNTER', 'RESET').ok()
+    initial_count = env.cmd(debug_cmd(), 'YIELDS_COUNTER', 'LOAD')
     env.assertEqual(initial_count, 0, message="Initial yield counter should be 0")
 
     # Create index
@@ -1461,7 +1461,7 @@ def test_mod_8809_single_index_single_field(env:Env):
 
 
     # Check that yield was not called
-    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_COUNTER', 'LOAD')
     env.assertEqual(yields_count, 0, message="Yield should not have been called")
 
     # Reload and check
@@ -1472,21 +1472,21 @@ def test_mod_8809_single_index_single_field(env:Env):
 
     # Verify the number of yields
     expected_min_yields = num_docs // yield_every_n_ops
-    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_COUNTER', 'LOAD')
     env.assertGreaterEqual(yields_count, expected_min_yields,
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
 
     # Test with different configuration
     yields_every_n_ops = 5
     env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
-    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
+    env.expect(debug_cmd(), 'YIELDS_COUNTER', 'RESET').ok()
 
     # Reload and check
     env.broadcast('SAVE')
     env.broadcast('DEBUG RELOAD NOSAVE')
     waitForIndex(env, 'idx')
 
-    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_COUNTER', 'LOAD')
     expected_min_yields = num_docs // yield_every_n_ops
     env.assertGreaterEqual(yields_count, expected_min_yields,
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
@@ -1500,8 +1500,8 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
 
     # Reset yield counter
-    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
-    initial_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.expect(debug_cmd(), 'YIELDS_COUNTER', 'RESET').ok()
+    initial_count = env.cmd(debug_cmd(), 'YIELDS_COUNTER', 'LOAD')
     env.assertEqual(initial_count, 0, message="Initial yield counter should be 0")
 
     # Create index
@@ -1527,7 +1527,7 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     waitForIndex(env, 'idx3')
 
     # Check that yield was called
-    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_COUNTER', 'LOAD')
     env.assertGreater(yields_count, 0, message="Yield should have been called at least once")
 
     # Verify the number of yields
@@ -1538,7 +1538,7 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     # Test with different configuration
     yield_every_n_ops = 5
     env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
-    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
+    env.expect(debug_cmd(), 'YIELDS_COUNTER', 'RESET').ok()
 
     # Reload and check
     env.broadcast('SAVE')
@@ -1548,7 +1548,7 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     waitForIndex(env, 'idx3')
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
 
-    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_COUNTER', 'LOAD')
     expected_min_yields = 7 * num_docs // yield_every_n_ops
     env.assertGreaterEqual(yields_count, expected_min_yields,
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
@@ -1784,6 +1784,7 @@ def test_mod_12493(env:Env):
   # Check command stats for internal cursors command. We expect a single one (READ) on each shard
   for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
     stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR|READ']
+    stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR|READ']
     env.assertEqual(stats['calls'], 1, message=f'Expected 1 call on shard {i}, got {stats["calls"]}')
 
   # Delete the cursor. This should delete the internal cursors on all shards.
@@ -1793,7 +1794,7 @@ def test_mod_12493(env:Env):
   # Expect another call on each shard for the DEL command
   for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
     stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR|DEL']
-    env.assertEqual(stats['calls'], 1, message=f'Expected 1 calls on shard {i}, got {stats["calls"]}')
+    env.assertEqual(stats['calls'], 1, message=f'Expected 1 call on shard {i}, got {stats["calls"]}')
 
   # Check that the internal cursors were deleted on all shards
   env.assertEqual(to_dict(index_info(env)['cursor_stats'])['index_total'], 0)

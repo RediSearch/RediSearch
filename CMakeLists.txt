@@ -239,12 +239,14 @@ set(Boost_NO_WARN_NEW_VERSIONS ON)
 include_directories(
     ${root}/src
     ${root}/src/buffer
+    ${root}/src/dict
     ${root}/src/coord
     ${root}/src/redisearch_rs/headers
     ${root}/deps/libuv/include
     ${root}/deps
     ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
+    ${root}/src/ttl_table
     ${BOOST_DIR}
     ${root})
 
@@ -267,10 +269,15 @@ add_subdirectory(src/geometry)
 add_subdirectory(src/buffer)
 add_subdirectory(src/iterators)
 add_subdirectory(src/wildcard)
+add_subdirectory(src/index_result)
+add_subdirectory(src/value)
+add_subdirectory(src/util/mempool)
 add_subdirectory(src/util/arr)
+add_subdirectory(src/util/dict)
 add_subdirectory(src/util/hash)
 add_subdirectory(src/coord)
 add_subdirectory(src/redisearch_rs)
+add_subdirectory(src/ttl_table)
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
@@ -311,8 +318,12 @@ add_library(rscore OBJECT ${SOURCES})
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:arr>
     $<TARGET_OBJECTS:buffer>
+    $<TARGET_OBJECTS:dict>
     $<TARGET_OBJECTS:iterators>
     $<TARGET_OBJECTS:wildcard>
+    $<TARGET_OBJECTS:index_result>
+    $<TARGET_OBJECTS:mempool>
+    $<TARGET_OBJECTS:value>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
@@ -320,6 +331,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:metaphone>
     $<TARGET_OBJECTS:fast_float_strtod>
     $<TARGET_OBJECTS:redisearch-coord>
+    $<TARGET_OBJECTS:ttl_table>
 )
 
 #----------------------------------------------------------------------------------------------
@@ -366,10 +378,15 @@ target_link_libraries(redisearch
         redisearch-coord
         arr
         buffer
+        dict
         iterators
+        index_result
+        value
+        mempool
         wildcard
         uv_a
         redisearch_rs
+        ttl_table
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
         ${CMAKE_LD_LIBS})

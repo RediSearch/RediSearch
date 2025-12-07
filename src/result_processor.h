@@ -70,12 +70,14 @@ typedef enum {
   RP_MAX_SCORE_NORMALIZER,
   RP_VECTOR_NORMALIZER,
   RP_HYBRID_MERGER,
+  RP_SAFE_DEPLETER,
   RP_DEPLETER,
   RP_MAX, // Marks the last non-debug RP type
   // Debug only result processors
   RP_TIMEOUT,
   RP_CRASH,
   RP_PAUSE,
+  RP_MAX_DEBUG
 } ResultProcessorType;
 
 struct ResultProcessor;
@@ -91,7 +93,7 @@ typedef struct QueryProcessingCtx {
   struct ResultProcessor *endProc;
 
   rs_wall_clock initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
-  rs_wall_clock_ns_t GILTime;  //Time accumulated in nanoseconds
+  rs_wall_clock_ns_t queryGILTime;  //Time accumulated in nanoseconds
 
   // the minimal score applicable for a result. It can be used to optimize the
   // scorers
@@ -158,7 +160,8 @@ typedef struct ResultProcessor {
   // Type of result processor
   ResultProcessorType type;
 
-  struct timespec GILTime;
+  rs_wall_clock_ns_t rpGILTime; // Accumulated GIL time of the ResultProcessor, if applicable (e.g. RP_SAFE_LOADER)
+
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
    * not read, so it is the responsibility of the caller to ensure that there
@@ -259,41 +262,46 @@ ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
 ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLookupKey *scoreKey);
 
 /*******************************************************************************
-* Depleter Result Processor
+* Safe Depleter Result Processor
 *
-*  The RPDepleter result processor offloads the task of consuming all results from
+*  The RPSafeDepleter result processor offloads the task of consuming all results from
 *  its upstream processor into a background thread, storing them in an internal
 *  array. While the background thread is running, calls to Next() wait on a shared
 *  condition variable and return RS_RESULT_DEPLETING. The thread can be awakened
-*  either by its own depleting thread completing or by another RPDepleter's thread
+*  either by its own depleting thread completing or by another RPSafeDepleter's thread
 *  signaling completion. Once depleting is complete for this processor, Next()
 *  yields results one by one from the internal array, and finally returns the last
 *  return code from the upstream.
 */
 
 /**
-* Constructs a new RPDepleter processor that offloads result consumption to a background thread.
+* Constructs a new RPSafeDepleter processor that offloads result consumption to a background thread.
 * The returned processor takes ownership of result depleting and yielding.
-* @param sync_ref Reference to shared synchronization object for coordinating multiple depleters
+* @param sync_ref Reference to shared synchronization object for coordinating multiple safe depleters
 * @param depletingThreadCtx Search context for the upstream processor being wrapped
 * @param nextThreadCtx Search context for the downstream processor that will receive results
 */
-ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx);
+ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx);
 
 /**
-* Starts the depletion for all the depleters in the array, waits until all finished depleting, and returns.
-* @param depleters Array of depleter processors
-* @param count Number of depleter processors in the array
-* @return RS_RESULT_OK if all depleters completed successfully, otherwise an error code
+* Constructs a new depleter processor that runs in the current thread.
 */
-int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
+ResultProcessor *RPDepleter_New();
 
 /**
-* Creates a new shared synchronization object for coordinating multiple RPDepleter processors.
+* Starts the depletion for all the safe depleters in the array, waits until all finished depleting, and returns.
+* @param safeDepleters Array of safe depleter processors
+* @param count Number of safe depleter processors in the array
+* @return RS_RESULT_OK if all safe depleters completed successfully, otherwise an error code
+*/
+int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters);
+
+/**
+* Creates a new shared synchronization object for coordinating multiple RPSafeDepleter processors.
 * This is used during pipeline construction to create sync objects that allow multiple
-* depleters to coordinate their background threads and wake each other when depleting completes.
-* @param num_depleters Number of RPDepleter processors that will share this sync object
-* @param take_index_lock Whether the depleters should participate in index locking coordination
+* safe depleters to coordinate their background threads and wake each other when depleting completes.
+* @param num_depleters Number of RPSafeDepleter processors that will share this sync object
+* @param take_index_lock Whether the safe depleters should participate in index locking coordination
 */
 StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
 
@@ -308,7 +316,7 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
  * Note: RPHybridMerger takes ownership of hybridScoringCtx and is responsible for freeing it.
  * @param scoreKey Optional key for writing scores as fields when no LOAD step is provided
  */
-ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx, 
+ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
                                     HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
