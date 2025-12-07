@@ -75,11 +75,6 @@ pub struct QueryIterator(*mut bindings::QueryIterator);
 
 impl QueryIterator {
     #[inline(always)]
-    pub fn new_wildcard(max_id: u64) -> Self {
-        Self(unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, 1f64) })
-    }
-
-    #[inline(always)]
     pub unsafe fn new_numeric(
         ii: *mut bindings::InvertedIndex,
         filter: Option<&NumericFilter>,
