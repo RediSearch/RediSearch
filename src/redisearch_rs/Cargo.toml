@@ -110,7 +110,7 @@ smallvec = "1.15.1"
 strum = {version = "0.27.2",features = ["derive"]}
 thiserror = "2.0.12"
 unsafe-tools = "0.1.1"
-ureq = "3.0.10"
+ureq = "3.1.4"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 
 [workspace.dependencies.bindgen]
