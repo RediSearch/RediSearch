@@ -892,9 +892,9 @@ fn reduce_removes_wildcard_children() {
     // 2 regular iterators + 2 wildcards = should keep only 2 regular
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
         Box::new(SortedIdList::new(vec![1, 2, 3])),
-        Box::new(Wildcard::new(100)),
+        Box::new(Wildcard::new(100, 1.0)),
         Box::new(SortedIdList::new(vec![1, 2, 3])),
-        Box::new(Wildcard::new(100)),
+        Box::new(Wildcard::new(100, 1.0)),
     ];
 
     let mut result = reduce(children);
@@ -915,10 +915,10 @@ fn reduce_removes_wildcard_children() {
 #[test]
 fn reduce_all_wildcards() {
     let children: Vec<Wildcard<'static>> = vec![
-        Wildcard::new(30),
-        Wildcard::new(40),
-        Wildcard::new(50),
-        Wildcard::new(60), // Last one should be returned
+        Wildcard::new(30, 1.0),
+        Wildcard::new(40, 1.0),
+        Wildcard::new(50, 1.0),
+        Wildcard::new(60, 1.0), // Last one should be returned
     ];
 
     let mut result = reduce(children);
@@ -943,8 +943,8 @@ fn reduce_all_wildcards() {
 fn reduce_single_non_wildcard_after_removing_wildcards() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
         Box::new(SortedIdList::new(vec![1, 2, 3])),
-        Box::new(Wildcard::new(100)),
-        Box::new(Wildcard::new(100)),
+        Box::new(Wildcard::new(100, 1.0)),
+        Box::new(Wildcard::new(100, 1.0)),
     ];
 
     let mut result = reduce(children);
@@ -968,7 +968,7 @@ fn reduce_works_as_iterator() {
     // Mix of regular and wildcard children
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
         Box::new(SortedIdList::new(vec![1, 2, 3, 10, 20])),
-        Box::new(Wildcard::new(100)), // Will be removed
+        Box::new(Wildcard::new(100, 1.0)), // Will be removed
         Box::new(SortedIdList::new(vec![2, 3, 20, 30])),
     ];
 
@@ -983,4 +983,338 @@ fn reduce_works_as_iterator() {
     assert_eq!(result.read().unwrap().unwrap().doc_id, 20);
     assert!(result.read().unwrap().is_none());
     assert!(result.at_eof());
+}
+
+// =============================================================================
+// Additional tests for comprehensive coverage
+// =============================================================================
+
+/// Test: current() returns correct state after various operations
+#[test]
+fn current_after_operations() {
+    let child1 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
+    let child2 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
+
+    let mut ii = Intersection::new(vec![child1, child2]);
+
+    // Before any read, current() returns Some (the result buffer exists),
+    // but last_doc_id is 0 since we haven't read anything yet
+    // Note: The intersection is not at EOF, so current() returns the buffer
+    assert!(
+        ii.current().is_some(),
+        "current() before first read returns Some (buffer exists)"
+    );
+    assert_eq!(ii.last_doc_id(), 0, "last_doc_id should be 0 before read");
+
+    // After read, current() should return the current result
+    let _ = ii.read().expect("read failed");
+    let current = ii.current();
+    assert!(current.is_some(), "current() after read should be Some");
+    assert_eq!(current.unwrap().doc_id, 10);
+
+    // After another read, current() should reflect the new position
+    let _ = ii.read().expect("read failed");
+    let current = ii.current();
+    assert!(current.is_some());
+    assert_eq!(current.unwrap().doc_id, 20);
+
+    // After skip_to, current() should reflect the skipped position
+    let _ = ii.skip_to(40).expect("skip_to failed");
+    let current = ii.current();
+    assert!(current.is_some());
+    assert_eq!(current.unwrap().doc_id, 40);
+
+    // After rewind, current() returns Some (not at EOF) but last_doc_id is reset
+    ii.rewind();
+    assert!(
+        ii.current().is_some(),
+        "current() after rewind returns Some (not at EOF)"
+    );
+    assert_eq!(ii.last_doc_id(), 0, "last_doc_id should be 0 after rewind");
+
+    // After EOF, current() should return None
+    while ii.read().expect("read failed").is_some() {}
+    assert!(ii.at_eof());
+    assert!(
+        ii.current().is_none(),
+        "current() after EOF should be None"
+    );
+}
+
+/// Test: skip_to should always move forward
+/// After reading to a position, skip_to with the same doc_id should return Found
+/// (since we're already at that position, the current document matches)
+#[test]
+fn skip_to_same_position() {
+    let child1 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
+    let child2 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
+
+    let mut ii = Intersection::new(vec![child1, child2]);
+
+    // Skip to position 30
+    let outcome = ii.skip_to(30).expect("skip_to failed");
+    assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+    assert_eq!(ii.last_doc_id(), 30);
+
+    // Skip to the same position again - should still work and find 30
+    // (implementation may allow this as a no-op or re-find)
+    let outcome = ii.skip_to(30).expect("skip_to failed");
+    match outcome {
+        Some(SkipToOutcome::Found(result)) => {
+            assert_eq!(result.doc_id, 30);
+        }
+        Some(SkipToOutcome::NotFound(result)) => {
+            // If implementation advances, it would land on 40
+            assert_eq!(result.doc_id, 40);
+        }
+        None => {
+            // Only valid if 30 was the last doc
+            panic!("skip_to same position shouldn't EOF");
+        }
+    }
+
+    // Now skip forward
+    let outcome = ii.skip_to(50).expect("skip_to failed");
+    assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+    assert_eq!(ii.last_doc_id(), 50);
+}
+
+/// Test: Large gaps between document IDs
+#[test]
+fn large_doc_id_gaps() {
+    let sparse_ids = vec![1, 1_000_000, 2_000_000, 10_000_000];
+    let child1 = SortedIdList::new(sparse_ids.clone());
+    let child2 = SortedIdList::new(sparse_ids.clone());
+
+    let mut ii = Intersection::new(vec![child1, child2]);
+
+    // Read all documents
+    for &expected_id in &sparse_ids {
+        let result = ii.read().expect("read failed");
+        assert!(result.is_some(), "Expected doc {expected_id}");
+        assert_eq!(result.unwrap().doc_id, expected_id);
+    }
+
+    assert!(matches!(ii.read(), Ok(None)));
+    assert!(ii.at_eof());
+
+    // Test skip_to with large gaps
+    ii.rewind();
+    let outcome = ii.skip_to(500_000).expect("skip_to failed");
+    match outcome {
+        Some(SkipToOutcome::NotFound(result)) => {
+            assert_eq!(result.doc_id, 1_000_000);
+        }
+        _ => panic!("Expected NotFound landing on 1_000_000"),
+    }
+
+    // Skip to exact large ID
+    ii.rewind();
+    let outcome = ii.skip_to(2_000_000).expect("skip_to failed");
+    assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+    assert_eq!(ii.last_doc_id(), 2_000_000);
+}
+
+/// Test: Children with overlapping unique IDs don't cause issues
+#[test]
+fn overlapping_children_ids() {
+    // Create children with significant overlap but different unique IDs
+    let child1 = SortedIdList::new(vec![1, 2, 3, 5, 10, 15, 20, 25, 30]);
+    let child2 = SortedIdList::new(vec![2, 3, 5, 7, 10, 12, 15, 20, 30, 35]);
+    let child3 = SortedIdList::new(vec![3, 5, 8, 10, 15, 18, 20, 30, 40]);
+
+    let mut ii = Intersection::new(vec![child1, child2, child3]);
+
+    // Common to all: 3, 5, 10, 15, 20, 30
+    let expected = vec![3, 5, 10, 15, 20, 30];
+
+    for &expected_id in &expected {
+        let result = ii.read().expect("read failed");
+        assert!(result.is_some(), "Expected doc {expected_id}");
+        assert_eq!(result.unwrap().doc_id, expected_id);
+    }
+
+    assert!(matches!(ii.read(), Ok(None)));
+    assert!(ii.at_eof());
+}
+
+/// Test: Revalidate immediately after construction (without reading first)
+#[test]
+fn revalidate_before_read() {
+    let child0: MockIterator<'static, 10> =
+        MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: MockIterator<'static, 11> =
+        MockIterator::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: MockIterator<'static, 11> =
+        MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+
+    // All children return OK on revalidate
+    child0
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Ok);
+    child1
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Ok);
+    child2
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Ok);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+        vec![Box::new(child0), Box::new(child1), Box::new(child2)];
+
+    let mut ii = Intersection::new(children);
+
+    // Revalidate before any read
+    let status = ii.revalidate().expect("revalidate failed");
+    assert!(
+        matches!(status, RQEValidateStatus::Ok),
+        "Revalidate before read should return Ok"
+    );
+
+    // Should still be able to read normally
+    let result = ii.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 10);
+}
+
+/// Test: Revalidate with Move before first read
+#[test]
+fn revalidate_move_before_read() {
+    let child0: MockIterator<'static, 10> =
+        MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: MockIterator<'static, 11> =
+        MockIterator::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: MockIterator<'static, 11> =
+        MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+
+    // All children will move
+    child0
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Move);
+    child1
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Move);
+    child2
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Move);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+        vec![Box::new(child0), Box::new(child1), Box::new(child2)];
+
+    let mut ii = Intersection::new(children);
+
+    // Revalidate before any read - children will move
+    let status = ii.revalidate().expect("revalidate failed");
+
+    // Since we haven't read anything yet, and children moved,
+    // the result depends on implementation. The iterator should
+    // either return Ok (no current position to invalidate) or
+    // Moved if it tracks that children moved.
+    assert!(
+        matches!(
+            status,
+            RQEValidateStatus::Ok | RQEValidateStatus::Moved { .. }
+        ),
+        "Revalidate before read with Move should return Ok or Moved"
+    );
+}
+
+/// Test: Verify estimated count is minimum of children
+#[test]
+fn num_estimated_is_minimum() {
+    // Create children with different sizes
+    let child1 = SortedIdList::new(vec![1, 2, 3, 4, 5]); // 5 elements
+    let child2 = SortedIdList::new(vec![1, 2, 3]); // 3 elements (smallest)
+    let child3 = SortedIdList::new(vec![1, 2, 3, 4, 5, 6, 7]); // 7 elements
+
+    let ii = Intersection::new(vec![child1, child2, child3]);
+
+    // num_estimated should be the minimum (3)
+    assert_eq!(
+        ii.num_estimated(),
+        3,
+        "num_estimated should be minimum of children"
+    );
+}
+
+/// Test: Children are processed in order of estimated count (smallest first)
+/// We can infer this indirectly by checking behavior with asymmetric children
+#[test]
+fn children_sorted_by_estimated() {
+    // Create children where the smallest (by count) would lead to fastest termination
+    // Large child: has docs 1-1000
+    let large_child: Vec<t_docId> = (1..=1000).collect();
+    // Small child: only has doc 500
+    let small_child = vec![500];
+    // Medium child: has docs 100, 200, 300, 400, 500, 600, 700
+    let medium_child = vec![100, 200, 300, 400, 500, 600, 700];
+
+    // The order we pass them shouldn't matter - they should be sorted internally
+    let child1 = SortedIdList::new(large_child);
+    let child2 = SortedIdList::new(small_child);
+    let child3 = SortedIdList::new(medium_child);
+
+    let mut ii = Intersection::new(vec![child1, child2, child3]);
+
+    // The only common document is 500
+    let result = ii.read().expect("read failed");
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().doc_id, 500);
+
+    // No more results
+    assert!(matches!(ii.read(), Ok(None)));
+    assert!(ii.at_eof());
+
+    // num_estimated should be 1 (smallest child)
+    assert_eq!(ii.num_estimated(), 1);
+}
+
+/// Test: Empty children vector via reduce returns Empty
+#[test]
+fn reduce_empty_vec_returns_empty() {
+    let children: Vec<SortedIdList<'static>> = vec![];
+    let mut result = reduce(children);
+
+    assert!(matches!(result, ReducedIntersection::Empty(_)));
+    assert!(result.at_eof());
+    assert!(matches!(result.read(), Ok(None)));
+    assert_eq!(result.num_estimated(), 0);
+}
+
+/// Test: ReducedIntersection trait methods work correctly for all variants
+#[test]
+fn reduced_intersection_trait_methods() {
+    // Test Empty variant
+    let children: Vec<SortedIdList<'static>> = vec![];
+    let mut empty_result = reduce(children);
+    assert!(empty_result.at_eof());
+    assert_eq!(empty_result.last_doc_id(), 0);
+    assert_eq!(empty_result.num_estimated(), 0);
+    assert!(matches!(empty_result.skip_to(10), Ok(None)));
+
+    // Test Single variant (all wildcards returns last)
+    let children: Vec<Wildcard<'static>> = vec![Wildcard::new(50, 1.0)];
+    let single_result = reduce(children);
+    assert!(matches!(single_result, ReducedIntersection::Single(_)));
+    assert!(!single_result.at_eof());
+    assert_eq!(single_result.num_estimated(), 50);
+
+    // Test Intersection variant
+    let children: Vec<SortedIdList<'static>> = vec![
+        SortedIdList::new(vec![1, 2, 3]),
+        SortedIdList::new(vec![2, 3, 4]),
+    ];
+    let mut intersect_result = reduce(children);
+    assert!(matches!(
+        intersect_result,
+        ReducedIntersection::Intersection(_)
+    ));
+    assert!(!intersect_result.at_eof());
+
+    // Common docs are 2, 3
+    assert_eq!(intersect_result.read().unwrap().unwrap().doc_id, 2);
+    assert_eq!(intersect_result.last_doc_id(), 2);
+
+    intersect_result.rewind();
+    assert_eq!(intersect_result.last_doc_id(), 0);
+    assert!(!intersect_result.at_eof());
 }
