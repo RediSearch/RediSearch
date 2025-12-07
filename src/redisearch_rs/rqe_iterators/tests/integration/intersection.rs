@@ -1035,10 +1035,7 @@ fn current_after_operations() {
     // After EOF, current() should return None
     while ii.read().expect("read failed").is_some() {}
     assert!(ii.at_eof());
-    assert!(
-        ii.current().is_none(),
-        "current() after EOF should be None"
-    );
+    assert!(ii.current().is_none(), "current() after EOF should be None");
 }
 
 /// Test: skip_to should always move forward
