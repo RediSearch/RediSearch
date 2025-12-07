@@ -58,6 +58,7 @@ typedef enum {
   RP_METRICS,
   RP_KEY_NAME_LOADER,
   RP_MAX_SCORE_NORMALIZER,
+  RP_DEPLETER,
   RP_TIMEOUT, // DEBUG ONLY
   RP_MAX,
 } ResultProcessorType;
@@ -295,6 +296,15 @@ void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
   * First accumulates all results from the upstream, then normalizes and yields them.
   *******************************************************************************************************************/
  ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
+
+/*******************************************************************************
+* Depleter Result Processor
+*
+*******************************************************************************/
+/**
+* Constructs a new depleter processor that runs in the current thread.
+*/
+ResultProcessor *RPDepleter_New();
 
 #ifdef __cplusplus
 }
