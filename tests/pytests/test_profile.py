@@ -818,11 +818,12 @@ def testProfileGILTime():
   env = Env(moduleArgs='WORKERS 1')
   conn = getConnectionByEnv(env)
 
+  env.expect('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT').ok()
+
   # Populate db
   for i in range(10):
     res = conn.execute_command('hset', f'doc{i}', 'f', 'hello world',)
 
-  env.cmd('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT')
   res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello' ,'SORTBY', '1', '@f')
 
   # Record structure:
