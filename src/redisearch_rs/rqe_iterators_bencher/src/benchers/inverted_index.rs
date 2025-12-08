@@ -110,7 +110,7 @@ impl NumericFullBencher {
                 |ii| {
                     let it = ii.iterator_numeric_full();
                     while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                     it.free();
                 },
@@ -126,7 +126,7 @@ impl NumericFullBencher {
                 |ii| {
                     let it = ii.iterator_numeric_full();
                     while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                     it.free();
                 },
@@ -142,7 +142,7 @@ impl NumericFullBencher {
                 |ii| {
                     let mut it = NumericFull::new(ii.reader());
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -157,7 +157,7 @@ impl NumericFullBencher {
                 |ii| {
                     let mut it = NumericFull::new(ii.reader());
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -174,7 +174,7 @@ impl NumericFullBencher {
                     while it.skip_to(it.last_doc_id() + SKIP_TO_STEP)
                         != ::ffi::IteratorStatus_ITERATOR_EOF
                     {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                     it.free();
                 },
@@ -192,7 +192,7 @@ impl NumericFullBencher {
                     while it.skip_to(it.last_doc_id() + SKIP_TO_STEP)
                         != ::ffi::IteratorStatus_ITERATOR_EOF
                     {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                     it.free();
                 },
@@ -210,7 +210,7 @@ impl NumericFullBencher {
                     while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {
                         match outcome {
                             SkipToOutcome::Found(current) | SkipToOutcome::NotFound(current) => {
-                                criterion::black_box(current);
+                                black_box(current);
                             }
                         }
                     }
@@ -229,7 +229,7 @@ impl NumericFullBencher {
                     while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {
                         match outcome {
                             SkipToOutcome::Found(current) | SkipToOutcome::NotFound(current) => {
-                                criterion::black_box(current);
+                                black_box(current);
                             }
                         }
                     }
@@ -361,7 +361,7 @@ where
                 |ii| {
                     let it = ii.iterator_term_full();
                     while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                     it.free();
                 },
@@ -377,7 +377,7 @@ where
                 |ii| {
                     let it = ii.iterator_term_full();
                     while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                     it.free();
                 },
@@ -393,7 +393,7 @@ where
                 |ii| {
                     let mut it = TermFull::new(ii.reader());
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -408,7 +408,7 @@ where
                 |ii| {
                     let mut it = TermFull::new(ii.reader());
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -425,7 +425,7 @@ where
                     while it.skip_to(it.last_doc_id() + SKIP_TO_STEP)
                         != ::ffi::IteratorStatus_ITERATOR_EOF
                     {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                     it.free();
                 },
@@ -443,7 +443,7 @@ where
                     while it.skip_to(it.last_doc_id() + SKIP_TO_STEP)
                         != ::ffi::IteratorStatus_ITERATOR_EOF
                     {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                     it.free();
                 },
@@ -461,7 +461,7 @@ where
                     while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {
                         match outcome {
                             SkipToOutcome::Found(current) | SkipToOutcome::NotFound(current) => {
-                                criterion::black_box(current);
+                                black_box(current);
                             }
                         }
                     }
@@ -480,7 +480,7 @@ where
                     while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {
                         match outcome {
                             SkipToOutcome::Found(current) | SkipToOutcome::NotFound(current) => {
-                                criterion::black_box(current);
+                                black_box(current);
                             }
                         }
                     }
