@@ -68,7 +68,10 @@ where
         }
 
         children.sort_by_cached_key(|c| c.num_estimated());
-        let num_expected = children.first().map(|c| c.num_estimated()).expect("should have at least one child");
+        let num_expected = children
+            .first()
+            .map(|c| c.num_estimated())
+            .expect("should have at least one child");
         Self {
             children,
             last_doc_id: 0,
@@ -297,5 +300,3 @@ where
         }
     }
 }
-
-

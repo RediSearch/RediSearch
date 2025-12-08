@@ -17,8 +17,7 @@
 
 use ffi::t_docId;
 use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome,
-    id_list::SortedIdList,
+    RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::SortedIdList,
     intersection::Intersection,
 };
 
@@ -1114,5 +1113,3 @@ fn children_sorted_by_estimated() {
     // num_estimated should be 1 (smallest child)
     assert_eq!(ii.num_estimated(), 1);
 }
-
-
