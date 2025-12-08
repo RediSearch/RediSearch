@@ -892,12 +892,6 @@ def testMultibyteTag(env):
         # Search using parameters
         if dialect > 1:
             expected = [3, 'doc:upper', 'doc:mixed', 'doc:lower']
-            # For dialect 4 the data are not sorted
-            if dialect == 4:
-                if env.isCluster():
-                    expected = [3, 'doc:lower', 'doc:mixed', 'doc:upper']
-                else:
-                    expected = [ANY, 'doc:upper', 'doc:lower', 'doc:mixed']
 
             res = conn.execute_command(
                 'FT.SEARCH', 'idx', '@t:{$p}', 'NOCONTENT', 'PARAMS', 2, 'p',

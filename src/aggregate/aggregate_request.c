@@ -282,9 +282,34 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
-    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
+    // Handle SORTBY (also covers SORTBY 0 MAX n)
+    req->reqflags |= QEXEC_F_HAS_SORTBY;
+    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+    bool existingSort = (arng != NULL);
+    if (!arng) {
+      arng = NewArrangeStep();
+    }
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
+      if (!existingSort) {
+        arng->base.dtor(&arng->base);
+      }
       return ARG_ERROR;
+    }
+    if (array_len(arng->sortKeys) == 0) {
+      // No need to sort
+      req->reqflags &= ~QEXEC_F_HAS_SORTBY;
+      if (!existingSort) {
+        if (arng->limit > 0) {
+          // To support SORTBY 0 MAX n, we have a SORTER without any keys,
+          // but with a limit.
+          AGPLN_AddStep(&req->ap, &arng->base);
+        } else {
+          arng->base.dtor(&arng->base);
+        }
+      }
+    } else if (!existingSort) {
+      // Need to sort (add a sorter step if not yet added)
+      AGPLN_AddStep(&req->ap, &arng->base);
     }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
     if (AC_NumRemaining(ac) < 1) {
@@ -296,6 +321,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
+    if (IsAggregate(req) && HasWithCount(req)) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
+      return ARG_ERROR;
+    }
     if (parseCursorSettings(req, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -551,6 +580,17 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
       req->reqflags &= ~QEXEC_OPTIMIZE;
+      if (IsAggregate(req)) {
+        if (!RSGlobalConfig.enableUnstableFeatures) {
+          QueryError_SetError(status, QUERY_EPARSEARGS, "FT.AGGREGATE + WITHCOUNT is not available when `ENABLE_UNSTABLE_FEATURES` is off");
+          return REDISMODULE_ERR;
+        }
+        AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
+        if (IsCursor(req) && !IsInternal(req)) {
+          QueryError_SetError(status, QUERY_EPARSEARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
+          return REDISMODULE_ERR;
+        }
+      }
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
       req->reqflags |= QEXEC_OPTIMIZE;
@@ -899,6 +939,10 @@ AREQ *AREQ_New(void) {
 
 static bool hasQuerySortby(const AGGPlan *pln);
 
+static bool IsNeededDepleter(AREQ *req) {
+  return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req);
+}
+
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
   req->args = rm_malloc(sizeof(*req->args) * argc);
   req->nargs = argc;
@@ -946,6 +990,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       if (parseGroupby(req, &ac, status) != REDISMODULE_OK) {
         goto error;
       }
+      req->reqflags |= QEXEC_F_HAS_GROUPBY;
     } else if (AC_AdvanceIfMatch(&ac, "APPLY")) {
       if (handleApplyOrFilter(req, &ac, status, 1) != REDISMODULE_OK) {
         goto error;
@@ -970,6 +1015,13 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     // 2. We are not required to return scores explicitly,
     // 3. This is not a search query with implicit sorting by query score.
     searchOpts->flags |= Search_CanSkipRichResults;
+  }
+
+  // Define if we need a depleter in the pipeline to get accurate total results
+  if (IsAggregate(req) && HasWithCount(req)) {
+    if (IsNeededDepleter(req)) {
+      AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
+    }
   }
 
   return REDISMODULE_OK;
@@ -1226,6 +1278,16 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
   return RPMetricsLoader_New();
 }
 
+// Returns true if the pipeline requires an arrange step.
+// True when the optimizer decided we need an arrange step.
+// This is always true for FT.AGGREGATE + WITHCOUNT, because the optimizer does
+// not run and the type is Q_OPT_UNDECIDED)
+static bool PipelineRequiresArrange(AREQ *req) {
+  bool result = false;
+  result = req->optimizer->type != Q_OPT_NO_SORTER;
+  return result;
+}
+
 static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep *stp,
                                      QueryError *status, ResultProcessor *up, bool forceLoad) {
   ResultProcessor *rp = NULL;
@@ -1254,8 +1316,11 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     return up;
   }
 
-  if (req->optimizer->type != Q_OPT_NO_SORTER) {
-    if (astp->sortKeys) {
+  bool RPDepleterAdded = false;
+  bool RPPagerAdded = false;
+
+  if (PipelineRequiresArrange(req)) {
+    if (array_len(astp->sortKeys)) {
       size_t nkeys = array_len(astp->sortKeys);
       astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
 
@@ -1288,7 +1353,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       }
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(req, rp, up);
-    } else if (IsSearch(req) && (!IsOptimized(req) || HasScorer(req))) {
+    } else if ((IsSearch(req) && !IsOptimized(req)) || HasScorer(req)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
       rp = RPSorter_NewByScore(maxResults);
@@ -1297,11 +1362,39 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
   }
 
   if (astp->offset || (astp->limit && !rp)) {
+    if (HasDepleter(req)) {
+      rp = RPDepleter_New();
+      up = pushRP(req, rp, up);
+      RPDepleterAdded = true;
+    }
+
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(req, rp, up);
+    RPPagerAdded = true;
   } else if (IsSearch(req) && IsOptimized(req) && !rp) {
     rp = RPPager_New(0, maxResults);
     up = pushRP(req, rp, up);
+    RPPagerAdded = true;
+  }
+
+  if (HasDepleter(req)) { // We need to add a RPDepleter
+    if (!RPDepleterAdded) {
+      rp = RPDepleter_New();
+      up = pushRP(req, rp, up);
+      RPDepleterAdded = true;
+    }
+
+    // Add Limiter at the coordinator when a depleter is required:
+    // 1. If there is no SORTBY, otherwise, the LIMIT is managed by the sorter.
+    // 2. If there is a SORTBY, but with offset, the sorter can't handle the offset.
+    if (((astp->isLimited && !IsInternal(req)) &&
+      ((!HasSortBy(req) || HasSortBy(req) && astp->offset )))) {
+      if (!RPPagerAdded) {
+        rp = RPPager_New(astp->offset, astp->limit);
+        up = pushRP(req, rp, up);
+        RPPagerAdded = true;
+      }
+    }
   }
 
 end:
@@ -1598,7 +1691,9 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
 
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
-  if (!hasArrange && IsSearch(req)) {
+  if (!hasArrange &&
+        (IsSearch(req) ||
+        (IsAggregate(req) && HasDepleter(req)))) {
     rp = getArrangeRP(req, pln, NULL, status, rpUpstream, forceLoad);
     if (!rp) {
       goto error;

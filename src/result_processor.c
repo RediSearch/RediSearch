@@ -890,6 +890,9 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // First, we verify that we unlocked the spec before we lock Redis.
   RedisSearchCtx_UnlockSpec(sctx);
 
+  bool isQueryProfile = rp->parent->isProfile;
+  rs_wall_clock rpStartTime;
+  if (isQueryProfile) rs_wall_clock_init(&rpStartTime);
   // Then, lock Redis to guarantee safe access to Redis keyspace
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
 
@@ -897,6 +900,15 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
   // Done loading. Unlock Redis
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
+
+  if (isQueryProfile) {
+    // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
+    rs_wall_clock_ns_t GILTime = rs_wall_clock_elapsed_ns(&rpStartTime) + 1;
+    // GIL time is time passed since rpStartTime combined with the time we already accumulated in the rp->queryGILTime
+    rp->parent->queryGILTime += GILTime;
+    // Add the loader's GIL time to the query's GIL time
+    rp->rpGILTime += GILTime;
+  }
 
   // Move to the yielding phase
   rp->Next = rpSafeLoaderNext_Yield;
@@ -1057,7 +1069,8 @@ void SetLoadersForMainThread(AREQ *r) {
 static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
                                      "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
                                      "Grouper", "Projector", "Filter",            "Profile",
-                                     "Network", "Metrics Applier", "Key Name Loader", "Score Max Normalizer"};
+                                     "Network", "Metrics Applier", "Key Name Loader", "Score Max Normalizer",
+                                     "Depleter"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -1283,8 +1296,105 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
   return &ret->base;
 }
 
+/*******************************************************************************************************************
+ *  Depleter Result Processor
+ *
+ *  The RPDepleter result processor consumes all results from its upstream
+ *  processor synchronously, storing them in an internal array. It then yields
+ *  results one by one from this array. This processor is designed for use cases
+ *  where background processing is not needed or not desired.
+ *******************************************************************************************************************/
+typedef struct {
+  ResultProcessor base;            // Base result processor struct
+  arrayof(SearchResult *) results; // Array of pointers to SearchResult
+  size_t cur_idx;                  // Current index for yielding results
+  RPStatus last_rc;                // Last return code from upstream
+  uint32_t depleted_results;       // Total number of results depleted
+} RPDepleter;
 
- /*******************************************************************************************************************
+/**
+ * Synchronous depletion function: consumes all results from upstream and stores
+ * them in the results array.
+ */
+static void RPDepleter_Deplete(RPDepleter *self) {
+  RPStatus rc;
+  SearchResult *r = rm_calloc(1, sizeof(*r));
+
+  // Deplete all results from upstream
+  while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
+    array_append(self->results, r);
+    r = rm_calloc(1, sizeof(*r));
+    self->depleted_results++;
+  }
+
+  SearchResult_Destroy(r);
+  rm_free(r);
+  self->last_rc = rc;
+}
+
+/**
+ * Yield function for RPDepleter - returns results one by one from the
+ * internal array
+ */
+static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
+  RPDepleter *self = (RPDepleter *)base;
+
+  // Check if we've yielded all results
+  if (self->cur_idx >= array_len(self->results)) {
+    // Return the last code from upstream (EOF or TIMEDOUT)
+    int ret = self->last_rc;
+    self->last_rc = RS_RESULT_EOF;
+    return ret;
+  }
+
+  // Return the next result from the array
+  SearchResult *current = self->results[self->cur_idx];
+  SearchResult_Override(r, current);
+  rm_free(current);
+  self->results[self->cur_idx] = NULL;
+  self->cur_idx++;
+  return RS_RESULT_OK;
+}
+
+/**
+ * Next function for RPDepleter.
+ */
+static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
+  RPDepleter *self = (RPDepleter *)base;
+
+  // Call the sync depletion function directly
+  RPDepleter_Deplete(self);
+
+  // Switch to yield mode
+  self->base.Next = RPDepleter_Next_Yield;
+
+  // Now yield the first result
+  return RPDepleter_Next_Yield(base, r);
+}
+
+/**
+ * Destructor for RPDepleter
+ */
+static void RPDepleter_Free(ResultProcessor *base) {
+  RPDepleter *self = (RPDepleter *)base;
+  array_free_ex(self->results, srDtor(*(SearchResult**)ptr));
+  rm_free(self);
+}
+
+/**
+ * Constructs a new depleter processor that runs in the current thread.
+ */
+ResultProcessor *RPDepleter_New() {
+  RPDepleter *ret = rm_calloc(1, sizeof(*ret));
+  ret->results = array_new(SearchResult*, 0);
+  ret->base.Next = RPDepleter_Next_Accumulate;
+  ret->base.Free = RPDepleter_Free;
+  ret->base.type = RP_DEPLETER;
+  ret->depleted_results = 0;
+  return &ret->base;
+}
+
+/*******************************************************************************************************************
  *  Debug only result processors
  *
  * *******************************************************************************************************************/

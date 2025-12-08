@@ -13,7 +13,7 @@ import itertools
 from redis.client import NEVER_DECODE
 from redis import exceptions as redis_exceptions
 import RLTest
-from typing import Any, Callable
+from typing import Any, Callable, List
 from RLTest import Env
 from RLTest.env import Query
 import numpy as np
@@ -315,6 +315,28 @@ def debug_cmd():
 def enable_unstable_features(env):
     run_command_on_all_shards(env, config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
 
+def disable_unstable_features(env):
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'false')
+
+class unstable_features:
+    """Context manager to enable unstable features for a block of code.
+
+    Usage:
+        with unstable_features(env):
+            # code that requires unstable features
+        # unstable features are disabled after the block
+    """
+    def __init__(self, env):
+        self.env = env
+
+    def __enter__(self):
+        enable_unstable_features(self.env)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        disable_unstable_features(self.env)
+        return False  # Don't suppress exceptions
+
 def run_command_on_all_shards(env, *args):
     return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
 
@@ -548,11 +570,14 @@ class ConditionalExpected:
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0, seed=10):
     conn = getConnectionByEnv(env)
     np.random.seed(seed)
+    p = conn.pipeline(transaction=False)
+    query_vec = None
     for i in range(n_vec):
         vector = create_np_array_typed(np.random.rand(vec_size), data_type)
         if i == query_vec_index:
             query_vec = vector
-        conn.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
+        p.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
+    p.execute()
     return query_vec
 
 def sortResultByKeyName(res, start_index=1):
@@ -856,6 +881,18 @@ def allShards_setPauseRPResume(env):
         results.append(result)
     return results
 
+class vecsimMockTimeoutContext:
+    """Context manager for enabling/disabling VECSIM mock timeout on all shards"""
+    def __init__(self, env):
+        self.env = env
+
+    def __enter__(self):
+        run_command_on_all_shards(self.env, debug_cmd(), 'VECSIM_MOCK_TIMEOUT', 'enable')
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        run_command_on_all_shards(self.env, debug_cmd(), 'VECSIM_MOCK_TIMEOUT', 'disable')
+
 def waitForIndexFinishScan(env, idx = 'idx'):
     with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
         while index_info(env, idx)['percent_indexed'] not in (1, '1'):
@@ -956,3 +993,9 @@ def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
     for k in d1:
         if k in d2:
             env.assertEqual(d1[k], d2[k], message=message, depth=depth+1)
+
+def access_nested_list(lst, index):
+    result = lst
+    for entry in index:
+        result = result[entry]
+    return result
