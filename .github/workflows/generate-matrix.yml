@@ -1,0 +1,102 @@
+name: Generate Test Matrix
+
+# This workflow generates a dynamic matrix for test and build workflows
+# It filters the platform/architecture combinations based on inputs
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform filter (e.g., "ubuntu:noble" or "all")'
+        type: string
+        default: all
+      architecture:
+        description: 'Architecture filter (e.g., "x86_64" or "all")'
+        type: string
+        default: all
+      include-coverage:
+        description: 'Include coverage job in matrix'
+        type: boolean
+        default: false
+      include-sanitize:
+        description: 'Include sanitize job in matrix'
+        type: boolean
+        default: false
+    outputs:
+      matrix:
+        description: "Generated matrix as JSON"
+        value: ${{ jobs.generate.outputs.matrix }}
+      has-jobs:
+        description: "Whether there are any jobs to run"
+        value: ${{ jobs.generate.outputs.has-jobs }}
+
+jobs:
+  generate:
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    outputs:
+      matrix: ${{ steps.generate-matrix.outputs.matrix }}
+      has-jobs: ${{ steps.generate-matrix.outputs.has-jobs }}
+    steps:
+      - name: Generate filtered matrix
+        id: generate-matrix
+        shell: python
+        run: |
+          import json
+          import os
+          import sys
+
+          # All available platform/architecture combinations
+          all_combinations = [
+              ('ubuntu:jammy', 'x86_64'),
+              ('ubuntu:jammy', 'aarch64'),
+              ('ubuntu:focal', 'x86_64'),
+              ('ubuntu:focal', 'aarch64'),
+              ('rockylinux:8', 'x86_64'),
+              ('rockylinux:9', 'x86_64'),
+              ('rockylinux:9', 'aarch64'),
+              ('debian:bullseye', 'x86_64'),
+              ('amazonlinux:2', 'x86_64'),
+              ('mariner:2', 'x86_64'),
+              ('azurelinux:3', 'x86_64'),
+              ('azurelinux:3', 'aarch64'),
+              ('macos', 'x86_64'),
+              ('macos', 'aarch64')
+          ]
+
+          platform_filter = "${{ inputs.platform }}"
+          architecture_filter = "${{ inputs.architecture }}"
+          include_coverage = "${{ inputs.include-coverage }}" == "true"
+          include_sanitize = "${{ inputs.include-sanitize }}" == "true"
+
+          # Filter combinations based on inputs
+          matrix_items = [
+              {'platform': platform, 'architecture': architecture, 'job-type': 'test'}
+              for platform, architecture in all_combinations
+              if (platform == platform_filter or platform_filter == 'all') and
+                 (architecture == architecture_filter or architecture_filter == 'all')
+          ]
+
+          # Add coverage job if requested (only on ubuntu:default x86_64)
+          if include_coverage:
+              matrix_items.append({
+                  'platform': 'ubuntu:default',
+                  'architecture': 'x86_64',
+                  'job-type': 'coverage'
+              })
+
+          # Add sanitize job if requested (only on ubuntu:default x86_64)
+          if include_sanitize:
+              matrix_items.append({
+                  'platform': 'ubuntu:default',
+                  'architecture': 'x86_64',
+                  'job-type': 'sanitize'
+              })
+
+          # Check if matrix has any jobs
+          has_jobs = len(matrix_items) > 0
+
+          # Write to GitHub output
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'matrix={json.dumps({"include": matrix_items})}\n')
+              f.write(f'has-jobs={str(has_jobs).lower()}\n')
+
