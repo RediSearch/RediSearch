@@ -154,7 +154,7 @@ void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx);
 void ConcurrentSearchCtx_ReopenKeys(ConcurrentSearchCtx *ctx);
 
 /* return number of currently working threads */
-size_t ConcurrentSearchPool_WorkingThreadCount();
+size_t ConcurrentSearchPool_WorkingThreadCount(int poolId);
 
 struct ConcurrentCmdCtx;
 typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
