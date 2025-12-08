@@ -7,7 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{IndexFlags, t_docId};
+use ffi::{
+    IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
+    IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets,
+    t_docId,
+};
 use inverted_index::{
     DecodedBy, Encoder, InvertedIndex, RSIndexResult, RSResultKind, test_utils::TermRecordCompare,
 };
@@ -173,6 +177,11 @@ impl<E: Encoder> BaseTest<E> {
     }
 }
 
+pub(super) enum RevalidateIndexType {
+    Numeric,
+    Term,
+}
+
 /// Test the revalidation of the iterator.
 pub(super) struct RevalidateTest<E> {
     #[allow(dead_code)]
@@ -184,7 +193,7 @@ pub(super) struct RevalidateTest<E> {
 
 impl<E: Encoder + DecodedBy> RevalidateTest<E> {
     pub(super) fn new(
-        ii_flags: IndexFlags,
+        index_type: RevalidateIndexType,
         expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
         n_docs: u64,
     ) -> Self {
@@ -193,6 +202,16 @@ impl<E: Encoder + DecodedBy> RevalidateTest<E> {
         let doc_ids = (0..=n_docs)
             .map(|i| (2 * i + 1) as t_docId)
             .collect::<Vec<_>>();
+
+        let ii_flags = match index_type {
+            RevalidateIndexType::Numeric => IndexFlags_Index_StoreNumeric,
+            RevalidateIndexType::Term => {
+                IndexFlags_Index_StoreFreqs
+                    | IndexFlags_Index_StoreTermOffsets
+                    | IndexFlags_Index_StoreFieldFlags
+                    | IndexFlags_Index_StoreByteOffsets
+            }
+        };
 
         let mut ii = InvertedIndex::<E>::new(ii_flags);
         for doc_id in doc_ids.iter() {

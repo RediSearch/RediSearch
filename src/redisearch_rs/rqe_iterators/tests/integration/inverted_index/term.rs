@@ -18,7 +18,7 @@ use rqe_iterators::inverted_index::Term;
 
 use crate::{
     ffi::query_term::QueryTermBuilder,
-    inverted_index::utils::{BaseTest, RevalidateTest},
+    inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest},
 };
 
 struct TermTest {
@@ -74,7 +74,7 @@ impl TermTest {
                 n_docs,
             ),
             revalidate_test: RevalidateTest::new(
-                IndexFlags_Index_StoreTermOffsets,
+                RevalidateIndexType::Term,
                 Box::new(move |doc_id| {
                     let term2 = QueryTermBuilder {
                         token: TEST_STR,

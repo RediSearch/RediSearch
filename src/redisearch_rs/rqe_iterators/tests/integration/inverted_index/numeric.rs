@@ -11,7 +11,7 @@ use ffi::{IndexFlags_Index_StoreNumeric, t_docId};
 use inverted_index::{FilterNumericReader, InvertedIndex, NumericFilter, RSIndexResult};
 use rqe_iterators::{RQEIterator, inverted_index::Numeric};
 
-use crate::inverted_index::utils::{BaseTest, RevalidateTest};
+use crate::inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest};
 
 struct NumericTest {
     test: BaseTest<inverted_index::numeric::Numeric>,
@@ -32,7 +32,7 @@ impl NumericTest {
                 n_docs,
             ),
             revalidate_test: RevalidateTest::new(
-                IndexFlags_Index_StoreNumeric,
+                RevalidateIndexType::Numeric,
                 Box::new(Self::expected_record),
                 n_docs,
             ),
