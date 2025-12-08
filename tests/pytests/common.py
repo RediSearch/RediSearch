@@ -10,6 +10,7 @@ from functools import wraps
 import signal
 import platform
 import itertools
+import threading
 from redis.client import NEVER_DECODE
 import RLTest
 from typing import Any, Callable
@@ -918,6 +919,17 @@ def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
     for k in d1:
         if k in d2:
             env.assertEqual(d1[k], d2[k], message=message, depth=depth+1)
+
+def call_and_store(fn, args, out_list):
+    """
+    Helper function for threading: calls a function and stores its return value in a list.
+
+    Args:
+        fn: Function to call
+        args: Tuple of arguments to pass to the function
+        out_list: List to append the function's return value to
+    """
+    out_list.append(fn(*args))
 
 def verify_command_OK_on_all_shards(env, *args):
     res = run_command_on_all_shards(env, *args)

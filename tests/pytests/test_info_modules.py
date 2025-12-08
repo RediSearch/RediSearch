@@ -619,3 +619,69 @@ def test_active_io_threads_stats(env):
                  message="active_io_threads should be 0 when idle")
   # There's no deterministic way to test active_io_threads increases while a query is running,
   # we test it in unit tests.
+
+# NOTE: Currently query debug pause mechanism only supports pausing one query at a time, and is not supported on cluster.
+@skip(cluster=True, noWorkers=True)
+def test_active_worker_threads():
+    env = Env(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL')
+    num_queries = 1
+    conn = getConnectionByEnv(env)
+
+    # Create index and add test data
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    for i in range(10):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+    # Verify active_worker_threads starts at 0
+    multi_threading_section = f'{SEARCH_PREFIX}multi_threading'
+    info_dict = info_modules_to_dict(conn)
+    env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], '0',
+                    message=f"active_worker_threads should be 0 when idle")
+
+    # Define callback for testing a specific query type
+    def _test_query_type(query_type):
+        query_threads = []
+        query_results = []
+
+        # Launch num_queries queries in background threads, paused at Index RP
+        for i in range(num_queries):
+            result_list = []
+            query_results.append(result_list)
+            t = threading.Thread(
+                target=call_and_store,
+                args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                      (env, [query_type, 'idx', '*'], 'Index', 0),
+                      result_list),
+                daemon=True
+            )
+            query_threads.append(t)
+            t.start()
+
+        # Wait for all queries to be paused
+        with TimeLimit(120):
+            while not getIsRPPaused(env):
+                time.sleep(0.1)
+
+        # Verify active_worker_threads == num_queries
+        info_dict = info_modules_to_dict(conn)
+        env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], str(num_queries),
+                        message=f"{query_type}: active_worker_threads should be {num_queries} when {num_queries} queries are paused")
+
+        # Resume all queries
+        setPauseRPResume(env)
+
+        # Wait for all query threads to complete
+        for t in query_threads:
+            t.join()
+
+        # Drain worker thread pool to ensure all jobs complete
+        env.expect(debug_cmd(), 'WORKER_THREADS', 'DRAIN').ok()
+
+        # Verify active_worker_threads returns to 0
+        info_dict = info_modules_to_dict(conn)
+        env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], '0',
+                        message=f"{query_type}: active_worker_threads should return to 0 after queries complete")
+
+    # Test both query types
+    _test_query_type('FT.SEARCH')
+    _test_query_type('FT.AGGREGATE')
