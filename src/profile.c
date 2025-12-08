@@ -146,7 +146,8 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
             RedisModule_ReplyKV_Double(reply, "Total GIL time",
             rs_wall_clock_convert_ns_to_ms_d(req->qiter.queryGILTime));
           } else {
-            rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime);
+            // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
+            rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime) + 1;
             RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
           }
         }
