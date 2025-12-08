@@ -112,14 +112,11 @@ void GlobalStats_UpdateActiveIoThreads(int toAdd) {
 MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   MultiThreadingStats stats;
   stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
+  stats.active_worker_threads = 0;
 #ifdef MT_BUILD
   if (RSGlobalConfig.numWorkerThreads) {
     stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
-  } else {
-    stats.active_worker_threads = 0;
   }
-#else
-  stats.active_worker_threads = 0;
 #endif // MT_BUILD
 
 // TODO: needed?

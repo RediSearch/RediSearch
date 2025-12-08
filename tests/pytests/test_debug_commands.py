@@ -62,6 +62,7 @@ class TestDebugCommands(object):
             'VECSIM_MOCK_TIMEOUT',
             'FT.AGGREGATE',
             'FT.SEARCH',
+            'FT.PROFILE',
         ]
         if MT_BUILD:
             help_list.append('WORKER_THREADS')
@@ -912,10 +913,6 @@ def test_query_controller_pause_and_resume():
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
 
-    # Helper to call a function and push its return value into a list
-    def _call_and_store(fn, args, out_list):
-        out_list.append(fn(*args))
-
     queries_completed = 0
 
     for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
@@ -924,7 +921,7 @@ def test_query_controller_pause_and_resume():
 
         # Build threads
         t_query = threading.Thread(
-            target=_call_and_store,
+            target=call_and_store,
             args=(runDebugQueryCommandPauseBeforeRPAfterN,
                 (env, [query_type, 'idx', '*'], 'Index', 0),
                 query_result),
@@ -1013,3 +1010,118 @@ def test_query_controller_add_before_after():
         # Resume the query
         setPauseRPResume(env)
         t_query.join()
+
+class ProfileDebugSA:
+    @staticmethod
+    def createIndex(env):
+        skipTest(cluster=True)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
+        env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+        conn = getConnectionByEnv(env)
+        for i in range(10):
+            conn.execute_command('HSET', f'doc{i}', 't', f"hello{i}")
+    @staticmethod
+    def get_profile_data(res, cmd_type):
+        if isinstance(res, dict):  # RESP3
+            return {
+                'results_count': len(res['results']),
+                'profile': res['profile']
+            }
+        else:  # RESP2
+            # RESP2 format: [results_array, profile_array]
+            return {
+                'results_count': len(res[0]) - 1 if cmd_type == 'AGGREGATE' else len(res[0][1:]) // 2,  # Subtract 1 for total count
+                'profile': res[1]
+            }
+
+    # Helper to get value from profile sections
+    @staticmethod
+    def get_section(env, profile_sections, key):
+        if isinstance(profile_sections, dict):  # RESP3
+            return profile_sections.get(key)
+        else:  # RESP2
+            for i, section in enumerate(profile_sections):
+                if key in section:
+                    env.assertGreaterEqual(len(profile_sections[i]), 2, message=f"Expected at least 2 elements in section {key}, but got {profile_sections[i]}")
+                    return profile_sections[i][1:]
+            env.assertTrue(False, message=f"Expected section {key} not found in profile_sections: {profile_sections}")
+
+    @staticmethod
+    def get_field(item, field_name):
+        if isinstance(item, dict):  # RESP3
+            return item.get(field_name)
+        else:  # RESP2
+            return item[item.index(field_name) + 1]
+
+    @staticmethod
+    def ProfileDebugTimeout(env, command_type, protocol):
+        conn = getConnectionByEnv(env)
+        message_prefix = f"command_type: {command_type}, protocol: {protocol}"
+
+        # Run baseline normal query to get expected structure
+        baseline_query = ['FT.PROFILE', 'idx', command_type, 'QUERY', '@t:hello*']
+        baseline_res = conn.execute_command(*baseline_query)
+
+        baseline_data = ProfileDebugSA.get_profile_data(baseline_res, command_type)
+        baseline_profile = baseline_data['profile']
+
+        # Run debug query with TIMEOUT_AFTER_N
+        results_count = 5
+        debug_res = runDebugQueryCommandTimeoutAfterN(env, baseline_query, results_count)
+        debug_data = ProfileDebugSA.get_profile_data(debug_res, command_type)
+        debug_profile = debug_data['profile']
+        # Verify both return same number of results
+        env.assertEqual(debug_data['results_count'], results_count,
+                        message=f"{message_prefix}: Debug should return expected number of results")
+
+        # Both should have same number of entries in baseline_iterators
+        baseline_iterators = ProfileDebugSA.get_section(env, baseline_profile, 'Iterators profile')
+        debug_iterators = ProfileDebugSA.get_section(env, debug_profile, 'Iterators profile')
+        env.assertEqual(countFlatElements(baseline_iterators), countFlatElements(debug_iterators),
+                        message=f"{message_prefix}: Baseline and debug should have same number of entries in iterators profile. baseline: {countFlatElements(baseline_iterators)}, debug: {countFlatElements(debug_iterators)}")
+
+        # Verify Result processors profile structure matches
+        baseline_rp = ProfileDebugSA.get_section(env, baseline_profile, 'Result processors profile')
+        debug_rp = ProfileDebugSA.get_section(env, debug_profile, 'Result processors profile')
+
+        # Both should have same number of RPs
+        env.assertEqual(len(baseline_rp), len(debug_rp),
+                        message=f"{message_prefix}: Baseline and debug should have same number of result processors. baseline: {baseline_rp}, debug: {debug_rp}")
+
+        # Verify each RP has same Type
+        for i, (baseline_rp_item, debug_rp_item) in enumerate(zip(baseline_rp, debug_rp)):
+            baseline_type = ProfileDebugSA.get_field(baseline_rp_item, 'Type')
+            debug_type = ProfileDebugSA.get_field(debug_rp_item, 'Type')
+            env.assertEqual(baseline_type, debug_type,
+                            message=f"{message_prefix}: RP {i}: Type should match baseline")
+
+            # Verify no "Debug" type appears (debug RPs should be skipped)
+            env.assertNotEqual(debug_type, 'Debug',
+                                message=f"{message_prefix}: RP {i}: Debug RP should not appear in Result processors profile")
+
+        # Verify debug has timeout warning
+        debug_warning = ProfileDebugSA.get_section(env, debug_profile, 'Warning')
+        env.assertIsNotNone(debug_warning, message="Debug should have timeout warning")
+        env.assertContains('Timeout', str(debug_warning), message="Debug warning should contain 'Timeout'")
+
+class TestProfileDebugSAResp2(object):
+    def __init__(self):
+        env = Env(protocol=2)
+        ProfileDebugSA.createIndex(env)
+        self.env = env
+
+    def testProfileTimeoutSearchResp2(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "SEARCH", 2)
+    def testProfileTimeoutAggregateResp2(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "AGGREGATE", 2)
+
+class TestProfileDebugSAResp3(object):
+    def __init__(self):
+        env = Env(protocol=3)
+        ProfileDebugSA.createIndex(env)
+        self.env = env
+
+    def testProfileTimeoutSearchResp3(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "SEARCH", 3)
+    def testProfileTimeoutAggregateResp3(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "AGGREGATE", 3)
