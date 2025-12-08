@@ -149,6 +149,11 @@ jobs:
                       'container': 'rockylinux:9',
                       'setup_script': 'dnf update -y && dnf install -y git',
                       'name': 'Rocky Linux 9 x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'rockylinux:9',
+                      'setup_script': 'dnf update -y && dnf install -y git',
+                      'name': 'Rocky Linux 9 ARM64'
                   }
               },
               "amazonlinux:2": {
