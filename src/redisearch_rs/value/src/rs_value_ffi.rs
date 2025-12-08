@@ -118,7 +118,7 @@ impl RSValueTrait for RSValueFFI {
     }
 
     fn create_num(num: f64) -> Self {
-        // Safety: RSValue_FromDouble expects a valid double value.
+        // Safety: RSValue_NewNumber expects a valid double value.
         let num = unsafe { ffi::RSValue_NewNumber(num) };
         RSValueFFI(NonNull::new(num).expect("RSValue_NewNumber returned a null pointer"))
     }
