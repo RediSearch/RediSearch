@@ -1450,6 +1450,41 @@ static int CreateSearchCommands(RedisModuleCtx *ctx, const SearchCommand *comman
     .selectedCallbackType = callback_type_,                                                               \
     .position = keys_, .internal = internal_ }
 
+// Helper function to register commands that write arbitrary keys
+// Attempt to use an additional flag `touches-arbitrary-keys` and if this fails, falls back to the original flags.
+static int RMCreateArbitraryWriteSearchCommand(RedisModuleCtx *ctx, const char *name,
+                                             RedisModuleCmdFunc callback,
+                                             const char *flags,
+                                             const CommandKeys keys,
+                                             const char *aclCategories, bool internalCommand) {
+  // Build flag combinations
+  char flagCombinations[2][256];
+  int flagCount = 0;
+
+  // Primary flags with touches-arbitrary-keys
+  snprintf(flagCombinations[flagCount], sizeof(flagCombinations[flagCount]), "%s touches-arbitrary-keys", flags);
+  flagCount++;
+
+  // Fallback flags (original flags only)
+  snprintf(flagCombinations[flagCount], sizeof(flagCombinations[flagCount]), "%s", flags);
+  flagCount++;
+
+  // Try each flag combination
+  for (int i = 0; i < flagCount; i++) {
+    int rc = RMCreateSearchCommand(ctx, name, callback, flagCombinations[i],
+                                 keys.firstkey, keys.lastkey, keys.keystep, aclCategories, internalCommand);
+    if (rc == REDISMODULE_OK) {
+      if (i > 0) {
+        RedisModule_Log(ctx, "notice", "Registered command %s with flags: %s",
+                       name, flagCombinations[i]);
+      }
+      return REDISMODULE_OK;
+    }
+  }
+
+  return REDISMODULE_ERR;
+}
+
 int RSShardedHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return hybridCommandHandler(ctx, argv, argc, true);
 }
@@ -1539,10 +1574,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_CREATE_CMD,          CreateIndexCommand,            "write deny-oom",                      NULL,                         NONE,                   "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_CREATE_IF_NX_CMD,    CreateIndexIfNotExistsCommand, "write deny-oom",                      NULL,                         NONE,                   "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_RESTORE_IF_NX,       NULL,                          "write",                               RegisterRestoreIfNxCommands,  SUBSCRIBE_SUBCOMMANDS,  "",                           true, indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_DROP_CMD,            DropIndexCommand,              "write touches-arbitrary-keys",        NULL,                         NONE,                   "write slow dangerous",       true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_DROP_INDEX_CMD,      DropIndexCommand,              "write touches-arbitrary-keys",        NULL,                         NONE,                   "write slow dangerous",       true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_DROP_IF_X_CMD,       DropIfExistsIndexCommand,      "write touches-arbitrary-keys",        NULL,                         NONE,                   "write slow dangerous",       true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand,      "write touches-arbitrary-keys",        NULL,                         NONE,                   "write slow dangerous",       true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_SYNUPDATE_CMD,       SynUpdateCommand,              "write deny-oom",                      SetFtSynupdateInfo,           SET_COMMAND_INFO,       "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_ALTER_CMD,           AlterIndexCommand,             "write deny-oom",                      SetFtAlterInfo,               SET_COMMAND_INFO,       "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_ALTER_IF_NX_CMD,     AlterIndexIfNXCommand,         "write deny-oom",                      SetFtAlterInfo,               SET_COMMAND_INFO,       "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
@@ -1584,6 +1615,19 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   if (CreateSearchCommands(ctx, commands, sizeof(commands) / sizeof(commands[0])) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
+  // Special cases: Register drop commands which write to arbitrary keys
+  const CommandKeys indexOnlyCmdArgs = DEFINE_COMMAND_KEYS(0, 0, 0);
+#define REGISTER_ARBITRARY_WRITE_CMD(name, callback) \
+  RM_TRY(RMCreateArbitraryWriteSearchCommand(ctx, name, callback, \
+    "write", indexOnlyCmdArgs, "write slow dangerous", !IsEnterprise()))
+
+  REGISTER_ARBITRARY_WRITE_CMD(RS_DROP_CMD, DropIndexCommand)
+  REGISTER_ARBITRARY_WRITE_CMD(RS_DROP_INDEX_CMD, DropIndexCommand)
+  REGISTER_ARBITRARY_WRITE_CMD(RS_DROP_IF_X_CMD, DropIfExistsIndexCommand)
+  REGISTER_ARBITRARY_WRITE_CMD(RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand)
+
+#undef REGISTER_ARBITRARY_WRITE_CMD
+
   return REDISMODULE_OK;
 }
 
