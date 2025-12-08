@@ -81,6 +81,7 @@ const RESULT_SET_CASES: &[&[t_docId]] = &[
 // =============================================================================
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn read_all_combinations() {
     for &num_children in NUM_CHILDREN_CASES {
         for &result_set in RESULT_SET_CASES {
@@ -283,6 +284,7 @@ fn skip_to_test_case(num_children: usize, result_set: &[t_docId]) {
 // =============================================================================
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn rewind_all_combinations() {
     for &num_children in NUM_CHILDREN_CASES {
         for &result_set in RESULT_SET_CASES {
@@ -350,6 +352,7 @@ fn empty_result_set() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn single_element_result_set() {
     let child1 = SortedIdList::new(vec![1, 5, 10]);
     let child2 = SortedIdList::new(vec![5, 15, 20]);
@@ -368,6 +371,7 @@ fn single_element_result_set() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn skip_to_exact_match() {
     let child1 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
     let child2 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
@@ -386,6 +390,7 @@ fn skip_to_exact_match() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn skip_to_not_found() {
     let child1 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
     let child2 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
@@ -429,6 +434,7 @@ fn no_children() {
 /// Test intersection with a single child - should behave like the child itself
 /// Equivalent to C++ TestIntersectionWithSingleChild (without wildcard removal)
 #[test]
+#[cfg_attr(miri, ignore)]
 fn single_child() {
     let doc_ids = vec![10, 20, 30, 40, 50];
     let child = SortedIdList::new(doc_ids.clone());
@@ -454,6 +460,7 @@ fn single_child() {
 
 /// Test that skip_to past EOF stays at EOF
 #[test]
+#[cfg_attr(miri, ignore)]
 fn skip_to_past_eof() {
     let child1 = SortedIdList::new(vec![10, 20, 30]);
     let child2 = SortedIdList::new(vec![10, 20, 30]);
@@ -478,6 +485,7 @@ fn skip_to_past_eof() {
 
 /// Test sequential skip_to through all documents
 #[test]
+#[cfg_attr(miri, ignore)]
 fn skip_to_sequential() {
     let doc_ids = vec![10, 20, 30, 40, 50];
     let child1 = SortedIdList::new(doc_ids.clone());
@@ -504,6 +512,7 @@ fn skip_to_sequential() {
 
 /// Test interleaved read and skip_to
 #[test]
+#[cfg_attr(miri, ignore)]
 fn interleaved_read_and_skip_to() {
     let doc_ids = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
     let child1 = SortedIdList::new(doc_ids.clone());
@@ -542,6 +551,7 @@ fn interleaved_read_and_skip_to() {
 
 /// Test many children (stress test)
 #[test]
+#[cfg_attr(miri, ignore)]
 fn many_children() {
     let doc_ids = vec![100, 200, 300, 400, 500];
     let num_children = 50;
@@ -584,6 +594,7 @@ fn many_children() {
 /// Test: All children return VALIDATE_OK
 /// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateOK)
 #[test]
+#[cfg_attr(miri, ignore)]
 fn revalidate_ok() {
     // Create mock children with const generic arrays
     let child0: MockIterator<'static, 10> =
@@ -629,6 +640,7 @@ fn revalidate_ok() {
 /// Test: One child returns VALIDATE_ABORTED
 /// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateAborted)
 #[test]
+#[cfg_attr(miri, ignore)]
 fn revalidate_aborted() {
     let child0: MockIterator<'static, 10> =
         MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
@@ -665,6 +677,7 @@ fn revalidate_aborted() {
 /// Test: All children return VALIDATE_MOVED
 /// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateMoved)
 #[test]
+#[cfg_attr(miri, ignore)]
 fn revalidate_moved() {
     let child0: MockIterator<'static, 10> =
         MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
@@ -712,6 +725,7 @@ fn revalidate_moved() {
 /// Test: Mix of OK and MOVED results
 /// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateMixedResults)
 #[test]
+#[cfg_attr(miri, ignore)]
 fn revalidate_mixed_results() {
     let child0: MockIterator<'static, 10> =
         MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
@@ -749,6 +763,7 @@ fn revalidate_mixed_results() {
 /// Test: Revalidate after EOF - should return OK even if children moved
 /// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateAfterEOF)
 #[test]
+#[cfg_attr(miri, ignore)]
 fn revalidate_after_eof() {
     // Pre-set children to return MOVE on revalidate
     let child0: MockIterator<'static, 10> =
@@ -797,6 +812,7 @@ fn revalidate_after_eof() {
 /// this by using a child that has only 2 elements - after reading doc 10, there's only
 /// one element left (20), so when Move is called during revalidate, it reaches EOF.
 #[test]
+#[cfg_attr(miri, ignore)]
 fn revalidate_some_children_moved_to_eof() {
     // Child 0 and 2 have normal data, child 1 is small (only 2 elements: [10, 20])
     // When we read doc 10 and then call Move, child 1 moves to 20 and the next Move
@@ -884,6 +900,7 @@ fn reduce_with_no_children() {
 /// Test: Intersection removes wildcard children
 /// Equivalent to C++ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
 #[test]
+#[cfg_attr(miri, ignore)]
 fn reduce_removes_wildcard_children() {
     // 2 regular iterators + 2 wildcards = should keep only 2 regular
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
@@ -909,6 +926,7 @@ fn reduce_removes_wildcard_children() {
 /// Test: All wildcard children returns the last wildcard
 /// Equivalent to C++ TEST_F(IntersectionIteratorReducerTest, TestIntersectionAllWildCardChildren)
 #[test]
+#[cfg_attr(miri, ignore)]
 fn reduce_all_wildcards() {
     let children: Vec<Wildcard<'static>> = vec![
         Wildcard::new(30, 1.0),
@@ -936,6 +954,7 @@ fn reduce_all_wildcards() {
 /// Test: Single non-wildcard child after removing wildcards
 /// Equivalent to C++ TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithSingleChild)
 #[test]
+#[cfg_attr(miri, ignore)]
 fn reduce_single_non_wildcard_after_removing_wildcards() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
         Box::new(SortedIdList::new(vec![1, 2, 3])),
@@ -960,6 +979,7 @@ fn reduce_single_non_wildcard_after_removing_wildcards() {
 
 /// Test: Reduced intersection works correctly end-to-end
 #[test]
+#[cfg_attr(miri, ignore)]
 fn reduce_works_as_iterator() {
     // Mix of regular and wildcard children
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
@@ -987,6 +1007,7 @@ fn reduce_works_as_iterator() {
 
 /// Test: current() returns correct state after various operations
 #[test]
+#[cfg_attr(miri, ignore)]
 fn current_after_operations() {
     let child1 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
     let child2 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
@@ -1042,6 +1063,7 @@ fn current_after_operations() {
 
 /// Test: Large gaps between document IDs
 #[test]
+#[cfg_attr(miri, ignore)]
 fn large_doc_id_gaps() {
     let sparse_ids = vec![1, 1_000_000, 2_000_000, 10_000_000];
     let child1 = SortedIdList::new(sparse_ids.clone());
@@ -1078,6 +1100,7 @@ fn large_doc_id_gaps() {
 
 /// Test: Children with overlapping unique IDs don't cause issues
 #[test]
+#[cfg_attr(miri, ignore)]
 fn overlapping_children_ids() {
     // Create children with significant overlap but different unique IDs
     let child1 = SortedIdList::new(vec![1, 2, 3, 5, 10, 15, 20, 25, 30]);
@@ -1101,6 +1124,7 @@ fn overlapping_children_ids() {
 
 /// Test: Revalidate immediately after construction (without reading first)
 #[test]
+#[cfg_attr(miri, ignore)]
 fn revalidate_before_read() {
     let child0: MockIterator<'static, 10> =
         MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
@@ -1139,6 +1163,7 @@ fn revalidate_before_read() {
 
 /// Test: Revalidate with Move before first read
 #[test]
+#[cfg_attr(miri, ignore)]
 fn revalidate_move_before_read() {
     let child0: MockIterator<'static, 10> =
         MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
@@ -1244,6 +1269,7 @@ fn reduce_empty_vec_returns_empty() {
 
 /// Test: ReducedIntersection trait methods work correctly for all variants
 #[test]
+#[cfg_attr(miri, ignore)]
 fn reduced_intersection_trait_methods() {
     // Test Empty variant
     let children: Vec<SortedIdList<'static>> = vec![];
