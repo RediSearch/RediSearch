@@ -12,6 +12,13 @@
 #include "spec.h"
 #include "document.h"
 
+#ifdef __cplusplus
+#include <chrono>
+#include <functional>
+#include <sstream>
+#include <unistd.h>
+#endif
+
 #define __ignore__(X) \
     do { \
         int rc = (X); \
@@ -70,5 +77,39 @@ IndexSpec *createIndex(RedisModuleCtx *ctx, const char *name, Ts... args) {
 
 std::vector<std::string> search(RSIndex *index, RSQueryNode *qn);
 std::vector<std::string> search(RSIndex *index, const char *s);
+
+/**
+ * @brief Wait for a condition to become true with a timeout.
+ *
+ * This function polls the condition at regular intervals until it becomes true
+ * or the timeout expires.
+ *
+ * @tparam Condition A callable that returns bool (e.g., lambda, function pointer)
+ * @param condition The condition to wait for (should return true when satisfied)
+ * @param timeout_s Timeout in seconds (default: 30s)
+ * @param poll_interval_us Polling interval in microseconds (default: 100us)
+ * @return true if condition became true before timeout, false if timeout expired
+ *
+ * Example usage:
+ *   bool success = WaitForCondition([&]() { return counter == 0; }, 300);
+ *   ASSERT_TRUE(success) << "Timeout waiting for counter to reach 0";
+ *
+ */
+template<typename Condition>
+bool WaitForCondition(Condition condition,
+                      int timeout_s = 30,
+                      int poll_interval_us = 100) {
+  auto start = std::chrono::steady_clock::now();
+  auto timeout = std::chrono::seconds(timeout_s);
+
+  while (!condition()) {
+    auto elapsed = std::chrono::steady_clock::now() - start;
+    if (elapsed > timeout) {
+      return false; // Timeout
+    }
+    usleep(poll_interval_us);
+  }
+  return true; // Success
+}
 
 }  // namespace RS
