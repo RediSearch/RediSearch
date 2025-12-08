@@ -6,6 +6,7 @@ import numpy as np
 from vecsim_utils import (
     DEFAULT_FIELD_NAME,
     DEFAULT_INDEX_NAME,
+    DEFAULT_BLOCK_SIZE,
     set_up_database_with_vectors,
 )
 
@@ -501,14 +502,18 @@ def test_counting_queries_BG():
 def test_redis_info_modules_vecsim():
   env = Env(moduleArgs='WORKERS 2')
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
-  set_doc = lambda: env.expect('HSET', '1', 'vec', '????')
+  set_doc = lambda key: env.expect('HSET', key, 'vec', '????')
 
-  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
-  env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
-  env.expect('FT.CREATE', 'idx3', 'SCHEMA', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  env.expect('FT.CREATE', 'idx1', 'PREFIX', '1', 'doc:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  env.expect('FT.CREATE', 'idx2', 'PREFIX', '1', 'doc:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  env.expect('FT.CREATE', 'idx3', 'PREFIX', '1', 'doc:', 'SCHEMA', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   env.expect('FT.CREATE', 'idx4', 'SCHEMA', 'vec', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
 
-  set_doc().equal(1) # Add a document for the first time
+  set_doc('doc:0').equal(1) # Add a document for the first time
+  # For SVS, we need to add enough documents to trigger background indexing into SVS. We expect that these
+  # vectors will only be indexed into SVS index and not for the other ones, due to the schema prefix.
+  for i in range(1, DEFAULT_BLOCK_SIZE + 1):
+    set_doc(f'doc_svs:{i}')
   env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
   info = env.cmd('INFO', 'MODULES')
@@ -519,19 +524,20 @@ def test_redis_info_modules_vecsim():
   env.assertEqual(info['search_gc_marked_deleted_vectors'], 0)
 
   env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
-  set_doc().equal(0) # Add (override) the document for the second time
+  set_doc('doc:0').equal(0) # Add (override) the document for the second time - trigger deletion for all indexes
 
   info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 5)]
   env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
-
-  # Todo: account for deleted vector in SVS-VAMANA as well
-  env.assertEqual(info['search_gc_marked_deleted_vectors'], 2) # 2 vectors were marked as deleted (1 for each hnsw index)
+  # 3 vectors were marked as deleted (1 for each hnsw index and 1 for svs)
+  env.assertEqual(info['search_gc_marked_deleted_vectors'], 3)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
   env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
+  env.assertEqual(to_dict(field_infos[3]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
 
   env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
   [forceInvokeGC(env, f'idx{i}') for i in range(1, 5)]
+  env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
   info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 5)]

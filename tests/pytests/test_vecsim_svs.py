@@ -588,10 +588,7 @@ def test_gc():
         # GC background jobs for SVS should be pending in low priority queue.
         env.assertEqual(cur_workers_stats['lowPriorityPendingJobs'], num_workers, message=f"{message_prefix}")
         env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
-
-        with TimeLimit(100, message=f"Waiting for GC jobs to finish timed out.{message_prefix}"):
-            while getWorkersThpoolStats(env)['totalJobsDone'] != jobs_done_before + num_workers:
-                time.sleep(0.1)
+        env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
         tiered_backend_debug_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
 
