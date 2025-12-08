@@ -84,7 +84,7 @@ memchr = "2.7.4"
 proptest = { version = "1.6.0", default-features = false }
 proptest-derive = { version = "0.5.1", default-features = false }
 rand = "0.9.1"
-ureq = "3.0.10"
+ureq = "3.1"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 pin-project = "1.1.10"
 
