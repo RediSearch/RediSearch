@@ -1601,14 +1601,14 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_INFO_CMD,      IndexInfoCommand,         "readonly"                , SetFtInfoInfo,             SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_SEARCH_CMD,    RSSearchCommand,          "readonly"                , SetFtSearchInfo,           SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_GET_CMD,       GetSingleDocumentCommand, "readonly"                , NULL,                      NONE,                  "read",                 true,             indexDocCmdArgs,  false),
-    DEFINE_COMMAND(RS_HYBRID_CMD,    RSShardedHybridCommand,   "readonly"                , NULL,                      NONE,                  "read",                 true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_HYBRID_CMD,    RSShardedHybridCommand,   "readonly"                , SetFtHybridInfo,           SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_AGGREGATE_CMD, RSAggregateCommand,       "readonly"                , SetFtAggregateInfo,        SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_PROFILE_CMD,   RSProfileCommand,         "readonly"                , SetFtProfileInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_MGET_CMD,      GetDocumentsCommand,      "readonly"                , NULL,                      NONE,                  "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_TAGVALS_CMD,   TagValsCommand,           "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CURSOR_CMD,    NULL,                     "readonly"                , RegisterCursorCommands,    SUBSCRIBE_SUBCOMMANDS, "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "admin",                     true,             indexOnlyCmdArgs, false),
-    DEFINE_COMMAND(RS_SPELL_CHECK,   SpellCheckCommand,        "readonly"               , SetFtSpellcheckInfo,       SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_SPELL_CHECK,   SpellCheckCommand,        "readonly"               , SetFtSpellcheckInfo,        SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CONFIG,        NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                true,             indexOnlyCmdArgs, false),
   };
 
