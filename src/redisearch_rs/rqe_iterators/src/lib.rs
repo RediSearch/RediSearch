@@ -112,25 +112,6 @@ pub trait RQEIterator<'index> {
     /// Returns `false` if the iterator can yield more results.
     /// The iterator implementation must ensure that `at_eof` returns `false` when it is sure that the [`RQEIterator::read`] returns `Ok(None)`.
     fn at_eof(&self) -> bool;
-
-    /// Returns `true` if this iterator is known to yield no results.
-    ///
-    /// Used by compound iterators (like Intersection) to optimize away empty children.
-    /// Default implementation returns `false`.
-    #[inline(always)]
-    fn is_empty(&self) -> bool {
-        false
-    }
-
-    /// Returns `true` if this iterator is a wildcard iterator.
-    ///
-    /// Wildcard iterators match all documents and can be removed from intersections
-    /// without changing the result (since intersection with "all" is identity).
-    /// Default implementation returns `false`.
-    #[inline(always)]
-    fn is_wildcard(&self) -> bool {
-        false
-    }
 }
 
 // Implement RQEIterator for Box<dyn RQEIterator> to support dynamic dispatch
@@ -168,13 +149,5 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
 
     fn at_eof(&self) -> bool {
         (**self).at_eof()
-    }
-
-    fn is_empty(&self) -> bool {
-        (**self).is_empty()
-    }
-
-    fn is_wildcard(&self) -> bool {
-        (**self).is_wildcard()
     }
 }
