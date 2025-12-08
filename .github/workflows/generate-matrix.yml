@@ -7,7 +7,7 @@ on:
   workflow_call:
     inputs:
       platform:
-        description: 'Platform filter (e.g., "ubuntu:noble" or "all")'
+        description: 'Platform filter, can be comma separated list (e.g., "ubuntu:noble", "ubuntu:noble,debian:bookworm", or "all")'
         type: string
         default: all
       architecture:
@@ -69,7 +69,6 @@ jobs:
               ('azurelinux:3', 'aarch64'),
               ('alpine:3.22', 'x86_64'),
               ('alpine:3.22', 'aarch64'),
-              ('macos', 'x86_64'),
               ('macos', 'aarch64')
           ]
 
@@ -78,11 +77,14 @@ jobs:
           include_coverage = "${{ inputs.include-coverage }}" == "true"
           include_sanitize = "${{ inputs.include-sanitize }}" == "true"
 
+          # Parse comma-separated filters
+          platform_list = [p.strip() for p in platform_filter.split(',')]
+
           # Filter combinations based on inputs
           matrix_items = [
               {'platform': platform, 'architecture': architecture, 'job-type': 'test'}
               for platform, architecture in all_combinations
-              if (platform == platform_filter or platform_filter == 'all') and
+              if (platform in platform_list or 'all' in platform_list) and
                  (architecture == architecture_filter or architecture_filter == 'all')
           ]
 
@@ -109,4 +111,3 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'matrix={json.dumps({"include": matrix_items})}\n')
               f.write(f'has-jobs={str(has_jobs).lower()}\n')
-

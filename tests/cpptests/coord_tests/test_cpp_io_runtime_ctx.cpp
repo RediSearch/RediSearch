@@ -194,7 +194,6 @@ TEST_F(IORuntimeCtxCommonTest, ShutdownWithPendingRequests) {
 
 TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
   // Test that the active_io_threads metric is tracked correctly
-  GTEST_SKIP() << "Takes over 5 minutes to run when computing coverage";
 
   // Create ConcurrentSearch required to call GlobalStats_GetMultiThreadingStats
   ConcurrentSearch_CreatePool(1);
@@ -221,16 +220,17 @@ TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
     }
   };
 
-  // Schedule the slow callback - this will start the IO runtime automatically
-  IORuntimeCtx_Schedule(ctx, slowCallback, &flags);
-
   // Mark the IO runtime as ready to process callbacks
   ctx->uv_runtime.loop_th_ready = true;
 
+  // Schedule the slow callback - this will start the IO runtime automatically
+  IORuntimeCtx_Schedule(ctx, slowCallback, &flags);
+
   // Wait for callback to start
-  while (!flags.started.load()) {
-    usleep(100); // 100us
-  }
+  bool success = RS::WaitForCondition([&]() {
+    return flags.started.load();
+  });
+  ASSERT_TRUE(success) << "Timeout waiting for callback to start";
 
   // Now the callback is executing - check that active_io_threads > 0
   stats = GlobalStats_GetMultiThreadingStats();
@@ -240,13 +240,13 @@ TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
   flags.should_finish.store(true);
 
   // Phase 3: Wait for metric to return to 0 with timeout
-  bool success = RS::WaitForCondition([&]() {
+  success = RS::WaitForCondition([&]() {
     stats = GlobalStats_GetMultiThreadingStats();
     return stats.active_io_threads == 0;
   });
 
   ASSERT_TRUE(success) << "Timeout waiting for active_io_threads to return to 0, current value: " << stats.active_io_threads;
 
-  // Free ConcurrentSearch and WorkersPool
+  // Free ConcurrentSearch
   ConcurrentSearch_ThreadPoolDestroy();
 }

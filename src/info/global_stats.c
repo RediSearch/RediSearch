@@ -189,8 +189,10 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
   stats.workers_low_priority_pending_jobs = workersThreadPool_LowPriorityPendingJobsCount();
   stats.workers_high_priority_pending_jobs = workersThreadPool_HighPriorityPendingJobsCount();
+  stats.workers_admin_priority_pending_jobs = workersThreadPool_AdminPriorityPendingJobsCount();
 
   // Coordinator stats
   stats.active_coord_threads = ConcurrentSearchPool_WorkingThreadCount();
+  stats.coord_high_priority_pending_jobs = ConcurrentSearchPool_HighPriorityPendingJobsCount();
   return stats;
 }

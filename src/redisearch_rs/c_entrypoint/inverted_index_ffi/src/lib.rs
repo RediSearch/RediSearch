@@ -1006,7 +1006,7 @@ pub unsafe extern "C" fn IndexReader_Reset(ir: *mut IndexReader) {
 /// The following invariant must be upheld when calling this function:
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_NumEstimated(ir: *const IndexReader) -> u32 {
+pub unsafe extern "C" fn IndexReader_NumEstimated(ir: *const IndexReader) -> u64 {
     debug_assert!(!ir.is_null(), "ir must not be null");
 
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`

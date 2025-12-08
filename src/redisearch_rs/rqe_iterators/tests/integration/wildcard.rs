@@ -28,7 +28,7 @@ macro_rules! assert_skip_to_found {
 
 #[test]
 fn initial_state() {
-    let it = Wildcard::new(10);
+    let it = Wildcard::new(10, 5.);
 
     assert_eq!(it.last_doc_id(), 0);
     assert!(!it.at_eof());
@@ -39,7 +39,7 @@ fn initial_state() {
 fn read_with_post_call_mutate() {
     // small test to ensure such mutations are possible
     // for iterators which wrap Wildcard.
-    let mut it = Wildcard::new(2);
+    let mut it = Wildcard::new(2, 0.);
 
     for step in 1..=2 {
         let result = it.read().unwrap().unwrap();
@@ -55,7 +55,8 @@ fn read_with_post_call_mutate() {
 
 #[test]
 fn read_sequential() {
-    let mut it = Wildcard::new(5);
+    let weight = 0.5;
+    let mut it = Wildcard::new(5, weight);
 
     // Read all documents sequentially
     for expected_id in 1..=5 {
@@ -63,6 +64,7 @@ fn read_sequential() {
         let result = result.unwrap();
         let doc = result.unwrap();
         assert_eq!(doc.doc_id, expected_id);
+        assert_eq!(doc.weight, weight);
         assert_eq!(it.last_doc_id(), expected_id);
         assert_eq!(it.current().unwrap().doc_id, expected_id);
 
@@ -83,7 +85,7 @@ fn read_sequential() {
 
 #[test]
 fn skip_to_valid_targets() {
-    let mut it = Wildcard::new(10);
+    let mut it = Wildcard::new(10, 5.);
 
     // Test skipping to middle
     let result = it.skip_to(5);
@@ -102,7 +104,7 @@ fn skip_to_valid_targets() {
 
 #[test]
 fn skip_to_beyond_range() {
-    let mut it = Wildcard::new(10);
+    let mut it = Wildcard::new(10, 1.);
 
     let result = it.skip_to(11); // Beyond range
 
@@ -117,7 +119,7 @@ fn skip_to_beyond_range() {
 
 #[test]
 fn rewind() {
-    let mut it = Wildcard::new(10);
+    let mut it = Wildcard::new(10, 7.2);
 
     // Read some documents
     for _i in 1..=3 {
@@ -147,7 +149,7 @@ fn rewind() {
 
 #[test]
 fn read_after_skip() {
-    let mut it = Wildcard::new(10);
+    let mut it = Wildcard::new(10, 3.);
 
     // Skip to middle
     let result = it.skip_to(5);
@@ -173,7 +175,7 @@ fn read_after_skip() {
 
 #[test]
 fn skip_to_after_eof() {
-    let mut it = Wildcard::new(10);
+    let mut it = Wildcard::new(10, 3.7);
 
     // First, move to EOF by skipping beyond range
     let result = it.skip_to(11);
@@ -189,7 +191,7 @@ fn skip_to_after_eof() {
 
 #[test]
 fn zero_documents() {
-    let mut it = Wildcard::new(0);
+    let mut it = Wildcard::new(0, 3.7);
 
     // Should immediately be at EOF
     assert!(it.at_eof(), "iterator with top_id=0 should be at EOF");
@@ -215,7 +217,7 @@ fn zero_documents() {
 #[cfg(debug_assertions)]
 #[should_panic]
 fn skip_to_backwards() {
-    let mut it = Wildcard::new(100);
+    let mut it = Wildcard::new(100, 6.6);
 
     let _ = it.skip_to(75);
 
@@ -227,7 +229,7 @@ fn skip_to_backwards() {
 #[cfg(debug_assertions)]
 #[should_panic]
 fn skip_to_same_position() {
-    let mut it = Wildcard::new(10);
+    let mut it = Wildcard::new(10, 0.5);
 
     // Skip to position 5
     let result = it.skip_to(5);
