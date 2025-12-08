@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::io::Cursor;
+use std::{hint::black_box, io::Cursor};
 
-use criterion::{BatchSize, Criterion, black_box};
+use criterion::{BatchSize, Criterion};
 use inverted_index::{Decoder, Encoder, RSIndexResult, freqs_only::FreqsOnly};
 use itertools::Itertools;
 
