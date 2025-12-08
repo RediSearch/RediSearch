@@ -1601,7 +1601,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_TAGVALS_CMD,   TagValsCommand,           "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CURSOR_CMD,    NULL,                     "readonly"                , RegisterCursorCommands,    SUBSCRIBE_SUBCOMMANDS, "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "admin",                true,             indexOnlyCmdArgs, false),
-    DEFINE_COMMAND(RS_SPELL_CHECK,   SpellCheckCommand,        "readonly"                , SetFtSpellcheckInfo,        SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_SPELL_CHECK,   SpellCheckCommand,        "readonly"                , SetFtSpellcheckInfo,       SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CONFIG,        NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                true,             indexOnlyCmdArgs, false),
   };
 
@@ -1610,10 +1610,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   }
   // Special cases: Register drop commands which write to arbitrary keys
   SearchCommand arbitraryWriteCommands[] = {
-    DEFINE_COMMAND(RS_DROP_CMD,            DropIndexCommand,         "write", NULL, NONE, "write slow dangerous", true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_DROP_INDEX_CMD,      DropIndexCommand,         "write", NULL, NONE, "write slow dangerous", true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_DROP_IF_X_CMD,       DropIfExistsIndexCommand, "write", NULL, NONE, "write slow dangerous", true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write", NULL, NONE, "write slow dangerous", true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_DROP_CMD,            DropIndexCommand,         "write", NULL,                NONE,             "write slow dangerous", true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_DROP_INDEX_CMD,      DropIndexCommand,         "write", SetFtDropindexInfo,  SET_COMMAND_INFO, "write slow dangerous", true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_DROP_IF_X_CMD,       DropIfExistsIndexCommand, "write", NULL,                NONE,             "write slow dangerous", true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write", NULL,                NONE,             "write slow dangerous", true, indexOnlyCmdArgs, !IsEnterprise()),
   };
 
   if (CreateArbitraryWriteSearchCommands(ctx, arbitraryWriteCommands, sizeof(arbitraryWriteCommands) / sizeof(arbitraryWriteCommands[0])) != REDISMODULE_OK) {
