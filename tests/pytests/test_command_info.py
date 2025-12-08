@@ -128,7 +128,7 @@ def _is_function_to_block_transformation(actual, expected):
     return (actual.get('type') == 'block' and
             expected.get('type') == 'function')
 
-def _should_skip_field_in_comparison(key, actual, expected, is_function_to_block):
+def _should_skip_field_in_comparison(key, actual, is_function_to_block):
     """
     Determine if a field should be skipped during comparison.
 
@@ -138,7 +138,6 @@ def _should_skip_field_in_comparison(key, actual, expected, is_function_to_block
     Args:
         key: The field name to check
         actual: The actual data structure
-        expected: The expected data structure
         is_function_to_block: Whether this is a function->block transformation
 
     Returns:
@@ -179,9 +178,9 @@ def _compare_type_field(actual_type, expected_type):
     # Allow 'block' in actual to match 'function' in expected
     return actual_type == 'block' and expected_type == 'function'
 
-def _compare_dictionaries(actual, expected):
+def _dict_contains(actual, expected):
     """
-    Compare two dictionaries with lenient matching.
+    Check if actual dictionary contains all keys/values from expected.
 
     Lenient means: actual must contain all keys/values from expected,
     but can have extra fields.
@@ -194,7 +193,7 @@ def _compare_dictionaries(actual, expected):
         expected: The expected dictionary
 
     Returns:
-        bool: True if expected is included in actual
+        bool: True if actual contains all of expected
     """
     is_function_to_block = _is_function_to_block_transformation(actual, expected)
 
@@ -202,7 +201,7 @@ def _compare_dictionaries(actual, expected):
     for key, expected_value in expected.items():
         # Skip fields that are expected to be missing in transformations
         # (Only applies to function->block: token and empty arguments)
-        if _should_skip_field_in_comparison(key, actual, expected, is_function_to_block):
+        if _should_skip_field_in_comparison(key, actual, is_function_to_block):
             continue
 
         if key not in actual:
@@ -260,7 +259,7 @@ def _is_dict_included(actual, expected):
 
     # Route to appropriate comparison function
     if isinstance(expected, dict):
-        return _compare_dictionaries(actual, expected)
+        return _dict_contains(actual, expected)
     elif isinstance(expected, list):
         return _compare_lists(actual, expected)
     else:
@@ -293,9 +292,9 @@ def compare_arguments(actual, expected, fields_to_strip=None):
     # Step 3: Compare using recursive inclusion
     return _is_dict_included(stripped_actual, stripped_expected)
 
+"""Test that command info is available for all RediSearch commands using generated expectations."""
 def test_command_info_availability():
     env = Env(protocol=3)
-    """Test that command info is available for all RediSearch commands using generated expectations."""
 
     # Load expectations
     try:
@@ -328,9 +327,6 @@ def test_command_info_availability():
 
             # Track failures for this specific command
             initial_failure_count = len(failed_commands)
-
-            # Validate expected fields (dynamically extract field names from expectations)
-            expected_fields =  list(expected.keys())
 
             shared_fields = expected.keys() & info.keys()
             if 'group' in shared_fields:
@@ -367,8 +363,8 @@ def test_command_info_availability():
 
 
 
+"""Test that commands with tips have the correct tips field in command info."""
 def test_command_info_tips_field():
-    """Test that commands with tips have the correct tips field in command info."""
     env = Env(protocol=3)
     # Load expectations to find commands with tips
     try:
@@ -419,8 +415,8 @@ def test_command_info_tips_field():
     env.assertEqual(len(failed_tips), 0,
                    message=f"All commands with tips should have correct tips field. Failed: {failed_tips}")
 
+"""Test the structure of command info for specific well-known commands."""
 def test_specific_command_docs_structure():
-    """Test the structure of command info for specific well-known commands."""
     env = Env(protocol=3)
     conn = env.getConnection()
 
