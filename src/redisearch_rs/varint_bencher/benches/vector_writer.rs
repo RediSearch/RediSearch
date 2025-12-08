@@ -9,7 +9,9 @@
 
 //! Benchmark the vector writer operations for varints.
 
-use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use varint::VectorWriter;
 
 fn benchmark_vector_writer(c: &mut Criterion) {
