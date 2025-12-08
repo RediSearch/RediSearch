@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Intersection iterator - finds documents appearing in ALL child iterators.
+//! Supporting types for [`Intersection`].
 //!
 //! # TODO (MOD-12717)
 //!
@@ -37,9 +37,13 @@ pub struct Intersection<'index, I> {
     result: RSIndexResult<'index>,
 }
 
+/// Result of attempting to get all children to agree on a target document ID.
 enum AgreeResult {
+    /// All children have the target doc_id as their current position.
     Agreed,
+    /// A child skipped past the target to a higher doc_id; consensus must restart from this new ID.
     Ahead(t_docId),
+    /// A child reached EOF; no more documents can match.
     Eof,
 }
 
