@@ -545,6 +545,7 @@ def test_redis_info_modules_vecsim():
   env.assertEqual(info['search_gc_marked_deleted_vectors'], 0)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
   env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+  env.assertEqual(to_dict(field_infos[3]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
 
 @skip(cluster=True)
 def test_indexes_logically_deleted_docs(env):

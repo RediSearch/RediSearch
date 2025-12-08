@@ -581,7 +581,6 @@ def test_gc():
         # Phase 2: Force garbage collection to reclaim memory
         # Explicit GC should reduce memory usage after marked deletions
         env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
-        jobs_done_before = getWorkersThpoolStats(env)['totalJobsDone']
         forceInvokeGC(env, DEFAULT_INDEX_NAME)
         cur_workers_stats = getWorkersThpoolStats(env)
 
