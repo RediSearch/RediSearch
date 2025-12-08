@@ -1428,8 +1428,6 @@ static int RegisterAllDebugCommands(RedisModuleCtx* ctx, RedisModuleCommand *deb
 
 static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand);
 
-#define RS_WRITE_FLAGS_DEFAULT(flags) IsEnterprise() ? flags " " CMD_PROXY_FILTERED : flags
-
 static int CreateSearchCommands(RedisModuleCtx *ctx, const SearchCommand *commands, size_t count) {
   for (size_t i = 0; i < count; i++) {
     const SearchCommand *command = &commands[i];
@@ -1563,11 +1561,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     // to be able to replicate from an old RediSearch version.
     // If this is the light version then the _ft.safeadd/_ft.del does not exist
     // and we will get the normal ft.safeadd/ft.del command.
-    DEFINE_COMMAND(RS_ADD_CMD,            RSAddDocumentCommand, "write deny-oom",                         NULL, NONE, "write",       true,           indexDocCmdArgs, false),
-    DEFINE_COMMAND(LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand, RS_WRITE_FLAGS_DEFAULT("write deny-oom"), NULL, NONE, "write",       IsEnterprise(), indexDocCmdArgs, true),
-    DEFINE_COMMAND(LEGACY_RS_DEL_CMD,     DeleteCommand,        RS_WRITE_FLAGS_DEFAULT("write"),          NULL, NONE, "write",       IsEnterprise(), indexDocCmdArgs, true),
-    DEFINE_COMMAND(RS_DEL_CMD,            DeleteCommand,        RS_WRITE_FLAGS_DEFAULT("write"),          NULL, NONE, "write",       true,           indexDocCmdArgs, false),
-    DEFINE_COMMAND(RS_SAFEADD_CMD,        RSAddDocumentCommand, "write deny-oom",                         NULL, NONE, "write",       true,           indexDocCmdArgs, false),
+    DEFINE_COMMAND(RS_ADD_CMD,            RSAddDocumentCommand, "write deny-oom",  NULL, NONE, "write",       true,           indexDocCmdArgs, false),
+    DEFINE_COMMAND(LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand, "write deny-oom",  NULL, NONE, "write",       IsEnterprise(), indexDocCmdArgs, true),
+    DEFINE_COMMAND(LEGACY_RS_DEL_CMD,     DeleteCommand,        "write",           NULL, NONE, "write",       IsEnterprise(), indexDocCmdArgs, true),
+    DEFINE_COMMAND(RS_DEL_CMD,            DeleteCommand,        "write",           NULL, NONE, "write",       true,           indexDocCmdArgs, false),
+    DEFINE_COMMAND(RS_SAFEADD_CMD,        RSAddDocumentCommand, "write deny-oom",  NULL, NONE, "write",       true,           indexDocCmdArgs, false),
 
     // write commands (on enterprise we do not define them, the dmc take care of them)
     // search write slow dangerous
