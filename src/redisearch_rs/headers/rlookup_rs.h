@@ -174,6 +174,19 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Add all non-overridden keys from `src` to `dest`.
+ *
+ * # Safety
+ *
+ * 1. `src` must be a [valid], non-null pointer to an [`RLookup`]
+ * 2. `dest` must be a [valid], non-null pointer to an [`RLookup`]
+ * 3. `src` and `dest` must not point to the same [`RLookup`] ???
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookup_AddKeysFrom(const struct RLookup *src, struct RLookup *dest, uint32_t flags);
+
+/**
  * Get a RLookup key for a given name.
  *
  * A key is returned only if it's already in the lookup table (available from the

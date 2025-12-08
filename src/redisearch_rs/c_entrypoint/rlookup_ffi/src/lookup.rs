@@ -17,6 +17,32 @@ use std::{
     slice,
 };
 
+/// Add all non-overridden keys from `src` to `dest`.
+///
+/// # Safety
+///
+/// 1. `src` must be a [valid], non-null pointer to an [`RLookup`]
+/// 2. `dest` must be a [valid], non-null pointer to an [`RLookup`]
+/// 3. `src` and `dest` must not point to the same [`RLookup`] ???
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_AddKeysFrom<'a>(
+    src: *const RLookup<'a>,
+    dest: Option<NonNull<RLookup<'a>>>,
+    flags: u32,
+) {
+    // Safety: ensured by caller (1.)
+    let src = unsafe { src.as_ref().unwrap() };
+
+    // Safety: ensured by caller (2.)
+    let dest = unsafe { dest.unwrap().as_mut() };
+
+    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+
+    dest.add_keys_from(src, flags);
+}
+
 /// Get a RLookup key for a given name.
 ///
 /// A key is returned only if it's already in the lookup table (available from the
@@ -45,7 +71,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Read<'a>(
     flags: u32,
 ) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { lookup.unwrap().as_mut() }; // unwrap() vs expect()? jämför row.rs.
 
     // Safety: ensured by caller (2., 3., 4., 5.)
     let name = unsafe { CStr::from_ptr(name) };
