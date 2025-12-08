@@ -28,12 +28,12 @@
  * This includes SEARCH keyword, query, and optional SCORER and YIELD_SCORE_AS parameters
  * that come immediately after the query in sequence.
  *
+ * @param xcmd - destination MR command to append arguments to
  * @param argv - source command arguments array
  * @param argc - total argument count
- * @param xcmd - destination MR command to append arguments to
  * @param searchOffset - offset where SEARCH keyword appears
  */
-static void HybridRequest_appendSearch(RedisModuleString **argv, int argc, MRCommand *xcmd, int searchOffset) {
+static void MRCommand_appendSearch(MRCommand *xcmd, RedisModuleString **argv, int argc, int searchOffset) {
   // Add SEARCH keyword and query
   MRCommand_AppendRstr(xcmd, argv[searchOffset]);     // SEARCH
   MRCommand_AppendRstr(xcmd, argv[searchOffset + 1]); // query
@@ -66,14 +66,14 @@ static void HybridRequest_appendSearch(RedisModuleString **argv, int argc, MRCom
  * Appends VSIM FILTER arguments to MR command.
  * This includes FILTER keyword, filter expression, and optional POLICY and BATCH_SIZE parameters.
  *
+ * @param xcmd - destination MR command to append arguments to
  * @param argv - source command arguments array
  * @param argc - total argument count
- * @param xcmd - destination MR command to append arguments to
  * @param actualFilterOffset - offset where FILTER keyword appears
  * @return number of tokens parsed/appended
  */
-static int HybridRequest_appendVsimFilter(RedisModuleString **argv, int argc, MRCommand *xcmd,
-                                          int actualFilterOffset) {
+static int MRCommand_appendVsimFilter(MRCommand *xcmd, RedisModuleString **argv, int argc,
+                                      int actualFilterOffset) {
   // This is a VSIM FILTER - append it to the command
   // Format: FILTER <expression> [[POLICY ADHOC/BATCHES] [BATCH_SIZE <value>]] (order independent)
   MRCommand_AppendRstr(xcmd, argv[actualFilterOffset]);     // FILTER keyword
@@ -116,12 +116,12 @@ static int HybridRequest_appendVsimFilter(RedisModuleString **argv, int argc, MR
  * Appends all VSIM-related arguments to MR command.
  * This includes VSIM keyword, field, vector, KNN/RANGE method, and VSIM FILTER if present.
  *
+ * @param xcmd - destination MR command to append arguments to
  * @param argv - source command arguments array
  * @param argc - total argument count
- * @param xcmd - destination MR command to append arguments to
  * @param vsimOffset - offset where VSIM keyword appears
  */
-static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRCommand *xcmd, int vsimOffset) {
+static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv, int argc, int vsimOffset) {
   // Add VSIM keyword and field
   MRCommand_AppendRstr(xcmd, argv[vsimOffset]);     // VSIM
   MRCommand_AppendRstr(xcmd, argv[vsimOffset + 1]); // field
@@ -170,7 +170,7 @@ static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRComma
   int tokensAppended = 0;
 
   if (actualFilterOffset == expectedFilterOffset && actualFilterOffset < argc - 1) {
-    tokensAppended = HybridRequest_appendVsimFilter(argv, argc, xcmd, actualFilterOffset);
+    tokensAppended = MRCommand_appendVsimFilter(xcmd, argv, argc, actualFilterOffset);
   }
 
   // Add YIELD_SCORE_AS if present
@@ -204,11 +204,11 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 
   // Add all SEARCH-related arguments (SEARCH, query, optional SCORER, YIELD_SCORE_AS)
   int searchOffset = RMUtil_ArgIndex("SEARCH", argv, argc);
-  HybridRequest_appendSearch(argv, argc, xcmd, searchOffset);
+  MRCommand_appendSearch(xcmd, argv, argc, searchOffset);
 
   // Add all VSIM-related arguments (VSIM, field, vector, methods, filter)
   int vsimOffset = RMUtil_ArgIndex("VSIM", argv, argc);
-  HybridRequest_appendVsim(argv, argc, xcmd, vsimOffset);
+  MRCommand_appendVsim(xcmd, argv, argc, vsimOffset);
 
   int combineOffset = RMUtil_ArgIndex("COMBINE", argv + vsimOffset, argc - vsimOffset);
   combineOffset = combineOffset != -1 ? combineOffset + vsimOffset : -1;
