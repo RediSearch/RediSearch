@@ -1200,6 +1200,7 @@ fn num_estimated_is_minimum() {
 /// Test: Children are processed in order of estimated count (smallest first)
 /// We can infer this indirectly by checking behavior with asymmetric children
 #[test]
+#[cfg_attr(miri, ignore)]
 fn children_sorted_by_estimated() {
     // Create children where the smallest (by count) would lead to fastest termination
     // Large child: has docs 1-1000
