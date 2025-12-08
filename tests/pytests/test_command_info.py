@@ -3,8 +3,8 @@ import json
 import os
 
 def _load_command_expectations():
-    commands_json_path = os.path.join(os.path.dirname(__file__), '..', '..', 'commands.json')
     """Load and parse the command info expectations file."""
+    commands_json_path = os.path.join(os.path.dirname(__file__), '..', '..', 'commands.json')
     try:
         with open(commands_json_path, 'r') as f:
             commands_data = json.load(f)
