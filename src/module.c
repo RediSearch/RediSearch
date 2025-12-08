@@ -4123,8 +4123,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const CommandKeys noCmdArgs = DEFINE_COMMAND_KEYS(0, 0, 0);
   const CommandKeys enterpriseCmdArgs = DEFINE_COMMAND_KEYS(0, 1, -2);
   SearchCommand aggregate = DEFINE_COMMAND("FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", SetFtAggregateInfo,          SET_COMMAND_INFO,      "read", true, ossCmdArgs, false);
-  SearchCommand cursor =    DEFINE_COMMAND("FT.CURSOR",    NULL,                          "readonly", RegisterCoordCursorCommands, SUBSCRIBE_SUBCOMMANDS, "read", true, ossCmdArgs, false);
-  SearchCommand hybrid =    DEFINE_COMMAND("FT.HYBRID",    SafeCmd(DistHybridCommand),    "readonly", SetFtHybridInfo,             SET_COMMAND_INFO,      "read", true, ossCmdArgs, false);
+  SearchCommand cursor    = DEFINE_COMMAND("FT.CURSOR",    NULL,                          "readonly", RegisterCoordCursorCommands, SUBSCRIBE_SUBCOMMANDS, "read", true, ossCmdArgs, false);
+  SearchCommand hybrid    = DEFINE_COMMAND("FT.HYBRID",    SafeCmd(DistHybridCommand),    "readonly", SetFtHybridInfo,             SET_COMMAND_INFO,      "read", true, ossCmdArgs, false);
   if (clusterConfig.type == ClusterType_RedisLabs) {
     const CommandKeys aggregateKeys = enterpriseCmdArgs;
     const CommandKeys hybridKeys = enterpriseCmdArgs;
