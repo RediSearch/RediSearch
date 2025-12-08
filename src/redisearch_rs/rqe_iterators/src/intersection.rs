@@ -68,8 +68,7 @@ where
         }
 
         children.sort_by_cached_key(|c| c.num_estimated());
-        let num_expected = children.first().map(|c| c.num_estimated()).unwrap_or(0);
-
+        let num_expected = children.first().map(|c| c.num_estimated()).expect("should have at least one child");
         Self {
             children,
             last_doc_id: 0,
@@ -159,17 +158,13 @@ where
         }
         self.result.doc_id = doc_id;
 
-        let result_ptr: *mut RSIndexResult<'index> = &mut self.result;
         for child in &mut self.children {
             if let Some(child_result) = child.current() {
                 let child_ptr: *const RSIndexResult<'index> = child_result;
-                // SAFETY: result_ptr points to self.result which is valid for this method's
-                // duration. `children` and `result` are disjoint fields.
-                let result_ref = unsafe { &mut *result_ptr };
                 // SAFETY: child_ptr points to child's result containing data with 'index
                 // lifetime. Children are owned by self, so their results remain valid.
                 let child_ref = unsafe { &*child_ptr };
-                result_ref.push_borrowed(child_ref);
+                self.result.push_borrowed(child_ref);
             }
         }
     }
