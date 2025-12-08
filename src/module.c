@@ -1450,37 +1450,32 @@ static int CreateSearchCommands(RedisModuleCtx *ctx, const SearchCommand *comman
 
 // Helper function to register commands that write arbitrary keys
 // Attempt to use an additional flag `touches-arbitrary-keys` and if this fails, falls back to the original flags.
-static int RMCreateArbitraryWriteSearchCommand(RedisModuleCtx *ctx, const char *name,
-                                             RedisModuleCmdFunc callback,
-                                             const char *flags,
-                                             const CommandKeys keys,
-                                             const char *aclCategories, bool internalCommand) {
-  // Build flag combinations
-  char flagCombinations[2][256];
-  int flagCount = 0;
-
-  // Primary flags with touches-arbitrary-keys
-  snprintf(flagCombinations[flagCount], sizeof(flagCombinations[flagCount]), "%s touches-arbitrary-keys", flags);
-  flagCount++;
-
-  // Fallback flags (original flags only)
-  snprintf(flagCombinations[flagCount], sizeof(flagCombinations[flagCount]), "%s", flags);
-  flagCount++;
-
-  // Try each flag combination
-  for (int i = 0; i < flagCount; i++) {
-    int rc = RMCreateSearchCommand(ctx, name, callback, flagCombinations[i],
-                                 keys.firstkey, keys.lastkey, keys.keystep, aclCategories, internalCommand);
-    if (rc == REDISMODULE_OK) {
-      if (i > 0) {
-        RedisModule_Log(ctx, "notice", "Registered command %s with flags: %s",
-                       name, flagCombinations[i]);
-      }
-      return REDISMODULE_OK;
+static int CreateArbitraryWriteSearchCommands(RedisModuleCtx *ctx, const SearchCommand *commands, size_t count) {
+  for (size_t i = 0; i < count; i++) {
+    const SearchCommand *command = &commands[i];
+    if (!command->shouldRegister) {
+      continue;
     }
-  }
 
-  return REDISMODULE_ERR;
+    // First try with touches-arbitrary-keys flag
+    char flagsWithArbitrary[256];
+    snprintf(flagsWithArbitrary, sizeof(flagsWithArbitrary), "%s touches-arbitrary-keys", command->flags);
+
+    SearchCommand modifiedCommand = *command;
+    modifiedCommand.flags = flagsWithArbitrary;
+
+    if (CreateSearchCommand(ctx, &modifiedCommand) == REDISMODULE_OK) {
+      continue; // Success with touches-arbitrary-keys
+    }
+
+    // Fallback: try with original flags
+    if (CreateSearchCommand(ctx, command) != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Could not create search command %s", command->name);
+      return REDISMODULE_ERR;
+    }
+    RedisModule_Log(ctx, "notice", "Registered command %s with fallback flags: %s", command->name, command->flags);
+  }
+  return REDISMODULE_OK;
 }
 
 int RSShardedHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1606,7 +1601,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_TAGVALS_CMD,   TagValsCommand,           "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CURSOR_CMD,    NULL,                     "readonly"                , RegisterCursorCommands,    SUBSCRIBE_SUBCOMMANDS, "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "admin",                true,             indexOnlyCmdArgs, false),
-    DEFINE_COMMAND(RS_SPELL_CHECK,   SpellCheckCommand,        "readonly"               , SetFtSpellcheckInfo,        SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_SPELL_CHECK,   SpellCheckCommand,        "readonly"                , SetFtSpellcheckInfo,        SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CONFIG,        NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                true,             indexOnlyCmdArgs, false),
   };
 
@@ -1614,17 +1609,16 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
   // Special cases: Register drop commands which write to arbitrary keys
-  const CommandKeys indexOnlyCmdArgs = DEFINE_COMMAND_KEYS(0, 0, 0);
-#define REGISTER_ARBITRARY_WRITE_CMD(name, callback) \
-  RM_TRY(RMCreateArbitraryWriteSearchCommand(ctx, name, callback, \
-    "write", indexOnlyCmdArgs, "write slow dangerous", !IsEnterprise()))
+  SearchCommand arbitraryWriteCommands[] = {
+    DEFINE_COMMAND(RS_DROP_CMD,            DropIndexCommand,         "write", NULL, NONE, "write slow dangerous", true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_DROP_INDEX_CMD,      DropIndexCommand,         "write", NULL, NONE, "write slow dangerous", true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_DROP_IF_X_CMD,       DropIfExistsIndexCommand, "write", NULL, NONE, "write slow dangerous", true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write", NULL, NONE, "write slow dangerous", true, indexOnlyCmdArgs, !IsEnterprise()),
+  };
 
-  REGISTER_ARBITRARY_WRITE_CMD(RS_DROP_CMD, DropIndexCommand)
-  REGISTER_ARBITRARY_WRITE_CMD(RS_DROP_INDEX_CMD, DropIndexCommand)
-  REGISTER_ARBITRARY_WRITE_CMD(RS_DROP_IF_X_CMD, DropIfExistsIndexCommand)
-  REGISTER_ARBITRARY_WRITE_CMD(RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand)
-
-#undef REGISTER_ARBITRARY_WRITE_CMD
+  if (CreateArbitraryWriteSearchCommands(ctx, arbitraryWriteCommands, sizeof(arbitraryWriteCommands) / sizeof(arbitraryWriteCommands[0])) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
 
   return REDISMODULE_OK;
 }
