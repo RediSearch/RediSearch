@@ -13,7 +13,7 @@ import itertools
 from redis.client import NEVER_DECODE
 from redis import exceptions as redis_exceptions
 import RLTest
-from typing import Any, Callable
+from typing import Any, Callable, List
 from RLTest import Env
 from RLTest.env import Query
 import numpy as np
@@ -957,3 +957,9 @@ def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
     for k in d1:
         if k in d2:
             env.assertEqual(d1[k], d2[k], message=message, depth=depth+1)
+
+def access_nested_list(lst, index):
+    result = lst
+    for entry in index:
+        result = result[entry]
+    return result

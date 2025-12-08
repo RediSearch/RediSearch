@@ -50,11 +50,11 @@ def _get_cluster_RP_profile(env, res) -> list:
         return [shard_RP_and_count, coord_RP_and_count]
 
     else:
-        shard = res[2][6][1:]
+        shard = res[2][7][1:]
         shard_RP_and_count.append([(item[1], item[5]) for item in shard])
 
         # Extract the RP types from the coordinator
-        coord = res[4][1][0][4][1:]
+        coord = res[4][1][0][5][1:]
         coord_RP_and_count = [(item[1], item[5]) for item in coord]
         return [shard_RP_and_count, coord_RP_and_count]
 
@@ -65,7 +65,7 @@ def _get_standalone_RP_profile(env, res) -> list:
         RP_and_count = [(item['Type'], item['Results processed']) for item in profile]
         return RP_and_count
     else:
-        profile = res[1][5][1:]
+        profile = res[1][6][1:]
         RP_and_count = [(item[1], item[5]) for item in profile]
         return RP_and_count
 
