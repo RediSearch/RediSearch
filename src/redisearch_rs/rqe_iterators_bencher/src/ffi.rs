@@ -17,6 +17,7 @@ mod bindings {
     #![allow(clippy::ptr_offset_with_cast)]
     #![allow(clippy::useless_transmute)]
     #![allow(clippy::missing_const_for_fn)]
+    #![allow(clippy::upper_case_acronyms)]
 
     use ffi::{NumericFilter, t_fieldIndex, t_fieldMask};
     use field::{FieldFilterContext, FieldMaskOrIndex};
@@ -74,7 +75,7 @@ impl QueryIterator {
                 flt,
                 ptr::null(),
                 0.0,
-                std::f64::MAX,
+                f64::MAX,
             )
         })
     }

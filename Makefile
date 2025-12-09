@@ -299,16 +299,15 @@ endef
 lint:
 	@echo "Running linters..."
 	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace $(call get_rust_exclude_crates) -- -D warnings
-	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace --release $(call get_rust_exclude_crates) -- -D warnings
-	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates)
+	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates) --no-deps
 
 fmt:
 ifeq ($(CHECK),1)
 	@echo "Checking code formatting..."
-	@cd $(ROOT)/src/redisearch_rs && cargo fmt -- --check
+	@cd $(ROOT)/src/redisearch_rs && cargo fmt --check --all
 else
 	@echo "Formatting code..."
-	@cd $(ROOT)/src/redisearch_rs && cargo fmt
+	@cd $(ROOT)/src/redisearch_rs && cargo fmt --all
 endif
 
 license-check:
