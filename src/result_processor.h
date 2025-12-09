@@ -58,6 +58,7 @@ typedef enum {
   RP_METRICS,
   RP_KEY_NAME_LOADER,
   RP_MAX_SCORE_NORMALIZER,
+  RP_DEPLETER,
   RP_MAX, // Marks the last non-debug RP type
   // Debug only result processors
   RP_TIMEOUT,
@@ -73,6 +74,9 @@ typedef struct {
 
   // Last processor
   struct ResultProcessor *endProc;
+
+  rs_wall_clock initTime;  //used with clock_gettime(CLOCK_MONOTONIC, ...)
+  rs_wall_clock_ns_t queryGILTime;  //Time accumulated in nanoseconds
 
   // Concurrent search context for thread switching
   ConcurrentSearchCtx *conc;
@@ -100,6 +104,7 @@ typedef struct {
   // Background indexing OOM warning
   bool bgScanOOM;
 
+  bool isProfile;
   RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;
 
@@ -168,6 +173,8 @@ typedef struct ResultProcessor {
 
   // Type of result processor
   ResultProcessorType type;
+
+  rs_wall_clock_ns_t rpGILTime; // Accumulated GIL time of the ResultProcessor, if applicable (e.g. RP_SAFE_LOADER)
 
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
@@ -297,6 +304,15 @@ void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
   * First accumulates all results from the upstream, then normalizes and yields them.
   *******************************************************************************************************************/
  ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
+
+/*******************************************************************************
+* Depleter Result Processor
+*
+*******************************************************************************/
+/**
+* Constructs a new depleter processor that runs in the current thread.
+*/
+ResultProcessor *RPDepleter_New();
 
 #ifdef __cplusplus
 }

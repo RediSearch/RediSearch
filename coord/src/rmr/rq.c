@@ -18,6 +18,7 @@
 #include "rmr.h"
 #include "coord/src/config.h"
 #include "rmutil/rm_assert.h"
+#include "info/global_stats.h"
 
 struct queueItem {
   void *privdata;
@@ -238,7 +239,9 @@ static void rqAsyncCb(uv_async_t *async) {
   MRWorkQueue *q = async->data;
   struct queueItem *req;
   while (NULL != (req = rqPop(q))) {
+    GlobalStats_UpdateActiveIoThreads(1);
     req->cb(req->privdata);
+    GlobalStats_UpdateActiveIoThreads(-1);
     rm_free(req);
   }
 }
@@ -271,4 +274,9 @@ void RQ_Debug_ClearPendingTopo() {
     MRClusterTopology_Free(topo->privdata);
     rm_free(topo);
   }
+}
+
+void RQ_Debug_SetLoopReady() {
+  loop_th_ready = true;
+  triggerPendingQueues();  // Process any pending callbacks
 }
