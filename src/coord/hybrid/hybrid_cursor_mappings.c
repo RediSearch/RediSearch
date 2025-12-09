@@ -221,8 +221,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
         .numShards = numShards
     };
 
-    // Start iteration
-    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, iterStartCb, NULL);
+    // Start iteration (ctx is cleaned up manually in cleanupCtx, no destructor needed)
+    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, NULL, NULL, iterStartCb, NULL);
     if (!it) {
         // Cleanup on error
         QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to communicate with shards");
