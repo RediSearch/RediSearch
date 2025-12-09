@@ -405,6 +405,13 @@ jobs:
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
+      - name: Print CMake errors if build failed
+        if: failure()
+        run: |
+          echo "=== CMake Errors ==="
+          grep -i "error" bin/linux-x64-release/search-community/CMakeFiles/CMakeError.log || echo "No errors found in CMakeError.log"
+          grep -i "error" bin/linux-x64-release/search-community/CMakeFiles/CMakeOutput.log || echo "No errors found in CMakeOutput.log"
+          echo "===================="
       - name: Verify C++ symbols in redisearch.so
         if: ${{ contains(needs.get-config.outputs.container, 'clang:20') }}
         run: |

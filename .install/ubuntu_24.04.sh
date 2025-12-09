@@ -5,7 +5,7 @@ MODE=$1 # whether to install using sudo or not
 
 $MODE apt update -qq
 $MODE apt install -yqq git wget build-essential lcov openssl libssl-dev \
-    unzip rsync clang-20 curl libclang-20-dev
+    unzip rsync clang-20 lldb-20 lld-20 clangd-20 curl libclang-20-dev
 
 # We need Python headers to build psutil@5.x.y from
 # source, since it only started providing wheels for aarch64
