@@ -70,7 +70,7 @@ unsafe fn new_id_list_iterator<const SORTED: bool>(
         // SAFETY: The free function has been initialized at this stage.
         let free_fn = unsafe { RedisModule_Free.unwrap() };
         // SAFETY: Safe thanks to 3.
-        unsafe { free_fn(ids as *mut std::os::raw::c_void) };
+        unsafe { free_fn(ids as *mut std::ffi::c_void) };
     } else {
         debug_assert_eq!(
             num, 0,

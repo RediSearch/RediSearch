@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use libc::size_t;
 use std::{
     ffi::c_char,
     ops::{Deref, DerefMut},
@@ -44,7 +45,7 @@ impl DerefMut for RSSortingVector {
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RSSortingVector_Get(
     vec: *const RSSortingVector,
-    idx: libc::size_t,
+    idx: size_t,
 ) -> *mut ffi::RSValue {
     assert!(
         !vec.is_null(),
@@ -69,7 +70,7 @@ unsafe extern "C" fn RSSortingVector_Get(
 /// Safety:
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or null.
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> libc::size_t {
+unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> size_t {
     assert!(
         !vec.is_null(),
         "RSSortingVector_Length called with null pointer",
@@ -79,7 +80,7 @@ unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> libc
     let vec = unsafe { vec.as_ref() };
 
     // Safety: We checked that vec is not null, so unwrap is safe
-    unsafe { vec.unwrap_unchecked() }.len() as libc::size_t
+    unsafe { vec.unwrap_unchecked() }.len() as size_t
 }
 
 /// Returns the memory size of the sorting vector.
@@ -89,7 +90,7 @@ unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> libc
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RSSortingVector_GetMemorySize(
     vector: Option<NonNull<RSSortingVector>>,
-) -> libc::size_t {
+) -> size_t {
     assert!(
         vector.is_some(),
         "RSSortingVector_GetMemorySize called with null pointer"
@@ -99,7 +100,7 @@ unsafe extern "C" fn RSSortingVector_GetMemorySize(
     let vector = unsafe { vector.unwrap_unchecked() };
 
     // Safety: Caller must ensure 1. --> Deref is safe
-    unsafe { vector.as_ref() }.get_memory_size() as libc::size_t
+    unsafe { vector.as_ref() }.get_memory_size() as size_t
 }
 
 /// Puts a number (double) at the given index in the sorting vector. If a out of bounds occurs it returns silently.
@@ -109,7 +110,7 @@ unsafe extern "C" fn RSSortingVector_GetMemorySize(
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RSSortingVector_PutNum(
     vec: Option<NonNull<RSSortingVector>>,
-    idx: libc::size_t,
+    idx: size_t,
     num: f64,
 ) {
     assert!(
@@ -138,7 +139,7 @@ unsafe extern "C" fn RSSortingVector_PutNum(
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RSSortingVector_PutStr(
     vec: Option<NonNull<RSSortingVector>>,
-    idx: libc::size_t,
+    idx: size_t,
     str: *const c_char,
 ) {
     assert!(
@@ -176,7 +177,7 @@ unsafe extern "C" fn RSSortingVector_PutStr(
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RSSortingVector_PutRSVal(
     vec: Option<NonNull<RSSortingVector>>,
-    idx: libc::size_t,
+    idx: size_t,
     val: Option<NonNull<ffi::RSValue>>,
 ) {
     assert!(
@@ -207,10 +208,7 @@ unsafe extern "C" fn RSSortingVector_PutRSVal(
 /// Safety:
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_PutNull(
-    vec: Option<NonNull<RSSortingVector>>,
-    idx: libc::size_t,
-) {
+unsafe extern "C" fn RSSortingVector_PutNull(vec: Option<NonNull<RSSortingVector>>, idx: size_t) {
     assert!(
         vec.is_some(),
         "RSSortingVector_PutNull called with null pointer"
@@ -227,7 +225,7 @@ unsafe extern "C" fn RSSortingVector_PutNull(
 
 /// Creates a new `RSSortingVector` with the given length. If the length is greater than `RS_SORTABLES_MAX`=`1024`, it returns a null pointer.
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_New(len: libc::size_t) -> *mut RSSortingVector {
+unsafe extern "C" fn RSSortingVector_New(len: size_t) -> *mut RSSortingVector {
     assert!(
         len <= RS_SORTABLES_MAX,
         "RSSortingVector_New called with length greater than RS_SORTABLES_MAX ({RS_SORTABLES_MAX})"
