@@ -256,6 +256,7 @@ include_directories(
     ${root}/src/spec
     ${root}/src/doc_table
     ${root}/src/info/index_error
+    ${root}/src/trie
     ${root}/src/obfuscation
     ${BOOST_DIR}
     ${root})
@@ -291,6 +292,7 @@ add_subdirectory(src/ttl_table)
 add_subdirectory(src/spec)
 add_subdirectory(src/doc_table)
 add_subdirectory(src/info/index_error)
+add_subdirectory(src/trie)
 add_subdirectory(src/obfuscation)
 
 #----------------------------------------------------------------------------------------------
@@ -310,7 +312,6 @@ file(GLOB SOURCES
     "src/query_parser/v1/*.c"
     "src/query_parser/v2/*.c"
     "src/util/*.c"
-    "src/trie/*.c"
     "src/info/*.c"
     "src/info/info_redis/*.c"
     "src/info/info_redis/threads/*.c"
@@ -348,6 +349,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:spec>
     $<TARGET_OBJECTS:doc_table>
     $<TARGET_OBJECTS:index_error>
+    $<TARGET_OBJECTS:trie>
     $<TARGET_OBJECTS:obfuscation>
 )
 
@@ -407,6 +409,7 @@ target_link_libraries(redisearch
         spec
         doc_table
         index_error
+        trie
         obfuscation
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
