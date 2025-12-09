@@ -2727,11 +2727,15 @@
         "name": "filter",
         "type": "block",
         "optional": true,
+        "token": "FILTER",
         "arguments": [
+          {
+            "name": "count",
+            "type": "integer"
+          },
           {
             "name": "filter_expression",
             "type": "string",
-            "token": "FILTER",
             "expression": true
           },
           {

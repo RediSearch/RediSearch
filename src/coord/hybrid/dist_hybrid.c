@@ -101,7 +101,7 @@ static int MRCommand_appendVsimFilter(MRCommand *xcmd, RedisModuleString **argv,
     }
     return tokensAppended;
   } else {
-    // Format: FILTER <filter-expression>
+    // Format: FILTER <filter-expression>, for backward compatibility
     MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + 1]); // filter expression
     return 2; // FILTER + filter-expression
   }
@@ -169,7 +169,7 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv, int 
   }
 
   // Add YIELD_SCORE_AS if present
-  // Format: ... [FILTER <expression> [[POLICY ADHOC/BATCHES] [BATCH_SIZE <value>]]] YIELD_SCORE_AS <alias>
+  // Format: ... [FILTER count <expression> [[POLICY ADHOC/BATCHES] [BATCH_SIZE <value>]]] YIELD_SCORE_AS <alias>
   int yieldScoreOffset = RMUtil_ArgIndex("YIELD_SCORE_AS", argv + vsimOffset, argc - vsimOffset);
   yieldScoreOffset = yieldScoreOffset != -1 ? yieldScoreOffset + vsimOffset : -1;
 

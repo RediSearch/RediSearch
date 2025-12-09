@@ -271,7 +271,7 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
   ArgsCursor argCursor= {0};
   int res = AC_GetSlice(ac, &argCursor, count);
   if (res == AC_ERR_NOARG) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Not enough arguments", " in %s, specified %u but provided only %u", "FILTER", count, AC_NumRemaining(ac));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Not enough arguments", " in %s, specified %llu but provided only %u", "FILTER", count, AC_NumRemaining(ac));
     return REDISMODULE_ERR;
   } else if (res != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Bad arguments", " in %s: %s", "FILTER", AC_Strerror(res));
@@ -311,6 +311,7 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
   ArgParseResult result = ArgParser_Parse(parser);
   if (!result.success) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, ArgParser_GetErrorString(parser));
+    ArgParser_Free(parser);
     return REDISMODULE_ERR;
   }
 
@@ -424,7 +425,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
       goto error;
     }
     if (AC_GetUnsignedLongLong(ac, &count, 0) != AC_OK) {
-      // it's a string, not a number
+      // it's a string, not a number, preserving some degree of backward compatibility
       vreq->query = AC_GetStringNC(ac, NULL);
       if (!vreq->query) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid filter-expression for FILTER");
