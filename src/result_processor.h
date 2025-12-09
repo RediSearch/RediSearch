@@ -62,7 +62,8 @@ typedef enum {
   RP_MAX, // Marks the last non-debug RP type
   // Debug only result processors
   RP_TIMEOUT,
-  RP_MAX_DEBUG
+  RP_PAUSE,
+  RP_MAX_DEBUG,
 } ResultProcessorType;
 
 struct ResultProcessor;
@@ -284,18 +285,19 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryIterator *qiter);
 
+ /*******************************************************************************************************************
+  *  Normalizer Result Processor
+  *
+  * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
+  * First accumulates all results from the upstream, then normalizes and yields them.
+  *******************************************************************************************************************/
+ ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
+
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);
 
-/*******************************************************************************************************************
- *  Timeout Processor - DEBUG ONLY
- *
- * returns timeout after N results, N >= 0.
- *******************************************************************************************************************/
-ResultProcessor *RPTimeoutAfterCount_New(size_t count);
-void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
-
-
+// Return RPType for string
+ResultProcessorType StringToRPType(const char *str);
 
  /*******************************************************************************************************************
   *  Normalizer Result Processor
@@ -313,6 +315,29 @@ void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
 * Constructs a new depleter processor that runs in the current thread.
 */
 ResultProcessor *RPDepleter_New();
+
+/*******************************************************************************************************************
+ *  Debug only result processors
+ *
+ * *******************************************************************************************************************/
+
+/*******************************************************************************************************************
+ *  Timeout Processor - DEBUG ONLY
+ *
+ * returns timeout after N results, N >= 0.
+ *******************************************************************************************************************/
+ResultProcessor *RPTimeoutAfterCount_New(size_t count);
+void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
+
+/*******************************************************************************************************************
+ *  Pause Processor - DEBUG ONLY
+ *
+ * Pauses the query after N results, N >= 0.
+ *******************************************************************************************************************/
+ResultProcessor *RPPauseAfterCount_New(size_t count);
+
+// Adds a pause processor after N results, before/after a specific RP type
+bool PipelineAddPauseRPcount(struct AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type, QueryError *status);
 
 #ifdef __cplusplus
 }
