@@ -278,23 +278,15 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
       usleep(100);
     }
 
-    // Do normal topo handling (same as testTopoCallback)
-    ctx->ioRuntime->uv_runtime.loop_th_ready = true;
-    MRClusterTopology *old_topo = ctx->ioRuntime->topo;
-    ctx->ioRuntime->topo = ctx->new_topo;
-    rm_free(ctx);
-    if (old_topo) {
-      MRClusterTopology_Free(old_topo);
-    }
   };
 
-  // Schedule topology update
-  MRClusterTopology *newTopo = getDummyTopology(9999);
-  IORuntimeCtx_Schedule_Topology(ctx, slowTopoCallback, newTopo, true);
-
-  // Trigger runtime to process (need a Schedule call)
+  // Start the IO runtime thread (required for uv loop to process async events)
   int dummy = 0;
   IORuntimeCtx_Schedule(ctx, testCallback, &dummy);
+
+  // Schedule topology update - this calls uv_async_send which triggers topologyAsyncCB
+  MRClusterTopology *newTopo = getDummyTopology(9999);
+  IORuntimeCtx_Schedule_Topology(ctx, slowTopoCallback, newTopo, true);
 
   // Wait for topo callback to start
   bool success = RS::WaitForCondition([&]() { return topo_started.load(); });
