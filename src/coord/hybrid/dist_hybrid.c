@@ -75,41 +75,36 @@ static void MRCommand_appendSearch(MRCommand *xcmd, RedisModuleString **argv, in
 static int MRCommand_appendVsimFilter(MRCommand *xcmd, RedisModuleString **argv, int argc,
                                       int actualFilterOffset) {
   // This is a VSIM FILTER - append it to the command
-  // Format: FILTER <expression> [[POLICY ADHOC/BATCHES] [BATCH_SIZE <value>]] (order independent)
+  // Format: FILTER [count] <expression>...
+  // If count is present, append FILTER, count, and the next count tokens
+  // If count is not present, append FILTER and the filter-expression
+
   MRCommand_AppendRstr(xcmd, argv[actualFilterOffset]);     // FILTER keyword
-  MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + 1]); // filter expression
-  int tokensAppended = 2;
 
-  // Process optional FILTER arguments (POLICY, BATCH_SIZE) in any order
-  // Maximum 4 extra arguments: [POLICY ADHOC/BATCHES] [BATCH_SIZE <value>]
-  while (tokensAppended < 6) { // 2 base tokens + 4 max extra tokens
-    int currentOffset = actualFilterOffset + tokensAppended;
-    if (currentOffset >= argc) {
-      break;
-    }
-
-    const char *argStr = RedisModule_StringPtrLen(argv[currentOffset], NULL);
-
-    if (strcasecmp(argStr, "POLICY") == 0 ) {
-      MRCommand_AppendRstr(xcmd, argv[currentOffset]);     // POLICY
-      tokensAppended += 1;
-      if (actualFilterOffset + tokensAppended < argc) {
-        MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + tokensAppended]); // ADHOC or BATCHES
-        tokensAppended += 1;
-      }
-    } else if (strcasecmp(argStr, "BATCH_SIZE") == 0 ) {
-      MRCommand_AppendRstr(xcmd, argv[currentOffset]);     // BATCH_SIZE
-      tokensAppended += 1;
-      if (actualFilterOffset + tokensAppended < argc) {
-        MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + tokensAppended]); // batch size value
-        tokensAppended += 1;
-      }
-    } else {
-      // Not a FILTER parameter - we've reached the end of FILTER section
-      break;
-    }
+  // Check if the next token is an unsigned integer (count)
+  if (actualFilterOffset + 1 >= argc) {
+    return 1; // Only FILTER keyword, no more tokens
   }
-  return tokensAppended;
+
+  unsigned long long count = 0;
+  int isCount = (RedisModule_StringToULongLong(argv[actualFilterOffset + 1], &count) == REDISMODULE_OK);
+
+  if (isCount) {
+    // Format: FILTER count <expression>... (count tokens)
+    MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + 1]); // count
+    int tokensAppended = 2; // FILTER + count
+
+    // Append the next count tokens
+    for (unsigned long long i = 0; i < count && actualFilterOffset + tokensAppended < argc; i++) {
+      MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + tokensAppended]);
+      tokensAppended++;
+    }
+    return tokensAppended;
+  } else {
+    // Format: FILTER <filter-expression>
+    MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + 1]); // filter expression
+    return 2; // FILTER + filter-expression
+  }
 }
 
 /**

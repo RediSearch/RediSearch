@@ -191,7 +191,7 @@ TEST_F(HybridBuildMRCommandTest, testFilterWithPolicyBatches) {
     testCommandTransformationWithoutIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA,
-        "FILTER", "@tag:{test}", "POLICY", "BATCHES"
+        "FILTER", "3", "@tag:{test}", "POLICY", "BATCHES"
     });
 }
 
@@ -200,7 +200,7 @@ TEST_F(HybridBuildMRCommandTest, testFilterWithBatchSize) {
     testCommandTransformationWithoutIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA,
-        "FILTER", "@tag:{test}", "BATCH_SIZE", "100"
+        "FILTER", "3","@tag:{test}", "BATCH_SIZE", "100"
     });
 }
 
@@ -209,7 +209,7 @@ TEST_F(HybridBuildMRCommandTest, testFilterWithPolicyAndBatchSize) {
     testCommandTransformationWithoutIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA,
-        "FILTER", "@tag:{test}", "POLICY", "BATCHES", "BATCH_SIZE", "50"
+        "FILTER", "5", "@tag:{test}", "POLICY", "BATCHES", "BATCH_SIZE", "50"
     });
 }
 
@@ -218,7 +218,7 @@ TEST_F(HybridBuildMRCommandTest, testFilterWithBatchSizeAndPolicyReversed) {
     testCommandTransformationWithoutIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA,
-        "FILTER", "@tag:{test}", "BATCH_SIZE", "75", "POLICY", "ADHOC"
+        "FILTER", "5", "@tag:{test}", "BATCH_SIZE", "75", "POLICY", "ADHOC"
     });
 }
 
@@ -227,7 +227,7 @@ TEST_F(HybridBuildMRCommandTest, testFilterWithPolicyBatchSizeAndCombine) {
     testCommandTransformationWithoutIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA,
-        "FILTER", "@tag:{test}", "POLICY", "BATCHES", "BATCH_SIZE", "100",
+        "FILTER", "5", "@tag:{test}", "POLICY", "BATCHES", "BATCH_SIZE", "100",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3"
     });
 }
