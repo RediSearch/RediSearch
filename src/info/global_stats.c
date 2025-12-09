@@ -186,7 +186,7 @@ void GlobalStats_UpdateActiveTopologyUpdateThreads(int toAdd) {
   RS_LOG_ASSERT_FMT(toAdd > 0 || current > 0,
     "Cannot decrease active_topology_update_threads below 0. toAdd: %d, current: %zu", toAdd, current);
 #endif
-  INCR_BY(RSGlobalStats.totalStats.multi_threading.active_coord_threads, toAdd);
+  INCR_BY(RSGlobalStats.totalStats.multi_threading.active_topology_update_threads, toAdd);
 }
 
 // Get multiThreadingStats
