@@ -7,11 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <stdatomic.h>
 #include "rpnet.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
 #include "hiredis/sds.h"
-#include "coord/hybrid/dist_utils.h"
+#include "coord/dist_utils.h"
 
 
 #define CURSOR_EOF 0
@@ -73,27 +74,231 @@ static RSValue *MRReply_ToValue(MRReply *r) {
   return v;
 }
 
+// Free a ShardResponseBarrier - used as destructor callback for MRIterator
+void shardResponseBarrier_Free(void *ptr) {
+  ShardResponseBarrier *barrier = (ShardResponseBarrier *)ptr;
+  if (barrier) {
+    rm_free(barrier->shardResponded);
+    rm_free(barrier);
+  }
+}
 
-static int getNextReply(RPNet *nc) {
-  if (nc->cmd.forCursor) {
-    // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
-    // TODO: could be replaced with a query specific configuration
-    if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
-      // No more replies
-      RPNet_resetCurrent(nc);
-      return 0;
+// Allocate and initialize a new ShardResponseBarrier
+// Notice: numShards and shardResponded init is postponed until NumShards is known
+// Returns NULL on allocation failure
+ShardResponseBarrier *shardResponseBarrier_New() {
+  ShardResponseBarrier *barrier = rm_calloc(1, sizeof(ShardResponseBarrier));
+  if (!barrier) {
+    return NULL;
+  }
+
+  // numShards is initialized to 0 here and later updated via atomic_store in
+  // shardResponseBarrier_Init when the actual shard count is known.
+  // We must use atomic_init here (not rely on calloc zeroing)
+  // because the coord thread may call atomic_load on numShards before
+  // shardResponseBarrier_Init runs.
+  atomic_init(&barrier->numShards, 0);
+  atomic_init(&barrier->numResponded, 0);
+  atomic_init(&barrier->accumulatedTotal, 0);
+  atomic_init(&barrier->hasShardError, false);
+
+  // Set the callback for processing replies in IO threads
+  barrier->notifyCallback = shardResponseBarrier_Notify;
+
+  return barrier;
+}
+
+// Initialize ShardResponseBarrier (called from iterStartCb when topology is known)
+void shardResponseBarrier_Init(void *ptr, MRIterator *it) {
+  ShardResponseBarrier *barrier = (ShardResponseBarrier *)ptr;
+  if (!barrier || !it) {
+    return;
+  }
+
+  size_t numShards = MRIterator_GetNumShards(it);
+  barrier->shardResponded = rm_calloc(numShards, sizeof(*barrier->shardResponded));
+  if (barrier->shardResponded) {
+    // rm_calloc already zero-initializes, so all elements are false
+    // Set numShards only after successful allocation to prevent
+    // shardResponseBarrier_Notify from accessing NULL shardResponded array
+    // Use atomic_store (not atomic_init) because coord thread may already be
+    // calling atomic_load on numShards concurrently in getNextReply()
+    atomic_store(&barrier->numShards, numShards);
+  }
+  // If allocation failed, numShards remains 0 (from atomic_init in shardResponseBarrier_New)
+  // so Notify callback won't try to access the NULL shardResponded array
+}
+
+// Callback invoked by IO thread for each shard reply to accumulate totals
+// This function implements the ReplyNotifyCallback signature
+void shardResponseBarrier_Notify(int16_t shardId, long long totalResults, bool isError, void *privateData) {
+  ShardResponseBarrier *barrier = (ShardResponseBarrier *)privateData;
+
+  // Validate shardId bounds
+  size_t numShards = atomic_load(&barrier->numShards);
+  if (shardId < 0 || shardId >= (int16_t)numShards) {
+    return;
+  }
+
+  // Check if this is the first response from this shard
+  // No atomic needed - only one IO thread accesses shardResponded for this barrier
+  if (!barrier->shardResponded[shardId]) {
+    barrier->shardResponded[shardId] = true;
+    if (!isError) {
+      atomic_fetch_add(&barrier->accumulatedTotal, totalResults);
+    } else {
+      atomic_store(&barrier->hasShardError, true);
+    }
+    atomic_fetch_add(&barrier->numResponded, 1);
+  }
+}
+
+static void shardResponseBarrier_UpdateTotalResults(RPNet *nc) {
+  // Set the accumulated total now that all shards have responded
+  // numShards == 0 means IO thread never initialized the barrier (timeout before init)
+  size_t numResponded = atomic_load(&nc->shardResponseBarrier->numResponded);
+  size_t numShards = atomic_load(&nc->shardResponseBarrier->numShards);
+  if (numShards > 0 && numResponded >= numShards) {
+    long long accumulatedTotal = atomic_load(&nc->shardResponseBarrier->accumulatedTotal);
+    nc->base.parent->totalResults = accumulatedTotal;
+  }
+}
+
+static void shardResponseBarrier_PendingReplies_Free(RPNet *nc) {
+  if (nc->pendingReplies) {
+    array_foreach(nc->pendingReplies, reply, MRReply_Free(reply));
+    array_free(nc->pendingReplies);
+    nc->pendingReplies = NULL;
+  }
+}
+
+// Get absolute timeout for MRIterator_NextWithTimeout
+// Returns pointer to the CLOCK_MONOTONIC_RAW based timeout, or NULL if not available
+static struct timespec *getAbsTimeout(RPNet *nc) {
+  if (!nc->areq || !nc->areq->sctx) {
+    return NULL;
+  }
+  return (struct timespec *)&nc->areq->sctx->time.timeout;
+}
+
+// Handle timeout (not enough shards responded) only if there were no errors
+// Also handles the case where numShards == 0 (IO thread never initialized barrier)
+static bool shardResponseBarrier_HandleTimeout(RPNet *nc) {
+  size_t numShards = atomic_load(&nc->shardResponseBarrier->numShards);
+  size_t numResponded = atomic_load(&nc->shardResponseBarrier->numResponded);
+  // Timeout if: barrier not initialized (numShards == 0) OR not all shards responded
+  if (!(atomic_load(&nc->shardResponseBarrier->hasShardError)) &&
+      (numShards == 0 || numResponded < numShards)) {
+    // cleanup pending replies
+    shardResponseBarrier_PendingReplies_Free(nc);
+
+    // Set error in AREQ context
+    QueryError_SetError(
+      AREQ_QueryProcessingCtx(nc->areq)->err,
+      QUERY_ERROR_CODE_TIMED_OUT,
+      "ShardResponseBarrier: Timeout while waiting for first responses from all shards");
+    return true;
+  }
+  return false;
+}
+
+// Helper function to check for shard errors and keep only the first error reply
+// Returns true if an error was found and set in nc->current.root, false otherwise
+static bool shardResponseBarrier_HandleError(RPNet *nc) {
+  // Check if any shard returned an error during the waiting period
+  if (atomic_load(&nc->shardResponseBarrier->hasShardError)) {
+    // Find the first error reply in pendingReplies and return it
+    if (nc->pendingReplies) {
+      for (size_t i = 0; i < array_len(nc->pendingReplies); i++) {
+        MRReply *reply = nc->pendingReplies[i];
+        if (MRReply_Type(reply) == MR_REPLY_ERROR) {
+          // Move error reply to current
+          nc->current.root = reply;
+          array_del(nc->pendingReplies, i);
+          shardResponseBarrier_PendingReplies_Free(nc);
+          return true;  // Error found
+        }
+      }
     }
   }
-  MRReply *root = MRIterator_Next(nc->it);
+  return false;  // No error
+}
+
+int getNextReply(RPNet *nc) {
+  // Wait for all shards' first responses before returning any results
+  // This ensures accurate total_results from the start
+  MRReply *root = NULL;
+  if (nc->shardResponseBarrier && !nc->waitedForAllShards) {
+    // Get at least 1 response from each shard
+    // Notice: numShards is re-read on each iteration because it may initially be 0
+    // (in case the IO thread iterStartCb did not run yet and did not initialize the barrier yet).
+    // Once a reply arrives, iterStartCb has finished and numShards will be set.
+    size_t numShards;
+    while ((numShards = atomic_load(&nc->shardResponseBarrier->numShards)) == 0 ||
+           atomic_load(&nc->shardResponseBarrier->numResponded) < numShards) {
+      // Check for timeout to avoid blocking indefinitely
+      if (nc->areq && nc->areq->sctx && TimedOut(&nc->areq->sctx->time.timeout)) {
+        break;
+      }
+      // Get next reply with timeout (uses CLOCK_MONOTONIC_RAW based timeout)
+      bool nextTimedOut = false;
+      MRReply *reply = MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), &nextTimedOut);
+      if (reply == NULL) {
+        break;  // No more replies or timed out
+      }
+
+      // Store reply for later processing
+      if (!nc->pendingReplies) {
+        nc->pendingReplies = array_new(MRReply *, numShards);
+      }
+      array_append(nc->pendingReplies, reply);
+
+      // Check for errors
+      if (shardResponseBarrier_HandleError(nc)) {
+        nc->waitedForAllShards = true;
+        // If for profiling, clone and append the error
+        if (nc->cmd.forProfiling) {
+          // Clone the error and append it to the profile
+          MRReply *error = MRReply_Clone(nc->current.root);
+          array_append(nc->shardsProfile, error);
+        }
+        return RS_RESULT_OK;
+      }
+    }
+
+    // Mark that we've waited (even if not all shards responded due to time out - to avoid infinite loop)
+    nc->waitedForAllShards = true;
+
+    // Handle timeout or not enough shards responded
+    if (shardResponseBarrier_HandleTimeout(nc)) {
+      return RS_RESULT_TIMEDOUT;
+    }
+    shardResponseBarrier_UpdateTotalResults(nc);
+  }
+
+  // First, return any pending replies collected during the wait
+  if (nc->pendingReplies && array_len(nc->pendingReplies) > 0) {
+    // Pop the first pending reply
+    root = nc->pendingReplies[0];
+    array_del(nc->pendingReplies, 0);
+  } else {
+    // No pending replies, get from channel
+    if (nc->cmd.forCursor) {
+      if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
+        RPNet_resetCurrent(nc);
+        return RS_RESULT_EOF;
+      }
+    }
+    root = MRIterator_Next(nc->it);
+  }
 
   if (root == NULL) {
-    // No more replies
     RPNet_resetCurrent(nc);
-    return MRIterator_GetPending(nc->it);
+    return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
   }
 
   // Check if an error was returned
-  if(MRReply_Type(root) == MR_REPLY_ERROR) {
+  if (MRReply_Type(root) == MR_REPLY_ERROR) {
     nc->current.root = root;
     // If for profiling, clone and append the error
     if (nc->cmd.forProfiling) {
@@ -101,7 +306,7 @@ static int getNextReply(RPNet *nc) {
       MRReply *error = MRReply_Clone(root);
       array_append(nc->shardsProfile, error);
     }
-    return 1;
+    return RS_RESULT_OK;
   }
 
   // For profile command, extract the profile data from the reply
@@ -134,6 +339,7 @@ static int getNextReply(RPNet *nc) {
     }
   }
 
+  // Extract rows and meta from reply
   MRReply *rows = NULL, *meta = NULL;
   if (nc->cmd.protocol == 3) { // RESP3
     meta = MRReply_ArrayElement(root, 0);
@@ -158,7 +364,7 @@ static int getNextReply(RPNet *nc) {
   nc->current.root = root;
   nc->current.rows = rows;
   nc->current.meta = meta;
-  return 1;
+  return RS_RESULT_OK;
 }
 
 /**
@@ -186,7 +392,7 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     nc->cmd.protocol = 3;
     rm_free(idx_copy);
 
-    nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, iterCursorMappingCb, &nc->mappings);
+    nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, NULL, NULL, iterCursorMappingCb, &nc->mappings);
     nc->base.Next = rpnetNext;
 
     return rpnetNext(rp, r);
@@ -194,6 +400,13 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
 
 void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
+
+  // Note: shardResponseBarrier is freed by MRIterator_Free via the destructor callback
+  // but pendingReplies must be freed by RPNet since it's used only in rpnetNext.
+  // This ensures barrier is not freed while I/O callbacks may still be accessing it.
+
+  // Free any pending replies that weren't consumed
+  shardResponseBarrier_PendingReplies_Free(nc);
 
   if (nc->it) {
     RS_DEBUG_LOG("rpnetFree: calling MRIterator_Release");
@@ -238,7 +451,6 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   MRReply *root = nc->current.root, *rows = nc->current.rows;
   const bool resp3 = nc->cmd.protocol == 3;
 
-
   // root (array) has similar structure for RESP2/3:
   // [0] array of results (rows) described right below
   // [1] cursor (int)
@@ -269,7 +481,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
               timed_out = true;
             } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
               QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
-            } else if (!strcmp(warning_str, QUERY_WOOM_CLUSTER)) {
+            } else if (!strcmp(warning_str, QUERY_WOOM_SHARD)) {
               QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
             }
             if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
@@ -304,8 +516,12 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
     }
 
-    if (!getNextReply(nc)) {
+    int ret = getNextReply(nc);
+    if (ret == RS_RESULT_EOF) {
       return RS_RESULT_EOF;
+    } else if (ret == RS_RESULT_TIMEDOUT) {
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+      return RS_RESULT_TIMEDOUT;
     }
 
     // If an error was returned, propagate it
@@ -336,26 +552,39 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   if (new_reply) {
     if (resp3) { // RESP3
       nc->curIdx = 0;
-      nc->base.parent->totalResults += MRReply_Length(rows);
+      // Note: For WITHCOUNT in multi-shard aggregate, totalResults is already set
+      // by the waiting logic above. We skip accumulation here to avoid double-counting.
+      // For non-WITHCOUNT or single-shard cases, we still need to count.
+      if (!nc->shardResponseBarrier) {
+        // Without WITHCOUNT, count rows in batch for backward compatibility
+        nc->base.parent->totalResults += MRReply_Length(rows);
+      }
       processResultFormat(&nc->areq->reqflags, nc->current.meta);
     } else { // RESP2
-      // Get the index from the first
-      nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
       nc->curIdx = 1;
+      // For WITHCOUNT in multi-shard aggregate, totalResults is already set
+      // by the callback accumulation logic. Skip to avoid double-counting.
+      if (!nc->shardResponseBarrier) {
+        // Without WITHCOUNT, accumulate total_results from each shard reply
+        nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
+      }
     }
   }
 
   MRReply *score = NULL;
   MRReply *fields = MRReply_ArrayElement(rows, nc->curIdx++);
+  size_t fields_length = 0;
   if (resp3) {
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid result record");
     // extract score if it exists, WITHSCORES was specified
     score = MRReply_MapElement(fields, "score");
     fields = MRReply_MapElement(fields, "extra_attributes");
-    RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
+    // It could happen if Result_ExpiredDoc is set by the Loader on the shard, that no extra attributes is returned. In that case
+    // we do not have keys to return.
+    fields_length = fields && MRReply_Type(fields) == MR_REPLY_MAP ? MRReply_Length(fields) : 0;
   } else {
-    RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_ARRAY, "invalid result record");
-    RS_LOG_ASSERT(MRReply_Length(fields) % 2 == 0, "invalid fields record");
+    fields_length = fields && MRReply_Type(fields) == MR_REPLY_ARRAY ? MRReply_Length(fields) : 0;
+    RS_LOG_ASSERT(fields_length % 2 == 0, "invalid fields record");
   }
 
   // The score is optional, in hybrid we need the score for the sorter and hybrid merger
@@ -366,13 +595,14 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     SearchResult_SetScore(r, MRReply_Double(score));
   }
 
-  for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
+  for (size_t i = 0; i < fields_length; i += 2) {
     size_t len;
     const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
     MRReply *val = MRReply_ArrayElement(fields, i + 1);
     RSValue *v = MRReply_ToValue(val);
     RLookup_WriteOwnKeyByName(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);
   }
+
   return RS_RESULT_OK;
 }
 

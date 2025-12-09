@@ -1,16 +1,11 @@
-**/*.rdb*
-**/*.aof*
-**/*.rdb
-**/*.out
-**/*.md
-**/*.zip
-**/*.gz
-**/*.so
-**/*.o
-**/*.a
-# .git
-/bin/
-/site/
-/deps/RedisJSON/
-/tests/pytests/logs/
-/1/
+# Ignore everything, except the scripts required to install dependencies
+# into our CI containers.
+*
+!.install
+!.install/**
+!.rust-nightly
+!.rust-toolchain.toml
+!.github/workflows/task-get-config.yml
+
+# Make sure we don't include the boost directory in the context.
+.install/boost/**

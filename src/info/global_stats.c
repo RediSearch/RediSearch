@@ -10,6 +10,8 @@
 #include "aggregate/aggregate.h"
 #include "util/units.h"
 #include "rs_wall_clock.h"
+#include "util/workers.h"
+#include "concurrent_ctx.h"
 
 #define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
 #define INCR(x) INCR_BY(x, 1)
@@ -91,6 +93,22 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   stats.total_queries_processed = READ(RSGlobalStats.totalStats.queries.total_queries_processed);
   stats.total_query_commands = READ(RSGlobalStats.totalStats.queries.total_query_commands);
   stats.total_query_execution_time = rs_wall_clock_convert_ns_to_ms(READ(RSGlobalStats.totalStats.queries.total_query_execution_time));
+  // Errors
+  stats.shard_errors.syntax = READ(RSGlobalStats.totalStats.queries.shard_errors.syntax);
+  stats.shard_errors.arguments = READ(RSGlobalStats.totalStats.queries.shard_errors.arguments);
+  stats.shard_errors.timeout = READ(RSGlobalStats.totalStats.queries.shard_errors.timeout);
+  stats.coord_errors.syntax = READ(RSGlobalStats.totalStats.queries.coord_errors.syntax);
+  stats.coord_errors.arguments = READ(RSGlobalStats.totalStats.queries.coord_errors.arguments);
+  stats.coord_errors.timeout = READ(RSGlobalStats.totalStats.queries.coord_errors.timeout);
+  stats.shard_errors.oom = READ(RSGlobalStats.totalStats.queries.shard_errors.oom);
+  stats.coord_errors.oom = READ(RSGlobalStats.totalStats.queries.coord_errors.oom);
+  // Warnings
+  stats.shard_warnings.timeout = READ(RSGlobalStats.totalStats.queries.shard_warnings.timeout);
+  stats.coord_warnings.timeout = READ(RSGlobalStats.totalStats.queries.coord_warnings.timeout);
+  stats.shard_warnings.oom = READ(RSGlobalStats.totalStats.queries.shard_warnings.oom);
+  stats.coord_warnings.oom = READ(RSGlobalStats.totalStats.queries.coord_warnings.oom);
+  stats.shard_warnings.maxPrefixExpansion = READ(RSGlobalStats.totalStats.queries.shard_warnings.maxPrefixExpansion);
+  stats.coord_warnings.maxPrefixExpansion = READ(RSGlobalStats.totalStats.queries.coord_warnings.maxPrefixExpansion);
   return stats;
 }
 
@@ -100,4 +118,81 @@ void IndexsGlobalStats_UpdateLogicallyDeleted(int64_t toAdd) {
 
 size_t IndexesGlobalStats_GetLogicallyDeletedDocs() {
   return READ(RSGlobalStats.totalStats.logically_deleted);
+}
+
+// Updates the global query errors statistics.
+// `coord` indicates whether the error occurred on the coordinator or on a shard.
+// Standalone shards are considered as coords
+// Will ignore not supported error codes.
+// Currently supports : syntax, parse_args, timeout
+// `toAdd` can be negative to decrease the counter.
+void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coord) {
+  QueryErrorsGlobalStats *queries_errors = coord ? &RSGlobalStats.totalStats.queries.coord_errors : &RSGlobalStats.totalStats.queries.shard_errors;
+  switch (code) {
+    case QUERY_ERROR_CODE_SYNTAX:
+      INCR_BY(queries_errors->syntax, toAdd);
+      break;
+    case QUERY_ERROR_CODE_PARSE_ARGS:
+      INCR_BY(queries_errors->arguments, toAdd);
+      break;
+    case QUERY_ERROR_CODE_TIMED_OUT:
+      INCR_BY(queries_errors->timeout, toAdd);
+      break;
+    case QUERY_ERROR_CODE_OUT_OF_MEMORY:
+      INCR_BY(queries_errors->oom, toAdd);
+      break;
+  }
+}
+
+// Updates the global query warnings statistics.
+// `coord` indicates whether the warning occurred on the coordinator or on a shard.
+// Standalone shards are considered as coords
+// Will ignore not supported warning codes.
+// Currently supports : timeout
+// `toAdd` can be negative to decrease the counter.
+void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord) {
+  QueryWarningGlobalStats *queries_warnings = coord ? &RSGlobalStats.totalStats.queries.coord_warnings : &RSGlobalStats.totalStats.queries.shard_warnings;
+  switch (code) {
+    case QUERY_WARNING_CODE_TIMED_OUT:
+      INCR_BY(queries_warnings->timeout, toAdd);
+      break;
+    case QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD:
+      INCR_BY(queries_warnings->oom, toAdd);
+      break;
+    case QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD:
+      INCR_BY(queries_warnings->oom, toAdd);
+      break;
+    case QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS:
+      INCR_BY(queries_warnings->maxPrefixExpansion, toAdd);
+      break;
+  }
+}
+
+// Update the number of active io threads.
+void GlobalStats_UpdateActiveIoThreads(int toAdd) {
+#ifdef ENABLE_ASSERT
+  RS_LOG_ASSERT(toAdd != 0, "Attempt to change active_io_threads by 0");
+  size_t current = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
+  RS_LOG_ASSERT_FMT(toAdd > 0 || current > 0,
+    "Cannot decrease active_io_threads below 0. toAdd: %d, current: %zu", toAdd, current);
+#endif
+  INCR_BY(RSGlobalStats.totalStats.multi_threading.active_io_threads, toAdd);
+}
+
+// Get multiThreadingStats
+MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
+  MultiThreadingStats stats;
+  stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
+
+  // Workers stats
+  // We don't use workersThreadPool_getStats here to avoid the overhead of locking the thread pool.
+  stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
+  stats.workers_low_priority_pending_jobs = workersThreadPool_LowPriorityPendingJobsCount();
+  stats.workers_high_priority_pending_jobs = workersThreadPool_HighPriorityPendingJobsCount();
+  stats.workers_admin_priority_pending_jobs = workersThreadPool_AdminPriorityPendingJobsCount();
+
+  // Coordinator stats
+  stats.active_coord_threads = ConcurrentSearchPool_WorkingThreadCount();
+  stats.coord_high_priority_pending_jobs = ConcurrentSearchPool_HighPriorityPendingJobsCount();
+  return stats;
 }

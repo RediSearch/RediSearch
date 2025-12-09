@@ -39,6 +39,7 @@ fn main() {
         let inverted_index = src.join("inverted_index");
         let vecsim = deps.join("VectorSimilarity").join("src");
         let buffer = src.join("buffer");
+        let ttl_table = src.join("ttl_table");
 
         [
             redis_modules,
@@ -48,27 +49,36 @@ fn main() {
             inverted_index,
             vecsim,
             buffer,
+            ttl_table,
         ]
     };
 
+    let src = root.join("src");
     let headers = [
-        root.join("src").join("redisearch.h"),
         root.join("deps")
             .join("RedisModulesSDK")
             .join("redismodule.h"),
-        root.join("src").join("buffer/buffer.h"),
-        root.join("src").join("search_result.h"),
-        root.join("src").join("config.h"),
-        root.join("src").join("result_processor.h"),
-        root.join("src").join("sortable.h"),
-        root.join("src").join("value.h"),
-        root.join("src").join("obfuscation").join("hidden.h"),
-        root.join("src").join("spec.h"),
-        root.join("src").join("doc_table.h"),
-        root.join("src").join("score_explain.h"),
-        root.join("src").join("rlookup.h"),
-        root.join("src").join("query.h"),
-        root.join("src").join("util").join("arr").join("arr.h"),
+        src.join("buffer/buffer.h"),
+        src.join("config.h"),
+        src.join("doc_table.h"),
+        src.join("index_result").join("index_result.h"),
+        src.join("numeric_index.h"),
+        src.join("obfuscation").join("hidden.h"),
+        src.join("query.h"),
+        src.join("redis_index.h"),
+        src.join("redisearch.h"),
+        src.join("result_processor.h"),
+        src.join("rlookup.h"),
+        src.join("score_explain.h"),
+        src.join("search_ctx.h"),
+        src.join("search_disk_api.h"),
+        src.join("search_result.h"),
+        src.join("sortable.h"),
+        src.join("spec.h"),
+        src.join("ttl_table").join("ttl_table.h"),
+        src.join("util").join("arr").join("arr.h"),
+        src.join("util").join("references.h"),
+        src.join("value").join("value.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();

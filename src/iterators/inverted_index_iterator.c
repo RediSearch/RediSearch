@@ -39,6 +39,8 @@ static ValidateStatus NumericCheckAbort(QueryIterator *base) {
     return VALIDATE_OK;
   }
 
+  // sctx and rt should always be set, except in some tests.
+  RS_ASSERT(nit->rt);
   if (nit->rt->revisionId != nit->revisionId) {
     // The numeric tree was either completely deleted or a node was split or removed.
     // The cursor is invalidated.
@@ -54,6 +56,8 @@ static ValidateStatus TermCheckAbort(QueryIterator *base) {
     return VALIDATE_OK;
   }
   RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
+  // sctx and term should always be set, except in some tests.
+  RS_ASSERT(term);
   InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, term->str, term->len, false, NULL);
   if (!idx || !IndexReader_IsIndex(it->reader, idx)) {
     // The inverted index was collected entirely by GC.
@@ -350,14 +354,12 @@ static inline bool HasExpiration(const InvIndIterator *it) {
 
 // Returns true if the iterator should skip multi-values from the same document
 static inline bool ShouldSkipMulti(const InvIndIterator *it) {
-  return it->skipMulti &&                       // Skip multi-values is requested
-        IndexReader_HasMulti(it->reader); // The index holds multi-values (if not, no need to check)
+  return IndexReader_HasMulti(it->reader); // The index holds multi-values (if not, no need to check)
 }
 
 static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
-                                        bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
+                                        const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
   it->reader = NewIndexReader(idx, *decoderCtx);
-  it->skipMulti = skipMulti; // Original request, regardless of what implementation is chosen
   it->sctx = sctx;
   it->filterCtx = *filterCtx;
   it->isWildcard = false;
@@ -374,7 +376,7 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex
   base->Revalidate = InvIndIterator_Revalidate;
 
   // Choose the Read and SkipTo methods for best performance
-  skipMulti = ShouldSkipMulti(it);
+  bool skipMulti = ShouldSkipMulti(it);
   bool hasExpiration = HasExpiration(it);
 
   // Read function choice:
@@ -403,72 +405,31 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex
 }
 
 static QueryIterator *NewInvIndIterator(const InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
-                                        bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
+                                       const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
   RS_ASSERT(idx);
   InvIndIterator *it = rm_calloc(1, sizeof(*it));
-  return InitInvIndIterator(it, idx, res, filterCtx, skipMulti, sctx, decoderCtx, checkAbortFn);
-}
-
-static QueryIterator *NewInvIndIterator_NumericRange(const InvertedIndex *idx, RSIndexResult *res, const NumericRangeTree *rt, const FieldFilterContext *filterCtx,
-                bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx) {
-  RS_ASSERT(idx);
-  NumericInvIndIterator *it = rm_calloc(1, sizeof(*it));
-
-  // Initialize the iterator first
-  InitInvIndIterator(&it->base, idx, res, filterCtx, skipMulti, sctx, decoderCtx, NumericCheckAbort);
-
-  if (rt) {
-    it->revisionId = rt->revisionId;
-    it->rt = rt;
-  }
-
-  return &it->base.base;
-}
-
-QueryIterator *NewInvIndIterator_NumericFull(const InvertedIndex *idx) {
-  FieldFilterContext fieldCtx = {
-    .field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX},
-    .predicate = FIELD_EXPIRATION_DEFAULT,
-  };
-  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
-  return NewInvIndIterator_NumericRange(idx, NewNumericResult(), NULL, &fieldCtx, false, NULL, &decoderCtx);
-}
-
-QueryIterator *NewInvIndIterator_TermFull(const InvertedIndex *idx) {
-  FieldFilterContext fieldCtx = {
-    .field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX},
-    .predicate = FIELD_EXPIRATION_DEFAULT,
-  };
-  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
-  RSIndexResult *res = NewTokenRecord(NULL, 1);
-  res->freq = 1;
-  res->fieldMask = RS_FIELDMASK_ALL;
-  return NewInvIndIterator(idx, res, &fieldCtx, false, NULL, &decoderCtx, TermCheckAbort);
-}
-
-QueryIterator *NewInvIndIterator_TagFull(const InvertedIndex *idx, const TagIndex *tagIdx) {
-  FieldFilterContext fieldCtx = {
-    .field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX},
-    .predicate = FIELD_EXPIRATION_DEFAULT,
-  };
-  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
-  RSIndexResult *res = NewTokenRecord(NULL, 1);
-  res->freq = 1;
-  res->fieldMask = RS_FIELDMASK_ALL;
-  TagInvIndIterator *it = rm_calloc(1, sizeof(*it));
-  it->tagIdx = tagIdx;
-  return InitInvIndIterator(&it->base, idx, res, &fieldCtx, false, NULL, &decoderCtx, TagCheckAbort);
+  return InitInvIndIterator(it, idx, res, filterCtx, sctx, decoderCtx, checkAbortFn);
 }
 
 QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
                                               const NumericFilter *flt, const NumericRangeTree *rt, double rangeMin, double rangeMax) {
+  RS_ASSERT(idx);
   IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
 
   if (flt) {
     decoderCtx = (IndexDecoderCtx){.numeric_tag = IndexDecoderCtx_Numeric, .numeric = flt};
   }
 
-  QueryIterator *ret = NewInvIndIterator_NumericRange(idx, NewNumericResult(), rt, fieldCtx, true, sctx, &decoderCtx);
+  NumericInvIndIterator *numIt = rm_calloc(1, sizeof(*numIt));
+  // Initialize the iterator first
+  InitInvIndIterator(&numIt->base, idx, NewNumericResult(), fieldCtx, sctx, &decoderCtx, NumericCheckAbort);
+
+  if (rt) {
+    numIt->revisionId = rt->revisionId;
+    numIt->rt = rt;
+  }
+
+  QueryIterator *ret = &numIt->base.base;
   InvIndIterator *it = (InvIndIterator *)ret;
   it->profileCtx.numeric.rangeMin = rangeMin;
   it->profileCtx.numeric.rangeMax = rangeMax;
@@ -495,7 +456,7 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
                                            RSQueryTerm *term, double weight) {
   FieldFilterContext fieldCtx = {
     .field = fieldMaskOrIndex,
-    .predicate = FIELD_EXPIRATION_DEFAULT,
+    .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
@@ -514,7 +475,7 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
     dctx.field_mask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
   }
 
-  return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &dctx, TermCheckAbort);
+  return NewInvIndIterator(idx, record, &fieldCtx, sctx, &dctx, TermCheckAbort);
 }
 
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
@@ -522,7 +483,7 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
 
   FieldFilterContext fieldCtx = {
     .field = fieldMaskOrIndex,
-    .predicate = FIELD_EXPIRATION_DEFAULT,
+    .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
@@ -543,20 +504,20 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
 
   TagInvIndIterator *it = rm_calloc(1, sizeof(*it));
   it->tagIdx = tagIdx;
-  return InitInvIndIterator(&it->base, idx, record, &fieldCtx, true, sctx, &dctx, TagCheckAbort);
+  return InitInvIndIterator(&it->base, idx, record, &fieldCtx, sctx, &dctx, TagCheckAbort);
 }
 
 QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight) {
   FieldFilterContext fieldCtx = {
     .field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX},
-    .predicate = FIELD_EXPIRATION_DEFAULT,
+    .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
   };
   IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
   RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   record->freq = 1;
 
   InvIndIterator *it = rm_calloc(1, sizeof(*it));
-  InitInvIndIterator(it, idx, record, &fieldCtx, true, sctx, &decoderCtx, WildcardCheckAbort);
+  InitInvIndIterator(it, idx, record, &fieldCtx, sctx, &decoderCtx, WildcardCheckAbort);
   it->isWildcard = true; // Mark as wildcard iterator
   return &it->base;
 }
@@ -564,11 +525,11 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const R
 QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex) {
   FieldFilterContext fieldCtx = {
     .field = {.index_tag = FieldMaskOrIndex_Index, .index = fieldIndex},
-    .predicate = FIELD_EXPIRATION_MISSING, // Missing predicate
+    .predicate = FIELD_EXPIRATION_PREDICATE_MISSING, // Missing predicate
   };
   IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
   RSIndexResult *record = NewVirtualResult(0.0, RS_FIELDMASK_ALL);
   record->freq = 1;
 
-  return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &decoderCtx, MissingCheckAbort);
+  return NewInvIndIterator(idx, record, &fieldCtx, sctx, &decoderCtx, MissingCheckAbort);
 }

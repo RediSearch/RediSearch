@@ -32,7 +32,8 @@
 // String constants to warnings. These should be moved to const functions in rust.
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 #define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
-#define QUERY_WOOM_CLUSTER "One or more shards failed to execute the query due to insufficient memory"
+#define QUERY_WOOM_SHARD "One or more shards failed to execute the query due to insufficient memory"
+#define QUERY_WOOM_COORD "Coordinator failed to execute the query due to insufficient memory"
 
 
 enum QueryErrorCode
@@ -97,6 +98,21 @@ enum QueryErrorCode
 };
 #ifndef __cplusplus
 typedef uint8_t QueryErrorCode;
+#endif // __cplusplus
+
+enum QueryWarningCode
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  QUERY_WARNING_CODE_OK = 0,
+  QUERY_WARNING_CODE_TIMED_OUT,
+  QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS,
+  QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD,
+  QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD,
+};
+#ifndef __cplusplus
+typedef uint8_t QueryWarningCode;
 #endif // __cplusplus
 
 /**
@@ -316,6 +332,19 @@ bool QueryError_HasQueryOOMWarning(const struct QueryError *query_error);
  * - `query_error` must have been created by [`QueryError_Default`].
  */
 void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
+
+/**
+ * Returns a [`QueryWarningCode`] given an warnings message.
+ *
+ * This only supports the query error codes [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`],
+ * [`QueryWarningCode::OutOfMemoryShard`] and [`QueryWarningCode::OutOfMemoryCoord`]. If another message is provided,
+ * [`QueryWarningCode::Ok`] is returned.
+ *
+ * # Safety
+ *
+ * - `message` must be a valid C string or a NULL pointer.
+ */
+QueryWarningCode QueryWarningCode_GetCodeFromMessage(const char *message);
 
 #ifdef __cplusplus
 }  // extern "C"

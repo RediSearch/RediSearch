@@ -88,9 +88,20 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
 
 MRReply *MRIterator_Next(MRIterator *it);
 
+/* Get the next reply from the iterator with a timeout.
+ * Parameters:
+ *   - it: the iterator
+ *   - abstime: absolute time (CLOCK_MONOTONIC) when the timeout expires. If NULL, behaves like MRIterator_Next.
+ *   - timedOut: output parameter, set to true if the function returned due to timeout
+ * Returns: the next reply, or NULL if no more replies or timed out */
+MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime, bool *timedOut);
+
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData, void (*iterStartCb)(void *) ,StrongRef *iterStartCbPrivateData);
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
+                                      void (*cbPrivateDataDestructor)(void *),
+                                      void (*cbPrivateDataInit)(void *, MRIterator *),
+                                      void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData);
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
@@ -113,6 +124,10 @@ void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx);
 int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
+
+size_t MRIterator_GetChannelSize(const MRIterator *it);
+
+size_t MRIterator_GetNumShards(const MRIterator *it);
 
 short MRIterator_GetPending(MRIterator *it);
 

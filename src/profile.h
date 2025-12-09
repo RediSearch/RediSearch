@@ -21,11 +21,18 @@
 // If we get a chance to break it then consider splitting the count into separate fields
 #define printProfileCounters(counters) printProfileIteratorCounter(counters->read + counters->skipTo - counters->eof)
 
-#define printProfileGILTime(vtime) RedisModule_ReplyKV_Double(reply, "GIL-Time", (rs_timer_ms(&(vtime))))
+#define printProfileGILTime(vtime) RedisModule_ReplyKV_Double(reply, "GIL-Time", (vtime))
+
 #define printProfileNumBatches(hybrid_reader) \
   RedisModule_ReplyKV_LongLong(reply, "Batches number", (hybrid_reader)->numIterations)
+#define printProfileMaxBatchSize(hybrid_reader) \
+  RedisModule_ReplyKV_LongLong(reply, "Largest batch size", (hybrid_reader)->maxBatchSize)
+#define printProfileMaxBatchIteration(hybrid_reader) \
+  RedisModule_ReplyKV_LongLong(reply, "Largest batch iteration (zero based)", (hybrid_reader)->maxBatchIteration)
 #define printProfileOptimizationType(oi) \
   RedisModule_ReplyKV_SimpleString(reply, "Optimizer mode", QOptimizer_PrintType((oi)->optim))
+#define printProfileVectorSearchMode(searchMode) \
+  RedisModule_ReplyKV_SimpleString(reply, "Vector search mode", VecSimSearchMode_ToString(searchMode))
 
 /**
  * @brief Add profile iterators to all nodes in the iterator tree

@@ -7,12 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Wildcard iterator implementation
+//! Supporting types for [`Wildcard`].
 
-use ffi::t_docId;
+use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
+use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
 #[derive(Default)]
@@ -20,30 +20,34 @@ pub struct Wildcard<'index> {
     // Supposed to be the max id in the index
     top_id: t_docId,
 
-    current_id: t_docId,
-
     /// A reusable result object to avoid allocations on each `read` call.
     result: RSIndexResult<'index>,
 }
 
 impl Wildcard<'_> {
-    pub const fn new(top_id: t_docId) -> Self {
+    pub const fn new(top_id: t_docId, weight: f64) -> Self {
         Wildcard {
             top_id,
-            current_id: 0,
-            result: RSIndexResult::virt().frequency(1),
+            result: RSIndexResult::virt()
+                .frequency(1)
+                .weight(weight)
+                .field_mask(RS_FIELDMASK_ALL),
         }
     }
 }
 
 impl<'index> RQEIterator<'index> for Wildcard<'index> {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        Some(&mut self.result)
+    }
+
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         if self.at_eof() {
             return Ok(None);
         }
 
-        self.current_id += 1;
-        self.result.doc_id = self.current_id;
+        self.result.doc_id += 1;
         Ok(Some(&mut self.result))
     }
 
@@ -58,17 +62,16 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
 
         if doc_id > self.top_id {
             // skip beyond range - set to EOF
-            self.current_id = self.top_id;
+            self.result.doc_id = self.top_id;
             return Ok(None);
         }
 
-        self.current_id = doc_id;
-        self.result.doc_id = self.current_id;
+        self.result.doc_id = doc_id;
         Ok(Some(SkipToOutcome::Found(&mut self.result)))
     }
 
     fn rewind(&mut self) {
-        self.current_id = 0;
+        self.result.doc_id = 0;
     }
 
     // This should always return total results from the iterator, even after some yields.
@@ -77,10 +80,14 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     }
 
     fn last_doc_id(&self) -> t_docId {
-        self.current_id
+        self.result.doc_id
     }
 
     fn at_eof(&self) -> bool {
-        self.current_id >= self.top_id
+        self.result.doc_id >= self.top_id
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        Ok(RQEValidateStatus::Ok)
     }
 }

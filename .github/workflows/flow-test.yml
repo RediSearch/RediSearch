@@ -1,0 +1,114 @@
+name: Build on Platforms
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        type: string
+        default: all
+      architecture:
+        type: string
+        default: all
+      job-test-config:
+        description: 'JSON mapping of job-type to test-config (e.g. ''{"test": "QUICK=1", "coverage": "", "sanitize": ""}''). Use empty string for full tests.'
+        type: string
+        default: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
+      redis-ref:
+        type: string
+      rejson-branch:
+        type: string
+        default: master
+        description: 'Branch to use when building RedisJSON for tests'
+      options:
+        type: string
+        default: coordinator,standalone,rejson,fail-fast
+        description: 'Comma-separated list of options: coordinator, standalone, rejson, fail-fast, coverage, sanitize'
+
+  workflow_dispatch:
+    inputs:
+      platform:
+        type: choice
+        options:
+          - all
+          - ubuntu:noble
+          - ubuntu:jammy
+          - ubuntu:focal
+          - rockylinux:8
+          - rockylinux:9
+          - debian:bullseye
+          - debian:bookworm
+          - amazonlinux:2
+          - amazonlinux:2023
+          - mariner:2
+          - azurelinux:3
+          - alpine:3.22
+          - macos
+        description: 'Platform to test on. Use "all" to test on all platforms'
+        default: all
+      architecture:
+        type: choice
+        options:
+          - all
+          - x86_64
+          - aarch64
+        description: 'Architecture to test on. Use "all" to test on all architectures'
+        default: all
+      job-test-config:
+        description: 'JSON mapping of job-type to test-config (e.g. ''{"test": "QUICK=1", "coverage": "", "sanitize": ""}''). Use empty string for full tests.'
+        type: string
+        default: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
+      redis-ref:
+        description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
+        type: string
+      rejson-branch:
+        type: string
+        default: master
+        description: 'Branch to use when building RedisJSON for tests (default: master)'
+      options:
+        type: choice
+        options:
+          - coordinator,standalone,rejson
+          - coordinator,standalone,rejson,fail-fast
+          - coordinator,standalone,rejson,coverage
+          - coordinator,standalone,rejson,sanitize
+          - coordinator,standalone,rejson,coverage,sanitize
+          - coordinator,standalone,rejson,fail-fast,coverage
+          - coordinator,standalone,rejson,fail-fast,sanitize
+          - coordinator,standalone,rejson,fail-fast,coverage,sanitize
+        description: 'Comma-separated list of options to enable'
+        default: coordinator,standalone,rejson
+
+jobs:
+  generate-matrix:
+    uses: ./.github/workflows/generate-matrix.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+      include-coverage: ${{ contains(inputs.options, 'coverage') }}
+      include-sanitize: ${{ contains(inputs.options, 'sanitize') }}
+
+  # Unified test matrix - includes Linux and macOS platforms, plus optional coverage and sanitize
+  test-matrix:
+    name: ${{ (matrix.job-type || 'test') == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', (matrix.job-type || 'test'), matrix.architecture) }}
+    needs: [generate-matrix]
+    if: ${{ needs.generate-matrix.outputs.has-jobs == 'true' }}
+    strategy:
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+      fail-fast: ${{ contains(inputs.options, 'fail-fast') }}
+    uses: ./.github/workflows/task-test.yml
+    secrets: inherit
+    with:
+      platform: ${{ matrix.platform }}
+      architecture: ${{ matrix.architecture }}
+      get-redis: ${{ inputs.redis-ref }}
+      rejson: ${{ contains(inputs.options, 'rejson') }}
+      rejson-branch: ${{ inputs.rejson-branch }}
+      coordinator: ${{ contains(inputs.options, 'coordinator') }}
+      standalone: ${{ contains(inputs.options, 'standalone') }}
+      test-config: ${{ fromJson(inputs.job-test-config)[(matrix.job-type || 'test')] }}
+      coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
+      san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
+      fail-fast: ${{ contains(inputs.options, 'fail-fast') }}

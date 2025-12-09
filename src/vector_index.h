@@ -162,6 +162,7 @@ size_t VecSimType_sizeof(VecSimType type);
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
+const char *VecSimSearchMode_ToString(VecSearchMode vecsimSearchMode);
 const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits);
 const char *VecSimSearchHistory_ToString(VecSimOptionMode option);
 bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits);
@@ -189,7 +190,8 @@ extern "C" {
 #endif
 
 QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply,
-                                                          bool yields_metric);
+                                                          bool yields_metric,
+                                                          bool sorted_by_id);
 #ifdef __cplusplus
 }
 #endif

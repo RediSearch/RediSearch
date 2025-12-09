@@ -20,11 +20,10 @@ extern "C" {
 #include "varint.h"
 #include "src/iterators/inverted_index_iterator.h"
 #include "src/iterators/hybrid_reader.h"
-#include "src/iterators/idlist_iterator.h"
+#include "iterators_rs.h"
 #include "src/iterators/union_iterator.h"
 #include "src/iterators/intersection_iterator.h"
 #include "src/iterators/not_iterator.h"
-#include "src/iterators/empty_iterator.h"
 #include "src/iterators/wildcard_iterator.h"
 #include "src/util/arr.h"
 #include "src/util/references.h"
@@ -466,7 +465,7 @@ TEST_F(IndexTest, testNumericInverted) {
   // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
   t_docId i = 1;
   while (ITERATOR_EOF != it->Read(it)) {
@@ -499,7 +498,7 @@ TEST_F(IndexTest, testNumericVaried) {
   }
 
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
 
   for (size_t i = 0; i < numCount; i++) {
@@ -563,7 +562,7 @@ void testNumericEncodingHelper(bool isMulti) {
   }
 
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
 
   for (size_t ii = 0; ii < numInfos; ii++) {
@@ -687,7 +686,7 @@ TEST_F(IndexTest, testHybridVector) {
   VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = max_id;
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   // Run simple top k query.
   HybridIteratorParams hParams = {.sctx=NULL,
                                   .index = index,
@@ -878,7 +877,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
 
   // Run simple range query.
-  QueryIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true);
+  QueryIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true, true);
   size_t count = 0;
   size_t lowest_id = 25;
   size_t n_expected_res = n - lowest_id + 1;
@@ -957,7 +956,7 @@ TEST_F(IndexTest, testMetric_SkipTo) {
   double metrics[7] = {1.0};
   memcpy(metrics_arr, metrics, sizeof(double) * results_num);
 
-  QueryIterator *metric_it = NewMetricIterator(ids_arr, metrics_arr, results_num, VECTOR_DISTANCE);
+  QueryIterator *metric_it = NewMetricIteratorSortedById(ids_arr, metrics_arr, results_num, VECTOR_DISTANCE);
 
   // Copy the behaviour of INV_IDX_ITERATOR in terms of SkipTo. That is, the iterator will return the
   // next docId whose id is equal or greater than the given id, as if we call Read and returned
@@ -1495,10 +1494,10 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
 
   VecSimQueryParams queryParams = {0};
   KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
 
   // Mock the WILDCARD_ITERATOR consideration
-  QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, n, 1.0);
+  QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, 1.0);
 
   HybridIteratorParams hParams = {
     .sctx = NULL,

@@ -67,8 +67,7 @@ fn test_encode_fields_offsets() {
 
         let record = TestTermRecord::new(doc_id, field_mask, 1, offsets);
 
-        let bytes_written = FieldsOffsets::default()
-            .encode(&mut buf, delta, &record.record)
+        let bytes_written = FieldsOffsets::encode(&mut buf, delta, &record.record)
             .expect("to encode freqs only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
@@ -152,8 +151,7 @@ fn test_encode_fields_offsets_wide() {
 
         let record = TestTermRecord::new(doc_id, field_mask, 1, offsets);
 
-        let bytes_written = FieldsOffsetsWide::default()
-            .encode(&mut buf, delta, &record.record)
+        let bytes_written = FieldsOffsetsWide::encode(&mut buf, delta, &record.record)
             .expect("to encode freqs only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
@@ -183,7 +181,7 @@ fn test_encode_fields_offsets_field_mask_overflow() {
     let mut cursor = Cursor::new(buf);
 
     let record = inverted_index::RSIndexResult::term().field_mask(u32::MAX as t_fieldMask + 1);
-    let _res = FieldsOffsets::default().encode(&mut cursor, 0, &record);
+    let _res = FieldsOffsets::encode(&mut cursor, 0, &record);
 }
 
 #[test]
@@ -193,12 +191,12 @@ fn test_encode_fields_offsets_output_too_small() {
     let mut cursor = Cursor::new(buf);
     let record = inverted_index::RSIndexResult::term();
 
-    let res = FieldsOffsets::default().encode(&mut cursor, 0, &record);
+    let res = FieldsOffsets::encode(&mut cursor, 0, &record);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 
-    let res = FieldsOffsetsWide::default().encode(&mut cursor, 0, &record);
+    let res = FieldsOffsetsWide::encode(&mut cursor, 0, &record);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);

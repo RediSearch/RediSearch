@@ -17,6 +17,7 @@
 #include "config.h"
 #include "query_error.h"
 #include "redis_index.h"
+#include "iterators_rs.h"
 #include "tokenize.h"
 #include "triemap.h"
 #include "util/logging.h"
@@ -43,8 +44,7 @@
 #include "iterators/intersection_iterator.h"
 #include "iterators/optional_iterator.h"
 #include "iterators/not_iterator.h"
-#include "iterators/idlist_iterator.h"
-#include "iterators/empty_iterator.h"
+#include "iterators_rs.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
@@ -522,7 +522,7 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (q->sctx->spec->diskSpec) {
     RS_LOG_ASSERT(q->sctx->spec->diskSpec, "Disk spec should be open");
-    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
+    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, term->len, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
   } else {
     return Redis_OpenReader(q->sctx, term, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
   }
@@ -543,7 +543,7 @@ static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
 
   if (q->sctx->spec->diskSpec) {
     RS_LOG_ASSERT(q->sctx->spec->diskSpec, "Disk spec should be open");
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, q->opts->fieldmask & opts->fieldMask, 1);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, term->len, q->opts->fieldmask & opts->fieldMask, 1);
   } else {
     // Open an index reader
     ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
@@ -784,7 +784,7 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   QueryIterator *ir = NULL;
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
   if (q->sctx->spec->diskSpec) {
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, q->opts->fieldmask & ctx->opts->fieldMask, 1);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, term->len, q->opts->fieldmask & ctx->opts->fieldMask, 1);
   } else {
     ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
                                         q->opts->fieldmask & ctx->opts->fieldMask, 1);
@@ -808,7 +808,7 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
   QueryIterator *ir = NULL;
   if (q->sctx->spec->diskSpec) {
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, q->opts->fieldmask & ctx->opts->fieldMask, 1);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, term->len, q->opts->fieldmask & ctx->opts->fieldMask, 1);
   } else {
     ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
                                         q->opts->fieldmask & ctx->opts->fieldMask, 1);
@@ -922,7 +922,7 @@ static QueryIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
   RS_LOG_ASSERT(node->type == QN_NUMERIC, "query node type should be numeric")
 
   const FieldSpec *fs = node->nn.nf->fieldSpec;
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   return NewNumericFilterIterator(q->sctx, node->nn.nf, INDEXFLD_T_NUMERIC, q->config, &filterCtx);
 }
 
@@ -949,7 +949,7 @@ static QueryIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   const GeometryApi *api = GeometryApi_Get(index);
   const GeometryQuery *gq = node->gmn.geomq;
   RedisModuleString *errMsg;
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   QueryIterator *ret = api->query(q->sctx, &filterCtx, index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
   if (ret == NULL) {
     QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_BAD_VAL, "Error querying geoshape index", ": %s",
@@ -1017,9 +1017,8 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       handle->key_ptr = &hybridIt->ownKey;
       hybridIt->keyHandle = handle; // Set up back-reference
     } else { // Must be METRIC_ITERATOR due to the condition above
-      MetricIterator *metricIt = (MetricIterator *)it;
-      handle->key_ptr = &metricIt->ownKey;
-      metricIt->keyHandle = handle; // Set up back-reference
+      handle->key_ptr = GetMetricOwnKeyRef(it);
+      SetMetricRLookupHandle(it, handle); // Set up back-reference
     }
 
     request->key_handle = handle;
@@ -1068,7 +1067,7 @@ static QueryIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode 
     num = deduplicateDocIds(it_ids, num);
   }
   // Passing the ownership of the ids to the iterator.
-  return NewIdListIterator(it_ids, num, 1);
+  return NewSortedIdListIterator(it_ids, num, 1);
 }
 
 static QueryIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {

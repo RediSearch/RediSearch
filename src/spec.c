@@ -1650,7 +1650,9 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   // Store on disk if we're on Flex and we don't force RAM
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
-    spec->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(spec->specName, NULL), spec->rule->type);
+    size_t len;
+    const char* name = HiddenString_GetUnsafe(spec->specName, &len);
+    spec->diskSpec = SearchDisk_OpenIndex(name, len, spec->rule->type);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
   }
 
@@ -2638,6 +2640,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
       // time to ensure that other threads that are waiting for the GIL will actually have the
       // chance to take it.
       usleep(1);
+      IncrementBgIndexYieldCounter();
     } else {
       sched_yield();
     }
@@ -3073,13 +3076,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     }
   }
 
-  if (isFlex) {
-    // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
-    // we add the `Index_StoreInRAM` flag to the rdb file.
-    RS_ASSERT(disk_db);
-    sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
-  }
-
   return sp;
 
 cleanup:
@@ -3117,6 +3113,14 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
     addPendingIndexDrop();
     StrongRef_Release(spec_ref);
   } else {
+    if (isSpecOnDisk(sp)) {
+      // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
+      // we add the `Index_StoreInRAM` flag to the rdb file.
+      RS_ASSERT(disk_db);
+      size_t len;
+      const char* name = HiddenString_GetUnsafe(sp->specName, &len);
+      sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+    }
     IndexSpec_StartGC(spec_ref, sp);
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
 
@@ -3228,7 +3232,9 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
     // we add the `Index_StoreInRAM` flag to the rdb file.
     RS_ASSERT(disk_db);
-    sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
+    size_t len;
+    const char* name = HiddenString_GetUnsafe(sp->specName, &len);
+    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
   }
 
   dictDelete(legacySpecRules, sp->specName);
@@ -3537,7 +3543,6 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
     return;
   }
   Indexes_Free(specDict_g);
-  workersThreadPool_Drain(ctx, 0);
   Dictionary_Clear();
   RSGlobalStats.totalStats.used_dialects = 0;
 }

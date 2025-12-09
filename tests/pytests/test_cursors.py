@@ -526,6 +526,22 @@ def testCursorDepletionStrictTimeoutPolicy():
     ).error().contains('Timeout limit was reached')
 
 @skip(cluster=True)
+def test_cursor_profile(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+    env.cmd('HSET', f'doc1', 't', str(1))
+    env.cmd('HSET', f'doc2', 't', str(2))
+
+    env.expect('_FT.CURSOR', 'PROFILE', 'idx', '123').error().contains('Cursor not found')
+
+    # create a cursor
+
+    _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1')
+    env.assertNotEqual(cursor, 0)
+    env.expect('_FT.CURSOR', 'PROFILE', 'idx', cursor).error().contains('cursor request is not profile')
+
+@skip(cluster=True)
 def test_mod_6597(env):
     """Tests that we update the numeric index appropriately upon deleting
     documents from a numeric index, and are able to query an invalid cursor in
@@ -594,13 +610,13 @@ def testCountArgValidation(env):
     # Query the cursor with bad subcommand
     env.expect(
         'FT.CURSOR', 'READS', 'idx', str(cid)
-    ).error().contains('Unknown subcommand')
+    ).error().contains('unknown subcommand')
     env.expect(
         'FT.CURSOR', 'DELS', 'idx', str(cid)
-    ).error().contains('Unknown subcommand')
+    ).error().contains('unknown subcommand')
     env.expect(
         'FT.CURSOR', 'GCS', 'idx', str(cid)
-    ).error().contains('Unknown subcommand')
+    ).error().contains('unknown subcommand')
 
     # Query the cursor with a bad value for the `COUNT` argument
     env.expect(
@@ -619,3 +635,80 @@ def testCountArgValidation(env):
     res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'COUNT', '2')
     env.assertEqual(cid, 0)
     env.assertEqual(res, [0])
+
+@skip(cluster=True)
+def test_cursor_commands_errors(env: Env):
+    """Tests that appropriate errors are returned upon dispatching invalid
+    `FT.CURSOR` commands."""
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.cmd('HSET', 'doc1', 't', 'hello')
+
+    # Test missing arguments
+    env.expect('FT.CURSOR', 'READ').error().contains("wrong number of arguments for 'FT.CURSOR|READ' command")
+    env.expect('FT.CURSOR', 'DEL').error().contains("wrong number of arguments for 'FT.CURSOR|DEL' command")
+    env.expect('FT.CURSOR', 'GC').error().contains("wrong number of arguments for 'FT.CURSOR|GC' command")
+
+    # Test invalid cursor id
+    env.expect('FT.CURSOR', 'READ', 'idx', 'invalid_cursor_id').error().contains('Bad cursor ID')
+    env.expect('FT.CURSOR', 'DEL', 'idx', 'invalid_cursor_id').error().contains('Bad cursor ID')
+
+    # Internal cursor tests
+    env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
+
+    # Test missing arguments
+    env.expect('_FT.CURSOR', 'READ').error().contains("wrong number of arguments for '_FT.CURSOR|READ' command")
+    env.expect('_FT.CURSOR', 'DEL').error().contains("wrong number of arguments for '_FT.CURSOR|DEL' command")
+    env.expect('_FT.CURSOR', 'PROFILE').error().contains("wrong number of arguments for '_FT.CURSOR|PROFILE' command")
+    env.expect('_FT.CURSOR', 'GC').error().contains("wrong number of arguments for '_FT.CURSOR|GC' command")
+
+    # Test internal cursor read after index drop
+    env.cmd('FT.CREATE', 'temp', 'SCHEMA', 't', 'TEXT')
+    waitForIndex(env, 'temp')
+    _, cid = env.cmd('FT.AGGREGATE', 'temp', '*', 'WITHCURSOR', 'COUNT', '1')
+    env.assertNotEqual(cid, 0)
+    env.expect('FT.DROPINDEX', 'temp').ok()
+    env.expect('_FT.CURSOR', 'READ', 'temp', cid).error().contains('The index was dropped while the cursor was idle')
+
+    # Test internal cursor profile after index drop
+    env.cmd('FT.CREATE', 'temp', 'SCHEMA', 't', 'TEXT')
+    waitForIndex(env, 'temp')
+    _, cid, _ = env.cmd('_FT.PROFILE', 'temp', 'AGGREGATE', 'QUERY', '*', '_SLOTS_INFO', generate_slots(), 'WITHCURSOR', 'COUNT', '1')
+    env.assertNotEqual(cid, 0)
+    env.expect('FT.DROPINDEX', 'temp').ok()
+    env.expect('_FT.CURSOR', 'PROFILE', 'temp', cid).error().contains('The index was dropped while the cursor was idle')
+
+@skip(cluster=False)
+def test_cursor_gc_edge_cases(env: Env):
+    """
+    Tests edge cases of the `FT.CURSOR GC` command.
+    In this test, it should return 0 when there are no cursors, or no internal/external cursors
+    It should return -1 when:
+    1. There are cursors (both internal and external)
+    2. None of the cursors are eligible for GC
+    """
+
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(1001 * env.shardsCount):
+            con.execute_command('HSET', f'doc{i}', 't', 'hello')
+
+    # Test with no existing cursors
+    env.expect('_FT.CURSOR', 'GC', 'idx', '0').equal(0, message='Expected 0 cursors to be collected when none exist')
+
+    # Test with only internal cursors
+    _, cid = env.cmd('_FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1', '_SLOTS_INFO', generate_slots())
+    env.expect('_FT.CURSOR', 'GC', 'idx', '0').equal(0, message='Expected 0 cursors to be collected when only internal cursors exist')
+    env.expect('_FT.CURSOR', 'DEL', 'idx', cid).ok()
+
+    # Test with both internal and external cursors
+    _, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1')
+    # Aggregate may return before the local shard cursor was created, so we wait until it is created
+    with TimeLimit(0.5, "shard cursors were not created"):
+        while getCursorStats(env)['global_total'] < 2:
+            sleep(0.01)
+    env.expect('_FT.CURSOR', 'GC', 'idx', '0').equal(-1)
+
+    # Test with only external cursors
+    env.expect(debug_cmd(), 'DELETE_LOCAL_CURSORS').ok()
+    env.expect('_FT.CURSOR', 'GC', 'idx', '0').equal(0)

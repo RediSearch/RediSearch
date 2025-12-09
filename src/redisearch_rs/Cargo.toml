@@ -3,10 +3,12 @@ members = [
     "buffer",
     "build_utils",
     "c_entrypoint/*",
+    "document",
     "ffi",
+    "field",
+    "fnv",
     "inverted_index",
     "inverted_index_bencher",
-    "fnv",
     "low_memory_thin_vec",
     "qint",
     "query_error",
@@ -15,6 +17,7 @@ members = [
     "rlookup",
     "rqe_iterators",
     "rqe_iterators_bencher",
+    "rqe_iterators_interop",
     "search_result",
     "slots_tracker",
     "sorting_vector",
@@ -60,25 +63,28 @@ license-file = "../../LICENSE.txt"
 publish = false
 
 [workspace.dependencies]
+buffer = { path = "./buffer" }
 c_ffi_utils = { path = "./c_entrypoint/c_ffi_utils" }
+document = { path = "./document" }
 ffi = { path = "./ffi", default-features = false }
+field = { path = "./field" }
 fnv = { path = "./fnv" }
 inverted_index = { path = "./inverted_index" }
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
-redis_mock = { path = "./redis_mock" }
-trie_rs = { path = "./trie_rs" }
-wildcard = { path = "./wildcard" }
-buffer = { path = "./buffer" }
-query_error = { path = "./query_error" }
-result_processor = { path = "./result_processor" }
-slots_tracker = { path = "./slots_tracker" }
-sorting_vector = { path = "./sorting_vector"}
-value = { path = "./value" }
-varint = { path = "./varint" }
 qint = { path = "./qint" }
+query_error = { path = "./query_error" }
+redis_mock = { path = "./redis_mock" }
+result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
 rqe_iterators = { path = "./rqe_iterators" }
+rqe_iterators_interop = { path = "./rqe_iterators_interop" }
 search_result = { path = "./search_result" }
+slots_tracker = { path = "./slots_tracker" }
+sorting_vector = { path = "./sorting_vector"}
+trie_rs = { path = "./trie_rs" }
+value = { path = "./value" }
+varint = { path = "./varint" }
+wildcard = { path = "./wildcard" }
 
 cbindgen = "0.29"
 cc = "1"
@@ -93,6 +99,7 @@ itertools = "0.14.0"
 lending-iterator = "0.1.7"
 libc = "0.2.170"
 memchr = "2.7.4"
+pin-project = "1.1.10"
 pretty_assertions = "1.4.1"
 proptest = { version = "1.6.0", default-features = false }
 proptest-derive = { version = "0.5.1", default-features = false }
@@ -100,11 +107,11 @@ rand = "0.9.1"
 rmp-serde = "1.3.0"
 serde = { version = "1.0.226", features = ["derive"] }
 smallvec = "1.15.1"
-thiserror = "2.0.12"
-ureq = "3.0.10"
-wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
-pin-project = "1.1.10"
 strum = {version = "0.27.2",features = ["derive"]}
+thiserror = "2.0.12"
+unsafe-tools = "0.1.1"
+ureq = "3.1"
+wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 
 [workspace.dependencies.bindgen]
 version = "0.72"

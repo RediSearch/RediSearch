@@ -8,14 +8,14 @@ permissions:
 on:
   workflow_call:
     inputs:
-      env:
-        default: "${{ vars.RUNS_ON }}"
+      platform:
+        description: 'Platform name (e.g., ubuntu:noble, rockylinux:8)'
         type: string
-      container:
+        required: true
+      architecture:
+        description: 'Architecture (x86_64, aarch64)'
         type: string
-      pre-steps-script:
-        type: string
-        description: 'Script to run before any other steps (extremely basic dependency needs only)'
+        required: true
       ref:
         type: string
         description: 'RediSearch reference to checkout (defaults to the ref of the triggering event)'
@@ -36,10 +36,18 @@ env:
   AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
 
 jobs:
+  # Get configuration for this specific platform and architecture
+  get-config:
+    uses: ./.github/workflows/task-get-config.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+
   build:
-    name: Build ${{ inputs.container || inputs.env }}
-    runs-on: ${{ inputs.env }}
-    container: ${{ inputs.container || null }}
+    name: Build ${{ needs.get-config.outputs.name }}
+    needs: [get-config]
+    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container: ${{ needs.get-config.outputs.container || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -52,52 +60,56 @@ jobs:
     steps:
       # Setup
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
-      - name: Pre-steps Dependencies (Alpine)
-        if: inputs.pre-steps-script && inputs.container == 'alpine:3'
+      - name: Setup Dependencies (Alpine)
+        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3.22'
         shell: sh -l -eo pipefail {0}
         run: |
+          SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if ${{ inputs.pre-steps-script }}; then
-              echo "Pre-steps Dependencies succeeded"
-              exit 0
+            if ${{ needs.get-config.outputs.setup_script }}; then
+              echo "Setup Dependencies succeeded"
+              SUCCESS=1
+              break
             fi
             if [ $i -lt 5 ]; then
-              echo "Pre-steps Dependencies failed, retrying in 30 seconds..."
+              echo "Setup Dependencies failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          echo "Pre-steps Dependencies failed after 5 attempts"
-          exit 1
-      - name: Pre-steps Dependencies (Non-Alpine)
-        if: inputs.pre-steps-script && inputs.container != 'alpine:3'
+          [ $SUCCESS -eq 1 ] || exit 1
+      - name: Setup Dependencies (Non-Alpine)
+        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3.22'
         run: |
+          SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if ${{ inputs.pre-steps-script }}; then
-              echo "Pre-steps Dependencies succeeded"
-              exit 0
+            if ${{ needs.get-config.outputs.setup_script }}; then
+              echo "Setup Dependencies succeeded"
+              SUCCESS=1
+              break
             fi
             if [ $i -lt 5 ]; then
-              echo "Pre-steps Dependencies failed, retrying in 30 seconds..."
+              echo "Setup Dependencies failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          echo "Pre-steps Dependencies failed after 5 attempts"
-          exit 1
-      - name: Enable dynamic linking to C runtime in Alpine
-        if: inputs.container == 'alpine:3'
-        run: echo RUST_DYN_CRT=1 >> $GITHUB_ENV
+          [ $SUCCESS -eq 1 ] || exit 1
+      - name: Post-setup
+        if: needs.get-config.outputs.post_setup_script
+        run: ${{ needs.get-config.outputs.post_setup_script }}
 
       - name: Get Installation Mode
         id: mode
         run: |
-          [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
+          CONTAINER="${{ needs.get-config.outputs.container }}"
+          [[ -z "$CONTAINER" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
-          for platform in amazonlinux:2 alpine:3; do
-            if [[ "${{ inputs.container }}" == "$platform" ]]; then
+          CONTAINER="${{ needs.get-config.outputs.container }}"
+          for platform in amazonlinux:2 alpine:3.22; do
+            if [[ "$CONTAINER" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
             fi
@@ -113,9 +125,10 @@ jobs:
         if: steps.node20.outputs.supported == 'false'
         run: |
           # Execute the logic based on the detected platform
-          echo "Detected platform: ${{ inputs.container }}"
-          case "${{ inputs.container }}" in
-            amazonlinux:2 | alpine:3)
+          CONTAINER="${{ needs.get-config.outputs.container }}"
+          echo "Detected platform: $CONTAINER"
+          case "$CONTAINER" in
+            amazonlinux:2 | alpine:3.22)
 
               # Configure the safe directory
               git config --global --add safe.directory "/__w/$GITHUB_REPOSITORY"
@@ -138,72 +151,76 @@ jobs:
               git submodule update --init --recursive
               ;;
             *)
-              echo "Unsupported platform: '${{ inputs.container }}'"
+              echo "Unsupported platform: '$CONTAINER'"
               exit 1
               ;;
           esac
       - name: Setup
         working-directory: .install
         run: |
+          SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
             if ./install_script.sh ${{ steps.mode.outputs.mode }}; then
               echo "Setup succeeded"
-              exit 0
+              SUCCESS=1
+              break
             fi
             if [ $i -lt 5 ]; then
               echo "Setup failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          echo "Setup failed after 5 attempts"
-          exit 1
+          [ $SUCCESS -eq 1 ] || exit 1
       - name: Install aws cli
         working-directory: .install
         run: |
+          SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
             if ./install_aws.sh ${{ steps.mode.outputs.mode }}; then
               echo "Install aws cli succeeded"
-              exit 0
+              SUCCESS=1
+              break
             fi
             if [ $i -lt 5 ]; then
               echo "Install aws cli failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          echo "Install aws cli failed after 5 attempts"
-          exit 1
+          [ $SUCCESS -eq 1 ] || exit 1
       - name: Setup test dependencies
         run: |
+          SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
             if .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}; then
               echo "Setup test dependencies succeeded"
-              exit 0
+              SUCCESS=1
+              break
             fi
             if [ $i -lt 5 ]; then
               echo "Setup test dependencies failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          echo "Setup test dependencies failed after 5 attempts"
-          exit 1
+          [ $SUCCESS -eq 1 ] || exit 1
       - name: install build artifacts req
         run: |
+          SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
             if uv pip install -q -r .install/build_package_requirments.txt; then
               echo "Install build artifacts req succeeded"
-              exit 0
+              SUCCESS=1
+              break
             fi
             if [ $i -lt 5 ]; then
               echo "Install build artifacts req failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          echo "Install build artifacts req failed after 5 attempts"
-          exit 1
+          [ $SUCCESS -eq 1 ] || exit 1
 
       # Get Redis
       - name: Get Redis (node20)

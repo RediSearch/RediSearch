@@ -6,6 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdatomic.h>
 #include "result_processor.h"
 #include "rmr/rmr.h"
 #include "rmutil/util.h"
@@ -24,7 +25,8 @@
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "rpnet.h"
-#include "coord/hybrid/dist_utils.h"
+#include "coord/dist_utils.h"
+#include "info/global_stats.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   for (const RLookupKey *kk = nc->lookup->head; kk; kk = kk->next) {
@@ -49,8 +51,32 @@ void processResultFormat(uint32_t *flags, MRReply *map) {
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
-  MRIterator *it = MR_Iterate(&nc->cmd, netCursorCallback);
+
+  // Initialize shard response barrier if WITHCOUNT is enabled
+  if (HasWithCount(nc->areq) && IsAggregate(nc->areq)) {
+    ShardResponseBarrier *barrier = shardResponseBarrier_New();
+    if (!barrier) {
+      return RS_RESULT_ERROR;
+    }
+    nc->shardResponseBarrier = barrier;
+  }
+
+  // Pass barrier as private data to callback (only if WITHCOUNT enabled)
+  // The barrier is freed by MRIterator via shardResponseBarrier_Free destructor
+  // shardResponseBarrier_Init is called from iterStartCb when numShards is known from topology
+  MRIterator *it = nc->shardResponseBarrier
+                   ? MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, nc->shardResponseBarrier,
+                                               shardResponseBarrier_Free, shardResponseBarrier_Init,
+                                               iterStartCb, NULL)
+                   : MR_Iterate(&nc->cmd, netCursorCallback);
+
   if (!it) {
+    // Clean up on error - iterator never started so no callbacks running
+    // Must free manually since iterator didn't take ownership
+    if (nc->shardResponseBarrier) {
+      shardResponseBarrier_Free(nc->shardResponseBarrier);
+      nc->shardResponseBarrier = NULL;
+    }
     return RS_RESULT_ERROR;
   }
 
@@ -85,6 +111,13 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   // Numeric responses are encoded as simple strings.
   array_append(tmparr, "_NUM_SSTRING");
 
+  int argOffset = 0;
+  // Preserve WITHCOUNT flag from the original command
+  argOffset  = RMUtil_ArgIndex("WITHCOUNT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (argOffset != -1) {
+    array_append(tmparr, "WITHCOUNT");
+  }
+
   // Add the index prefixes to the command, for validation in the shard
   array_append(tmparr, "_INDEX_PREFIXES");
   arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
@@ -98,7 +131,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   // Slots info will be added here
   uint32_t slotsInfoPos = array_len(tmparr);
 
-  int argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
     array_append(tmparr, "DIALECT");
     array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the dialect
@@ -228,11 +261,34 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // profileRP replace netRP as end PR
   ProfilePrinterCtx *cCtx = ctx;
   RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(cCtx->req)->rootProc;
+  // Calling getNextReply alone is insufficient here, as we might have already encountered EOF from the shards,
+  // which caused the call to getNextReply from RPNet to set cond->wait to true.
+  // We can't also set cond->wait to false because we might still be waiting for shards' replies containing profile information.
+
+  // Therefore, we loop to drain all remaining replies from the channel.
+  // Pending might be zero, but there might still be replies in the channel to read.
+  // We may have pulled all the replies from the channel and arrived here due to a timeout,
+  // and now we're waiting for the profile results.
+  if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+    do {
+      MRReply_Free(rpnet->current.root);
+    } while (getNextReply(rpnet) != RS_RESULT_EOF);
+  }
+
+  size_t num_shards = MRIterator_GetNumShards(rpnet->it);
+  size_t profile_count = array_len(rpnet->shardsProfile);
+
   PrintShardProfile_ctx sCtx = {
-    .count = array_len(rpnet->shardsProfile),
+    .count = profile_count,
     .replies = rpnet->shardsProfile,
     .isSearch = false,
   };
+
+  if (profile_count != num_shards) {
+    RedisModule_Log(RSDummyContext, "warning", "Profile data received from %zu out of %zu shards",
+                    profile_count, num_shards);
+  }
+
   Profile_PrintInFormat(reply, PrintShardProfile, &sCtx, Profile_Print, cCtx);
 }
 
@@ -297,6 +353,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // Construct the command string
   MRCommand xcmd;
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp, knnCtx);
+
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);
@@ -338,6 +395,7 @@ static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Rep
 static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp,
                           StrongRef *strong_ref, specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply, QueryError *status) {
   RS_ASSERT(QueryError_HasError(status));
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
   QueryError_ReplyAndClear(ctx, status);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   if (sp) {

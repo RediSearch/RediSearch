@@ -11,9 +11,16 @@
 #include "spec.h"
 #include "rs_wall_clock.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 #define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
 #define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
+
+// Coord/Shard error or warning
+#define COORD_ERR_WARN true
+#define SHARD_ERR_WARN !COORD_ERR_WARN
 
 typedef struct {
   size_t numTextFields;
@@ -40,16 +47,45 @@ typedef struct {
 } FieldsGlobalStats;
 
 typedef struct {
+  size_t syntax; // Number of syntax errors
+  size_t arguments; // Number of parse arguments errors
+  size_t timeout; // Number of timeout errors
+  size_t oom; // Number of OOM errors
+} QueryErrorsGlobalStats;
+
+typedef struct {
+  size_t timeout;
+  size_t oom;
+  size_t maxPrefixExpansion;
+} QueryWarningGlobalStats;
+
+typedef struct {
   size_t total_queries_processed;       // Number of successful queries. If using cursors, not counting reading from the cursor
   size_t total_query_commands;          // Number of successful query commands, including `FT.CURSOR READ`
   rs_wall_clock_ns_t total_query_execution_time;   // Total time spent on queries, aggregated in ns and reported in ms
+
+  QueryErrorsGlobalStats shard_errors;        // Shard query errors statistics
+  QueryErrorsGlobalStats coord_errors;  // Coordinator query errors statistics
+  QueryWarningGlobalStats shard_warnings;        // Shard query warnings statistics
+  QueryWarningGlobalStats coord_warnings;  // Coordinator query warnings statistics
 } QueriesGlobalStats;
+
+typedef struct {
+  size_t active_io_threads; // number of I/O thread callbacks currently executing
+  size_t active_worker_threads; // number of worker threads currently executing jobs
+  size_t active_coord_threads; // number of coordinator threads currently executing jobs
+  size_t workers_low_priority_pending_jobs; // number of low priority jobs waiting to be executed (currently only vecsim background indexing)
+  size_t workers_high_priority_pending_jobs; // number of high priority jobs waiting to be executed (currently only queries)
+  size_t workers_admin_priority_pending_jobs; // number of admin priority jobs waiting to be executed (currently only threadpool resize)
+  size_t coord_high_priority_pending_jobs; // number of high priority jobs waiting to be executed by the coordinator
+} MultiThreadingStats;
 
 typedef struct {
   QueriesGlobalStats queries;   // Queries statistics. values should be fetched by calling `TotalGlobalStats_GetQueryStats`, otherwise not safe.
   uint_least8_t used_dialects;  // bitarray of dialects used by all indices
   size_t logically_deleted;     // Number of logically deleted documents in all indices
                                 // (i.e., marked with DELETED flag but their memory was not yet cleaned by the GC)
+  MultiThreadingStats multi_threading;
 } TotalGlobalStats;
 
 // The global stats object type
@@ -98,3 +134,31 @@ void IndexsGlobalStats_UpdateLogicallyDeleted(int64_t toAdd);
  * Get the number of logically deleted documents in all indices.
  */
 size_t IndexesGlobalStats_GetLogicallyDeletedDocs();
+
+/**
+* Updates the global query errors statistics.
+* `coord` indicates whether the error occurred on the coordinator or on a shard.
+* Standalone shards are considered as coords.
+* Will ignore not supported error codes.
+* Currently supports : syntax, parse_args
+* `toAdd` can be negative to decrease the counter.
+*/
+void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd, bool coord);
+
+// Updates the global query warnings statistics.
+// `coord` indicates whether the warning occurred on the coordinator or on a shard.
+// Standalone shards are considered as coords
+// Will ignore not supported warning codes.
+// Currently supports : timeout
+// `toAdd` can be negative to decrease the counter.
+void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord);
+
+// Update the number of active io threads.
+void GlobalStats_UpdateActiveIoThreads(int toAdd);
+
+// Get multiThreadingStats
+MultiThreadingStats GlobalStats_GetMultiThreadingStats();
+
+#ifdef __cplusplus
+}
+#endif

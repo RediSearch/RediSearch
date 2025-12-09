@@ -50,10 +50,11 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
-      env: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
-      test-config: QUICK=1
+      platform: intel
+      architecture: x86_64
+      custom-env: ${{ needs.start-runner.outputs.label }}
+      test-config: ''
       get-redis: ${{ inputs.get-redis }}
-      pre-steps-script: echo "HOME=/home/ubuntu" >> $GITHUB_ENV
 
   stop-runner:
     name: Stop self-hosted EC2 runner

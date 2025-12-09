@@ -16,6 +16,27 @@
 #include "../hybrid/hybrid_exec.h"
 #include "../rmutil/util.h"
 #include "reply_empty.h"
+#include "info/global_stats.h"
+
+// Helper function that performs minimal parsing of query arguments to support sendChunk output
+static int shallow_parse_query_args(RedisModuleString **argv, int argc, AREQ *req) {
+    // Check specifically for CURSOR
+    if (RMUtil_ArgIndex("WITHCURSOR", argv, argc) != -1) {
+        AREQ_AddRequestFlags(req, QEXEC_F_IS_CURSOR);
+    }
+    // Parse format
+    int formatIndex = RMUtil_ArgExists("FORMAT", argv, argc, 1);
+    if (formatIndex > 0) {
+        formatIndex++;
+        ArgsCursor ac;
+        ArgsCursor_InitRString(&ac, argv+formatIndex, argc-formatIndex);
+        if (parseValueFormat(&req->reqflags, &ac, AREQ_QueryProcessingCtx(req)->err) != REDISMODULE_OK) {
+            return REDISMODULE_ERR;
+        }
+    }
+    return REDISMODULE_OK;
+}
+
 
 // Helper function for empty replies for aggregate-style queries.
 // Compiles the query to get request flags and formatting, then uses sendChunk_ReplyOnly_EmptyResults.
@@ -23,12 +44,9 @@
 // Assumes req has already been compiled, including REQFLAGS and AREQ_QueryProcessingCtx(req)->err has been set.
 static int empty_sendChunk_common(RedisModuleCtx *ctx, AREQ *req) {
 
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-    sendChunk_ReplyOnly_EmptyResults(reply, req);
+    sendChunk_ReplyOnly_EmptyResults(ctx, req);
 
     AREQ_Free(req);
-    RedisModule_EndReply(reply);
     return REDISMODULE_OK;
 }
 
@@ -67,10 +85,9 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
     int profileArgs = parseProfileArgs(argv, argc, req);
     if (profileArgs == -1) return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
 
-    int rc = AREQ_Compile(req, argv + 2 + profileArgs, argc - 2 - profileArgs, &status);
-    if (rc != REDISMODULE_OK) {
+    if (shallow_parse_query_args(argv + profileArgs, argc - profileArgs, req) != REDISMODULE_OK) {
         AREQ_Free(req);
-        return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+        return QueryError_ReplyAndClear(ctx, &status);
     }
 
     // Set the error code after compiling the query, since we don't want to overwrite
@@ -106,6 +123,7 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
         RedisModule_ReplyKV_LongLong(coordInfoReply, "VSIM", 0);
         RedisModule_ReplyKV_Array(coordInfoReply,"warnings"); // warnings []
         if (QueryError_HasQueryOOMWarning(&status)) {
+            QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, SHARD_ERR_WARN);
             RedisModule_Reply_SimpleString(coordInfoReply, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
         }
         RedisModule_Reply_ArrayEnd(coordInfoReply); // ~warnings
@@ -141,10 +159,9 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
 
     parseProfileExecOptions(req, execOptions);
 
-    int rc = AREQ_Compile(req, argv + 2, argc - 2, &status);
-    if (rc != REDISMODULE_OK) {
+    if (shallow_parse_query_args(argv, argc, req) != REDISMODULE_OK) {
         AREQ_Free(req);
-        return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+        return QueryError_ReplyAndClear(ctx, &status);
     }
 
     // Set the error code after compiling the query, since we don't want to overwrite
