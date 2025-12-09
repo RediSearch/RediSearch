@@ -30,7 +30,9 @@ jobs:
     if: ${{ needs.generate-basic-matrix.outputs.has-jobs == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     strategy:
       matrix: ${{ fromJson(needs.generate-basic-matrix.outputs.matrix) }}
-      fail-fast: true
+      # in the case of pull requests we want to run all jobs, even if one fails
+      # we aren't blocking anybody from merging, and we want to see all failures
+      fail-fast: false
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
