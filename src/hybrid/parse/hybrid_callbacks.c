@@ -413,12 +413,10 @@ void handleFilterPolicy(ArgParser *parser, const void *value, void *user_data) {
     const char *policy = *(const char**)value;
 
     const char *attrValue = policy;
-    size_t len = strlen(policy);
     // Map ADHOC to adhoc_bf (BATCHES is used as-is)
     // Note: ADHOC_BF is already rejected by ARG_OPT_ALLOWED_VALUES
     if (strcasecmp(policy, "ADHOC") == 0) {
         attrValue = VECSIM_POLICY_ADHOC_BF;
-        len = strlen(VECSIM_POLICY_ADHOC_BF);
     }
     // else: BATCHES is used as-is (no mapping needed)
 
@@ -426,7 +424,7 @@ void handleFilterPolicy(ArgParser *parser, const void *value, void *user_data) {
         .name = VECSIM_HYBRID_POLICY,
         .namelen = strlen(VECSIM_HYBRID_POLICY),
         .value = rm_strdup(attrValue),
-        .vallen = len
+        .vallen = strlen(attrValue)
     };
     pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
 }
