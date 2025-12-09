@@ -71,6 +71,8 @@ pub trait RQEIterator<'index> {
     /// not have an immediate use for the actual result, and would instead want to keep it aside
     /// for later in time. The child iterator already has that result anyway,
     /// and it is this method which provides the ability to expose it (for later use).
+    /// Calling this method before the first `read` or `skip_to`, or directly after `rewind` will return a default result
+    /// without meaningful data.
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>>;
 
     /// Read the next entry from the iterator.

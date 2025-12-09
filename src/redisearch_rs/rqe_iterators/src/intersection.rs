@@ -149,7 +149,10 @@ where
     /// even though we know they reference index data that does. Splitting the borrow
     /// doesn't help because `current()` still returns a reference bounded by the call.
     ///
-    /// Potential alternatives worth exploring:
+    /// # TODO
+    ///
+    /// Explore removing the unsafe code by using one of the following alternatives (as suggested in the PR):
+    ///
     /// - Store owned copies instead of borrowed references (memory/perf tradeoff)
     /// - Restructure `RSAggregateResult` to not require `'index` on stored references
     /// - Use a different aggregate pattern that doesn't store child references
