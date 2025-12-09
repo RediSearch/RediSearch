@@ -1635,6 +1635,7 @@ def test_warnings_metric_count_maxprefixexpansions_cluster_resp3():
 
 MULTI_THREADING_SECTION = f'{SEARCH_PREFIX}multi_threading'
 ACTIVE_IO_THREADS_METRIC = f'{SEARCH_PREFIX}active_io_threads'
+ACTIVE_TOPOLOGY_UPDATE_THREADS_METRIC = f'{SEARCH_PREFIX}active_topology_update_threads'
 ACTIVE_WORKER_THREADS_METRIC = f'{SEARCH_PREFIX}active_worker_threads'
 ACTIVE_COORD_THREADS_METRIC = f'{SEARCH_PREFIX}active_coord_threads'
 WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}workers_low_priority_pending_jobs'
@@ -1661,12 +1662,16 @@ def test_initial_multi_threading_stats(env):
                  message=f"{ACTIVE_IO_THREADS_METRIC} field should exist in multi_threading section")
   env.assertTrue(WORKERS_ADMIN_PRIORITY_PENDING_JOBS_METRIC in info_dict[MULTI_THREADING_SECTION],
                  message=f"{WORKERS_ADMIN_PRIORITY_PENDING_JOBS_METRIC} field should exist in multi_threading section")
+  env.assertTrue(ACTIVE_TOPOLOGY_UPDATE_THREADS_METRIC in info_dict[MULTI_THREADING_SECTION],
+                 message=f"{ACTIVE_TOPOLOGY_UPDATE_THREADS_METRIC} field should exist in multi_threading section")
 
   # Verify all fields initialized to 0.
   env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_IO_THREADS_METRIC], '0',
                  message=f"{ACTIVE_IO_THREADS_METRIC} should be 0 when idle")
   env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_WORKER_THREADS_METRIC], '0',
                  message=f"{ACTIVE_WORKER_THREADS_METRIC} should be 0 when idle")
+  env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_TOPOLOGY_UPDATE_THREADS_METRIC], '0',
+                 message=f"{ACTIVE_TOPOLOGY_UPDATE_THREADS_METRIC} should be 0 when idle")
   # There's no deterministic way to test active_io_threads increases while a query is running,
   # we test it in unit tests.
   # Also, we can't pause workers threads while trying to modify the workers thpool, so no way to verify active_worker_threads increases.
