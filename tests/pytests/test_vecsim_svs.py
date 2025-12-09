@@ -16,6 +16,7 @@ from common import (
     forceInvokeGC,
     waitForIndex,
     SkipTest,
+    getWorkersThpoolStats
 )
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
@@ -480,7 +481,9 @@ def test_drop_index_memory():
 
 @skip(cluster=True)
 def test_gc():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS 2 _FREE_RESOURCE_ON_THREAD FALSE')
+    num_workers = 2
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
+                         f' _FREE_RESOURCE_ON_THREAD FALSE')
     dim = 28
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
@@ -530,7 +533,14 @@ def test_gc():
 
         # Phase 2: Force garbage collection to reclaim memory
         # Explicit GC should reduce memory usage after marked deletions
+        env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
         forceInvokeGC(env, DEFAULT_INDEX_NAME)
+        cur_workers_stats = getWorkersThpoolStats(env)
+
+        # GC background jobs for SVS should be pending in low priority queue.
+        env.assertEqual(cur_workers_stats['lowPriorityPendingJobs'], num_workers, message=f"{message_prefix}")
+        env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
+        env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
         tiered_backend_debug_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
 
