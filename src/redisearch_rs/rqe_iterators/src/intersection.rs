@@ -243,6 +243,9 @@ where
         self.last_doc_id = 0;
         self.result.doc_id = 0;
         self.is_eof = self.children.is_empty();
+        if let Some(agg) = self.result.as_aggregate_mut() {
+            agg.reset();
+        }
         self.children.iter_mut().for_each(|c| c.rewind());
     }
 
