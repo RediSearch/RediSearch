@@ -250,3 +250,70 @@ TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
   // Free ConcurrentSearch
   ConcurrentSearch_ThreadPoolDestroy();
 }
+
+TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
+  // Test that active_topology_update_threads metric is tracked correctly
+
+  // Setup
+  ConcurrentSearch_CreatePool(1);
+
+  // Phase 1: Verify metric starts at 0
+  MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
+  ASSERT_EQ(stats.active_topology_update, 0);
+
+  // Phase 2: Use static flags for communication with the topo callback
+  static std::atomic<bool> topo_started{false};
+  static std::atomic<bool> topo_should_finish{false};
+  topo_started = false;
+  topo_should_finish = false;
+
+  // Slow topo callback - signals start, waits for finish signal
+  auto slowTopoCallback = [](void *privdata) {
+    auto *ctx = (struct UpdateTopologyCtx *)privdata;
+
+    topo_started.store(true);
+
+    // Wait until test tells us to finish
+    while (!topo_should_finish.load()) {
+      usleep(100);
+    }
+
+    // Do normal topo handling (same as testTopoCallback)
+    ctx->ioRuntime->uv_runtime.loop_th_ready = true;
+    MRClusterTopology *old_topo = ctx->ioRuntime->topo;
+    ctx->ioRuntime->topo = ctx->new_topo;
+    rm_free(ctx);
+    if (old_topo) {
+      MRClusterTopology_Free(old_topo);
+    }
+  };
+
+  // Schedule topology update
+  MRClusterTopology *newTopo = getDummyTopology(9999);
+  IORuntimeCtx_Schedule_Topology(ctx, slowTopoCallback, newTopo, true);
+
+  // Trigger runtime to process (need a Schedule call)
+  int dummy = 0;
+  IORuntimeCtx_Schedule(ctx, testCallback, &dummy);
+
+  // Wait for topo callback to start
+  bool success = RS::WaitForCondition([&]() { return topo_started.load(); });
+  ASSERT_TRUE(success) << "Timeout waiting for topo callback to start";
+
+  // Phase 3: Verify metric is 1 while callback is running
+  stats = GlobalStats_GetMultiThreadingStats();
+  ASSERT_EQ(stats.active_topology_update, 1);
+
+  // Signal callback to finish
+  topo_should_finish.store(true);
+
+  // Phase 4: Wait for metric to return to 0
+  success = RS::WaitForCondition([&]() {
+    stats = GlobalStats_GetMultiThreadingStats();
+    return stats.active_topology_update == 0;
+  });
+  ASSERT_TRUE(success) << "Timeout waiting for metric to return to 0";
+
+  // Cleanup
+  ConcurrentSearch_ThreadPoolDestroy();
+}
