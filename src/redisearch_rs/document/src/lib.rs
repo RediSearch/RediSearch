@@ -10,5 +10,12 @@
 mod metadata;
 mod ty;
 
+use std::ffi::CStr;
+
 pub use metadata::DocumentMetadata;
 pub use ty::DocumentType;
+
+pub const UNDERSCORE_KEY: &CStr = c"__key";
+pub const UNDERSCORE_SCORE: &CStr = c"__score";
+pub const UNDERSCORE_PAYLOAD: &CStr = c"__payload";
+pub const UNDERSCORE_LANGUAGE: &CStr = c"__language";

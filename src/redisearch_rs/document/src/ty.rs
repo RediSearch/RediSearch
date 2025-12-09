@@ -1,7 +1,7 @@
 /// The various document types supported by RediSearch.
 ///
 /// cbindgen:prefix-with-name
-#[repr(C)]
+#[repr(u32)]
 #[derive(
     Clone,
     Copy,
@@ -70,6 +70,6 @@ mod test {
             Err(strum::ParseError::VariantNotFound)
         );
 
-        assert_eq!(DocumentType::from_repr(usize::MAX), None);
+        assert_eq!(DocumentType::from_repr(u32::MAX), None);
     }
 }
