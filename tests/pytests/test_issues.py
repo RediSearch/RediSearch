@@ -1548,3 +1548,26 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     expected_min_yields = 7 * num_docs // yield_every_n_ops
     env.assertGreaterEqual(yields_count, expected_min_yields,
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
+
+@skip(cluster=True)
+def test_mod_12807(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('HSET', 'doc1', 't', 'foo bar baz').equal(1)
+  env.expect('HSET', 'doc2', 't', 'foo baz').equal(1)
+
+  # Search with a term that exists in both documents
+  _, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:foo', 'WITHCURSOR', 'COUNT', '1')
+  env.assertNotEqual(cursor, 0, message='Expected a non-zero cursor for multiple results')
+
+  # Drop the index, then try to read from the cursor
+  env.expect('FT.DROPINDEX', 'idx').ok()
+
+  # Verify there is still an idle cursor
+  env.assertEqual(env.cmd('INFO', 'MODULES')['search_global_total_user'], 1)
+
+  # Attempting to read from the cursor should return an error about unknown index, and delete the cursor
+  env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok() # To skip ACL checks (that will fail since the index is gone)
+  env.expect('_FT.CURSOR', 'READ', 'idx', cursor).error().equal('The index was dropped while the cursor was idle')
+
+  # Verify the idle cursor was deleted
+  env.assertEqual(env.cmd('INFO', 'MODULES')['search_global_total_user'], 0)
