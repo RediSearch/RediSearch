@@ -153,7 +153,7 @@ TEST_F(HybridRequestParseTest, testFilterBatchSize) {
     RMCK::ArgvList args(ctx, "FT.HYBRID", "test_batch_size",
                         "SEARCH", "hello",
                         "VSIM", "@vector_field", TEST_BLOB_DATA,
-                        "FILTER", "hello",
+                        "FILTER", "3", "hello",
                         "BATCH_SIZE", "100");
 
     HybridIteratorTestCtx testCtx;
@@ -168,7 +168,7 @@ TEST_F(HybridRequestParseTest, testPolicyBatchesWithBatchSize) {
     RMCK::ArgvList args(ctx, "FT.HYBRID", "test_policy_batches",
                         "SEARCH", "hello",
                         "VSIM", "@vector_field", TEST_BLOB_DATA,
-                        "FILTER", "hello",
+                        "FILTER","5", "hello",
                         "POLICY", "BATCHES", "BATCH_SIZE", "50");
 
     HybridIteratorTestCtx testCtx;
@@ -184,7 +184,7 @@ TEST_F(HybridRequestParseTest, testPolicyAdhoc) {
     RMCK::ArgvList args(ctx, "FT.HYBRID", "test_policy_adhoc",
                         "SEARCH", "hello",
                         "VSIM", "@vector_field", TEST_BLOB_DATA,
-                        "FILTER", "hello",
+                        "FILTER","3", "hello",
                         "POLICY", "ADHOC");
 
     HybridIteratorTestCtx testCtx;

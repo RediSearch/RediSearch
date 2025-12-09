@@ -15,6 +15,9 @@
 #include <limits.h>
 #include "util/misc.h"
 #include "slot_ranges.h"
+#include "hybrid/vector_query_utils.h"
+#include "vector_index.h"
+#include "rmalloc.h"
 
 // Helper function to append a sort entry - extracted from original code
 static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, bool ascending) {
@@ -402,6 +405,44 @@ void handleFilter(ArgParser *parser, const void *value, void *user_data) {
     PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, PLN_T_FILTER);
     HiddenString_Free(expression, false);
     AGPLN_AddStep(ctx->plan, &stp->base);
+}
+
+// POLICY callback for FILTER clause - handles value mapping and attribute creation
+void handleFilterPolicy(ArgParser *parser, const void *value, void *user_data) {
+    ParsedVectorData *pvd = (ParsedVectorData*)user_data;
+    const char *policy = *(const char**)value;
+
+    const char *attrValue = policy;
+    size_t len = strlen(policy);
+    // Map ADHOC to adhoc_bf (BATCHES is used as-is)
+    // Note: ADHOC_BF is already rejected by ARG_OPT_ALLOWED_VALUES
+    if (strcasecmp(policy, "ADHOC") == 0) {
+        attrValue = VECSIM_POLICY_ADHOC_BF;
+        len = strlen(VECSIM_POLICY_ADHOC_BF);
+    }
+    // else: BATCHES is used as-is (no mapping needed)
+
+    QueryAttribute attr = {
+        .name = VECSIM_HYBRID_POLICY,
+        .namelen = strlen(VECSIM_HYBRID_POLICY),
+        .value = rm_strdup(attrValue),
+        .vallen = len
+    };
+    pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
+}
+
+// BATCH_SIZE callback for FILTER clause - handles attribute creation
+void handleFilterBatchSize(ArgParser *parser, const void *value, void *user_data) {
+    ParsedVectorData *pvd = (ParsedVectorData*)user_data;
+    const char *batchSize = *(const char**)value;
+
+    QueryAttribute attr = {
+        .name = VECSIM_BATCH_SIZE,
+        .namelen = strlen(VECSIM_BATCH_SIZE),
+        .value = rm_strdup(batchSize),
+        .vallen = strlen(batchSize)
+    };
+    pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
 }
 
 // TIMEOUT callback - implements EXACT original logic from handleTimeout

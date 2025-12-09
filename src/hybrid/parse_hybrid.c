@@ -31,6 +31,8 @@
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/parse/hybrid_optional_args.h"
+#include "hybrid/parse/hybrid_callbacks.h"
+#include "util/arg_parser.h"
 
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
@@ -262,71 +264,56 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
   return REDISMODULE_OK;
 }
 
-static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, QueryError *status) {
-  // VSIM @vectorfield vector [KNN/RANGE ...] FILTER "<filter>" [POLICY <value>] [BATCH_SIZE <value>]
+static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, QueryError *status, unsigned long long count) {
+  // VSIM @vectorfield vector [KNN/RANGE ...] [FILTER <count> "filter-expression" [POLICY ADHOC/BATCHES] [BATCH_SIZE batch-size-value]]
   //                                                 ^
-  vreq->query = AC_GetStringNC(ac, NULL);
 
-  bool hasPolicy = false;
-  bool hasBatchSize = false;
-
-  // Parse optional POLICY and BATCH_SIZE in any order
-  while (!AC_IsAtEnd(ac)) {
-    if (AC_AdvanceIfMatch(ac, "POLICY")) {
-      if (hasPolicy) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate POLICY argument");
-        return REDISMODULE_ERR;
-      }
-      if (CheckEnd(ac, "POLICY", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-
-      const char *value;
-      size_t len;
-      AC_GetString(ac, &value, &len, 0);
-
-      // Map "ADHOC" to the VecSim value "adhoc_bf"
-      if (strcasecmp(value, "ADHOC") == 0) {
-        value = VECSIM_POLICY_ADHOC_BF;
-        len = strlen(VECSIM_POLICY_ADHOC_BF);
-      } else if (strcasecmp(value, "ADHOC_BF") == 0) {
-        value = VECSIM_POLICY_INVALID;
-        len = strlen(VECSIM_POLICY_INVALID);
-      }
-
-      QueryAttribute attr = {
-        .name = VECSIM_HYBRID_POLICY,
-        .namelen = strlen(VECSIM_HYBRID_POLICY),
-        .value = rm_strdup(value),
-        .vallen = len
-      };
-      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
-      hasPolicy = true;
-
-    } else if (AC_AdvanceIfMatch(ac, "BATCH_SIZE")) {
-      if (hasBatchSize) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate BATCH_SIZE argument");
-        return REDISMODULE_ERR;
-      }
-      if (CheckEnd(ac, "BATCH_SIZE", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-
-      const char *value;
-      size_t len;
-      AC_GetString(ac, &value, &len, 0);
-
-      QueryAttribute attr = {
-        .name = VECSIM_BATCH_SIZE,
-        .namelen = strlen(VECSIM_BATCH_SIZE),
-        .value = rm_strdup(value),
-        .vallen = len
-      };
-      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
-      hasBatchSize = true;
-
-    } else {
-      // Unknown keyword - stop and let parent handle it
-      break;
-    }
+  ArgsCursor argCursor= {0};
+  int res = AC_GetSlice(ac, &argCursor, count);
+  if (res == AC_ERR_NOARG) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Not enough arguments", " in %s, specified %u but provided only %u", "FILTER", count, AC_NumRemaining(ac));
+    return false;
+  } else if (res != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Bad arguments", " in %s: %s", "FILTER", AC_Strerror(res));
+    return false;
   }
 
+  // Parse filter-expression (required, positional) - store in vreq->query directly
+  vreq->query = AC_GetStringNC(&argCursor, NULL);
+  if (!vreq->query) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing filter-expression for FILTER");
+    return REDISMODULE_ERR;
+  }
+
+  // Use ArgParser for optional POLICY and BATCH_SIZE
+  ArgParser *parser = ArgParser_New(&argCursor, "FILTER");
+  if (!parser) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to create argument parser for FILTER");
+    return REDISMODULE_ERR;
+  }
+
+  // Parse POLICY (optional, enum)
+  const char *policy = NULL;
+  static const char *allowedPolicies[] = {"ADHOC", "BATCHES", NULL};
+  ArgParser_AddStringV(parser, "POLICY", "Filter policy",
+                      &policy, ARG_OPT_OPTIONAL,
+                      ARG_OPT_ALLOWED_VALUES, allowedPolicies,
+                      ARG_OPT_CALLBACK, handleFilterPolicy, pvd,
+                      ARG_OPT_END);
+
+  // Parse BATCH_SIZE (optional)
+  const char *batchSize = NULL;
+  ArgParser_AddStringV(parser, "BATCH_SIZE", "Batch size",
+                      &batchSize, ARG_OPT_OPTIONAL,
+                      ARG_OPT_CALLBACK, handleFilterBatchSize, pvd,
+                      ARG_OPT_END);
+
+  ArgParseResult result = ArgParser_Parse(parser);
+  if (!result.success) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, ArgParser_GetErrorString(parser));
+  }
+
+  ArgParser_Free(parser);
   return REDISMODULE_OK;
 }
 
@@ -430,7 +417,19 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
 
   // Check for optional FILTER clause - argument may not be in our scope
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
-    if (parseFilterClause(ac, vreq, pvd, status) != REDISMODULE_OK) {
+    unsigned long long count = 0;
+    if (AC_IsAtEnd(ac)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument count for FILTER");
+      goto error;
+    }
+    if (AC_GetUnsignedLongLong(ac, &count, 0) != AC_OK) {
+      // it's a string, not a number
+      vreq->query = AC_GetStringNC(ac, NULL);
+      if (!vreq->query) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid filter-expression for FILTER");
+        goto error;
+      }
+    } else if (parseFilterClause(ac, vreq, pvd, status, count) != REDISMODULE_OK) {
       goto error;
     }
   }
