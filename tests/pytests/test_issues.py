@@ -1563,11 +1563,10 @@ def test_mod_12807(env:Env):
   env.expect('FT.DROPINDEX', 'idx').ok()
 
   # Verify there is still an idle cursor
-  env.assertEqual(env.cmd('INFO', 'MODULES')['search_global_total_user'], 1)
+  env.assertEqual(env.cmd('INFO', 'MODULES')['search_global_total'], 1)
 
   # Attempting to read from the cursor should return an error about unknown index, and delete the cursor
-  env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok() # To skip ACL checks (that will fail since the index is gone)
-  env.expect('_FT.CURSOR', 'READ', 'idx', cursor).error().equal('The index was dropped while the cursor was idle')
+  env.expect('FT.CURSOR', 'READ', 'idx', cursor).error().equal('The index was dropped while the cursor was idle')
 
   # Verify the idle cursor was deleted
-  env.assertEqual(env.cmd('INFO', 'MODULES')['search_global_total_user'], 0)
+  env.assertEqual(env.cmd('INFO', 'MODULES')['search_global_total'], 0)
