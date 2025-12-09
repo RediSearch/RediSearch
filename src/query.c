@@ -138,6 +138,7 @@ void QueryNode_Free(QueryNode *n) {
     case QN_UNION:
     case QN_NOT:
     case QN_OPTIONAL:
+    case QN_MAX:
     case QN_NULL:
     case QN_PHRASE:
       break;
@@ -1480,6 +1481,8 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return NewEmptyIterator();
     case QN_MISSING:
       return Query_EvalMissingNode(q, n);
+    case QN_MAX:
+      break;
   }
 
   return NULL;
@@ -1631,6 +1634,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion
       break;
     case QN_NULL:
     case QN_MISSING:
+    case QN_MAX:
       withChildren = 0;
       break;
   }
@@ -1722,6 +1726,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       break;
     case QN_NULL:
     case QN_MISSING:
+    case QN_MAX:
       withChildren = false;
       break;
     case QN_TAG:
@@ -1938,6 +1943,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = doPad(s, depth);
       s = sdscat(s, "}");
       break;
+
+    case QN_MAX:
+      RS_ABORT_ALWAYS("Invalid query node type QN_MAX");
 
     case QN_NUMERIC: {
       const NumericFilter *f = qs->nn.nf;

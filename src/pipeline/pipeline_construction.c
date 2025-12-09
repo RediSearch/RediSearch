@@ -145,7 +145,7 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
 // decided we need an arrange step.
 // This is always true for FT.AGGREGATE + WITHCOUNT, because the optimizer does
 // not run and the type is Q_OPT_UNDECIDED)
-static bool PipelineRequiresArrange(AggregationPipelineParams *params) {
+static bool PipelineRequiresArrange(const AggregationPipelineParams *params) {
   bool result = false;
   result = IsHybrid(&params->common) ||
           (params->common.optimizer->type != Q_OPT_NO_SORTER);

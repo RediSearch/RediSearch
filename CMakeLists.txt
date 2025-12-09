@@ -21,10 +21,15 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 function(setup_cc_options)
     message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
+    # Set C and C++ standards
+    set(CMAKE_C_STANDARD 23 PARENT_SCOPE)
+    set(CMAKE_C_STANDARD_REQUIRED ON PARENT_SCOPE)
+    set(CMAKE_CXX_STANDARD 20 PARENT_SCOPE)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON PARENT_SCOPE)
+
     # Common compiler flags
     set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
     set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
-    set(CMAKE_CXX_STANDARD 20)
     # Release/Debug/Profile specific flags
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
@@ -340,8 +345,6 @@ endif()
 set_target_properties(redisearch
     PROPERTIES
     LINKER_LANGUAGE CXX
-    C_STANDARD 17
-    C_STANDARD_REQUIRED ON
     POSITION_INDEPENDENT_CODE ON)
 setup_shared_object_target(redisearch "")
 target_link_libraries(redisearch

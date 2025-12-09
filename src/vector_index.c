@@ -306,20 +306,22 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
   }
   return NULL;
 }
-const char *VecSimSearchMode_ToString(VecSearchMode vecsimSearchMode) {
+const char *VecSimSearchMode_ToString(VecSimSearchMode vecsimSearchMode) {
     switch (vecsimSearchMode) {
-    case EMPTY_MODE:
+    case VECSIM_EMPTY_MODE:
         return "EMPTY_MODE";
-    case STANDARD_KNN:
+    case VECSIM_STANDARD_KNN:
         return "STANDARD_KNN";
-    case HYBRID_ADHOC_BF:
+    case VECSIM_HYBRID_ADHOC_BF:
         return "HYBRID_ADHOC_BF";
-    case HYBRID_BATCHES:
+    case VECSIM_HYBRID_BATCHES:
         return "HYBRID_BATCHES";
-    case HYBRID_BATCHES_TO_ADHOC_BF:
+    case VECSIM_HYBRID_BATCHES_TO_ADHOC_BF:
         return "HYBRID_BATCHES_TO_ADHOC_BF";
-    case RANGE_QUERY:
+    case VECSIM_RANGE_QUERY:
         return "RANGE_QUERY";
+    case VECSIM_LAST_SEARCHMODE:
+        break;
     }
     return NULL;
 }
@@ -725,17 +727,16 @@ VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField) {
         return svs_params.metric;
       } else {
         // Unknown primary algorithm in tiered index
-        char error_msg[256];
-        snprintf(error_msg, sizeof(error_msg), "Unknown primary algorithm in tiered index: %s",
+        RS_LOG_ASSERT_ALWAYS(false, "Unknown primary algorithm in tiered index: %s",
                  VecSimAlgorithm_ToString(primary_params->algo));
-        RS_ABORT(error_msg);
       }
       break;
     }
     case VecSimAlgo_BF:
       return algo_params.bfParams.metric;
-    default:
-      // Unknown algorithm type
-      RS_ABORT("Unknown algorithm in vector index");
-  }
+    case VecSimAlgo_HNSWLIB:
+    case VecSimAlgo_SVS:
+      break;
+    }
+  RS_ABORT_ALWAYS("Unknown algorithm in vector index");
 }

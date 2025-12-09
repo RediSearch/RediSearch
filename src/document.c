@@ -392,7 +392,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   if (FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
       bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
-      const char* str_param = is_normalized ? rm_strdup(c) : normalizeStr(c);
+      char* str_param = is_normalized ? rm_strdup(c) : normalizeStr(c);
       RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, str_param);
     } else if (field->multisv) {
       RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
@@ -671,6 +671,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       str_count = field->arrayLen;
       break;
     case FLD_VAR_T_BLOB_ARRAY:
+    case FLD_VAR_T_GEOMETRY:
     case FLD_VAR_T_NUM:
       RS_ABORT_ALWAYS("Unsupported field type for GEO index");
       break;
@@ -717,7 +718,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   if (str && FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
       bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
-      const char* str_param = is_normalized ? rm_strdup(str) : normalizeStr(str);
+      char* str_param = is_normalized ? rm_strdup(str) : normalizeStr(str);
       RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, str_param);
     } else if (field->multisv) {
       RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
@@ -735,7 +736,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
         size_t fl;
         const char *str = DocumentField_GetValueCStr(field, &fl);
         bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
-        const char* str_param = is_normalized ? rm_strdup(str) : normalizeStr(str);
+        char* str_param = is_normalized ? rm_strdup(str) : normalizeStr(str);
         RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, str_param);
       } else if (field->multisv) {
         RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
@@ -970,7 +971,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
         case INDEXFLD_T_GEO: {
           const char* str = RedisModule_StringPtrLen(f->text, NULL);
           bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
-          const char* str_param = is_normalized ? rm_strdup(str) : normalizeStr(str);
+          char* str_param = is_normalized ? rm_strdup(str) : normalizeStr(str);
           RSSortingVector_PutStr(md->sortVector, idx, str_param);
           break;
         }

@@ -199,6 +199,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
     case QN_WILDCARD:  // No SCORE
     case QN_NULL:
     case QN_MISSING:
+    case QN_MAX:       // Invalid type
       break;
   }
   return ret;

@@ -22,7 +22,9 @@
 #define STRING_BLOCK_SIZE 512
 #define FMT_OUT_STR_MIN_PREALLOC 8
 #define FMT_OUT_STR_MAX_PREALLOC (1024 * 1024)
+#ifndef MAX
 #define MAX(i, j) (((i) > (j)) ? (i) : (j))
+#endif
 
 static int func_matchedTerms(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   int maxTerms = 100;

@@ -74,7 +74,7 @@ void RSSortingVector_PutNum(RSSortingVector *vec, size_t idx, double num) {
   vec->values[idx] = RSValue_NewNumber(num);
 }
 
-void RSSortingVector_PutStr(RSSortingVector* vec, size_t idx, const char* str) {
+void RSSortingVector_PutStr(RSSortingVector* vec, size_t idx, char* str) {
   RSPUT_SANITY_CHECK
   vec->values[idx] = RSValue_NewString(str, strlen(str));
 }

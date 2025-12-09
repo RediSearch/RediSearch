@@ -9,6 +9,7 @@
 
 #include "obfuscation_api.h"
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 #include "query_node.h"
 
@@ -99,5 +100,8 @@ const char *Obfuscate_QueryNode(struct RSQueryNode *node) {
       return "Missing";
     case QN_WILDCARD_QUERY:
       return "WildcardQuery";
+    case QN_MAX:
+      break;
   }
+  RS_ABORT_ALWAYS("Unknown QueryNode type");
 }

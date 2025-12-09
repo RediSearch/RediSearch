@@ -91,8 +91,9 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     if (defaultDialect < MIN_HYBRID_DIALECT) {
         defaultDialect = MIN_HYBRID_DIALECT;
     }
+    int dialectVersionTemp = (int)ctx->reqConfig->dialectVersion;
     ArgParser_AddIntV(parser, "DIALECT", "Query dialect version",
-                      &ctx->reqConfig->dialectVersion, 1, 1,
+                      &dialectVersionTemp, 1, 1,
                       ARG_OPT_RANGE, (long long)MIN_DIALECT_VERSION, (long long)MAX_DIALECT_VERSION,
                       ARG_OPT_DEFAULT_INT, defaultDialect,
                       ARG_OPT_CALLBACK, handleDialect, ctx,
@@ -206,6 +207,9 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     }
 
     ArgParser_Free(parser);
+
+    // Update dialectVersion from temp variable
+    ctx->reqConfig->dialectVersion = (unsigned int)dialectVersionTemp;
 
     if ((*(ctx->reqFlags) & QEXEC_F_SEND_SCOREEXPLAIN)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "EXPLAINSCORE is not yet supported by FT.HYBRID");
