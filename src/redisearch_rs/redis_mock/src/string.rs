@@ -103,3 +103,18 @@ pub(crate) const unsafe extern "C" fn RedisModule_TrimStringAllocation(
 ) {
     // no-op we do not need to trim in tests.
 }
+
+/// Mock implementation of RedisModule_HoldString from redismodule.h for testing purposes.
+///
+/// Safety:
+/// 1. s must be a valid pointer to a RedisModuleString created by this mock
+#[allow(non_snake_case)]
+pub(crate) unsafe extern "C" fn RedisModule_HoldString(
+    _ctx: *mut redis_module::raw::RedisModuleCtx,
+    s: *mut redis_module::raw::RedisModuleString,
+) -> *mut redis_module::raw::RedisModuleString {
+    // Safety: we know we're using UserString here (1)
+    let s = unsafe { &*(s.cast::<UserString>()) };
+    let val = Box::new(*s);
+    Box::into_raw(val).cast()
+}
