@@ -727,8 +727,8 @@ VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField) {
         return svs_params.metric;
       } else {
         // Unknown primary algorithm in tiered index
-        RS_LOG_ASSERT_ALWAYS(false, "Unknown primary algorithm in tiered index: %s",
-                 VecSimAlgorithm_ToString(primary_params->algo));
+        RS_LOG_ASSERT_FMT_ALWAYS(false, "Unknown primary algorithm in tiered index: %s",
+                                        VecSimAlgorithm_ToString(primary_params->algo));
       }
       break;
     }
