@@ -255,6 +255,7 @@ include_directories(
     ${root}/src/ttl_table
     ${root}/src/spec
     ${root}/src/doc_table
+    ${root}/src/info/index_error
     ${root}/src/obfuscation
     ${BOOST_DIR}
     ${root})
@@ -289,6 +290,7 @@ add_subdirectory(src/redisearch_rs)
 add_subdirectory(src/ttl_table)
 add_subdirectory(src/spec)
 add_subdirectory(src/doc_table)
+add_subdirectory(src/info/index_error)
 add_subdirectory(src/obfuscation)
 
 #----------------------------------------------------------------------------------------------
@@ -345,6 +347,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:ttl_table>
     $<TARGET_OBJECTS:spec>
     $<TARGET_OBJECTS:doc_table>
+    $<TARGET_OBJECTS:index_error>
     $<TARGET_OBJECTS:obfuscation>
 )
 
@@ -403,6 +406,7 @@ target_link_libraries(redisearch
         ttl_table
         spec
         doc_table
+        index_error
         obfuscation
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
