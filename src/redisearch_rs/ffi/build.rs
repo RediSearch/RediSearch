@@ -41,6 +41,7 @@ fn main() {
         let buffer = src.join("buffer");
         let ttl_table = src.join("ttl_table");
         let spec = src.join("spec");
+        let doc_table = src.join("doc_table");
 
         [
             redis_modules,
@@ -52,6 +53,7 @@ fn main() {
             buffer,
             ttl_table,
             spec,
+            doc_table,
         ]
     };
 
@@ -62,7 +64,7 @@ fn main() {
             .join("redismodule.h"),
         src.join("buffer/buffer.h"),
         src.join("config.h"),
-        src.join("doc_table.h"),
+        src.join("doc_table").join("doc_table.h"),
         src.join("index_result").join("index_result.h"),
         src.join("numeric_index.h"),
         src.join("obfuscation").join("hidden.h"),
