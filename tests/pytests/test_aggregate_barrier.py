@@ -99,7 +99,7 @@ def _test_barrier_waits_for_delayed_shard(protocol):
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', protocol=protocol)
     num_docs = 3000 * env.shardsCount
     setup_index_with_data(env, num_docs)
-
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
 
     # First verify baseline without pausing
@@ -322,6 +322,7 @@ def _test_barrier_all_shards_delayed_then_resume(protocol):
     shards respond at roughly the same time.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', protocol=protocol)
+    enable_unstable_features(env)
     num_docs = 100 * env.shardsCount
     setup_index_with_data(env, num_docs)
 

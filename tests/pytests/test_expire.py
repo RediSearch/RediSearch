@@ -253,8 +253,9 @@ def test_expire_aggregate(env):
     # The result count is not accurate in aggregation, because WITHOUTCOUNT is the default
     env.assertEqual(res, [1, ['t', 'arr'], ['t', 'bar']])
     # Test using WITHCOUNT
-    res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@t')
-    env.assertEqual(res, [2, ['t', 'arr'], ['t', 'bar']])
+    with unstable_features(env):
+        res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@t')
+        env.assertEqual(res, [2, ['t', 'arr'], ['t', 'bar']])
 
 
 
