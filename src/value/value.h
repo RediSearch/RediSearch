@@ -118,6 +118,8 @@ typedef struct RSValue {
   RSValueType _t : 7;
   uint8_t _allocated : 1;
   uint16_t _refcount;
+  uint64_t _padding1;
+  uint64_t _padding2;
 
 #ifdef __cplusplus
   RSValue() {
