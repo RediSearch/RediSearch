@@ -278,6 +278,7 @@ void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_i
   RedisModule_InfoAddSection(ctx, "multi_threading");
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
   RedisModule_InfoAddFieldULongLong(ctx, "active_io_threads", stats.active_io_threads);
+  RedisModule_InfoAddFieldULongLong(ctx, "active_topology_update_threads", stats.active_topology_update_threads);
   RedisModule_InfoAddFieldULongLong(ctx, "active_worker_threads", stats.active_worker_threads);
   RedisModule_InfoAddFieldULongLong(ctx, "active_coord_threads", stats.active_coord_threads);
   RedisModule_InfoAddFieldULongLong(ctx, "workers_low_priority_pending_jobs", stats.workers_low_priority_pending_jobs);

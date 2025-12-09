@@ -179,10 +179,21 @@ void GlobalStats_UpdateActiveIoThreads(int toAdd) {
   INCR_BY(RSGlobalStats.totalStats.multi_threading.active_io_threads, toAdd);
 }
 
+void GlobalStats_UpdateActiveTopologyUpdateThreads(int toAdd) {
+#ifdef ENABLE_ASSERT
+  RS_LOG_ASSERT(toAdd != 0, "Attempt to change active_topology_update_threads by 0");
+  size_t current = READ(RSGlobalStats.totalStats.multi_threading.active_topology_update_threads);
+  RS_LOG_ASSERT_FMT(toAdd > 0 || current > 0,
+    "Cannot decrease active_topology_update_threads below 0. toAdd: %d, current: %zu", toAdd, current);
+#endif
+  INCR_BY(RSGlobalStats.totalStats.multi_threading.active_coord_threads, toAdd);
+}
+
 // Get multiThreadingStats
 MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   MultiThreadingStats stats;
   stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
+  stats.active_topology_update = READ(RSGlobalStats.totalStats.multi_threading.active_topology_update_threads);
 
   // Workers stats
   // We don't use workersThreadPool_getStats here to avoid the overhead of locking the thread pool.
