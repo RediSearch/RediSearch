@@ -17,6 +17,8 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
+      platform: 'ubuntu:noble'
+      architecture: 'x86_64'
       coverage: true
       get-redis: 'unstable'
       rejson-branch: master
