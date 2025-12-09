@@ -3513,13 +3513,13 @@ static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *curso
 static int RegisterCoordCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
   CommandKeys keys = clusterConfig.type == ClusterType_RedisLabs ? DEFINE_COMMAND_KEYS(3,1,-3) : DEFINE_COMMAND_KEYS(0,0,-1);
   SubCommand subcommands[] = {
-    {.name = "READ",    .fullName = "FT.CURSOR" "|READ",    .flags = "readonly",
+    {.name = "READ",    .fullName = "FT.CURSOR|READ",    .flags = "readonly",
      .handler = SafeCmd(CursorReadCommand),
      .setCommandInfo = SetFtCursorReadInfo, .position = keys},
-    {.name = "DEL",     .fullName = "FT.CURSOR" "|DEL",     .flags = "readonly",
+    {.name = "DEL",     .fullName = "FT.CURSOR|DEL",     .flags = "readonly",
      .handler = SafeCmd(CursorDelCommand),
      .setCommandInfo = SetFtCursorDelInfo, .position = keys},
-    {.name = "GC",      .fullName = "FT.CURSOR" "|GC",      .flags = "readonly",
+    {.name = "GC",      .fullName = "FT.CURSOR|GC",      .flags = "readonly",
      .handler = SafeCmd(CursorGCCommand),
      .setCommandInfo = NULL, .position = keys}
     };
