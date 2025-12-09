@@ -9,10 +9,6 @@
 
 #include <stdlib.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 typedef void (*MRQueueCallback)(void *);
 
 #ifndef RQ_C__
@@ -23,8 +19,4 @@ MRWorkQueue *RQ_New(int maxPending);
 void RQ_Done(MRWorkQueue *q);
 
 void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata);
-
-#ifdef __cplusplus
-}
-#endif
 #endif // RQ_C__

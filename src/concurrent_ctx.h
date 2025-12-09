@@ -13,10 +13,6 @@
 #include <time.h>
 #include "thpool/thpool.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #if defined(__FreeBSD__)
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
 #endif
@@ -214,7 +210,4 @@ static inline int CheckConcurrentSupport(RedisModuleCtx *ctx) {
   return 1;
 }
 
-#ifdef __cplusplus
-}
 #endif
-#endif // RS_CONCERRNT_CTX_

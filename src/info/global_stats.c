@@ -9,7 +9,6 @@
 #include "util/units.h"
 #include "rs_wall_clock.h"
 #include "util/workers.h"
-#include "concurrent_ctx.h"
 
 #define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
 #define INCR(x) INCR_BY(x, 1)
