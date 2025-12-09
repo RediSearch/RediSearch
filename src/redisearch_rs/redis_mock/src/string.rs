@@ -95,3 +95,11 @@ pub unsafe extern "C" fn RedisModule_Strdup(s: *const i8) -> *mut i8 {
         out
     }
 }
+
+/// Mock implementation of RedisModule_TrimStringAllocation from redismodule.h for testing purposes.
+#[allow(non_snake_case)]
+pub(crate) const unsafe extern "C" fn RedisModule_TrimStringAllocation(
+    _s: *mut redis_module::raw::RedisModuleString,
+) {
+    // no-op we do not need to trim in tests.
+}
