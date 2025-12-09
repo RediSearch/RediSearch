@@ -105,6 +105,7 @@ jobs:
                   "x86_64": {
                       'container': 'ubuntu:noble',
                       'setup_script': 'apt update && apt install -y git',
+                      'post_setup_script': 'echo CC=clang-20 >> $GITHUB_ENV; echo CXX=clang++-20 >> $GITHUB_ENV',
                       'name': 'Ubuntu Noble x86_64'
                   },
                   "aarch64": {
