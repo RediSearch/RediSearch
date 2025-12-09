@@ -1428,11 +1428,11 @@ class TestProfileDebugSAResp3(object):
 class ProfileDebugCluster:
     @staticmethod
     def createIndex(env):
-        skipTest(cluster=False)
+        # skipTest(cluster=False)
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
         run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
         conn = getConnectionByEnv(env)
-        for i in range(20):
+        for i in range(100):
             conn.execute_command('HSET', f'doc{i}', 't', f"hello{i}")
 
     @staticmethod
