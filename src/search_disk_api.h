@@ -103,7 +103,6 @@ typedef struct RedisSearchDiskAPI {
   DocTableDiskAPI docTable;
 } RedisSearchDiskAPI;
 
-#define RedisSearchDiskAPI_LATEST_API_VER 1
 #ifdef __cplusplus
 }
 #endif
