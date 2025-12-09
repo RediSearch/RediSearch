@@ -9,7 +9,7 @@
 
 #include "optional_iterator.h"
 #include "wildcard_iterator.h"
-#include "empty_iterator.h"
+#include "iterators_rs.h"
 
 static void OI_Free(QueryIterator *base) {
   OptionalIterator *oi = (OptionalIterator *)base;

@@ -10,7 +10,15 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Link the static libraries that contain our array functions
     #[cfg(feature = "unittest")]
-    build_utils::link_static_libraries(&[("src/util/arr", "arr")]);
+    {
+        build_utils::link_static_libraries(&[
+            ("src/util/arr", "arr"),
+            ("src/util/mempool", "mempool"),
+            ("src/index_result", "index_result"),
+            ("src/value", "value"),
+            ("src/iterators", "iterators"),
+        ]);
+    }
 
     Ok(())
 }

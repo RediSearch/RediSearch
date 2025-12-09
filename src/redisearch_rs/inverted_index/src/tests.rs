@@ -948,7 +948,7 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> IndexReader<'index> for 
         unimplemented!("This test won't reset")
     }
 
-    fn unique_docs(&self) -> u32 {
+    fn unique_docs(&self) -> u64 {
         unimplemented!("This test won't count unique docs")
     }
 

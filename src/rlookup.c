@@ -352,7 +352,7 @@ void RLookupRow_Reset(RLookupRow *r) {
   }
 }
 
-void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
+void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
   for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
     RSValue *vv = RLookup_GetItem(kk, src);
     if (vv) {
@@ -816,64 +816,22 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
 
 static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
-  RedisModuleCallReply *rep = NULL;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisModuleString *krstr =
       RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
-  // We can only use the scan API from Redis version 6.0.6 and above
-  // and when the deployment is not enterprise-crdt
-  if(!isFeatureSupported(RM_SCAN_KEY_API_FIX) || isCrdt){
-    rep = RedisModule_Call(ctx, "HGETALL", "s!", krstr);
-    if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
-      goto done;
-    }
 
-    size_t len = RedisModule_CallReplyLength(rep);
-    // Zero means the document does not exist in redis
-    if (len == 0) {
-      goto done;
-    }
-
-    for (size_t i = 0; i < len; i += 2) {
-      size_t klen = 0;
-      RedisModuleCallReply *repk = RedisModule_CallReplyArrayElement(rep, i);
-      RedisModuleCallReply *repv = RedisModule_CallReplyArrayElement(rep, i + 1);
-
-      const char *kstr = RedisModule_CallReplyStringPtr(repk, &klen);
-      RLookupKey *rlk = RLookup_FindKey(it, kstr, klen);
-      if (!rlk) {
-        // First returned document, create the key.
-        rlk = RLookup_GetKey_LoadEx(it, kstr, klen, kstr, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD);
-      } else if ((rlk->flags & RLOOKUP_F_QUERYSRC)
-                 /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/) {
-        continue; // Key name is already taken by a query key, or it's already loaded.
-      }
-      RLookupCoerceType ctype = RLOOKUP_C_STR;
-      if (!options->forceString && rlk->flags & RLOOKUP_T_NUMERIC) {
-        ctype = RLOOKUP_C_DBL;
-      }
-      RSValue *vptr = replyElemToValue(repv, ctype);
-      RLookup_WriteOwnKey(rlk, dst, vptr);
-    }
-  } else {
-    RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
-    if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
-      // key does not exist or is not a hash
-      if (key) {
-        RedisModule_CloseKey(key);
-      }
-      goto done;
-    }
-    RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
-    RLookup_HGETALL_privdata pd = {
-      .it = it,
-      .dst = dst,
-      .options = options,
-    };
-    while(RedisModule_ScanKey(key, cursor, RLookup_HGETALL_scan_callback, &pd));
-    RedisModule_ScanCursorDestroy(cursor);
-    RedisModule_CloseKey(key);
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
+  if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
+    goto done;
   }
+  RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
+  RLookup_HGETALL_privdata pd = {
+    .it = it,
+    .dst = dst,
+    .options = options,
+  };
+  while(RedisModule_ScanKey(key, cursor, RLookup_HGETALL_scan_callback, &pd));
+  RedisModule_ScanCursorDestroy(cursor);
 
   rc = REDISMODULE_OK;
 
@@ -881,8 +839,8 @@ done:
   if (krstr) {
     RedisModule_FreeString(ctx, krstr);
   }
-  if (rep) {
-    RedisModule_FreeCallReply(rep);
+  if (key) {
+    RedisModule_CloseKey(key);
   }
   return rc;
 }

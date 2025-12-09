@@ -119,7 +119,7 @@ static inline array_t array_grow(array_t arr, size_t n) {
   } else {
     hdr->remain_cap -= n;
   }
-  
+
   return (array_t)hdr->buf;
 }
 
@@ -295,7 +295,7 @@ static inline void *array_trimm(array_t arr, uint32_t new_len) {
   ({                                                                              \
     RS_ASSERT(array_len(arr) > ix);                                               \
     if (array_len(arr) - 1 > ix) {                                                \
-      memcpy(arr + ix, arr + ix + 1, sizeof(*arr) * (array_len(arr) - (ix + 1))); \
+      memmove(arr + ix, arr + ix + 1, sizeof(*arr) * (array_len(arr) - (ix + 1)));\
     }                                                                             \
     ++array_hdr(arr)->remain_cap;                                                 \
     --array_hdr(arr)->len;                                                        \

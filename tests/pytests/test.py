@@ -4299,17 +4299,17 @@ def test_cluster_set_multiple_slots(env: Env):
             *set_ranges
     ).ok()
 
-    # SEARCH.CLUSTERSET does not support multiple slot ranges per shard
+    # SEARCH.CLUSTERSET supports multiple slot ranges per shard
     generic_shard = [
-        'slots', ANY,
+        'slots', [ANY] * 2 * ranges_per_shard, # flat of slot ranges list
         'id', ANY,
         'host', '127.0.0.1',
         'port', ANY,
     ]
     expected = [
-        'num_partitions', len(ranges),              # Number of slot ranges, not the number of shards!
+        'num_partitions', env.shardsCount,              # Number of shards, not necessarily the number of slots ranges
         'cluster_type', 'redis_oss',
-        'shards', [generic_shard] * len(ranges)     # one entry per range
+        'shards', [generic_shard] * env.shardsCount     # one entry per shard
     ]
     env.expect('SEARCH.CLUSTERINFO').equal(expected)
 
@@ -4339,7 +4339,7 @@ def test_cluster_set_errors(env: Env):
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
                'SHARD').error().contains('Missing value for SHARD')
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
-               'SHARD', '1').error().contains('Expected `SLOTRANGE` but got `(nil)`')
+               'SHARD', '1').error().contains('MYID `1` does not correspond to any shard')
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
                'SHARD', '1', 'SLOTRANGE').error().contains('Missing value for SLOTRANGE')
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
@@ -4349,9 +4349,9 @@ def test_cluster_set_errors(env: Env):
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
                'SHARD', '1', 'SLOTRANGE', '1', '0').error().contains('Bad values for SLOTRANGE: 1, 0')
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
-               'SHARD', '1', 'SLOTRANGE', '0', '1000000').error().contains('Bad values for SLOTRANGE: 0, 1000000')
+               'SHARD', '1', 'SLOTRANGE', '0', '1000000').error().contains('Bad value for SLOTRANGE end: 1000000')
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
-               'SHARD', '1', 'SLOTRANGE', '0', '1').error().contains('Expected `ADDR` but got `(nil)`')
+               'SHARD', '1', 'SLOTRANGE', '0', '1', 'MASTER').error().contains('Missing value for ADDR')
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
                'SHARD', '1', 'SLOTRANGE', '0', '1', 'ADDR').error().contains('Missing value for ADDR')
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',

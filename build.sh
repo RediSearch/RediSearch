@@ -188,7 +188,12 @@ setup_build_environment() {
       if [[ "$DEBUG" == "1" || -n "$SAN" || "$COV" == "1" ]]; then
         RUST_PROFILE="dev"
       else
-        RUST_PROFILE="optimised_test"
+        if [[ "$RUN_MICRO_BENCHMARKS" == "1" ]]; then
+            RUST_PROFILE="profiling"
+        else
+            RUST_PROFILE="optimised_test"
+        fi
+
       fi
     else
       if [[ "$DEBUG" == "1" ]]; then
@@ -560,10 +565,8 @@ run_rust_tests() {
     export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
   fi
 
-  # Pin a specific working version of nightly to prevent breaking the CI because
-  # regressions in a nightly build.
-  # Make sure to synchronize updates across all modules: Redis and RedisJSON.
-  NIGHTLY_VERSION="nightly-2025-07-30"
+  # Retrieve our pinned nightly version.
+  NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
 
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
@@ -574,6 +577,7 @@ run_rust_tests() {
     # On one side, we aren't interested in coverage of those utilities.
     # On top of that, it causes linking issues since, when computing coverage, it seems to
     # require C symbols to be defined even if they aren't invoked at runtime.
+    echo "Using nightly version: ${NIGHTLY_VERSION}"
     RUST_TEST_OPTIONS="
       --doctests
       $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C
@@ -584,7 +588,7 @@ run_rust_tests() {
   elif [[ -n "$SAN" || "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
     RUST_EXTENSIONS="+$NIGHTLY_VERSION miri"
   fi
-  
+
   if [[ $OS_NAME != "macos" ]]; then
   # Needs the C code to link on gcov
     export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} } -C link-args=-lgcov"

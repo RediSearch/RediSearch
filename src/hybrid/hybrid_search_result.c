@@ -114,7 +114,7 @@ static void mergeRLookupRowsFromSourcesIntoTarget(HybridSearchResult *hybridResu
       RS_ASSERT(sourceResult);
 
       // move fields from source row to destination row
-      RLookupRow_Move(lookupCtx->tailLookup, SearchResult_GetRowDataMut(sourceResult), SearchResult_GetRowDataMut(targetResult));
+      RLookupRow_MoveFieldsFrom(lookupCtx->tailLookup, SearchResult_GetRowDataMut(sourceResult), SearchResult_GetRowDataMut(targetResult));
     }
   }
 }
