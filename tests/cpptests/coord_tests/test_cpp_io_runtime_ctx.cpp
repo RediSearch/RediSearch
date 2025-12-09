@@ -269,7 +269,7 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
 
   // Slow topo callback - signals start, waits for finish signal
   auto slowTopoCallback = [](void *privdata) {
-    (void)privdata; // unused - we don't need to handle the topology, just hold the callback
+    auto *ctx = (struct UpdateTopologyCtx *)privdata;
 
     topo_started.store(true);
 
@@ -277,6 +277,12 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
     while (!topo_should_finish.load()) {
       usleep(100);
     }
+
+    // Must free ctx and its topology (callback owns privdata)
+    if (ctx->new_topo) {
+      MRClusterTopology_Free(ctx->new_topo);
+    }
+    rm_free(ctx);
   };
 
   // Start the IO runtime thread (required for uv loop to process async events)
