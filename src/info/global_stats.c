@@ -193,7 +193,7 @@ void GlobalStats_UpdateActiveTopologyUpdateThreads(int toAdd) {
 MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   MultiThreadingStats stats;
   stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
-  stats.active_topology_update = READ(RSGlobalStats.totalStats.multi_threading.active_topology_update_threads);
+  stats.active_topology_update_threads = READ(RSGlobalStats.totalStats.multi_threading.active_topology_update_threads);
 
   // Workers stats
   // We don't use workersThreadPool_getStats here to avoid the overhead of locking the thread pool.
