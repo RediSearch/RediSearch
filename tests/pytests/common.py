@@ -10,6 +10,7 @@ from functools import wraps
 import signal
 import platform
 import itertools
+import threading
 from redis.client import NEVER_DECODE
 from redis import exceptions as redis_exceptions
 import RLTest
@@ -342,6 +343,17 @@ def run_command_on_all_shards(env, *args):
 
 def config_cmd():
     return '_ft.config' if COORD else 'ft.config'
+
+def call_and_store(fn, args, out_list):
+    """
+    Helper function for threading: calls a function and stores its return value in a list.
+
+    Args:
+        fn: Function to call
+        args: Tuple of arguments to pass to the function
+        out_list: List to append the function's return value to
+    """
+    out_list.append(fn(*args))
 
 def verify_command_OK_on_all_shards(env, *args):
     res = run_command_on_all_shards(env, *args)
@@ -856,7 +868,7 @@ class vecsimMockTimeoutContext:
 
     def __exit__(self, exc_type, exc_value, traceback):
         run_command_on_all_shards(self.env, debug_cmd(), 'VECSIM_MOCK_TIMEOUT', 'disable')
-        
+
 def waitForIndexFinishScan(env, idx = 'idx'):
     with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
         while index_info(env, idx)['percent_indexed'] not in (1, '1'):
