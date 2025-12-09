@@ -19,6 +19,7 @@ pub mod allocator;
 pub mod call;
 pub mod globals;
 pub mod key;
+pub mod log;
 pub mod scan_key_cursor;
 pub mod string;
 
@@ -26,6 +27,7 @@ use std::ffi::CString;
 
 use call::*;
 use key::*;
+use log::*;
 use redis_module::KeyType;
 use scan_key_cursor::*;
 use string::*;
@@ -168,6 +170,22 @@ pub fn init_redis_module_mock() {
     // In that case a call function that dispatches to different implementations based on the cmdname
     // would be more appropriate.
     unsafe { redis_module::raw::RedisModule_Call = Some(new_ftor) }
+
+    // Register log function.
+    // We have to use the same type of transmute as above because of the variadic arguments.
+    let raw_ptr = RedisModule_Log as *const ();
+    let new_log = unsafe {
+        std::mem::transmute::<
+            *const (),
+            unsafe extern "C" fn(
+                *mut redis_module::RedisModuleCtx,
+                *const ::std::os::raw::c_char,
+                *const ::std::os::raw::c_char,
+                ...
+            ),
+        >(raw_ptr)
+    };
+    unsafe { redis_module::raw::RedisModule_Log = Some(new_log) };
 }
 
 #[macro_export]
