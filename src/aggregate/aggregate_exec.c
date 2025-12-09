@@ -1287,10 +1287,8 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
-      QueryError_SetError(&status, QUERY_ENOINDEX, "The index was dropped while the cursor was idle");
-      // QueryError_ReplyAndClear(reply->ctx, &status);
-      RedisModule_Reply_Error(reply, QueryError_GetError(&status));
-      QueryError_ClearError(&status);
+      Cursor_Free(cursor); // Free the cursor since it is no longer valid
+      RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
       return;
     }
   }
@@ -1383,6 +1381,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     AREQ *req = cursor->execState;
     if (!IsProfile(req)) {
+      Cursor_Pause(cursor); // Pause the cursor again since we are not going to use it, but it's still valid.
       RedisModule_ReplyWithErrorFormat(ctx, "cursor request is not profile, id: %d", cid);
       RedisModule_EndReply(reply);
       return REDISMODULE_OK;
