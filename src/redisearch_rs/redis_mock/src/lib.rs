@@ -115,6 +115,7 @@ pub fn init_redis_module_mock() {
     unsafe {
         redis_module::raw::RedisModule_TrimStringAllocation = Some(RedisModule_TrimStringAllocation)
     };
+    unsafe { redis_module::raw::RedisModule_HoldString = Some(RedisModule_HoldString) };
 
     // register key methods
     unsafe { redis_module::raw::RedisModule_OpenKey = Some(RedisModule_OpenKey) };
