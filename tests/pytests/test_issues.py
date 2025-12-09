@@ -1690,3 +1690,25 @@ def test_mod_11658_avoid_deadlock_while_reducing_num_workers():
     env.assertTrue(final_search[0] > 0, message="Search should return results at end of test")
 
     check_threads(env, 0, 0)
+
+@skip(cluster=True)
+def test_mod_12807(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('HSET', 'doc1', 't', 'foo bar baz').equal(1)
+  env.expect('HSET', 'doc2', 't', 'foo baz').equal(1)
+
+  # Search with a term that exists in both documents
+  _, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:foo', 'WITHCURSOR', 'COUNT', '1')
+  env.assertNotEqual(cursor, 0, message='Expected a non-zero cursor for multiple results')
+
+  # Drop the index, then try to read from the cursor
+  env.expect('FT.DROPINDEX', 'idx').ok()
+
+  # Verify there is still an idle cursor
+  env.assertEqual(env.cmd('INFO', 'MODULES')['search_global_total'], 1)
+
+  # Attempting to read from the cursor should return an error about unknown index, and delete the cursor
+  env.expect('FT.CURSOR', 'READ', 'idx', cursor).error().equal('The index was dropped while the cursor was idle')
+
+  # Verify the idle cursor was deleted
+  env.assertEqual(env.cmd('INFO', 'MODULES')['search_global_total'], 0)
