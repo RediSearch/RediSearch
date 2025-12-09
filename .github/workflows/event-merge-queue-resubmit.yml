@@ -121,8 +121,8 @@ jobs:
           payload: |
             {
               "PR": "${{ steps.check.outputs.pr_url }}",
-              "Title": "${{ steps.check.outputs.pr_title }}",
-              "Author": "${{ steps.check.outputs.pr_author }}",
+              "Title": "${{ toJson(steps.check.outputs.pr_title) }}",
+              "Author": "${{ toJson(steps.check.outputs.pr_author) }}",
               "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
 
