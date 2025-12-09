@@ -1446,6 +1446,8 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       // Notify the client that the query was aborted.
       RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
     } else {
+      QueryError status = {0};
+      req->qiter.err = &status;
       sendChunk_ReplyOnly_EmptyResults(reply, req);
       IndexSpecRef_Release(execution_ref);
     }
