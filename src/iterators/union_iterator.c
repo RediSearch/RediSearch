@@ -12,6 +12,7 @@
 #include "iterators_rs.h"
 
 static inline int cmpLastDocId(const void *e1, const void *e2, const void *udata) {
+  (void)udata;
   const QueryIterator *it1 = e1, *it2 = e2;
   if (it1->lastDocId < it2->lastDocId)
     return 1;
@@ -23,7 +24,7 @@ static inline int cmpLastDocId(const void *e1, const void *e2, const void *udata
 static inline void resetMinIdHeap(UnionIterator *ui) {
   heap_t *hp = ui->heap_min_id;
   heap_clear(hp);
-  for (int i = 0; i < ui->num_orig; i++) {
+  for (uint32_t i = 0; i < ui->num_orig; i++) {
     if (!ui->its_orig[i]->atEOF) {
       heap_offerx(hp, ui->its_orig[i]);
     }
@@ -86,7 +87,7 @@ static void UI_Rewind(QueryIterator *base) {
 // Collect all children whose current result is `ui->base.lastDocId`.
 // Assumes that ui->base.current is already reset
 static inline void UI_SetFullFlat(UnionIterator *ui) {
-  for (int i = 0; i < ui->num; i++) {
+  for (uint32_t i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
     if (cur->lastDocId == ui->base.lastDocId) {
       UI_AddChild(ui, cur);
@@ -110,7 +111,7 @@ static inline IteratorStatus UI_Skip_Full_Flat(QueryIterator *base, const t_docI
   }
   t_docId minId = DOCID_MAX;
   IndexResult_ResetAggregate(ui->base.current);
-  for (int i = 0; i < ui->num; i++) {
+  for (uint32_t i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
     if (cur->lastDocId < nextId) {
       IteratorStatus rc = cur->SkipTo(cur, nextId);
@@ -158,7 +159,7 @@ static inline IteratorStatus UI_Read_Full_Flat(QueryIterator *base) {
   const t_docId lastId = ui->base.lastDocId;
   t_docId minId = DOCID_MAX;
   IndexResult_ResetAggregate(ui->base.current);
-  for (int i = 0; i < ui->num; i++) {
+  for (uint32_t i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
     RS_LOG_ASSERT(cur->lastDocId >= lastId,
       "When reading in full mode, we should never have children behind the union last result");
@@ -200,7 +201,7 @@ static inline IteratorStatus UI_Skip_Quick_Flat(QueryIterator *base, const t_doc
   // TODO: performance improvement?
   // We can avoid performing any `SkipTo` call if we first scan an check if we already have a child
   // that matches the required ID.
-  for (int i = 0; i < ui->num; i++) {
+  for (uint32_t i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
     IteratorStatus rc;
     if (cur->lastDocId < nextId) {
@@ -371,7 +372,7 @@ static void UI_Free(QueryIterator *base) {
   if (base == NULL) return;
 
   UnionIterator *ui = (UnionIterator *)base;
-  for (int i = 0; i < ui->num_orig; i++) {
+  for (uint32_t i = 0; i < ui->num_orig; i++) {
     QueryIterator *it = ui->its_orig[i];
     if (it) {
       it->Free(it);
@@ -472,7 +473,7 @@ static ValidateStatus UI_Revalidate(QueryIterator *base) {
   IndexResult_ResetAggregate(ui->base.current);
   // Find the minimum docId among active children to update current result
   t_docId minId = DOCID_MAX;
-  for (int i = 0; i < ui->num; i++) {
+  for (uint32_t i = 0; i < ui->num; i++) {
     if (ui->its[i]->lastDocId < minId) {
       minId = ui->its[i]->lastDocId;
     }

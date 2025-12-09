@@ -27,7 +27,7 @@ static int mempoolDisable_g = -1;
 struct {
   mempool_t **pools;
   size_t numPools;
-} globalPools_g = {NULL};
+} globalPools_g = {NULL, 0};
 pthread_mutex_t globalPools_lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
 
 static void mempool_append_to_global_pools(mempool_t *p) {

@@ -50,7 +50,7 @@ void CmdArg_Print(CmdArg *n, int depth) {
       break;
     case CmdArg_Array:
       printf("[");
-      for (int i = 0; i < n->a.len; i++) {
+      for (size_t i = 0; i < n->a.len; i++) {
         CmdArg_Print(n->a.args[i], 0);
         if (i < n->a.len - 1) printf(",");
       }
@@ -58,7 +58,7 @@ void CmdArg_Print(CmdArg *n, int depth) {
       break;
     case CmdArg_Object:
       printf("{\n");
-      for (int i = 0; i < n->a.len; i++) {
+      for (size_t i = 0; i < n->a.len; i++) {
         pad(depth + 2);
         printf("%s: =>", n->obj.entries[i].k);
         CmdArg_Print(n->obj.entries[i].v, depth + 2);
@@ -354,13 +354,13 @@ void CmdSchemaElement_Print(const char *name, CmdSchemaElement *e) {
       printf("{%s:%s}", e->arg.name ? e->arg.name : name, typeString(e->arg.type));
       break;
     case CmdSchemaElement_Tuple: {
-      for (int i = 0; i < strlen(e->tup.fmt); i++) {
+      for (size_t i = 0; i < strlen(e->tup.fmt); i++) {
         printf("{%s:%s} ", e->tup.names ? e->tup.names[i] : "arg", typeString(e->tup.fmt[i]));
       }
       break;
     }
     case CmdSchemaElement_Variadic: {
-      for (int i = 0; i < strlen(e->var.fmt); i++) {
+      for (size_t i = 0; i < strlen(e->var.fmt); i++) {
         printf("{%s} ", typeString(e->var.fmt[i]));
       }
       printf("...");
@@ -570,7 +570,7 @@ int CmdArg_ParseInt(CmdArg *arg, int64_t *i) {
 
 #define CMDPARSE_CHECK_POS(pos, argc, err, msg)            \
   {                                                        \
-    if (pos >= argc) {                                     \
+    if ((int)(pos) >= argc) {                              \
       *err = strdup(msg ? msg : "Insufficient Arguments"); \
       return CMDPARSE_ERR;                                 \
     }                                                      \
@@ -624,7 +624,7 @@ static int parseVector(CmdSchemaVector *vec, CmdArg **current, CmdString *argv, 
 
   CmdArg *t = NewCmdArray(vlen);
 
-  for (size_t i = 0; i < vlen; i++) {
+  for (size_t i = 0; (long long)i < vlen; i++) {
     CmdArg *n;
     if (CMDPARSE_ERR == typedParse(&n, &argv[*pos], vec->type, err)) {
       CmdArg_Free(t);
@@ -670,6 +670,7 @@ static int parseVariadicVector(CmdSchemaVariadic *var, CmdArg **current, CmdStri
 
 static int processFlag(int flagVal, CmdArg **current, CmdString *argv, int argc, int *pos,
                        char **err) {
+  (void)argv;
   CMDPARSE_CHECK_POS(*pos, argc, err, NULL);
   (*pos)++;
   *current = NewCmdFlag(flagVal);
@@ -679,6 +680,7 @@ static int processFlag(int flagVal, CmdArg **current, CmdString *argv, int argc,
 
 static int processOption(CmdSchemaOption *opt, CmdArg **current, CmdString *argv, int argc,
                          int *pos, char **err) {
+  (void)opt;
   CMDPARSE_CHECK_POS(*pos, argc, err, NULL);
 
   *current = NewCmdString(argv[*pos].str, argv[*pos].len);

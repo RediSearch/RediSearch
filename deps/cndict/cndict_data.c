@@ -18798,6 +18798,7 @@ const size_t ChineseDictCompressedLength = 750852;
 const size_t ChineseDictFullLength = 1926314;
 
 void ChineseDictConfigure(friso_t friso, friso_config_t frisoConfig) {
+(void)friso;
 frisoConfig->max_len = 5;
 frisoConfig->r_name = 1;
 frisoConfig->mix_len = 2;

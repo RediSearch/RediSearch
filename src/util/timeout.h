@@ -89,7 +89,7 @@ static inline int TimedOut(const struct timespec *timeout) {
 static inline int TimedOut_WithCounter(const struct timespec *timeout, uint32_t *counter) {
   if (RS_IsMock) return 0;
 
-  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == TIMEOUT_COUNTER_LIMIT) {
+  if (*counter != (uint32_t)REDISEARCH_UNINITIALIZED && ++(*counter) == (uint32_t)TIMEOUT_COUNTER_LIMIT) {
     *counter = 0;
     return TimedOut(timeout);
   }
@@ -100,7 +100,7 @@ static inline int TimedOut_WithCounter(const struct timespec *timeout, uint32_t 
 static inline int TimedOut_WithCounter_Gran(const struct timespec *timeout, uint32_t *counter, uint32_t gran) {
   if (RS_IsMock) return 0;
 
-  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == gran) {
+  if (*counter != (uint32_t)REDISEARCH_UNINITIALIZED && ++(*counter) == gran) {
     *counter = 0;
     return TimedOut(timeout);
   }

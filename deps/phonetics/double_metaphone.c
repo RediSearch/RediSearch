@@ -112,10 +112,6 @@ static int SlavoGermanic(metastring *s) {
     return 0;
 }
 
-static int GetLength(metastring *s) {
-  return s->length;
-}
-
 static char GetAt(metastring *s, int pos) {
   if ((pos < 0) || (pos >= s->length)) return '\0';
 

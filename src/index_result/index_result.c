@@ -105,7 +105,7 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   }
 
   RSOffsetIterator v1, v2;
-  int i = 0;
+  size_t i = 0;
   while (i < num) {
     // if either
     while (i < num && !RSIndexResult_HasOffsets(AggregateResult_GetUnchecked(agg, i))) {
@@ -229,7 +229,7 @@ int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *position
 }
 
 static inline uint32_t _arrayMin(uint32_t *arr, int len, uint32_t *pos) {
-  int m = arr[0];
+  uint32_t m = arr[0];
   *pos = 0;
   for (int i = 1; i < len; i++) {
     if (arr[i] < m) {
@@ -241,7 +241,7 @@ static inline uint32_t _arrayMin(uint32_t *arr, int len, uint32_t *pos) {
 }
 
 static inline uint32_t _arrayMax(uint32_t *arr, int len, uint32_t *pos) {
-  int m = arr[0];
+  uint32_t m = arr[0];
   *pos = 0;
   for (int i = 1; i < len; i++) {
     if (arr[i] >= m) {
@@ -315,7 +315,7 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
   int n = 0;
 
   AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
-  for (int i = 0; i < children.len; i++) {
+  for (size_t i = 0; i < children.len; i++) {
     const RSIndexResult *child = children.ptr[i];
     // collect only iterators for nodes that can have offsets
     if (RSIndexResult_HasOffsets(child)) {

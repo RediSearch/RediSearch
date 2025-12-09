@@ -61,7 +61,7 @@ typedef enum {
   RSCondition_Or
 } RSCondition;
 
-static const char *getRSConditionStrings(RSCondition type) {
+static inline const char *getRSConditionStrings(RSCondition type) {
   switch (type) {
   case RSCondition_Eq: return "==";
   case RSCondition_Lt: return "<";

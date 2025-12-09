@@ -122,7 +122,7 @@ typedef struct RSValue {
 #ifdef __cplusplus
   RSValue() {
   }
-  RSValue(RSValueType t_) : _ref(NULL), _t(t_), _refcount(0), _allocated(0) {
+  RSValue(RSValueType t_) : _ref(NULL), _t(t_), _allocated(0), _refcount(0) {
   }
 
 #endif
@@ -158,7 +158,7 @@ RSValue RSValue_Undefined();
  * @param t The type of RSValue to create
  * @return A stack-allocated RSValue
  */
-static RSValue RSValue_WithType(RSValueType t) {
+static inline RSValue RSValue_WithType(RSValueType t) {
   RSValue v = (RSValue){
       ._t = t,
       ._refcount = 1,
@@ -702,7 +702,7 @@ static inline int RSValue_BoolTest(const RSValue *v) {
     case RSValueType_RedisString:
     case RSValueType_OwnRstring: {
       size_t l = 0;
-      const char *p = RedisModule_StringPtrLen(v->_rstrval, &l);
+      RedisModule_StringPtrLen(v->_rstrval, &l);
       return l != 0;
     }
     default:
@@ -714,7 +714,7 @@ static inline int RSValue_BoolTest(const RSValue *v) {
  * Formats the passed numeric RSValue as a string.
  * The passed RSValue must be of type RSValueType_Number.
  */
-static size_t RSValue_NumToString(const RSValue *v, char *buf) {
+static inline size_t RSValue_NumToString(const RSValue *v, char *buf) {
   RS_ASSERT(v->_t == RSValueType_Number);
   double dd = v->_numval;
   long long ll = dd;

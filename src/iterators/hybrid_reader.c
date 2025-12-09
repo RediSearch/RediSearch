@@ -16,6 +16,7 @@
 #define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_Get(IndexResult_AggregateRef(p), 0)))
 
 static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata) {
+  (void)udata;
   const RSIndexResult *e1 = p1, *e2 = p2;
   double score1 = VECTOR_SCORE(e1), score2 = VECTOR_SCORE(e2);
   if (score1 < score2) {
@@ -247,7 +248,7 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
   if (child_num_estimated > VecSimIndex_IndexSize(hr->index)) {
     child_num_estimated = VecSimIndex_IndexSize(hr->index);
   }
-  size_t child_upper_bound = child_num_estimated;
+
   // Track maximum batch size
   hr->maxBatchSize = hr->runtimeParams.batchSize;
   while (VecSimBatchIterator_HasNext(batch_it)) {
@@ -464,6 +465,8 @@ static ValidateStatus HR_Revalidate(QueryIterator *ctx) {
 QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status) {
   // If searchMode is out of the expected range.
   RS_ASSERT(hParams.qParams.searchMode >= 0 && hParams.qParams.searchMode < VECSIM_LAST_SEARCHMODE);
+  (void)status; // Currently unused.
+
   QueryIterator* ri = HybridIteratorReducer(&hParams);
   if (ri) {
     return ri;
