@@ -272,10 +272,10 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
   int res = AC_GetSlice(ac, &argCursor, count);
   if (res == AC_ERR_NOARG) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Not enough arguments", " in %s, specified %u but provided only %u", "FILTER", count, AC_NumRemaining(ac));
-    return false;
+    return REDISMODULE_ERR;
   } else if (res != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Bad arguments", " in %s: %s", "FILTER", AC_Strerror(res));
-    return false;
+    return REDISMODULE_ERR;
   }
 
   // Parse filter-expression (required, positional) - store in vreq->query directly
@@ -311,6 +311,7 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
   ArgParseResult result = ArgParser_Parse(parser);
   if (!result.success) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, ArgParser_GetErrorString(parser));
+    return REDISMODULE_ERR;
   }
 
   ArgParser_Free(parser);
