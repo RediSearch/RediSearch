@@ -285,7 +285,8 @@ class TestDebugCommands(object):
                                      'totalPendingJobs': orig_stats['totalPendingJobs']+1,
                                      'highPriorityPendingJobs': orig_stats['highPriorityPendingJobs'],
                                      'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']+1,
-                                     'numThreadsAlive': self.workers_count})
+                                     'numThreadsAlive': self.workers_count,
+                                     'numJobsInProgress': 0})
 
         # After resuming, expect that the job is done.
         orig_stats = stats
@@ -296,7 +297,8 @@ class TestDebugCommands(object):
                                      'totalPendingJobs': orig_stats['totalPendingJobs']-1,
                                      'highPriorityPendingJobs': orig_stats['highPriorityPendingJobs'],
                                      'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']-1,
-                                     'numThreadsAlive': self.workers_count})
+                                     'numThreadsAlive': self.workers_count,
+                                     'numJobsInProgress': 0})
 
     def testWorkersNumThreads(self):
         # test stats and drain
