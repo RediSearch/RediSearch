@@ -109,13 +109,18 @@ void GlobalStats_UpdateActiveIoThreads(int toAdd) {
 
 // Get multiThreadingStats
 MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
-  MultiThreadingStats stats;
+  MultiThreadingStats stats = {0};
   stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
-  stats.active_worker_threads = 0;
 #ifdef MT_BUILD
+  // Workers stats
+  // We don't use workersThreadPool_getStats here to avoid the overhead of locking the thread pool.
   if (RSGlobalConfig.numWorkerThreads) {
     stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
+    stats.workers_low_priority_pending_jobs = workersThreadPool_LowPriorityPendingJobsCount();
+    stats.workers_high_priority_pending_jobs = workersThreadPool_HighPriorityPendingJobsCount();
   }
 #endif // MT_BUILD
+
+  // Coordinator stats
   return stats;
 }
