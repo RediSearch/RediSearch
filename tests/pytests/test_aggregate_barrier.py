@@ -190,6 +190,7 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
     Shard 1: 0 docs - delayed with DEBUG SLEEP (via env.getConnection(2))
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=protocol, shardsCount=3)
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
 
     # Create index
@@ -385,6 +386,7 @@ def _test_barrier_concurrent_queries(protocol):
     multiple queries are running simultaneously.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=protocol)
+    enable_unstable_features(env)
     num_docs = 100 * env.shardsCount
     setup_index_with_data(env, num_docs)
 
@@ -442,6 +444,7 @@ def _test_barrier_handles_empty_results(protocol):
     Test barrier handles queries that return zero results.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=protocol)
+    enable_unstable_features(env)
     num_docs = 100 * env.shardsCount
     setup_index_with_data(env, num_docs)
 
@@ -471,6 +474,7 @@ def _test_barrier_handles_single_shard_results(protocol):
     Test barrier works correctly when only one shard has matching docs.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=protocol)
+    enable_unstable_features(env)
 
     # Create index
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
@@ -509,6 +513,7 @@ def _test_barrier_handles_error_in_shard(protocol):
     Test barrier behavior when a shard returns an error.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=protocol)
+    enable_unstable_features(env)
 
     # Create index
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
@@ -552,6 +557,7 @@ def _test_barrier_shard_timeout_with_fail_policy(protocol):
     With FAIL policy, the query should return a timeout error.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=protocol)
+    enable_unstable_features(env)
     num_docs = 100 * env.shardsCount
     setup_index_with_data(env, num_docs)
 
@@ -586,6 +592,7 @@ def _test_barrier_shard_timeout_with_return_policy(protocol):
     on the shards. With RETURN policy, should return partial results.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT RETURN', protocol=protocol)
+    enable_unstable_features(env)
     num_docs = 2400 * env.shardsCount
     setup_index_with_data(env, num_docs)
 
