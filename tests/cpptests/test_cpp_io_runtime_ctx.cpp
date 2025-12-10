@@ -95,7 +95,20 @@ TEST_F(ActiveIoThreadsTest, ActiveTopologyUpdateThreadsMetric) {
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
   ASSERT_EQ(stats.uv_threads_running_topology_update, 0);
 
-  // Phase 2: Use static flags for communication with the topo callback
+  // Phase 2: Ensure UV thread is started by calling RQ_Push first
+  // This is necessary because RQ_Push_Topology only sends the async signal if loop_th_running is true
+  // and loop_th_running is only set when the thread starts via verify_uv_thread() (called by RQ_Push)
+  static std::atomic<bool> init_done{false};
+  auto initCallback = [](void *privdata) {
+    auto *flag = (std::atomic<bool> *)privdata;
+    flag->store(true);
+  };
+
+  RQ_Push(queue, initCallback, &init_done);
+  bool success = RS::WaitForCondition([&]() { return init_done.load(); });
+  ASSERT_TRUE(success) << "Timeout waiting for UV thread to start";
+
+  // Phase 3: Use static flags for communication with the topo callback
   static std::atomic<bool> topo_started{false};
   static std::atomic<bool> topo_should_finish{false};
   topo_started = false;
@@ -125,17 +138,17 @@ TEST_F(ActiveIoThreadsTest, ActiveTopologyUpdateThreadsMetric) {
   RQ_Push_Topology(slowTopoCallback, &dummyTopo);
 
   // Wait for topo callback to start
-  bool success = RS::WaitForCondition([&]() { return topo_started.load(); });
+  success = RS::WaitForCondition([&]() { return topo_started.load(); });
   ASSERT_TRUE(success) << "Timeout waiting for topo callback to start";
 
-  // Phase 3: Verify metric is 1 while callback is running
+  // Phase 4: Verify metric is 1 while callback is running
   stats = GlobalStats_GetMultiThreadingStats();
   ASSERT_EQ(stats.uv_threads_running_topology_update, 1);
 
   // Signal callback to finish
   topo_should_finish.store(true);
 
-  // Phase 4: Wait for metric to return to 0
+  // Phase 5: Wait for metric to return to 0
   success = RS::WaitForCondition([&]() {
     stats = GlobalStats_GetMultiThreadingStats();
     return stats.uv_threads_running_topology_update == 0;
