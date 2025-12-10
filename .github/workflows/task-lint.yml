@@ -20,7 +20,8 @@ jobs:
       - name: Setup
         working-directory: .install
         run: ./install_script.sh sudo
-
+      - name: Hakari
+        run: cargo install cargo-hakari --locked
       - name: Lint
         id: lint
         continue-on-error: true
