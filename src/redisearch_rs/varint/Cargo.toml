@@ -13,4 +13,4 @@ proptest = { workspace = true, features = ["std"] }
 proptest-derive = { workspace = true }
 
 [dependencies]
-workspace_hack = { version = "0.1", path = "../workspace_hack" }
+workspace_hack.workspace = true

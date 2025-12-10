@@ -13,7 +13,7 @@ rlookup.workspace = true
 ffi.workspace = true
 value = { workspace = true, features = ["c_ffi_impl"] }
 libc.workspace = true
-workspace_hack = { version = "0.1", path = "../../workspace_hack" }
+workspace_hack.workspace = true
 
 [build-dependencies]
 cbindgen.workspace = true

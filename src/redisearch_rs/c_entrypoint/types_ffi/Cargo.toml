@@ -15,4 +15,4 @@ build_utils = { path = "../../build_utils" }
 [dependencies]
 field.workspace = true
 inverted_index.workspace = true
-workspace_hack = { version = "0.1", path = "../../workspace_hack" }
+workspace_hack.workspace = true

@@ -25,7 +25,7 @@ harness = false
 [dependencies]
 criterion.workspace = true
 varint = { workspace = true }
-workspace_hack = { version = "0.1", path = "../workspace_hack" }
+workspace_hack.workspace = true
 
 [lints]
 workspace = true

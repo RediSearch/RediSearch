@@ -6,6 +6,8 @@ hakari-package = "workspace_hack"
 # Format version for hakari's output. Version 4 requires cargo-hakari 0.9.22 or above.
 dep-format-version = "4"
 
+workspace-hack-line-style = "workspace-dotted"
+
 # Setting workspace.resolver = "2" or higher in the root Cargo.toml is HIGHLY recommended.
 # Hakari works much better with the v2 resolver. (The v2 and v3 resolvers are identical from
 # hakari's perspective, so you're welcome to set either.)

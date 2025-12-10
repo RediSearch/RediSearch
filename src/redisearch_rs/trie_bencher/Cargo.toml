@@ -34,7 +34,7 @@ trie_rs.workspace = true
 ureq.workspace = true
 wildcard.workspace = true
 ffi.workspace = true
-workspace_hack = { version = "0.1", path = "../workspace_hack" }
+workspace_hack.workspace = true
 
 [lints]
 workspace = true

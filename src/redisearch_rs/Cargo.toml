@@ -86,6 +86,7 @@ trie_rs = { path = "./trie_rs" }
 value = { path = "./value" }
 varint = { path = "./varint" }
 wildcard = { path = "./wildcard" }
+workspace_hack = { path = "./workspace_hack" }
 
 cbindgen = "0.29"
 cc = "1"

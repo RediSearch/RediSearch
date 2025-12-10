@@ -16,7 +16,7 @@ build_utils = { path = "../../build_utils" }
 c_ffi_utils.workspace = true
 libc.workspace = true
 value.workspace = true
-workspace_hack = { version = "0.1", path = "../../workspace_hack" }
+workspace_hack.workspace = true
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,
