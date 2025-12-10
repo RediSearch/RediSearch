@@ -264,6 +264,7 @@ include_directories(
     ${root}/src/aggregate/functions
     ${root}/src/util/references
     ${root}/src/util/block_alloc
+    ${root}/src/util/heap_doubles
     ${root}/src/util/workers
     ${root}/src/obfuscation
     ${root}/src/rlookup
@@ -299,6 +300,7 @@ add_subdirectory(src/util/arr)
 add_subdirectory(src/util/dict)
 add_subdirectory(src/util/hash)
 add_subdirectory(src/util/block_alloc)
+add_subdirectory(src/util/heap_doubles)
 add_subdirectory(src/util/workers)
 add_subdirectory(src/coord)
 add_subdirectory(src/redisearch_rs)
@@ -375,6 +377,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:aggregate_functions>
     $<TARGET_OBJECTS:references>
     $<TARGET_OBJECTS:block_alloc>
+    $<TARGET_OBJECTS:heap_doubles>
     $<TARGET_OBJECTS:workers>
     $<TARGET_OBJECTS:thpool>
     $<TARGET_OBJECTS:obfuscation>
@@ -447,6 +450,7 @@ target_link_libraries(redisearch
         aggregate_functions
         references
         block_alloc
+        heap_doubles
         workers
         thpool
         obfuscation
