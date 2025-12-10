@@ -1997,7 +1997,7 @@ class TestCoordHighPriorityPendingJobs(object):
 
     self.verify_coord_high_priority_pending_jobs('HYBRID', num_commands_per_type, hybrid_threads)
 
-# Test the 'total_documents_indexed' INFO MODULES metric in standalone mode.
+# Test the 'total_num_docs_in_indexes' INFO MODULES metric in standalone mode.
 # This metric counts the total number of documents indexed by all indexes,
 # with potential overlap (a doc counted once per index that indexes it).
 @skip(cluster=True)
@@ -2005,10 +2005,10 @@ def test_total_docs_indexed_metric_SA(env):
 
   conn = getConnectionByEnv(env)
 
-  # Helper to get the total_documents_indexed metric
+  # Helper to get the total_num_docs_in_indexes metric
   def get_total_docs_indexed():
     info = conn.execute_command('INFO', 'MODULES')
-    return info['search_total_documents_indexed']
+    return info['search_total_num_docs_in_indexes']
 
   # Baseline: no indexes, no docs indexed
   baseline = get_total_docs_indexed()
@@ -2087,7 +2087,7 @@ def test_total_docs_indexed_metric_SA(env):
   env.assertEqual(get_total_docs_indexed(), 3,
                   message="After dropping idx2, only idx1 remains")
 
-# Test the 'total_documents_indexed_by_<field_type>_fields' INFO MODULES metrics.
+# Test the 'total_indexing_ops_<field_type>_fields' INFO MODULES metrics.
 # These metrics count how many times each field type has indexed a document.
 @skip(cluster=True)
 def test_total_docs_indexed_by_field_type_SA(env):
@@ -2097,11 +2097,11 @@ def test_total_docs_indexed_by_field_type_SA(env):
   def get_field_metrics():
     info = conn.execute_command('INFO', 'MODULES')
     return {
-      'text': info['search_total_documents_indexed_by_text_fields'],
-      'tag': info['search_total_documents_indexed_by_tag_fields'],
-      'numeric': info['search_total_documents_indexed_by_numeric_fields'],
-      'geo': info['search_total_documents_indexed_by_geo_fields'],
-      'vector': info['search_total_documents_indexed_by_vector_fields'],
+      'text': info['search_total_indexing_ops_text_fields'],
+      'tag': info['search_total_indexing_ops_tag_fields'],
+      'numeric': info['search_total_indexing_ops_numeric_fields'],
+      'geo': info['search_total_indexing_ops_geo_fields'],
+      'vector': info['search_total_indexing_ops_vector_fields'],
     }
 
   # Baseline: all metrics should be 0
@@ -2114,7 +2114,6 @@ def test_total_docs_indexed_by_field_type_SA(env):
 
   # 1. Test TEXT field indexing
   env.expect('FT.CREATE', 'idx_text', 'PREFIX', 1, 'text:', 'SCHEMA', 't', 'TEXT').ok()
-  waitForIndex(env, 'idx_text')
 
   conn.execute_command('HSET', 'text:1', 't', 'hello world')
   metrics = get_field_metrics()

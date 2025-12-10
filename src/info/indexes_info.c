@@ -65,7 +65,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.total_active_queries += activeQueries;
     info.total_active_write_threads += activeWrites;
     BGIndexerInProgress |= sp->scan_in_progress;
-    info.total_documents_indexed += sp->stats.numDocuments;
+    info.total_num_docs_in_indexes += sp->stats.numDocuments;
 
     // Index errors metrics
     size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);
