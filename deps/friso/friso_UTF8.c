@@ -13,7 +13,7 @@
 
 /* read the next utf-8 word from the specified position.
  *
- * @return int    the bytes of the current readed word.
+ * @return int    the bytes of the current read word.
  */
 FRISO_API int utf8_next_word(
     friso_task_t task,
@@ -232,7 +232,7 @@ FRISO_API int utf8_cjk_string( uint_t u )
 
 /*
  * check the given char is a Basic Latin letter or not.
- *    include all the letters and english punctuations.
+ *    include all the letters and english punctuation.
  *
  * @param c
  * @return int 1 for yes and 0 for not.
@@ -244,8 +244,8 @@ FRISO_API int utf8_halfwidth_en_char( uint_t u )
 
 /*
  * check the given char is a full-width latain or not.
- *    include the full-width arabic numeber, letters.
- *    but not the full-width punctuations.
+ *    include the full-width arabic number, letters.
+ *    but not the full-width punctuation.
  *
  * @param c
  * @return int
@@ -317,7 +317,7 @@ FRISO_API int utf8_numeric_string( const fstring str )
         //    return 0;
         //}
 
-        //new implemention.
+        //new implementation.
         //@date 2013-10-14
         bytes = 1;
         if ( (unsigned char)*s > 127 ) { //full-width chars.

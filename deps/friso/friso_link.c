@@ -2,7 +2,7 @@
  * link list implemented functions
  *    defined in header file "friso_API.h".
  * when the link_node is being deleted, here we just free
- *    the allocation of the node, not the allcation of it's value.
+ *    the allocation of the node, not the allocation of it's value.
  *
  * @author    chenxin <chenxin619315@gmail.com>
  */
@@ -143,7 +143,7 @@ __STATIC_API__ link_node_t get_node(
 /*
  * static function:
  * remove the given node, the allocation of the value will not free,
- * but we return it to you, you will free it youself when there is a necessary.
+ * but we return it to you, you will free it yourself when there is a necessary.
  *
  * @return the value of the removed node.
  */
