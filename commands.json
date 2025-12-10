@@ -1088,7 +1088,7 @@
         "name": "slop",
         "type": "integer",
         "optional": true,
-        "token": "SLOP""token": "SLOP"
+        "token": "SLOP"
       },
       {
         "name": "timeout",
