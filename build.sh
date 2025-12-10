@@ -174,7 +174,7 @@ setup_test_configuration() {
 setup_build_environment() {
   # Determine Rust toolchain
   if [[ -n "$SAN" || "$COV" == "1" || "$RUN_MIRI" == "1" ]]; then
-    # We use the `nightly` compiler in order to include doc tests in the coverage computation.
+    # For coverage, we use the `nightly` compiler in order to include doc tests in the coverage computation.
     # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
     echo "Using nightly version: ${NIGHTLY_VERSION}"
 
@@ -196,7 +196,7 @@ setup_build_environment() {
     FLAVOR="release"
   fi
 
-  # Use a custom build target for sanitizers to prevent the Rust flags from being applied to build
+  # We must set the build target explicitly when running with a sanitizer to prevent the Rust flags from being applied to build
   # scripts and procedural macros.
   #
   # See https://doc.rust-lang.org/beta/unstable-book/compiler-flags/sanitizer.html#build-scripts-and-procedural-macros
@@ -628,7 +628,9 @@ run_rust_tests() {
     RUST_TEST_COMMAND="miri test "
     RUST_TEST_OPTIONS="--profile=$RUST_PROFILE"
   elif [[ "$SAN" == "address" ]]; then
-    # --build-std is a cargo flag (not rustc), so set it separately
+    # We must rebuild the Rust standard library to get sanitizer coverage
+    # for its functions.
+    # Since --build-std is a cargo flag (not rustc), we set it separately
     # The doc tests are disabled under ASAN to avoid issues with linking to the sanitizer runtime
     # in doc tests.
     RUST_TEST_COMMAND="-Zbuild-std nextest run --tests"
