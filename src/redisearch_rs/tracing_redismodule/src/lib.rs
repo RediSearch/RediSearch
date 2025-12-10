@@ -117,7 +117,11 @@ pub fn try_init(
             // Safety: This static will not be written to after it has been initialized
             log: unsafe { ffi::RedisModule_Log.unwrap() },
         })
-        .try_init()
+        .try_init()?;
+
+    tracing::debug!("Tracing Subscriber Initialized!");
+
+    Ok(())
 }
 
 fn should_print_colors() -> bool {
