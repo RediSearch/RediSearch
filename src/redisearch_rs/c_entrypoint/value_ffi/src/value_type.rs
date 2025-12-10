@@ -38,6 +38,7 @@ impl AsRsValueType for RsValueInternal {
     fn as_value_type(&self) -> RsValueType {
         use RsValueType::*;
         match self {
+            RsValueInternal::Undefined => Undefined,
             RsValueInternal::Null => Null,
             RsValueInternal::Number(_) => Number,
             RsValueInternal::RmAllocString(_) => RmAllocString,
