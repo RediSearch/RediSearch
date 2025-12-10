@@ -1823,6 +1823,7 @@
         "name": "filter",
         "type": "string",
         "optional": true,
+        "expression": true,
         "token": "FILTER",
         "summary": "Applies a numeric range filter to restrict results to documents with field values within the specified range."
       },
@@ -2112,6 +2113,7 @@
             "name": "filter",
             "type": "string",
             "token": "FILTER",
+            "expression": true,
             "optional": true
           }
         ]
