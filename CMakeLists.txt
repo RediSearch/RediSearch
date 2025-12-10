@@ -258,6 +258,7 @@ include_directories(
     ${root}/src/info/index_error
     ${root}/src/trie
     ${root}/src/rules
+    ${root}/src/language
     ${root}/src/util/references
     ${root}/src/obfuscation
     ${BOOST_DIR}
@@ -297,6 +298,7 @@ add_subdirectory(src/doc_table)
 add_subdirectory(src/info/index_error)
 add_subdirectory(src/trie)
 add_subdirectory(src/rules)
+add_subdirectory(src/language)
 add_subdirectory(src/util/references)
 add_subdirectory(src/obfuscation)
 
@@ -355,6 +357,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:index_error>
     $<TARGET_OBJECTS:trie>
     $<TARGET_OBJECTS:rules>
+    $<TARGET_OBJECTS:language>
     $<TARGET_OBJECTS:references>
     $<TARGET_OBJECTS:obfuscation>
 )
@@ -418,6 +421,7 @@ target_link_libraries(redisearch
         index_error
         trie
         rules
+        language
         references
         obfuscation
         ${HIREDIS_LIBS}
