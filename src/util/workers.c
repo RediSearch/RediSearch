@@ -98,6 +98,7 @@ void workersThreadPool_SetNumWorkers() {
     RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
       "Attempt to change the workers thpool size to %lu "
       "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
+    (void)new_num_threads; // to avoid unused variable warning in release build
   } else if (worker_count < curr_workers) {
     RedisModule_Log(RSDummyContext, "notice", "Scheduling config_reduce_threads_job to remove %zu threads ASAP", curr_workers - worker_count);
     redisearch_thpool_schedule_config_reduce_threads_job(_workers_thpool, curr_workers - worker_count, false);

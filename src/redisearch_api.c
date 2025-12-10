@@ -86,7 +86,7 @@ char **RediSearch_IndexGetStopwords(RefManager* rm, size_t *size) {
 }
 
 void RediSearch_StopwordsList_Free(char **list, size_t size) {
-  for (int i = 0; i < size; ++i) {
+  for (size_t i = 0; i < size; ++i) {
     rm_free(list[i]);
   }
   rm_free(list);
@@ -876,7 +876,7 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
 
   info->numFields = sp->numFields;
   info->fields = rm_calloc(sp->numFields, sizeof(*info->fields));
-  for (int i = 0; i < info->numFields; ++i) {
+  for (size_t i = 0; i < info->numFields; ++i) {
     RediSearch_FieldInfo(&info->fields[i], &sp->fields[i]);
   }
 
@@ -923,7 +923,7 @@ TotalIndexesInfo RediSearch_TotalInfo(void) {
 }
 
 void RediSearch_IndexInfoFree(RSIdxInfo *info) {
-  for (int i = 0; i < info->numFields; ++i) {
+  for (size_t i = 0; i < info->numFields; ++i) {
     HiddenString_Free(info->fields[i].name, true);
     HiddenString_Free(info->fields[i].path, true);
   }

@@ -154,7 +154,7 @@ static void convertField(InfoValue *dst, MRReply *src, InfoFieldType type) {
     case InfoField_Max: {
       long long newVal;
       MRReply_ToInteger(src, &newVal);
-      if (dst->u.total_l < newVal) {
+      if (dst->u.total_l < (size_t)newVal) {
         dst->u.total_l = newVal;
       }
       break;
@@ -408,7 +408,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   QueryError error = QueryError_Default();
 
-  for (size_t ii = 0; ii < count; ++ii) {
+  for (int ii = 0; ii < count; ++ii) {
     int type = MRReply_Type(replies[ii]);
     if (type == MR_REPLY_ERROR) {
       if (!fields.errorIndexes) {
@@ -426,8 +426,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
       continue;  // Ooops!
     }
 
-    size_t numElems = MRReply_Length(replies[ii]);
-    RS_ASSERT(numElems % 2 == 0);
+    RS_ASSERT(MRReply_Length(replies[ii]) % 2 == 0);
     processKvArray(&fields, replies[ii], fields.toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC, 0, &error);
     if (QueryError_HasError(&error)) {
       break;
@@ -435,7 +434,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   // Now we've received all the replies.
-  if (numErrored == count) {
+  if (numErrored == (size_t)count) {
     // Reply with error
     MR_ReplyWithMRReply(reply, firstError);
   } else if (QueryError_HasError(&error)) {

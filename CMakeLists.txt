@@ -28,8 +28,8 @@ function(setup_cc_options)
     set(CMAKE_CXX_STANDARD_REQUIRED ON PARENT_SCOPE)
 
     # Common compiler flags
-    set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char -Wall -Wextra -Werror" PARENT_SCOPE)
-    set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -Wall -Wextra -Werror" PARENT_SCOPE)
+    set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter -Wno-missing-field-initializers -Wno-missing-designated-field-initializers -Wno-ignored-qualifiers -fcommon -funsigned-char" PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter -Wno-missing-field-initializers -Wno-missing-designated-field-initializers -Wno-ignored-qualifiers" PARENT_SCOPE)
     # Release/Debug/Profile specific flags
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
@@ -165,6 +165,17 @@ endif()
 if(MAX_WORKER_THREADS)
     set_source_files_properties(src/config.c PROPERTIES COMPILE_DEFINITIONS MAX_WORKER_THREADS=${MAX_WORKER_THREADS})
 endif()
+
+# Disable unused warnings for auto-generated files
+set_source_files_properties(
+    src/aggregate/expr/lexer.c
+    src/aggregate/expr/parser.c
+    src/query_parser/v1/lexer.c
+    src/query_parser/v1/parser.c
+    src/query_parser/v2/lexer.c
+    src/query_parser/v2/parser.c
+    PROPERTIES COMPILE_FLAGS "-Wno-unused-variable -Wno-unused-const-variable -Wno-sign-compare"
+)
 
 if(USE_REDIS_ALLOCATOR)
     add_compile_definitions(REDIS_MODULE_TARGET)

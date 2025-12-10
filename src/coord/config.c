@@ -63,7 +63,7 @@ CONFIG_SETTER(setGlobalPass) {
     "Notice: OSS_GLOBAL_PASSWORD is deprecated, inter-shard communication is now done via internal connections");
   // Read next arg, but do nothing with it
   int acrc = AC_Advance(ac);
-  return REDISMODULE_OK;
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getGlobalPass) {

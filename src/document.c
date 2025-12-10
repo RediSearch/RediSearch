@@ -694,7 +694,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   } else if (str_count > 1) {
     fdata->isMulti = 1;
     arrayof(double) arr = array_new(double, str_count);
-    for (size_t i = 0; i < str_count; ++i) {
+    for (size_t i = 0; i < (size_t)str_count; ++i) {
       const char *cur_str = DocumentField_GetArrayValueCStr(field, &len, i);
       if (parseGeo(cur_str, len, &lon, &lat, status) != REDISMODULE_OK) {
         array_free(arr);
@@ -943,7 +943,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   if (aCtx->stateFlags & ACTX_F_SORTABLES) {
     FieldSpecDedupeArray dedupes = {0};
     // Update sortables if needed
-    for (int i = 0; i < doc->numFields; i++) {
+    for (uint32_t i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];
       const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->docFieldName);
       if (fs == NULL || !FieldSpec_IsSortable(fs)) {
@@ -1001,7 +1001,7 @@ done:
 DocumentField *Document_GetField(Document *d, const char *fieldName) {
   if (!d || !fieldName) return NULL;
 
-  for (int i = 0; i < d->numFields; i++) {
+  for (uint32_t i = 0; i < d->numFields; i++) {
     if (!HiddenString_CaseInsensitiveCompareC(d->fields[i].docFieldName, fieldName, strlen(fieldName))) {
       return &d->fields[i];
     }

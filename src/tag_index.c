@@ -165,7 +165,7 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
     tokenizeTagString(data->strval, fs, &arr);
     break;
   case FLD_VAR_T_ARRAY:
-    for (int i = 0; i < data->arrayLen; i++) {
+    for (size_t i = 0; i < data->arrayLen; i++) {
       tokenizeTagString(data->multiVal[i], fs, &arr);
     }
     break;

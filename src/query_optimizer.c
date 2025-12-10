@@ -39,7 +39,7 @@ void trimUnionIterator(QueryIterator *iter, size_t offset, size_t limit, bool as
   }
 
   size_t curTotal = 0;
-  int i;
+  uint32_t i;
   if (offset == 0) {
     if (asc) {
       for (i = 1; i < ui->num; ++i) {
@@ -160,7 +160,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
       if (node->opts.weight != 1) {
         break;
       }
-      for (int i = 0; i < QueryNode_NumChildren(node); ++i) {
+      for (size_t i = 0; i < QueryNode_NumChildren(node); ++i) {
         QueryNode *cur = checkQueryTypes(node->children[i], name, parent, reqScore);
         // we want to return numeric node and have its parent so we can remove it later.
         if (cur && cur->type == QN_NUMERIC && *parent == NULL) {
@@ -184,7 +184,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
     case QN_OPTIONAL:  // can't score optional ??
     case QN_NOT:       // can't score not      ??
     case QN_UNION:     // TODO
-      for (int i = 0; i < QueryNode_NumChildren(node); ++i) {
+      for (size_t i = 0; i < QueryNode_NumChildren(node); ++i) {
         // ignore return value from a union since sortby optimization cannot be achieved.
         // check if it contains TEXT fields.
         checkQueryTypes(node->children[i], NULL, NULL, reqScore);
@@ -220,7 +220,6 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   const FieldSpec *field = opt->field;
   bool isSortby = !!field;
   const char *name = opt->fieldName;
-  bool hasOther = false;
 
   if (root->type == QN_WILDCARD) {
     opt->scorerType = SCORER_TYPE_NONE;
@@ -233,7 +232,7 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
     RS_LOG_ASSERT(numSortbyNode->type == QN_NUMERIC, "found it");
     // numeric is part of an intersect. remove it for optimizer reader
     if (parentNode) {
-      for (int i = 0; i < QueryNode_NumChildren(parentNode); ++i) {
+      for (size_t i = 0; i < QueryNode_NumChildren(parentNode); ++i) {
         if (parentNode->children[i] == numSortbyNode) {
           array_del_fast(parentNode->children, i);
           break;
@@ -295,7 +294,6 @@ static void updateRootIter(AREQ *req, QueryIterator *root, QueryIterator *new) {
 }
 
 void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
-  IndexSpec *spec = AREQ_SearchCtx(req)->spec;
   QueryIterator *root = req->rootiter;
 
   switch (opt->type) {

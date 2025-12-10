@@ -264,7 +264,7 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
     }
   }
   if (cmd->protocol != 0 && (!c->protocol || c->protocol != cmd->protocol)) {
-    int rc = redisAsyncCommand(c->conn, NULL, NULL, "HELLO %d", cmd->protocol);
+    redisAsyncCommand(c->conn, NULL, NULL, "HELLO %d", cmd->protocol);
     c->protocol = cmd->protocol;
   }
   return redisAsyncFormattedCommand(c->conn, fn, privdata, cmd->cmd, sdslen(cmd->cmd));
@@ -423,7 +423,6 @@ static void signalCallback(uv_timer_t *tm) {
 
 /* Safely transition to current state */
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
-  uv_loop_t *loop = conn->loop;
   CONN_LOG(conn, "Switching state to %s", MRConnState_Str(nextState));
 
   uint64_t nextTimeout = 0;
@@ -465,7 +464,6 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
 
 activate_timer:
   if (conn->timer && !uv_is_active(conn->timer)) {
-    uv_timer_t *tm = conn->timer;
     uv_timer_start(conn->timer, signalCallback, nextTimeout, 0);
   }
 }
@@ -478,8 +476,6 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
     // Will be picked up by disconnect callback
     goto cleanup;
   }
-
-  uv_loop_t *loop = conn->loop;
 
   if (c->err || !r) {
     detachFromConn(conn, !!r);

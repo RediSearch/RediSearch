@@ -157,7 +157,6 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   ResultProcessor *rp = NULL;
   PLN_ArrangeStep astp_s = {.base = {.type = PLN_T_ARRANGE}};
   PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
-  IndexSpec *spec = params->common.sctx ? params->common.sctx->spec : NULL; // check for sctx?
   // Store and count keys that require loading from Redis.
   const RLookupKey **loadKeys = NULL;
 
@@ -255,7 +254,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     // 1. If there is no SORTBY, otherwise, the LIMIT is managed by the sorter.
     // 2. If there is a SORTBY, but with offset, the sorter can't handle the offset.
     if (((astp->isLimited && !IsInternal(&params->common)) &&
-      ((!HasSortBy(&params->common) || HasSortBy(&params->common) && astp->offset )))) {
+      ((!HasSortBy(&params->common) || (HasSortBy(&params->common) && astp->offset) )))) {
       if (!RPPagerAdded) {
         rp = RPPager_New(astp->offset, astp->limit);
         up = pushRP(&pipeline->qctx, rp, up);

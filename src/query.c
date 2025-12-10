@@ -341,7 +341,6 @@ QueryNode *NewMissingNode(const FieldSpec *field) {
 }
 
 static enum QueryType parseGeometryPredicate(const char *predicate, size_t len) {
-  enum QueryType query_type;
   // length is insufficient to uniquely identify predicates. CONTAINS, DISJOINT, and DISTANCE all have 8 chars.
   // first letter is insufficient. DISJOINT and DISTANCE both start with DIS.
   // last letter is insufficient. CONTAINS and INTERSECTS both end with S, DISJOINT and NEAREST both end with T.
@@ -581,19 +580,19 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   int hasNext;
   while ((hasNext = TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) &&
-         (itsSz < q->config->maxPrefixExpansions)) {
+         (itsSz < (size_t)q->config->maxPrefixExpansions)) {
     target_str = runesToStr(rstr, slen, &tok_len);
     addTerm(target_str, tok_len, q, opts, &its, &itsSz, &itsCap);
     rm_free(target_str);
   }
   TrieIterator_Free(it);
 
-  if (hasNext && itsSz == q->config->maxPrefixExpansions) {
+  if (hasNext && itsSz == (size_t)q->config->maxPrefixExpansions) {
     QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
   }
 
   // Add an iterator over the inverted index of the empty string for fuzzy search
-  if (!prefixMode && q->sctx->apiVersion >= 2 && len <= maxDist) {
+  if (!prefixMode && q->sctx->apiVersion >= 2 && len <= (size_t)maxDist) {
     addTerm("", 0, q, opts, &its, &itsSz, &itsCap);
   }
 
@@ -634,7 +633,7 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_PREFIX, "query node type should be prefix");
 
   // we allow a minimum of 2 letters in the prefix by default (configurable)
-  if (qn->pfx.tok.len < q->config->minTermPrefix) {
+  if (qn->pfx.tok.len < (size_t)q->config->minTermPrefix) {
     return NULL;
   }
 
@@ -776,7 +775,7 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
-  if (!RS_IsMock && ctx->nits >= q->config->maxPrefixExpansions) {
+  if (!RS_IsMock && ctx->nits >= (size_t)q->config->maxPrefixExpansions) {
     QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     return REDISEARCH_ERR;
   }
@@ -801,7 +800,7 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
 static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
-  if (ctx->nits >= q->config->maxPrefixExpansions) {
+  if (ctx->nits >= (size_t)q->config->maxPrefixExpansions) {
     QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     return REDISEARCH_ERR;
   }
@@ -1183,7 +1182,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   tag_strtolower(&(tok->str), &tok->len, caseSensitive);
 
   // we allow a minimum of 2 letters in the prefix by default (configurable)
-  if (tok->len < q->config->minTermPrefix) {
+  if (tok->len < (size_t)q->config->minTermPrefix) {
     return NULL;
   }
   if (!idx || !idx->values) return NULL;
@@ -1216,7 +1215,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     // Find all completions of the prefix
     int hasNext;
     while ((hasNext = TrieMapIterator_Next(it, &s, &sl, &ptr)) &&
-           (itsSz < q->config->maxPrefixExpansions)) {
+           (itsSz < (size_t)q->config->maxPrefixExpansions)) {
       QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, s, sl, 1, fieldIndex);
       if (!ret) continue;
 
@@ -1228,7 +1227,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
       }
     }
 
-    if (hasNext && itsSz == q->config->maxPrefixExpansions) {
+    if (hasNext && itsSz == (size_t)q->config->maxPrefixExpansions) {
       QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     }
 
@@ -1240,11 +1239,9 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
       rm_free(its);
       return NULL;
     }
-    for (int i = 0; i < array_len(arr) && itsSz < q->config->maxPrefixExpansions; ++i) {
-      size_t iarrlen = array_len(arr);
-      for (int j = 0; j < array_len(arr[i]); ++j) {
-        size_t jarrlen = array_len(arr[i]);
-        if (itsSz >= q->config->maxPrefixExpansions) {
+    for (uint32_t i = 0; i < array_len(arr) && itsSz < (size_t)q->config->maxPrefixExpansions; ++i) {
+      for (uint32_t j = 0; j < array_len(arr[i]); ++j) {
+        if (itsSz >= (size_t)q->config->maxPrefixExpansions) {
           QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
           break;
         }
@@ -1294,8 +1291,8 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
       // The wildcard pattern does not include tokens that can be used with suffix trie
       fallbackBruteForce = true;
     } else {
-      for (int i = 0; i < array_len(arr); ++i) {
-        if (itsSz >= q->config->maxPrefixExpansions) {
+      for (uint32_t i = 0; i < array_len(arr); ++i) {
+        if (itsSz >= (size_t)q->config->maxPrefixExpansions) {
           QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
           break;
         }
@@ -1325,7 +1322,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
     // Find all completions of the prefix
     int hasNext;
     while ((hasNext = TrieMapIterator_Next(it, &s, &sl, &ptr)) &&
-           (itsSz < q->config->maxPrefixExpansions)) {
+           (itsSz < (size_t)q->config->maxPrefixExpansions)) {
       QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, s, sl, 1, fieldIndex);
       if (!ret) continue;
 
@@ -1337,7 +1334,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
       }
     }
 
-    if (hasNext && itsSz == q->config->maxPrefixExpansions) {
+    if (hasNext && itsSz == (size_t)q->config->maxPrefixExpansions) {
       QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     }
 
@@ -1790,8 +1787,8 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
 // Currently Phrase nodes are checked whether slop/inorder are allowed
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
   if (!q || !q->root ||
-      !(spec->flags & Index_HasNonEmpty) &&
-      (!isSpecJson(spec) || !(spec->flags & Index_HasUndefinedOrder))
+      (!(spec->flags & Index_HasNonEmpty) &&
+      (!isSpecJson(spec) || !(spec->flags & Index_HasUndefinedOrder)))
   ) {
     return REDISMODULE_OK;
   }
@@ -1972,7 +1969,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_IDS:
 
       s = sdscat(s, "IDS {");
-      for (int i = 0; i < qs->fn.len; i++) {
+      for (size_t i = 0; i < qs->fn.len; i++) {
         t_docId id = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
         if (id != 0) {
           s = sdscatprintf(s, "%lu,", id);

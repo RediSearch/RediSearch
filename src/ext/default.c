@@ -66,7 +66,7 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
     if (!scrExp) {
       AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
 
-      for (int i = 0; i < children.len; i++) {
+      for (int i = 0; i < (int)children.len; i++) {
         ret += tfidfRecursive(children.ptr[i], dmd, NULL);
       }
     } else {
@@ -76,7 +76,7 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
 
       AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
 
-      for (int i = 0; i < children.len; i++) {
+      for (int i = 0; i < (int)children.len; i++) {
         ret += tfidfRecursive(children.ptr[i], dmd, &scrExp->children[i]);
       }
 
@@ -165,7 +165,7 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
     const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
     if (!scrExp) {
       AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
-      for (int i = 0; i < children.len; i++) {
+      for (uintptr_t i = 0; i < children.len; i++) {
         ret += bm25Recursive(ctx, children.ptr[i], dmd, NULL);
       }
     } else {
@@ -174,7 +174,7 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
 
       AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
-      for (int i = 0; i < children.len; i++) {
+      for (uintptr_t i = 0; i < children.len; i++) {
         ret += bm25Recursive(ctx, children.ptr[i], dmd, &scrExp->children[i]);
       }
 
@@ -251,7 +251,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
     const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
     if (!scrExp) {
       AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
-      for (int i = 0; i < children.len; i++) {
+      for (uintptr_t i = 0; i < children.len; i++) {
         ret += bm25StdRecursive(ctx, children.ptr[i], dmd, NULL);
       }
     } else {
@@ -260,7 +260,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
 
       AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
-      for (int i = 0; i < children.len; i++) {
+      for (uintptr_t i = 0; i < children.len; i++) {
         ret += bm25StdRecursive(ctx, children.ptr[i], dmd, &scrExp->children[i]);
       }
 
@@ -376,7 +376,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
         // and skip the tag check on the next line.
         const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
         AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
-        for (int i = 0; i < children.len; i++) {
+        for (uintptr_t i = 0; i < children.len; i++) {
           ret += dismaxRecursive(ctx, children.ptr[i], NULL);
         }
       } else {
@@ -388,7 +388,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
         scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
 
         AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
-        for (int i = 0; i < children.len; i++) {
+        for (uintptr_t i = 0; i < children.len; i++) {
           ret += dismaxRecursive(ctx, children.ptr[i], &scrExp->children[i]);
         }
 
@@ -403,7 +403,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
         // and skip the tag check on the next line.
         const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
         AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
-        for (int i = 0; i < children.len; i++) {
+        for (uintptr_t i = 0; i < children.len; i++) {
           ret = MAX(ret, dismaxRecursive(ctx, children.ptr[i], NULL));
         }
       } else {
@@ -415,7 +415,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
         scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
 
         AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
-        for (int i = 0; i < children.len; i++) {
+        for (uintptr_t i = 0; i < children.len; i++) {
           ret = MAX(ret, dismaxRecursive(ctx, children.ptr[i], &scrExp->children[i]));
         }
 
@@ -554,7 +554,7 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   const sb_symbol *stemmed = sb_stemmer_stem(sb, b, token->len);
 
   if (stemmed) {
-    int sl = sb_stemmer_length(sb);
+    size_t sl = sb_stemmer_length(sb);
 
     // Make a copy of the stemmed buffer with the + prefix given to stems
     char *dup = rm_malloc(sl + 2);
@@ -652,7 +652,7 @@ int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
     return REDISMODULE_OK;
   }
 
-  for (int i = 0; i < array_len(t_data->groupIds); ++i) {
+  for (uint32_t i = 0; i < array_len(t_data->groupIds); ++i) {
     ctx->ExpandToken(ctx, rm_strdup(t_data->groupIds[i]), strlen(t_data->groupIds[i]), 0x0);
   }
   return REDISMODULE_OK;
@@ -683,7 +683,7 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
       }
     } else {
       t_fieldMask fm = (*ctx->currentNode)->opts.fieldMask;
-      for (size_t ii = 0; ii < ctx->handle->spec->numFields; ++ii) {
+      for (int16_t ii = 0; ii < ctx->handle->spec->numFields; ++ii) {
         const FieldSpec *fs = ctx->handle->spec->fields + ii;
         if (!(fm & FIELD_BIT(fs))) {
           continue;

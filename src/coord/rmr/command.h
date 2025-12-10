@@ -106,7 +106,7 @@ static inline const char *MRCommand_ArgStringPtrLen(const MRCommand *cmd, size_t
 /** Copy from an argument of an existing command */
 void MRCommand_Append(MRCommand *cmd, const char *s, size_t len);
 void MRCommand_AppendRstr(MRCommand *cmd, RedisModuleString *rmstr);
-void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n);
+void MRCommand_Insert(MRCommand *cmd, uint32_t pos, const char *s, size_t n);
 
 /** Set the prefix of the command (i.e {prefix}.{command}) to a given prefix. If the command has a
  * module style prefix it gets replaced with the new prefix. If it doesn't, we prepend the prefix to

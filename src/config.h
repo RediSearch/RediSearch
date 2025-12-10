@@ -182,7 +182,7 @@ typedef struct {
     // The number of indexing operations per field to perform before yielding to Redis during indexing while loading (so redis can be responsive)
   unsigned int indexerYieldEveryOpsWhileLoading;
   // Limit the number of cursors that can be created for a single index
-  long long indexCursorLimit;
+  size_t indexCursorLimit;
   // The maximum ratio between current memory and max memory for which background indexing is allowed
   uint8_t indexingMemoryLimit;
   // Enable to execute unstable features

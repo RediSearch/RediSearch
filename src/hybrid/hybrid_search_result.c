@@ -151,7 +151,7 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
 
   // Merge flags from all upstreams
   for (size_t i = 0; i < hybridResult->numSources; i++) {
-    if (hybridResult->hasResults[i] && i != targetIndex) {
+    if (hybridResult->hasResults[i] && i != (size_t)targetIndex) {
       RS_ASSERT(hybridResult->searchResults[i]);
       SearchResult_MergeFlags(primary, hybridResult->searchResults[i]);
     }

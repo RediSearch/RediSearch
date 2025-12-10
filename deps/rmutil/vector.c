@@ -58,7 +58,7 @@ inline int __vector_PutPtr(Vector *v, size_t pos, void *elem) {
 }
 
 int Vector_Resize(Vector *v, size_t newcap) {
-  int oldcap = v->cap;
+  size_t oldcap = v->cap;
   v->cap = newcap;
 
   v->data = rm_realloc(v->data, v->cap * v->elemSize);
@@ -66,7 +66,7 @@ int Vector_Resize(Vector *v, size_t newcap) {
   // If we grew:
   // put all zeros at the newly realloc'd part of the vector
   if (newcap > oldcap) {
-    int offset = oldcap * v->elemSize;
+    size_t offset = oldcap * v->elemSize;
     memset(v->data + offset, 0, v->cap * v->elemSize - offset);
   }
   return v->cap;
@@ -88,11 +88,11 @@ void Vector_Free(Vector *v) {
 }
 
 /* return the used size of the vector, regardless of capacity */
-inline int Vector_Size(Vector *v) {
+inline size_t Vector_Size(Vector *v) {
   return v->top;
 }
 
 /* return the actual capacity */
-inline int Vector_Cap(Vector *v) {
+inline size_t Vector_Cap(Vector *v) {
   return v->cap;
 }

@@ -68,10 +68,10 @@ int __vector_PushPtr(Vector *v, void *elem);
 int Vector_Resize(Vector *v, size_t newcap);
 
 /* return the used size of the vector, regardless of capacity */
-int Vector_Size(Vector *v);
+size_t Vector_Size(Vector *v);
 
 /* return the actual capacity */
-int Vector_Cap(Vector *v);
+size_t Vector_Cap(Vector *v);
 
 /* free the vector and the underlying data. Does not release its elements if
  * they are pointers*/

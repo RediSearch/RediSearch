@@ -232,7 +232,6 @@ void handleFormat(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ctx->specifiedArgs |= SPECIFIED_ARG_FORMAT;
     const char *format = *(char**)value;
-    QueryError *status = ctx->status;
     if (strcasecmp(format, "STRING") == 0) {
         *ctx->reqFlags &= ~QEXEC_FORMAT_EXPAND;
     } else if (strcasecmp(format, "EXPAND") == 0) {
@@ -269,7 +268,7 @@ void handleGroupby(ArgParser *parser, const void *value, void *user_data) {
         return;
     }
     const char **properties = array_newlen(const char *, nproperties);
-    for (size_t i = 0; i < nproperties; ++i) {
+    for (long long i = 0; i < nproperties; ++i) {
         const char *property;
         size_t propertyLen;
         int rv = AC_GetString(ac, &property, &propertyLen, 0);
@@ -391,7 +390,6 @@ void handleLoad(ArgParser *parser, const void *value, void *user_data) {
 // FILTER callback - implements EXACT original logic from handleApplyOrFilter with isApply=0
 void handleFilter(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
-    QueryError *status = ctx->status;
     ctx->specifiedArgs |= SPECIFIED_ARG_FILTER;
 
     // Get the expression from the string value

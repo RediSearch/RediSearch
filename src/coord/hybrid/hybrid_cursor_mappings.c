@@ -98,7 +98,6 @@ static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply
 static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply *rep, MRCommand *cmd) {
     // RESP3 uses a map structure instead of array pairs
     const char *keys[] = {"SEARCH", "VSIM"};
-    const bool isSearch[] = {true, false};
     const StrongRef* mappings[] = {&ctx->searchMappings, &ctx->vsimMappings};
     for (int i = 0; i < 2; i++) {
         MRReply *cursorId = MRReply_MapElement(rep, keys[i]);
@@ -176,9 +175,7 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
 }
 
 bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy) {
-    CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
-    CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
-    RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
+    RS_ASSERT(array_len(StrongRef_Get(searchMappingsRef)->mappings) == 0 && array_len(StrongRef_Get(vsimMappingsRef)->mappings) == 0);
 
     // Allocate callback context on heap (since MR_IterateWithPrivateData is asynchronous)
     processCursorMappingCallbackContext *ctx = rm_malloc(sizeof(processCursorMappingCallbackContext));
@@ -211,7 +208,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     // Wait for all callbacks to complete
     pthread_mutex_lock(ctx->mutex);
     // initialize count with response counts in case some shards already sent a response
-    for (size_t count = ctx->responseCount; count < numShards; count = ctx->responseCount) {
+    for (size_t count = ctx->responseCount; count < (size_t)numShards; count = ctx->responseCount) {
         pthread_cond_wait(ctx->completionCond, ctx->mutex);
     }
     pthread_mutex_unlock(ctx->mutex);

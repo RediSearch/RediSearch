@@ -15,7 +15,7 @@
 #define HLL_PRECISION_BITS 8
 #define INSTANCE_BLOCK_NUM 1024
 
-static const int khid = 35;
+static const int khid __attribute__((unused)) = 35;
 KHASH_SET_INIT_INT64(khid);
 
 typedef struct {

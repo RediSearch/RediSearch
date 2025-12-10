@@ -233,8 +233,7 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
 char *VectorQuery_GetDefaultScoreFieldName(const char *fieldName, size_t fieldNameLen) {
   // Generate default scoreField name using vector field name
   char *scoreFieldName = NULL;
-  int n_written = rm_asprintf(&scoreFieldName, "__%.*s_score", (int)fieldNameLen, fieldName);
-  RS_ASSERT(n_written != -1);
+  rm_asprintf(&scoreFieldName, "__%.*s_score", (int)fieldNameLen, fieldName);
   return scoreFieldName;
 }
 
@@ -251,7 +250,7 @@ void VectorQuery_Free(VectorQuery *vq) {
     case VECSIM_QT_RANGE:
       break;
   }
-  for (int i = 0; i < array_len(vq->params.params); i++) {
+  for (uint32_t i = 0; i < array_len(vq->params.params); i++) {
     rm_free((char *)vq->params.params[i].name);
     rm_free((char *)vq->params.params[i].value);
   }
@@ -692,7 +691,7 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
   RedisSearchCtx_LockSpecRead(&sctx);
   // Iterate over the fields and call the GC for each tiered index
   if (sp->flags & Index_HasVecSim) { // Early return if the spec doesn't have vector indexes
-    for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    for (int16_t ii = 0; ii < sp->numFields; ++ii) {
       if (sp->fields[ii].types & INDEXFLD_T_VECTOR &&
           sp->fields[ii].vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
         // Get the vector index

@@ -24,7 +24,7 @@ RSSortingVector *NewSortingVector(size_t len) {
   RSSortingVector *ret = rm_malloc(sizeof(RSSortingVector) + (len * sizeof(RSValue*)));
   ret->len = len;
   // set all values to NIL
-  for (int i = 0; i < len; i++) {
+  for (size_t i = 0; i < len; i++) {
     ret->values[i] = RSValue_NullStatic();
   }
   return ret;
@@ -40,7 +40,6 @@ char *normalizeStr(const char *str) {
   char *end = lower + buflen;
 
   const char *p = str;
-  size_t off = 0;
   while (*p != 0 && lower < end) {
     uint32_t in = 0;
     p = nu_utf8_read(p, &in);

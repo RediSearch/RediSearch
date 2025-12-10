@@ -137,7 +137,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   bool hasEF = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
-  for (int i=0; i<argumentCount; i+=2) {
+  for (unsigned int i=0; i<argumentCount; i+=2) {
     if (AC_IsAtEnd(ac)) {
       setExpectedArgumentsError(status, argumentCount, i);
       return REDISMODULE_ERR;
@@ -210,7 +210,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
   bool hasEpsilon = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
-  for (int i=0; i<argumentCount; i+=2) {
+  for (unsigned int i=0; i<argumentCount; i+=2) {
     if (AC_IsAtEnd(ac)) {
       setExpectedArgumentsError(status, argumentCount, i);
       return REDISMODULE_ERR;
@@ -701,7 +701,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  IndexSpec *spec = parsedCmdCtx->search->sctx->spec;
   const size_t prefixCount = array_len(*hybridParseCtx.prefixes);
   if (prefixCount && !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, *hybridParseCtx.prefixes, prefixCount)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);

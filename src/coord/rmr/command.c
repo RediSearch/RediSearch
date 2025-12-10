@@ -31,7 +31,7 @@ static inline void dropCachedCmdIfNeeded(MRCommand *cmd) {
 
 void MRCommand_Free(MRCommand *cmd) {
   dropCachedCmdIfNeeded(cmd);
-  for (int i = 0; i < cmd->num; i++) {
+  for (uint32_t i = 0; i < cmd->num; i++) {
     rm_free(cmd->strs[i]);
   }
   rm_free(cmd->strs);
@@ -99,7 +99,7 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
   ret.forProfiling = cmd->forProfiling;
   ret.rootCommand = cmd->rootCommand;
   ret.depleted = cmd->depleted;
-  for (int i = 0; i < cmd->num; i++) {
+  for (uint32_t i = 0; i < cmd->num; i++) {
     copyStr(&ret, i, cmd, i);
   }
   return ret;
@@ -133,7 +133,7 @@ static void extendCommandList(MRCommand *cmd, size_t toAdd) {
   cmd->lens = rm_realloc(cmd->lens, sizeof(*cmd->lens) * cmd->num);
 }
 
-void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n) {
+void MRCommand_Insert(MRCommand *cmd, uint32_t pos, const char *s, size_t n) {
   RS_ASSERT(0 <= pos && pos <= cmd->num);
   int oldNum = cmd->num;
   extendCommandList(cmd, 1);

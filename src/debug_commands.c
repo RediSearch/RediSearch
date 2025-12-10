@@ -322,7 +322,6 @@ DEBUG_COMMAND(DumpNumericIndex) {
 
   NumericRangeNode *currNode;
   NumericRangeTreeIterator *iter = NumericRangeTreeIterator_New(rt);
-  size_t InvertedIndexNumber = 0;
   START_POSTPONED_LEN_ARRAY(numericInvertedIndex);
   while ((currNode = NumericRangeTreeIterator_Next(iter))) {
     NumericRange *range = currNode->range;
@@ -884,7 +883,7 @@ DEBUG_COMMAND(GCCleanNumeric) {
     goto end;
   }
 
-  NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
+  NumericRangeTree_TrimEmptyLeaves(rt);
 
 end:
   SearchCtx_Free(sctx);
@@ -951,6 +950,7 @@ DEBUG_COMMAND(ttlPause) {
   // dictionary, so at this point we know that the timer exists.
   int rc = RedisModule_StopTimer(RSDummyContext, sp->timerId, (void**)&timer_ref);
   RS_ASSERT(rc == REDISMODULE_OK);
+  (void)rc;
   WeakRef_Release(timer_ref);
   sp->timerId = 0;
   sp->isTimerSet = false;
@@ -1020,7 +1020,6 @@ DEBUG_COMMAND(setMonitorExpiration) {
       {.name = "fields", .type = AC_ARGTYPE_BOOLFLAG, .target = &options.fields},
       {.name = "not-fields", .type = AC_ARGTYPE_BOOLFLAG, .target = &options.notFields},
       {NULL}};
-  RedisModuleKey *keyp = NULL;
   ArgsCursor ac = {0};
   ACArgSpec *errSpec = NULL;
   ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
@@ -1386,7 +1385,7 @@ void replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
 	while (neighbours_data[level]) {
 		RedisModule_ReplyWithArray(ctx, neighbours_data[level][0] + 1);
 		RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", level);
-		for (size_t i = 0; i < neighbours_data[level][0]; i++) {
+		for (int i = 0; i < neighbours_data[level][0]; i++) {
 			RedisModule_ReplyWithLongLong(ctx, neighbours_data[level][i + 1]);
 		}
     level++; ARRAY_LEN_VAR(response)++;

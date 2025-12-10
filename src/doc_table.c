@@ -323,7 +323,7 @@ void DMD_Free(const RSDocumentMetadata *cmd) {
 }
 
 void DocTable_Free(DocTable *t) {
-  for (int i = 0; i < t->cap; ++i) {
+  for (size_t i = 0; i < t->cap; ++i) {
     DMDChain *chain = &t->buckets[i];
     if (DLLIST2_IS_EMPTY(&chain->lroot)) {
       continue;

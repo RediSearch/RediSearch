@@ -70,7 +70,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
-  for (int j = 1; j < len - MIN_SUFFIX + 1; ++j) {
+  for (int j = 1; j < (int64_t)len - MIN_SUFFIX + 1; ++j) {
     TrieNode *trienode = TrieNode_Get(trie->root, runes + j, rlen - j, 1, NULL);
 
     data = Suffix_GetData(trienode);
@@ -86,7 +86,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 }
 
 static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
-  for (int i = 0; i < array_len(array); ++i) {
+  for (uint32_t i = 0; i < array_len(array); ++i) {
     if (STR_EQ(str, rlen, array[i])) {
       array = array_del_fast(array, i);
       return;
@@ -106,7 +106,7 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   char *oldTerm = NULL;
 
   // iterate all matching terms and remove word
-  for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
+  for (int j = 0; j < (int64_t)len - MIN_SUFFIX + 1; ++j) {
     TrieNode *node = TrieNode_Get(trie->root, runes + j, rlen - j, 1, NULL);
     suffixData *data = Suffix_GetData(node);
     // suffix trie is shared between all text fields in index, even if they don't use it.
@@ -138,7 +138,7 @@ static int processSuffixData(suffixData *data, SuffixCtx *sufCtx) {
     return REDISMODULE_OK;
   }
   arrayof(char *) array = data->array;
-  for (int i = 0; i < array_len(array); ++i) {
+  for (uint32_t i = 0; i < array_len(array); ++i) {
     if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
       return REDISEARCH_ERR;
     }
@@ -148,7 +148,6 @@ static int processSuffixData(suffixData *data, SuffixCtx *sufCtx) {
 
 static int recursiveAdd(TrieNode *node, SuffixCtx *sufCtx) {
   if (node->payload) {
-    size_t rlen;
     suffixData *data = Suffix_GetData(node);
     if (processSuffixData(data, sufCtx) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
@@ -189,7 +188,7 @@ void Suffix_IterateContains(SuffixCtx *sufCtx) {
 ************************************************************************************/
 int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
   int runner = 0;
-  int i = 0;
+  size_t i = 0;
   int init = 0;
   while (i < len) {
     // save location of token
@@ -230,7 +229,7 @@ int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *to
     }
 
     // this branching is heavy
-    for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
+    for (size_t j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
       if (str[j] == '?') {
         --curScore;
       }
@@ -247,7 +246,7 @@ int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *to
 
 int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
   int runner = 0;
-  int i = 0;
+  size_t i = 0;
   int init = 0;
   while (i < len) {
     // save location of token
@@ -288,7 +287,7 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
     }
 
     // this branching is heavy
-    for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
+    for (size_t j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
       if (str[j] == (rune)'?') {
         --score;
       }
@@ -312,7 +311,7 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload) {
 
   suffixData *data = (suffixData *)pl->data;
   arrayof(char *) array = data->array;
-  for (int i = 0; i < array_len(array); ++i) {
+  for (uint32_t i = 0; i < array_len(array); ++i) {
     if (Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], strlen(array[i]))
             == FULL_MATCH) {
       if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
@@ -379,7 +378,7 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
-  for (int j = 1; j < len - MIN_SUFFIX + 1; ++j) {
+  for (int j = 1; j < (int64_t)len - MIN_SUFFIX + 1; ++j) {
     data = TrieMap_Find(trie, copyStr + j, len - j);
 
     if (data == TRIEMAP_NOTFOUND) {
@@ -396,7 +395,7 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
   char *oldTerm = NULL;
 
   // iterate all matching terms and remove word
-  for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
+  for (int j = 0; j < (int64_t)len - MIN_SUFFIX + 1; ++j) {
     suffixData *data = TrieMap_Find(trie, str + j, len - j);
     RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
     if (j == 0) {
@@ -458,7 +457,7 @@ static arrayof(char*) _getWildcardArray(TrieMapIterator *it, const char *pattern
   arrayof(char*) resArray = NULL;
 
   while (TrieMapIterator_Next(it, &s, &sl, (void **)&nodeData)) {
-    for (int i = 0; i < array_len(nodeData->array); ++i) {
+    for (uint32_t i = 0; i < array_len(nodeData->array); ++i) {
       if (array_len(resArray) > maxPrefixExpansions) {
         goto end;
       }

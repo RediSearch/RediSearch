@@ -219,7 +219,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   }
 
   SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
-  for (int i = 0; i < hreq->nrequests; i++) {
+  for (size_t i = 0; i < hreq->nrequests; i++) {
     AREQ *subquery = hreq->requests[i];
     SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hreq->reqConfig.queryTimeoutMS);
   }

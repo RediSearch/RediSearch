@@ -155,8 +155,7 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
     // The responsibility of checking this is on the caller.
     if (!key) {
       key = createNewKey(lookup, name, name_len, flags);
-    } else if (((key->flags & RLOOKUP_F_VAL_AVAILABLE) && !(key->flags & RLOOKUP_F_ISLOADED)) &&
-                                                          !(flags & (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)) ||
+    } else if ((((key->flags & RLOOKUP_F_VAL_AVAILABLE) && !(key->flags & RLOOKUP_F_ISLOADED)) && !(flags & (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD))) ||
                 (key->flags & RLOOKUP_F_ISLOADED &&       !(flags &  RLOOKUP_F_OVERRIDE)) ||
                 (key->flags & RLOOKUP_F_QUERYSRC &&       !(flags &  RLOOKUP_F_OVERRIDE))) {
       // We found a key with the same name. We return NULL if:
@@ -449,7 +448,6 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
   if (type == JSONType_Object) {
     // Object
     japi->getLen(json, &len);
-    RSValue **pairs = NULL;
     if (len) {
       JSONKeyValuesIterator iter = japi->getKeyValues(json);
       RedisModuleString *keyName;
@@ -501,7 +499,6 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
 // Required japi_ver >= 4
 RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) {
   RSValue *ret;
-  RSValue **arr;
   size_t len = japi->len(iter);
   if (len) {
     japi->resetIter(iter);
@@ -705,7 +702,6 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   }
 
   // Get the actual json value
-  RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
   JSONResultsIterator jsonIter = (*kk->path == '$') ? japi->get(*keyobj, kk->path) : NULL;
@@ -955,7 +951,7 @@ void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags) {
     // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
     // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
     uint32_t combined_flags = flags | (src_key->flags & ~RLOOKUP_TRANSIENT_FLAGS);
-    RLookupKey *dest_key = RLookup_GetKey_Write(dest, src_key->name, combined_flags);
+    RLookup_GetKey_Write(dest, src_key->name, combined_flags);
   }
 }
 

@@ -224,7 +224,7 @@ static int JSON_getInt8(RedisJSON json, int8_t *val) {
 typedef int (*getJSONElementFunc)(RedisJSON, void *);
 int JSON_StoreVectorAt(RedisJSON arr, size_t len, getJSONElementFunc getElement, char *target, unsigned char step, QueryError* status) {
   RedisJSONPtr element = japi->allocJson();
-  for (int i = 0; i < len; ++i) {
+  for (size_t i = 0; i < len; ++i) {
     if (japi->getAt(arr, i, element) != REDISMODULE_OK || getElement(*element, target) != REDISMODULE_OK) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Invalid vector element at index %d", i);
       japi->freeJson(element);
@@ -463,6 +463,7 @@ int JSON_StoreTextInDocField(size_t len, JSONIterable *iterable, struct Document
     }
   }
   RS_LOG_ASSERT ((i + nulls) == len, "TEXT/TAG iterator count and len must be equal");
+  (void)nulls; // to avoid unused variable warning in release builds
   // Remain with surplus unused array entries from skipped null values until `Document_Clear` is called
   df->arrayLen = i;
   df->unionType = FLD_VAR_T_ARRAY;
@@ -512,6 +513,7 @@ int JSON_StoreNumericInDocField(size_t len, JSONIterable *iterable, struct Docum
     }
   }
   RS_LOG_ASSERT ((array_len(arr) + nulls) == len, "NUMERIC iterator count and len must be equal");
+  (void)nulls; // to avoid unused variable warning in release builds
   df->arrNumval = arr;
   df->unionType = FLD_VAR_T_ARRAY;
   return REDISMODULE_OK;

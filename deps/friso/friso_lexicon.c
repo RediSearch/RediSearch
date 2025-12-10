@@ -468,7 +468,7 @@ FRISO_API void friso_dic_load_from_ifile(
 
                 //get the lexicon type
                 lex_t = get_lexicon_type_with_constant(__key__);
-                if ( lex_t == -1 ) continue; 
+                if ( lex_t == (friso_lex_t)-1 ) continue; 
 
                 //printf("key=%s, type=%d\n", __key__, lex_t );
                 while ( ( __line__ = file_get_line( __chars__, __stream ) ) != NULL ) {

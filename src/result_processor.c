@@ -1274,7 +1274,6 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
 }
 
 static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
-  RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
   uint32_t chunkLimit = rp->parent->resultLimit;
   rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
   int rc;
@@ -1547,7 +1546,7 @@ static inline void RPSafeDepleter_StartDepletionThread(RPSafeDepleter *self) {
 static inline int RPSafeDepleter_WaitForDepletionToStart(DepleterSync *sync, RedisSearchCtx *nextThreadCtx) {
   if (sync->take_index_lock && !sync->index_released) {
     // Load the atomic counter
-    int num_locked = atomic_load(&sync->num_locked);
+    uint32_t num_locked = atomic_load(&sync->num_locked);
     RS_ASSERT(num_locked <= sync->num_depleters);
     if (num_locked == sync->num_depleters) {
       // Release the index
@@ -1775,7 +1774,7 @@ dictType dictTypeHybridSearchResult = {
 /* Generic helper function to check if any upstream has a specific return code */
 static bool RPHybridMerger_HasReturnCode(const RPHybridMerger *self, int returnCode) {
   for (size_t i = 0; i < self->numUpstreams; i++) {
-    if (self->upstreamReturnCodes[i] == returnCode) {
+    if (self->upstreamReturnCodes[i] == (RPStatus)returnCode) {
       return true;
     }
   }
@@ -1874,7 +1873,6 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
   }
 
   // Get the key and value before removing the entry
-  void *key = dictGetKey(entry);
   HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
   RS_ASSERT(hybridResult);
 
@@ -2100,9 +2098,6 @@ static bool addResultProcessorBeforeType(QueryProcessingCtx *qctx, ResultProcess
 // Cannot be the last RP in the stream
 static bool addResultProcessorAfterType(QueryProcessingCtx *qctx, ResultProcessor *rp, ResultProcessorType target_type) {
   ResultProcessor *cur = qctx->endProc;
-  ResultProcessor *downstream = cur;
-
-  bool found = false;
 
   // Search for the target result processor type
   while (cur) {
@@ -2117,7 +2112,6 @@ static bool addResultProcessorAfterType(QueryProcessingCtx *qctx, ResultProcesso
       rp->parent = qctx;
       return true;
     }
-    downstream = cur;
     cur = cur->upstream;
   }
 
@@ -2218,9 +2212,7 @@ static void RPCrash_Free(ResultProcessor *base) {
 }
 
 static int RPCrash_Next(ResultProcessor *base, SearchResult *r) {
-  RPCrash *self = (RPCrash *)base;
   abort();
-  return base->upstream->Next(base->upstream, r);
 }
 
 ResultProcessor *RPCrash_New() {

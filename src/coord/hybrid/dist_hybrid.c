@@ -160,7 +160,6 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 
   int combineOffset = RMUtil_ArgIndex("COMBINE", argv + vsimOffset, argc - vsimOffset);
   combineOffset = combineOffset != -1 ? combineOffset + vsimOffset : -1;
-  bool hasCombine = combineOffset != -1;
 
   // Add COMBINE
   if (combineOffset != -1) {
@@ -193,7 +192,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   argOffset = argOffset != -1 ? argOffset + vsimOffset : -1;
   if (argOffset != -1) {
     long long nargs;
-    int rc = RedisModule_StringToLongLong(argv[argOffset + 1], &nargs);
+    RedisModule_StringToLongLong(argv[argOffset + 1], &nargs);
 
     // PARAMS keyword and count - treat as string
     MRCommand_AppendRstr(xcmd, argv[argOffset]);
@@ -349,7 +348,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
     // Initialize timeout for all subqueries BEFORE building pipelines
     // but after the parsing to know the timeout values
-    for (int i = 0; i < hreq->nrequests; i++) {
+    for (size_t i = 0; i < hreq->nrequests; i++) {
         AREQ *subquery = hreq->requests[i];
         SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hreq->reqConfig.queryTimeoutMS);
     }

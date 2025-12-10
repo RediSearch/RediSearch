@@ -53,7 +53,7 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
     return NULL;
   }
   MRClusterTopology *topo = MR_NewTopology(t->numShards);
-  for (int s = 0; s < t->numShards; s++) {
+  for (uint32_t s = 0; s < t->numShards; s++) {
     MRClusterShard *original_shard = &t->shards[s];
 
     RedisModuleSlotRangeArray *slot_ranges = SlotRangeArray_Clone(original_shard->slotRanges);
@@ -79,7 +79,7 @@ static void MRClusterShard_Free(MRClusterShard *sh) {
 }
 
 void MRClusterTopology_Free(MRClusterTopology *t) {
-  for (int s = 0; s < t->numShards; s++) {
+  for (uint32_t s = 0; s < t->numShards; s++) {
     MRClusterShard_Free(&t->shards[s]);
   }
   rm_free(t->shards);

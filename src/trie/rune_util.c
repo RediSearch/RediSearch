@@ -61,7 +61,7 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
     }
   }
 
-  for (int i = 0; i < len; i++) {
+  for (size_t i = 0; i < len; i++) {
     unicode[i] = (uint32_t)in[i];
   }
   unicode[len] = 0;

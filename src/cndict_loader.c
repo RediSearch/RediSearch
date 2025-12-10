@@ -86,6 +86,7 @@ int ChineseDictLoad(friso_dic_t d) {
   version = htonl(*(uint32_t *)inbuf);
   inbuf += 4;
   RS_LOG_ASSERT(version == 0, "Chinese dictionary version should be 0");
+  (void)version;
 
   // First load the symbol..
   char *expanded = rm_malloc(ChineseDictFullLength);

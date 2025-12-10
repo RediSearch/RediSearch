@@ -274,7 +274,7 @@ expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
     } else {
         //C->opts.fieldMask = 0;
         t_fieldMask mask = 0;
-        for (int i = 0; i < Vector_Size(B); i++) {
+        for (size_t i = 0; i < Vector_Size(B); i++) {
             char *p;
             Vector_Get(B, i, &p);
             if (ctx->sctx->spec) {

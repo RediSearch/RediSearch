@@ -144,7 +144,6 @@ static jobsChain create_jobs_chain(redisearch_thpool_work_t *jobs,
                                    size_t n_jobs);
 
 static int priority_queue_init(priorityJobqueue *priority_queue_p,
-                               size_t n_threads,
                                size_t high_priority_bias_threshold);
 static void priority_queue_clear(priorityJobqueue *priority_queue_p);
 static void priority_queue_push_chain_unsafe(priorityJobqueue *priority_queue_p,
@@ -217,8 +216,7 @@ struct redisearch_thpool_t *redisearch_thpool_create(size_t num_threads, size_t 
   snprintf(thpool_p->name, MAX_THPOOL_NAME_BUFFER_SIZE, "%s", thpool_name);
 
   /* Initialise the job queue */
-  priority_queue_init(&thpool_p->jobqueues, num_threads,
-                      high_priority_bias_threshold);
+  priority_queue_init(&thpool_p->jobqueues, high_priority_bias_threshold);
 
   return thpool_p;
 }
@@ -248,12 +246,9 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
   if (curr_num_threads_alive) { // Case 2 - some or all threads are alive in
                                 // TERMINATE_WHEN_EMPTY state
     size_t n_threads_to_revive = 0;
-    size_t n_threads_to_kill = 0;
     if (curr_num_threads_alive >= n_threads) { // Case 2.a
       // Revive n_threads
       n_threads_to_revive = n_threads;
-      // Kill extra threads
-      n_threads_to_kill = curr_num_threads_alive - n_threads;
     } else {                                  // Case 2.b
       // Revive all threads
       n_threads_to_revive = curr_num_threads_alive;
@@ -446,7 +441,6 @@ static void redisearch_thpool_push_chain_verify_init_threads(
 
 /* Wait until all jobs have finished */
 void redisearch_thpool_wait(redisearch_thpool_t *thpool_p) {
-  priorityJobqueue *priority_queue_p = &thpool_p->jobqueues;
   long msec_timeout = 100;
   redisearch_thpool_drain(thpool_p, msec_timeout, NULL, NULL, 0);
 }
@@ -844,7 +838,6 @@ fail:
 /* ======================== PRIORITY QUEUE ========================== */
 
 static int priority_queue_init(priorityJobqueue *priority_queue_p,
-                               size_t num_threads,
                                size_t high_priority_bias_threshold) {
 
   jobqueue_init(&priority_queue_p->high_priority_jobqueue);
@@ -1074,9 +1067,8 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
     return;
   }
 
-  size_t n_threads = thpool_p->n_threads;
   LOG_IF_EXISTS("verbose", "Scheduling from main thread to remove %zu threads", n_threads_to_remove);
-  RS_LOG_ASSERT((!terminate_when_empty || n_threads_to_remove == n_threads), "If remove_all is set, n_threads_to_remove must be equal to n_threads");
+  RS_LOG_ASSERT((!terminate_when_empty || n_threads_to_remove == thpool_p->n_threads), "If remove_all is set, n_threads_to_remove must be equal to n_threads");
   RS_LOG_ASSERT(thpool_p->n_threads >= n_threads_to_remove, "Number of threads can't be negative");
   RS_LOG_ASSERT(thpool_p->jobqueues.state == JOBQ_RUNNING, "Can't remove threads while jobq is paused");
 

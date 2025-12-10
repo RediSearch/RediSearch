@@ -526,7 +526,6 @@ inline static int __trieNode_Cmp_Score(const void *p1, const void *p2) {
 
 /* Sort the children of a node */
 static void __trieNode_sortChildren(TrieNode *n) {
-  TrieNode **node = __trieNode_children(n);
   if (n->numChildren > 1) {
     switch (n->sortMode) {
     case Trie_Sort_Lex:
@@ -1039,8 +1038,6 @@ static void containsNext(TrieNode *n, t_len localOffset, t_len globalOffset, Ran
  * size is not negatively impacted and prone to attack.
  */
 static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r) {
-  size_t len;
-  char *str;
 
   // No match
   if ((n->numChildren == 0 && r->lenOrigStr - globalOffset > n->len) || r->stop) {
@@ -1120,7 +1117,7 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
       }
     }
     case PARTIAL_MATCH: {
-      if (!r->containsStars && array_len(r->buf) >= r->lenOrigStr) {
+      if (!r->containsStars && array_len(r->buf) >= (uint32_t)r->lenOrigStr) {
         break;
       }
       TrieNode **children = __trieNode_children(n);

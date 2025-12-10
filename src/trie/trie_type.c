@@ -222,9 +222,9 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
   }
 
   // put the results from the heap on a vector to return
-  size_t n = MIN(heap_count(pq), num);
+  size_t n = MIN((size_t)heap_count(pq), num);
   Vector *ret = NewVector(TrieSearchResult *, n);
-  for (int i = 0; i < n; ++i) {
+  for (size_t i = 0; i < n; ++i) {
     TrieSearchResult *h = heap_poll(pq);
     Vector_Put(ret, n - i - 1, h);
   }
@@ -232,7 +232,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
   // trim the results to remove irrelevant results
   if (trim) {
     float maxScore = 0;
-    int i;
+    size_t i;
     for (i = 0; i < n; ++i) {
       TrieSearchResult *h;
       Vector_Get(ret, i, &h);
@@ -339,7 +339,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
   RedisModule_SaveUnsigned(rdb, tree->size);
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   //  RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", tree->size);
-  int count = 0;
+  size_t count = 0;
   if (tree->root) {
     TrieIterator *it = TrieNode_Iterate(tree->root, NULL, NULL, NULL);
     rune *rstr;
@@ -367,7 +367,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
       count++;
     }
     if (count != tree->size) {
-      RedisModule_Log(ctx, "warning", "Trie: saving %zd nodes actually iterated only %d nodes",
+      RedisModule_Log(ctx, "warning", "Trie: saving %zu nodes actually iterated only %zu nodes",
                       tree->size, count);
     }
     TrieIterator_Free(it);

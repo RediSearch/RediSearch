@@ -201,7 +201,7 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *f
 // Get the stats of the vector indexes in the index `sp`.
 VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
   VectorIndexStats stats = {0};
-  for (size_t i = 0; i < sp->numFields; ++i) {
+  for (int16_t i = 0; i < sp->numFields; ++i) {
     const FieldSpec *fs = sp->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
       VectorIndexStats field_stats = IndexSpec_GetVectorIndexStats(sp, fs);

@@ -40,7 +40,6 @@ static size_t Fragment_GetNumTerms(const Fragment *frag) {
 static int Fragment_HasTerm(const Fragment *frag, uint32_t termId) {
   TermLoc *locs = ARRAY_GETARRAY_AS(&frag->termLocs, TermLoc *);
 
-  int firstOcurrence = 1;
   // If this is the first time the term appears in the fragment, increment the
   // fragment's score by the term's score. Otherwise, increment it by half
   // the fragment's score. This allows for better 'blended' results.

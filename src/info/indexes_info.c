@@ -77,7 +77,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     pthread_rwlock_unlock(&sp->rwlock);
   }
   dictReleaseIterator(iter);
-  if (info.min_mem == -1) info.min_mem = 0;             // No index found
+  if ((int)info.min_mem == -1) info.min_mem = 0;             // No index found
   if (BGIndexerInProgress) info.total_active_write_threads++;  // BG indexer is currently active
   return info;
 }

@@ -19,7 +19,7 @@
 
 
 int MRReply_StringEquals(MRReply *r, const char *s, int caseSensitive) {
-  if (!r || MRReply_Type(r) != MR_REPLY_STRING && MRReply_Type(r) != MR_REPLY_STATUS) return 0;
+  if (!r || (MRReply_Type(r) != MR_REPLY_STRING && MRReply_Type(r) != MR_REPLY_STATUS)) return 0;
   size_t len;
   const char *rs = MRReply_String(r, &len);
   size_t slen = strlen(s);
@@ -231,7 +231,7 @@ inline MRReply *MRReply_TakeArrayElement(const MRReply *reply, size_t idx) {
 
 static inline int MRReply_FindMapElement(const MRReply *reply, const char *key) {
   if (reply->type != MR_REPLY_MAP) return -1;
-  for (int i = 0; i < reply->elements - 1; i += 2) {
+  for (int i = 0; i < (int)(reply->elements - 1); i += 2) {
     if (MRReply_StringEquals(reply->element[i], key, false)) {
       return i + 1; // Return the index of the value
     }

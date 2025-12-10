@@ -342,7 +342,7 @@ CONFIG_SETTER(setMaxSearchResults) {
   if (newSize < 0) {
     newSize = MAX_SEARCH_REQUEST_RESULTS;
   } else {
-    newSize = MIN(newSize, MAX_SEARCH_REQUEST_RESULTS);
+    newSize = MIN(newSize, (long long)MAX_SEARCH_REQUEST_RESULTS);
   }
   config->maxSearchResults = newSize;
   return REDISMODULE_OK;
@@ -364,7 +364,7 @@ CONFIG_SETTER(setMaxAggregateResults) {
   if (newSize < 0) {
     newSize = MAX_AGGREGATE_REQUEST_RESULTS;
   } else {
-    newSize = MIN(newSize, MAX_AGGREGATE_REQUEST_RESULTS);
+    newSize = MIN(newSize, (long long)MAX_AGGREGATE_REQUEST_RESULTS);
   }
   config->maxAggregateResults = newSize;
   return REDISMODULE_OK;
@@ -993,7 +993,7 @@ CONFIG_SETTER(setUpgradeIndex) {
   if (rule_prefixes.argc > 0) {
     rule->nprefixes = rule_prefixes.argc;
     rule->prefixes = rm_malloc(rule->nprefixes * sizeof(char *));
-    for (size_t i = 0; i < rule->nprefixes; ++i) {
+    for (int i = 0; i < rule->nprefixes; ++i) {
       rule->prefixes[i] = rm_strdup(RedisModule_StringPtrLen(rule_prefixes.objs[i], NULL));
     }
   } else {
@@ -1042,13 +1042,13 @@ CONFIG_BOOLEAN_GETTER(get_PrioritizeIntersectUnionChildren, prioritizeIntersectU
 
 // INDEX_CURSOR_LIMIT
 CONFIG_SETTER(setIndexCursorLimit) {
-  int acrc = AC_GetLongLong(ac, &config->indexCursorLimit, AC_F_GE0);
+  int acrc = AC_GetSize(ac, &config->indexCursorLimit, AC_F_GE0);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getIndexCursorLimit) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->indexCursorLimit);
+  return sdscatprintf(ss, "%zu", config->indexCursorLimit);
 }
 
 // ENABLE_UNSTABLE_FEATURES
@@ -1757,7 +1757,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-index-cursor-limit", DEFAULT_INDEX_CURSOR_LIMIT,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
-      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
+      LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
       (void *)&(RSGlobalConfig.indexCursorLimit)
     )
   )

@@ -130,7 +130,7 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     }
 
     arrayof(char*) serialized = NULL;
-    for (int i = 0; i < hreq->nrequests; i++) {
+    for (size_t i = 0; i < hreq->nrequests; i++) {
       AREQ *areq = hreq->requests[i];
       auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(areq), NULL, NULL, PLN_T_DISTRIBUTE);
       RS_ASSERT(dstp);
