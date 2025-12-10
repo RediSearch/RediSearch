@@ -260,6 +260,7 @@ include_directories(
     ${root}/src/rules
     ${root}/src/language
     ${root}/src/aggregate/expr
+    ${root}/src/aggregate/functions
     ${root}/src/util/references
     ${root}/src/obfuscation
     ${BOOST_DIR}
@@ -301,6 +302,7 @@ add_subdirectory(src/trie)
 add_subdirectory(src/rules)
 add_subdirectory(src/language)
 add_subdirectory(src/aggregate/expr)
+add_subdirectory(src/aggregate/functions)
 add_subdirectory(src/util/references)
 add_subdirectory(src/obfuscation)
 
@@ -310,7 +312,6 @@ file(GLOB SOURCES
     "src/*.c"
     "src/pipeline/*.c"
     "src/aggregate/*.c"
-    "src/aggregate/functions/*.c"
     "src/aggregate/reducers/*.c"
     "src/command_info/*.c"
     "src/hybrid/*.c"
@@ -360,6 +361,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:rules>
     $<TARGET_OBJECTS:language>
     $<TARGET_OBJECTS:aggregate_expr>
+    $<TARGET_OBJECTS:aggregate_functions>
     $<TARGET_OBJECTS:references>
     $<TARGET_OBJECTS:obfuscation>
 )
@@ -425,6 +427,7 @@ target_link_libraries(redisearch
         rules
         language
         aggregate_expr
+        aggregate_functions
         references
         obfuscation
         ${HIREDIS_LIBS}
