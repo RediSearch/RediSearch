@@ -1,7 +1,12 @@
 cmake_minimum_required(VERSION 3.13)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
+# The `binroot` path includes a platform+profile segment
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
+# Rust takes care of the different platform+profiles on its own,
+# therefore we don't need to use separate target directories for different
+# platform+profiles combinations.
+get_filename_component(rust_binroot ${binroot}/.. ABSOLUTE)
 
 # Platform detection
 if(APPLE)
@@ -84,6 +89,7 @@ if(NOT DEFINED COORD_TYPE)
     set(COORD_TYPE "oss")
 endif()
 
+set(RUST_BINROOT "${rust_binroot}")
 if(COORD_TYPE STREQUAL "oss")
     set(BINDIR "${binroot}/search-community")
 elseif(COORD_TYPE STREQUAL "rlec")
