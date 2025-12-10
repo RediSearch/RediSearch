@@ -54,6 +54,22 @@ jobs:
           command: check licenses
           arguments: --all-features
           manifest-path: src/redisearch_rs/Cargo.toml
+      - name: Workspace hack check
+        id: workspace_hack
+        continue-on-error: true
+        run: |
+          # Check that workspace_hack's Cargo.toml is up-to-date
+          # If this fails, run `cargo hakari generate` to fix it
+          if ! cargo hakari generate --diff; then
+            echo "Suggested fix: Run 'cargo hakari generate' in 'src/redisearch_rs' to update workspace_hack's Cargo.toml"
+            exit 1
+          fi
+          # Check that all workspace crates depend on workspace_hack
+          # If this fails, run `cargo hakari manage-deps` to fix it
+          if ! cargo hakari manage-deps --dry-run; then
+            echo "Suggested fix: Run 'cargo hakari manage-deps' in 'src/redisearch_rs' to ensure all workspace crates depend on workspace_hack"
+            exit 1
+          fi
       - name: Fail if any step failed
         if: |
           steps.lint.outcome == 'failure' ||
@@ -61,7 +77,8 @@ jobs:
           steps.license-header.outcome == 'failure' ||
           steps.fmt.outcome == 'failure' ||
           steps.advisories.outcome == 'failure' ||
-          steps.dep-licenses.outcome == 'failure'
+          steps.dep-licenses.outcome == 'failure' ||
+          steps.workspace_hack.outcome == 'failure'
         run: |
           echo "Linting: ${{ steps.lint.outcome }}"
           echo "License header: ${{ steps.license-header.outcome }}"
@@ -69,4 +86,5 @@ jobs:
           echo "Formatting: ${{ steps.fmt.outcome }}"
           echo "Security advisories: ${{ steps.advisories.outcome }}"
           echo "Dependency licenses: ${{ steps.dep-licenses.outcome }}"
+          echo "Workspace hack: ${{ steps.workspace_hack.outcome }}"
           exit 1

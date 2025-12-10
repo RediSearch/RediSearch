@@ -33,3 +33,4 @@ types_ffi = { path = "../c_entrypoint/types_ffi" }
 triemap_ffi = { path = "../c_entrypoint/triemap_ffi" }
 varint_ffi = { path = "../c_entrypoint/varint_ffi" }
 value_ffi = { path = "../c_entrypoint/value_ffi" }
+workspace_hack = { version = "0.1", path = "../workspace_hack" }

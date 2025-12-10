@@ -24,6 +24,7 @@ ffi.workspace = true
 inverted_index.workspace = true
 rqe_iterators = { workspace = true, features = ["disable_sort_checks_in_idlist"] }
 rqe_iterators_interop.workspace = true
+workspace_hack = { version = "0.1", path = "../../workspace_hack" }
 
 [build-dependencies]
 cbindgen.workspace = true

@@ -18,6 +18,7 @@ workspace = true
 
 [dependencies]
 memchr.workspace = true
+workspace_hack = { version = "0.1", path = "../workspace_hack" }
 
 [dev-dependencies]
 criterion.workspace = true

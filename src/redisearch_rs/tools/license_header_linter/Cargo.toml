@@ -11,6 +11,7 @@ name = "license_header_linter"
 bench = false
 
 [dependencies]
+workspace_hack = { version = "0.1", path = "../../workspace_hack" }
 
 [lints]
 workspace = true

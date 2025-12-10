@@ -14,3 +14,4 @@ build_utils = { path = "../../build_utils" }
 
 [dependencies]
 low_memory_thin_vec.workspace = true
+workspace_hack = { version = "0.1", path = "../../workspace_hack" }

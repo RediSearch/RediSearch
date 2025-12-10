@@ -14,6 +14,7 @@ qint.workspace = true
 smallvec = { workspace = true, features = ["serde", "union"] }
 varint.workspace = true
 serde.workspace = true
+workspace_hack = { version = "0.1", path = "../workspace_hack" }
 
 [dev-dependencies]
 pretty_assertions.workspace = true

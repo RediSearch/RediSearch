@@ -6,6 +6,7 @@ license-file.workspace = true
 publish.workspace = true
 
 [dependencies]
+workspace_hack = { version = "0.1", path = "../../workspace_hack" }
 
 [lints]
 workspace = true

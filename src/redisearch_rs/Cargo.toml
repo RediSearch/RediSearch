@@ -28,6 +28,7 @@ members = [
     "varint",
     "varint_bencher",
     "wildcard",
+    "workspace_hack",
 ]
 
 resolver = "3"

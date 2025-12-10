@@ -9,6 +9,7 @@ publish.workspace = true
 ffi.workspace = true
 inverted_index.workspace = true
 rqe_iterators.workspace = true
+workspace_hack = { version = "0.1", path = "../workspace_hack" }
 
 [lints]
 workspace = true
