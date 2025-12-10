@@ -17,6 +17,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+      # Cache Rust packages and binaries
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          # The cargo workspaces and target directory configuration.
+          # These entries are separated by newlines and have the form
+          # `$workspace -> $target`. The `$target` part is treated as a directory
+          # relative to the `$workspace` and defaults to "target" if not explicitly given.
+          # default: ". -> target"
+          workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
       - name: Setup
         working-directory: .install
         run: ./install_script.sh sudo
@@ -60,16 +70,10 @@ jobs:
         working-directory: src/redisearch_rs
         continue-on-error: true
         run: |
-          # Check that workspace_hack's Cargo.toml is up-to-date
-          # If this fails, run `cargo hakari generate` to fix it
-          if ! cargo hakari generate --diff; then
-            echo "Suggested fix: Run 'cargo hakari generate' in 'src/redisearch_rs' to update workspace_hack's Cargo.toml"
-            exit 1
-          fi
-          # Check that all workspace crates depend on workspace_hack
-          # If this fails, run `cargo hakari manage-deps` to fix it
-          if ! cargo hakari manage-deps --dry-run; then
-            echo "Suggested fix: Run 'cargo hakari manage-deps' in 'src/redisearch_rs' to ensure all workspace crates depend on workspace_hack"
+          if ! cargo hakari generate --diff || ! cargo hakari manage-deps --dry-run; then
+            echo "Suggested fix:"
+            echo "  Run the following command in 'src/redisearch_rs' to update workspace_hack's Cargo.toml and ensure all workspace crates depend on workspace_hack:"
+            echo "    cargo hakari generate && cargo hakari manage-deps"
             exit 1
           fi
       - name: Fail if any step failed
