@@ -252,14 +252,14 @@ TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
 }
 
 TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
-  // Test that active_topology_update_threads metric is tracked correctly
+  // Test that uv_threads_running_topology_update metric is tracked correctly
 
   // Setup
   ConcurrentSearch_CreatePool(1);
 
   // Phase 1: Verify metric starts at 0
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
-  ASSERT_EQ(stats.active_topology_update_threads, 0);
+  ASSERT_EQ(stats.uv_threads_running_topology_update, 0);
 
   // Phase 2: Use static flags for communication with the topo callback
   static std::atomic<bool> topo_started{false};
@@ -299,7 +299,7 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
 
   // Phase 3: Verify metric is 1 while callback is running
   stats = GlobalStats_GetMultiThreadingStats();
-  ASSERT_EQ(stats.active_topology_update_threads, 1);
+  ASSERT_EQ(stats.uv_threads_running_topology_update, 1);
 
   // Signal callback to finish
   topo_should_finish.store(true);
@@ -307,7 +307,7 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
   // Phase 4: Wait for metric to return to 0
   success = RS::WaitForCondition([&]() {
     stats = GlobalStats_GetMultiThreadingStats();
-    return stats.active_topology_update_threads == 0;
+    return stats.uv_threads_running_topology_update == 0;
   });
   ASSERT_TRUE(success) << "Timeout waiting for metric to return to 0";
 

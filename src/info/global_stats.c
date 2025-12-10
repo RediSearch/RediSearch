@@ -179,21 +179,21 @@ void GlobalStats_UpdateUvRunningQueries(int toAdd) {
   INCR_BY(RSGlobalStats.totalStats.multi_threading.uv_threads_running_queries, toAdd);
 }
 
-void GlobalStats_UpdateActiveTopologyUpdateThreads(int toAdd) {
+void GlobalStats_UpdateUvRunningTopoUpdate(int toAdd) {
 #ifdef ENABLE_ASSERT
-  RS_LOG_ASSERT(toAdd != 0, "Attempt to change active_topology_update_threads by 0");
-  size_t current = READ(RSGlobalStats.totalStats.multi_threading.active_topology_update_threads);
+  RS_LOG_ASSERT(toAdd != 0, "Attempt to change uv_threads_running_topology_update by 0");
+  size_t current = READ(RSGlobalStats.totalStats.multi_threading.uv_threads_running_topology_update);
   RS_LOG_ASSERT_FMT(toAdd > 0 || current > 0,
-    "Cannot decrease active_topology_update_threads below 0. toAdd: %d, current: %zu", toAdd, current);
+    "Cannot decrease uv_threads_running_topology_update below 0. toAdd: %d, current: %zu", toAdd, current);
 #endif
-  INCR_BY(RSGlobalStats.totalStats.multi_threading.active_topology_update_threads, toAdd);
+  INCR_BY(RSGlobalStats.totalStats.multi_threading.uv_threads_running_topology_update, toAdd);
 }
 
 // Get multiThreadingStats
 MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   MultiThreadingStats stats;
   stats.uv_threads_running_queries = READ(RSGlobalStats.totalStats.multi_threading.uv_threads_running_queries);
-  stats.active_topology_update_threads = READ(RSGlobalStats.totalStats.multi_threading.active_topology_update_threads);
+  stats.uv_threads_running_topology_update = READ(RSGlobalStats.totalStats.multi_threading.uv_threads_running_topology_update);
 
   // Workers stats
   // We don't use workersThreadPool_getStats here to avoid the overhead of locking the thread pool.

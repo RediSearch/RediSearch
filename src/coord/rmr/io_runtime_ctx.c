@@ -104,9 +104,9 @@ static void topologyAsyncCB(uv_async_t *async) {
     // will be the topology check. If the topology hasn't changed, the topology check will quickly
     // mark the event loop thread as ready again.
     io_runtime_ctx->uv_runtime.loop_th_ready = false;
-    GlobalStats_UpdateActiveTopologyUpdateThreads(1);
+    GlobalStats_UpdateUvRunningTopoUpdate(1);
     task->cb(task->privdata);
-    GlobalStats_UpdateActiveTopologyUpdateThreads(-1);
+    GlobalStats_UpdateUvRunningTopoUpdate(-1);
     rm_free(task);
     // Finish this round of topology checks to give the topology connections a chance to connect.
     // Schedule connectivity check immediately with a 1ms repeat interval
