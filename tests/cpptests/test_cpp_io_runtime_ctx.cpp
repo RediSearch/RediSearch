@@ -17,7 +17,6 @@
 #include "coord/rmr/cluster.h"
 #include "concurrent_ctx.h"
 #include "info/global_stats.h"
-#include "rmalloc.h"
 
 class ActiveIoThreadsTest : public ::testing::Test {
 protected:
