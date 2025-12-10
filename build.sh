@@ -579,6 +579,7 @@ run_rust_tests() {
     # require C symbols to be defined even if they aren't invoked at runtime.
     echo "Using nightly version: ${NIGHTLY_VERSION}"
     RUST_TEST_OPTIONS="
+      --profile=$RUST_PROFILE
       --doctests
       $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C
       --codecov
@@ -586,9 +587,11 @@ run_rust_tests() {
       --output-path=$BINROOT/rust_cov.info
     "
   elif [[ -n "$SAN" || "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
-    RUST_TEST_COMMAND="+$NIGHTLY_VERSION miri test"
+    RUST_TEST_COMMAND="+$NIGHTLY_VERSION miri test "
+    RUST_TEST_OPTIONS="--profile=$RUST_PROFILE"
   else
     RUST_TEST_COMMAND="nextest run"
+    RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
   fi
 
   if [[ $OS_NAME != "macos" ]]; then
@@ -598,7 +601,7 @@ run_rust_tests() {
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings }" cargo $RUST_TEST_COMMAND --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $TEST_FILTER -- --nocapture
+  RUSTFLAGS="${RUSTFLAGS:--D warnings }" cargo $RUST_TEST_COMMAND $RUST_TEST_OPTIONS --workspace $TEST_FILTER
 
   # Check test results
   RUST_TEST_RESULT=$?
