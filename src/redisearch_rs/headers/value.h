@@ -41,16 +41,7 @@ typedef enum RsValueType {
 typedef struct RsValue RsValue;
 
 /**
- * A heap-allocated and refcounted RedisSearch dynamic value.
- * This type is backed by [`Arc<RsValue>`], but uses
- * the NULL pointer to encode an undefined value, and is FFI safe.
- *
- * # Invariants
- * - If this pointer is non-NULL, it was obtained from `Arc::into_raw`.
- * - If it is NULL, it represents an undefined value.
- * - A non-null pointer represents one clone of said `Arc`, and as such, as
- *   long as the [`SharedRsValue`] lives and holds a non-null pointer, the Arc
- *   is still valid.
+ * A shared RedisSearch dynamic value, backed by an `Arc<RsValue>`.
  */
 typedef struct SharedRsValue SharedRsValue;
 
