@@ -17,6 +17,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Setup
+        working-directory: .install
+        run: ./install_script.sh sudo
       # Cache Rust packages and binaries
       - uses: Swatinem/rust-cache@v2
         with:
@@ -27,9 +30,6 @@ jobs:
           # relative to the `$workspace` and defaults to "target" if not explicitly given.
           # default: ". -> target"
           workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
-      - name: Setup
-        working-directory: .install
-        run: ./install_script.sh sudo
       - name: Hakari
         run: cargo install cargo-hakari --locked
       - name: Lint
