@@ -123,11 +123,15 @@ rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42"
 default-features = false
 
 [profile.release]
+# - Aggressive link-time optimization, to maximize performance
+#   at the expense of build time.
 lto = "fat"
 codegen-units = 1
-
-[profile.profiling]
-inherits = "release"
+# The RediSearch release process will extract debug symbols
+# from the final redisearch.so file into a separate debug file.
+# The shared object will then be stripped, to minimize its size.
+# In order to get Rust symbols into that debug file, we need
+# to include them by default in release builds.
 debug = true
 
 # A profile for fast test execution that doesn't sacrifice
@@ -135,8 +139,10 @@ debug = true
 [profile.optimised_test]
 # Like `release`, but:
 inherits = "release"
-# - Emit debug symbols
-debug = true
+# - Less aggressive link-time optimization, to recover
+#   parallelism in the build.
+lto = "thin"
+codegen-units = 16
 # - Enable debug assertions
 debug-assertions = true
 # - Enable runtime overflow checks
