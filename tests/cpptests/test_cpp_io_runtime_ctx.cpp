@@ -14,8 +14,10 @@
 #include <thread>
 #include <atomic>
 #include "coord/rmr/rq.h"
+#include "coord/rmr/cluster.h"
 #include "concurrent_ctx.h"
 #include "info/global_stats.h"
+#include "rmalloc.h"
 
 class ActiveIoThreadsTest : public ::testing::Test {
 protected:
@@ -84,7 +86,7 @@ TEST_F(ActiveIoThreadsTest, TestMetricUpdateDuringCallback) {
   ConcurrentSearch_ThreadPoolDestroy();
 }
 
-TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
+TEST_F(ActiveIoThreadsTest, ActiveTopologyUpdateThreadsMetric) {
   // Test that uv_threads_running_topology_update metric is tracked correctly
 
   // Setup
@@ -100,31 +102,28 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
   topo_started = false;
   topo_should_finish = false;
 
+  // Create a minimal dummy topology on the stack
+  MRClusterTopology dummyTopo = {};
+  dummyTopo.numShards = 0;
+  dummyTopo.capShards = 0;
+  dummyTopo.shards = nullptr;
+
   // Slow topo callback - signals start, waits for finish signal
   auto slowTopoCallback = [](void *privdata) {
-    auto *ctx = (struct UpdateTopologyCtx *)privdata;
-
     topo_started.store(true);
 
     // Wait until test tells us to finish
     while (!topo_should_finish.load()) {
       usleep(100);
     }
-
-    // Must free ctx and its topology (callback owns privdata)
-    if (ctx->new_topo) {
-      MRClusterTopology_Free(ctx->new_topo);
-    }
-    rm_free(ctx);
   };
 
-  // Start the IO runtime thread (required for uv loop to process async events)
-  int dummy = 0;
-  IORuntimeCtx_Schedule(ctx, testCallback, &dummy);
+  // Mark the loop as ready to bypass topology validation timeout
+  RQ_Debug_SetLoopReady();
 
-  // Schedule topology update - this calls uv_async_send which triggers topologyAsyncCB
-  MRClusterTopology *newTopo = getDummyTopology(9999);
-  IORuntimeCtx_Schedule_Topology(ctx, slowTopoCallback, newTopo, true);
+  // Schedule topology update - in 8.2 this uses RQ_Push_Topology
+  // which triggers topologyAsyncCB that wraps the callback with metric updates
+  RQ_Push_Topology(slowTopoCallback, &dummyTopo);
 
   // Wait for topo callback to start
   bool success = RS::WaitForCondition([&]() { return topo_started.load(); });
