@@ -263,6 +263,7 @@ include_directories(
     ${root}/src/aggregate/functions
     ${root}/src/util/references
     ${root}/src/obfuscation
+    ${root}/src/rlookup
     ${BOOST_DIR}
     ${root})
 
@@ -305,6 +306,7 @@ add_subdirectory(src/aggregate/expr)
 add_subdirectory(src/aggregate/functions)
 add_subdirectory(src/util/references)
 add_subdirectory(src/obfuscation)
+add_subdirectory(src/rlookup)
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
@@ -364,6 +366,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:aggregate_functions>
     $<TARGET_OBJECTS:references>
     $<TARGET_OBJECTS:obfuscation>
+    $<TARGET_OBJECTS:rlookup>
 )
 
 #----------------------------------------------------------------------------------------------
@@ -430,6 +433,7 @@ target_link_libraries(redisearch
         aggregate_functions
         references
         obfuscation
+        rlookup
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
         ${CMAKE_LD_LIBS})
