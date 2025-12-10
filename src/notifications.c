@@ -22,8 +22,6 @@
 
 #define JSON_LEN 5 // length of string "json."
 
-#define MIN_TRIM_DELAY 2000 // 2 seconds in milliseconds (This is a proxy minimal delay that we expect to ensure that all shards have received Updated topology)
-#define MAX_TRIM_DELAY 5000 // 5 seconds in milliseconds (We do not want to delay Trimming too much. If queries did not finish before, maybe we have some risk of missing some data)
 #define TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
 
 RedisModuleString *global_RenameFromKey = NULL;
@@ -431,8 +429,8 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       // Start 2 timers. One for the minimal delay, and one for the maximal delay.
       RedisModule_Log(ctx, "notice", "Got ASM migrate completed event.");
       RedisModule_ClusterDisableTrim(ctx);
-      checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, MIN_TRIM_DELAY, checkTrimmingStateCallback, slots);
-      enableTrimmingTimerId = RedisModule_CreateTimer(ctx, MAX_TRIM_DELAY, enableTrimmingCallback, slots);
+      checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.minTrimDelayMS, checkTrimmingStateCallback, slots);
+      enableTrimmingTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.maxTrimDelayMS, enableTrimmingCallback, slots);
       checkTrimmingStateTimerIdScheduled = true;
       enableTrimmingTimerIdScheduled = true;
       if (!IsEnterprise()) {

@@ -192,8 +192,12 @@ typedef struct {
   // Set how much time after OOM is detected we should wait to enable the resource manager to
   // allocate more memory.
   uint32_t bgIndexingOomPauseTimeBeforeRetry;
-
-  bool debugDisableTrimming; // Debug flag to disable trimming. If TRUE, we will not allow redis to trim slots.
+  // Minimum delay before checking trimming state after slot migration (in milliseconds)
+  uint32_t minTrimDelayMS;
+  // Maximum delay before enabling trimming after slot migration (in milliseconds)
+  uint32_t maxTrimDelayMS;
+  // Debug flag to disable trimming. If TRUE, we will not allow redis to trim slots.
+  bool debugDisableTrimming;
 } RSConfig;
 
 typedef enum {
@@ -319,6 +323,8 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_SHARD_WINDOW_RATIO 1.0
 #define MIN_SHARD_WINDOW_RATIO 0.0  // Exclusive minimum (must be > 0.0)
 #define MAX_SHARD_WINDOW_RATIO 1.0
+#define DEFAULT_MIN_TRIM_DELAY 2000  // 2 seconds in milliseconds
+#define DEFAULT_MAX_TRIM_DELAY 5000  // 5 seconds in milliseconds
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
@@ -369,7 +375,9 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
     .requestConfigParams.oomPolicy = OomPolicy_Return,                         \
-    .debugDisableTrimming = DEFAULT_DEBUG_DISABLE_TRIMMING,                                             \
+    .minTrimDelayMS = DEFAULT_MIN_TRIM_DELAY,                                  \
+    .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                  \
+    .debugDisableTrimming = DEFAULT_DEBUG_DISABLE_TRIMMING,                    \
   }
 
 #define REDIS_ARRAY_LIMIT 7
