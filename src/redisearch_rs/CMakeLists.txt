@@ -47,7 +47,7 @@ else()
     set(RUST_ARTIFACT_DIR "${RUST_PROFILE}")
 endif()
 
-# If a custom build target is specified, adjust the artifact directory accordingly
+# If a build target is explicitly specified, adjust the artifact directory accordingly
 if(DEFINED CARGO_BUILD_TARGET)
     set(RUST_ARTIFACT_DIR "${CARGO_BUILD_TARGET}/${RUST_ARTIFACT_DIR}")
 endif()
