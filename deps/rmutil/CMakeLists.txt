@@ -1,4 +1,4 @@
-add_library(rmutil OBJECT
+add_library(rmutil STATIC
     alloc.c
     args.c
     cmdparse.c

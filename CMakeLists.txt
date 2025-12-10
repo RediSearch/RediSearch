@@ -342,7 +342,6 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:mempool>
     $<TARGET_OBJECTS:value>
     $<TARGET_OBJECTS:rscore>
-    $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
     $<TARGET_OBJECTS:metaphone>
@@ -409,6 +408,7 @@ target_link_libraries(redisearch
         wildcard
         uv_a
         redisearch_rs
+        rmutil
         ttl_table
         spec
         doc_table
