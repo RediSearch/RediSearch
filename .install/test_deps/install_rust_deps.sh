@@ -24,6 +24,8 @@ rustup toolchain install $NIGHTLY_VERSION \
 cargo install cargo-llvm-cov --locked
 # Our preferred test runner, instead of the default `cargo test`
 cargo install cargo-nextest --locked
+# Tool to aggressively unify the feature sets of our dependencies,
+# thus improving the cacheability of our builds
 cargo install cargo-hakari --locked
 # Make sure `miri` is fully operational before running tests with it.
 # See https://github.com/rust-lang/miri/blob/master/README.md#running-miri-on-ci
