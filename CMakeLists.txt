@@ -265,6 +265,7 @@ include_directories(
     ${root}/src/util/block_alloc
     ${root}/src/obfuscation
     ${root}/src/rlookup
+    ${root}/src/info/global_stats
     ${BOOST_DIR}
     ${root})
 
@@ -309,6 +310,7 @@ add_subdirectory(src/aggregate/functions)
 add_subdirectory(src/util/references)
 add_subdirectory(src/obfuscation)
 add_subdirectory(src/rlookup)
+add_subdirectory(src/info/global_stats)
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
@@ -370,6 +372,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:block_alloc>
     $<TARGET_OBJECTS:obfuscation>
     $<TARGET_OBJECTS:rlookup>
+    $<TARGET_OBJECTS:global_stats>
 )
 
 #----------------------------------------------------------------------------------------------
@@ -438,6 +441,7 @@ target_link_libraries(redisearch
         block_alloc
         obfuscation
         rlookup
+        global_stats
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
         ${CMAKE_LD_LIBS})
