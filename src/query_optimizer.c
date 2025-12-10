@@ -187,7 +187,7 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   // there is no sorting field and scorer is required - we must check all results
   if ((!isSortby && opt->scorerReq) || (root->type == QN_VECTOR && root->vn.vq->type == VECSIM_QT_KNN)) {
     if (opt->type == Q_OPT_UNDECIDED) {
-      opt->type = Q_OPT_PARTIAL_RANGE;
+      opt->type = Q_OPT_NONE;
     }
     return;
   }
