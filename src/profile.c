@@ -164,6 +164,13 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
       }
 
+      // Print cursor reads count if this is a cursor request.
+      if (req->reqflags & QEXEC_F_IS_CURSOR) {
+        // Only internal requests can use profile with cursor.
+        RS_ASSERT(IsInternal(req));
+        RedisModule_ReplyKV_LongLong(reply, "Internal cursor reads", req->cursor_reads);
+      }
+
       // print into array with a recursive function over result processors
 
       // Print profile of iterators
