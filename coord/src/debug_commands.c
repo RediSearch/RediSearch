@@ -49,7 +49,7 @@ DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
     return RedisModule_WrongArity(ctx);
   }
 
-  DistAggregateCommand(ctx, argv, argc);
+  DistAggregateCommandImp(ctx, ++argv, --argc, true);
 }
 
 DEBUG_COMMAND(DistSearchCommand_DebugWrapper) {
@@ -59,7 +59,18 @@ DEBUG_COMMAND(DistSearchCommand_DebugWrapper) {
     return RedisModule_WrongArity(ctx);
   }
 
-  DistSearchCommand(ctx, argv, argc);
+  DistSearchCommandImp(ctx, ++argv, --argc, true);
+}
+
+DEBUG_COMMAND(ProfileCommandCommand_DebugWrapper) {
+
+  // at least one debug_param should be provided
+  // (1)_FT.DEBUG (2) FT.PROFILE (3) <index> (4) SEARCH | AGGREGATE [LIMITED] (6) QUERY <query> [query_options] (5) debug_params (6)DEBUG_PARAMS_COUNT (7) <debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return ProfileCommandHandlerImp(ctx, ++argv, --argc, true);
 }
 
 DebugCommandType coordCommands[] = {
@@ -69,6 +80,7 @@ DebugCommandType coordCommands[] = {
   {"CLEAR_PENDING_TOPOLOGY", clearTopology},
   {"FT.AGGREGATE", DistAggregateCommand_DebugWrapper},
   {"FT.SEARCH", DistSearchCommand_DebugWrapper},
+  {"FT.PROFILE", ProfileCommandCommand_DebugWrapper},
   {NULL, NULL}
 };
 // Make sure the two arrays are of the same size (don't forget to update `debug_command_names.h`)

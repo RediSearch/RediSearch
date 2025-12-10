@@ -8,6 +8,7 @@
 #define RS_MODULE_H_
 
 #include "redismodule.h"
+#include <stdbool.h>
 
 // Module-level dummy context for certain dummy RM_XXX operations
 extern RedisModuleCtx *RSDummyContext;
@@ -40,6 +41,8 @@ do {                                            \
 
 #define RedisModule_ReplyWithLiteral(ctx, literal) \
   RedisModule_ReplyWithStringBuffer(ctx, literal, sizeof(literal) - 1)
+
+int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
 
 #ifdef __cplusplus
 }
