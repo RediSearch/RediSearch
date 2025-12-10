@@ -252,6 +252,7 @@ def test_coord_profile():
       'Pipeline creation time': ANY,
       'Total GIL time': ANY,
       'Warning': 'None',
+      'Internal cursor reads': ANY,
       'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
       'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},]
     }
