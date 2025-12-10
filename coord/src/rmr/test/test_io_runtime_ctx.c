@@ -7,6 +7,7 @@
 #include "coord/tests/utils/minunit.h"
 #include "coord/src/rmr/rq.h"
 #include "info/global_stats.h"
+#include "util/workers.h"
 #include "rmutil/alloc.h"
 #include <unistd.h>
 #include <stdatomic.h>
@@ -56,6 +57,8 @@ static int wait_for_metric_value(size_t expected_value, int timeout_ms) {
 }
 
 void testMetricUpdateDuringCallback() {
+  // Init workers thpool required to call GlobalStats_GetMultiThreadingStats
+  workersThreadPool_CreatePool(1);
   CallbackFlags flags;
   atomic_init(&flags.started, false);
   atomic_init(&flags.should_finish, false);
@@ -91,6 +94,7 @@ void testMetricUpdateDuringCallback() {
 
   // Clean up
   RQ_Done(q);
+  workersThreadPool_Destroy();
 }
 
 static void dummyLog(RedisModuleCtx *ctx, const char *level, const char *fmt, ...) {}
