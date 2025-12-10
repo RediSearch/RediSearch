@@ -103,7 +103,7 @@ TEST_F(SlotRangesTest, testBinaryDeserializationInvalidData) {
     struct {
         uint32_t num_ranges;
         RedisModuleSlotRange ranges[5]; // enough for 5 ranges for this test
-    } array_buf;
+    } array_buf = {0};
     RedisModuleSlotRangeArray* array = (RedisModuleSlotRangeArray*)&array_buf;
 
     // Test with corrupted/invalid serialized data

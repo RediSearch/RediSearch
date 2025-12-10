@@ -565,7 +565,7 @@ CONFIG_SETTER(setDeprWorkThreads) {
 CONFIG_GETTER(getDeprWorkThreads) {
   RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
   sds ss = sdsempty();
-  size_t numThreads;
+  size_t numThreads = 0;
   switch (mt_mode_config) {
   case MT_MODE_OFF:
     numThreads = 0;
