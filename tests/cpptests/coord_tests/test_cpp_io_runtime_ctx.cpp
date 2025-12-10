@@ -143,7 +143,6 @@ TEST_F(IORuntimeCtxCommonTest, MultipleTopologyUpdates) {
 
 TEST_F(IORuntimeCtxCommonTest, ClearPendingTopo) {
   // Create a new topology but don't start the runtime
-  const char *new_hosts[] = {"localhost:6379", "localhost:6389", "localhost:6399", "localhost:6409", "localhost:6419"};
   MRClusterTopology *newTopo = getDummyTopology(2048);
 
   // Schedule the topology update

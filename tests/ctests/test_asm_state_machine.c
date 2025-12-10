@@ -53,7 +53,6 @@ static void freeSlotRangeArray(RedisModuleSlotRangeArray* array) {
 int testInitialization() {
   slots_tracker_reset_for_testing();
   atomic_store_explicit(&key_space_version, 0, memory_order_relaxed);
-  uint32_t initial_version = atomic_load_explicit(&key_space_version, memory_order_relaxed);
   RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(100, 199);
   ASM_StateMachine_SetLocalSlots(init_slots);
   OptionSlotTrackerVersion version = slots_tracker_check_availability(init_slots);

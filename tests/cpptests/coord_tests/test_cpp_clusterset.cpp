@@ -39,7 +39,7 @@ protected:
     // Helper to verify a shard's slot ranges
     bool VerifySlotRanges(const MRClusterShard& shard,
                          const std::vector<std::pair<uint16_t, uint16_t>>& expected) {
-        if (shard.slotRanges->num_ranges != expected.size()) {
+        if ((size_t)shard.slotRanges->num_ranges != expected.size()) {
             return false;
         }
         for (size_t i = 0; i < expected.size(); i++) {

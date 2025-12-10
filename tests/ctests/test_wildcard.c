@@ -115,7 +115,7 @@ int test_removeEscape() {
   return 0;
 }
 
-int _testTrimPattern(char *str, char *strAfter, int lenAfter) {
+int _testTrimPattern(char *str, char *strAfter, size_t lenAfter) {
   //printf("%d %s ", i++, str);
   size_t len = Wildcard_TrimPattern(str, strlen(str));
   //printf("%s %d\n", str, len);
@@ -222,5 +222,5 @@ TEST_MAIN({
   TESTFUNC(test_StarBreak);
   TESTFUNC(test_removeEscape);
   TESTFUNC(test_trimPattern);
-  TESTFUNC(test_match); 
+  TESTFUNC(test_match);
 });

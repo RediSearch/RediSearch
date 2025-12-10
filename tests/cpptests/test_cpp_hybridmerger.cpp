@@ -1271,11 +1271,9 @@ TEST_F(HybridMergerTest, testHybridMergerErrorPrecedence) {
   // Process and verify that the most severe error (RS_RESULT_ERROR) is returned
   SearchResult r = {0};
   int result;
-  size_t count = 0;
 
   // Try to get results - should return error due to upstream3 error
   while ((result = hybridMerger->Next(hybridMerger, &r)) == RS_RESULT_OK) {
-    count++;
     SearchResult_Clear(&r);
   }
 

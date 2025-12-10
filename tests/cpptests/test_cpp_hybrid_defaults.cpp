@@ -38,7 +38,7 @@ protected:
     sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
     ASSERT_TRUE(sctx != NULL);
     result = MakeDefaultHybridRequest(sctx);
-    hybridParams = {0};
+    hybridParams = {{{0}}};
     parseCtx.search = result->requests[0];
     parseCtx.vector = result->requests[1];
     parseCtx.tailPlan = &result->tailPipeline->ap;

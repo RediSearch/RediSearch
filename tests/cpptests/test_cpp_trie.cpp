@@ -77,7 +77,6 @@ static ElemSet trieIterRange(Trie *t, const char *begin, const char *end) {
 
 TEST_F(TrieTest, testBasicRange) {
   Trie *t = NewTrie(NULL, Trie_Sort_Lex);
-  rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
   for (size_t ii = 0; ii < 1000; ++ii) {
     char buf[64];
     sprintf(buf, "%lu", (unsigned long)ii);
@@ -115,7 +114,6 @@ TEST_F(TrieTest, testBasicRange) {
 
 TEST_F(TrieTest, testBasicRangeWithScore) {
   Trie *t = NewTrie(NULL, Trie_Sort_Score);
-  rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
   for (size_t ii = 0; ii < 1000; ++ii) {
     char buf[64];
     sprintf(buf, "%lu", (unsigned long)ii);
@@ -507,9 +505,9 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   RSPayload p2 = {.data = payload2, .len = strlen(payload2)};
   RSPayload p3 = {.data = payload3, .len = strlen(payload3)};
 
-  bool r1 = Trie_InsertStringBuffer(originalTrie, "run", 3, 5.0, 0, &p1);        // Base word with payload
-  bool r2 = Trie_InsertStringBuffer(originalTrie, "running", 7, 3.0, 0, &p2);    // Extension with payload
-  bool r3 = Trie_InsertStringBuffer(originalTrie, "runner", 6, 4.0, 0, &p3);     // Extension with payload
+  Trie_InsertStringBuffer(originalTrie, "run", 3, 5.0, 0, &p1);        // Base word with payload
+  Trie_InsertStringBuffer(originalTrie, "running", 7, 3.0, 0, &p2);    // Extension with payload
+  Trie_InsertStringBuffer(originalTrie, "runner", 6, 4.0, 0, &p3);     // Extension with payload
 
   EXPECT_EQ(3, originalTrie->size);
 

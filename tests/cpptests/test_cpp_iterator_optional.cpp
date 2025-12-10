@@ -637,7 +637,6 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithWildcardChild) {
 TEST_F(OptionalIteratorReducerTest, TestOptionalWithReaderWildcardChild) {
   t_docId maxDocId = 100;
   size_t numDocs = 50;
-  double childWeight = 3.0;
 
   // Create a mock QueryEvalCtx
   MockQueryEvalCtx ctx(maxDocId, numDocs);

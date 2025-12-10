@@ -45,7 +45,7 @@ public:
 
     std::vector<std::pair<t_docId, double>> pairs;
     pairs.reserve(numDocuments);
-    for (int i = 0; i < numDocuments; ++i) {
+    for (size_t i = 0; i < numDocuments; ++i) {
       pairs.emplace_back(dist(rng), score_dist(rng));
     }
 
@@ -56,7 +56,7 @@ public:
 
     docIds.resize(numDocuments);
     scores.resize(numDocuments);
-    for (int i = 0; i < numDocuments; ++i) {
+    for (size_t i = 0; i < numDocuments; ++i) {
       docIds[i] = pairs[i].first;
       scores[i] = pairs[i].second;
     }
@@ -64,7 +64,7 @@ public:
     old_docIds = array_new(t_docId, numDocuments);
     old_metrics = array_new(double, numDocuments);
 
-    for (int i = 0; i < numDocuments; ++i) {
+    for (size_t i = 0; i < numDocuments; ++i) {
       array_append(old_docIds, docIds[i]);
       array_append(old_metrics, scores[i]);
     }

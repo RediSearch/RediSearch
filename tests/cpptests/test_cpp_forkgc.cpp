@@ -209,7 +209,7 @@ TEST_F(FGCTestTag, testRemoveEntryFromLastBlock) {
   const auto startValue = TotalIIBlocks();
 
   // Add two documents
-  size_t docSize = this->addDocumentWrapper("doc1", "f1", "hello");
+  this->addDocumentWrapper("doc1", "f1", "hello");
   ASSERT_TRUE(RS::addDocument(ctx, ism, "doc2", "f1", "hello"));
   /**
    * To properly test this; we must ensure that the gc is forked AFTER
@@ -353,7 +353,7 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   // Measure the memory added by the last block.
   size_t lastBlockMemory = 0;
   while (InvertedIndex_NumBlocks(iv) < 2) {
-    size_t n = sprintf(buf, "doc%u", curId++);
+    sprintf(buf, "doc%u", curId++);
     lastBlockMemory = this->addDocumentWrapper(buf, "f1", "hello");
   }
 
@@ -362,7 +362,7 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   FGC_WaitBeforeFork(fgc);
   // Delete all.
   for (unsigned i = 1; i < curId; i++) {
-    size_t n = sprintf(buf, "doc%u", i);
+    sprintf(buf, "doc%u", i);
     ASSERT_TRUE(RS::deleteDocument(ctx, ism, buf));
   }
 
@@ -375,9 +375,8 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
    */
   FGC_ForkAndWaitBeforeApply(fgc);
 
-  size_t invertedSizeBeforeApply = sctx.spec->stats.invertedSize;
   // Add a new document so the last block's is different from the the one copied to the fork.
-  size_t n = sprintf(buf, "doc%u", curId);
+  sprintf(buf, "doc%u", curId);
   lastBlockMemory += this->addDocumentWrapper(buf, "f1", "hello");
 
   // Save the pointer to the original last block data.
@@ -424,7 +423,7 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   // Add 2 full blocks + 1 block with1 entry.
   unsigned middleBlockFirstId = 0;
   while (InvertedIndex_NumBlocks(iv) < 3) {
-    size_t n = sprintf(buf, "doc%u", curId++);
+    sprintf(buf, "doc%u", curId++);
     ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
     // A new block had opened
     if (InvertedIndex_NumBlocks(iv) == 2 && !middleBlockFirstId) {
@@ -464,7 +463,6 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   size_t valid_docs = curId - 1 - total_deletions;
   ASSERT_EQ(valid_docs, sctx.spec->stats.numDocuments);
 
-  size_t lastBlockEntries = IndexBlock_NumEntries(InvertedIndex_BlockRef(iv, 2));
   FGC_ForkAndWaitBeforeApply(fgc);
 
   // Add a document -- this one is to keep
@@ -499,7 +497,7 @@ TEST_F(FGCTestTag, testRepairLastBlock) {
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (InvertedIndex_NumBlocks(iv) < 2) {
     char buf[1024];
-    size_t n = sprintf(buf, "doc%u", curId++);
+    sprintf(buf, "doc%u", curId++);
     ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
   }
   /**
@@ -541,7 +539,7 @@ TEST_F(FGCTestTag, testRepairMiddleRemoveLast) {
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (InvertedIndex_NumBlocks(iv) < 3) {
     char buf[1024];
-    size_t n = sprintf(buf, "doc%u", curId++);
+    sprintf(buf, "doc%u", curId++);
     ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
   }
 
@@ -591,7 +589,6 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
     RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello");
   }
   unsigned firstLastBlockId = curId;
-  unsigned lastMidId = curId - 1;
   ASSERT_EQ(3, TotalIIBlocks() - startValue);
 
   FGC_WaitBeforeFork(fgc);

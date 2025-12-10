@@ -59,7 +59,7 @@ TEST_F(RangeTest, testRangeTree) {
     Vector *v = NumericRangeTree_Find(t, &nf);
     ASSERT_TRUE(Vector_Size(v) > 0);
     // printf("Got %d ranges for %f..%f...\n", Vector_Size(v), rngs[r].min, rngs[r].max);
-    for (int i = 0; i < Vector_Size(v); i++) {
+    for (size_t i = 0; i < Vector_Size(v); i++) {
       NumericRange *l;
       Vector_Get(v, i, &l);
       ASSERT_TRUE(l);
@@ -163,25 +163,6 @@ void testRangeIteratorHelper(bool isMulti) {
       ASSERT_EQ(res->fieldMask, RS_FIELDMASK_ALL);
     }
 
-    for (int i = 1; i <= N; i++) {
-      bool missed = false;
-      for( size_t mult = 0; mult < mult_count; ++mult) {
-        auto match = matched[i].v[mult];
-        if (match == 2) {
-          missed = false;
-          break;
-        } else if (match == 1) {
-          missed = true;
-          // Keep trying - could be found
-        }
-      }
-
-      if (missed) {
-        printf("Miss: %d\n", i);
-      }
-    }
-
-    // printf("The iterator returned %d elements\n", xcount);
     ASSERT_EQ(xcount, count);
     it->Free(it);
     NumericFilter_Free(flt);
