@@ -76,6 +76,7 @@ typedef struct {
   size_t active_coord_threads; // number of coordinator threads currently executing jobs
   size_t workers_low_priority_pending_jobs; // number of low priority jobs waiting to be executed (currently only vecsim background indexing)
   size_t workers_high_priority_pending_jobs; // number of high priority jobs waiting to be executed (currently only queries)
+  size_t workers_admin_priority_pending_jobs; // number of admin priority jobs waiting to be executed (currently only threadpool resize)
   size_t coord_high_priority_pending_jobs; // number of high priority jobs waiting to be executed by the coordinator
 } MultiThreadingStats;
 

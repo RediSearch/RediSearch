@@ -117,6 +117,11 @@ RLookupKey **GetMetricOwnKeyRef(QueryIterator *header);
  */
 enum MetricType GetMetricType(QueryIterator *header);
 
+/**
+ * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
+ */
+QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

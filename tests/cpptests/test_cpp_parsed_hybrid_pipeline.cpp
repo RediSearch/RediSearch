@@ -14,10 +14,12 @@
 #include "common.h"
 #include "module.h"
 
+#include <vector>
+
 // Macro for BLOB data that all tests using $BLOB should use
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
-
-#include <vector>
+#define VECTOR_REQUEST_INDEX 1
+#define SEARCH_REQUEST_INDEX 0
 
 class HybridRequestParseTest : public ::testing::Test {
 protected:
@@ -102,7 +104,7 @@ IndexSpec* CreateStandardTestIndexSpec(RedisModuleCtx *ctx, const char* indexNam
   RMCK::ArgvList createArgs(ctx, "FT.CREATE", indexName, "ON", "HASH", "SKIPINITIALSCAN",
                             "SCHEMA", "title", "TEXT", "score", "NUMERIC",
                             "category", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
-                            "TYPE", "FLOAT32", "DIM", "128", "DISTANCE_METRIC", "COSINE");
+                            "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "COSINE");
   return IndexSpec_CreateNew(ctx, createArgs, createArgs.size(), status);
 }
 
@@ -147,8 +149,8 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   CursorConfig cursorConfig = {0};
 
   ParseHybridCommandCtx cmd = {
-    .search = hybridReq->requests[0],
-    .vector = hybridReq->requests[1],
+    .search = hybridReq->requests[SEARCH_REQUEST_INDEX],
+    .vector = hybridReq->requests[VECTOR_REQUEST_INDEX],
     .tailPlan = &hybridReq->tailPipeline->ap,
     .hybridParams = &hybridParams,
     .reqConfig = &reqConfig,
@@ -172,6 +174,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   }
   return hybridReq;
 }
+
 
 /**
  * Macro to create and parse/build a hybrid request with automatic cleanup.
@@ -305,8 +308,8 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitLoad) {
 
   // Define expected pipelines for each request
   std::vector<std::vector<ResultProcessorType>> expectedPipelines = {
-    {RP_DEPLETER, RP_LOADER, RP_SORTER, RP_SCORER, RP_INDEX},  // First request pipeline
-    {RP_DEPLETER, RP_LOADER, RP_VECTOR_NORMALIZER, RP_METRICS, RP_INDEX}                         // Other requests pipeline
+    {RP_SAFE_DEPLETER, RP_LOADER, RP_SORTER, RP_SCORER, RP_INDEX},  // First request pipeline
+    {RP_SAFE_DEPLETER, RP_LOADER, RP_VECTOR_NORMALIZER, RP_METRICS, RP_INDEX}  // Other requests pipeline
   };
 
   for (size_t i = 0; i < hybridReq->nrequests; i++) {

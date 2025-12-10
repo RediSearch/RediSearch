@@ -714,7 +714,7 @@ static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
       .timedout = req->has_timedout,
       .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
       .bgScanOOM = sctx && sctx->spec && sctx->spec->scan_failed_OOM,
-      .queryOOM = QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)
+      .queryOOM = QueryError_HasQueryOOMWarning(qctx->err)
   };
 
   return profileCtx;
@@ -1456,6 +1456,8 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     // Notify the client that the query was aborted.
     RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
   } else {
+    QueryError status = QueryError_Default();
+    AREQ_QueryProcessingCtx(req)->err = &status;
     sendChunk_ReplyOnly_EmptyResults(ctx, req);
     IndexSpecRef_Release(execution_ref);
   }
