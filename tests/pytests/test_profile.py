@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import math
 import unittest
 from includes import *
 from common import *
@@ -628,6 +629,79 @@ def testInternalCursorReadsInProfileResp3():
 @skip(cluster=False)
 def testInternalCursorReadsInProfileResp2():
   InternalCursorReadsInProfile(protocol=2)
+
+@skip(cluster=False)
+def testInternalCursorReadsWithTimeoutResp3():
+  """Tests 'Internal cursor reads' with timeout - RESP3 coordinator detects timeout and stops early."""
+  env = Env(protocol=3)
+  conn = getConnectionByEnv(env)
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  num_docs = 100
+  for i in range(num_docs):
+    conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+
+  # Run FT.PROFILE AGGREGATE with simulated timeout on shards only
+  query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*']
+  timeout_after_n = 5
+  res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after_n, internal_only=True)
+
+  # RESP3: coordinator detects shard timeout and stops early after reading first shard's reply
+  # Results count equals first shard's reply length (timeout_after_n)
+  env.assertEqual(len(res['Results']['results']), timeout_after_n)
+
+  shards_profile = get_shards_profile(env, res)
+  for shard_profile in shards_profile:
+    env.assertContains('Internal cursor reads', shard_profile)
+    # Coordinator stops after first timeout, so only 1 cursor read per shard
+    env.assertEqual(shard_profile['Internal cursor reads'], 1)
+    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached')
+
+@skip(cluster=False)
+def testInternalCursorReadsWithTimeoutResp2():
+  """Tests 'Internal cursor reads' with timeout - RESP2 coordinator doesn't detect timeout, reads until EOF."""
+  env = Env(shardsCount=2, protocol=2)
+  conn = getConnectionByEnv(env)
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  num_docs = 100
+  for i in range(num_docs):
+    conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+
+  # Run FT.PROFILE AGGREGATE with simulated timeout on shards only
+  query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*']
+  timeout_after_n = 5
+  res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after_n, internal_only=True)
+
+  # RESP2: coordinator doesn't check shard timeout, reads until EOF
+  # All docs are returned
+  env.assertEqual(len(res[0]) - 1, num_docs)
+
+  shards_profile = get_shards_profile(env, res)
+  env.assertEqual(len(shards_profile), env.shardsCount)
+
+  # Verify total cursor reads matches expected (order of shards may differ)
+  total_expected_reads = 0
+  for shard_conn in env.getOSSMasterNodesConnectionList():
+    docs_on_shard = shard_conn.execute_command('DBSIZE')
+    total_expected_reads += math.ceil(docs_on_shard / timeout_after_n)
+
+  # The order of shards in the profile response may differ, so we can't check per-shard
+  total_actual_reads = sum(sp['Internal cursor reads'] for sp in shards_profile)
+  env.assertEqual(total_actual_reads, total_expected_reads)
+
+  # Verify each shard has warning
+  for shard_profile in shards_profile:
+    env.assertContains('Internal cursor reads', shard_profile)
+    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached')
+
+  # Coordinator should NOT have timeout warning (it doesn't detect it in RESP2)
+  coord_profile = to_dict(res[-1][-1])
+  env.assertEqual(coord_profile['Warning'], 'None')
 
 # This test is currently skipped due to flaky behavior of some of the machines'
 # timers. MOD-6436
