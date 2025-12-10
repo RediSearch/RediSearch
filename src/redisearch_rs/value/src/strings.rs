@@ -493,7 +493,7 @@ unsafe impl Send for RsValueStringData {}
 // from another thread
 unsafe impl Sync for RsValueStringData {}
 
-/// A string type optimized for use in [`crate::RsValueInternal`],
+/// A string type optimized for use in [`crate::RsValue`],
 /// of which variant data can be at most 12 bytes in size.
 ///
 /// Wraps an `Option<Arc<RsValueStringData>>` because:
