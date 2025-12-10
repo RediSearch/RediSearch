@@ -849,7 +849,7 @@ class TestCoordHighPriorityPendingJobs(object):
   def __init__(self):
     self.env = Env(moduleArgs='DEFAULT_DIALECT 2')
     if not self.env.isCluster():
-      self.skip()
+      self.env.skip()
     conn = getConnectionByEnv(self.env)
     num_docs = 10 * self.env.shardsCount
 
