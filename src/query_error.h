@@ -61,8 +61,8 @@ extern "C" {
   X(QUERY_EBADVAL, "Invalid value was given")                                    \
   X(QUERY_ENHYBRID, "hybrid query attributes were sent for a non-hybrid query")  \
   X(QUERY_EHYBRIDNEXIST, "invalid hybrid policy was given")                      \
-  X(QUERY_EADHOCWBATCHSIZE, "'batch size' is irrelevant for 'ADHOC_BF' policy")  \
-  X(QUERY_EADHOCWEFRUNTIME, "'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")  \
+  X(QUERY_EADHOCWBATCHSIZE, "'batch size' is irrelevant for the selected policy")\
+  X(QUERY_EADHOCWEFRUNTIME, "'EF_RUNTIME' is irrelevant for the selected policy")\
   X(QUERY_ENRANGE, "range query attributes were sent for a non-range query")     \
   X(QUERY_EMISSING, "'ismissing' requires field to be defined with 'INDEXMISSING'") \
   X(QUERY_EMISSMATCH, "Index mismatch: Shard index is different than queried index") \
