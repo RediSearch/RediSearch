@@ -21,10 +21,21 @@ use crate::{RsValue, Value};
 /// - A non-null pointer represents one clone of said `Arc`, and as such, as
 ///   long as the [`SharedRsValue`] lives and holds a non-null pointer, the Arc
 ///   is still valid.
-#[repr(C)]
 pub struct SharedRsValue {
     /// Pointer representing the `Arc<RsValue>`.
     ptr: *const RsValue,
+}
+
+impl SharedRsValue {
+    pub fn into_raw(self) -> *const RsValue {
+        let ptr = self.ptr;
+        std::mem::forget(self);
+        ptr
+    }
+
+    pub unsafe fn from_raw(ptr: *const RsValue) -> Self {
+        Self { ptr }
+    }
 }
 
 impl Default for SharedRsValue {
