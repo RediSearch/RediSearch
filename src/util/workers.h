@@ -25,6 +25,12 @@ void workersThreadPool_InitPool();
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void);
 
+// Return the number of low priority jobs waiting to be executed.
+size_t workersThreadPool_LowPriorityPendingJobsCount(void);
+
+// Return the number of high priority jobs waiting to be executed.
+size_t workersThreadPool_HighPriorityPendingJobsCount(void);
+
 // adds a task
 int workersThreadPool_AddWork(redisearch_thpool_proc, void *arg_p);
 

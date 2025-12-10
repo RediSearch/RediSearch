@@ -56,6 +56,18 @@ size_t workersThreadPool_WorkingThreadCount(void) {
   return redisearch_thpool_num_threads_working(_workers_thpool);
 }
 
+size_t workersThreadPool_LowPriorityPendingJobsCount(void) {
+  RS_ASSERT(_workers_thpool != NULL);
+
+  return redisearch_thpool_low_priority_pending_jobs(_workers_thpool);
+}
+
+size_t workersThreadPool_HighPriorityPendingJobsCount(void) {
+  RS_ASSERT(_workers_thpool != NULL);
+
+  return redisearch_thpool_high_priority_pending_jobs(_workers_thpool);
+}
+
 // add task for worker thread
 // DvirDu: I think we should add a priority parameter to this function
 int workersThreadPool_AddWork(redisearch_thpool_proc function_p, void *arg_p) {

@@ -380,6 +380,14 @@ int redisearch_thpool_running(redisearch_thpool_t *thpool_p) {
   return atomic_load_explicit(&thpool_p->keepalive, memory_order_relaxed);
 }
 
+size_t redisearch_thpool_high_priority_pending_jobs(redisearch_thpool_t *thpool_p) {
+  return __atomic_load_n(&(thpool_p->jobqueue.high_priority_jobqueue.len), __ATOMIC_RELAXED);
+}
+
+size_t redisearch_thpool_low_priority_pending_jobs(redisearch_thpool_t *thpool_p) {
+  return __atomic_load_n(&(thpool_p->jobqueue.low_priority_jobqueue.len), __ATOMIC_RELAXED);
+}
+
 thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *thpool_p) {
   // Locking must be done in the following order to prevent deadlocks.
   pthread_mutex_lock(&thpool_p->thcount_lock);
