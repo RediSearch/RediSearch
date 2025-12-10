@@ -108,8 +108,8 @@ void GlobalStats_UpdateActiveIoThreads(int toAdd) {
 }
 
 #ifdef RS_COORDINATOR
-// Function pointer for coordinator thread count (NULL by default, set by coordinator at init)
-size_t (*CoordThreadCount_Func)(void) = NULL;
+// Function pointer for coordinator thread stats (NULL by default, set by coordinator at init)
+ConcurrentSearchPoolStats (*CoordThreadPoolStats_Func)(void) = NULL;
 #endif
 
 // Get multiThreadingStats
@@ -128,9 +128,10 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
 
 #ifdef RS_COORDINATOR
   // Coordinator stats
-  if (CoordThreadCount_Func) { // TODO: replace with bool
-    stats.active_coord_threads = CoordThreadCount_Func();
-    stats.coord_high_priority_pending_jobs = ConcurrentSearchPool_HighPriorityPendingJobsCount();
+  if (CoordThreadPoolStats_Func) {
+    ConcurrentSearchPoolStats poolStats = CoordThreadPoolStats_Func();
+    stats.active_coord_threads = poolStats.active_threads;
+    stats.coord_high_priority_pending_jobs = poolStats.high_priority_pending_jobs;
   }
 #endif
   return stats;

@@ -11,7 +11,6 @@
 #include "rmutil/rm_assert.h"
 #include "module.h"
 #include "util/logging.h"
-#include "coord/config.h"
 
 static arrayof(redisearch_threadpool) threadpools_g = NULL;
 
@@ -74,7 +73,6 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
   redisearch_threadpool p = threadpools_g[type];
   redisearch_thpool_add_work(p, func, arg, THPOOL_PRIORITY_HIGH);
 }
-
 
 ConcurrentSearchPoolStats ConcurrentSearchPool_GetStats(int poolId) {
   RS_ASSERT(threadpools_g);
