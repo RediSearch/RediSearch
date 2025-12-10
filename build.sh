@@ -567,13 +567,14 @@ run_rust_tests() {
   if [[ $COV == 1 ]]; then
     # We use the `nightly` compiler in order to include doc tests in the coverage computation.
     # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
-    RUST_EXTENSIONS="+$NIGHTLY_VERSION llvm-cov"
+    RUST_TEST_COMMAND="+$NIGHTLY_VERSION llvm-cov test"
     # We exclude Rust benchmarking crates that link to C code when computing coverage.
     # On one side, we aren't interested in coverage of those utilities.
     # On top of that, it causes linking issues since, when computing coverage, it seems to
     # require C symbols to be defined even if they aren't invoked at runtime.
     echo "Using nightly version: ${NIGHTLY_VERSION}"
     RUST_TEST_OPTIONS="
+      --profile=$RUST_PROFILE
       --doctests
       $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C
       --codecov
@@ -581,12 +582,16 @@ run_rust_tests() {
       --output-path=$BINROOT/rust_cov.info
     "
   elif [[ -n "$SAN" || "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
-    RUST_EXTENSIONS="+$NIGHTLY_VERSION miri"
+    RUST_TEST_COMMAND="+$NIGHTLY_VERSION miri test "
+    RUST_TEST_OPTIONS="--profile=$RUST_PROFILE"
+  else
+    RUST_TEST_COMMAND="nextest run"
+    RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
   fi
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $TEST_FILTER -- --nocapture
+  RUSTFLAGS="${RUSTFLAGS:--D warnings }" cargo $RUST_TEST_COMMAND $RUST_TEST_OPTIONS --workspace $TEST_FILTER
 
   # Check test results
   RUST_TEST_RESULT=$?
@@ -630,7 +635,6 @@ run_rust_valgrind_tests() {
         RUSTFLAGS="${RUSTFLAGS:--D warnings}" \
         cargo valgrind test \
         --profile=$RUST_PROFILE \
-        $RUST_TEST_OPTIONS \
         --workspace $TEST_FILTER \
         -- --nocapture
   fi
