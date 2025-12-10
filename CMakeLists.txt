@@ -255,6 +255,7 @@ include_directories(
     ${root}/src/ttl_table
     ${root}/src/spec
     ${root}/src/doc_table
+    ${root}/src/numeric_index
     ${root}/src/info/index_error
     ${root}/src/trie
     ${root}/src/rules
@@ -304,6 +305,7 @@ add_subdirectory(src/redisearch_rs)
 add_subdirectory(src/ttl_table)
 add_subdirectory(src/spec)
 add_subdirectory(src/doc_table)
+add_subdirectory(src/numeric_index)
 add_subdirectory(src/info/index_error)
 add_subdirectory(src/trie)
 add_subdirectory(src/rules)
@@ -364,6 +366,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:ttl_table>
     $<TARGET_OBJECTS:spec>
     $<TARGET_OBJECTS:doc_table>
+    $<TARGET_OBJECTS:numeric_index>
     $<TARGET_OBJECTS:index_error>
     $<TARGET_OBJECTS:trie>
     $<TARGET_OBJECTS:rules>
@@ -435,6 +438,7 @@ target_link_libraries(redisearch
         ttl_table
         spec
         doc_table
+        numeric_index
         index_error
         trie
         rules
