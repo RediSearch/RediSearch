@@ -22,6 +22,11 @@
 
 DebugCTX globalDebugCtx = {0};
 
+#ifdef RS_COORDINATOR
+// Function pointer for coordinator thread pool control (set by coordinator at init)
+int (*CoordThreadPool_DebugFunc)(const char *op) = NULL;
+#endif
+
 // QueryDebugCtx API implementations
 bool QueryDebugCtx_IsPaused(void) {
   return globalDebugCtx.query.pause;
@@ -1192,6 +1197,29 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
 }
 #endif
 
+#ifdef RS_COORDINATOR
+/**
+ * FT.DEBUG COORD_THREADS [PAUSE / RESUME / IS_PAUSED]
+ */
+DEBUG_COMMAND(CoordThreadsSwitch) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  if (!CoordThreadPool_DebugFunc) {
+    return RedisModule_ReplyWithError(ctx, "Coordinator thread pool not available");
+  }
+  const char *op = RedisModule_StringPtrLen(argv[0], NULL);
+  if (!strcasecmp(op, "is_paused")) {
+    // is_paused returns 0 (running) or 1 (paused)
+    return RedisModule_ReplyWithLongLong(ctx, CoordThreadPool_DebugFunc(op));
+  }
+  if (CoordThreadPool_DebugFunc(op) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Operation failed");
+  }
+  return RedisModule_ReplyWithCString(ctx, "OK");
+}
+#endif
+
 DEBUG_COMMAND(RSSearchCommandShard) {
   // at least one debug_param should be provided
   // (1)FT.SEARCH (2)<index> (3)<query> [query_options] (4)[debug_params] (5)DEBUG_PARAMS_COUNT (6)<debug_params_count>
@@ -1697,6 +1725,9 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"FT.PROFILE", RSProfileCommandShard},
 #ifdef MT_BUILD
                                {"WORKER_THREADS", WorkerThreadsSwitch},
+#endif
+#ifdef RS_COORDINATOR
+                               {"COORD_THREADS", CoordThreadsSwitch},
 #endif
                                {NULL, NULL}};
 

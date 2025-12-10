@@ -214,4 +214,11 @@ static inline int CheckConcurrentSupport(RedisModuleCtx *ctx) {
   return 1;
 }
 
+/********************************************* for debugging **********************************/
+
+int ConcurrentSearch_isPaused(int poolId);
+
+int ConcurrentSearch_pause(int poolId);
+
+int ConcurrentSearch_resume(int poolId);
 #endif

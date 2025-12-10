@@ -58,12 +58,26 @@ extern RedisModuleCtx *RSDummyContext;
 
 static int DIST_AGG_THREADPOOL = -1;
 extern ConcurrentSearchPoolStats (*CoordThreadPoolStats_Func)(void);
+extern int (*CoordThreadPool_DebugFunc)(const char *op);
 
 /* return number of currently working threads */
 ConcurrentSearchPoolStats DistAggThreadPool_GetStats() {
   // Assert DIST_AGG_THREADPOOL is initialized
   RS_LOG_ASSERT(DIST_AGG_THREADPOOL != -1, "DIST_AGG_THREADPOOL not initialized");
   return ConcurrentSearchPool_GetStats(DIST_AGG_THREADPOOL);
+}
+
+/* Debug function for coordinator thread pool pause/resume */
+int DistAggThreadPool_Debug(const char *op) {
+  RS_LOG_ASSERT(DIST_AGG_THREADPOOL != -1, "DIST_AGG_THREADPOOL not initialized");
+  if (!strcasecmp(op, "pause")) {
+    return ConcurrentSearch_pause(DIST_AGG_THREADPOOL);
+  } else if (!strcasecmp(op, "resume")) {
+    return ConcurrentSearch_resume(DIST_AGG_THREADPOOL);
+  } else if (!strcasecmp(op, "is_paused")) {
+    return ConcurrentSearch_isPaused(DIST_AGG_THREADPOOL);
+  }
+  return REDISMODULE_ERR;
 }
 
 // forward declaration
@@ -2444,8 +2458,9 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Init the aggregation thread pool
   DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(RSGlobalConfig.searchPoolSize);
 
-  // Register the coordinator thread count function for global stats
+  // Register the coordinator thread pool functions
   CoordThreadPoolStats_Func = DistAggThreadPool_GetStats;
+  CoordThreadPool_DebugFunc = DistAggThreadPool_Debug;
 
   Initialize_CoordKeyspaceNotifications(ctx);
 

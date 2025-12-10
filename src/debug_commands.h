@@ -50,3 +50,9 @@ bool QueryDebugCtx_HasDebugRP(void);
 
 // Indexer sleep before yield functions
 unsigned int GetIndexerSleepBeforeYieldMicros(void);
+
+#ifdef RS_COORDINATOR
+// Function pointer for coordinator thread pool control (set by coordinator at init)
+// op can be "pause", "resume", etc. - similar to WorkerThreadsSwitch pattern
+extern int (*CoordThreadPool_DebugFunc)(const char *op);
+#endif

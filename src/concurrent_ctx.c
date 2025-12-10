@@ -241,3 +241,34 @@ void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx) {
   RedisModule_ThreadSafeContextUnlock(ctx->ctx);
   ctx->isLocked = 0;
 }
+
+/********************************************* for debugging **********************************/
+
+int ConcurrentSearch_isPaused(int poolId) {
+  if (!threadpools_g || poolId < 0 || poolId >= (int)array_len(threadpools_g)) {
+    return 0;
+  }
+  return !redisearch_thpool_running(threadpools_g[poolId]);
+}
+
+int ConcurrentSearch_pause(int poolId) {
+  if (!threadpools_g || poolId < 0 || poolId >= (int)array_len(threadpools_g)) {
+    return REDISMODULE_ERR;
+  }
+  if (!redisearch_thpool_running(threadpools_g[poolId])) {
+    return REDISMODULE_ERR;  // Already paused
+  }
+  redisearch_thpool_terminate_threads(threadpools_g[poolId]);
+  return REDISMODULE_OK;
+}
+
+int ConcurrentSearch_resume(int poolId) {
+  if (!threadpools_g || poolId < 0 || poolId >= (int)array_len(threadpools_g)) {
+    return REDISMODULE_ERR;
+  }
+  if (redisearch_thpool_running(threadpools_g[poolId])) {
+    return REDISMODULE_ERR;  // Already running
+  }
+  redisearch_thpool_init(threadpools_g[poolId]);
+  return REDISMODULE_OK;
+}
