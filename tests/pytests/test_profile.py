@@ -589,6 +589,46 @@ def testTimedOutWarningCoordResp3():
 def testTimedOutWarningCoordResp2():
   TimedOutWarningtestCoord(Env(protocol=2))
 
+def get_shards_profile(env, res):
+  """Extract shard profiles from FT.PROFILE AGGREGATE response."""
+  if env.protocol == 3:
+    return res['Profile']['Shards']
+  else:
+    return [to_dict(p) for p in res[-1][1]]
+
+def InternalCursorReadsInProfile(protocol):
+  """Tests that 'Internal cursor reads' appears in shard profiles for AGGREGATE."""
+  # Limit number of shards to avoid creating too many docs
+  env = Env(shardsCount=2, protocol=protocol)
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  # Insert docs - with default cursorReadSize=1000, each shard needs more than 1000 to require 2 reads
+  num_docs = int(1000 * 1.1 * env.shardsCount)
+  for i in range(num_docs):
+    conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+
+  # Run FT.PROFILE AGGREGATE - coordinator uses internal cursors to shards
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
+
+  shards_profile = get_shards_profile(env, res)
+  env.assertEqual(len(shards_profile), env.shardsCount)
+
+  # Each shard should have exactly 2 cursor reads (1000+ docs per shard, default cursorReadSize=1000)
+  for shard_profile in shards_profile:
+    env.assertContains('Internal cursor reads', shard_profile)
+    env.assertEqual(shard_profile['Internal cursor reads'], 2)
+
+@skip(cluster=False)
+def testInternalCursorReadsInProfileResp3():
+  InternalCursorReadsInProfile(protocol=3)
+
+@skip(cluster=False)
+def testInternalCursorReadsInProfileResp2():
+  InternalCursorReadsInProfile(protocol=2)
+
 # This test is currently skipped due to flaky behavior of some of the machines'
 # timers. MOD-6436
 @skip()

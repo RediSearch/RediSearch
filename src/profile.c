@@ -194,6 +194,13 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
     RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
   }
 
+  // Print cursor reads count if this is a cursor request.
+  if (IsCursor(req)) {
+    // Only internal requests can use profile with cursor.
+    RS_ASSERT(IsInternal(req));
+    RedisModule_ReplyKV_LongLong(reply, "Internal cursor reads", req->cursor_reads);
+  }
+
   // Print profile of iterators
   QueryIterator *root = QITR_GetRootFilter(qctx);
   // Coordinator does not have iterators
