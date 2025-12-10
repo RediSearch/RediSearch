@@ -1,0 +1,128 @@
+name: Detect Merge Queue Resubmission Without New Commits
+
+on:
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  detect-resubmit:
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    steps:
+      - name: Check for resubmission without new commits
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          PR_NUMBER: ${{ github.event.merge_group.head_ref }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        run: |
+          # Extract PR number from head_ref (format: refs/pull/NUMBER/merge or gh-readonly-queue/main/pr-NUMBER-...)
+          if [[ "$PR_NUMBER" =~ refs/pull/([0-9]+)/merge ]]; then
+            PR_NUM="${BASH_REMATCH[1]}"
+          elif [[ "$PR_NUMBER" =~ pr-([0-9]+)- ]]; then
+            PR_NUM="${BASH_REMATCH[1]}"
+          else
+            echo "Could not extract PR number from: $PR_NUMBER"
+            echo "resubmit=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "Checking PR #$PR_NUM"
+          echo "Current HEAD SHA: $HEAD_SHA"
+          echo "Current BASE SHA: $BASE_SHA"
+
+          # The merge queue creates a NEW temporary merge commit each time,
+          # so head_sha will be different even for the same PR commits.
+          # Hence, we should check the PR's actual head commit (before merge).
+
+          # Get the PR's actual head SHA (the last commit on the PR branch)
+          PR_HEAD_SHA=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.head.sha')
+          echo "PR's actual HEAD SHA: $PR_HEAD_SHA"
+
+          # Get the list of previous workflow runs for this merge queue workflow
+          # Look for runs from the same PR that have failed/cancelled
+          echo "Searching for previous merge_group runs for PR #$PR_NUM..."
+
+          ALL_RUNS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/$REPO/actions/runs?event=merge_group&per_page=100" \
+            --jq ".workflow_runs[] | select(.id != $CURRENT_RUN_ID) | {id: .id, head_sha: .head_sha, conclusion: .conclusion, head_ref: .head_branch}" | jq -s '.')
+
+          echo "Recent merge_group runs:"
+          echo "$ALL_RUNS" | jq -c '.[]'
+
+          # Look for previous runs from the same PR (by matching PR number in head_ref)
+          # Use regex anchors to ensure exact PR number match (e.g., pr-12- won't match pr-123-)
+          PREVIOUS_RUN_DATA=$(echo "$ALL_RUNS" | jq -c ".[] | select(.head_ref | test(\"(^|/)pr-${PR_NUM}-\")) | select(.conclusion == \"failure\" or .conclusion == \"cancelled\")" | head -1)
+
+          if [[ -z "$PREVIOUS_RUN_DATA" ]]; then
+            echo "No previous failed/cancelled runs found for PR #$PR_NUM"
+            echo "resubmit=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          PREVIOUS_RUN_ID=$(echo "$PREVIOUS_RUN_DATA" | jq -r '.id // empty')
+          echo "Found previous failed/cancelled run ID: $PREVIOUS_RUN_ID"
+
+          # Now check if the PR's head SHA has changed since that previous run
+          # Get the PR's head SHA at the time of the previous run by fetching the run details
+          PREVIOUS_RUN_DETAILS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/$REPO/actions/runs/$PREVIOUS_RUN_ID")
+
+          # Extract the PR head SHA from the previous run's jobs
+          # The merge queue creates a merge commit, but we need to check the actual PR commits
+          # We'll get the commit list from the previous run and find the PR's head commit
+          PREVIOUS_RUN_CREATED_AT=$(echo "$PREVIOUS_RUN_DETAILS" | jq -r '.created_at')
+          echo "Previous run was created at: $PREVIOUS_RUN_CREATED_AT"
+
+          # Get the PR's commit history and find what the head SHA was at the time of the previous run
+          # We'll check if the current PR head SHA existed before the previous run
+          COMMIT_DATE=$(gh api "/repos/$REPO/commits/$PR_HEAD_SHA" --jq '.commit.committer.date')
+          echo "Current PR HEAD commit date: $COMMIT_DATE"
+
+          # Compare dates: if the current PR head commit is newer than the previous run, there were new commits
+          if [[ "$COMMIT_DATE" > "$PREVIOUS_RUN_CREATED_AT" ]]; then
+            echo "New commits detected! Current HEAD ($PR_HEAD_SHA) was committed after the previous run."
+            echo "resubmit=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "Found previous failed/cancelled run for PR #$PR_NUM"
+          echo "Previous run ID: $PREVIOUS_RUN_ID"
+          echo "No new commits detected since the previous run!"
+          echo "This is a resubmission without new commits!"
+          echo "resubmit=true" >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUM" >> $GITHUB_OUTPUT
+
+          # Get PR details for the notification
+          PR_TITLE=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.title')
+          PR_URL=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.html_url')
+          PR_AUTHOR=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.user.login')
+          
+          echo "pr_title=$PR_TITLE" >> $GITHUB_OUTPUT
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+          echo "pr_author=$PR_AUTHOR" >> $GITHUB_OUTPUT
+
+      - name: Notify Slack about resubmission
+        if: steps.check.outputs.resubmit == 'true'
+        uses: slackapi/slack-github-action@v1
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
+        with:
+          payload: |
+            {
+              "PR": "${{ steps.check.outputs.pr_url }}",
+              "Title": "${{ toJson(steps.check.outputs.pr_title) }}",
+              "Author": "${{ toJson(steps.check.outputs.pr_author) }}",
+              "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
+
