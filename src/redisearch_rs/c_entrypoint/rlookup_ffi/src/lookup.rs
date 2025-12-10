@@ -13,7 +13,7 @@ use libc::size_t;
 use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags, SchemaRuleWrapper};
 use std::{
     ffi::{CStr, c_char},
-    ptr::NonNull,
+    ptr::{self, NonNull},
     slice,
 };
 
@@ -367,4 +367,34 @@ pub unsafe extern "C" fn RLookup_Init(
 pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
     // Safety: ensured by caller (1.,2.)
     unsafe { lookup.unwrap().drop_in_place() };
+}
+
+/// Find a field in the index spec cache of the lookup.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 2. The memory pointed to by `name` must contain a valid nul terminator at the
+///    end of the string.
+/// 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
+///    This means in particular:
+///     1. The entire memory range of this `CStr` must be contained within a single allocation!
+///     2. `name` must be non-null even for a zero-length cstr.
+/// 4. The memory referenced by the returned `CStr` must not be mutated for
+///    the duration of lifetime `'a`.
+/// 5. The nul terminator must be within `isize::MAX` from `name`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn findFieldInSpecCache<'a>(
+    lookup: *const RLookup<'a>,
+    name: *const c_char,
+) -> *const ffi::FieldSpec {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { lookup.as_ref().unwrap() };
+
+    // Safety: ensured by caller (2., 3., 4., 5.)
+    let name = unsafe { CStr::from_ptr(name) };
+
+    lookup
+        .find_field_in_spec_cache(name)
+        .map_or(ptr::null(), |fs| fs)
 }
