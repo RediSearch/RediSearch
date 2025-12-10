@@ -50,9 +50,9 @@ static void rqAsyncCb(uv_async_t *async) {
   }
   queueItem *req;
   while (NULL != (req = RQ_Pop(io_runtime_ctx->queue, &io_runtime_ctx->uv_runtime.async))) {
-    GlobalStats_UpdateActiveIoThreads(1);
+    GlobalStats_UpdateUvRunningQueries(1);
     req->cb(req->privdata);
-    GlobalStats_UpdateActiveIoThreads(-1);
+    GlobalStats_UpdateUvRunningQueries(-1);
     rm_free(req);
   }
 }

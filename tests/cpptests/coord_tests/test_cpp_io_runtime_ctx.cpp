@@ -193,14 +193,14 @@ TEST_F(IORuntimeCtxCommonTest, ShutdownWithPendingRequests) {
 }
 
 TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
-  // Test that the active_io_threads metric is tracked correctly
+  // Test that the uv_threads_running_queries metric is tracked correctly
 
   // Create ConcurrentSearch required to call GlobalStats_GetMultiThreadingStats
   ConcurrentSearch_CreatePool(1);
 
   // Phase 1: Verify metric starts at 0
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
-  ASSERT_EQ(stats.active_io_threads, 0) << "active_io_threads should start at 0";
+  ASSERT_EQ(stats.uv_threads_running_queries, 0) << "uv_threads_running_queries should start at 0";
 
   // Phase 2: Schedule a callback that sleeps, and verify metric increases
   struct CallbackFlags {
@@ -232,9 +232,9 @@ TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
   });
   ASSERT_TRUE(success) << "Timeout waiting for callback to start";
 
-  // Now the callback is executing - check that active_io_threads > 0
+  // Now the callback is executing - check that uv_threads_running_queries > 0
   stats = GlobalStats_GetMultiThreadingStats();
-  ASSERT_EQ(stats.active_io_threads, 1) << "active_io_threads should be > 0 while callback is executing";
+  ASSERT_EQ(stats.uv_threads_running_queries, 1) << "uv_threads_running_queries should be > 0 while callback is executing";
 
   // Tell callback to finish
   flags.should_finish.store(true);
@@ -242,10 +242,10 @@ TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
   // Phase 3: Wait for metric to return to 0 with timeout
   success = RS::WaitForCondition([&]() {
     stats = GlobalStats_GetMultiThreadingStats();
-    return stats.active_io_threads == 0;
+    return stats.uv_threads_running_queries == 0;
   });
 
-  ASSERT_TRUE(success) << "Timeout waiting for active_io_threads to return to 0, current value: " << stats.active_io_threads;
+  ASSERT_TRUE(success) << "Timeout waiting for uv_threads_running_queries to return to 0, current value: " << stats.uv_threads_running_queries;
 
   // Free ConcurrentSearch
   ConcurrentSearch_ThreadPoolDestroy();

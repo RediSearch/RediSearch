@@ -169,14 +169,14 @@ void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bo
 }
 
 // Update the number of active io threads.
-void GlobalStats_UpdateActiveIoThreads(int toAdd) {
+void GlobalStats_UpdateUvRunningQueries(int toAdd) {
 #ifdef ENABLE_ASSERT
-  RS_LOG_ASSERT(toAdd != 0, "Attempt to change active_io_threads by 0");
-  size_t current = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
+  RS_LOG_ASSERT(toAdd != 0, "Attempt to change uv_threads_running_queries by 0");
+  size_t current = READ(RSGlobalStats.totalStats.multi_threading.uv_threads_running_queries);
   RS_LOG_ASSERT_FMT(toAdd > 0 || current > 0,
-    "Cannot decrease active_io_threads below 0. toAdd: %d, current: %zu", toAdd, current);
+    "Cannot decrease uv_threads_running_queries below 0. toAdd: %d, current: %zu", toAdd, current);
 #endif
-  INCR_BY(RSGlobalStats.totalStats.multi_threading.active_io_threads, toAdd);
+  INCR_BY(RSGlobalStats.totalStats.multi_threading.uv_threads_running_queries, toAdd);
 }
 
 void GlobalStats_UpdateActiveTopologyUpdateThreads(int toAdd) {
@@ -192,7 +192,7 @@ void GlobalStats_UpdateActiveTopologyUpdateThreads(int toAdd) {
 // Get multiThreadingStats
 MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   MultiThreadingStats stats;
-  stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
+  stats.uv_threads_running_queries = READ(RSGlobalStats.totalStats.multi_threading.uv_threads_running_queries);
   stats.active_topology_update_threads = READ(RSGlobalStats.totalStats.multi_threading.active_topology_update_threads);
 
   // Workers stats
