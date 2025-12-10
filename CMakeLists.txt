@@ -266,6 +266,7 @@ include_directories(
     ${root}/src/util/block_alloc
     ${root}/src/util/heap_doubles
     ${root}/src/util/workers
+    ${root}/src/hll
     ${root}/src/obfuscation
     ${root}/src/rlookup
     ${root}/src/info/global_stats
@@ -302,6 +303,7 @@ add_subdirectory(src/util/hash)
 add_subdirectory(src/util/block_alloc)
 add_subdirectory(src/util/heap_doubles)
 add_subdirectory(src/util/workers)
+add_subdirectory(src/hll)
 add_subdirectory(src/coord)
 add_subdirectory(src/redisearch_rs)
 add_subdirectory(src/ttl_table)
@@ -330,7 +332,6 @@ file(GLOB SOURCES
     "src/hybrid/*.c"
     "src/hybrid/parse/*.c"
     "src/ext/*.c"
-    "src/hll/*.c"
     "src/query_parser/v1/*.c"
     "src/query_parser/v2/*.c"
     "src/util/*.c"
@@ -379,6 +380,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:block_alloc>
     $<TARGET_OBJECTS:heap_doubles>
     $<TARGET_OBJECTS:workers>
+    $<TARGET_OBJECTS:hll>
     $<TARGET_OBJECTS:thpool>
     $<TARGET_OBJECTS:obfuscation>
     $<TARGET_OBJECTS:rlookup>
@@ -452,6 +454,7 @@ target_link_libraries(redisearch
         block_alloc
         heap_doubles
         workers
+        hll
         thpool
         obfuscation
         rlookup
