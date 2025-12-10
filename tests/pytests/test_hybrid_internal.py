@@ -346,7 +346,7 @@ def test_hybrid_internal_cursor_with_scores():
     """Test reading from both VSIM and SEARCH cursors with WITHSCORES and compare with equivalent FT.SEARCH commands"""
     env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
     setup_hybrid_test_data(env)
-    slots = generate_slots(range(0, int((2**14)/3))) if env.isCluster() else generate_slots()
+    slots = generate_slots(range(0, int((2**14)/env.shardsCount)))
 
     # Execute the hybrid command with cursors
     query_vec = create_np_array_typed([1.0, 0.0], 'FLOAT32')
@@ -569,7 +569,7 @@ def test_hybrid_internal_withcursor_with_load():
     env.assertTrue(isinstance(vsim_cursor, (int, str)))
     env.assertTrue(isinstance(search_cursor, (int, str)))
 
-    search_cursor_results = read_cursor_completely(env, 'idx', search_cursor, protocol=getattr(env, 'protocol', None))
+    search_cursor_results = read_cursor_completely(env, 'idx', search_cursor, protocol=env.protocol)
     env.assertEqual(search_cursor_results, ['doc:2', 'doc:3'])
 
     vsim_cursor_results = read_cursor_completely(env, 'idx', vsim_cursor, protocol=getattr(env, 'protocol', None))
