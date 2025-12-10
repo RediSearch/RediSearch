@@ -13,9 +13,8 @@ use value::{RsValue, RsValueInternal, Value, shared::SharedRsValue};
 /// `RsValue` or a `SharedRsValue` can be of.
 /// cbindgen:prefix-with-name
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub enum RsValueType {
-    #[default]
     Undefined,
     Null,
     Number,
@@ -56,16 +55,12 @@ impl AsRsValueType for RsValueInternal {
 
 impl AsRsValueType for SharedRsValue {
     fn as_value_type(&self) -> RsValueType {
-        self.internal()
-            .map(|i| i.as_value_type())
-            .unwrap_or_default()
+        self.internal().as_value_type()
     }
 }
 
 impl AsRsValueType for RsValue {
     fn as_value_type(&self) -> RsValueType {
-        self.internal()
-            .map(|i| i.as_value_type())
-            .unwrap_or_default()
+        self.internal().as_value_type()
     }
 }

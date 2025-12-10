@@ -83,10 +83,7 @@ impl RsValue {
 
 impl fmt::Debug for RsValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.internal() {
-            Some(internal) => internal.fmt(f),
-            None => f.debug_tuple("Undefined").finish(),
-        }
+        self.internal().fmt(f)
     }
 }
 
@@ -99,9 +96,9 @@ impl Value for RsValue {
         Self::Def(RsValueInternal::Undefined)
     }
 
-    fn internal(&self) -> Option<&RsValueInternal> {
+    fn internal(&self) -> &RsValueInternal {
         match self {
-            Self::Def(internal) => Some(internal),
+            Self::Def(internal) => internal,
         }
     }
 }
@@ -121,7 +118,7 @@ pub trait Value: Sized {
     /// Get a reference to the [`RsValueInternal`] that is
     /// held by this value if it is defined. Returns `None` if
     /// the value is undefined.
-    fn internal(&self) -> Option<&RsValueInternal>;
+    fn internal(&self) -> &RsValueInternal;
 
     /// Create a new, NULL value
     fn null() -> Self {
@@ -244,7 +241,7 @@ pub trait Value: Sized {
     /// Get the number value. Returns `None` if the value is not
     /// a number.
     fn get_number(&self) -> Option<f64> {
-        let RsValueInternal::Number(number) = self.internal()? else {
+        let RsValueInternal::Number(number) = self.internal() else {
             return None;
         };
         Some(*number)
