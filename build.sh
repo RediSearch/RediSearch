@@ -189,7 +189,8 @@ setup_build_environment() {
         RUST_PROFILE="dev"
       else
         if [[ "$RUN_MICRO_BENCHMARKS" == "1" ]]; then
-            RUST_PROFILE="profiling"
+            # We don't want debug assertions to be enabled in microbenchmarks
+            RUST_PROFILE="release"
         else
             RUST_PROFILE="optimised_test"
         fi

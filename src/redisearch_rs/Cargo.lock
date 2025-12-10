@@ -1590,6 +1590,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "ffi",
+ "field",
  "inverted_index",
  "pretty_assertions",
  "proptest",
