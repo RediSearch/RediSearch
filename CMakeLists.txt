@@ -276,6 +276,7 @@ add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
 add_subdirectory(deps/fast_float)
 add_subdirectory(deps/libnu)
+add_subdirectory(deps/thpool)
 
 # Configure libuv options
 set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
@@ -339,7 +340,6 @@ file(GLOB SOURCES
     "deps/libnu/*.c"
     "deps/miniz/*.c"
     "deps/fast_float/*.c"
-    "deps/thpool/*.c"
     "deps/geohash/*.c")
 
 #----------------------------------------------------------------------------------------------
@@ -373,6 +373,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:references>
     $<TARGET_OBJECTS:block_alloc>
     $<TARGET_OBJECTS:workers>
+    $<TARGET_OBJECTS:thpool>
     $<TARGET_OBJECTS:obfuscation>
     $<TARGET_OBJECTS:rlookup>
     $<TARGET_OBJECTS:global_stats>
@@ -443,6 +444,7 @@ target_link_libraries(redisearch
         references
         block_alloc
         workers
+        thpool
         obfuscation
         rlookup
         global_stats
