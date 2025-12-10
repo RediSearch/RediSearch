@@ -35,9 +35,6 @@ impl Default for SharedRsValue {
 
 impl Drop for SharedRsValue {
     fn drop(&mut self) {
-        if self.ptr.is_null() {
-            return;
-        }
         // Safety: `self.ptr` is not null at this point,
         // and so must have been originated from a call to `from_internal`.
         // At least as long as `self` lives, this the strong reference
@@ -64,15 +61,10 @@ impl Value for SharedRsValue {
     }
 
     fn undefined() -> Self {
-        Self {
-            ptr: ptr::null_mut(),
-        }
+        Self::from_internal(RsValueInternal::Undefined)
     }
 
     fn internal(&self) -> Option<&RsValueInternal> {
-        if self.ptr.is_null() {
-            return None;
-        }
         // Safety: `self.ptr` is not null at this point,
         // and so must have been originated from a call to `from_internal`.
         // At least as long as `self` lives, this pointer is guaranteed
