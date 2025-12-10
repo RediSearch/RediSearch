@@ -7,11 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{
-    ffi::c_char,
-    fmt::{self, Debug},
-    ptr::NonNull,
-};
+use std::{ffi::c_char, fmt::Debug, ptr::NonNull};
 
 use crate::{
     collection::{RsValueArray, RsValueMap},
@@ -38,9 +34,9 @@ pub mod shared;
 pub mod strings;
 pub mod trio;
 
-/// Internal storage of [`RsValue`] and [`SharedRsValue`]
+/// An actual [`RsValue`] object
 #[derive(Debug, Clone)]
-pub enum RsValueInternal {
+pub enum RsValue {
     /// Undefined, not holding a value.
     Undefined,
     /// Null value
@@ -67,45 +63,29 @@ pub enum RsValueInternal {
     Map(RsValueMap),
 }
 
-/// A stack-allocated RediSearch dynamic value.
-/// cbindgen:prefix-with-name
-#[derive(Clone)]
-pub enum RsValue {
-    /// Defined and holding a value.
-    Def(RsValueInternal),
-}
-
 impl RsValue {
     pub const fn null_const() -> Self {
-        Self::Def(RsValueInternal::Null)
-    }
-}
-
-impl fmt::Debug for RsValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.internal().fmt(f)
+        RsValue::Null
     }
 }
 
 impl Value for RsValue {
-    fn from_internal(internal: RsValueInternal) -> Self {
-        Self::Def(internal)
+    fn from_value(value: RsValue) -> Self {
+        value
     }
 
     fn undefined() -> Self {
-        Self::Def(RsValueInternal::Undefined)
+        RsValue::Undefined
     }
 
-    fn internal(&self) -> &RsValueInternal {
-        match self {
-            Self::Def(internal) => internal,
-        }
+    fn value(&self) -> &RsValue {
+        self
     }
 }
 
 pub trait Value: Sized {
-    /// Create a new value from an [`RsValueInternal`]
-    fn from_internal(internal: RsValueInternal) -> Self;
+    /// Create a new value from an [`RsValue`]
+    fn from_value(value: RsValue) -> Self;
 
     // Create a new, undefined value
     fn undefined() -> Self;
@@ -115,29 +95,29 @@ pub trait Value: Sized {
         *self = Self::undefined();
     }
 
-    /// Get a reference to the [`RsValueInternal`] that is
+    /// Get a reference to the [`RsValue`] that is
     /// held by this value if it is defined. Returns `None` if
     /// the value is undefined.
-    fn internal(&self) -> &RsValueInternal;
+    fn value(&self) -> &RsValue;
 
     /// Create a new, NULL value
     fn null() -> Self {
-        Self::from_internal(RsValueInternal::Null)
+        Self::from_value(RsValue::Null)
     }
 
     /// Create a new numeric value given the passed number
     fn number(n: f64) -> Self {
-        Self::from_internal(RsValueInternal::Number(n))
+        Self::from_value(RsValue::Number(n))
     }
 
     /// Create a new string value
     fn string(s: RsValueString) -> Self {
-        Self::from_internal(RsValueInternal::String(Box::new(s)))
+        Self::from_value(RsValue::String(Box::new(s)))
     }
 
     /// Create a new trio value
     fn trio(left: SharedRsValue, middle: SharedRsValue, right: SharedRsValue) -> Self {
-        Self::from_internal(RsValueInternal::Trio(RsValueTrio::new(left, middle, right)))
+        Self::from_value(RsValue::Trio(RsValueTrio::new(left, middle, right)))
     }
 
     /// Create a new string value backed by an rm_alloc'd string.
@@ -148,7 +128,7 @@ pub trait Value: Sized {
     unsafe fn take_rm_alloc_string(str: NonNull<c_char>, len: u32) -> Self {
         // Safety: caller must uphold the safety requirements of
         // [`OwnedRmAllocString::take_unchecked`]
-        Self::from_internal(RsValueInternal::RmAllocString(unsafe {
+        Self::from_value(RsValue::RmAllocString(unsafe {
             OwnedRmAllocString::take_unchecked(str, len)
         }))
     }
@@ -163,7 +143,7 @@ pub trait Value: Sized {
         debug_assert!(!str.is_null(), "`str` must not be NULL");
         // Safety: caller must uphold the safety requirements of
         // [`OwnedRmAllocString::copy_from_string`].
-        Self::from_internal(RsValueInternal::RmAllocString(unsafe {
+        Self::from_value(RsValue::RmAllocString(unsafe {
             OwnedRmAllocString::copy_from_string(str, len)
         }))
     }
@@ -177,9 +157,7 @@ pub trait Value: Sized {
         debug_assert!(!str.is_null(), "`str` must not be NULL");
         // Safety: caller must uphold the safety requirements of
         // [`ConstString::new`].
-        Self::from_internal(RsValueInternal::ConstString(unsafe {
-            ConstString::new(str, len)
-        }))
+        Self::from_value(RsValue::ConstString(unsafe { ConstString::new(str, len) }))
     }
 
     /// Create a new value backed by a reference to a RedisModuleString.
@@ -190,7 +168,7 @@ pub trait Value: Sized {
     unsafe fn borrowed_redis_string(str: NonNull<RedisModuleString>) -> Self {
         // Safety: caller must uphold the safety requirements of
         // [`RedisStringRef::new_unchecked`].
-        Self::from_internal(RsValueInternal::BorrowedRedisString(unsafe {
+        Self::from_value(RsValue::BorrowedRedisString(unsafe {
             RedisStringRef::new_unchecked(str)
         }))
     }
@@ -203,7 +181,7 @@ pub trait Value: Sized {
     unsafe fn retain_owned_redis_string(str: NonNull<RedisModuleString>) -> Self {
         // Safety: caller must uphold the safety requirements of
         // [`OwnedRedisString::retain`].
-        Self::from_internal(RsValueInternal::OwnedRedisString(unsafe {
+        Self::from_value(RsValue::OwnedRedisString(unsafe {
             OwnedRedisString::retain(str)
         }))
     }
@@ -217,19 +195,19 @@ pub trait Value: Sized {
     unsafe fn take_owned_redis_string(str: NonNull<RedisModuleString>) -> Self {
         // Safety: caller must uphold the safety requirements of
         // [`OwnedRedisString::take`].
-        Self::from_internal(RsValueInternal::OwnedRedisString(unsafe {
+        Self::from_value(RsValue::OwnedRedisString(unsafe {
             OwnedRedisString::take(str)
         }))
     }
 
     /// Create a new array value
     fn array(arr: RsValueArray) -> Self {
-        Self::from_internal(RsValueInternal::Array(arr))
+        Self::from_value(RsValue::Array(arr))
     }
 
     /// Create a new map value
     fn map(map: RsValueMap) -> Self {
-        Self::from_internal(RsValueInternal::Map(map))
+        Self::from_value(RsValue::Map(map))
     }
 
     /// Attempt to parse the passed string as an `f64`, and wrap it
@@ -241,7 +219,7 @@ pub trait Value: Sized {
     /// Get the number value. Returns `None` if the value is not
     /// a number.
     fn get_number(&self) -> Option<f64> {
-        let RsValueInternal::Number(number) = self.internal() else {
+        let RsValue::Number(number) = self.value() else {
             return None;
         };
         Some(*number)
