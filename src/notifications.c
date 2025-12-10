@@ -357,13 +357,13 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
   // 3. Otherwise, reschedule the timer after TRIMMING_STATE_CHECK_DELAY.
   checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
   checkTrimmingStateTimerIdScheduled = false;
-  RedisModule_Log(ctx, "notice", "Checking if we can start trimming migrated slots.");
+  RedisModule_Log(ctx, "verbose", "Checking if we can start trimming migrated slots.");
   if (ASM_CanStartTrimming()) {
     if (RSGlobalConfig.debugDisableTrimming) {
-      RedisModule_Log(ctx, "notice", "Trimming disabled by debug flag, skipping EnableTrim.");
+      RedisModule_Log(ctx, "verbose", "Trimming disabled by debug flag, skipping EnableTrim.");
       return;
     }
-    RedisModule_Log(ctx, "notice", "No queries using the old version, Enabling trimming.");
+    RedisModule_Log(ctx, "verbose", "No queries using the old version, Enabling trimming.");
     RS_ASSERT(enableTrimmingTimerIdScheduled);
     RedisModule_StopTimer(ctx, enableTrimmingTimerId, NULL);
     enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
@@ -371,7 +371,7 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
     ASM_StateMachine_StartTrim(slots); // Make sure that the keypace version is updated, so new queries will already see the new version.
     RedisModule_ClusterEnableTrim(ctx);
   } else {
-    RedisModule_Log(ctx, "notice", "Queries still using the old version, rescheduling check in %d milliseconds.", TRIMMING_STATE_CHECK_DELAY);
+    RedisModule_Log(ctx, "verbose", "Queries still using the old version, rescheduling check in %d milliseconds.", TRIMMING_STATE_CHECK_DELAY);
     checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, TRIMMING_STATE_CHECK_DELAY, checkTrimmingStateCallback, slots);
     checkTrimmingStateTimerIdScheduled = true;
   }
@@ -383,12 +383,12 @@ static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
   enableTrimmingTimerIdScheduled = false;
   // Cancel the checkTrimmingStateCallback timer (Ignore error if it did not exist it does not matter)
   if (RSGlobalConfig.debugDisableTrimming) {
-    RedisModule_Log(ctx, "notice", "Trimming disabled by debug flag, skipping EnableTrim.");
+    RedisModule_Log(ctx, "verbose", "Trimming disabled by debug flag, skipping EnableTrim.");
     return;
   }
-  RedisModule_Log(ctx, "notice", "Maximum delay reached. Enabling trimming.");
+  RedisModule_Log(ctx, "verbose", "Maximum delay reached. Enabling trimming.");
   if (!ASM_CanStartTrimming()) {
-    RedisModule_Log(ctx, "notice", "Queries still using the old version, potential result inaccuracy.");
+    RedisModule_Log(ctx, "verbose", "Queries still using the old version, potential result inaccuracy.");
   }
   RS_ASSERT(checkTrimmingStateTimerIdScheduled);
   RedisModule_StopTimer(ctx, checkTrimmingStateTimerId, NULL);
@@ -434,9 +434,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       checkTrimmingStateTimerIdScheduled = true;
       enableTrimmingTimerIdScheduled = true;
       if (!IsEnterprise()) {
-        StopRedisTopologyUpdater(ctx);
-        // eventloop will process this timer immediately and then get back to the REFRESH_PERIOD
-        InitRedisTopologyUpdater(ctx);
+        RedisTopologyUpdater_StopAndRescheduleInmediately(ctx);
       }
       break;
 

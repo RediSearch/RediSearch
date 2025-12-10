@@ -98,6 +98,8 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_GROUP:
       case RP_MAX_SCORE_NORMALIZER:
       case RP_NETWORK:
+      case RP_SAFE_DEPLETER:
+      case RP_DEPLETER:
         printProfileType(RPTypeToString(rp->type));
         break;
 
@@ -168,7 +170,8 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       RedisModule_ReplyKV_Double(reply, "Total GIL time",
                                  rs_wall_clock_convert_ns_to_ms_d(qctx->queryGILTime));
     } else {
-      rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&qctx->initTime);
+      // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
+      rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&qctx->initTime) + 1;
       RedisModule_ReplyKV_Double(reply, "Total GIL time",
                                  rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
     }
