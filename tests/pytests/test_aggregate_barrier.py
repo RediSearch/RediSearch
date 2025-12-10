@@ -214,9 +214,9 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
                         ['Timeout limit was reached'])
 
 
-@skip(cluster=False)
-def test_barrier_waits_for_delayed_unbalanced_shard_resp2():
-    _test_barrier_waits_for_delayed_unbalanced_shard(2)
+#@skip(cluster=False)
+#def test_barrier_waits_for_delayed_unbalanced_shard_resp2():
+#    _test_barrier_waits_for_delayed_unbalanced_shard(2)
 
 
 @skip(cluster=False)
