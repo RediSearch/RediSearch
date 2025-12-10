@@ -572,7 +572,7 @@ run_rust_tests() {
   if [[ $COV == 1 ]]; then
     # We use the `nightly` compiler in order to include doc tests in the coverage computation.
     # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
-    RUST_EXTENSIONS="+$NIGHTLY_VERSION llvm-cov"
+    RUST_TEST_COMMAND="+$NIGHTLY_VERSION llvm-cov test"
     # We exclude Rust benchmarking crates that link to C code when computing coverage.
     # On one side, we aren't interested in coverage of those utilities.
     # On top of that, it causes linking issues since, when computing coverage, it seems to
@@ -586,7 +586,9 @@ run_rust_tests() {
       --output-path=$BINROOT/rust_cov.info
     "
   elif [[ -n "$SAN" || "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
-    RUST_EXTENSIONS="+$NIGHTLY_VERSION miri"
+    RUST_TEST_COMMAND="+$NIGHTLY_VERSION miri test"
+  else
+    RUST_TEST_COMMAND="nextest run"
   fi
 
   if [[ $OS_NAME != "macos" ]]; then
@@ -596,7 +598,7 @@ run_rust_tests() {
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings }" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $TEST_FILTER -- --nocapture
+  RUSTFLAGS="${RUSTFLAGS:--D warnings }" cargo $RUST_TEST_COMMAND --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $TEST_FILTER -- --nocapture
 
   # Check test results
   RUST_TEST_RESULT=$?
