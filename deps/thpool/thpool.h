@@ -33,6 +33,7 @@ typedef struct {
   unsigned long low_priority_pending_jobs;
   unsigned long admin_priority_pending_jobs;
   unsigned long num_threads_alive;
+  unsigned long num_jobs_in_progress;
 } thpool_stats;
 
 // A callback to call redis log.
