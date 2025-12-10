@@ -895,9 +895,9 @@ def test_initial_multi_threading_stats(env):
   # Verify all fields initialized to 0.
   env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_IO_THREADS_METRIC], '0',
                  message=f"{ACTIVE_IO_THREADS_METRIC} should be 0 when idle")
-  env.assertEqual([MULTI_THREADING_SECTION][ACTIVE_WORKER_THREADS_METRIC], '0',
+  env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_WORKER_THREADS_METRIC], '0',
                  message="active_worker_threads should be 0 when idle")
-  env.assertEqual([MULTI_THREADING_SECTION][ACTIVE_COORD_THREADS_METRIC], '0',
+  env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_COORD_THREADS_METRIC], '0',
                  message="active_coord_threads should be 0 when idle")
   # There's no deterministic way to test active_io_threads increases while a query is running,
   # we test it in unit tests.
