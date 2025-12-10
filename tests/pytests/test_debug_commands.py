@@ -1510,9 +1510,14 @@ class ProfileDebugCluster:
                         message=f"{message_prefix}: Debug should return expected number of results")
 
         # Verify we have received profiles from all 3 shards
-        expected_len = env.shardsCount if command_type == 'AGGREGATE' or protocol == 2 else env.shardsCount + 1
-        env.assertEqual(len(debug_data['shards_profile']), expected_len,
-                        message=f"{message_prefix}: Debug should return profiles from all shards")
+        # Since we only detect shard's timeout on resp 3, on resp2 we might continue sending FT.CURSOR READ to the
+        # shards until EOF. Since we discard the profile on empty replies (see MOD-12626), we lose the profile of the
+        # shard that returned EOF.
+        # Therefor, we skip this check in resp2.
+        if protocol == 3:
+            expected_len = env.shardsCount if command_type == 'AGGREGATE' else env.shardsCount + 1
+            env.assertEqual(len(debug_data['shards_profile']), expected_len,
+                            message=f"{message_prefix}: Debug should return profiles from all shards")
         # Verify coordinator profile exists
         env.assertTrue(debug_data['coordinator_profile'] is not None,
                         message=f"{message_prefix}: Debug should return coordinator profile")
