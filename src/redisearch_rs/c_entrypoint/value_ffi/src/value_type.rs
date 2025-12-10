@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use value::{RsValue, RsValueInternal, Value, shared::SharedRsValue};
+use value::{RsValue, Value, shared::SharedRsValue};
 
 /// Enumeration of the types an
 /// `RsValue` or a `SharedRsValue` can be of.
@@ -33,34 +33,28 @@ pub(crate) trait AsRsValueType {
     fn as_value_type(&self) -> RsValueType;
 }
 
-impl AsRsValueType for RsValueInternal {
+impl AsRsValueType for RsValue {
     fn as_value_type(&self) -> RsValueType {
         use RsValueType::*;
         match self {
-            RsValueInternal::Undefined => Undefined,
-            RsValueInternal::Null => Null,
-            RsValueInternal::Number(_) => Number,
-            RsValueInternal::RmAllocString(_) => RmAllocString,
-            RsValueInternal::ConstString(_) => ConstString,
-            RsValueInternal::OwnedRedisString(_) => OwnedRedisString,
-            RsValueInternal::BorrowedRedisString(_) => BorrowedRedisString,
-            RsValueInternal::String(_) => String,
-            RsValueInternal::Array(_) => Array,
-            RsValueInternal::Ref(_) => Ref,
-            RsValueInternal::Trio(_) => Trio,
-            RsValueInternal::Map(_) => Map,
+            RsValue::Undefined => Undefined,
+            RsValue::Null => Null,
+            RsValue::Number(_) => Number,
+            RsValue::RmAllocString(_) => RmAllocString,
+            RsValue::ConstString(_) => ConstString,
+            RsValue::OwnedRedisString(_) => OwnedRedisString,
+            RsValue::BorrowedRedisString(_) => BorrowedRedisString,
+            RsValue::String(_) => String,
+            RsValue::Array(_) => Array,
+            RsValue::Ref(_) => Ref,
+            RsValue::Trio(_) => Trio,
+            RsValue::Map(_) => Map,
         }
     }
 }
 
 impl AsRsValueType for SharedRsValue {
     fn as_value_type(&self) -> RsValueType {
-        self.internal().as_value_type()
-    }
-}
-
-impl AsRsValueType for RsValue {
-    fn as_value_type(&self) -> RsValueType {
-        self.internal().as_value_type()
+        self.value().as_value_type()
     }
 }
