@@ -240,6 +240,7 @@ void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_i
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
   RedisModule_InfoAddFieldULongLong(ctx, "active_io_threads", stats.active_io_threads);
   RedisModule_InfoAddFieldULongLong(ctx, "active_worker_threads", stats.active_worker_threads);
+  RedisModule_InfoAddFieldULongLong(ctx, "active_coord_threads", stats.active_coord_threads);
   RedisModule_InfoAddFieldULongLong(ctx, "workers_low_priority_pending_jobs", stats.workers_low_priority_pending_jobs);
   RedisModule_InfoAddFieldULongLong(ctx, "workers_high_priority_pending_jobs", stats.workers_high_priority_pending_jobs);
 }

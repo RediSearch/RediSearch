@@ -613,7 +613,6 @@ def test_initial_multi_threading_stats(env):
   for i in range(10):
     conn.execute_command('HSET', f'doc{i}', 'name', f'name{i}', 'age', i)
 
-  # Phase 1: Verify multi_threading section exists and active_io_threads starts at 0
   info_dict = info_modules_to_dict(env)
 
   # Verify multi_threading section exists
@@ -623,12 +622,16 @@ def test_initial_multi_threading_stats(env):
   # Verify all expected fields exist
   env.assertTrue(ACTIVE_IO_THREADS_METRIC in info_dict[MULTI_THREADING_SECTION],
                  message=f"{ACTIVE_IO_THREADS_METRIC} field should exist in multi_threading section")
+  env.assertTrue(ACTIVE_COORD_THREADS_METRIC in info_dict[MULTI_THREADING_SECTION],
+                 message=f"{ACTIVE_COORD_THREADS_METRIC} should exist in multi_threading section")
   env.assertTrue(ACTIVE_WORKER_THREADS_METRIC in info_dict[MULTI_THREADING_SECTION],
                  message=f"{ACTIVE_WORKER_THREADS_METRIC} field should exist in multi_threading section")
 
   # Verify all fields initialized to 0.
   env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_IO_THREADS_METRIC], '0',
                  message=f"{ACTIVE_IO_THREADS_METRIC} should be 0 when idle")
+  env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_COORD_THREADS_METRIC], '0',
+                 message=f"{ACTIVE_COORD_THREADS_METRIC} should be 0 when idle")
   env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_WORKER_THREADS_METRIC], '0',
                  message=f"{ACTIVE_WORKER_THREADS_METRIC} should be 0 when idle")
   # There's no deterministic way to test active_io_threads increases while a query is running,
