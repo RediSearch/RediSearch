@@ -458,6 +458,11 @@ void RLookupRow_Reset(RLookupRow *row);
  */
 void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup, RLookupRow *src, RLookupRow *dst);
 
+void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow,
+                                const struct RLookup *srcLookup,
+                                RLookupRow *destRow,
+                                struct RLookup *destLookup);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

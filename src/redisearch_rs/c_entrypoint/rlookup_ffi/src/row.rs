@@ -137,3 +137,23 @@ pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
 
     dst.move_fields_from(src, lookup);
 }
+
+#[unsafe(no_mangle)]
+#[allow(non_snake_case)]
+unsafe extern "C" fn RLookupRow_WriteFieldsFrom(
+    srcRow: *const RLookupRow,
+    srcLookup: *const RLookup,
+    destRow: Option<NonNull<RLookupRow>>,
+    destLookup: Option<NonNull<RLookup>>,
+) {
+    let srcRow = unsafe { srcRow.as_ref().unwrap() };
+
+    let srcLookup = unsafe { srcLookup.as_ref().unwrap() };
+
+    let destRow = unsafe { destRow.unwrap().as_mut() };
+
+    // No need for mutable?
+    let destLookup = unsafe { destLookup.unwrap().as_ref() };
+
+    destRow.copy_fields_from(destLookup, srcRow, srcLookup);
+}
