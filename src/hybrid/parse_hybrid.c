@@ -271,24 +271,24 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
   ArgsCursor argCursor= {0};
   int res = AC_GetSlice(ac, &argCursor, count);
   if (res == AC_ERR_NOARG) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Not enough arguments", " in %s, specified %llu but provided only %u", "FILTER", count, AC_NumRemaining(ac));
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Not enough arguments", " in %s, specified %llu but provided only %u", "FILTER", count, AC_NumRemaining(ac));
     return REDISMODULE_ERR;
   } else if (res != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Bad arguments", " in %s: %s", "FILTER", AC_Strerror(res));
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " in %s: %s", "FILTER", AC_Strerror(res));
     return REDISMODULE_ERR;
   }
 
   // Parse filter-expression (required, positional) - store in vreq->query directly
   vreq->query = AC_GetStringNC(&argCursor, NULL);
   if (!vreq->query) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing filter-expression for FILTER");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing filter-expression for FILTER");
     return REDISMODULE_ERR;
   }
 
   // Use ArgParser for optional POLICY and BATCH_SIZE
   ArgParser *parser = ArgParser_New(&argCursor, "FILTER");
   if (!parser) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to create argument parser for FILTER");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create argument parser for FILTER");
     return REDISMODULE_ERR;
   }
 
@@ -310,7 +310,7 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
 
   ArgParseResult result = ArgParser_Parse(parser);
   if (!result.success) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, ArgParser_GetErrorString(parser));
+    QueryError_SetError(status, QUERY_EPARSEARGS, ArgParser_GetErrorString(parser));
     ArgParser_Free(parser);
     return REDISMODULE_ERR;
   }
@@ -421,14 +421,14 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
     unsigned long long count = 0;
     if (AC_IsAtEnd(ac)) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument count for FILTER");
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Missing argument count for FILTER");
       goto error;
     }
     if (AC_GetUnsignedLongLong(ac, &count, 0) != AC_OK) {
       // it's a string, not a number, preserving some degree of backward compatibility
       vreq->query = AC_GetStringNC(ac, NULL);
       if (!vreq->query) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid filter-expression for FILTER");
+        QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid filter-expression for FILTER");
         goto error;
       }
     } else if (parseFilterClause(ac, vreq, pvd, status, count) != REDISMODULE_OK) {
