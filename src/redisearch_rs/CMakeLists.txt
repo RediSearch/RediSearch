@@ -31,12 +31,12 @@ if(SAN STREQUAL "address")
     set(RUST_FLAGS "${RUST_FLAGS} -Zsanitizer=address")
 
     # -Zbuild-std is a cargo flag (not rustc), so set it separately
-    set(CARGO_BUILD_STD_FLAG "-Zbuild-std")
+    set(CARGO_BUILD_FLAGS "-Zbuild-std")
 
     # Note: ASAN in Rust requires nightly compiler
     # The build.sh script should handle setting the correct toolchain
 else()
-    set(CARGO_BUILD_STD_FLAG "")
+    set(CARGO_BUILD_FLAGS "")
 endif()
 
 # Map Rust profile names to their corresponding artifact directory names
@@ -71,7 +71,7 @@ if(NOT TARGET redisearch_rs_build)
             "RUSTFLAGS=${RUST_FLAGS}"
             "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
             ${CARGO_EXECUTABLE} ${TOOLCHAIN_MODIFIER} build
-            ${CARGO_BUILD_STD_FLAG}
+            ${CARGO_BUILD_FLAGS}
             --package redisearch_rs
             --profile=${RUST_PROFILE}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -108,7 +108,7 @@ message(STATUS "Rust configuration:")
 message(STATUS "  Cargo: ${CARGO_EXECUTABLE}")
 message(STATUS "  Toolchain: ${TOOLCHAIN_MODIFIER}")
 message(STATUS "  Profile: ${RUST_PROFILE}")
-message(STATUS "  Cargo Build Std Flag: ${CARGO_BUILD_STD_FLAG}")
+message(STATUS "  Cargo Build Flags: ${CARGO_BUILD_FLAGS}")
 message(STATUS "  RUSTFLAGS: ${RUST_FLAGS}")
 message(STATUS "  Target Dir: ${RUST_TARGET_DIR}")
 message(STATUS "  Library Path: ${RUST_LIB_PATH}")
