@@ -1014,6 +1014,7 @@ done:
 static int parseProfile(AREQ *r, int execOptions, RedisModuleString **argv, int argc, QueryError *status) {
   if (execOptions & EXEC_WITH_PROFILE) {
 
+    r->qiter.isProfile = true;
     // WithCursor is disabled on the shards for external use but is available internally to the coordinator
     #ifndef RS_COORDINATOR
     if (RMUtil_ArgExists("WITHCURSOR", argv, argc, 3)) {
@@ -1026,6 +1027,8 @@ static int parseProfile(AREQ *r, int execOptions, RedisModuleString **argv, int 
     if (execOptions & EXEC_WITH_PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
     }
+  } else {
+    r->qiter.isProfile = false;
   }
   return REDISMODULE_OK;
 }
@@ -1047,6 +1050,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   if (!IsInternal(r) || IsProfile(r)) {
     // We currently don't need to measure the time for internal and non-profile commands
     rs_wall_clock_init(&r->initClock);
+    rs_wall_clock_init(&r->qiter.initTime);
   }
 
   // This function also builds the RedisSearchCtx.
@@ -1076,7 +1080,9 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     r->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
-
+    if (r->qiter.isProfile){
+      r->qiter.queryGILTime += rs_wall_clock_elapsed_ns(&r->qiter.initTime);
+    }
     workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else
 #endif // MT_BUILD
@@ -1274,6 +1280,7 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
+      Cursor_Free(cursor); // Free the cursor since it is no longer valid
       RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
       return;
     }
@@ -1381,6 +1388,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     AREQ *req = cursor->execState;
     if (!IsProfile(req)) {
+      Cursor_Pause(cursor); // Pause the cursor again since we are not going to use it, but it's still valid.
       RedisModule_ReplyWithErrorFormat(ctx, "cursor request is not profile, id: %d", cid);
       RedisModule_EndReply(reply);
       return REDISMODULE_OK;
@@ -1396,6 +1404,8 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       // Notify the client that the query was aborted.
       RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
     } else {
+      QueryError status = {0};
+      req->qiter.err = &status;
       sendChunk_ReplyOnly_EmptyResults(reply, req);
       StrongRef_Release(execution_ref);
     }

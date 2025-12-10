@@ -120,7 +120,7 @@ def test_MOD_7454(env: Env):
 
   # With the given setup we should have enough docs to trigger the issue.
   # Let's validate that we got a union iterator of multiple numeric iterators.
-  union_profile = to_dict(res[2][5][1][:8]) # take the first shard info
+  union_profile = to_dict(res[2][6][1][:8]) # take the first shard info
   env.assertEqual(union_profile['Type'], 'UNION')
   env.assertEqual(union_profile['Query type'], 'NUMERIC')
 
@@ -176,8 +176,8 @@ def test_issue1880(env):
   res1 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello world')
   res2 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'world hello')
   # both queries return `world` iterator before `hello`
-  env.assertEqual(res1[1][4][1], excepted_res)
-  env.assertEqual(res2[1][4][1], excepted_res)
+  env.assertEqual(res1[1][5][1], excepted_res)
+  env.assertEqual(res2[1][5][1], excepted_res)
 
   # test with a term which does not exist
   excepted_res = ['Type', 'INTERSECT', 'Number of reading operations', 0, 'Child iterators',
@@ -186,7 +186,7 @@ def test_issue1880(env):
                     ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 0, 'Estimated number of matches', 2]]
   res3 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello new world')
 
-  env.assertEqual(res3[1][4][1], excepted_res)
+  env.assertEqual(res3[1][5][1], excepted_res)
 
 def test_issue1932(env):
     conn = getConnectionByEnv(env)
@@ -411,28 +411,28 @@ def test_SkipFieldWithNoMatch(env):
 
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:foo')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
+  env.assertEqual(res[1][5][1], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'foo')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
+  env.assertEqual(res[1][5][1], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   # bar exists in `t2` only
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:bar')
-  env.assertEqual(res[1][4][1], ['Type', 'EMPTY', 'Number of reading operations', 0])
+  env.assertEqual(res[1][5][1], ['Type', 'EMPTY', 'Number of reading operations', 0])
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'bar')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1] )
+  env.assertEqual(res[1][5][1], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1] )
 
   # Check with NOFIELDS flag
   env.cmd('FT.CREATE', 'idx_nomask', 'NOFIELDS', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
   waitForIndex(env, 'idx_nomask')
 
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:foo')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
+  env.assertEqual(res[1][5][1], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'foo')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
+  env.assertEqual(res[1][5][1], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
 
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:bar')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1])
+  env.assertEqual(res[1][5][1], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1])
+  env.assertEqual(res[1][5][1], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1])
 
 @skip(cluster=True)
 def test_update_num_terms(env):
@@ -793,7 +793,7 @@ def test_mod5062(env):
 
   # verify using counter instead of sorter
   search_profile = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello')
-  env.assertEqual('Counter', search_profile[1][5][3][1])
+  env.assertEqual('Counter', search_profile[1][6][3][1])
 
   # verify no crash
   env.expect('FT.AGGREGATE', 'idx', 'hello').noError()
@@ -801,7 +801,7 @@ def test_mod5062(env):
 
   # verify using counter instead of sorter, even with explicit sort
   aggregate_profile = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hello', 'SORTBY', '1', '@t')
-  env.assertEqual('Counter', aggregate_profile[1][5][2][1])
+  env.assertEqual('Counter', aggregate_profile[1][6][2][1])
 
 def test_mod5252(env):
   # Create an index and add a document
@@ -938,7 +938,7 @@ def test_mod5910(env):
     # iterator.
     # Hence, we expect that the numeric iterator would come *after* the union iterator.
     res = env.execute_command('FT.PROFILE', 'idx', 'search', 'query', '(@n:[1 3] (@t:one | @t:two))')
-    iterators_profile = res[1][4]
+    iterators_profile = res[1][5]
     env.assertEqual(iterators_profile[1][1], 'INTERSECT')
     env.assertEqual(iterators_profile[1][7][1], 'UNION')
     env.assertEqual(iterators_profile[1][8][1], 'NUMERIC')
@@ -949,7 +949,7 @@ def test_mod5910(env):
     # *before* the union iterator.
     env.assertEqual('OK', con.execute_command('FT.CONFIG', 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true'))
     res = con.execute_command('FT.PROFILE', 'idx', 'search', 'query', '(@n:[1 3] (@t:one | @t:two))')
-    iterators_profile = res[1][4]
+    iterators_profile = res[1][5]
     env.assertEqual(iterators_profile[1][1], 'INTERSECT')
     env.assertEqual(iterators_profile[1][7][1], 'NUMERIC')
     env.assertEqual(iterators_profile[1][8][1], 'UNION')
@@ -1430,8 +1430,8 @@ def test_mod_8809_single_index_single_field(env:Env):
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
 
     # Reset yield counter
-    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
-    initial_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.expect(debug_cmd(), 'YIELDS_COUNTER', 'RESET').ok()
+    initial_count = env.cmd(debug_cmd(), 'YIELDS_COUNTER', 'LOAD')
     env.assertEqual(initial_count, 0, message="Initial yield counter should be 0")
 
     # Create index
@@ -1447,7 +1447,7 @@ def test_mod_8809_single_index_single_field(env:Env):
 
 
     # Check that yield was not called
-    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_COUNTER', 'LOAD')
     env.assertEqual(yields_count, 0, message="Yield should not have been called")
 
     # Reload and check
@@ -1458,21 +1458,21 @@ def test_mod_8809_single_index_single_field(env:Env):
 
     # Verify the number of yields
     expected_min_yields = num_docs // yield_every_n_ops
-    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_COUNTER', 'LOAD')
     env.assertGreaterEqual(yields_count, expected_min_yields,
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
 
     # Test with different configuration
     yields_every_n_ops = 5
     env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
-    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
+    env.expect(debug_cmd(), 'YIELDS_COUNTER', 'RESET').ok()
 
     # Reload and check
     env.broadcast('SAVE')
     env.broadcast('DEBUG RELOAD NOSAVE')
     waitForIndex(env, 'idx')
 
-    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_COUNTER', 'LOAD')
     expected_min_yields = num_docs // yield_every_n_ops
     env.assertGreaterEqual(yields_count, expected_min_yields,
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
@@ -1486,8 +1486,8 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
 
     # Reset yield counter
-    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
-    initial_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.expect(debug_cmd(), 'YIELDS_COUNTER', 'RESET').ok()
+    initial_count = env.cmd(debug_cmd(), 'YIELDS_COUNTER', 'LOAD')
     env.assertEqual(initial_count, 0, message="Initial yield counter should be 0")
 
     # Create index
@@ -1513,7 +1513,7 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     waitForIndex(env, 'idx3')
 
     # Check that yield was called
-    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_COUNTER', 'LOAD')
     env.assertGreater(yields_count, 0, message="Yield should have been called at least once")
 
     # Verify the number of yields
@@ -1524,7 +1524,7 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     # Test with different configuration
     yield_every_n_ops = 5
     env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
-    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
+    env.expect(debug_cmd(), 'YIELDS_COUNTER', 'RESET').ok()
 
     # Reload and check
     env.broadcast('SAVE')
@@ -1534,7 +1534,7 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     waitForIndex(env, 'idx3')
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
 
-    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_COUNTER', 'LOAD')
     expected_min_yields = 7 * num_docs // yield_every_n_ops
     env.assertGreaterEqual(yields_count, expected_min_yields,
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
@@ -1690,3 +1690,25 @@ def test_mod_11658_avoid_deadlock_while_reducing_num_workers():
     env.assertTrue(final_search[0] > 0, message="Search should return results at end of test")
 
     check_threads(env, 0, 0)
+
+@skip(cluster=True)
+def test_mod_12807(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('HSET', 'doc1', 't', 'foo bar baz').equal(1)
+  env.expect('HSET', 'doc2', 't', 'foo baz').equal(1)
+
+  # Search with a term that exists in both documents
+  _, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:foo', 'WITHCURSOR', 'COUNT', '1')
+  env.assertNotEqual(cursor, 0, message='Expected a non-zero cursor for multiple results')
+
+  # Drop the index, then try to read from the cursor
+  env.expect('FT.DROPINDEX', 'idx').ok()
+
+  # Verify there is still an idle cursor
+  env.assertEqual(env.cmd('INFO', 'MODULES')['search_global_total'], 1)
+
+  # Attempting to read from the cursor should return an error about unknown index, and delete the cursor
+  env.expect('FT.CURSOR', 'READ', 'idx', cursor).error().equal('The index was dropped while the cursor was idle')
+
+  # Verify the idle cursor was deleted
+  env.assertEqual(env.cmd('INFO', 'MODULES')['search_global_total'], 0)

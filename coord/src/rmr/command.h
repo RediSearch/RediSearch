@@ -15,6 +15,8 @@
 
 typedef enum { C_READ = 0, C_DEL = 1, C_AGG = 2, C_PROFILE = 3 } MRRootCommand;
 
+#define INVALID_SHARD -1
+
 /* A redis command is represented with all its arguments and its flags as MRCommand */
 typedef struct {
   /* The command args starting from the command itself */
@@ -23,6 +25,9 @@ typedef struct {
 
   /* Number of arguments */
   uint32_t num;
+
+  /* if not -1, this value indicate to which shard the command should be sent */
+  int16_t targetShard;
 
   /* if not -1, this value indicate to which slot the command should be sent */
   int targetSlot;

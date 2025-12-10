@@ -37,6 +37,27 @@
 
 DebugCTX globalDebugCtx = {0};
 
+// QueryDebugCtx API implementations
+bool QueryDebugCtx_IsPaused(void) {
+  return globalDebugCtx.query.pause;
+}
+
+void QueryDebugCtx_SetPause(bool pause) {
+  globalDebugCtx.query.pause = pause;
+}
+
+ResultProcessor* QueryDebugCtx_GetDebugRP(void) {
+  return globalDebugCtx.query.debugRP;
+}
+
+void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP) {
+  globalDebugCtx.query.debugRP = debugRP;
+}
+
+bool QueryDebugCtx_HasDebugRP(void) {
+  return globalDebugCtx.query.debugRP != NULL;
+}
+
 void validateDebugMode(DebugCTX *debugCtx) {
   // Debug mode is enabled if any of its field is non-default
   // Should be called after each debug command that changes the debugCtx
@@ -1327,31 +1348,6 @@ void ResetYieldCounter(void) {
 }
 
 /**
- * FT.DEBUG YIELDS_ON_LOAD_COUNTER [RESET]
- * Get or reset the counter for yields during loading operations
- */
-DEBUG_COMMAND(YieldCounter) {
-  if (argc > 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  // Check if we need to reset the counter
-  if (argc == 3) {
-    size_t len;
-    const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
-    if (STR_EQCASE(subCmd, len, "RESET")) {
-      ResetYieldCounter();
-      return RedisModule_ReplyWithSimpleString(ctx, "OK");
-    } else {
-      return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
-    }
-  }
-
-  // Return the current counter value
-  return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
-}
-
-/**
  * FT.DEBUG BG_SCAN_CONTROLLER SET_MAX_SCANNED_DOCS <max_scanned_docs>
  */
 DEBUG_COMMAND(setMaxScannedDocs) {
@@ -1598,11 +1594,58 @@ DEBUG_COMMAND(bgScanController) {
 
 }
 
-// Global variable for sleep time before yielding (in microseconds)
-static unsigned int g_indexerSleepBeforeYieldMicros = 0;
+// Global counter for tracking yield calls
+typedef struct {
+  size_t yieldOnLoadCounter;
+  size_t yieldOnBgIndexCounter;
+  size_t indexerSleepBeforeYieldMicros;
+} YieldCallHandler;
 
+static YieldCallHandler g_yieldCallHandler = {0};
+
+// Function to increment the yield counter upon loading (to be called from IndexerBulkAdd)
+void IncrementLoadYieldCounter(void) {
+  g_yieldCallHandler.yieldOnLoadCounter++;
+}
+
+// Function to increment the yield counter upon bg indexing
+void IncrementBgIndexYieldCounter(void) {
+  g_yieldCallHandler.yieldOnBgIndexCounter++;
+}
+
+// Reset the yield counter
+void ResetYieldCounters(void) {
+  g_yieldCallHandler.yieldOnLoadCounter = 0;
+  g_yieldCallHandler.yieldOnBgIndexCounter = 0;
+}
+
+// Get the current sleep time before yielding (in microseconds)
 unsigned int GetIndexerSleepBeforeYieldMicros(void) {
-  return g_indexerSleepBeforeYieldMicros;
+  return g_yieldCallHandler.indexerSleepBeforeYieldMicros;
+}
+
+/**
+ * FT.DEBUG YIELDS_COUNTER LOAD/BG_INDEX/RESET
+ * Get or reset the counter for yields indexing / loading operations
+ */
+DEBUG_COMMAND(YieldCounter) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  size_t len;
+  const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
+  if (STR_EQCASE(subCmd, len, "RESET")) {
+    ResetYieldCounters();
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  if (STR_EQCASE(subCmd, len, "BG_INDEX")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_yieldCallHandler.yieldOnBgIndexCounter);
+  }
+  if (STR_EQCASE(subCmd, len, "LOAD")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_yieldCallHandler.yieldOnLoadCounter);
+  }
+  return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
 }
 
 /**
@@ -1621,11 +1664,130 @@ DEBUG_COMMAND(IndexerSleepBeforeYieldMicros) {
       return RedisModule_ReplyWithError(ctx, "Invalid sleep time. Must be a non-negative integer.");
     }
 
-    g_indexerSleepBeforeYieldMicros = (unsigned int)sleepMicros;
+    g_yieldCallHandler.indexerSleepBeforeYieldMicros = (unsigned int)sleepMicros;
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
   return RedisModule_WrongArity(ctx);
+}
+
+static inline int TimedOut_Always(TimeoutCtx *ctx) {
+  (void)ctx; // Unused parameter
+  return TIMED_OUT;
+}
+
+// Global timeout callback for VecSim searches.
+// Need the redirection so tests can pass a mock function to test timeout behavior.
+// Used in hybrid_reader.c in computeDistances
+extern int (*vecsimTimeoutCallback)(TimeoutCtx *ctx);
+
+/**
+ * FT.DEBUG VECSIM_MOCK_TIMEOUT <enable|disable>
+ * Set the timeout callback for VecSim searches globally
+ * enable - will cause an immediate timeout for all VecSim searches
+ * disable - will remove the timeout callback and restore normal behavior
+ */
+DEBUG_COMMAND(VecSimMockTimeout) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcmp("enable", op)) {
+    vecsimTimeoutCallback = TimedOut_Always;
+    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_Always);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  } else if (!strcmp("disable", op)) {
+    vecsimTimeoutCallback = TimedOut_WithCtx;
+    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid command for 'VECSIM_MOCK_TIMEOUT'");
+  }
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_RP_RESUME
+ */
+DEBUG_COMMAND(setPauseRPResume) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!QueryDebugCtx_IsPaused()) {
+    return RedisModule_ReplyWithError(ctx, "Query is not paused");
+  }
+
+  QueryDebugCtx_SetPause(false);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_IS_RP_PAUSED
+ */
+DEBUG_COMMAND(getIsRPPaused) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithLongLong(ctx, QueryDebugCtx_IsPaused());
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER PRINT_RP_STREAM
+ */
+DEBUG_COMMAND(printRPStream) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!QueryDebugCtx_HasDebugRP()) {
+    return RedisModule_ReplyWithError(ctx, "No debug RP is set");
+  }
+
+  ResultProcessor* root = QueryDebugCtx_GetDebugRP()->parent->endProc;
+  ResultProcessor *cur = root;
+
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+
+  size_t resultSize = 0;
+
+  while (cur) {
+    if (cur->type < RP_MAX) {
+      RedisModule_ReplyWithSimpleString(ctx, RPTypeToString(cur->type));
+    }
+    else {
+      RedisModule_ReplyWithSimpleString(ctx, "DEBUG_RP");
+    }
+    cur = cur->upstream;
+    resultSize++;
+  }
+  RedisModule_ReplySetArrayLength(ctx, resultSize);
+
+  return REDISMODULE_OK;
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER <command> [options]
+ */
+DEBUG_COMMAND(queryController) {
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  // Check here all background indexing possible commands
+  if (!strcmp("SET_PAUSE_RP_RESUME", op)) {
+    return setPauseRPResume(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_IS_RP_PAUSED", op)) {
+    return getIsRPPaused(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("PRINT_RP_STREAM", op)) {
+    return printRPStream(ctx, argv + 1, argc - 1);
+  }
+  return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");
 }
 
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
@@ -1660,9 +1822,11 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INDEXES", ListIndexesSwitch},
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
-                               {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
+                               {"YIELDS_COUNTER", YieldCounter},
                                {"BG_SCAN_CONTROLLER", bgScanController},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
+                               {"QUERY_CONTROLLER", queryController},
+                               {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
