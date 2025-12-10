@@ -246,7 +246,7 @@ __STATIC_API__ fstring string_copy_heap(
 }
 
 /*
- * find the postion of the first appear of the given char.
+ * find the position of the first appear of the given char.
  *    address of the char in the fstring will be return .
  *    if not found NULL will be return . 
  */
@@ -265,7 +265,7 @@ __STATIC_API__ fstring indexOf( fstring __str, char delimiter )
 }
 
 /**
- * load all the valid wors from a specified lexicon file . 
+ * load all the valid words from a specified lexicon file . 
  *
  * @param dic        friso dictionary instance (A hash array)
  * @param lex        the lexicon type
@@ -439,7 +439,7 @@ FRISO_API void friso_dic_load_from_ifile(
     friso_lex_t lex_t;
     string_buffer_t sb;
 
-    //get the lexicon configruation file path
+    //get the lexicon configuration file path
     sb = new_string_buffer();
 
     string_buffer_append( sb, _path );

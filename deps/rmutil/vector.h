@@ -27,10 +27,10 @@ typedef struct {
 } Vector;
 
 /* Create a new vector with element size. This should generally be used
- * internall by the NewVector macro */
+ * internally by the NewVector macro */
 Vector *__newVectorSize(size_t elemSize, size_t cap);
 
-// Put a pointer in the vector. To be used internall by the library
+// Put a pointer in the vector. To be used internally by the library
 int __vector_PutPtr(Vector *v, size_t pos, void *elem);
 
 /*
