@@ -222,7 +222,10 @@ impl io::Write for RedisModuleWriter {
                 &mut b
             };
 
-            let bytes_written = buf.write(input)?;
+            // NB: replace interior null bytes with spaces (ideally we would replace them with �
+            // but that is a multi-byte character which means this loop wouldn't get optimized as well).
+            buf.extend(input.iter().map(|b| if *b == 0 { b' ' } else { *b }));
+            let bytes_written = buf.len();
 
             // NB: tracing subscriber always adds a trailing newline. We don't need this as the redismodule
             // logging system already adds one for us as well. BUT we can use this to our advantage and change it
@@ -230,8 +233,8 @@ impl io::Write for RedisModuleWriter {
             debug_assert_eq!(buf[bytes_written - 1], b'\n');
             buf[bytes_written - 1] = 0;
 
-            // Safety: Rust strings do not contain interior null bytes AND we just pushed the trailing zero.
-            let cstr = CStr::from_bytes_with_nul(buf.as_mut()).unwrap();
+            // Safety: We just replaced all interior null bytes and added the trailing one.
+            let cstr = unsafe { CStr::from_bytes_with_nul_unchecked(buf.as_mut()) };
 
             // <https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#redismodule_log>
             // Safety: The documentation explicitly allows ctx to be a nullptr and we ensured the C string is valid above.
