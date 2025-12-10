@@ -105,7 +105,9 @@ static void topologyAsyncCB(uv_async_t *async) {
     // will be the topology check. If the topology hasn't changed, the topology check will quickly
     // mark the event loop thread as ready again.
     loop_th_ready = false;
+    GlobalStats_UpdateUvRunningTopoUpdate(1);
     topo->cb(topo->privdata);
+    GlobalStats_UpdateUvRunningTopoUpdate(-1);
     rm_free(topo);
     // Finish this round of topology checks to give the topology connections a chance to connect.
     // Schedule connectivity check immediately with a 1ms repeat interval
@@ -241,9 +243,9 @@ static void rqAsyncCb(uv_async_t *async) {
   MRWorkQueue *q = async->data;
   struct queueItem *req;
   while (NULL != (req = rqPop(q))) {
-    GlobalStats_UpdateActiveIoThreads(1);
+    GlobalStats_UpdateUvRunningQueries(1);
     req->cb(req->privdata);
-    GlobalStats_UpdateActiveIoThreads(-1);
+    GlobalStats_UpdateUvRunningQueries(-1);
     rm_free(req);
   }
 }

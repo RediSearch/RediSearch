@@ -1209,7 +1209,8 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
 ########
 
 MULTI_THREADING_SECTION = f'{SEARCH_PREFIX}multi_threading'
-ACTIVE_IO_THREADS_METRIC = f'{SEARCH_PREFIX}active_io_threads'
+UV_THREADS_RUNNING_QUERIES_METRIC = f'{SEARCH_PREFIX}uv_threads_running_queries'
+UV_THREADS_RUNNING_TOPO_UPDATE_METRIC = f'{SEARCH_PREFIX}uv_threads_running_topology_update'
 ACTIVE_WORKER_THREADS_METRIC = f'{SEARCH_PREFIX}active_worker_threads'
 ACTIVE_COORD_THREADS_METRIC = f'{SEARCH_PREFIX}active_coord_threads'
 WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}workers_low_priority_pending_jobs'
@@ -1224,7 +1225,7 @@ def test_initial_multi_threading_stats(env):
   for i in range(10):
     conn.execute_command('HSET', f'doc{i}', 'name', f'name{i}', 'age', i)
 
-  # Phase 1: Verify multi_threading section exists and active_io_threads starts at 0
+  # Phase 1: Verify multi_threading section exists and uv_threads_running_queries starts at 0
   info_dict = info_modules_to_dict(env)
 
   # Verify multi_threading section exists
@@ -1232,17 +1233,19 @@ def test_initial_multi_threading_stats(env):
                  message="multi_threading section should exist in INFO MODULES")
 
   # Verify all expected fields exist
-  env.assertTrue(ACTIVE_IO_THREADS_METRIC in info_dict[MULTI_THREADING_SECTION],
-                 message=f"{ACTIVE_IO_THREADS_METRIC} field should exist in multi_threading section")
+  env.assertTrue(UV_THREADS_RUNNING_QUERIES_METRIC in info_dict[MULTI_THREADING_SECTION],
+                 message=f"{UV_THREADS_RUNNING_QUERIES_METRIC} field should exist in multi_threading section")
   env.assertTrue(WORKERS_ADMIN_PRIORITY_PENDING_JOBS_METRIC in info_dict[MULTI_THREADING_SECTION],
                  message=f"{WORKERS_ADMIN_PRIORITY_PENDING_JOBS_METRIC} field should exist in multi_threading section")
+  env.assertTrue(UV_THREADS_RUNNING_TOPO_UPDATE_METRIC in info_dict[MULTI_THREADING_SECTION],
+                 message=f"{UV_THREADS_RUNNING_TOPO_UPDATE_METRIC} field should exist in multi_threading section")
 
   # Verify all fields initialized to 0.
-  env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_IO_THREADS_METRIC], '0',
-                 message=f"{ACTIVE_IO_THREADS_METRIC} should be 0 when idle")
+  env.assertEqual(info_dict[MULTI_THREADING_SECTION][UV_THREADS_RUNNING_QUERIES_METRIC], '0',
+                 message=f"{UV_THREADS_RUNNING_QUERIES_METRIC} should be 0 when idle")
   env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_WORKER_THREADS_METRIC], '0',
                  message=f"{ACTIVE_WORKER_THREADS_METRIC} should be 0 when idle")
-  # There's no deterministic way to test active_io_threads increases while a query is running,
+  # There's no deterministic way to test uv_threads_running_queries increases while a query is running,
   # we test it in unit tests.
   # Also, we can't pause workers threads while trying to modify the workers thpool, so no way to verify active_worker_threads increases.
   # This will also be tested in unit tests.

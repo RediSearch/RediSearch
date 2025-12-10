@@ -273,7 +273,8 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
 void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "multi_threading");
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
-  RedisModule_InfoAddFieldULongLong(ctx, "active_io_threads", stats.active_io_threads);
+  RedisModule_InfoAddFieldULongLong(ctx, "uv_threads_running_queries", stats.uv_threads_running_queries);
+  RedisModule_InfoAddFieldULongLong(ctx, "uv_threads_running_topology_update", stats.uv_threads_running_topology_update);
   RedisModule_InfoAddFieldULongLong(ctx, "active_worker_threads", stats.active_worker_threads);
   RedisModule_InfoAddFieldULongLong(ctx, "active_coord_threads", stats.active_coord_threads);
   RedisModule_InfoAddFieldULongLong(ctx, "workers_low_priority_pending_jobs", stats.workers_low_priority_pending_jobs);
