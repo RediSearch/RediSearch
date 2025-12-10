@@ -553,7 +553,7 @@ jobs:
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'true' &&
-          failure() || always() && (
+          failure() || (
             (steps.rust_unit_tests_miri.outcome == 'failure') ||
             steps.rust_unit_tests.outcome == 'failure' ||
             steps.c_unit_tests.outcome == 'failure' ||
@@ -574,7 +574,7 @@ jobs:
       - name: Upload Artifacts (node20 not supported) (temporarily disabled)
         if: >
           steps.node20.outputs.supported == 'false' &&
-          failure() || always() && (
+          failure() || (
             (steps.rust_unit_tests_miri.outcome == 'failure') ||
             steps.rust_unit_tests.outcome == 'failure' ||
             steps.c_unit_tests.outcome == 'failure' ||
@@ -587,7 +587,7 @@ jobs:
         # due to continue-on-error, we need to check failure() explicitly for step to run
         # otherwise github implicitly adds a success() condition to the if and the job gets skipped
         if: |
-          failure() || always() && (
+          failure() || (
             (steps.rust_unit_tests_miri.outcome == 'failure') ||
             steps.rust_unit_tests.outcome == 'failure' ||
             steps.c_unit_tests.outcome == 'failure' ||
