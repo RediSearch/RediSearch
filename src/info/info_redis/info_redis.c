@@ -198,6 +198,8 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
                                   RSGlobalStats.fieldsStats.numericTotalDocsIndexed);
   RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_geo_fields",
                                   RSGlobalStats.fieldsStats.geoTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_geoshape_fields",
+                                  RSGlobalStats.fieldsStats.geometryTotalDocsIndexed);
   RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_vector_fields",
                                   RSGlobalStats.fieldsStats.vectorTotalDocsIndexed);
 }

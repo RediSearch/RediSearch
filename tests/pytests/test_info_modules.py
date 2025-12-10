@@ -2101,6 +2101,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
       'tag': info['search_total_indexing_ops_tag_fields'],
       'numeric': info['search_total_indexing_ops_numeric_fields'],
       'geo': info['search_total_indexing_ops_geo_fields'],
+      'geoshape': info['search_total_indexing_ops_geoshape_fields'],
       'vector': info['search_total_indexing_ops_vector_fields'],
     }
 
@@ -2110,6 +2111,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   env.assertEqual(metrics['tag'], 0, message="Baseline tag should be 0")
   env.assertEqual(metrics['numeric'], 0, message="Baseline numeric should be 0")
   env.assertEqual(metrics['geo'], 0, message="Baseline geo should be 0")
+  env.assertEqual(metrics['geoshape'], 0, message="Baseline geoshape should be 0")
   env.assertEqual(metrics['vector'], 0, message="Baseline vector should be 0")
 
   # 1. Test TEXT field indexing
@@ -2143,7 +2145,15 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['geo'], 1, message="After 1 geo doc")
 
-  # 5. Test VECTOR field indexing
+  # 5. Test GEOSHAPE field indexing
+  env.expect('FT.CREATE', 'idx_geoshape', 'PREFIX', 1, 'geoshape:', 'SCHEMA', 'gs', 'GEOSHAPE').ok()
+  waitForIndex(env, 'idx_geoshape')
+
+  conn.execute_command('HSET', 'geoshape:1', 'gs', 'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['geoshape'], 1, message="After 1 geoshape doc")
+
+  # 6. Test VECTOR field indexing
   env.expect('FT.CREATE', 'idx_vec', 'PREFIX', 1, 'vec:',
              'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
              'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
@@ -2155,9 +2165,9 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['vector'], 1, message="After 1 vector doc")
 
-  # 6. Test multiple fields in same document (all field types at once)
+  # 7. Test multiple fields in same document (all field types at once)
   env.expect('FT.CREATE', 'idx_multi', 'PREFIX', 1, 'multi:',
-             'SCHEMA', 't', 'TEXT', 'tag', 'TAG', 'n', 'NUMERIC', 'g', 'GEO',
+             'SCHEMA', 't', 'TEXT', 'tag', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'gs', 'GEOSHAPE',
              'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   waitForIndex(env, 'idx_multi')
 
@@ -2166,7 +2176,8 @@ def test_total_docs_indexed_by_field_type_SA(env):
 
   multi_vec = np.array([0.5, 0.5]).astype(np.float32).tobytes()
   conn.execute_command('HSET', 'multi:1', 't', 'hello', 'tag', 'mytag', 'n', '1',
-                       'g', '13.361389,52.519444', 'v', multi_vec)
+                       'g', '13.361389,52.519444', 'gs', 'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))',
+                       'v', multi_vec)
   metrics = get_field_metrics()
   env.assertEqual(metrics['text'], prev_metrics['text'] + 1,
                   message="Multi-field doc increments text")
@@ -2176,10 +2187,12 @@ def test_total_docs_indexed_by_field_type_SA(env):
                   message="Multi-field doc increments numeric")
   env.assertEqual(metrics['geo'], prev_metrics['geo'] + 1,
                   message="Multi-field doc increments geo")
+  env.assertEqual(metrics['geoshape'], prev_metrics['geoshape'] + 1,
+                  message="Multi-field doc increments geoshape")
   env.assertEqual(metrics['vector'], prev_metrics['vector'] + 1,
                   message="Multi-field doc increments vector")
 
-  # 7. Test double counting with overlapping indexes
+  # 8. Test double counting with overlapping indexes
   # Create another text index that will also match 'text:*' docs
   env.expect('FT.CREATE', 'idx_text2', 'PREFIX', 1, 'text:', 'SCHEMA', 't', 'TEXT').ok()
   waitForIndex(env, 'idx_text2')
@@ -2190,7 +2203,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   env.assertEqual(metrics['text'], 3,
                   message="After creating overlapping text index, existing docs re-indexed")
 
-  # 8. Test partial field matching (doc with only some fields)
+  # 9. Test partial field matching (doc with only some fields)
   prev_metrics = get_field_metrics()
 
   # Add doc with only text field (no tag or numeric)
@@ -2203,7 +2216,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   env.assertEqual(metrics['numeric'], prev_metrics['numeric'],
                   message="Partial doc doesn't increment numeric (field not present)")
 
-  # 9. Test index with multiple fields of the same type
+  # 10. Test index with multiple fields of the same type
   env.expect('FT.CREATE', 'idx_same_type', 'PREFIX', 1, 'sametype:',
              'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()
   waitForIndex(env, 'idx_same_type')
