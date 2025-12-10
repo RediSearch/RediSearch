@@ -175,7 +175,7 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
 }
 
 bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy) {
-    RS_ASSERT(array_len(StrongRef_Get(searchMappingsRef)->mappings) == 0 && array_len(StrongRef_Get(vsimMappingsRef)->mappings) == 0);
+    RS_ASSERT(array_len(((CursorMappings*)StrongRef_Get(searchMappingsRef))->mappings) == 0 && array_len(((CursorMappings*)StrongRef_Get(vsimMappingsRef))->mappings) == 0);
 
     // Allocate callback context on heap (since MR_IterateWithPrivateData is asynchronous)
     processCursorMappingCallbackContext *ctx = rm_malloc(sizeof(processCursorMappingCallbackContext));

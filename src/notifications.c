@@ -608,7 +608,7 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     RedisModule_Log(RSDummyContext, "notice", "Loading event failed");
     break;
   default:
-    RS_LOG_ASSERT_FMT(0, "Unknown sub-event %d", subevent);
+    RS_LOG_ASSERT_FMT(0, "Unknown sub-event %lu", subevent);
     break;
   }
 }

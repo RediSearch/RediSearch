@@ -464,7 +464,7 @@ static ValidateStatus HR_Revalidate(QueryIterator *ctx) {
 
 QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status) {
   // If searchMode is out of the expected range.
-  RS_ASSERT(hParams.qParams.searchMode >= 0 && hParams.qParams.searchMode < VECSIM_LAST_SEARCHMODE);
+  RS_ASSERT((int)hParams.qParams.searchMode >= 0 && (int)hParams.qParams.searchMode < VECSIM_LAST_SEARCHMODE);
   (void)status; // Currently unused.
 
   QueryIterator* ri = HybridIteratorReducer(&hParams);

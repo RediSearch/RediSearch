@@ -174,7 +174,7 @@ set_source_files_properties(
     src/query_parser/v1/parser.c
     src/query_parser/v2/lexer.c
     src/query_parser/v2/parser.c
-    PROPERTIES COMPILE_FLAGS "-Wno-unused-variable -Wno-unused-const-variable -Wno-sign-compare"
+    PROPERTIES COMPILE_FLAGS "-Wno-unused-variable -Wno-unused-const-variable"
 )
 
 if(USE_REDIS_ALLOCATOR)

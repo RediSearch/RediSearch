@@ -179,7 +179,7 @@ void MRCommand_SetPrefix(MRCommand *cmd, const char *newPrefix) {
 }
 
 void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, char *newArg, size_t len) {
-  RS_ASSERT(0 <= index && index < cmd->num);
+  RS_ASSERT(0 <= index && (uint32_t)index < cmd->num);
   rm_free(cmd->strs[index]);
   cmd->strs[index] = newArg;
   cmd->lens[index] = len;
@@ -194,7 +194,7 @@ void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t 
 }
 
 void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t oldSubStringLen, const char *newStr, size_t newLen) {
-  RS_LOG_ASSERT_FMT(index >= 0 && index < cmd->num, "Invalid index %d. Command has %d arguments", index, cmd->num);
+  RS_LOG_ASSERT_FMT(index >= 0 && (uint32_t)index < cmd->num, "Invalid index %d. Command has %d arguments", index, cmd->num);
 
   char *oldArg = cmd->strs[index];
   // Get full argument length

@@ -462,7 +462,7 @@ int JSON_StoreTextInDocField(size_t len, JSONIterable *iterable, struct Document
       goto error;
     }
   }
-  RS_LOG_ASSERT ((i + nulls) == len, "TEXT/TAG iterator count and len must be equal");
+  RS_LOG_ASSERT ((uint32_t)(i + nulls) == len, "TEXT/TAG iterator count and len must be equal");
   (void)nulls; // to avoid unused variable warning in release builds
   // Remain with surplus unused array entries from skipped null values until `Document_Clear` is called
   df->arrayLen = i;

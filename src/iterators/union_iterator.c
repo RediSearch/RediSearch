@@ -41,7 +41,7 @@ static inline void UI_AddChild(UnionIterator *ui, QueryIterator *it) {
  */
 static inline void UI_RemoveExhausted(UnionIterator *it, int idx) {
   // Quickly remove the iterator by swapping it with the last iterator.
-  RS_ASSERT(0 <= idx && idx < it->num);
+  RS_ASSERT(0 <= idx && (uint32_t)idx < it->num);
   it->its[idx] = it->its[--it->num]; // Also decrement the number of iterators
 }
 
