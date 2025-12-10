@@ -38,6 +38,10 @@
  *
  */
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef void (*ConcurrentReopenCallback)(void *ctx);
 
 /* ConcurrentKeyCtx is a reference to a key that's being held open during concurrent execution and
@@ -119,6 +123,9 @@ int ConcurrentSearch_CreatePool(int numThreads);
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
 
+/* return number of currently working threads */
+size_t ConcurrentSearchPool_WorkingThreadCount();
+
 /** Check the elapsed timer, and release the lock if enough time has passed.
  * Return 1 if switching took place
  */
@@ -186,4 +193,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
     conctx__didSwitch;                                       \
   })
 
+#ifdef __cplusplus
+}
 #endif
+#endif // RS_CONCERRNT_CTX_

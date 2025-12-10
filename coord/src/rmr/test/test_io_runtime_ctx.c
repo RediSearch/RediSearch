@@ -11,6 +11,7 @@
 #include "rmutil/alloc.h"
 #include <unistd.h>
 #include <stdatomic.h>
+#include "concurrent_ctx.h"
 
 // Test flags to track callback execution using C11 atomics
 typedef struct {
@@ -57,8 +58,10 @@ static int wait_for_metric_value(size_t expected_value, int timeout_ms) {
 }
 
 void testMetricUpdateDuringCallback() {
-  // Init workers thpool required to call GlobalStats_GetMultiThreadingStats
+  // Init workers thpool and ConcurrentSearch required to call GlobalStats_GetMultiThreadingStats
   workersThreadPool_CreatePool(1);
+  ConcurrentSearch_CreatePool(1);
+
   CallbackFlags flags;
   atomic_init(&flags.started, false);
   atomic_init(&flags.should_finish, false);
@@ -95,6 +98,7 @@ void testMetricUpdateDuringCallback() {
   // Clean up
   RQ_Done(q);
   workersThreadPool_Destroy();
+  ConcurrentSearch_ThreadPoolDestroy();
 }
 
 static void dummyLog(RedisModuleCtx *ctx, const char *level, const char *fmt, ...) {}
