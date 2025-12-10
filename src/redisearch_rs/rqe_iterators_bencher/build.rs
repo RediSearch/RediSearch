@@ -24,12 +24,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = git_root().expect("Could not find git root");
 
     // Generate C bindings - fail build if this doesn't work
-    let headers = ["iterator_api.h", "inverted_index_iterator.h"]
-        .iter()
-        .map(|h| root.join("src").join("iterators").join(h))
-        .collect::<Vec<_>>();
+    let mut headers: Vec<_> = [
+        "iterator_api.h",
+        "inverted_index_iterator.h",
+        "intersection_iterator.h",
+    ]
+    .iter()
+    .map(|h| root.join("src").join("iterators").join(h))
+    .collect();
 
-    generate_c_bindings(headers, ".*/iterators/.*.h")?;
+    // Add the Rust-generated iterators header
+    headers.push(root.join("src/redisearch_rs/headers/iterators_rs.h"));
+
+    generate_c_bindings(headers, ".*/iterators/.*.h|.*/headers/iterators_rs.h")?;
 
     Ok(())
 }

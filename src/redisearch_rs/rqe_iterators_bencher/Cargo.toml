@@ -26,6 +26,7 @@ ffi.workspace = true
 field.workspace = true
 inverted_index.workspace = true
 inverted_index_ffi = { version = "0.0.1", path = "../c_entrypoint/inverted_index_ffi" }
+iterators_ffi = { path = "../c_entrypoint/iterators_ffi" }
 itertools.workspace = true
 redis_mock.workspace = true
 rqe_iterators.workspace = true

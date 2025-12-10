@@ -21,6 +21,9 @@ pub mod ffi;
 // Need these symbols to be defined for the benchers to run
 pub use types_ffi::NewVirtualResult;
 
+// Re-export iterators_ffi to ensure the symbols are linked
+pub use iterators_ffi::id_list::NewSortedIdListIterator;
+
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
 // symbols required by the C code we need to redefine
@@ -59,6 +62,7 @@ stub_c_fn! {
     isWithinRadius,
     Redis_OpenInvertedIndex,
     RS_dictFetchValue,
+    SearchDisk_NewWildcardIterator,
     TagIndex_OpenIndex,
     TimeToLiveTable_VerifyDocAndField,
     TimeToLiveTable_VerifyDocAndFieldMask,
