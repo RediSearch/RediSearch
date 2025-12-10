@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ffi::c_char, ptr::NonNull};
+use std::{ffi::c_char, mem::ManuallyDrop, ptr::NonNull};
 
 use c_ffi_utils::expect_unchecked;
 use ffi::RedisModuleString;
@@ -393,6 +393,7 @@ pub unsafe extern "C" fn SharedRsValue_NewTrio(
 pub unsafe extern "C" fn SharedRsValue_Number_Get(v: *const RsValue) -> f64 {
     // Safety: caller must ensure (1).
     let v = unsafe { SharedRsValue::from_raw(v) };
+    let v = ManuallyDrop::new(v);
     // Safety: caller must ensure (2).
     unsafe { expect_unchecked!(v.get_number(), "v must be of type 'Number'") }
 }
