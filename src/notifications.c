@@ -357,9 +357,9 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
   // 3. Otherwise, reschedule the timer after TRIMMING_STATE_CHECK_DELAY.
   checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
   checkTrimmingStateTimerIdScheduled = false;
-  RedisModule_Log(ctx, "notice", "Checking if we can start trimming migrated slots.");
+  RedisModule_Log(ctx, "verbose", "Checking if we can start trimming migrated slots.");
   if (ASM_CanStartTrimming()) {
-    RedisModule_Log(ctx, "notice", "No queries using the old version, Enabling trimming.");
+    RedisModule_Log(ctx, "verbose", "No queries using the old version, Enabling trimming.");
     RS_ASSERT(enableTrimmingTimerIdScheduled);
     RedisModule_StopTimer(ctx, enableTrimmingTimerId, NULL);
     enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
@@ -426,9 +426,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       checkTrimmingStateTimerIdScheduled = true;
       enableTrimmingTimerIdScheduled = true;
       if (!IsEnterprise()) {
-        StopRedisTopologyUpdater(ctx);
-        // eventloop will process this timer immediately and then get back to the REFRESH_PERIOD
-        InitRedisTopologyUpdater(ctx);
+        RedisTopologyUpdater_StopAndRescheduleInmediately(ctx);
       }
       break;
 

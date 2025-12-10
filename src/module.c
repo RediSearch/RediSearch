@@ -3860,7 +3860,7 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       // Set the number of shards to 1 to indicate the topology is "set"
       NumShards = 1;
       // Setting all slots for the case where we send/test internal commands directly from client (potentially with _SLOTS_INFO)
-      RedisModuleSlotRangeArray *all_slots = rm_malloc(sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange));
+      RedisModuleSlotRangeArray *all_slots = rm_malloc(SlotRangeArray_SizeOf(1));
       all_slots->num_ranges = 1;
       all_slots->ranges[0].start = 0;
       all_slots->ranges[0].end = 16383;
