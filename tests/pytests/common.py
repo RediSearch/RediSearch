@@ -13,7 +13,7 @@ import itertools
 import threading
 from redis.client import NEVER_DECODE
 import RLTest
-from typing import Any, Callable
+from typing import Any, Callable, List
 from RLTest import Env
 from RLTest.env import Query
 import numpy as np
@@ -919,6 +919,25 @@ def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
     for k in d1:
         if k in d2:
             env.assertEqual(d1[k], d2[k], message=message, depth=depth+1)
+
+def access_nested_list(lst, index):
+    result = lst
+    for entry in index:
+        result = result[entry]
+    return result
+
+def recursive_index(lst, target):
+    for i, element in enumerate(lst):
+        if isinstance(element, list):
+            sublist_index = recursive_index(element, target)
+            if sublist_index != -1:
+                return [i] + sublist_index
+        elif element == target:
+            return [i]
+    return -1
+
+def recursive_contains(lst, target):
+    return recursive_index(lst, target) != -1
 
 def call_and_store(fn, args, out_list):
     """
