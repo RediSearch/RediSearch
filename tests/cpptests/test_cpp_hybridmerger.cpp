@@ -1398,6 +1398,7 @@ static SearchResult* createTestSearchResult(uint8_t flags) {
   SearchResult* result = (SearchResult*)rm_calloc(1, sizeof(SearchResult));
   if (!result) return NULL;
 
+  *result = SearchResult_New();
   SearchResult_SetDocId(result, 1);  // Use a dummy docId
   SearchResult_SetScore(result, 1.0);  // Use a dummy score
   SearchResult_SetFlags(result, flags);
