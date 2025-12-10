@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 result_processor.workspace = true
 ffi.workspace = true
+workspace_hack.workspace = true
 
 [build-dependencies]
 cbindgen.workspace = true

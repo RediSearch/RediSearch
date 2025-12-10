@@ -14,3 +14,4 @@ build_utils = { path = "../../build_utils" }
 
 [dependencies]
 slots_tracker.workspace = true
+workspace_hack.workspace = true

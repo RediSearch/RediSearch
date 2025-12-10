@@ -10,3 +10,4 @@ workspace = true
 
 [dependencies]
 fnv = { workspace = true }
+workspace_hack.workspace = true
