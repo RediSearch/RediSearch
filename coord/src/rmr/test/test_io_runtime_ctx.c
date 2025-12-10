@@ -58,7 +58,6 @@ static int wait_for_metric_value(size_t expected_value, int timeout_ms) {
 }
 
 void testMetricUpdateDuringCallback() {
-  // TODO:??? init ConcurrentSearch????
   // Init workers thpool and ConcurrentSearch required to call GlobalStats_GetMultiThreadingStats
   workersThreadPool_CreatePool(1);
   ConcurrentSearch_CreatePool(1);
