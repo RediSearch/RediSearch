@@ -871,7 +871,7 @@ def test_memory_info():
 # This test doesn't cover medium and large index scenarios to avoid extensive CI running time.
 # The heuristic is implemented in VectorSimilarity library in SVSIndex::preferAdHocSearch.
 # The test scenarios below demonstrate each heuristic path with detailed explanations.
-@skip(asan=True)
+# @skip(asan=True)
 # Skipping on sanitizer due to MOD-12901
 def test_hybrid_query_with_text_vamana():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
@@ -1883,6 +1883,7 @@ def test_index_multi_value_json():
     for data_t in VECSIM_DATA_TYPES:
         # Skipping on sanitizer due to MOD-12768
         run_svs_test = data_t in ('FLOAT32', 'FLOAT16') and SANITIZER == ''
+        run_svs_test = True
         n = 100
         conn.flushall()
 
