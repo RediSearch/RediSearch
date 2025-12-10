@@ -12,6 +12,7 @@ use std::ptr::NonNull;
 use c_ffi_utils::expect_unchecked;
 use libc::size_t;
 use value::{
+    RsValue,
     collection::{RsValueArray, RsValueMap, RsValueMapEntry},
     shared::SharedRsValue,
 };
@@ -40,6 +41,8 @@ pub unsafe extern "C" fn RsValueMap_AllocUninit(cap: u32) -> RsValueMap {
 ///   that is valid for writes;
 /// - (2) `i` must smaller than the capacity of the [`RsValueMap`],
 ///   which cannot exceed [`u32::MAX`].
+/// - (3) `key` and `value` must be valid pointers to [`RsValue`]
+///   obtained from [`SharedRsValue::into_raw`].
 ///
 /// @param map The map to modify
 /// @param i The index where to set the entry (must be < map->len)
@@ -49,13 +52,18 @@ pub unsafe extern "C" fn RsValueMap_AllocUninit(cap: u32) -> RsValueMap {
 pub unsafe extern "C" fn RsValueMap_SetEntry(
     map: Option<NonNull<RsValueMap>>,
     i: size_t,
-    key: SharedRsValue,
-    value: SharedRsValue,
+    key: *const RsValue,
+    value: *const RsValue,
 ) {
     // Safety: caller must ensure (1).
     let map = unsafe { expect_unchecked!(map) };
     // Safety: caller must ensure (1).
     let map_refm: &mut RsValueMap = unsafe { &mut *map.as_ptr() };
+
+    // Safety: caller must ensure (3).
+    let key = unsafe { SharedRsValue::from_raw(key) };
+    // Safety: caller must ensure (3).
+    let value = unsafe { SharedRsValue::from_raw(value) };
 
     let entry = RsValueMapEntry::new(key, value);
 
@@ -88,6 +96,8 @@ pub unsafe extern "C" fn RsValueArray_AllocUninit(cap: u32) -> RsValueArray {
 /// - (2) `arr` must be unique;
 /// - (3) `i` must not exceed the [`RsValueArray`]'s capacity, which cannot
 ///   exceed [`u32::MAX`].
+/// - (4) `value` must be a valid pointer to [`RsValue`]
+///   obtained from [`SharedRsValue::into_raw`].
 ///
 /// @param arr The array to modify
 /// @param i The index at which to write the value
@@ -96,7 +106,7 @@ pub unsafe extern "C" fn RsValueArray_AllocUninit(cap: u32) -> RsValueArray {
 pub unsafe extern "C" fn RsValueArray_SetEntry(
     arr: Option<NonNull<RsValueArray>>,
     i: size_t,
-    value: SharedRsValue,
+    value: *const RsValue,
 ) {
     // Safety: caller must ensure (1).
     let arr = unsafe { expect_unchecked!(arr) };
@@ -107,6 +117,9 @@ pub unsafe extern "C" fn RsValueArray_SetEntry(
 
     // Safety: caller must ensure (3).
     let i = unsafe { expect_unchecked!(i.try_into().ok(), "`i` should fit in a u32") };
+
+    // Safety: caller must ensure (4).
+    let value = unsafe { SharedRsValue::from_raw(value) };
 
     // Safety: caller must ensure (3).
     unsafe { arr_refm.inner_mut().write_entry(value, i) };
