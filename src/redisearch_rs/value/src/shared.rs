@@ -9,10 +9,10 @@
 
 use std::{ptr, sync::Arc};
 
-use crate::{RsValueInternal, Value};
+use crate::{RsValue, Value};
 
 /// A heap-allocated and refcounted RedisSearch dynamic value.
-/// This type is backed by [`Arc<RsValueInternal>`], but uses
+/// This type is backed by [`Arc<RsValue>`], but uses
 /// the NULL pointer to encode an undefined value, and is FFI safe.
 ///
 /// # Invariants
@@ -23,8 +23,8 @@ use crate::{RsValueInternal, Value};
 ///   is still valid.
 #[repr(C)]
 pub struct SharedRsValue {
-    /// Pointer representing the `Arc<RsValueInternal>`.
-    ptr: *const RsValueInternal,
+    /// Pointer representing the `Arc<RsValue>`.
+    ptr: *const RsValue,
 }
 
 impl Default for SharedRsValue {
@@ -44,7 +44,7 @@ impl Drop for SharedRsValue {
 }
 
 impl Value for SharedRsValue {
-    /// Wraps the passed [`RsValueInternal`] in an [`Arc`]
+    /// Wraps the passed [`RsValue`] in an [`Arc`]
     /// allocated by the global allocator,
     /// and uses `Arc::into_raw` to convert it to a pointer and
     /// to ensure it doesn't get dropped. All constructors except
@@ -52,19 +52,19 @@ impl Value for SharedRsValue {
     /// [`SharedRsValue`], which is relied upon in other method
     /// and trait implementations for this type, e.g. [`Drop`] and
     /// [`Clone`].
-    fn from_internal(internal: RsValueInternal) -> Self {
-        let internal = Arc::new(internal);
+    fn from_value(value: RsValue) -> Self {
+        let arc = Arc::new(value);
 
         Self {
-            ptr: Arc::into_raw(internal),
+            ptr: Arc::into_raw(arc),
         }
     }
 
     fn undefined() -> Self {
-        Self::from_internal(RsValueInternal::Undefined)
+        Self::from_value(RsValue::Undefined)
     }
 
-    fn internal(&self) -> &RsValueInternal {
+    fn value(&self) -> &RsValue {
         // Safety: `self.ptr` is not null at this point,
         // and so must have been originated from a call to `from_internal`.
         // At least as long as `self` lives, this pointer is guaranteed
@@ -75,7 +75,7 @@ impl Value for SharedRsValue {
 
 impl std::fmt::Debug for SharedRsValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.internal().fmt(f)
+        self.value().fmt(f)
     }
 }
 
@@ -94,17 +94,17 @@ impl Clone for SharedRsValue {
     }
 }
 
-// Safety: `SharedRsValue` is essentially just a `Arc<RsValueInternal>`.
-// Below static assertion proves that `Arc<RsValueInternal>` is `Send`,
+// Safety: `SharedRsValue` is essentially just a `Arc<RsValue>`.
+// Below static assertion proves that `Arc<RsValue>` is `Send`,
 // and therefore `SharedRsValue` is `Send`
 unsafe impl Send for SharedRsValue {}
 
-// Safety: `SharedRsValue` is essentially just a `Arc<RsValueInternal>`.
-// Below static assertion proves that `Arc<RsValueInternal>` is `Sync`,
+// Safety: `SharedRsValue` is essentially just a `Arc<RsValue>`.
+// Below static assertion proves that `Arc<RsValue>` is `Sync`,
 // and therefore `SharedRsValue` is `Sync`
 unsafe impl Sync for SharedRsValue {}
 
 const _ASSERT_ARC_RS_VALUE_INTERNAL_IS_SEND_AND_SYNC: () = {
     const fn static_assert_send_and_sync<T: Send + Sync>() {}
-    static_assert_send_and_sync::<Arc<RsValueInternal>>();
+    static_assert_send_and_sync::<Arc<RsValue>>();
 };

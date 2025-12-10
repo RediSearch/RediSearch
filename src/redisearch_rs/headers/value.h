@@ -36,9 +36,9 @@ typedef enum RsValueType {
 } RsValueType;
 
 /**
- * Internal storage of [`RsValue`] and [`SharedRsValue`]
+ * An actual [`RsValue`] object
  */
-typedef struct RsValueInternal RsValueInternal;
+typedef struct RsValue RsValue;
 
 /**
  * A type with size `N`.
@@ -56,7 +56,7 @@ typedef struct ALIGNED(8) RsValue {
 
 /**
  * A heap-allocated and refcounted RedisSearch dynamic value.
- * This type is backed by [`Arc<RsValueInternal>`], but uses
+ * This type is backed by [`Arc<RsValue>`], but uses
  * the NULL pointer to encode an undefined value, and is FFI safe.
  *
  * # Invariants
@@ -68,9 +68,9 @@ typedef struct ALIGNED(8) RsValue {
  */
 typedef struct SharedRsValue {
   /**
-   * Pointer representing the `Arc<RsValueInternal>`.
+   * Pointer representing the `Arc<RsValue>`.
    */
-  const struct RsValueInternal *ptr;
+  const struct RsValue *ptr;
 } SharedRsValue;
 
 /**
