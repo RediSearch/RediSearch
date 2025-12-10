@@ -57,6 +57,14 @@ int redisPatchVesion = 0;
 extern RedisModuleCtx *RSDummyContext;
 
 static int DIST_AGG_THREADPOOL = -1;
+extern size_t (*CoordThreadCount_Func)(void);
+
+/* return number of currently working threads */
+size_t DistAggThreadPool_WorkingThreadCount() {
+  // Assert DIST_AGG_THREADPOOL is initialized
+  RS_LOG_ASSERT(DIST_AGG_THREADPOOL != -1, "DIST_AGG_THREADPOOL not initialized");
+  return ConcurrentSearchPool_WorkingThreadCount(DIST_AGG_THREADPOOL);
+}
 
 // forward declaration
 int allOKReducer(struct MRCtx *mc, int count, MRReply **replies);
@@ -2435,6 +2443,9 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Init the aggregation thread pool
   DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(RSGlobalConfig.searchPoolSize);
+
+  // Register the coordinator thread count function for global stats
+  CoordThreadCount_Func = DistAggThreadPool_WorkingThreadCount;
 
   Initialize_CoordKeyspaceNotifications(ctx);
 
