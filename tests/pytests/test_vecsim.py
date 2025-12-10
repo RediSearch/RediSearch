@@ -1883,7 +1883,7 @@ def test_index_multi_value_json():
     for data_t in VECSIM_DATA_TYPES:
         # Skipping on sanitizer due to MOD-12768
         run_svs_test = data_t in ('FLOAT32', 'FLOAT16') and SANITIZER == ''
-        run_svs_test = True
+        run_svs_test = data_t in ('FLOAT32', 'FLOAT16')
         n = 100
         conn.flushall()
 
