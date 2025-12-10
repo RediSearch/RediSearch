@@ -6,5 +6,5 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-
-extern struct redisearch_thpool_t* _workers_thpool;
+#pragma once
+#include "workers/workers_pool.h"
