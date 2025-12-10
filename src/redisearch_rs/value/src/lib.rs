@@ -41,6 +41,8 @@ pub mod trio;
 /// Internal storage of [`RsValue`] and [`SharedRsValue`]
 #[derive(Debug, Clone)]
 pub enum RsValueInternal {
+    /// Undefined, not holding a value.
+    Undefined,
     /// Null value
     Null,
     /// Numeric value
@@ -67,11 +69,8 @@ pub enum RsValueInternal {
 
 /// A stack-allocated RediSearch dynamic value.
 /// cbindgen:prefix-with-name
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub enum RsValue {
-    #[default]
-    /// Undefined, not holding a value.
-    Undef,
     /// Defined and holding a value.
     Def(RsValueInternal),
 }
@@ -97,12 +96,11 @@ impl Value for RsValue {
     }
 
     fn undefined() -> Self {
-        Self::Undef
+        Self::Def(RsValueInternal::Undefined)
     }
 
     fn internal(&self) -> Option<&RsValueInternal> {
         match self {
-            Self::Undef => None,
             Self::Def(internal) => Some(internal),
         }
     }
