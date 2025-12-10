@@ -1209,6 +1209,20 @@ long long RMCK_CallReplyInteger(RedisModuleCallReply *r) {
   return r->ll;
 }
 
+int RMCK_StringToULongLong(const RedisModuleString *str, unsigned long long *ull) {
+  if (str->empty()) {
+    return REDISMODULE_ERR;
+  }
+  char *endptr = nullptr;
+  errno = 0;
+  *ull = strtoull(str->c_str(), &endptr, 10);
+  if (errno == ERANGE || *endptr != '\0' || endptr == str->c_str()) {
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
+
 Module::ModuleMap Module::modules;
 std::vector<KVDB *> KVDB::dbs;
 static int RMCK_GetApi(const char *s, void *pp);
@@ -1481,6 +1495,7 @@ static void registerApis() {
   REGISTER_API(CallReplyArrayElement);
   REGISTER_API(CallReplyStringPtr);
   REGISTER_API(CallReplyInteger);
+  REGISTER_API(StringToULongLong);
 
   REGISTER_API(GetThreadSafeContext);
   REGISTER_API(GetDetachedThreadSafeContext);

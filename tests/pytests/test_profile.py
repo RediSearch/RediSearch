@@ -647,27 +647,21 @@ def testNonZeroTimers(env):
   else:
     test_shard_timers(env)
 
-def testPofileGILTime():
+def testProfileGILTime():
   env = Env(moduleArgs='WORKERS 1')
   conn = getConnectionByEnv(env)
 
-  # Populate db
-  with env.getClusterConnectionIfNeeded() as conn:
-    for i in range(100):
-      res = conn.execute_command('hset', f'doc{i}',
-                      'f', 'hello world',
-                      'g', 'foo bar',
-                      'h', 'baz qux')
+  env.expect('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT').ok()
 
-  env.cmd('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT', 'g', 'TEXT', 'h', 'TEXT')
+  # Populate db
+  for i in range(10):
+    res = conn.execute_command('hset', f'doc{i}', 'f', 'hello world',)
+
   res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello' ,'SORTBY', '1', '@f')
 
   # Record structure:
-  # ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', ANY, 'Results processed', 100]
+  # ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', ANY, 'Counter', 10]
   # ['Total GIL time', ANY]
-
-  env.assertTrue(recursive_contains(res, 'Threadsafe-Loader'), message=f"res: {res}")
-  env.assertTrue(recursive_contains(res, 'Total GIL time'), message=f"res: {res}")
 
   # extract the GIL time of the threadsafe loader result processor
   rp_index = recursive_index(res, 'Threadsafe-Loader')[:-1]
@@ -679,8 +673,11 @@ def testPofileGILTime():
   total_GIL_index[-1] += 1
   total_GIL_time = access_nested_list(res, total_GIL_index)
 
-  env.assertGreaterEqual(float(total_GIL_time), 0)
-  env.assertGreaterEqual(float(rp_GIL_time), 0)
+  # Verify that both are greater than 0 and that the total time is greater than the rp time
+  # Epsilon value (1nanosecond) is added to the total time to verify that it's greater than 0
+
+  env.assertGreater(float(total_GIL_time), 0, message = res)
+  env.assertGreater(float(rp_GIL_time), 0, message = res)
   env.assertGreaterEqual(float(total_GIL_time), float(rp_GIL_time))
 
 def testProfileBM25NormMax(env):

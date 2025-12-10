@@ -1088,7 +1088,7 @@
         "name": "slop",
         "type": "integer",
         "optional": true,
-        "token": "SLOP"
+        "token": "SLOP""token": "SLOP"
       },
       {
         "name": "timeout",
@@ -2817,13 +2817,47 @@
       },
       {
         "name": "filter",
-        "type": "string",
+        "type": "block",
         "optional": true,
-        "expression": true,
-        "token": "FILTER"
+        "token": "FILTER",
+        "arguments": [
+          {
+            "name": "count",
+            "type": "integer"
+          },
+          {
+            "name": "filter_expression",
+            "type": "string",
+            "expression": true
+          },
+          {
+            "name": "policy",
+            "type": "oneof",
+            "optional": true,
+            "arguments": [
+              {
+                "name": "adhoc",
+                "type": "pure-token",
+                "token": "ADHOC"
+              },
+              {
+                "name": "batches",
+                "type": "pure-token",
+                "token": "BATCHES"
+              }
+            ],
+            "token": "POLICY"
+          },
+          {
+            "name": "batch_size_value",
+            "type": "integer",
+            "token": "BATCH_SIZE",
+            "optional": true
+          }
+        ]
       }
     ],
-    "since": "8.4.0",
+    "since": "8.4.4",
     "group": "search"
   }
 }

@@ -703,8 +703,8 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b]=>{$HYBRID_POLICY: bad_policy;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('invalid hybrid policy was given')
 
     # Invalid hybrid attributes combinations.
-    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'batch size' is irrelevant for 'ADHOC_BF' policy")
-    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF EF_RUNTIME 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'batch size' is irrelevant for the selected policy")
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF EF_RUNTIME 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'EF_RUNTIME' is irrelevant for the selected policy")
 
     # Invalid query combination with query attributes syntax.
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS score]=>{$yield_distance_as:score2;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and score2')
@@ -871,6 +871,8 @@ def test_memory_info():
 # This test doesn't cover medium and large index scenarios to avoid extensive CI running time.
 # The heuristic is implemented in VectorSimilarity library in SVSIndex::preferAdHocSearch.
 # The test scenarios below demonstrate each heuristic path with detailed explanations.
+@skip(asan=True)
+# Skipping on sanitizer due to MOD-12901
 def test_hybrid_query_with_text_vamana():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
@@ -1879,6 +1881,8 @@ def test_index_multi_value_json():
     per_doc = 5
 
     for data_t in VECSIM_DATA_TYPES:
+        # Skipping on sanitizer due to MOD-12768
+        run_svs_test = data_t in ('FLOAT32', 'FLOAT16') and SANITIZER == ''
         n = 100
         conn.flushall()
 
@@ -1889,7 +1893,7 @@ def test_index_multi_value_json():
         args = ['FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
                 '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
                 '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
-        if data_t in ('FLOAT32', 'FLOAT16'):
+        if run_svs_test:
             # Add enough vectors to trigger svs backend index initialization
             n = 250 * env.shardsCount
             args += ['$.vecs[*]', 'AS', 'svs', 'VECTOR', 'SVS-VAMANA', '10', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'CONSTRUCTION_WINDOW_SIZE', n, 'SEARCH_WINDOW_SIZE', n]
@@ -1956,7 +1960,7 @@ def test_index_multi_value_json():
             flat_res = conn.execute_command(*cmd_range)
             env.assertEqual(sortedResults(flat_res), expected_res_range, message=f'data_t: {data_t}')
 
-            if data_t in ('FLOAT32', 'FLOAT16'):
+            if run_svs_test:
                 env.assertGreater(get_tiered_backend_debug_info(env, 'idx', 'svs')['INDEX_SIZE'], 0)
                 cmd_knn[2] = f'*=>[KNN {k} @svs $b AS {score_field_name}]'
                 svs_res = conn.execute_command(*cmd_knn)[1:]

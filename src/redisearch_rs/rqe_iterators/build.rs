@@ -12,11 +12,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "unittest")]
     {
         build_utils::link_static_libraries(&[
-            ("src/util/arr", "arr"),
-            ("src/util/mempool", "mempool"),
             ("src/index_result", "index_result"),
-            ("src/value", "value"),
             ("src/iterators", "iterators"),
+            ("src/ttl_table", "ttl_table"),
+            ("src/util/arr", "arr"),
+            ("src/util/dict", "dict"),
+            ("src/util/mempool", "mempool"),
+            ("src/value", "value"),
         ]);
     }
 
