@@ -262,6 +262,7 @@ include_directories(
     ${root}/src/aggregate/expr
     ${root}/src/aggregate/functions
     ${root}/src/util/references
+    ${root}/src/util/block_alloc
     ${root}/src/obfuscation
     ${root}/src/rlookup
     ${BOOST_DIR}
@@ -293,6 +294,7 @@ add_subdirectory(src/util/mempool)
 add_subdirectory(src/util/arr)
 add_subdirectory(src/util/dict)
 add_subdirectory(src/util/hash)
+add_subdirectory(src/util/block_alloc)
 add_subdirectory(src/coord)
 add_subdirectory(src/redisearch_rs)
 add_subdirectory(src/ttl_table)
@@ -365,6 +367,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:aggregate_expr>
     $<TARGET_OBJECTS:aggregate_functions>
     $<TARGET_OBJECTS:references>
+    $<TARGET_OBJECTS:block_alloc>
     $<TARGET_OBJECTS:obfuscation>
     $<TARGET_OBJECTS:rlookup>
 )
@@ -432,6 +435,7 @@ target_link_libraries(redisearch
         aggregate_expr
         aggregate_functions
         references
+        block_alloc
         obfuscation
         rlookup
         ${HIREDIS_LIBS}
