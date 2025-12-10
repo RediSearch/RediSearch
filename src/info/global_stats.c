@@ -115,7 +115,8 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
 #ifdef MT_BUILD
   stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
 #endif
-// expect this to fail
+#ifdef RS_COORDINATOR
   stats.active_coord_threads = ConcurrentSearchPool_WorkingThreadCount();
+#endif
   return stats;
 }
