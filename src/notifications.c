@@ -367,7 +367,7 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
     ASM_StateMachine_StartTrim(slots); // Make sure that the keypace version is updated, so new queries will already see the new version.
     RedisModule_ClusterEnableTrim(ctx);
   } else {
-    RedisModule_Log(ctx, "notice", "Queries still using the old version, rescheduling check in %d milliseconds.", TRIMMING_STATE_CHECK_DELAY);
+    RedisModule_Log(ctx, "verbose", "Queries still using the old version, rescheduling check in %d milliseconds.", TRIMMING_STATE_CHECK_DELAY);
     checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, TRIMMING_STATE_CHECK_DELAY, checkTrimmingStateCallback, slots);
     checkTrimmingStateTimerIdScheduled = true;
   }
@@ -378,9 +378,9 @@ static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
   enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
   enableTrimmingTimerIdScheduled = false;
   // Cancel the checkTrimmingStateCallback timer (Ignore error if it did not exist it does not matter)
-  RedisModule_Log(ctx, "notice", "Maximum delay reached. Enabling trimming.");
+  RedisModule_Log(ctx, "verbose", "Maximum delay reached. Enabling trimming.");
   if (!ASM_CanStartTrimming()) {
-    RedisModule_Log(ctx, "notice", "Queries still using the old version, potential result inaccuracy.");
+    RedisModule_Log(ctx, "verbose", "Queries still using the old version, potential result inaccuracy.");
   }
   RS_ASSERT(checkTrimmingStateTimerIdScheduled);
   RedisModule_StopTimer(ctx, checkTrimmingStateTimerId, NULL);
