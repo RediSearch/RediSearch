@@ -615,7 +615,7 @@ def InternalCursorReadsInProfile(protocol):
   res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
 
   shards_profile = get_shards_profile(env, res)
-  env.assertEqual(len(shards_profile), env.shardsCount)
+  env.assertEqual(len(shards_profile), env.shardsCount, message=f"unexpected number of shards. full reply output: {res}")
 
   # Each shard should have exactly 2 cursor reads (1000+ docs per shard, default cursorReadSize=1000)
   for shard_profile in shards_profile:
@@ -654,10 +654,10 @@ def testInternalCursorReadsWithTimeoutResp3():
 
   shards_profile = get_shards_profile(env, res)
   for shard_profile in shards_profile:
-    env.assertContains('Internal cursor reads', shard_profile)
+    env.assertContains('Internal cursor reads', shard_profile, message=f"full reply output: {res}")
     # Coordinator stops after first timeout, so only 1 cursor read per shard
-    env.assertEqual(shard_profile['Internal cursor reads'], 1)
-    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached')
+    env.assertEqual(shard_profile['Internal cursor reads'], 1, message=f"full reply output: {res}")
+    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached', message=f"full reply output: {res}")
 
 @skip(cluster=False)
 def testInternalCursorReadsWithTimeoutResp2():
@@ -682,7 +682,7 @@ def testInternalCursorReadsWithTimeoutResp2():
   env.assertEqual(len(res[0]) - 1, num_docs)
 
   shards_profile = get_shards_profile(env, res)
-  env.assertEqual(len(shards_profile), env.shardsCount)
+  env.assertEqual(len(shards_profile), env.shardsCount, message=f"unexpected number of shards. full reply output: {res}")
 
   # Verify total cursor reads matches expected (order of shards may differ)
   total_expected_reads = 0
@@ -692,16 +692,16 @@ def testInternalCursorReadsWithTimeoutResp2():
 
   # The order of shards in the profile response may differ, so we can't check per-shard
   total_actual_reads = sum(sp['Internal cursor reads'] for sp in shards_profile)
-  env.assertEqual(total_actual_reads, total_expected_reads)
+  env.assertEqual(total_actual_reads, total_expected_reads, message=f"full reply output: {res}")
 
   # Verify each shard has warning
   for shard_profile in shards_profile:
-    env.assertContains('Internal cursor reads', shard_profile)
-    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached')
+    env.assertContains('Internal cursor reads', shard_profile, message=f"full reply output: {res}")
+    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached', message=f"full reply output: {res}")
 
   # Coordinator should NOT have timeout warning (it doesn't detect it in RESP2)
   coord_profile = to_dict(res[-1][-1])
-  env.assertEqual(coord_profile['Warning'], 'None')
+  env.assertEqual(coord_profile['Warning'], 'None', message=f"full reply output: {res}")
 
 # This test is currently skipped due to flaky behavior of some of the machines'
 # timers. MOD-6436
