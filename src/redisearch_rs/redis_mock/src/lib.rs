@@ -17,6 +17,7 @@
 
 pub mod allocator;
 pub mod call;
+pub mod context;
 pub mod globals;
 pub mod key;
 pub mod log;
@@ -26,6 +27,7 @@ pub mod string;
 use std::ffi::CString;
 
 use call::*;
+use context::*;
 use key::*;
 use log::*;
 use redis_module::KeyType;
@@ -186,6 +188,19 @@ pub fn init_redis_module_mock() {
         >(raw_ptr)
     };
     unsafe { redis_module::raw::RedisModule_Log = Some(new_log) };
+
+    // Register RedisModuleCtx functions.
+    unsafe {
+        redis_module::raw::RedisModule_GetThreadSafeContext = Some(RedisModule_GetThreadSafeContext)
+    };
+    unsafe {
+        redis_module::raw::RedisModule_FreeThreadSafeContext =
+            Some(RedisModule_FreeThreadSafeContext)
+    };
+    unsafe {
+        redis_module::raw::RedisModule_SubscribeToServerEvent =
+            Some(RedisModule_SubscribeToServerEvent)
+    }
 }
 
 #[macro_export]
