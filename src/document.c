@@ -577,6 +577,7 @@ FIELD_BULK_INDEXER(geometryIndexer) {
 
 
 FIELD_BULK_INDEXER(numericIndexer) {
+
   RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
   NumericRangeTree *rt = openNumericKeysDict(ctx->spec, keyName, CREATE_INDEX);
   if (!rt) {
@@ -596,7 +597,12 @@ FIELD_BULK_INDEXER(numericIndexer) {
       ctx->spec->stats.numRecords += rv.numRecords;
     }
   }
-  RSGlobalStats.fieldsStats.numericTotalDocsIndexed++;
+  bool isGeo = (fs->types & INDEXFLD_T_GEO) != 0;
+  if (isGeo) {
+    RSGlobalStats.fieldsStats.geoTotalDocsIndexed++;
+  } else {
+    RSGlobalStats.fieldsStats.numericTotalDocsIndexed++;
+  }
   return 0;
 }
 
@@ -729,7 +735,6 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       field->multisv = NULL;
     }
   }
-  RSGlobalStats.fieldsStats.geoTotalDocsIndexed++;
   return REDISMODULE_OK;
 }
 

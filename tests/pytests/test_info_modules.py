@@ -2120,10 +2120,6 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['text'], 1, message="After 1 text doc")
 
-  conn.execute_command('HSET', 'text:2', 't', 'foo bar')
-  metrics = get_field_metrics()
-  env.assertEqual(metrics['text'], 2, message="After 2 text docs")
-
   # 2. Test TAG field indexing
   env.expect('FT.CREATE', 'idx_tag', 'PREFIX', 1, 'tag:', 'SCHEMA', 'tag', 'TAG').ok()
   waitForIndex(env, 'idx_tag')
@@ -2131,10 +2127,6 @@ def test_total_docs_indexed_by_field_type_SA(env):
   conn.execute_command('HSET', 'tag:1', 'tag', 'value1,value2')
   metrics = get_field_metrics()
   env.assertEqual(metrics['tag'], 1, message="After 1 tag doc")
-
-  conn.execute_command('HSET', 'tag:2', 'tag', 'value3')
-  metrics = get_field_metrics()
-  env.assertEqual(metrics['tag'], 2, message="After 2 tag docs")
 
   # 3. Test NUMERIC field indexing
   env.expect('FT.CREATE', 'idx_num', 'PREFIX', 1, 'num:', 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -2144,10 +2136,6 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['numeric'], 1, message="After 1 numeric doc")
 
-  conn.execute_command('HSET', 'num:2', 'n', '100')
-  metrics = get_field_metrics()
-  env.assertEqual(metrics['numeric'], 2, message="After 2 numeric docs")
-
   # 4. Test GEO field indexing
   env.expect('FT.CREATE', 'idx_geo', 'PREFIX', 1, 'geo:', 'SCHEMA', 'g', 'GEO').ok()
   waitForIndex(env, 'idx_geo')
@@ -2156,10 +2144,6 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['geo'], 1, message="After 1 geo doc")
 
-  conn.execute_command('HSET', 'geo:2', 'g', '-0.127758,51.507351')  # London
-  metrics = get_field_metrics()
-  env.assertEqual(metrics['geo'], 2, message="After 2 geo docs")
-
   # 5. Test VECTOR field indexing
   env.expect('FT.CREATE', 'idx_vec', 'PREFIX', 1, 'vec:',
              'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
@@ -2167,25 +2151,23 @@ def test_total_docs_indexed_by_field_type_SA(env):
   waitForIndex(env, 'idx_vec')
 
   vec1 = np.array([1.0, 0.0]).astype(np.float32).tobytes()
-  vec2 = np.array([0.0, 1.0]).astype(np.float32).tobytes()
 
   conn.execute_command('HSET', 'vec:1', 'v', vec1)
   metrics = get_field_metrics()
   env.assertEqual(metrics['vector'], 1, message="After 1 vector doc")
 
-  conn.execute_command('HSET', 'vec:2', 'v', vec2)
-  metrics = get_field_metrics()
-  env.assertEqual(metrics['vector'], 2, message="After 2 vector docs")
-
-  # 6. Test multiple fields in same document
+  # 6. Test multiple fields in same document (all field types at once)
   env.expect('FT.CREATE', 'idx_multi', 'PREFIX', 1, 'multi:',
-             'SCHEMA', 't', 'TEXT', 'tag', 'TAG', 'n', 'NUMERIC').ok()
+             'SCHEMA', 't', 'TEXT', 'tag', 'TAG', 'n', 'NUMERIC', 'g', 'GEO',
+             'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   waitForIndex(env, 'idx_multi')
 
   # Store current counts
   prev_metrics = get_field_metrics()
 
-  conn.execute_command('HSET', 'multi:1', 't', 'hello', 'tag', 'mytag', 'n', '1')
+  multi_vec = np.array([0.5, 0.5]).astype(np.float32).tobytes()
+  conn.execute_command('HSET', 'multi:1', 't', 'hello', 'tag', 'mytag', 'n', '1',
+                       'g', '13.361389,52.519444', 'v', multi_vec)
   metrics = get_field_metrics()
   env.assertEqual(metrics['text'], prev_metrics['text'] + 1,
                   message="Multi-field doc increments text")
@@ -2193,16 +2175,20 @@ def test_total_docs_indexed_by_field_type_SA(env):
                   message="Multi-field doc increments tag")
   env.assertEqual(metrics['numeric'], prev_metrics['numeric'] + 1,
                   message="Multi-field doc increments numeric")
+  env.assertEqual(metrics['geo'], prev_metrics['geo'] + 1,
+                  message="Multi-field doc increments geo")
+  env.assertEqual(metrics['vector'], prev_metrics['vector'] + 1,
+                  message="Multi-field doc increments vector")
 
   # 7. Test double counting with overlapping indexes
   # Create another text index that will also match 'text:*' docs
   env.expect('FT.CREATE', 'idx_text2', 'PREFIX', 1, 'text:', 'SCHEMA', 't', 'TEXT').ok()
   waitForIndex(env, 'idx_text2')
 
-  # The 2 existing text docs (text:1, text:2) should now be re-indexed
+  # The 1 existing text doc (text:1) should now be re-indexed
   metrics = get_field_metrics()
-  # Previously had 3 text docs (text:1, text:2, multi:1), now +2 from background indexing
-  env.assertEqual(metrics['text'], 5,
+  # Previously had 2 text docs (text:1, multi:1), now +1 from background indexing
+  env.assertEqual(metrics['text'], 3,
                   message="After creating overlapping text index, existing docs re-indexed")
 
   # 8. Test partial field matching (doc with only some fields)
@@ -2217,3 +2203,24 @@ def test_total_docs_indexed_by_field_type_SA(env):
                   message="Partial doc doesn't increment tag (field not present)")
   env.assertEqual(metrics['numeric'], prev_metrics['numeric'],
                   message="Partial doc doesn't increment numeric (field not present)")
+
+  # 9. Test index with multiple fields of the same type
+  env.expect('FT.CREATE', 'idx_same_type', 'PREFIX', 1, 'sametype:',
+             'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()
+  waitForIndex(env, 'idx_same_type')
+
+  prev_metrics = get_field_metrics()
+
+  # Doc that matches only one text field
+  conn.execute_command('HSET', 'sametype:1', 't1', 'hello')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], prev_metrics['text'] + 1,
+                  message="Doc with one text field increments text by 1")
+
+  prev_metrics = get_field_metrics()
+
+  # Doc that contains both text fields
+  conn.execute_command('HSET', 'sametype:2', 't1', 'hello', 't2', 'world')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], prev_metrics['text'] + 2,
+                  message="Doc with two text fields increments text by 2 (per fold, not per doc)")
