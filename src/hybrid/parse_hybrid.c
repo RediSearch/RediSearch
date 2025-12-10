@@ -39,7 +39,7 @@ static void setExpectedArgumentsError(QueryError *status, unsigned int expected,
 }
 
 // Check if we're at the end of arguments in the middle of a clause and set appropriate error for missing argument
-static int inline CheckEnd(ArgsCursor *ac, const char *argument, QueryError *status) {
+static inline int CheckEnd(ArgsCursor *ac, const char *argument, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
                                     "Missing argument value for ", argument);

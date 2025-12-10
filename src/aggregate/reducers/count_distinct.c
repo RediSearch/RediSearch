@@ -194,7 +194,7 @@ static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
   // Expected length should be determined from bits (whose value we've also
   // verified)
-  if (regsz != 1 << hdr->bits) {
+  if (regsz != 1u << hdr->bits) {
     return 0;
   }
 

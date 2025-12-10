@@ -15,9 +15,9 @@
  *
  * @return int    the bytes of the current readed word.
  */
-FRISO_API int utf8_next_word( 
-    friso_task_t task, 
-    uint_t *idx, 
+FRISO_API int utf8_next_word(
+    friso_task_t task,
+    uint_t *idx,
     fstring __word )
 {
     if ( *idx >= task->length ) return 0;
@@ -44,7 +44,7 @@ FRISO_API int utf8_next_word(
  *
  * @param int
  */
-FRISO_API void print_char_binary( char value ) 
+FRISO_API void print_char_binary( char value )
 {
     register uint_t t;
 
@@ -63,10 +63,10 @@ FRISO_API void print_char_binary( char value )
  *         between 1 - 6.
  *
  * @param __char
- * @return int 
+ * @return int
  */
-FRISO_API int get_utf8_bytes( char value ) 
-{    
+FRISO_API int get_utf8_bytes( char value )
+{
     register uint_t t = 0;
 
     //one byte ascii char.
@@ -80,11 +80,11 @@ FRISO_API int get_utf8_bytes( char value )
 
 /*
  * get the unicode serial of a utf-8 char.
- * 
+ *
  * @param  ch
  * @return int.
  */
-FRISO_API int get_utf8_unicode( const fstring ch ) 
+FRISO_API int get_utf8_unicode( const fstring ch )
 {
     int code = 0, bytes = get_utf8_bytes( *ch );
     register uchar_t *bit = ( uchar_t * ) &code;
@@ -116,7 +116,7 @@ FRISO_API int get_utf8_unicode( const fstring ch )
 }
 
 //turn the unicode serial to a utf-8 string.
-FRISO_API int unicode_to_utf8( uint_t u, fstring __word ) 
+FRISO_API int unicode_to_utf8( uint_t u, fstring __word )
 {
     if ( u <= 0x0000007F ) {
         //U-00000000 - U-0000007F
@@ -170,17 +170,17 @@ FRISO_API int unicode_to_utf8( uint_t u, fstring __word )
 
 /*
  * check the given char is a CJK char or not.
- *     2E80-2EFF CJK 部首补充 
+ *     2E80-2EFF CJK 部首补充
  *     2F00-2FDF 康熙字典部首
  *     3000-303F CJK 符号和标点                 --ignore
  *     31C0-31EF CJK 笔画
  *     3200-32FF 封闭式 CJK 文字和月份             --ignore.
  *     3300-33FF CJK 兼容
- *     3400-4DBF CJK 统一表意符号扩展 A 
+ *     3400-4DBF CJK 统一表意符号扩展 A
  *     4DC0-4DFF 易经六十四卦符号
- *     4E00-9FBF CJK 统一表意符号 
+ *     4E00-9FBF CJK 统一表意符号
  *     F900-FAFF CJK 兼容象形文字
- *     FE30-FE4F CJK 兼容形式 
+ *     FE30-FE4F CJK 兼容形式
  *     FF00-FFEF 全角ASCII、全角标点            --ignore (as basic latin)
  *
  * Japanese:
@@ -192,9 +192,9 @@ FRISO_API int unicode_to_utf8( uint_t u, fstring __word )
  *     AC00-D7AF 韩文拼音
  *     1100-11FF 韩文字母
  *     3130-318F 韩文兼容字母
- * 
+ *
  * @param ch :pointer to the char
- * @return int : 1 for yes and 0 for not. 
+ * @return int : 1 for yes and 0 for not.
  */
 
 //Comment one of the following macro define
@@ -202,17 +202,17 @@ FRISO_API int unicode_to_utf8( uint_t u, fstring __word )
 #define FRISO_CJK_CHK_C
 //#define FRISO_CJK_CHK_J
 //#define FRISO_CJK_CHK_K
-FRISO_API int utf8_cjk_string( uint_t u ) 
+FRISO_API int utf8_cjk_string( uint_t u )
 {
     int c = 0, j = 0, k = 0;
     //Chinese.
 #ifdef FRISO_CJK_CHK_C
     c = ( ( u >= 0x4E00 && u <= 0x9FBF )
-        || ( u >= 0x2E80 && u <= 0x2EFF ) || ( u >= 0x2F00 && u <= 0x2FDF )  
+        || ( u >= 0x2E80 && u <= 0x2EFF ) || ( u >= 0x2F00 && u <= 0x2FDF )
         || ( u >= 0x31C0 && u <= 0x31EF ) //|| ( u >= 0x3200 && u <= 0x32FF )
         || ( u >= 0x3300 && u <= 0x33FF ) //|| ( u >= 0x3400 && u <= 0x4DBF )
         || ( u >= 0x4DC0 && u <= 0x4DFF ) || ( u >= 0xF900 && u <= 0xFAFF )
-        || ( u >= 0xFE30 && u <= 0xFE4F ) ); 
+        || ( u >= 0xFE30 && u <= 0xFE4F ) );
 #endif
 
     //Japanese.
@@ -233,11 +233,11 @@ FRISO_API int utf8_cjk_string( uint_t u )
 /*
  * check the given char is a Basic Latin letter or not.
  *    include all the letters and english punctuations.
- * 
+ *
  * @param c
- * @return int 1 for yes and 0 for not. 
+ * @return int 1 for yes and 0 for not.
  */
-FRISO_API int utf8_halfwidth_en_char( uint_t u ) 
+FRISO_API int utf8_halfwidth_en_char( uint_t u )
 {
     return ( u >= 32 && u <= 126 );
 }
@@ -250,7 +250,7 @@ FRISO_API int utf8_halfwidth_en_char( uint_t u )
  * @param c
  * @return int
  */
-FRISO_API int utf8_fullwidth_en_char( uint_t u ) 
+FRISO_API int utf8_fullwidth_en_char( uint_t u )
 {
     return ( (u >= 65296 && u <= 65305 )             //arabic number
         || ( u >= 65313 && u <= 65338 )                //upper case letters
@@ -259,7 +259,7 @@ FRISO_API int utf8_fullwidth_en_char( uint_t u )
 
 //check the given char is a upper case letters or not.
 //    included the full-width and half-width letters.
-FRISO_API int utf8_uppercase_letter( uint_t u ) 
+FRISO_API int utf8_uppercase_letter( uint_t u )
 {
     if ( u > 65280 ) u -= 65248;
     return ( u >= 65 && u <= 90 );
@@ -275,7 +275,7 @@ FRISO_API int utf8_lowercase_letter( uint_t u )
 
 //check the given char is a numeric
 //    included the full-width and half-width arabic numeric.
-FRISO_API int utf8_numeric_letter( uint_t u ) 
+FRISO_API int utf8_numeric_letter( uint_t u )
 {
     if ( u > 65280 ) u -= 65248;    //make full-width half-width.
     return ( ( u >= 48 && u <= 57 ) );
@@ -307,7 +307,7 @@ FRISO_API int utf8_en_letter( uint_t u )
  * 65304, ８
  * 65305, ９
  */
-FRISO_API int utf8_numeric_string( const fstring str ) 
+FRISO_API int utf8_numeric_string( const fstring str )
 {
     fstring s = str;
     int bytes, u;
@@ -315,12 +315,12 @@ FRISO_API int utf8_numeric_string( const fstring str )
     while ( *s != '\0' ) {
         //if ( ! utf8_numeric_letter( get_utf8_unicode( s++ ) ) ) {
         //    return 0;
-        //} 
+        //}
 
         //new implemention.
         //@date 2013-10-14
         bytes = 1;
-        if ( *s < 0 ) { //full-width chars.
+        if ( (unsigned char)*s > 127 ) { //full-width chars.
             u = get_utf8_unicode(s);
             bytes = get_utf8_bytes(*s);
             if ( u < 65296 || u > 65305 ) return 0;
@@ -347,7 +347,7 @@ FRISO_API int utf8_decimal_string( const fstring str )
             i++;
             p++;
             continue;
-        } else if ( str[i] < 0 ) {
+        } else if ( (unsigned char)str[i] > 127 ) {
             //full-width numeric.
             u = get_utf8_unicode(str+i);
             bytes = get_utf8_bytes(str[i]);
@@ -364,11 +364,11 @@ FRISO_API int utf8_decimal_string( const fstring str )
 
 /*
  * check the given char is a whitespace or not.
- * 
+ *
  * @param ch
- * @return int 1 for yes and 0 for not. 
+ * @return int 1 for yes and 0 for not.
  */
-FRISO_API int utf8_whitespace( uint_t u ) 
+FRISO_API int utf8_whitespace( uint_t u )
 {
     if ( u == 32 || u == 12288 ) {
         return 1;
@@ -379,11 +379,11 @@ FRISO_API int utf8_whitespace( uint_t u )
 
 /*
  * check the given char is a english punctuation.
- * 
+ *
  * @param ch
- * @return int 
+ * @return int
  */
-FRISO_API int utf8_en_punctuation( uint_t u ) 
+FRISO_API int utf8_en_punctuation( uint_t u )
 {
     //if ( u > 65280 ) u = u - 65248;        //make full-width half-width
     return ( (u > 32 && u < 48)
@@ -397,14 +397,14 @@ FRISO_API int utf8_en_punctuation( uint_t u )
  * @date    2013-08-31 added.
  *
  * @param ch
- * @return int 
+ * @return int
  */
-FRISO_API int utf8_cn_punctuation( uint_t u ) 
+FRISO_API int utf8_cn_punctuation( uint_t u )
 {
     return ( ( u > 65280 && u < 65296 )
         || ( u > 65305 && u < 65312 )
-        || ( u > 65338 && u < 65345 )    
-        || ( u > 65370 && u < 65382 ) 
+        || ( u > 65338 && u < 65345 )
+        || ( u > 65370 && u < 65382 )
         //cjk symbol and punctuation.(added 2013-09-06)
         //from http://www.unicode.org/charts/PDF/U3000.pdf
         || ( u >= 12289 && u <= 12319) );
@@ -416,7 +416,7 @@ FRISO_API int utf8_cn_punctuation( uint_t u )
  * @param ch
  * @return int
  */
-FRISO_API int utf8_letter_number( uint_t u ) 
+FRISO_API int utf8_letter_number( uint_t u )
 {
     return 0;
 }
@@ -427,13 +427,13 @@ FRISO_API int utf8_letter_number( uint_t u )
  * @param ch
  * @return int
  */
-FRISO_API int utf8_other_number( uint_t u ) 
+FRISO_API int utf8_other_number( uint_t u )
 {
     return 0;
 }
 
 //A macro define has replace this.
-//FRISO_API int is_en_punctuation( char c ) 
+//FRISO_API int is_en_punctuation( char c )
 //{
 //    return utf8_en_punctuation( (uint_t) c );
 //}
@@ -445,9 +445,9 @@ FRISO_API int utf8_other_number( uint_t u )
 
 /* @Deprecated
  * check the given char is an english keep punctuation.*/
-//FRISO_API int utf8_keep_punctuation( fstring str ) 
+//FRISO_API int utf8_keep_punctuation( fstring str )
 //{
-//    if ( __keep_punctuations_hash__ == NULL ) 
+//    if ( __keep_punctuations_hash__ == NULL )
 //    {
 //    __keep_punctuations_hash__ = new_hash_table();
 //    hash_put_mapping( __keep_punctuations_hash__, "@", NULL );
@@ -470,11 +470,11 @@ FRISO_API int utf8_other_number( uint_t u )
 
 /*
  * check the given english char is a full-width char or not.
- * 
+ *
  * @param ch
- * @return 1 for yes and 0 for not. 
+ * @return 1 for yes and 0 for not.
  */
-//FRISO_API int utf8_fullwidth_char( uint_t u ) 
+//FRISO_API int utf8_fullwidth_char( uint_t u )
 //{
 //    if ( u == 12288 )
 //    return 1;                    //full-width space

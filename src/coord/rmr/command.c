@@ -134,7 +134,7 @@ static void extendCommandList(MRCommand *cmd, size_t toAdd) {
 }
 
 void MRCommand_Insert(MRCommand *cmd, uint32_t pos, const char *s, size_t n) {
-  RS_ASSERT(0 <= pos && pos <= cmd->num);
+  RS_ASSERT(pos <= cmd->num);
   int oldNum = cmd->num;
   extendCommandList(cmd, 1);
 
@@ -239,7 +239,7 @@ void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx) {
 }
 
 void MRCommand_PrepareForSlotInfo(MRCommand *cmd, uint32_t pos) {
-  RS_ASSERT(0 <= pos && pos <= cmd->num);
+  RS_ASSERT(pos <= cmd->num);
   RS_LOG_ASSERT(cmd->slotsInfoArgIndex == 0, "Slot info already set for this command");
   uint32_t oldNum = cmd->num;
   // Make place for SLOTS_STR + <binary data>

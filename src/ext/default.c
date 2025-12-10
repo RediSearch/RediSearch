@@ -222,7 +222,7 @@ static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
  *
  ******************************************************************************************/
 
-static double inline CalculateBM25Std(float b, float k1, double idf, double f, int doc_len,
+static inline double CalculateBM25Std(float b, float k1, double idf, double f, int doc_len,
                                       double avg_doc_len, double weight, RSScoreExplain *scrExp, const char *term) {
   double ret = weight * idf * f * (k1 + 1) / (f + k1 * (1.0f - b + b * (float)doc_len/avg_doc_len));
   EXPLAIN(scrExp,

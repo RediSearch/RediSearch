@@ -296,18 +296,8 @@ CmdArgIterator CmdArg_Select(CmdArg *arg, const char *key);
 /* Create an iterator of all the children of an objet or array node */
 CmdArgIterator CmdArg_Children(CmdArg *arg);
 
-/* Parse an argument as a double. Argument may already be a double or an int in which case it gets
- * returned, or a string in which case we try to parse it. Returns 1 if the conversion/parsing was
- * successful, 0 if not */
-int CmdArg_ParseDouble(CmdArg *arg, double *d);
-
 /* return 1 if a flag with a given name exists in parent and is set to true */
 int CmdArg_GetFlag(CmdArg *parent, const char *flag);
-
-/* Parse an argument as a integer. Argument may already be a int or a double in which case it
- * gets returned, or a string in which case we try to parse it. Returns 1 if the
- * conversion/parsing was successful, 0 if not */
-int CmdArg_ParseInt(CmdArg *arg, int64_t *i);
 
 #define CMDARG_TYPE(arg) (arg ? arg->type : CmdArg_NullPtr)
 

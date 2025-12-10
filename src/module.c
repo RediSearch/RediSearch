@@ -3503,9 +3503,9 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
 
   if(req->requiredFields) {
     MRCommand_Append(cmd, "_REQUIRED_FIELDS", strlen("_REQUIRED_FIELDS"));
-    size_t numberOfFields = array_len(req->requiredFields);
+    uint32_t numberOfFields = array_len(req->requiredFields);
     char snum[8];
-    int len = sprintf(snum, "%zu", numberOfFields);
+    int len = sprintf(snum, "%u", numberOfFields);
     MRCommand_Append(cmd, snum, len);
     for(size_t i = 0; i < numberOfFields; i++) {
         MRCommand_Append(cmd, req->requiredFields[i], strlen(req->requiredFields[i]));

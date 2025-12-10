@@ -20,7 +20,7 @@
     do { \
         int rc = (X); \
         if (rc == -1) \
-            ; \
+          {;}         \
     } while(0)
 
 int CmdString_CaseEquals(CmdString *str, const char *other) {
@@ -532,40 +532,6 @@ int typedParse(CmdArg **node, CmdString *arg, char type, char **err) {
       return CMDPARSE_ERR;
   }
   return CMDPARSE_OK;
-}
-
-int CmdArg_ParseDouble(CmdArg *arg, double *d) {
-  if (!arg) return 0;
-  switch (arg->type) {
-    case CmdArg_Double:
-      *d = arg->d;
-      return 1;
-    case CmdArg_Integer:
-      *d = (double)arg->i;
-    case CmdArg_String:
-      return parseDouble(arg->s.str, d);
-    default:
-      return 0;
-  }
-}
-int CmdArg_ParseInt(CmdArg *arg, int64_t *i) {
-  if (!arg) return 0;
-  switch (arg->type) {
-    case CmdArg_Double:
-      *i = round(arg->d);
-      return 1;
-    case CmdArg_Integer:
-      *i = arg->i;
-    case CmdArg_String: {
-      long long ii;
-      int rc = parseInt(arg->s.str, &ii);
-      if (rc) *i = ii;
-      return rc;
-    }
-
-    default:
-      return 0;
-  }
 }
 
 #define CMDPARSE_CHECK_POS(pos, argc, err, msg)            \

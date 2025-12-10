@@ -311,7 +311,6 @@ static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const 
 }
 
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
-  extern size_t NumShards;  // Declared in module.c
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);

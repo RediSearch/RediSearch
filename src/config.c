@@ -608,6 +608,7 @@ static inline const char *MTMode_ToString(enum MTMode mt_mode) {
     case MT_MODE_FULL:
       return "MT_MODE_FULL";
   }
+  return "UNKNOWN";
 }
 
 CONFIG_GETTER(getMtMode) {

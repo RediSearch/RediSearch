@@ -25,7 +25,7 @@ static const int on_timeout_enums[2] = {
   TimeoutPolicy_Return,
   TimeoutPolicy_Fail
 };
-static const char *on_timeout_vals[2] = {
+static const char *on_timeout_vals[2] __attribute__((unused)) = {
   "return",
   "fail"
 };
@@ -42,7 +42,7 @@ static const int on_oom_enums[3] = {
   OomPolicy_Fail,
   OomPolicy_Ignore
 };
-static const char *on_oom_vals[3] = {
+static const char *on_oom_vals[3] __attribute__((unused)) = {
   "return",
   "fail",
   "ignore"

@@ -345,23 +345,23 @@ static enum QueryType parseGeometryPredicate(const char *predicate, size_t len) 
   // first letter is insufficient. DISJOINT and DISTANCE both start with DIS.
   // last letter is insufficient. CONTAINS and INTERSECTS both end with S, DISJOINT and NEAREST both end with T.
   // TODO: consider comparing 8-byte values instead of 2-byte
-  const int cmp = ((len << CHAR_BIT) | toupper(predicate[len-1]));
+  const uint32_t cmp = ((len << CHAR_BIT) | toupper(predicate[len-1]));
 #define CASE(s) (((sizeof(s)-1) << CHAR_BIT) | s[sizeof(s)-2])  // two bytes: len | last char
 #define COND(s) ((cmp == CASE(s)) && !strncasecmp(predicate, s, len))
-  if COND("WITHIN") {  // 0x06'4E
+  if (COND("WITHIN")) {  // 0x06'4E
     return WITHIN;
   }
-  if COND("CONTAINS") { // 0x08'53
+  if (COND("CONTAINS")) { // 0x08'53
     return CONTAINS;
   }
-  if COND("DISJOINT") { // 0x08'54
+  if (COND("DISJOINT")) { // 0x08'54
     return DISJOINT;
   }
-  if COND("INTERSECTS") { // 0x0A'53
+  if (COND("INTERSECTS")) { // 0x0A'53
     return INTERSECTS;
   }
-  COND("DISTANCE"); // 0x08'45
-  COND("NEAREST"); // 0x07'54
+  (void)COND("DISTANCE"); // 0x08'45
+  (void)COND("NEAREST"); // 0x07'54
   return UNKNOWN_QUERY;
 }
 
@@ -843,8 +843,8 @@ static QueryIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
     end = strToLowerRunes(lx->lxrng.end, strlen(lx->lxrng.end), &nend);
   }
 
-  TrieNode_IterateRange(t->root, begin, begin ? nbegin : -1, lx->lxrng.includeBegin, end,
-                        end ? nend : -1, lx->lxrng.includeEnd, runeIterCb, &ctx);
+  TrieNode_IterateRange(t->root, begin, begin ? (int)nbegin : -1, lx->lxrng.includeBegin, end,
+                        end ? (int)nend : -1, lx->lxrng.includeEnd, runeIterCb, &ctx);
   rm_free(begin);
   rm_free(end);
 
@@ -1162,7 +1162,7 @@ static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   ctx.nits = 0;
 
   const char *begin = qn->lxrng.begin, *end = qn->lxrng.end;
-  int nbegin = begin ? strlen(begin) : -1, nend = end ? strlen(end) : -1;
+  int nbegin = begin ? (int)strlen(begin) : -1, nend = end ? (int)strlen(end) : -1;
 
   TrieMap_IterateRange(t, begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd,
                        rangeIterCbStrs, &ctx);

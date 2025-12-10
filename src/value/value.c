@@ -835,8 +835,8 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
 
     case RSValueType_Trio:
       return RSValue_DumpSds(RSValue_Trio_GetLeft(v), s, obfuscate);
-      break;
   }
+  return s; // Should never reach here
 }
 
 ///////////////////////////////////////////////////////////////

@@ -619,6 +619,7 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
       } else {
         // switch to "children mode"
         current->state = ITERSTATE_CHILDREN;
+        __attribute__((fallthrough));
       }
 
     case ITERSTATE_CHILDREN:
@@ -904,7 +905,7 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
     beginIdx = rsb_gt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
   }
 
-  int endIdx = nmax ? arrlen - 1 : -1;
+  int endIdx = nmax ? (int)arrlen - 1 : -1;
   if (nmax > 0) {
     // search for the first element which are less then our max value
     h.r = max;
@@ -1114,6 +1115,7 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
           r->callback(r->buf, array_len(r->buf), r->cbctx, n->payload);
         }
         // fall through - continue to look for matches on children similar to PARTIAL_MATCH
+        __attribute__((fallthrough));
       }
     }
     case PARTIAL_MATCH: {
