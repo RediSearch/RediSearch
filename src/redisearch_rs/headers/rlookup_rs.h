@@ -176,6 +176,27 @@ extern "C" {
 /**
  * Get a RLookup key for a given name.
  *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+ * 2. The memory pointed to by `name` must contain a valid nul terminator at the
+ *    end of the string.
+ * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
+ *    This means in particular:
+ *     1. `name_len` must be same as `strlen(name)`
+ *     2. The entire memory range of this `CStr` must be contained within a single allocation!
+ *     3. `name` must be non-null even for a zero-length cstr.
+ * 4. The memory referenced by the returned `CStr` must not be mutated for
+ *    the duration of lifetime `'a`.
+ * 5. The nul terminator must be within `isize::MAX` from `name`
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct RLookupKey *RLookup_FindKey(struct RLookup *lookup, const char *name, size_t name_len);
+
+/**
+ * Get a RLookup key for a given name.
+ *
  * A key is returned only if it's already in the lookup table (available from the
  * pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
  * if the lookup table accepts unresolved keys.
