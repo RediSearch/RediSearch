@@ -173,7 +173,7 @@ def test_internal_commands(env):
 
     # Promote the connection to internal
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
-    slots = generate_slots(range(0, int((2**14)/3))) if env.isCluster() else generate_slots()
+    slots = generate_slots(range(0, int((2**14)/env.shardsCount)))
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', slots).equal([0])
 
 @skip(redis_less_than="7.9.227")
