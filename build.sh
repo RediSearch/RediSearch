@@ -645,7 +645,6 @@ run_rust_valgrind_tests() {
         RUSTFLAGS="${RUSTFLAGS:--D warnings}" \
         cargo valgrind test \
         --profile=$RUST_PROFILE \
-        $RUST_TEST_OPTIONS \
         --workspace $TEST_FILTER \
         -- --nocapture
   fi
