@@ -194,7 +194,7 @@ def test_coord_profile():
 
     # test with profile
     shards_exp = {
-      f'Shard #{i}': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Total GIL time': ANY, 'Warning': 'None',
+      f'Shard #{i}': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Total GIL time': ANY, 'Warning': 'None', 'Internal cursor reads': ANY,
                       'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY}],
                       'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},
                                                     {'Type': 'Scorer', 'Time': ANY, 'Results processed': ANY},
