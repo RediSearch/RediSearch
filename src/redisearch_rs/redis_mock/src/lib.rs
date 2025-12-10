@@ -120,6 +120,19 @@ pub fn init_redis_module_mock() {
         redis_module::raw::RedisModule_TrimStringAllocation = Some(RedisModule_TrimStringAllocation)
     };
     unsafe { redis_module::raw::RedisModule_HoldString = Some(RedisModule_HoldString) };
+    // We have to use the same type of transmute as for RedisModule_CallHgetAll because of the variadic arguments.
+    let raw_ptr = RedisModule_CreateStringPrintf as *const ();
+    let create_string_printf = unsafe {
+        std::mem::transmute::<
+            *const (),
+            unsafe extern "C" fn(
+                *mut redis_module::RedisModuleCtx,
+                *const ::std::os::raw::c_char,
+                ...
+            ) -> *mut redis_module::RedisModuleString,
+        >(raw_ptr)
+    };
+    unsafe { redis_module::raw::RedisModule_CreateStringPrintf = Some(create_string_printf) };
 
     // register key methods
     unsafe { redis_module::raw::RedisModule_OpenKey = Some(RedisModule_OpenKey) };
