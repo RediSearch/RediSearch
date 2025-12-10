@@ -117,3 +117,20 @@ pub(crate) unsafe extern "C" fn RedisModule_HoldString(
     let val = Box::new(s.clone());
     Box::into_raw(val).cast()
 }
+
+/// Mock implementation of RedisModule_CreateStringPrintf from redismodule.h for testing purposes.
+///
+/// Safety:
+/// 1. fmt must be a valid pointer to a NULL-terminated C string.
+#[allow(non_snake_case)]
+pub(crate) unsafe extern "C" fn RedisModule_CreateStringPrintf(
+    ctx: *mut redis_module::raw::RedisModuleCtx,
+    fmt: *const c_char,
+) -> *mut redis_module::raw::RedisModuleString {
+    // Safety: 1. ensures fmt is a valid pointer to a NULL-terminated C string.
+    let c_str = unsafe { CStr::from_ptr(fmt) };
+
+    // C variadic are not stable so we cannot actually format the string.
+    // Safety: 1. ensures fmt is a valid pointer and we counting the bytes to pass the proper length.
+    unsafe { RedisModule_CreateString(ctx, fmt, c_str.count_bytes()) }
+}
