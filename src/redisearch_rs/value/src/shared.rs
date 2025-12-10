@@ -64,21 +64,18 @@ impl Value for SharedRsValue {
         Self::from_internal(RsValueInternal::Undefined)
     }
 
-    fn internal(&self) -> Option<&RsValueInternal> {
+    fn internal(&self) -> &RsValueInternal {
         // Safety: `self.ptr` is not null at this point,
         // and so must have been originated from a call to `from_internal`.
         // At least as long as `self` lives, this pointer is guaranteed
         // to be valid by the backing `Arc`.
-        Some(unsafe { &*self.ptr })
+        unsafe { &*self.ptr }
     }
 }
 
 impl std::fmt::Debug for SharedRsValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.internal() {
-            Some(internal) => f.debug_tuple("Defined").field(internal).finish(),
-            None => f.debug_tuple("Undefined").finish(),
-        }
+        self.internal().fmt(f)
     }
 }
 
