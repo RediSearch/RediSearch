@@ -136,7 +136,7 @@ static inline void ASM_KeySpaceVersionTracker_Destroy() {
   pthread_mutex_destroy(&query_version_tracker_mutex);
 }
 
-static inline void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_key_space_version) {
+static void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_key_space_version) {
   pthread_mutex_lock(&query_version_tracker_mutex);
 
   int ret;
@@ -175,7 +175,7 @@ static inline void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_
   pthread_mutex_unlock(&query_version_tracker_mutex);
 }
 
-static inline void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_key_space_version) {
+static void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_key_space_version) {
   pthread_mutex_lock(&query_version_tracker_mutex);
 
   khiter_t k = kh_get(query_key_space_version_tracker, query_key_space_version_map, query_key_space_version);

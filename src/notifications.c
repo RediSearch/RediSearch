@@ -345,47 +345,57 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
 //We still do not rely on the TIMER_ID being 0 to check initialization state.
 #define UNITIALIZED_TIMER_ID 0
 
-static bool checkTrimmingStateTimerIdScheduled = false;
-static bool enableTrimmingTimerIdScheduled = false;
-static RedisModuleTimerID checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
-static RedisModuleTimerID enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
+struct TrimmingDelayCtx {
+  bool checkTrimmingStateTimerIdScheduled;
+  bool enableTrimmingTimerIdScheduled;
+  RedisModuleTimerID checkTrimmingStateTimerId;
+  RedisModuleTimerID enableTrimmingTimerId;
+};
+
+static struct TrimmingDelayCtx trimmingDelayCtx = {
+  .checkTrimmingStateTimerIdScheduled = false,
+  .enableTrimmingTimerIdScheduled = false,
+  .checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID,
+  .enableTrimmingTimerId = UNITIALIZED_TIMER_ID
+};
+
 
 static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
   RedisModuleSlotRangeArray *slots = (RedisModuleSlotRangeArray *)privdata;
   // 1. Check counter of queries with old version
   // 2. If counter is 0, enable trimming and stop enableTrimmingTimer.
   // 3. Otherwise, reschedule the timer after TRIMMING_STATE_CHECK_DELAY.
-  checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
-  checkTrimmingStateTimerIdScheduled = false;
+  trimmingDelayCtx.checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
+  trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = false;
   RedisModule_Log(ctx, "verbose", "Checking if we can start trimming migrated slots.");
   if (ASM_CanStartTrimming()) {
     RedisModule_Log(ctx, "verbose", "No queries using the old version, Enabling trimming.");
-    RS_ASSERT(enableTrimmingTimerIdScheduled);
-    RedisModule_StopTimer(ctx, enableTrimmingTimerId, NULL);
-    enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
-    enableTrimmingTimerIdScheduled = false;
+    RS_ASSERT(trimmingDelayCtx.enableTrimmingTimerIdScheduled);
+    RedisModule_StopTimer(ctx, trimmingDelayCtx.enableTrimmingTimerId, NULL);
+    trimmingDelayCtx.enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
+    trimmingDelayCtx.enableTrimmingTimerIdScheduled = false;
     ASM_StateMachine_StartTrim(slots); // Make sure that the keypace version is updated, so new queries will already see the new version.
     RedisModule_ClusterEnableTrim(ctx);
   } else {
     RedisModule_Log(ctx, "verbose", "Queries still using the old version, rescheduling check in %d milliseconds.", TRIMMING_STATE_CHECK_DELAY);
-    checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, TRIMMING_STATE_CHECK_DELAY, checkTrimmingStateCallback, slots);
-    checkTrimmingStateTimerIdScheduled = true;
+    trimmingDelayCtx.checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, TRIMMING_STATE_CHECK_DELAY, checkTrimmingStateCallback, slots);
+    trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = true;
   }
 }
 
 static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
   RedisModuleSlotRangeArray *slots = (RedisModuleSlotRangeArray *)privdata;
-  enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
-  enableTrimmingTimerIdScheduled = false;
+  trimmingDelayCtx.enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
+  trimmingDelayCtx.enableTrimmingTimerIdScheduled = false;
   // Cancel the checkTrimmingStateCallback timer (Ignore error if it did not exist it does not matter)
   RedisModule_Log(ctx, "verbose", "Maximum delay reached. Enabling trimming.");
   if (!ASM_CanStartTrimming()) {
-    RedisModule_Log(ctx, "verbose", "Queries still using the old version, potential result inaccuracy.");
+    RedisModule_Log(ctx, "warning", "Queries still using the old version, potential result inaccuracy.");
   }
-  RS_ASSERT(checkTrimmingStateTimerIdScheduled);
-  RedisModule_StopTimer(ctx, checkTrimmingStateTimerId, NULL);
-  checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
-  checkTrimmingStateTimerIdScheduled = false;
+  RS_ASSERT(trimmingDelayCtx.checkTrimmingStateTimerIdScheduled);
+  RedisModule_StopTimer(ctx, trimmingDelayCtx.checkTrimmingStateTimerId, NULL);
+  trimmingDelayCtx.checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
+  trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = false;
   ASM_StateMachine_StartTrim(slots);  // Make sure that the keypace version is updated, so new queries will already see the new version.
   RedisModule_ClusterEnableTrim(ctx);
 }
@@ -421,10 +431,10 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       // Start 2 timers. One for the minimal delay, and one for the maximal delay.
       RedisModule_Log(ctx, "notice", "Got ASM migrate completed event.");
       RedisModule_ClusterDisableTrim(ctx);
-      checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.minTrimDelayMS, checkTrimmingStateCallback, slots);
-      enableTrimmingTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.maxTrimDelayMS, enableTrimmingCallback, slots);
-      checkTrimmingStateTimerIdScheduled = true;
-      enableTrimmingTimerIdScheduled = true;
+      trimmingDelayCtx.checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.minTrimDelayMS, checkTrimmingStateCallback, slots);
+      trimmingDelayCtx.enableTrimmingTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.maxTrimDelayMS, enableTrimmingCallback, slots);
+      trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = true;
+      trimmingDelayCtx.enableTrimmingTimerIdScheduled = true;
       if (!IsEnterprise()) {
         RedisTopologyUpdater_StopAndRescheduleInmediately(ctx);
       }
