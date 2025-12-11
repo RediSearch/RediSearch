@@ -54,42 +54,44 @@ def setup_basic_index(env):
     for doc_id, doc_data in test_data.items():
         conn.execute_command('HSET', doc_id, 'description', doc_data['description'], 'embedding', doc_data['embedding'])
 
-def test_hybrid_vector_direct_blob_knn():
+def test_hybrid_vector__knn():
     env = Env()
     setup_basic_index(env)
     env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
-                        'KNN', '2', 'K', '1')
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', '$BLOB',\
+                        'KNN', '2', 'K', '1',
+                        'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" )
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
     env.assertTrue(set(results.keys()) == {"doc:2"})
 
-def test_hybrid_vector_direct_blob_knn_with_filter():
+def test_hybrid_vector_knn_with_filter():
     env = Env()
     setup_basic_index(env)
     env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
-                        'KNN', '2', 'K', '2', 'FILTER', '@description:blue')
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding','$BLOB',\
+                        'KNN', '2', 'K', '2', 'FILTER', '@description:blue',
+                        'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" )
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
     env.assertTrue(set(results.keys()) == {"doc:4"})
 
-def test_hybrid_vector_direct_blob_range():
+def test_hybrid_vector_range():
     env = Env()
     setup_basic_index(env)
     env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
-                        'RANGE', '2', 'RADIUS', '1')
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', '$BLOB',\
+                        'RANGE', '2', 'RADIUS', '1', 'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" )
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
     env.assertTrue(set(results.keys()) == {"doc:2", "doc:4"})
 
-def test_hybrid_vector_direct_blob_range_with_filter():
+def test_hybrid_vector_range_with_filter():
     env = Env()
     setup_basic_index(env)
     env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
-                        'RANGE', '2', 'RADIUS', '1', 'FILTER', '@description:blue')
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', '$BLOB',\
+                        'RANGE', '2', 'RADIUS', '1', 'FILTER', '@description:blue','PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" )
     results, count = get_results_from_hybrid_response(response)
     env.assertTrue(set(results.keys()) == {"doc:4"})
     env.assertEqual(count, len(results.keys()))
@@ -100,8 +102,8 @@ def test_hybrid_vector_invalid_filter_with_weight():
     setup_basic_index(env)
     env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
     # This should fail because weight attribute is not allowed in hybrid vector filters
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
-                'KNN', '2', 'K', '2', 'FILTER', '@description:blue => {$weight: 2.0}').error().contains('Weight attributes are not allowed in FT.HYBRID VSIM FILTER')
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', '$BLOB',\
+                'KNN', '2', 'K', '2', 'FILTER', '@description:blue => {$weight: 2.0}', 'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e").error().contains('Weight attributes are not allowed in FT.HYBRID VSIM FILTER')
 
 def test_hybrid_vector_invalid_filter_with_vector():
     """Test that hybrid vector filter fails when it contains vector operations"""
@@ -109,7 +111,7 @@ def test_hybrid_vector_invalid_filter_with_vector():
     setup_basic_index(env)
     env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
     # This should fail because vector operations are not allowed in hybrid vector filters
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', '$BLOB',\
                 'FILTER', '@embedding:[VECTOR_RANGE 0.01 $BLOB]','PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e").error().contains('Vector expressions are not allowed in FT.HYBRID VSIM FILTER')
 
 
