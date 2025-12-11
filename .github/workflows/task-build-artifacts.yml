@@ -72,7 +72,7 @@ jobs:
         run: |
           sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release
           apk add nodejs --update-cache
-          mkdir /opt/bin
+          mkdir -p /opt/bin
           ln -s /usr/bin/node /opt/bin/node
       # Setup
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
