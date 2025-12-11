@@ -39,10 +39,14 @@ RUST_PROFILE=""  # Which profile should be used to build/test Rust code
                  # the operations to be performed
 RUN_MIRI=0       # Run Rust tests through miri to catch undefined behavior
 RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
+RUST_TOOLCHAIN_MODIFIER="" # Rust toolchain to use (e.g., +nightly)
 
 # Rust code is built first, so exclude benchmarking crates that link C code,
 # since the static libraries they depend on haven't been built yet.
 EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi"
+
+# Retrieve our pinned nightly version.
+NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
 
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
@@ -168,9 +172,20 @@ setup_test_configuration() {
 # Configure the build environment variables
 #-----------------------------------------------------------------------------
 setup_build_environment() {
+  # Determine Rust toolchain
+  if [[ -n "$SAN" || "$COV" == "1" || "$RUN_MIRI" == "1" ]]; then
+    # For coverage, we use the `nightly` compiler in order to include doc tests in the coverage computation.
+    # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
+    echo "Using nightly version: ${NIGHTLY_VERSION}"
+
+    RUST_TOOLCHAIN_MODIFIER="+$NIGHTLY_VERSION"
+  fi
+
   # Determine build flavor
   if [ "$SAN" == "address" ]; then
     FLAVOR="debug-asan"
+  elif [[ "$RUN_MIRI" == "1" ]]; then
+    FLAVOR="debug-miri"
   elif [[ "$DEBUG" == "1" ]]; then
     FLAVOR="debug"
   elif [[ "$COV" == "1" ]]; then
@@ -181,11 +196,26 @@ setup_build_environment() {
     FLAVOR="release"
   fi
 
+  # We must set the build target explicitly when running with a sanitizer to prevent the Rust flags from being applied to build
+  # scripts and procedural macros.
+  #
+  # See https://doc.rust-lang.org/beta/unstable-book/compiler-flags/sanitizer.html#build-scripts-and-procedural-macros
+  if [ "$SAN" == "address"  ]; then
+    export CARGO_BUILD_TARGET="$(rustc $RUST_TOOLCHAIN_MODIFIER -vV | sed -n 's/host: //p')"
+  fi
+
+  # Disable ODR violation detection when building tests with ASAN. This is needed because both the
+  # shared redisearch.so and the test binaries link to the same static libraries, causing false
+  # positives (mostly in the Rust's compiler_builtins for `RSQRT_TAB`).
+  if [[ "$SAN" == "address" && "$BUILD_TESTS" == "1" ]]; then
+    export ASAN_OPTIONS=detect_odr_violation=0
+  fi
+
   # Determine the correct Rust profile for both build and tests
   # Only set RUST_PROFILE if it wasn't already set by the user
   if [[ -z "$RUST_PROFILE" ]]; then
     if [[ "$BUILD_TESTS" == "1" ]]; then
-      if [[ "$DEBUG" == "1" || -n "$SAN" || "$COV" == "1" ]]; then
+      if [[ "$DEBUG" == "1" || -n "$SAN" || "$COV" == "1" || "$RUN_MIRI" == "1" ]]; then
         RUST_PROFILE="dev"
       else
         if [[ "$RUN_MICRO_BENCHMARKS" == "1" ]]; then
@@ -370,6 +400,11 @@ prepare_cmake_arguments() {
     # Needs the C code to link on gcov
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} } -C link-args=-lgcov"
   fi
+  if [[ $SAN == "address" ]]; then
+    # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
+    # -Zsanitizer=address enables ASAN in Rust
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Zsanitizer=address"
+  fi
   # Export RUSTFLAGS so it's available to the Rust build process
   export RUSTFLAGS
 
@@ -378,6 +413,14 @@ prepare_cmake_arguments() {
 
   if [[ "$RUST_PROFILE" != "" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_PROFILE=$RUST_PROFILE"
+  fi
+
+  if [[ -n "$CARGO_BUILD_TARGET" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCARGO_BUILD_TARGET=$CARGO_BUILD_TARGET"
+  fi
+
+  if [[ -n "$RUST_TOOLCHAIN_MODIFIER" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_TOOLCHAIN_MODIFIER=$RUST_TOOLCHAIN_MODIFIER"
   fi
 }
 
@@ -570,19 +613,15 @@ run_rust_tests() {
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
 
-  # Retrieve our pinned nightly version.
-  NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
+  CARGO_BUILD_FLAGS=""
 
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
-    # We use the `nightly` compiler in order to include doc tests in the coverage computation.
-    # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
-    RUST_TEST_COMMAND="+$NIGHTLY_VERSION llvm-cov test"
+    RUST_TEST_COMMAND="llvm-cov test"
     # We exclude Rust benchmarking crates that link to C code when computing coverage.
     # On one side, we aren't interested in coverage of those utilities.
     # On top of that, it causes linking issues since, when computing coverage, it seems to
     # require C symbols to be defined even if they aren't invoked at runtime.
-    echo "Using nightly version: ${NIGHTLY_VERSION}"
     RUST_TEST_OPTIONS="
       --profile=$RUST_PROFILE
       --doctests
@@ -591,9 +630,18 @@ run_rust_tests() {
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*"
       --output-path=$BINROOT/rust_cov.info
     "
-  elif [[ -n "$SAN" || "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
-    RUST_TEST_COMMAND="+$NIGHTLY_VERSION miri test "
+  elif [[ "$RUN_MIRI" == "1" ]]; then
+    RUST_TEST_COMMAND="miri test "
     RUST_TEST_OPTIONS="--profile=$RUST_PROFILE"
+  elif [[ "$SAN" == "address" ]]; then
+    # We must rebuild the Rust standard library to get sanitizer coverage
+    # for its functions.
+    # Since --build-std is a cargo flag (not rustc), we set it separately
+    CARGO_BUILD_FLAGS="${CARGO_BUILD_FLAGS:+${CARGO_BUILD_FLAGS} }-Zbuild-std"
+    RUST_TEST_COMMAND="nextest run"
+    # The doc tests are disabled under ASAN to avoid issues with linking to the sanitizer runtime
+    # in doc tests.
+    RUST_TEST_OPTIONS="--tests --cargo-profile=$RUST_PROFILE $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C"
   else
     RUST_TEST_COMMAND="nextest run"
     RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
@@ -601,7 +649,7 @@ run_rust_tests() {
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS}" cargo $RUST_TEST_COMMAND $RUST_TEST_OPTIONS --workspace $TEST_FILTER
+  RUSTFLAGS="${RUSTFLAGS}" cargo $RUST_TOOLCHAIN_MODIFIER $CARGO_BUILD_FLAGS $RUST_TEST_COMMAND $RUST_TEST_OPTIONS --workspace $TEST_FILTER
 
   # Check test results
   RUST_TEST_RESULT=$?
