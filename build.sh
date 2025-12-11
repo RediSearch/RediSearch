@@ -400,6 +400,11 @@ prepare_cmake_arguments() {
     # Needs the C code to link on gcov
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} } -C link-args=-lgcov"
   fi
+  if [[ $SAN == "address" ]]; then
+    # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
+    # -Zsanitizer=address enables ASAN in Rust
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Zsanitizer=address"
+  fi
   # Export RUSTFLAGS so it's available to the Rust build process
   export RUSTFLAGS
 
@@ -631,14 +636,10 @@ run_rust_tests() {
     # We must rebuild the Rust standard library to get sanitizer coverage
     # for its functions.
     # Since --build-std is a cargo flag (not rustc), we set it separately
+    RUST_TEST_COMMAND="-Zbuild-std nextest run"
     # The doc tests are disabled under ASAN to avoid issues with linking to the sanitizer runtime
     # in doc tests.
-    RUST_TEST_COMMAND="-Zbuild-std nextest run"
     RUST_TEST_OPTIONS="--tests --cargo-profile=$RUST_PROFILE $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C"
-
-    # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
-    # -Zsanitizer=address enables ASAN in Rust
-    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Zsanitizer=address"
   else
     RUST_TEST_COMMAND="nextest run"
     RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
