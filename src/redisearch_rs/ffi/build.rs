@@ -79,6 +79,7 @@ fn main() {
         src.join("search_result.h"),
         src.join("sortable.h"),
         src.join("spec").join("spec.h"),
+        src.join("spec").join("stopwords.h"),
         src.join("ttl_table").join("ttl_table.h"),
         src.join("util").join("arr").join("arr.h"),
         src.join("util").join("references").join("references.h"),
