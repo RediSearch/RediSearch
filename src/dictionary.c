@@ -170,7 +170,10 @@ static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* trie
 
   RS_ASSERT(termsCount == trie->size);
   RS_LOG_ASSERT(trie->size != 0, "Empty dictionary should not exist in the dictionary list");
-  int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_DICT_ADD, "cv", dictName, terms, termsCount);
+  int rc = REDISMODULE_ERR;
+  if (RedisModule_ClusterPropagateForSlotMigration) {
+    rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_DICT_ADD, "cv", dictName, terms, termsCount);
+  }
   if (rc != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "Failed to propagate dictionary '%s' during slot migration. errno: %d", RSGlobalConfig.hideUserDataFromLog ? "****" : dictName, errno);
   }
