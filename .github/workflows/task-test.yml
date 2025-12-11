@@ -197,9 +197,10 @@ jobs:
           echo "USER: $USER"
           echo "id: $(id)"
           echo "HOME=$h" >> $GITHUB_ENV
-      # Setup
-      - name: Unlock GitHub Actions (Alpine ARM)
-        if: needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container == 'alpine:3.22'
+      # A workaround to get GitHub Actions to work on Alpine
+      # See https://github.com/actions/runner/issues/801#issuecomment-2976165281 for more details
+      - name: Unlock GitHub Actions on Alpine
+        if: needs.get-config.outputs.container == 'alpine:3.22'
         shell: sh -l -eo pipefail {0}
         run: |
           sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release
