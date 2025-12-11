@@ -2058,7 +2058,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-min-trim-delay-ms", DEFAULT_MIN_TRIM_DELAY,
+      ctx, "search-_min-trim-delay-ms", DEFAULT_MIN_TRIM_DELAY,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       UINT32_MAX, get_uint_numeric_config, set_min_trim_delay_numeric_config, NULL,
       (void *)&(RSGlobalConfig.minTrimDelayMS)
@@ -2067,7 +2067,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-max-trim-delay-ms", DEFAULT_MAX_TRIM_DELAY,
+      ctx, "search-_max-trim-delay-ms", DEFAULT_MAX_TRIM_DELAY,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       UINT32_MAX, get_uint_numeric_config, set_max_trim_delay_numeric_config, NULL,
       (void *)&(RSGlobalConfig.maxTrimDelayMS)
