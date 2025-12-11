@@ -1154,7 +1154,10 @@ fn revalidate_moved_skip_to_returns_none() {
     );
 
     // Intersection should now be at EOF
-    assert!(ii.at_eof(), "Intersection should be at EOF after revalidate returns None");
+    assert!(
+        ii.at_eof(),
+        "Intersection should be at EOF after revalidate returns None"
+    );
 
     // Further reads should return EOF
     assert!(matches!(ii.read(), Ok(None)));
