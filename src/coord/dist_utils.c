@@ -109,6 +109,20 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     cursorId = CURSOR_EOF;
   }
 
+  // Extract total_results and notify barrier via callback (if registered)
+  if (barrier && barrier->notifyCallback) {
+    long long shardTotal;
+    if (!extractTotalResults(rep, cmd, &shardTotal)) {
+      // If no error was detected earlier, and still we failed to extract total_results,
+      // Response is malformed: log a warning and set total to 0.
+      // Notice: must still call the notify callback since a response was received
+      shardTotal = 0;
+      RedisModule_Log(RSDummyContext, "notice", "Coordinator could not extract total_results from shard %d reply", cmd->targetShard);
+    }
+    RedisModule_Log(RSDummyContext, "notice", "Nafraf: Coordinator calling notifyCallback with total_results %lld from shard %d", shardTotal, cmd->targetShard);
+    barrier->notifyCallback(cmd->targetShard, shardTotal, false, barrier);
+  }
+
   if (cmd->forProfiling && cmd->protocol == 3) {
     RS_LOG_ASSERT(!cmd->forCursor, "Profiling is not supported on a cursor command");
     MRReply *rows = NULL, *meta = NULL;
