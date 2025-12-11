@@ -60,6 +60,11 @@ typedef struct {
   uint32_t isLocked;
 } ConcurrentSearchCtx;
 
+typedef struct {
+  size_t active_threads;
+  size_t high_priority_pending_jobs;
+} ConcurrentSearchPoolStats;
+
 /** The maximal size of the concurrent query thread pool. Since only one thread is operational at a
  * time, it's not a problem besides memory consumption, to have much more threads than CPU cores.
  * By default the pool starts with just one thread, and scales up as needed  */
@@ -149,8 +154,7 @@ void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx);
 
 void ConcurrentSearchCtx_ReopenKeys(ConcurrentSearchCtx *ctx);
 
-/* return number of currently working threads */
-size_t ConcurrentSearchPool_WorkingThreadCount(int poolId);
+ConcurrentSearchPoolStats ConcurrentSearchPool_GetStats(int poolId);
 
 struct ConcurrentCmdCtx;
 typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
@@ -210,4 +214,11 @@ static inline int CheckConcurrentSupport(RedisModuleCtx *ctx) {
   return 1;
 }
 
+/********************************************* for debugging **********************************/
+
+int ConcurrentSearch_isPaused(int poolId);
+
+int ConcurrentSearch_pause(int poolId);
+
+int ConcurrentSearch_resume(int poolId);
 #endif

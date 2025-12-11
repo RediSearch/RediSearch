@@ -74,10 +74,12 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
   redisearch_thpool_add_work(p, func, arg, THPOOL_PRIORITY_HIGH);
 }
 
-/* return number of currently working threads */
-size_t ConcurrentSearchPool_WorkingThreadCount(int poolId) {
+ConcurrentSearchPoolStats ConcurrentSearchPool_GetStats(int poolId) {
   RS_ASSERT(threadpools_g);
-  return redisearch_thpool_num_threads_working(threadpools_g[poolId]);
+  ConcurrentSearchPoolStats res = {0};
+  res.active_threads = redisearch_thpool_num_threads_working(threadpools_g[poolId]);
+  res.high_priority_pending_jobs = redisearch_thpool_high_priority_pending_jobs(threadpools_g[poolId]);
+  return res;
 }
 
 static void threadHandleCommand(void *p) {
@@ -238,4 +240,35 @@ void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx) {
 void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx) {
   RedisModule_ThreadSafeContextUnlock(ctx->ctx);
   ctx->isLocked = 0;
+}
+
+/********************************************* for debugging **********************************/
+
+int ConcurrentSearch_isPaused(int poolId) {
+  if (!threadpools_g || poolId < 0 || poolId >= (int)array_len(threadpools_g)) {
+    return 0;
+  }
+  return !redisearch_thpool_running(threadpools_g[poolId]);
+}
+
+int ConcurrentSearch_pause(int poolId) {
+  if (!threadpools_g || poolId < 0 || poolId >= (int)array_len(threadpools_g)) {
+    return REDISMODULE_ERR;
+  }
+  if (!redisearch_thpool_running(threadpools_g[poolId])) {
+    return REDISMODULE_ERR;  // Already paused
+  }
+  redisearch_thpool_terminate_threads(threadpools_g[poolId]);
+  return REDISMODULE_OK;
+}
+
+int ConcurrentSearch_resume(int poolId) {
+  if (!threadpools_g || poolId < 0 || poolId >= (int)array_len(threadpools_g)) {
+    return REDISMODULE_ERR;
+  }
+  if (redisearch_thpool_running(threadpools_g[poolId])) {
+    return REDISMODULE_ERR;  // Already running
+  }
+  redisearch_thpool_init(threadpools_g[poolId]);
+  return REDISMODULE_OK;
 }
