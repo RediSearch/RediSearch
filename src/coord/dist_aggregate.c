@@ -49,42 +49,6 @@ void processResultFormat(uint32_t *flags, MRReply *map) {
   *flags &= ~QEXEC_FORMAT_DEFAULT;
 }
 
-static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
-  RPNet *nc = (RPNet *)rp;
-
-  // Initialize shard response barrier if WITHCOUNT is enabled
-  if (HasWithCount(nc->areq) && IsAggregate(nc->areq)) {
-    ShardResponseBarrier *barrier = shardResponseBarrier_New();
-    if (!barrier) {
-      return RS_RESULT_ERROR;
-    }
-    nc->shardResponseBarrier = barrier;
-  }
-
-  // Pass barrier as private data to callback (only if WITHCOUNT enabled)
-  // The barrier is freed by MRIterator via shardResponseBarrier_Free destructor
-  // shardResponseBarrier_Init is called from iterStartCb when numShards is known from topology
-  MRIterator *it = nc->shardResponseBarrier
-                   ? MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, nc->shardResponseBarrier,
-                                               shardResponseBarrier_Free, shardResponseBarrier_Init,
-                                               iterStartCb, NULL)
-                   : MR_Iterate(&nc->cmd, netCursorCallback);
-
-  if (!it) {
-    // Clean up on error - iterator never started so no callbacks running
-    // Must free manually since iterator didn't take ownership
-    if (nc->shardResponseBarrier) {
-      shardResponseBarrier_Free(nc->shardResponseBarrier);
-      nc->shardResponseBarrier = NULL;
-    }
-    return RS_RESULT_ERROR;
-  }
-
-  nc->it = it;
-  nc->base.Next = rpnetNext;
-  return rpnetNext(rp, r);
-}
-
 static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
                            AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp, specialCaseCtx *knnCtx) {
   // We need to prepend the array with the command, index, and query that

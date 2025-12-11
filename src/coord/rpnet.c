@@ -286,7 +286,6 @@ int getNextReply(RPNet *nc) {
         return RS_RESULT_EOF;
       }
     }
-    MRReply *root = MRIterator_Next(nc->it);
     root = MRIterator_Next(nc->it);
   }
 
@@ -386,6 +385,41 @@ void rpnetFree(ResultProcessor *rp) {
   rm_free(rp);
 }
 
+static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
+  RPNet *nc = (RPNet *)rp;
+
+  // Initialize shard response barrier if WITHCOUNT is enabled
+  if (HasWithCount(nc->areq) && IsAggregate(nc->areq)) {
+    ShardResponseBarrier *barrier = shardResponseBarrier_New();
+    if (!barrier) {
+      return RS_RESULT_ERROR;
+    }
+    nc->shardResponseBarrier = barrier;
+  }
+
+  // Pass barrier as private data to callback (only if WITHCOUNT enabled)
+  // The barrier is freed by MRIterator via shardResponseBarrier_Free destructor
+  // shardResponseBarrier_Init is called from iterStartCb when numShards is known from topology
+  MRIterator *it = nc->shardResponseBarrier
+                   ? MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, nc->shardResponseBarrier,
+                                               shardResponseBarrier_Free, shardResponseBarrier_Init,
+                                               iterStartCb, NULL)
+                   : MR_Iterate(&nc->cmd, netCursorCallback);
+
+  if (!it) {
+    // Clean up on error - iterator never started so no callbacks running
+    // Must free manually since iterator didn't take ownership
+    if (nc->shardResponseBarrier) {
+      shardResponseBarrier_Free(nc->shardResponseBarrier);
+      nc->shardResponseBarrier = NULL;
+    }
+    return RS_RESULT_ERROR;
+  }
+
+  nc->it = it;
+  nc->base.Next = rpnetNext;
+  return rpnetNext(rp, r);
+}
 
 RPNet *RPNet_New(const MRCommand *cmd) {
   RPNet *nc = rm_calloc(1, sizeof(*nc));
@@ -393,7 +427,7 @@ RPNet *RPNet_New(const MRCommand *cmd) {
   nc->areq = NULL;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
-  nc->base.Next = rpnetNext;
+  nc->base.Next = rpnetNext_Start;
   nc->base.type = RP_NETWORK;
   return nc;
 }
