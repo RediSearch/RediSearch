@@ -121,7 +121,7 @@ class testHybridSearch:
             index_name = 'prefixed_idx'
         info = {'info before': {'ft.info': self.env.cmd('ft.info', index_name), 'info search': self.env.cmd('info', 'search')}}
 
-        logs = run_test_scenario(self.env, self.index_name, scenario, self.vector_blob, collect_logs=True)
+        logs = run_test_scenario(self.env, index_name, scenario, self.vector_blob, collect_logs=True)
         info['info after'] = {'ft.info': self.env.cmd('ft.info', index_name), 'info search': self.env.cmd('info', 'search')}
         if self.env.getNumberOfFailedAssertion() > 0:
             from pprint import pprint
