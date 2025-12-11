@@ -162,6 +162,7 @@ fn skip_to_all_combinations() {
     }
 }
 
+#[cfg(not(miri))]
 fn skip_to_test_case(num_children: usize, result_set: &[t_docId]) {
     let children = create_children(num_children, result_set);
     let mut ii = Intersection::new(children);
