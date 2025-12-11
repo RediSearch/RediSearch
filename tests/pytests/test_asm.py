@@ -499,9 +499,7 @@ def test_slots_info_errors(env: Env):
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', 'invalid_slots_data').error().contains('Failed to deserialize _SLOTS_INFO data')
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', generate_slots(range(0, 0)), '_SLOTS_INFO', generate_slots(range(0, 0))).error().contains('_SLOTS_INFO already specified')
 
-@skip(cluster=False)
-def test_ft_cursors_trimmed_BG():
-    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+def _test_ft_cursors_trimmed(env: Env):
     for shard in env.getOSSMasterNodesConnectionList():
         shard.execute_command('CONFIG', 'SET', 'search-_max-trim-delay-ms', 2500)
     n_docs = 2**14
@@ -524,3 +522,13 @@ def test_ft_cursors_trimmed_BG():
     expected_set = {item[1] for item in expected if isinstance(item, list) and len(item) == 2 and item[0] == 'n'}
     env.assertNotEqual(results_set, expected_set)
     env.assertGreater(len(expected_set), len(results_set))
+
+@skip(cluster=False)
+def test_ft_cursors_trimmed():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    _test_ft_cursors_trimmed(env)
+
+@skip(cluster=False)
+def test_ft_cursors_trimmed_BG():
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+    _test_ft_cursors_trimmed(env)
