@@ -687,7 +687,7 @@ def testNameLoader(env: Env):
         if not env.isCluster():
             return profile_res[1][6][-1][1]
         if isinstance(profile_res[0], list):
-            return profile_res[2][7][-1][1] # 2.10 aggregate
+            return profile_res[2][8][-1][1] # 2.10 aggregate
         else:
             return profile_res[-1][7][-1][1] # 2.10 search
 
