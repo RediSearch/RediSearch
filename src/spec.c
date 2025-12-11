@@ -3624,7 +3624,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
       RLookup_LoadRuleFields(ctx, &r->lk, &r->row, spec, key_p);
 
       if (EvalCtx_EvalExpr(r, spec->rule->filter_exp) == EXPR_EVAL_OK) {
-        if (!RSValue_BoolTest(&r->res) && dictFind(specs, spec->specName)) {
+        if (!RSValue_BoolTest(r->res) && dictFind(specs, spec->specName)) {
           specOp->op = SpecOp_Del;
         }
       }

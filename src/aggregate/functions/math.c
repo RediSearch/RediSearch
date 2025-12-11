@@ -12,9 +12,9 @@
 
 /* Template for single argument double to double math function */
 #define NUMERIC_SIMPLE_FUNCTION(f)                                                               \
-  static int mathfunc_##f(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {          \
+  static int mathfunc_##f(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {         \
     double d;                                                                                    \
-    if (!RSValue_ToNumber(&argv[0], &d)) {                                                       \
+    if (!RSValue_ToNumber(argv[0], &d)) {                                                        \
       RSValue_SetNumber(result, NAN);                                                            \
       return EXPR_EVAL_OK;                                                                       \
     }                                                                                            \

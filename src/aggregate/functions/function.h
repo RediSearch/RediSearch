@@ -19,7 +19,7 @@ extern "C" {
 
 #define VALIDATE_ARG__COMMON(fname, args, idx, verifier, varg)                                 \
   {                                                                                            \
-    RSValue *dref = RSValue_Dereference(&args[idx]);                                           \
+    RSValue *dref = RSValue_Dereference(args[idx]);                                           \
     if (!verifier(dref, varg)) {                                                               \
       RSValueType dref_ty = RSValue_Type(dref);                                                \
       QueryError_SetWithoutUserDataFmt(                                                        \
@@ -53,7 +53,7 @@ struct ExprEval;
  *
  * @return EXPR_EVAL_ERR or EXPR_EVAL_OK
  */
-typedef int (*RSFunction)(struct ExprEval *e, RSValue *args, size_t nargs, RSValue *result);
+typedef int (*RSFunction)(struct ExprEval *e, RSValue **args, size_t nargs, RSValue *result);
 
 typedef struct RSFunctionInfo {
   RSFunction f;

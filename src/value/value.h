@@ -133,37 +133,19 @@ typedef struct RSValue {
 // Constructors
 ///////////////////////////////////////////////////////////////
 
-#ifndef __cplusplus
-/**
- * Creates a stack-allocated undefined RSValue.
- * The returned value is not allocated on the heap and should not be freed.
- * @return A stack-allocated RSValue of type RSValueType_Undef
- */
-RSValue RSValue_Undefined();
-
-/**
- * Creates a stack-allocated RSValue containing a number.
- * The returned value is not allocated on the heap and should not be freed.
- * @param n The numeric value to wrap
- * @return A stack-allocated RSValue of type RSValueType_Number
- */
-RSValue RSValue_Number(double n);
-
-/**
- * Creates a stack-allocated RSValue containing a malloc'd string.
- * The returned value itself is not heap-allocated, but takes ownership of the string.
- * @param str The malloc'd string to wrap (ownership is transferred)
- * @param len The length of the string
- * @return A stack-allocated RSValue of type RSValue_String with RSString_Malloc subtype
- */
-RSValue RSValue_String(char *str, uint32_t len);
-#endif
-
 /**
  * Creates a heap-allocated Undefined RSValue.
  * @return A pointer to a heap-allocated RSValue
  */
 RSValue *RSValue_NewUndefined();
+
+/**
+ * Creates a heap-allocated Null RSValue.
+ * This differs from NullStatic in that it doesn't use a shared static instance,
+ * but it's own instance that can be changed of its type.
+ * @return A pointer to a heap-allocated RSValue
+ */
+RSValue *RSValue_NewNull();
 
 /**
  * Creates a heap-allocated RSValue wrapping a string.
@@ -323,6 +305,13 @@ RSValue *RSValue_NewConstStringArray(char **strs, uint32_t szx);
  * @return A pointer to a heap-allocated RSValue of type RSValueType_Trio
  */
 RSValue *RSValue_NewTrio(RSValue *val, RSValue *otherval, RSValue *other2val);
+
+/**
+ * Creates a heap-allocated RSValue Reference pointing to another RSValue.
+ * @param src The source RSValue to reference (increases the refcount of src)
+ * @return A pointer to a heap-allocated RSValue of type RSValueType_Reference
+ */
+RSValue *RSValue_NewReference(RSValue *src);
 
 ///////////////////////////////////////////////////////////////
 // Getters and Setters (grouped by field)

@@ -106,7 +106,7 @@ typedef struct RSExpr {
   RSExprType t;
   union {
     RSExprOp op;
-    RSValue literal;
+    RSValue *literal;
     RSFunctionExpr func;
     RSPredicate pred;
     RSLookupExpr property;
@@ -142,7 +142,7 @@ typedef struct EvalCtx {
   RLookupRow row;
   QueryError status;
   ExprEval ee;
-  RSValue res;
+  RSValue *res;
   RSExpr *_expr;
   bool _own_expr;
 } EvalCtx;

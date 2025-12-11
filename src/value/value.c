@@ -128,38 +128,13 @@ RSValue *RSValue_NewWithType(RSValueType t) {
   return v;
 }
 
-RSValue RSValue_Undefined() {
-  RSValue v;
-  v._t = RSValueType_Undef;
-  v._allocated = 0;
-  v._refcount = 1;
-  return v;
-}
-
-RSValue RSValue_Number(double n) {
-  RSValue v = {0};
-
-  v._t = RSValueType_Number;
-  v._refcount = 1;
-  v._allocated = 0;
-  v._numval = n;
-
-  return v;
-}
-
-RSValue RSValue_String(char *str, uint32_t len) {
-  RSValue v = {0};
-  v._allocated = 0;
-  v._refcount = 1;
-  v._t = RSValueType_String;
-  v._strval.str = str;
-  v._strval.len = len;
-  v._strval.stype = RSStringType_RMAlloc;
-  return v;
-}
-
 RSValue *RSValue_NewUndefined() {
   RSValue *v = RSValue_NewWithType(RSValueType_Undef);
+  return v;
+}
+
+RSValue *RSValue_NewNull() {
+  RSValue *v = RSValue_NewWithType(RSValueType_Null);
   return v;
 }
 
@@ -305,6 +280,12 @@ RSValue *RSValue_NewTrio(RSValue *val, RSValue *otherval, RSValue *other2val) {
   trio->_trioval.vals[1] = otherval;
   trio->_trioval.vals[2] = other2val;
   return trio;
+}
+
+RSValue *RSValue_NewReference(RSValue *src) {
+  RSValue *ref = RSValue_NewWithType(RSValueType_Reference);
+  ref->_ref = RSValue_IncrRef(src);
+  return ref;
 }
 
 ///////////////////////////////////////////////////////////////

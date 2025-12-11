@@ -881,6 +881,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 
   RLookup lookup_s;
   RLookupRow row = {0};
+  RSValue *rv = NULL;
   IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
   RLookup_Init(&lookup_s, spcache);
   lookup_s.options |= RLOOKUP_OPT_ALL_LOADED; // Setting this option will cause creating keys of non-sortable fields possible
@@ -894,16 +895,18 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   }
 
   ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
-  RSValue rv = RSValue_Undefined();
-  if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
+  rv = RSValue_NewUndefined();
+  if (ExprEval_Eval(&evaluator, rv) != EXPR_EVAL_OK) {
     goto CleanUp;
   }
 
-  *result = RSValue_BoolTest(&rv);
-  RSValue_Clear(&rv);
+  *result = RSValue_BoolTest(rv);
   rc = REDISMODULE_OK;
 
 CleanUp:
+  if (rv) {
+    RSValue_DecrRef(rv);
+  }
   RLookupRow_Reset(&row);
   RLookup_Cleanup(&lookup_s);
 done:
