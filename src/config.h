@@ -196,6 +196,8 @@ typedef struct {
   uint32_t minTrimDelayMS;
   // Maximum delay before enabling trimming after slot migration (in milliseconds)
   uint32_t maxTrimDelayMS;
+  // Delay between trimming state checks (in milliseconds)
+  uint32_t trimmingStateCheckDelayMS;
 } RSConfig;
 
 typedef enum {
@@ -323,6 +325,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define MAX_SHARD_WINDOW_RATIO 1.0
 #define DEFAULT_MIN_TRIM_DELAY 2000  // 2 seconds in milliseconds
 #define DEFAULT_MAX_TRIM_DELAY 5000  // 5 seconds in milliseconds
+#define DEFAULT_TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
@@ -375,6 +378,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .requestConfigParams.oomPolicy = OomPolicy_Return,                         \
     .minTrimDelayMS = DEFAULT_MIN_TRIM_DELAY,                                    \
     .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                    \
+    .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,            \
   }
 
 #define REDIS_ARRAY_LIMIT 7

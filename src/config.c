@@ -93,6 +93,7 @@ configPair_t __configPairs[] = {
   {"ON_OOM",                          "search-on-oom"},
   {"_MIN_TRIM_DELAY_MS",               "search-_min-trim-delay-ms"},
   {"_MAX_TRIM_DELAY_MS",               "search-_max-trim-delay-ms"},
+  {"_TRIMMING_STATE_CHECK_DELAY_MS",   "search-_trimming-state-check-delay-ms"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -1150,6 +1151,20 @@ CONFIG_GETTER(getMaxTrimDelay) {
   return sdscatprintf(ss, "%u", config->maxTrimDelayMS);
 }
 
+// TRIMMING_STATE_CHECK_DELAY
+CONFIG_SETTER(setTrimmingStateCheckDelay) {
+  uint32_t trimmingStateCheckDelayMS;
+  int acrc = AC_GetUnsigned(ac, &trimmingStateCheckDelayMS, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  config->trimmingStateCheckDelayMS = trimmingStateCheckDelayMS;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getTrimmingStateCheckDelay) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->trimmingStateCheckDelayMS);
+}
+
 // ON_OOM
 CONFIG_SETTER(setOnOom) {
   size_t len;
@@ -1526,6 +1541,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Maximum delay before enabling trimming after slot migration (in milliseconds)",
          .setValue = setMaxTrimDelay,
          .getValue = getMaxTrimDelay},
+        {.name = "_TRIMMING_STATE_CHECK_DELAY_MS",
+         .helpText = "Delay between trimming state checks (in milliseconds)",
+         .setValue = setTrimmingStateCheckDelay,
+         .getValue = getTrimmingStateCheckDelay},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -2052,6 +2071,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       UINT32_MAX, get_uint_numeric_config, set_max_trim_delay_numeric_config, NULL,
       (void *)&(RSGlobalConfig.maxTrimDelayMS)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_trimming-state-check-delay-ms", DEFAULT_TRIMMING_STATE_CHECK_DELAY,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.trimmingStateCheckDelayMS)
     )
   )
 

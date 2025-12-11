@@ -21,9 +21,6 @@
 #include "src/coord/rmr/redis_cluster.h"
 
 #define JSON_LEN 5 // length of string "json."
-
-#define TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
-
 RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
 RedisModuleString **hashFields = NULL;
@@ -377,8 +374,8 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
     ASM_StateMachine_StartTrim(slots); // Make sure that the keypace version is updated, so new queries will already see the new version.
     RedisModule_ClusterEnableTrim(ctx);
   } else {
-    RedisModule_Log(ctx, "verbose", "Queries still using the old version, rescheduling check in %d milliseconds.", TRIMMING_STATE_CHECK_DELAY);
-    trimmingDelayCtx.checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, TRIMMING_STATE_CHECK_DELAY, checkTrimmingStateCallback, slots);
+    RedisModule_Log(ctx, "verbose", "Queries still using the old version, rescheduling check in %d milliseconds.", RSGlobalConfig.trimmingStateCheckDelayMS);
+    trimmingDelayCtx.checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.trimmingStateCheckDelayMS, checkTrimmingStateCallback, slots);
     trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = true;
   }
 }
