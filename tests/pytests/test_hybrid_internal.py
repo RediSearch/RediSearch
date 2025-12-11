@@ -211,8 +211,7 @@ def test_basic_hybrid_internal_withcursor(env):
         env.assertTrue(len(result) > 0)
 
         # Convert list to dict for easier access
-        result = remove_warnings(result)
-        result_dict = dict(zip(result[::2], result[1::2]))
+        result_dict = to_dict(remove_warnings(result))
 
         # Should have VSIM and SEARCH cursor IDs
         env.assertIn('VSIM', result_dict)
