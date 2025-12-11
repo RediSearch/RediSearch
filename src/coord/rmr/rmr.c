@@ -532,7 +532,7 @@ void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   // Mark the command of the context as depleted (so we won't send another command to the shard)
   RS_DEBUG_LOG_FMT(
       "depleted(should be false): %d, Pending: (%d), inProcess: %d, itRefCount: %d, channel size: "
-      "%zu, target_idx: %d",
+      "%zu, target_idx: %s",
       ctx->cmd.depleted, ctx->it->ctx.pending, ctx->it->ctx.inProcess, ctx->it->ctx.itRefCount,
       MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetShard);
   ctx->cmd.depleted = true;
@@ -582,16 +582,15 @@ void iterStartCb(void *p) {
     it->cbxs[targetShard].it = it;
     it->cbxs[targetShard].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
-    it->cbxs[targetShard].cmd.targetShard = targetShard;
+    it->cbxs[targetShard].cmd.targetShard = rm_strdup(shards[targetShard].node.id);
     MRCommand_SetSlotInfo(&it->cbxs[targetShard].cmd, shards[targetShard].slotRanges);
 
     it->cbxs[targetShard].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
   }
 
-// Set the first command to target the first shard (while not having copied it)
-  targetShard = 0;
-  cmd->targetShard = targetShard;
-  MRCommand_SetSlotInfo(cmd, shards[targetShard].slotRanges);
+  // Set the first command to target the first shard (while not having copied it)
+  cmd->targetShard = rm_strdup(shards[0].node.id);
+  MRCommand_SetSlotInfo(cmd, shards[0].slotRanges);
 
   // This implies that every connection to each shard will work inside a single IO thread
   for (size_t i = 0; i < it->len; i++) {
@@ -811,7 +810,7 @@ void MRIterator_Release(MRIterator *it) {
     for (size_t i = 0; i < it->len; i++) {
       MRCommand *cmd = &it->cbxs[i].cmd;
       if (!cmd->depleted) {
-        RS_DEBUG_LOG_FMT("changing command from %s to DEL for shard: %d", cmd->strs[1], cmd->targetShard);
+        RS_DEBUG_LOG_FMT("changing command from %s to DEL for shard: %s", cmd->strs[1], cmd->targetShard);
         RS_LOG_ASSERT_FMT(cmd->rootCommand != C_DEL, "DEL command should be sent only once to a shard. pending = %d", it->ctx.pending);
         cmd->rootCommand = C_DEL;
         MRCommand_ReplaceArg(cmd, 1, "DEL", 3);
