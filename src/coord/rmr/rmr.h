@@ -15,6 +15,10 @@
 #include "cluster.h"
 #include "command.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct MRCtx;
 struct RedisModuleCtx;
 
@@ -108,3 +112,7 @@ size_t MRIterator_GetNumShards(const MRIterator *it);
 short MRIterator_GetPending(MRIterator *it);
 
 void MRIterator_Release(MRIterator *it);
+
+#ifdef __cplusplus
+}
+#endif

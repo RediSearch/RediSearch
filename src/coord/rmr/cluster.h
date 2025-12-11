@@ -16,6 +16,10 @@
 #include "command.h"
 #include "node.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef uint16_t mr_slot_t;
 
 /* A "shard" represents a slot range of the cluster, with its associated nodes. For each sharding
@@ -98,3 +102,7 @@ void MRCluster_UpdateConnPerShard(MRCluster *cl, size_t new_conn_pool_size);
 int MRCLuster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopology);
 
 void MRClust_Free(MRCluster *cl);
+
+#ifdef __cplusplus
+}
+#endif

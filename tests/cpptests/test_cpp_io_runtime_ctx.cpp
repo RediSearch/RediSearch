@@ -15,17 +15,26 @@
 #include <atomic>
 #include "coord/rmr/rq.h"
 #include "coord/rmr/cluster.h"
+#include "coord/rmr/rmr.h"
 #include "concurrent_ctx.h"
 #include "info/global_stats.h"
 
 class ActiveIoThreadsTest : public ::testing::Test {
 protected:
   MRWorkQueue *queue;
+  MRCluster *cluster;
 
   void SetUp() override {
-    // Create a work queue for testing
-    queue = RQ_New(10); // maxPending = 10
+    // Create empty topology for cluster - prevents crash in topology validation timer
+    // (MRCluster_CheckConnections iterates over topo->numShards, so empty topo is safe)
+    MRClusterTopology *topo = (MRClusterTopology *)rm_malloc(sizeof(MRClusterTopology));
+    topo->numShards = 0;
+    topo->capShards = 0;
+    topo->shards = nullptr;
+    cluster = MR_NewCluster(topo, 2);
+    MR_Init(cluster, 5000);
 
+    queue = RQ_New(10);
   }
 
   void TearDown() override {
@@ -88,77 +97,64 @@ TEST_F(ActiveIoThreadsTest, TestMetricUpdateDuringCallback) {
 TEST_F(ActiveIoThreadsTest, ActiveTopologyUpdateThreadsMetric) {
   // Test that uv_threads_running_topology_update metric is tracked correctly
 
-  // Setup
   ConcurrentSearch_CreatePool(1);
 
-  // Phase 1: Verify metric starts at 0
+  // Verify metric starts at 0
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
   ASSERT_EQ(stats.uv_threads_running_topology_update, 0);
 
-  // Phase 2: Ensure UV thread is started by calling RQ_Push first
-  // This is necessary because RQ_Push_Topology only sends the async signal if loop_th_running is true
-  // and loop_th_running is only set when the thread starts via verify_uv_thread() (called by RQ_Push)
-
-  // Mark loop_th_ready as ready to process rqAsyncCb
-  RQ_Debug_SetLoopReady();
-
-  static std::atomic<bool> init_done{false};
-  init_done = false;
-  auto initCallback = [](void *privdata) {
+  // Start UV thread by scheduling a dummy callback (required for uv loop to process async events)
+  // This calls verify_uv_thread() which initializes timers, async handles, and starts the thread
+  static std::atomic<bool> dummy_done{false};
+  dummy_done = false;
+  auto dummyCallback = [](void *privdata) {
     auto *flag = (std::atomic<bool> *)privdata;
     flag->store(true);
   };
-
-  // rqAsyncCb requires loop_th_ready to be true before it will execute callbacks
-  RQ_Push(queue, initCallback, &init_done);
-  bool success = RS::WaitForCondition([&]() { return init_done.load(); });
+  RQ_Debug_SetLoopReady();  // Sets loop_th_ready = true so callback executes
+  RQ_Push(queue, dummyCallback, &dummy_done);
+  bool success = RS::WaitForCondition([&]() { return dummy_done.load(); });
   ASSERT_TRUE(success) << "Timeout waiting for UV thread to start";
 
-  // Phase 3: Use static flags for communication with the topo callback
+  // Static flags for C callback (lambdas used as C function pointers can't capture)
   static std::atomic<bool> topo_started{false};
   static std::atomic<bool> topo_should_finish{false};
   topo_started = false;
   topo_should_finish = false;
 
-  // Create a minimal dummy topology on the stack
-  MRClusterTopology dummyTopo = {};
-  dummyTopo.numShards = 0;
-  dummyTopo.capShards = 0;
-  dummyTopo.shards = nullptr;
-
-  // Slow topo callback - signals start, waits for finish signal
   auto slowTopoCallback = [](void *privdata) {
     topo_started.store(true);
-
-    // Wait until test tells us to finish
     while (!topo_should_finish.load()) {
       usleep(100);
     }
   };
 
-  // Schedule topology update - in 8.2 this uses RQ_Push_Topology
-  // which triggers topologyAsyncCB that wraps the callback with metric updates
-  // requires loop_th_running to be on, which is set by sideThread triggered from RQ_Push
+  // Create minimal dummy topology
+  MRClusterTopology dummyTopo = {0};
+
+  // Push topology update - triggers topologyAsyncCB which wraps the callback with metric updates
   RQ_Push_Topology(slowTopoCallback, &dummyTopo);
 
-  // Wait for topo callback to start
+  // Wait for callback to start
   success = RS::WaitForCondition([&]() { return topo_started.load(); });
   ASSERT_TRUE(success) << "Timeout waiting for topo callback to start";
 
-  // Phase 4: Verify metric is 1 while callback is running
+  // Verify metric is 1 while callback is running
   stats = GlobalStats_GetMultiThreadingStats();
   ASSERT_EQ(stats.uv_threads_running_topology_update, 1);
 
   // Signal callback to finish
   topo_should_finish.store(true);
 
-  // Phase 5: Wait for metric to return to 0
+  // Wait for metric to return to 0
   success = RS::WaitForCondition([&]() {
     stats = GlobalStats_GetMultiThreadingStats();
     return stats.uv_threads_running_topology_update == 0;
   });
   ASSERT_TRUE(success) << "Timeout waiting for metric to return to 0";
 
-  // Cleanup
+  // Stop topology timers to prevent interference with other tests
+  RQ_Debug_StopTopologyTimers();
+
   ConcurrentSearch_ThreadPoolDestroy();
 }
