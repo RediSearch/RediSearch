@@ -159,7 +159,7 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
     }
 
     // Print cursor reads count if this is a cursor request.
-    if (IsCursor(req)) {
+    if (req->reqflags & QEXEC_F_IS_CURSOR) {
       // Only internal requests can use profile with cursor.
       RS_ASSERT(IsInternal(req));
       RedisModule_ReplyKV_LongLong(reply, "Internal cursor reads", req->cursor_reads);
@@ -244,7 +244,7 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
     RedisModule_Reply_ArrayEnd(reply);
 
     // Print cursor reads count if this is a cursor request.
-    if (IsCursor(req)) {
+    if (req->reqflags & QEXEC_F_IS_CURSOR) {
       // Only internal requests can use profile with cursor.
       RS_ASSERT(IsInternal(req));
       RedisModule_Reply_Array(reply);
