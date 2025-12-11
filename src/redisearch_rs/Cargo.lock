@@ -762,9 +762,9 @@ dependencies = [
 
 [[package]]
 name = "icu_properties"
-version = "2.1.1"
+version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e93fcd3157766c0c8da2f8cff6ce651a31f0810eaa1c51ec363ef790bbb5fb99"
+checksum = "020bfc02fe870ec3a66d93e677ccca0562506e5872c650f893269e08615d74ec"
 dependencies = [
  "icu_collections",
  "icu_locale_core",
@@ -776,9 +776,9 @@ dependencies = [
 
 [[package]]
 name = "icu_properties_data"
-version = "2.1.1"
+version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02845b3647bb045f1100ecd6480ff52f34c35f82d9880e029d329c21d1054899"
+checksum = "616c294cf8d725c6afcd8f55abc17c56464ef6211f9ed59cccffe534129c77af"
 
 [[package]]
 name = "icu_provider"
@@ -1536,8 +1536,8 @@ dependencies = [
  "ffi",
  "libc",
  "pin-project",
- "workspace_hack",
  "search_result",
+ "workspace_hack",
 ]
 
 [[package]]
@@ -2528,13 +2528,13 @@ name = "workspace_hack"
 version = "0.1.0"
 dependencies = [
  "bindgen 0.66.1",
- "bindgen 0.72.0",
- "bitflags 2.9.3",
+ "bindgen 0.72.1",
+ "bitflags 2.10.0",
  "clang-sys",
  "clap",
  "clap_builder",
  "either",
- "getrandom 0.3.3",
+ "getrandom 0.3.4",
  "libc",
  "memchr",
  "miniz_oxide",
@@ -2542,7 +2542,7 @@ dependencies = [
  "once_cell",
  "ppv-lite86",
  "proc-macro2",
- "quote 1.0.40",
+ "quote 1.0.42",
  "rand",
  "rand_chacha",
  "redis-module",
@@ -2552,8 +2552,9 @@ dependencies = [
  "serde",
  "serde_core",
  "syn 1.0.109",
- "syn 2.0.106",
+ "syn 2.0.111",
  "thiserror",
+ "zerocopy",
 ]
 
 [[package]]
