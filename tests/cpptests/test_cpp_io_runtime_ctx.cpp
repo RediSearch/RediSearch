@@ -38,6 +38,7 @@ protected:
   }
 
   void TearDown() override {
+    MRClust_Free(cluster);
     // Cleanup is handled by the module
   }
 };
