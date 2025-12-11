@@ -897,6 +897,10 @@ def test_initial_multi_threading_stats(env):
                  message=f"{ACTIVE_WORKER_THREADS_METRIC} field should exist in multi_threading section")
   env.assertTrue(ACTIVE_COORD_THREADS_METRIC in info_dict[MULTI_THREADING_SECTION],
                  message=f"{ACTIVE_COORD_THREADS_METRIC} field should exist in multi_threading section")
+  env.assertTrue(WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC in info_dict[MULTI_THREADING_SECTION],
+                 message=f"{WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC} field should exist in multi_threading section")
+  env.assertTrue(WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC in info_dict[MULTI_THREADING_SECTION],
+                 message=f"{WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC} field should exist in multi_threading section")
   env.assertTrue(WORKERS_ADMIN_PRIORITY_PENDING_JOBS_METRIC in info_dict[MULTI_THREADING_SECTION],
                  message=f"{WORKERS_ADMIN_PRIORITY_PENDING_JOBS_METRIC} field should exist in multi_threading section")
 
@@ -907,8 +911,12 @@ def test_initial_multi_threading_stats(env):
                  message="active_worker_threads should be 0 when idle")
   env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_COORD_THREADS_METRIC], '0',
                  message="active_coord_threads should be 0 when idle")
-  env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_WORKER_THREADS_METRIC], '0',
-                 message=f"{ACTIVE_WORKER_THREADS_METRIC} should be 0 when idle")
+  env.assertEqual(info_dict[MULTI_THREADING_SECTION][WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC], '0',
+                 message=f"{WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC} should be 0 when idle")
+  env.assertEqual(info_dict[MULTI_THREADING_SECTION][WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC], '0',
+                 message=f"{WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC} should be 0 when idle")
+  env.assertEqual(info_dict[MULTI_THREADING_SECTION][WORKERS_ADMIN_PRIORITY_PENDING_JOBS_METRIC], '0',
+                 message=f"{WORKERS_ADMIN_PRIORITY_PENDING_JOBS_METRIC} should be 0 when idle")
   # There's no deterministic way to test active_io_threads increases while a query is running,
   # we test it in unit tests.
   # Also, we can't pause workers threads while trying to modify the workers thpool, so no way to verify active_worker_threads increases.
@@ -995,7 +1003,8 @@ def _test_pending_jobs_metrics(env, command_type):
     Parameters:
         - env: Test environment (works for both SA and cluster)
     """
-
+    if not MT_BUILD:
+      raise SkipTest()
     # --- STEP 1: SETUP ---
     # Configure WORKERS (we just need workers enabled, e.g., 2)
     run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', '2')

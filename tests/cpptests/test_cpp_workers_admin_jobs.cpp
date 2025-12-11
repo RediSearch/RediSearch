@@ -65,7 +65,7 @@ TEST_F(WorkersAdminJobsMetricTest, MetricIncreasesOnThreadResize) {
     // Verify the metric starts at 0
     MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
     ASSERT_EQ(stats.workers_admin_priority_pending_jobs, 0);
-
+#ifdef MT_BUILD
     // Set configuration to 5 workers
     RSGlobalConfig.numWorkerThreads = initial_worker_count;
     workersThreadPool_SetNumWorkers();
@@ -118,5 +118,5 @@ TEST_F(WorkersAdminJobsMetricTest, MetricIncreasesOnThreadResize) {
     // CHECK METRIC - should return to 0
     ASSERT_TRUE(success) << "Timeout waiting for admin jobs to complete, current value: "
                          << stats.workers_admin_priority_pending_jobs;
-
+#endif // MT_BUILD
 }
