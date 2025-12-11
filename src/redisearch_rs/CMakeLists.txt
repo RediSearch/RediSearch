@@ -26,9 +26,7 @@ set(RUST_FLAGS "$ENV{RUSTFLAGS}")
 # Configure ASAN flags for Rust if sanitizer is enabled
 if(SAN STREQUAL "address")
     message(STATUS "Configuring Rust build with AddressSanitizer")
-    # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
-    # -Zsanitizer=address enables ASAN in Rust
-    set(RUST_FLAGS "${RUST_FLAGS} -Zsanitizer=address")
+    # RUST_FLAGS for ASAN is set via environment variable RUSTFLAGS in build.sh
 
     # -Zbuild-std is a cargo flag (not rustc), so set it separately
     set(CARGO_BUILD_FLAGS "-Zbuild-std")
