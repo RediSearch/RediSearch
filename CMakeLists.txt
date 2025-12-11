@@ -27,9 +27,9 @@ function(setup_cc_options)
     set(CMAKE_CXX_STANDARD 20 PARENT_SCOPE)
     set(CMAKE_CXX_STANDARD_REQUIRED ON PARENT_SCOPE)
 
-    # Common compiler flags
-    set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter -Wno-missing-field-initializers -Wno-missing-designated-field-initializers -Wno-ignored-qualifiers -fcommon -funsigned-char" PARENT_SCOPE)
-    set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter -Wno-missing-field-initializers -Wno-missing-designated-field-initializers -Wno-ignored-qualifiers" PARENT_SCOPE)
+    # Common compiler flags (without -Werror, which is applied per-target)
+    set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -fcommon -funsigned-char" PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing" PARENT_SCOPE)
     # Release/Debug/Profile specific flags
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
@@ -174,7 +174,7 @@ set_source_files_properties(
     src/query_parser/v1/parser.c
     src/query_parser/v2/lexer.c
     src/query_parser/v2/parser.c
-    PROPERTIES COMPILE_FLAGS "-Wno-unused-variable -Wno-unused-const-variable"
+    PROPERTIES COMPILE_FLAGS "-Wno-unused-variable"
 )
 
 if(USE_REDIS_ALLOCATOR)
@@ -240,12 +240,6 @@ include_directories(
     ${BOOST_DIR}
     ${root})
 
-add_subdirectory(deps/rmutil)
-add_subdirectory(deps/friso)
-add_subdirectory(deps/snowball)
-add_subdirectory(deps/phonetics)
-add_subdirectory(deps/fast_float)
-
 # Configure libuv options
 set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
 set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
@@ -255,6 +249,17 @@ add_subdirectory(deps/libuv)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
+
+# Apply -Werror to all RediSearch source code
+# This is placed after external dependencies (hiredis, libuv, VectorSimilarity, boost)
+# to ensure they are not affected by this flag
+add_compile_options(-Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter -Wno-missing-field-initializers -Wno-missing-designated-field-initializers -Wno-ignored-qualifiers)
+
+add_subdirectory(deps/rmutil)
+add_subdirectory(deps/friso)
+add_subdirectory(deps/snowball)
+add_subdirectory(deps/phonetics)
+add_subdirectory(deps/fast_float)
 add_subdirectory(src/geometry)
 add_subdirectory(src/buffer)
 add_subdirectory(src/iterators)
