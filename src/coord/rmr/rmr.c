@@ -47,6 +47,9 @@ static MRCluster *cluster_g = NULL;
 // Number of shards in the cluster (main-thread variable)
 extern size_t NumShards;
 
+// Local node ID (main-thread variable, set when topology is updated)
+static char *local_node_id_g = NULL;
+
 /* Coordination request timeout */
 long long timeout_g = 5000; // unused value. will be set in MR_Init
 
@@ -264,6 +267,19 @@ void MR_UpdateTopology(MRClusterTopology *newTopo, const RedisModuleSlotRangeArr
   for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
     IORuntimeCtx_Schedule_Topology(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, newTopo, i == lastIdx);
   }
+}
+
+/* Set the local node ID for this shard */
+void MR_SetLocalNodeId(const char *node_id) {
+  if (local_node_id_g) {
+    rm_free(local_node_id_g);
+  }
+  local_node_id_g = node_id ? rm_strdup(node_id) : NULL;
+}
+
+/* Get the local node ID for this shard. Returns NULL if not set or in standalone mode. */
+const char *MR_GetLocalNodeId(void) {
+  return local_node_id_g;
 }
 
 struct UpdateConnPoolSizeCtx {

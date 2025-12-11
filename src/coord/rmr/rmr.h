@@ -46,6 +46,16 @@ void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS);
  */
 void MR_UpdateTopology(MRClusterTopology *newTopology, const RedisModuleSlotRangeArray *localSlots);
 
+/* @brief Set the local node ID for this shard.
+ * @param node_id The node ID string to set. Will be duplicated internally.
+ */
+void MR_SetLocalNodeId(const char *node_id);
+
+/* @brief Get the local node ID for this shard.
+ * @return The local node ID string, or NULL if not set or in standalone mode.
+ */
+const char *MR_GetLocalNodeId(void);
+
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
 
 void MR_GetConnectionPoolState(RedisModuleCtx *ctx);
