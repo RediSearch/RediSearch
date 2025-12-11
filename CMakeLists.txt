@@ -260,6 +260,7 @@ include_directories(
     ${root}/src/alias
     ${root}/src/field_spec
     ${root}/src/vector_index
+    ${root}/src/cursor
     ${root}/src/info/index_error
     ${root}/src/trie
     ${root}/src/rules
@@ -318,6 +319,7 @@ add_subdirectory(src/redis_index)
 add_subdirectory(src/alias)
 add_subdirectory(src/field_spec)
 add_subdirectory(src/vector_index)
+add_subdirectory(src/cursor)
 add_subdirectory(src/info/index_error)
 add_subdirectory(src/trie)
 add_subdirectory(src/rules)
@@ -382,6 +384,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:alias>
     $<TARGET_OBJECTS:field_spec>
     $<TARGET_OBJECTS:vector_index>
+    $<TARGET_OBJECTS:cursor>
     $<TARGET_OBJECTS:index_error>
     $<TARGET_OBJECTS:trie>
     $<TARGET_OBJECTS:rules>
@@ -460,6 +463,7 @@ target_link_libraries(redisearch
         alias
         field_spec
         vector_index
+        cursor
         index_error
         trie
         rules
