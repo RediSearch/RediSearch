@@ -29,8 +29,7 @@ members = [
     "varint",
     "varint_bencher",
     "wildcard",
-    "workspace_hack",
-    "tracing_redismodule"
+    "workspace_hack"
 ]
 
 resolver = "3"
@@ -90,7 +89,6 @@ value = { path = "./value" }
 varint = { path = "./varint" }
 wildcard = { path = "./wildcard" }
 workspace_hack = { path = "./workspace_hack" }
-tracing_redismodule = { path = "./tracing_redismodule" }
 
 anstyle-query = "1.1.5"
 cbindgen = "0.29"
