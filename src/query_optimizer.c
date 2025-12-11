@@ -28,7 +28,7 @@ void QOptimizer_Parse(AREQ *req) {
     }
     if (array_len(arng->sortKeys)) {
       const char *name = arng->sortKeys[0];
-      const FieldSpec *field = IndexSpec_GetField(req->sctx->spec, name, strlen(name));
+      const FieldSpec *field = IndexSpec_GetFieldWithLength(req->sctx->spec, name, strlen(name));
       if (field && field->types == INDEXFLD_T_NUMERIC) {
         opt->field = field;
         opt->fieldName = name;
@@ -74,7 +74,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
   switch (node->type) {
     case QN_NUMERIC:
       // add support for multiple ranges on field
-      if (name && !strcmp(name, node->nn.nf->fieldName)) {
+      if (name && !strcmp(node->nn.nf->fieldName, name)) {
         ret = node;
       }
       break;
@@ -142,7 +142,7 @@ size_t QOptimizer_EstimateLimit(size_t numDocs, size_t estimate, size_t limit) {
 void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   const FieldSpec *field = opt->field;
   bool isSortby = !!field;
-  const char *name = field ? field->name : NULL;
+  const char *name = field ? HiddenString_GetUnsafe(field->fieldName, NULL) : NULL;
   bool hasOther = false;
 
   if (root->type == QN_WILDCARD) {

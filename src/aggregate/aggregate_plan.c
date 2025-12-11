@@ -252,7 +252,7 @@ static void serializeMapFilter(myArgArray_t *arr, const PLN_BaseStep *stp) {
   } else {
     append_string(arr, "FILTER");
   }
-  append_string(arr, mstp->rawExpr);
+  append_string(arr, HiddenString_GetUnsafe(mstp->expr, NULL));
   if (stp->alias) {
     append_string(arr, "AS");
     append_string(arr, stp->alias);
