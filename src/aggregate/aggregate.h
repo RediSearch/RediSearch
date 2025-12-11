@@ -283,6 +283,10 @@ typedef struct AREQ {
   // Indicates whether the query has timed out.
   // Useful for query with cursor and RETURN policy
   bool has_timedout;
+
+  // Number of cursor reads: 1 for the initial FT.AGGREGATE WITHCURSOR,
+  // plus 1 for each subsequent FT.CURSOR READ call.
+  size_t cursor_reads;
 } AREQ;
 
 /**

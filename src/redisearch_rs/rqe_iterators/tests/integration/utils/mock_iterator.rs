@@ -16,7 +16,7 @@ use rqe_iterators::RQEIterator;
 /// Test iterator used in unit tests that expect an [`RQEIterator`]
 /// child which produces a fixed sequence of document identifiers.
 ///
-/// `MockIterator` simulates a very small posting list:
+/// `Mock` simulates a very small posting list:
 ///
 /// * It owns a fixed array of document ids that must be sorted in
 ///   increasing order.
@@ -35,7 +35,7 @@ use rqe_iterators::RQEIterator;
 ///
 /// The iterator also owns a [`MockData`] value that is stored inside a
 /// reference counted cell.  Test code can obtain a handle to this
-/// state through [`MockIterator::data`] in order to:
+/// state through [`Mock::data`] in order to:
 ///
 /// * Inspect how many times [`RQEIterator::revalidate`] was called.
 /// * Inspect how many times [`RQEIterator::read`] was called.
@@ -47,14 +47,14 @@ use rqe_iterators::RQEIterator;
 ///
 /// Taken from the C++tests in
 /// `tests/cpptests/iterator_util.h`.
-pub struct MockIterator<'index, const N: usize> {
+pub struct Mock<'index, const N: usize> {
     result: RSIndexResult<'index>,
     doc_ids: [t_docId; N],
     next_index: usize,
     data: MockData,
 }
 
-/// Error that can be injected into a [`MockIterator`] from tests.
+/// Error that can be injected into a [`Mock`] from tests.
 ///
 /// This type is intentionally small and is translated into the
 /// public [`rqe_iterators::RQEIteratorError`] type through
@@ -82,13 +82,13 @@ impl MockIteratorError {
     }
 }
 
-/// Shared mutable test state that belongs to a [`MockIterator`].
+/// Shared mutable test state that belongs to a [`Mock`].
 ///
 /// The value is reference counted so that:
 ///
 /// * The iterator can own it.
 /// * Tests can keep their own handle obtained through
-///   [`MockIterator::data`] and observe or mutate the state while the
+///   [`Mock::data`] and observe or mutate the state while the
 ///   iterator is in use.
 ///
 /// Most tests treat `MockData` as a light weight handle that can be
@@ -114,7 +114,7 @@ impl MockData {
         })))
     }
 
-    /// Configure the result that [`MockIterator::revalidate`] will report.
+    /// Configure the result that [`Mock::revalidate`] will report.
     ///
     /// This value is read on every call to `revalidate` of the owning
     /// iterator.  Tests can update it at any time to change how the
@@ -137,7 +137,7 @@ impl MockData {
         self
     }
 
-    /// Number of times [`MockIterator::revalidate`] was called.
+    /// Number of times [`Mock::revalidate`] was called.
     ///
     /// This counter is incremented whenever the owning iterator calls
     /// `revalidate` on its child.  Tests use this to assert that a
@@ -147,7 +147,7 @@ impl MockData {
         self.0.borrow().validation_count
     }
 
-    /// Number of times [`MockIterator::read`] was called.
+    /// Number of times [`Mock::read`] was called.
     ///
     /// This counter is incremented whenever the owning iterator calls
     /// `read` or performs a `skip_to` that internally delegates to
@@ -170,7 +170,7 @@ struct MockDataInternal {
 }
 
 /// Result configured through [`MockData`] that controls what
-/// [`MockIterator::revalidate`] reports.
+/// [`Mock::revalidate`] reports.
 ///
 /// The enum mirrors the conceptual outcomes of validation that are
 /// relevant for the higher level iterators under test.
@@ -182,8 +182,8 @@ pub enum MockRevalidateResult {
     Move,
 }
 
-impl<'index, const N: usize> MockIterator<'index, N> {
-    /// Create a new [`MockIterator`] over a fixed array of document ids.
+impl<'index, const N: usize> Mock<'index, N> {
+    /// Create a new [`Mock`] over a fixed array of document ids.
     ///
     /// The ids in `doc_ids` must be sorted in increasing order because
     /// the iterator assumes monotonic forward progress when serving
@@ -194,6 +194,7 @@ impl<'index, const N: usize> MockIterator<'index, N> {
     /// `RS_FIELDMASK_ALL`.  Each call to `read` or `skip_to` overwrites
     /// `doc_id` in that single result instance.
     pub fn new(doc_ids: [t_docId; N]) -> Self {
+        debug_assert!(doc_ids.is_sorted(), "Mock Iterator API assumes sorted list");
         Self {
             result: RSIndexResult::virt()
                 .weight(1.)
@@ -215,7 +216,7 @@ impl<'index, const N: usize> MockIterator<'index, N> {
     }
 }
 
-impl<'index, const N: usize> RQEIterator<'index> for MockIterator<'index, N> {
+impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
     }

@@ -7,5 +7,4 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod mock_iterator;
-pub(crate) use mock_iterator::{Mock, MockData, MockIteratorError, MockRevalidateResult};
+// This is a stub lib.rs.

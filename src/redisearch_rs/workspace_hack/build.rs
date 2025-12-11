@@ -7,5 +7,5 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod mock_iterator;
-pub(crate) use mock_iterator::{Mock, MockData, MockIteratorError, MockRevalidateResult};
+// A build script is required for cargo to consider build dependencies.
+fn main() {}

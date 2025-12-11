@@ -55,6 +55,8 @@ env:
   COV: ${{ inputs.coverage && 1 || 0 }} # convert the boolean input to numeric
   # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
   RUST_BACKTRACE: "full"
+  # Fail on warnings
+  RUSTFLAGS: "-Dwarnings"
   BUILD_INTEL_SVS_OPT: "yes"
 
 jobs:
@@ -347,8 +349,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: steps.node20.outputs.supported == 'true'
         with:
-          prefix-key: "v1-rust"
-          key: ${{ inputs.platform }}-${{ inputs.architecture }}
+          prefix-key: "v2-rust"
+          key: ${{ inputs.platform }}-${{ inputs.architecture }}-${{ inputs.san }}-${{ inputs.coverage && 'cov' || '' }}
           # The cargo workspaces and target directory configuration.
           # These entries are separated by newlines and have the form
           # `$workspace -> $target`. The `$target` part is treated as a directory
