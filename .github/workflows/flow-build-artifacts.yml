@@ -30,10 +30,6 @@ on:
           - aarch64
         description: 'Architecture to build on. Use "all" to build on all'
         default: all
-      force_beta:
-        type: boolean
-        description: 'Force beta version generation even for non-master branches (for testing)'
-        default: false
   workflow_call:
     inputs:
       platform:
@@ -42,9 +38,6 @@ on:
       architecture:
         type: string
         default: all
-      force_beta:
-        type: boolean
-        default: false
 
 jobs:
   setup:
@@ -67,26 +60,20 @@ jobs:
       - name: Generate Beta Version unique identifier
         id: beta-version
         run: |
-          # Generate beta version for master branch builds or when force_beta is enabled
+          # Generate beta version only for master branch builds
           BRANCH_NAME="${{ github.ref_name }}"
-          FORCE_BETA="${{ inputs.force_beta }}"
           echo "Building from branch: $BRANCH_NAME"
-          echo "Force beta enabled: $FORCE_BETA"
 
-          if [[ "$BRANCH_NAME" == "master" ]] || [[ "$FORCE_BETA" == "true" ]]; then
+          if [[ "$BRANCH_NAME" == "master" ]]; then
             # Generate timestamp at workflow start for consistent beta versioning across all builds
             TIMESTAMP=$(date -u +"%Y%m%d.%H%M%S")
             # Add workflow number to ensure the version is unique (if multiple workflows started at the same time)
             WORKFLOW_NUM=${{ github.run_number }}
             BETA_VERSION="99.99.99.${TIMESTAMP}.${WORKFLOW_NUM}"
             echo "BETA_VERSION=$BETA_VERSION" >> $GITHUB_OUTPUT
-            if [[ "$BRANCH_NAME" == "master" ]]; then
-              echo "Master branch detected, generating beta version: $BETA_VERSION"
-            else
-              echo "Force beta enabled for branch $BRANCH_NAME, generating beta version: $BETA_VERSION"
-            fi
+            echo "Master branch detected, generating beta version: $BETA_VERSION"
           else
-            echo "Non-master branch detected ($BRANCH_NAME) and force_beta not enabled, no beta version generated"
+            echo "Non-master branch detected ($BRANCH_NAME), no beta version generated"
           fi
       - name: Validate Reference
         shell: python
