@@ -22,10 +22,11 @@ def query_shards(env, query, shards, expected, query_type: str = 'FT.SEARCH'):
     else:
         return query_shards_ft_search(env, query, shards, expected)
 
+
 def query_shards_ft_search(env, query, shards, expected):
     """Original query_shards implementation for FT.SEARCH queries"""
     results = [shard.execute_command(*query) for shard in shards]
-    for idx, res in enumerate(results, start=1):
+    for idx, res in enumerate(results):
         docs = res[1::2]
         dups = set(doc for doc in docs if docs.count(doc) > 1)
         env.assertEqual(dups, set(), message=f"shard {idx} returned {len(dups)} duplicate document IDs", depth=1)
@@ -43,10 +44,9 @@ def extract_values(result):
 def query_shards_ft_aggregate(env, query, shards, expected):
     """Query_shards implementation for FT.AGGREGATE queries"""
     results = [shard.execute_command(*query) for shard in shards]
-    for idx, res in enumerate(results, start=1):
+    for idx, res in enumerate(results):
         # Extract values from aggregation results
         values = extract_values(res)
-        expected_values = extract_values(expected)
 
         # Check for duplicate values in aggregation results
         dups = set(value for value in values if values.count(value) > 1)
@@ -82,7 +82,7 @@ def query_shards_hybrid(env, query, shards, expected):
     # Extract expected scores (in order)
     expected_scores = extract_scores(expected)
 
-    for idx, res in enumerate(results, start=1):
+    for idx, res in enumerate(results):
         # Extract scores from this shard's result (in order)
         shard_scores = extract_scores(res)
 
