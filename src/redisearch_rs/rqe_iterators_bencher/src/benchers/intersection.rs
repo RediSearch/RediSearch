@@ -146,7 +146,7 @@ impl Bencher {
         // Rust implementation benchmark
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || Intersection::new(ids_to_rust_children(&make_ids())),
+                || Intersection::new(ids_to_rust_children(make_ids())),
                 |it| {
                     while let Ok(Some(current)) = it.read() {
                         criterion::black_box(current);
