@@ -197,6 +197,11 @@ jobs:
           echo "id: $(id)"
           echo "HOME=$h" >> $GITHUB_ENV
       # Setup
+      - name: Unlock GitHub Actions (Alpine ARM)
+        if: needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container == 'alpine:3.22' && ${{ inputs.architecture == 'aarch64' }}
+        shell: sh -l -eo pipefail {0}
+        run: |
+          sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Setup Dependencies (Alpine)
         if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3.22'
