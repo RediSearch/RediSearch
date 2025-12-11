@@ -98,12 +98,18 @@ TEST_F(ActiveIoThreadsTest, ActiveTopologyUpdateThreadsMetric) {
   // Phase 2: Ensure UV thread is started by calling RQ_Push first
   // This is necessary because RQ_Push_Topology only sends the async signal if loop_th_running is true
   // and loop_th_running is only set when the thread starts via verify_uv_thread() (called by RQ_Push)
+
+  // Mark loop_th_ready as ready to process rqAsyncCb
+  RQ_Debug_SetLoopReady();
+
   static std::atomic<bool> init_done{false};
+  init_done = false;
   auto initCallback = [](void *privdata) {
     auto *flag = (std::atomic<bool> *)privdata;
     flag->store(true);
   };
 
+  // rqAsyncCb requires loop_th_ready to be true before it will execute callbacks
   RQ_Push(queue, initCallback, &init_done);
   bool success = RS::WaitForCondition([&]() { return init_done.load(); });
   ASSERT_TRUE(success) << "Timeout waiting for UV thread to start";
@@ -130,11 +136,9 @@ TEST_F(ActiveIoThreadsTest, ActiveTopologyUpdateThreadsMetric) {
     }
   };
 
-  // Mark the loop as ready to bypass topology validation timeout
-  RQ_Debug_SetLoopReady();
-
   // Schedule topology update - in 8.2 this uses RQ_Push_Topology
   // which triggers topologyAsyncCB that wraps the callback with metric updates
+  // requires loop_th_running to be on, which is set by sideThread triggered from RQ_Push
   RQ_Push_Topology(slowTopoCallback, &dummyTopo);
 
   // Wait for topo callback to start
