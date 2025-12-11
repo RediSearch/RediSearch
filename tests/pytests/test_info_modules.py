@@ -2236,3 +2236,73 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['text'], prev_metrics['text'] + 2,
                   message="Doc with two text fields increments text by 2 (per fold, not per doc)")
+
+
+# Test the 'total_indexing_ops_<field_type>_fields' INFO MODULES metrics with multi-value JSON.
+# Multi-value JSON fields (using array paths like $[*]) should increment the metrics once per document.
+@skip(cluster=True, no_json=True)
+def test_total_indexing_ops_multi_value_json(env):
+  """Test that multi-value JSON indexing properly increments field metrics."""
+  conn = getConnectionByEnv(env)
+
+  def get_field_metrics():
+    info = conn.execute_command('INFO', 'MODULES')
+    return {
+      'text': info['search_total_indexing_ops_text_fields'],
+      'tag': info['search_total_indexing_ops_tag_fields'],
+      'numeric': info['search_total_indexing_ops_numeric_fields'],
+      'geo': info['search_total_indexing_ops_geo_fields'],
+      'vector': info['search_total_indexing_ops_vector_fields'],
+    }
+
+  # Baseline metrics
+  baseline = get_field_metrics()
+
+  # Create a JSON index with multi-value paths for all supported field types
+  env.expect('FT.CREATE', 'idx_json_multi', 'ON', 'JSON', 'PREFIX', 1, 'jdoc:',
+             'SCHEMA',
+             '$.texts[*]', 'AS', 't', 'TEXT',
+             '$.tags[*]', 'AS', 'tag', 'TAG',
+             '$.nums[*]', 'AS', 'n', 'NUMERIC',
+             '$.geos[*]', 'AS', 'g', 'GEO',
+             '$.vecs[*]', 'AS', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  waitForIndex(env, 'idx_json_multi')
+
+  # Add a JSON document with arrays for each field type
+  import json
+  doc = {
+    'texts': ['hello', 'world'],    # 2 text values
+    'tags': ['tag1', 'tag2'],              # 2 tag values
+    'nums': [1, 2,],                  # 2 numeric values
+    'geos': ['13.361389,52.519444', '2.349014,48.864716'],  # 2 geo values (Berlin, Paris)
+    'vecs': [[1.0, 0.0], [0.0, 1.0]]  # 2 vector values
+  }
+  conn.execute_command('JSON.SET', 'jdoc:1', '$', json.dumps(doc))
+
+  # Verify that metrics increment by 1 per field (not per value in array)
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], baseline['text'] + 1,
+                  message="Multi-value JSON text field increments by 1 per doc")
+  env.assertEqual(metrics['tag'], baseline['tag'] + 1,
+                  message="Multi-value JSON tag field increments by 1 per doc")
+  env.assertEqual(metrics['numeric'], baseline['numeric'] + 1,
+                  message="Multi-value JSON numeric field increments by 1 per doc")
+  env.assertEqual(metrics['geo'], baseline['geo'] + 1,
+                  message="Multi-value JSON geo field increments by 1 per doc")
+  env.assertEqual(metrics['vector'], baseline['vector'] + 1,
+                  message="Multi-value JSON vector field increments by 1 per doc")
+
+  # Add docs with multi geometry fields and verify that metrics doesn't change
+  # Since multi geometry fields are not supported, the doc should be ignored
+  env.expect('FT.CREATE', 'idx_json_multi_geo', 'ON', 'JSON', 'PREFIX', 1, 'jdoc:',
+             'SCHEMA', '$.geos[*]', 'AS', 'g', 'GEOSHAPE').ok()
+
+  # Add document with multi geometry field
+  doc = {
+    'geos': ['POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))', 'POLYGON((1 1, 1 2, 2 2, 2 1, 1 1))']
+  }
+  prev_metrics = get_field_metrics()
+  conn.execute_command('JSON.SET', 'jdoc:2', '$', json.dumps(doc))
+  metrics = get_field_metrics()
+  env.assertEqual(metrics, prev_metrics,
+                  message="Multi-value JSON geoshape field is not supported")
