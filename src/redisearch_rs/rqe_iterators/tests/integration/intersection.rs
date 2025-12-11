@@ -21,7 +21,7 @@ use rqe_iterators::{
     intersection::Intersection,
 };
 
-use crate::utils::{MockIterator, MockRevalidateResult};
+use crate::utils::{Mock, MockRevalidateResult};
 
 /// Helper function to create child iterators for intersection tests.
 ///
@@ -45,7 +45,7 @@ fn create_children(num_children: usize, result_set: &[t_docId]) -> Vec<SortedIdL
             next_unique_id += 1;
         }
 
-        // Sort and deduplicate (matching C++ MockIterator behavior)
+        // Sort and deduplicate (matching C++ Mock behavior)
         child_ids.sort();
         child_ids.dedup();
 
@@ -584,7 +584,7 @@ fn many_children() {
 // =============================================================================
 
 // Note: Mock children for revalidate tests are created inline in each test
-// since the new MockIterator uses const generics for array sizes.
+// since the new Mock uses const generics for array sizes.
 // Common docs: [10, 20, 30, 40, 50]
 // Child 0: [10, 15, 20, 25, 30, 35, 40, 45, 50, 55] (10 elements)
 // Child 1: [5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60] (11 elements)
@@ -596,12 +596,9 @@ fn many_children() {
 #[cfg_attr(miri, ignore)]
 fn revalidate_ok() {
     // Create mock children with const generic arrays
-    let child0: MockIterator<'static, 10> =
-        MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
-    let child1: MockIterator<'static, 11> =
-        MockIterator::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
-    let child2: MockIterator<'static, 11> =
-        MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // Set all children to return OK on revalidate (default, but explicit)
     child0
@@ -641,12 +638,9 @@ fn revalidate_ok() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn revalidate_aborted() {
-    let child0: MockIterator<'static, 10> =
-        MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
-    let child1: MockIterator<'static, 11> =
-        MockIterator::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
-    let child2: MockIterator<'static, 11> =
-        MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // Child 1 will abort
     child0
@@ -678,12 +672,9 @@ fn revalidate_aborted() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn revalidate_moved() {
-    let child0: MockIterator<'static, 10> =
-        MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
-    let child1: MockIterator<'static, 11> =
-        MockIterator::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
-    let child2: MockIterator<'static, 11> =
-        MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // All children will move (advance by one document)
     child0
@@ -726,12 +717,9 @@ fn revalidate_moved() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn revalidate_mixed_results() {
-    let child0: MockIterator<'static, 10> =
-        MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
-    let child1: MockIterator<'static, 11> =
-        MockIterator::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
-    let child2: MockIterator<'static, 11> =
-        MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // Mixed: OK, MOVED, OK
     child0
@@ -765,12 +753,9 @@ fn revalidate_mixed_results() {
 #[cfg_attr(miri, ignore)]
 fn revalidate_after_eof() {
     // Pre-set children to return MOVE on revalidate
-    let child0: MockIterator<'static, 10> =
-        MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
-    let child1: MockIterator<'static, 11> =
-        MockIterator::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
-    let child2: MockIterator<'static, 11> =
-        MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     child0
         .data()
@@ -807,7 +792,7 @@ fn revalidate_after_eof() {
 /// Test: Some children move to EOF during revalidate
 /// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateSomeChildrenMovedToEOF)
 ///
-/// Note: The new MockIterator doesn't have a MovedToEof variant. Instead, we simulate
+/// Note: The new Mock doesn't have a MovedToEof variant. Instead, we simulate
 /// this by using a child that has only 2 elements - after reading doc 10, there's only
 /// one element left (20), so when Move is called during revalidate, it reaches EOF.
 #[test]
@@ -816,12 +801,10 @@ fn revalidate_some_children_moved_to_eof() {
     // Child 0 and 2 have normal data, child 1 is small (only 2 elements: [10, 20])
     // When we read doc 10 and then call Move, child 1 moves to 20 and the next Move
     // would go to EOF
-    let child0: MockIterator<'static, 10> =
-        MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     // Child 1 has only doc 10 - after reading it, Move will result in EOF
-    let child1: MockIterator<'static, 1> = MockIterator::new([10]);
-    let child2: MockIterator<'static, 11> =
-        MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child1: Mock<'static, 1> = Mock::new([10]);
+    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // Child 0: OK, Child 1: moves (to EOF since only 1 element), Child 2: OK
     child0
@@ -985,12 +968,9 @@ fn overlapping_children_ids() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn revalidate_before_read() {
-    let child0: MockIterator<'static, 10> =
-        MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
-    let child1: MockIterator<'static, 11> =
-        MockIterator::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
-    let child2: MockIterator<'static, 11> =
-        MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // All children return OK on revalidate
     child0
@@ -1024,12 +1004,9 @@ fn revalidate_before_read() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn revalidate_move_before_read() {
-    let child0: MockIterator<'static, 10> =
-        MockIterator::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
-    let child1: MockIterator<'static, 11> =
-        MockIterator::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
-    let child2: MockIterator<'static, 11> =
-        MockIterator::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // All children will move
     child0
