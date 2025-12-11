@@ -613,6 +613,7 @@ run_rust_tests() {
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
 
+  CARGO_BUILD_FLAG=""
 
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
@@ -636,7 +637,8 @@ run_rust_tests() {
     # We must rebuild the Rust standard library to get sanitizer coverage
     # for its functions.
     # Since --build-std is a cargo flag (not rustc), we set it separately
-    RUST_TEST_COMMAND="-Zbuild-std nextest run"
+    CARGO_BUILD_FLAG="-Zbuild-std"
+    RUST_TEST_COMMAND="nextest run"
     # The doc tests are disabled under ASAN to avoid issues with linking to the sanitizer runtime
     # in doc tests.
     RUST_TEST_OPTIONS="--tests --cargo-profile=$RUST_PROFILE $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C"
@@ -647,7 +649,7 @@ run_rust_tests() {
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS}" cargo $RUST_TOOLCHAIN_MODIFIER $RUST_TEST_COMMAND $RUST_TEST_OPTIONS --workspace $TEST_FILTER
+  RUSTFLAGS="${RUSTFLAGS}" cargo $RUST_TOOLCHAIN_MODIFIER $CARGO_BUILD_FLAG $RUST_TEST_COMMAND $RUST_TEST_OPTIONS --workspace $TEST_FILTER
 
   # Check test results
   RUST_TEST_RESULT=$?
