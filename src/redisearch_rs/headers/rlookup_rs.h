@@ -481,6 +481,8 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow,
                                 RLookupRow *destRow,
                                 struct RLookup *destLookup);
 
+RSValue *RLookupRow_Get(const struct RLookupKey *key, const RLookupRow *row);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

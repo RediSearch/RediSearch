@@ -7,8 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ffi::RSValue;
 use rlookup::{RLookup, RLookupKey};
-use std::{mem::ManuallyDrop, ptr::NonNull};
+use std::{
+    mem::ManuallyDrop,
+    ptr::{self, NonNull},
+};
 use value::RSValueFFI;
 
 pub type RLookupRow = rlookup::RLookupRow<'static, RSValueFFI>;
@@ -156,4 +160,15 @@ unsafe extern "C" fn RLookupRow_WriteFieldsFrom(
     let destLookup = unsafe { destLookup.unwrap().as_ref() };
 
     destRow.copy_fields_from(destLookup, srcRow, srcLookup);
+}
+
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_Get(
+    key: *const RLookupKey,
+    row: *const RLookupRow,
+) -> Option<NonNull<RSValue>> {
+    let key = unsafe { key.as_ref().unwrap() };
+    let row = unsafe { row.as_ref().unwrap() };
+
+    row.get(key).map(|x| NonNull::new(x.as_ptr())).unwrap()
 }
