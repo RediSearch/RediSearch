@@ -420,7 +420,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
       workersThreadPool_OnEventEnd(false);
       if (!IsEnterprise() && subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED) {
-        RedisTopologyUpdater_StopAndRescheduleInmediately(ctx);
+        RedisTopologyUpdater_StopAndRescheduleImmediately(ctx);
       }
       break;
 
@@ -436,7 +436,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = true;
       trimmingDelayCtx.enableTrimmingTimerIdScheduled = true;
       if (!IsEnterprise()) {
-        RedisTopologyUpdater_StopAndRescheduleInmediately(ctx);
+        RedisTopologyUpdater_StopAndRescheduleImmediately(ctx);
       }
       break;
 

@@ -247,7 +247,7 @@ static void UpdateTopology_Periodic(RedisModuleCtx *ctx, void *p) {
   UpdateTopology(ctx);
 }
 
-void RedisTopologyUpdater_StopAndRescheduleInmediately(RedisModuleCtx *ctx) {
+void RedisTopologyUpdater_StopAndRescheduleImmediately(RedisModuleCtx *ctx) {
   RedisModule_StopTimer(ctx, topologyRefreshTimer, NULL);
   topologyRefreshTimer = RedisModule_CreateTimer(ctx, 0, UpdateTopology_Periodic, NULL);
 }

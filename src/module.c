@@ -96,6 +96,8 @@ extern RSConfig RSGlobalConfig;
 
 extern RedisModuleCtx *RSDummyContext;
 
+// This map is used to track the number of queries that are using a specific version of the key space. This is needed to
+// determine when it's safe to trim slots after a migration is complete.
 khash_t(query_key_space_version_tracker) *query_key_space_version_map = NULL;
 uint32_t key_space_version = INVALID_KEYSPACE_VERSION;
 pthread_mutex_t query_version_tracker_mutex;

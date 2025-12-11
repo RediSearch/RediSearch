@@ -16,6 +16,10 @@
 #include <pthread.h>
 
 // Sanitizer detection for leak tracking
+// This is intended to use the ability of Sanitizer to track memory leaks to detect logical leaks.
+// Since we need to keep an exhaustive count of the queries using a specific version, we can use the sanitizer
+// to track the number of allocations and deallocations. If there is a logical leak, the sanitizer will
+// report it.
 #define ASM_SANITIZER_ENABLED 0
 #if defined(__has_feature)
 # if __has_feature(address_sanitizer)
