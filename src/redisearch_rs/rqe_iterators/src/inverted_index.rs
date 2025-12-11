@@ -11,7 +11,10 @@
 
 use std::ptr::NonNull;
 
-use ffi::{RS_INVALID_FIELD_INDEX, RedisSearchCtx, t_docId, t_fieldIndex};
+use ffi::{
+    IndexFlags_Index_WideSchema, RS_INVALID_FIELD_INDEX, RedisSearchCtx, t_docId, t_fieldIndex,
+    t_fieldMask,
+};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{IndexReader, NumericReader, RSIndexResult, TermReader};
 
@@ -76,7 +79,7 @@ const unsafe fn has_expiration(query_ctx: &QueryContext) -> bool {
 
     // check if the specific field/fieldMask has expiration
     match query_ctx.filter_ctx.field {
-        FieldMaskOrIndex::Mask(_mask) => false, // TODO: MOD-12809
+        FieldMaskOrIndex::Mask(_mask) => true,
         FieldMaskOrIndex::Index(index) if index != RS_INVALID_FIELD_INDEX => true,
         _ => false,
     }
@@ -251,7 +254,37 @@ where
                     current_time,
                 )
             },
-            FieldMaskOrIndex::Mask(_) => todo!(),
+            FieldMaskOrIndex::Mask(mask)
+                if self.reader.flags() & IndexFlags_Index_WideSchema == 0 =>
+            // SAFETY:
+            // - 2. guarantees that the ttl pointer is valid.
+            // - We just allocated `current_time` on the stack so its pointer is valid.
+            unsafe {
+                ffi::TimeToLiveTable_VerifyDocAndFieldMask(
+                    spec.docs.ttl,
+                    self.result.doc_id,
+                    (self.result.field_mask & mask) as u32,
+                    query_ctx.filter_ctx.predicate.as_u32(),
+                    current_time,
+                    spec.fieldIdToIndex,
+                )
+            },
+            FieldMaskOrIndex::Mask(mask) => {
+                // wide mask
+                // SAFETY:
+                // - 2. guarantees that the ttl pointer is valid.
+                // - We just allocated `current_time` on the stack so its pointer is valid.
+                unsafe {
+                    ffi::TimeToLiveTable_VerifyDocAndWideFieldMask(
+                        spec.docs.ttl,
+                        self.result.doc_id,
+                        self.result.field_mask & mask,
+                        query_ctx.filter_ctx.predicate.as_u32(),
+                        current_time,
+                        spec.fieldIdToIndex,
+                    )
+                }
+            }
         }
     }
 
@@ -524,6 +557,41 @@ where
         let result = RSIndexResult::term();
         Self {
             it: InvIndIterator::new(reader, result, None),
+        }
+    }
+
+    /// Create an iterator returning results from a term inverted index.
+    ///
+    /// Filtering the results can be achieved by wrapping the reader with
+    /// a [`inverted_index::FilterMaskReader`].
+    ///
+    /// `context`, `mask` and `predicate` are used to check for expired
+    /// documents when reading from the inverted index.
+    ///
+    /// # Safety
+    ///
+    /// 1. `context` is a valid pointer to a `RedisSearchCtx`.
+    /// 2. `context.spec` is a valid pointer to an `IndexSpec`.
+    /// 3. 1 and 2 must stay valid during the iterator's lifetime.
+    pub fn with_context(
+        reader: R,
+        context: NonNull<RedisSearchCtx>,
+        mask: t_fieldMask,
+        predicate: FieldExpirationPredicate,
+    ) -> Self {
+        let result = RSIndexResult::term();
+        Self {
+            it: InvIndIterator::new(
+                reader,
+                result,
+                Some(QueryContext {
+                    sctx: context,
+                    filter_ctx: FieldFilterContext {
+                        field: FieldMaskOrIndex::Mask(mask),
+                        predicate,
+                    },
+                }),
+            ),
         }
     }
 }

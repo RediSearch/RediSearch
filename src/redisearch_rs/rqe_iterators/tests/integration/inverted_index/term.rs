@@ -9,8 +9,10 @@
 
 use ffi::{
     IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
-    IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, t_docId, t_fieldMask,
+    IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
+    t_docId, t_fieldMask,
 };
+use field::{FieldExpirationPredicate, FieldMaskOrIndex};
 use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetVector, full::Full};
 use rqe_iterators::inverted_index::Term;
 
@@ -151,4 +153,143 @@ fn term_full_revalidate_after_document_deleted() {
     let mut it = Term::new(reader);
     test.revalidate_test
         .revalidate_after_document_deleted(&mut it);
+}
+
+#[cfg(not(miri))]
+mod not_miri {
+    use super::*;
+    use crate::inverted_index::utils::ExpirationTest;
+    use inverted_index::{DecodedBy, Decoder, Encoder, TermDecoder, full::FullWide};
+
+    struct TermExpirationTest<E> {
+        test: ExpirationTest<E>,
+    }
+
+    impl<E, D> TermExpirationTest<E>
+    where
+        E: Encoder + DecodedBy<Decoder = D>,
+        D: Decoder + TermDecoder,
+    {
+        // # Safety
+        // The returned RSIndexResult contains raw pointers to `term` and `offsets`.
+        // These pointers are valid for 'static because the data is moved into the closure
+        // in `new()` and lives for the entire duration of the test. The raw pointers are
+        // only used within the test's lifetime, making this safe despite the 'static claim.
+        fn expected_record(
+            doc_id: t_docId,
+            term: *mut ffi::RSQueryTerm,
+            offsets: &Vec<u8>,
+        ) -> RSIndexResult<'static> {
+            RSIndexResult::term_with_term_ptr(
+                term,
+                RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
+                doc_id,
+                doc_id as t_fieldMask,
+                (doc_id / 2) as u32 + 1,
+            )
+        }
+
+        fn new(n_docs: u64, multi: bool, wide: bool) -> Self {
+            let mut flags = IndexFlags_Index_StoreFreqs
+                | IndexFlags_Index_StoreTermOffsets
+                | IndexFlags_Index_StoreFieldFlags
+                | IndexFlags_Index_StoreByteOffsets;
+            if wide {
+                flags |= IndexFlags_Index_WideSchema;
+            }
+
+            const TEST_STR: &str = "term";
+
+            let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+            Self {
+                test: ExpirationTest::new(
+                    flags,
+                    Box::new(move |doc_id| {
+                        let term = QueryTermBuilder {
+                            token: TEST_STR,
+                            idf: 5.0,
+                            id: 1,
+                            flags: 0,
+                            bm25_idf: 10.0,
+                        }
+                        .allocate();
+                        Self::expected_record(doc_id, term, &offsets)
+                    }),
+                    n_docs,
+                    multi,
+                ),
+            }
+        }
+
+        fn test_read_expiration(&mut self) {
+            const FIELD_MASK: t_fieldMask = 42;
+            // Make every even document ID field expired
+            let even_ids = self
+                .test
+                .doc_ids
+                .iter()
+                .filter(|id| **id % 2 == 0)
+                .copied()
+                .collect();
+
+            self.test
+                .mark_index_expired(even_ids, FieldMaskOrIndex::Mask(FIELD_MASK));
+
+            let reader = self.test.ii.reader();
+            let mut it = Term::with_context(
+                reader,
+                self.test.context(),
+                FIELD_MASK,
+                FieldExpirationPredicate::Default,
+            );
+
+            self.test.read(&mut it);
+        }
+
+        fn test_skip_to_expiration(&mut self) {
+            const FIELD_MASK: t_fieldMask = 42;
+            // Make every even document ID field expired
+            let even_ids = self
+                .test
+                .doc_ids
+                .iter()
+                .filter(|id| **id % 2 == 0)
+                .copied()
+                .collect();
+
+            self.test
+                .mark_index_expired(even_ids, FieldMaskOrIndex::Mask(FIELD_MASK));
+
+            let reader = self.test.ii.reader();
+            let mut it = Term::with_context(
+                reader,
+                self.test.context(),
+                FIELD_MASK,
+                FieldExpirationPredicate::Default,
+            );
+
+            self.test.skip_to(&mut it);
+        }
+    }
+
+    #[test]
+    fn term_read_expiration() {
+        TermExpirationTest::<Full>::new(100, false, false).test_read_expiration();
+    }
+
+    #[test]
+    fn term_read_expiration_wide() {
+        TermExpirationTest::<FullWide>::new(100, false, true).test_read_expiration();
+    }
+
+    #[test]
+    fn term_read_skip_multi_expiration() {
+        TermExpirationTest::<Full>::new(100, true, false).test_read_expiration();
+    }
+
+    #[test]
+    fn term_skip_to_expiration() {
+        TermExpirationTest::<Full>::new(100, false, false).test_skip_to_expiration();
+    }
 }

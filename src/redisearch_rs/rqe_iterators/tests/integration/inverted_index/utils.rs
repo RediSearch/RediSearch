@@ -663,7 +663,37 @@ pub(super) mod not_miri {
 
                     fe
                 }
-                FieldMaskOrIndex::Mask(_mask) => todo!(),
+                FieldMaskOrIndex::Mask(mask) => {
+                    let mut entries = vec![];
+                    // Add a FieldExpiration for each bit set in the mask
+                    let mut value = mask;
+                    while value != 0 {
+                        let index = value.trailing_zeros();
+                        let fe_entry = FieldExpiration {
+                            index: index as u16,
+                            point: expiration,
+                        };
+                        entries.push(fe_entry);
+                        value &= value - 1;
+                    }
+
+                    let fe = unsafe {
+                        ffi::array_new_sz(
+                            std::mem::size_of::<FieldExpiration>() as u16,
+                            0,
+                            entries.len() as u32,
+                        )
+                    };
+
+                    let fe = fe.cast::<FieldExpiration>();
+                    for (i, fe_entry) in entries.into_iter().enumerate() {
+                        unsafe {
+                            *fe.offset(i as isize) = fe_entry;
+                        }
+                    }
+
+                    fe
+                }
             };
 
             let doc_expiration_time = ffi::t_expirationTimePoint {
