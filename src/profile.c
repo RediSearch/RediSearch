@@ -165,6 +165,13 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
       RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
     }
 
+    // Print cursor reads count if this is a cursor request.
+    if (IsCursor(req)) {
+      // Only internal requests can use profile with cursor.
+      RS_ASSERT(IsInternal(req));
+      RedisModule_ReplyKV_LongLong(reply, "Internal cursor reads", req->cursor_reads);
+    }
+
     // Print profile of iterators
     IndexIterator *root = QITR_GetRootFilter(&req->qiter);
     // Coordinator does not have iterators
@@ -244,6 +251,16 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
     RedisModule_Reply_ArrayEnd(reply);
+
+    // Print cursor reads count if this is a cursor request.
+    if (IsCursor(req)) {
+      // Only internal requests can use profile with cursor.
+      RS_ASSERT(IsInternal(req));
+      RedisModule_Reply_Array(reply);
+      RedisModule_Reply_SimpleString(reply, "Internal cursor reads");
+      RedisModule_Reply_LongLong(reply, req->cursor_reads);
+      RedisModule_Reply_ArrayEnd(reply);
+    }
 
     // Print profile of iterators
     IndexIterator *root = QITR_GetRootFilter(&req->qiter);
