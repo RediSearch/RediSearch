@@ -134,3 +134,130 @@ fn test_seek_raw_doc_ids_only() {
 
     assert!(!found);
 }
+
+/// Test InvertedIndex<RawDocIdsOnly> with GC operations to ensure complete coverage
+/// for raw DocID encoding when removing the second test run with RAW_DOCID_ENCODING.
+#[test]
+fn test_inverted_index_raw_doc_ids_gc() {
+    use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
+    use inverted_index::{IndexBlock, IndexReader, InvertedIndex, raw_doc_ids_only::RawDocIdsOnly};
+
+    let mut ii = InvertedIndex::<RawDocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+
+    // Add 3200 documents (will span multiple blocks since RECOMMENDED_BLOCK_ENTRIES is 1000)
+    for id in 0..3_200 {
+        ii.add_record(&RSIndexResult::default().doc_id(id)).unwrap();
+    }
+
+    assert_eq!(ii.unique_docs(), 3_200);
+
+    // Verify all documents can be read
+    {
+        let mut reader = ii.reader();
+        let mut result = RSIndexResult::default();
+
+        for expected_id in 0..3_200 {
+            let found = reader.next_record(&mut result).unwrap();
+            assert!(found, "expected to find doc_id {}", expected_id);
+            assert_eq!(result.doc_id, expected_id);
+        }
+
+        assert!(!reader.next_record(&mut result).unwrap(), "no more records");
+    }
+
+    // Test GC: Remove the first 2000 documents
+    let delta = ii
+        .scan_gc(
+            |doc_id| doc_id >= 2_000,
+            None::<fn(&RSIndexResult, &IndexBlock)>,
+        )
+        .unwrap()
+        .unwrap();
+    let apply_info = ii.apply_gc(delta);
+
+    assert_eq!(apply_info.entries_removed, 2_000);
+    assert_eq!(ii.unique_docs(), 1_200);
+
+    // Verify remaining documents can be read
+    {
+        let mut reader = ii.reader();
+        let mut result = RSIndexResult::default();
+
+        for expected_id in 2_000..3_200 {
+            let found = reader.next_record(&mut result).unwrap();
+            assert!(found, "expected to find doc_id {}", expected_id);
+            assert_eq!(result.doc_id, expected_id);
+        }
+
+        assert!(!reader.next_record(&mut result).unwrap(), "no more records");
+    }
+
+    // Test GC: Remove documents in the last block
+    let delta = ii
+        .scan_gc(
+            |doc_id| doc_id < 3_000,
+            None::<fn(&RSIndexResult, &IndexBlock)>,
+        )
+        .unwrap()
+        .unwrap();
+    let apply_info = ii.apply_gc(delta);
+
+    assert_eq!(apply_info.entries_removed, 200);
+    assert_eq!(ii.unique_docs(), 1_000);
+
+    // Test GC: Remove all remaining records
+    let delta = ii
+        .scan_gc(|_| false, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .unwrap()
+        .unwrap();
+    let apply_info = ii.apply_gc(delta);
+
+    assert_eq!(apply_info.entries_removed, 1_000);
+    assert_eq!(ii.unique_docs(), 0);
+    assert_eq!(ii.number_of_blocks(), 0);
+
+    // Verify empty index still works
+    {
+        let mut reader = ii.reader();
+        let mut result = RSIndexResult::default();
+        assert!(
+            !reader.next_record(&mut result).unwrap(),
+            "there is nothing to read"
+        );
+    }
+
+    // Test with large deltas that cause block splits
+    // RawDocIdsOnly uses 4-byte encoding, so u32::MAX is the max delta
+    for i in 0..100 {
+        ii.add_record(&RSIndexResult::default().doc_id(i * (u32::MAX as t_docId)))
+            .unwrap();
+    }
+
+    assert_eq!(ii.unique_docs(), 100);
+
+    // GC every second entry (causes large deltas after GC)
+    let delta = ii
+        .scan_gc(
+            |doc_id| doc_id % (u32::MAX as t_docId * 2) == 0,
+            None::<fn(&RSIndexResult, &IndexBlock)>,
+        )
+        .unwrap()
+        .unwrap();
+    let apply_info = ii.apply_gc(delta);
+
+    assert_eq!(apply_info.entries_removed, 50);
+    assert_eq!(ii.unique_docs(), 50);
+
+    // Verify remaining documents can be read with seek
+    {
+        let mut reader = ii.reader();
+        let mut result = RSIndexResult::default();
+
+        for i in 0..50 {
+            let target_id = i * (u32::MAX as t_docId * 2);
+            let found = reader.seek_record(target_id, &mut result).unwrap();
+            assert!(found, "expected to find doc_id {}", target_id);
+            assert_eq!(result.doc_id, target_id);
+        }
+    }
+}
