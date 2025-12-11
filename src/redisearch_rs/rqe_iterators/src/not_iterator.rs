@@ -117,8 +117,8 @@ where
                 Some(SkipToOutcome::Found(_)) => {
                     // Found value - do not return
                 }
-                _ => {
-                    // Not found - return
+                None | Some(SkipToOutcome::NotFound(_)) => {
+                    // Not found or EOF - return
                     self.result.doc_id = doc_id;
                     return Ok(Some(SkipToOutcome::Found(&mut self.result)));
                 }
@@ -160,7 +160,6 @@ where
         // Get child status
         match self.child.revalidate()? {
             RQEValidateStatus::Aborted => {
-                // Replace aborted child with an empty iterator
                 self.child = MaybeEmpty::new_empty();
                 Ok(RQEValidateStatus::Ok)
             }

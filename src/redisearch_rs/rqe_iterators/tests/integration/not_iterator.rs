@@ -8,10 +8,11 @@
 */
 
 use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::SortedIdList, not_iterator::Not,
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::SortedIdList,
+    not_iterator::Not,
 };
 
-use crate::utils::{Mock, MockRevalidateResult};
+use crate::utils::{Mock, MockIteratorError, MockRevalidateResult};
 
 // Basic iterator invariants before any read.
 #[test]
@@ -253,4 +254,57 @@ fn revalidate_child_aborted_replaces_child_with_empty() {
 
     // After child aborts, NOT behaves like having an empty child: [1..=5] is returned.
     assert_eq!(seen, vec![1, 2, 3, 4, 5]);
+}
+
+// Timeout propagation: child timeout during read() should propagate to NOT iterator.
+#[test]
+fn read_propagates_child_timeout() {
+    let child = Mock::new([3, 5]);
+    let mut data = child.data();
+    // Set child to return timeout error when it reaches EOF
+    data.set_error_at_done(Some(MockIteratorError::TimeoutError));
+    let mut it = Not::new(child, 6);
+
+    // Read docs that are NOT in child: [1, 2, 4, 6]
+    // Child has [3, 5]. When NOT reads doc 6, child.read() is called to check
+    // if 6 is in child. Child advances to EOF and returns timeout error.
+    let doc = it.read().unwrap().unwrap();
+    assert_eq!(doc.doc_id, 1);
+
+    let doc = it.read().unwrap().unwrap();
+    assert_eq!(doc.doc_id, 2);
+
+    // At doc_id=3, NOT needs to check child which has 3, so it skips
+    // At doc_id=4, child is at 5, so NOT returns 4
+    let doc = it.read().unwrap().unwrap();
+    assert_eq!(doc.doc_id, 4);
+
+    // At doc_id=5, NOT skips (in child)
+    // At doc_id=6, NOT calls child.read() which goes past EOF and returns timeout
+    let result = it.read();
+    assert!(
+        matches!(result, Err(RQEIteratorError::TimedOut)),
+        "Expected timeout error to propagate from child during read, got {:?}",
+        result
+    );
+}
+
+// Timeout propagation: child timeout during skip_to() should propagate to NOT iterator.
+#[test]
+fn skip_to_propagates_child_timeout() {
+    let child = Mock::new([2, 4, 6]);
+    let mut data = child.data();
+    // Set child to return timeout error when it reaches EOF
+    data.set_error_at_done(Some(MockIteratorError::TimeoutError));
+    let mut it = Not::new(child, 10);
+
+    // skip_to(7) - child has [2,4,6], child.last_doc_id()=0 < 7, so we call
+    // child.skip_to(7) which will go past child's last doc (6) and hit EOF,
+    // triggering the timeout error.
+    let result = it.skip_to(7);
+    assert!(
+        matches!(result, Err(RQEIteratorError::TimedOut)),
+        "Expected timeout error to propagate from child during skip_to, got {:?}",
+        result
+    );
 }
