@@ -107,15 +107,30 @@ void GlobalStats_UpdateActiveIoThreads(int toAdd) {
   INCR_BY(RSGlobalStats.totalStats.multi_threading.active_io_threads, toAdd);
 }
 
+#ifdef RS_COORDINATOR
+// Function pointer for coordinator thread count (NULL by default, set by coordinator at init)
+size_t (*CoordThreadCount_Func)(void) = NULL;
+#endif
+
 // Get multiThreadingStats
 MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
-  MultiThreadingStats stats;
+  MultiThreadingStats stats = {0};
   stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
-  stats.active_worker_threads = 0;
 #ifdef MT_BUILD
+  // Workers stats
+  // We don't use workersThreadPool_getStats here to avoid the overhead of locking the thread pool.
   if (RSGlobalConfig.numWorkerThreads) {
     stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
+    stats.workers_low_priority_pending_jobs = workersThreadPool_LowPriorityPendingJobsCount();
+    stats.workers_high_priority_pending_jobs = workersThreadPool_HighPriorityPendingJobsCount();
   }
 #endif // MT_BUILD
+
+#ifdef RS_COORDINATOR
+  // Coordinator stats
+  if (CoordThreadCount_Func) {
+    stats.active_coord_threads = CoordThreadCount_Func();
+  }
+#endif
   return stats;
 }

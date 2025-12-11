@@ -74,6 +74,12 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
   redisearch_thpool_add_work(p, func, arg, THPOOL_PRIORITY_HIGH);
 }
 
+/* return number of currently working threads */
+size_t ConcurrentSearchPool_WorkingThreadCount(int poolId) {
+  RS_ASSERT(threadpools_g);
+  return redisearch_thpool_num_threads_working(threadpools_g[poolId]);
+}
+
 static void threadHandleCommand(void *p) {
   ConcurrentCmdCtx *ctx = p;
   // Lock GIL if needed

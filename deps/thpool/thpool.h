@@ -292,6 +292,10 @@ size_t redisearch_thpool_num_threads_working(redisearch_threadpool);
 
 int redisearch_thpool_running(redisearch_threadpool);
 
+size_t redisearch_thpool_high_priority_pending_jobs(redisearch_threadpool);
+
+size_t redisearch_thpool_low_priority_pending_jobs(redisearch_threadpool);
+
 thpool_stats redisearch_thpool_get_stats(redisearch_threadpool);
 
 #ifdef __cplusplus
