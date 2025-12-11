@@ -45,8 +45,6 @@ typedef struct {
   size_t numVectorFieldsSvsVamana;
   size_t numVectorFieldsSvsVamanaCompressed;
   // Total number of documents indexed by each field type
-  // Indexing documents happens only in the main thread or with the GIL locked.
-  // Therefore, there is no need for atomic operations.
   size_t textTotalDocsIndexed;
   size_t tagTotalDocsIndexed;
   size_t numericTotalDocsIndexed;
@@ -167,6 +165,9 @@ void GlobalStats_UpdateActiveIoThreads(int toAdd);
 
 // Get multiThreadingStats
 MultiThreadingStats GlobalStats_GetMultiThreadingStats();
+
+// Increase the number of documents indexed by the given field type by `toAdd`.
+void FieldsGlobalStats_UpdateFieldDocsIndexed(const FieldSpec *fs, int toAdd);
 
 #ifdef __cplusplus
 }

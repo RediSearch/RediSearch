@@ -464,7 +464,10 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     // Decrease the last increment
     aCtx->tokenizer->ctx.lastOffset -= multiTextOffsetDelta;
   }
-  RSGlobalStats.fieldsStats.textTotalDocsIndexed++;
+
+  // Since we are here, the indexing was successful, update the global statistics.
+  FieldsGlobalStats_UpdateFieldDocsIndexed(fs, 1);
+
   return 0;
 }
 
@@ -570,7 +573,6 @@ FIELD_BULK_INDEXER(geometryIndexer) {
     //   //TODO: GEOMETRY
     // }
   }
-  RSGlobalStats.fieldsStats.geometryTotalDocsIndexed++;
   return 0;
 }
 
@@ -597,12 +599,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
       ctx->spec->stats.numRecords += rv.numRecords;
     }
   }
-  bool isGeo = (fs->types & INDEXFLD_T_GEO) != 0;
-  if (isGeo) {
-    RSGlobalStats.fieldsStats.geoTotalDocsIndexed++;
-  } else {
-    RSGlobalStats.fieldsStats.numericTotalDocsIndexed++;
-  }
+
   return 0;
 }
 
@@ -647,7 +644,6 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     curr_vec += fdata->vecLen;
   }
   sp->stats.numRecords += fdata->numVec;
-  RSGlobalStats.fieldsStats.vectorTotalDocsIndexed++;
   return 0;
 }
 
@@ -770,7 +766,6 @@ FIELD_BULK_INDEXER(tagIndexer) {
   ctx->spec->stats.invertedSize +=
       TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId);
   ctx->spec->stats.numRecords++;
-  RSGlobalStats.fieldsStats.tagTotalDocsIndexed++;
   return 0;
 }
 
@@ -813,6 +808,10 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
           break;
       }
     }
+  }
+  // If the indexing was successful, update the global statistics.
+  if (rc == 0) {
+    FieldsGlobalStats_UpdateFieldDocsIndexed(fs, 1);
   }
   return rc;
 }
