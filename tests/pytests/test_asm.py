@@ -198,7 +198,6 @@ def import_middle_slot_range(dest: Redis, source: Redis) -> str:
     source_node = cluster_node_of(source)
 
     slot_range = middle_slot_range(random.choice(list(source_node.slots)))
-
     return dest.execute_command('CLUSTER', 'MIGRATION', 'IMPORT', slot_range.start, slot_range.end)
 
 def is_migration_complete(conn: Redis, task_id: str) -> bool:
@@ -499,3 +498,29 @@ def test_slots_info_errors(env: Env):
     env.expect('_FT.SEARCH', 'idx', '*').error().contains('Internal query missing slots specification')
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', 'invalid_slots_data').error().contains('Failed to deserialize _SLOTS_INFO data')
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', generate_slots(range(0, 0)), '_SLOTS_INFO', generate_slots(range(0, 0))).error().contains('_SLOTS_INFO already specified')
+
+@skip(cluster=False)
+def test_ft_cursors_trimmed_BG():
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+    for shard in env.getOSSMasterNodesConnectionList():
+        shard.execute_command('CONFIG', 'SET', 'search-_max-trim-delay-ms', 2500)
+    n_docs = 2**14
+    create_and_populate_index(env, 'idx', n_docs)
+
+    shard1, shard2 = env.getConnection(1), env.getConnection(2)
+    query = ('FT.AGGREGATE', 'idx', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR')
+
+    expected = get_expected(env, query, 'FT.AGGREGATE.WITHCURSOR')
+
+    _, cursor_id = env.cmd(*query)
+    task_id = import_middle_slot_range(shard1, shard2)
+    wait_for_slot_import(shard1, task_id)
+    wait_for_slot_import(shard2, task_id)
+    total_results = []
+    while cursor_id != 0:
+        res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
+        total_results.extend(res)
+    results_set = {item[1] for item in total_results if isinstance(item, list) and len(item) == 2 and item[0] == 'n'}
+    expected_set = {item[1] for item in expected if isinstance(item, list) and len(item) == 2 and item[0] == 'n'}
+    env.assertNotEqual(results_set, expected_set)
+    env.assertGreater(len(expected_set), len(results_set))
