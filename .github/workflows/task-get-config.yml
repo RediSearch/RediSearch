@@ -172,13 +172,13 @@ jobs:
               "alpine:3.22": {
                   "x86_64": {
                       'container': 'alpine:3.22',
-                      'setup_script': 'apk add bash git',
+                      'setup_script': 'apk add bash git gcompat libc6-compat',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV',
                       'name': 'Alpine 3 x86_64'
                   },
                   "aarch64": {
                       'container': 'alpine:3.22',
-                      'setup_script': 'apk add bash gcompat libstdc++ libgcc git',
+                      'setup_script': 'apk add bash gcompat libc6-compat libstdc++ libgcc git',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV',
                       'name': 'Alpine 3 ARM64'
                   }
