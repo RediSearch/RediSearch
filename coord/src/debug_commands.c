@@ -73,6 +73,33 @@ DEBUG_COMMAND(ProfileCommandCommand_DebugWrapper) {
   return ProfileCommandHandlerImp(ctx, ++argv, --argc, true);
 }
 
+/**
+ * FT.DEBUG COORD_THREADS [PAUSE / RESUME / IS_PAUSED ]
+ *
+ */
+DEBUG_COMMAND(CoordThreadsSwitch) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcasecmp(op, "pause")) {
+    if (ConcurrentSearch_pause() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: coordinator thread pool doesn't exists"
+                                      " or is not running");
+    }
+  } else if (!strcasecmp(op, "resume")) {
+    if (ConcurrentSearch_resume() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: coordinator thread pool doesn't exists"
+                                        " or is already running");
+    }
+  } else if (!strcasecmp(op, "is_paused")) {
+    return RedisModule_ReplyWithLongLong(ctx, ConcurrentSearch_isPaused());
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'COORD_THREADS' subcommand");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 DebugCommandType coordCommands[] = {
   {"SHARD_CONNECTION_STATES", shardConnectionStates},
   {"PAUSE_TOPOLOGY_UPDATER", pauseTopologyUpdater},
@@ -81,6 +108,7 @@ DebugCommandType coordCommands[] = {
   {"FT.AGGREGATE", DistAggregateCommand_DebugWrapper},
   {"FT.SEARCH", DistSearchCommand_DebugWrapper},
   {"FT.PROFILE", ProfileCommandCommand_DebugWrapper},
+  {"COORD_THREADS", CoordThreadsSwitch},
   {NULL, NULL}
 };
 // Make sure the two arrays are of the same size (don't forget to update `debug_command_names.h`)
