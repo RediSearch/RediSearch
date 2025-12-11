@@ -8,7 +8,6 @@
 */
 
 pub(crate) mod ffi;
-#[expect(unused)] // remove in first merged PR where it is used
 pub(crate) mod utils;
 
 mod empty;

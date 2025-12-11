@@ -7,11 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use inverted_index::RSIndexResult;
 use rqe_iterators::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::SortedIdList,
-    not_iterator::Not,
+    RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::SortedIdList, not_iterator::Not,
 };
+
+use crate::utils::{Mock, MockRevalidateResult};
 
 // Basic iterator invariants before any read.
 #[test]
@@ -217,77 +217,11 @@ fn rewind_resets_state() {
     assert_eq!(it.last_doc_id(), 1);
 }
 
-#[derive(Clone, Copy)]
-enum NextRevalidate {
-    Ok,
-    Aborted,
-}
-
-struct MockChild<'index> {
-    inner: SortedIdList<'index>,
-    status: NextRevalidate,
-}
-
-impl<'index> MockChild<'index> {
-    fn new_ok(ids: Vec<u64>) -> Self {
-        Self {
-            inner: SortedIdList::new(ids),
-            status: NextRevalidate::Ok,
-        }
-    }
-
-    fn new_aborted(ids: Vec<u64>) -> Self {
-        Self {
-            inner: SortedIdList::new(ids),
-            status: NextRevalidate::Aborted,
-        }
-    }
-}
-
-impl<'index> RQEIterator<'index> for MockChild<'index> {
-    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        self.inner.current()
-    }
-
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        self.inner.read()
-    }
-
-    fn skip_to(
-        &mut self,
-        doc_id: u64,
-    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        self.inner.skip_to(doc_id)
-    }
-
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(match self.status {
-            NextRevalidate::Ok => RQEValidateStatus::Ok,
-            NextRevalidate::Aborted => RQEValidateStatus::Aborted,
-        })
-    }
-
-    fn rewind(&mut self) {
-        self.inner.rewind();
-    }
-
-    fn num_estimated(&self) -> usize {
-        self.inner.num_estimated()
-    }
-
-    fn last_doc_id(&self) -> u64 {
-        self.inner.last_doc_id()
-    }
-
-    fn at_eof(&self) -> bool {
-        self.inner.at_eof()
-    }
-}
-
 // Child revalidate Ok: NOT still excludes the child's doc IDs.
 #[test]
 fn revalidate_child_ok_preserves_exclusions() {
-    let mut it = Not::new(MockChild::new_ok(vec![2, 4]), 5);
+    let child = Mock::new([2, 4]);
+    let mut it = Not::new(child, 5);
 
     let status = it.revalidate().expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
@@ -304,7 +238,10 @@ fn revalidate_child_ok_preserves_exclusions() {
 // Child revalidate Aborted: NOT degenerates to wildcard (empty child).
 #[test]
 fn revalidate_child_aborted_replaces_child_with_empty() {
-    let mut it = Not::new(MockChild::new_aborted(vec![2, 4]), 5);
+    let child = Mock::new([2, 4]);
+    let mut data = child.data();
+    data.set_revalidate_result(MockRevalidateResult::Abort);
+    let mut it = Not::new(child, 5);
 
     let status = it.revalidate().expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
