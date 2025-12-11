@@ -250,8 +250,12 @@ def test_expire_aggregate(env):
     # If not cleared, it might affect subsequent results.
     # This test ensures that the flag indicating expiration is cleared and the search result struct is ready to be reused.
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t')
-    # The result count is not accurate in aggregation, for now we compare res to the expected results with the wrong count
+    # The result count is not accurate in aggregation, because WITHOUTCOUNT is the default
     env.assertEqual(res, [1, ['t', 'arr'], ['t', 'bar']])
+    # Test using WITHCOUNT
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@t')
+    env.assertEqual(res, [2, ['t', 'arr'], ['t', 'bar']])
+
 
 
 def expire_ft_hybrid_test(protocol):

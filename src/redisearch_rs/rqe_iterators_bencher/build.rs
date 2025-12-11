@@ -22,11 +22,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Compile the C benchmark files
     let root = git_root().expect("Could not find git root");
-    cc::Build::new()
-        .file("src/benchers/c/wildcard.c")
-        .include(root.join("src").join("wildcard"))
-        .opt_level(3)
-        .compile("wildcard_iterator_benchmark");
 
     cc::Build::new()
         .file("src/benchers/c/not.c")
@@ -34,14 +29,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .compile("not_iterator_benchmark");
 
     // Generate C bindings - fail build if this doesn't work
-    let headers = [
-        "iterator_api.h",
-        "inverted_index_iterator.h",
-        "wildcard_iterator.h",
-    ]
-    .iter()
-    .map(|h| root.join("src").join("iterators").join(h))
-    .collect::<Vec<_>>();
+    let headers = ["iterator_api.h", "inverted_index_iterator.h"]
+        .iter()
+        .map(|h| root.join("src").join("iterators").join(h))
+        .collect::<Vec<_>>();
 
     generate_c_bindings(headers, ".*/iterators/.*.h")?;
 

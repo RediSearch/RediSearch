@@ -123,6 +123,12 @@ size_t workersThreadPool_HighPriorityPendingJobsCount(void) {
   return redisearch_thpool_high_priority_pending_jobs(_workers_thpool);
 }
 
+size_t workersThreadPool_AdminPriorityPendingJobsCount(void) {
+  RS_ASSERT(_workers_thpool != NULL);
+
+  return redisearch_thpool_admin_priority_pending_jobs(_workers_thpool);
+}
+
 // return n_threads value.
 size_t workersThreadPool_NumThreads(void) {
   RS_ASSERT(_workers_thpool);

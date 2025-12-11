@@ -16,17 +16,6 @@
 extern "C" {
 #endif
 
-typedef struct {
-  QueryIterator base;
-  t_docId topId;
-  t_docId currentId;
-} WildcardIterator;
-
-/**
- * @param maxId - The maxID to return
- */
-QueryIterator *NewWildcardIterator_NonOptimized(t_docId maxId, double weight);
-
 /**
  * Create a new optimized wildcard iterator.
  * This iterator can only be used when the index is configured to index all documents.
