@@ -56,10 +56,10 @@ on:
           - aarch64
         description: 'Architecture to test on. Use "all" to test on all architectures'
         default: all
-      job-test-config:
-        description: 'JSON mapping of job-type to test-config (e.g. ''{"test": "QUICK=1", "coverage": "", "sanitize": ""}''). Use empty string for full tests.'
+      test-config:
+        description: Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")
         type: string
-        default: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
+        default: QUICK=1
       redis-ref:
         description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
         type: string
@@ -67,19 +67,22 @@ on:
         type: string
         default: master
         description: 'Branch to use when building RedisJSON for tests (default: master)'
-      options:
-        type: choice
-        options:
-          - coordinator,standalone,rejson
-          - coordinator,standalone,rejson,fail-fast
-          - coordinator,standalone,rejson,coverage
-          - coordinator,standalone,rejson,sanitize
-          - coordinator,standalone,rejson,coverage,sanitize
-          - coordinator,standalone,rejson,fail-fast,coverage
-          - coordinator,standalone,rejson,fail-fast,sanitize
-          - coordinator,standalone,rejson,fail-fast,coverage,sanitize
-        description: 'Comma-separated list of options to enable'
-        default: coordinator,standalone,rejson
+      standalone:
+        description: 'Whether to run standalone tests'
+        type: boolean
+        default: true
+      cluster:
+        description: 'Whether to run tests in cluster mode'
+        type: boolean
+        default: true
+      RedisJSON:
+        description: 'Whether to include RedisJSON in the tests'
+        type: boolean
+        default: true
+      fail-fast:
+        description: 'Whether to fail fast on test failures'
+        type: boolean
+        default: true
 
 jobs:
   generate-matrix:
@@ -97,18 +100,18 @@ jobs:
     if: ${{ needs.generate-matrix.outputs.has-jobs == 'true' }}
     strategy:
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
-      fail-fast: ${{ contains(inputs.options, 'fail-fast') }}
+      fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast }}
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
       platform: ${{ matrix.platform }}
       architecture: ${{ matrix.architecture }}
       get-redis: ${{ inputs.redis-ref }}
-      rejson: ${{ contains(inputs.options, 'rejson') }}
+      rejson: ${{ contains(inputs.options, 'rejson') || inputs.RedisJSON }}
       rejson-branch: ${{ inputs.rejson-branch }}
-      coordinator: ${{ contains(inputs.options, 'coordinator') }}
-      standalone: ${{ contains(inputs.options, 'standalone') }}
-      test-config: ${{ fromJson(inputs.job-test-config)[(matrix.job-type || 'test')] }}
+      coordinator: ${{ contains(inputs.options, 'coordinator') || inputs.cluster }}
+      standalone: ${{ contains(inputs.options, 'standalone') || inputs.standalone }}
+      test-config: ${{ fromJson(inputs.job-test-config || '{"test":""}')[(matrix.job-type || 'test')] || inputs.test-config }}
       coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
       san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
-      fail-fast: ${{ contains(inputs.options, 'fail-fast') }}
+      fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast }}
