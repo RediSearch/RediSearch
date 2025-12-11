@@ -178,7 +178,7 @@ jobs:
                   },
                   "aarch64": {
                       'container': 'alpine:3.22',
-                      'setup_script': 'apk add bash gcompat libc6-compat libstdc++ libgcc git',
+                      'setup_script': 'apk add bash gcompat libc6-compat libstdc++ libgcc git && sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV',
                       'name': 'Alpine 3 ARM64'
                   }
