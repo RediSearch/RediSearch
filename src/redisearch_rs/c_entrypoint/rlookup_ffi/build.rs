@@ -7,8 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use build_utils::run_cbinden;
+use build_utils::{link_static_libraries, run_cbinden};
 
 fn main() {
+    link_static_libraries(&[
+        ("src/util/arr", "arr"),
+        ("src/util/mempool", "mempool"),
+        ("src/iterators", "iterators"),
+        ("src/buffer", "buffer"),
+        ("src/index_result", "index_result"),
+        ("src/value", "value"),
+    ]);
+
     run_cbinden("../../headers/rlookup_rs.h").unwrap();
 }
