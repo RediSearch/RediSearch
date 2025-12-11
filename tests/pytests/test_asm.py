@@ -14,11 +14,25 @@ RANDOM_WORDS = [
     "opal", "paradise", "quasar", "rhapsody", "symphony", "twilight", "universe", "velvet", "whisper", "xenon"
 ]
 
+def get_expected(env, query, query_type: str = 'FT.SEARCH'):
+    if query_type == 'FT.AGGREGATE.WITHCURSOR':
+        expected = []
+        cursor_result = env.cmd(*query)
+        cursor_id = cursor_result[1]
+        while cursor_id != 0:
+            res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
+            expected.extend(res)
+        return expected
+    else:
+        return env.cmd(*query)
+
 def query_shards(env, query, shards, expected, query_type: str = 'FT.SEARCH'):
     if query_type == 'FT.HYBRID':
         return query_shards_hybrid(env, query, shards, expected)
     elif query_type == 'FT.AGGREGATE':
         return query_shards_ft_aggregate(env, query, shards, expected)
+    elif query_type == 'FT.AGGREGATE.WITHCURSOR':
+        return query_shards_ft_aggregate_withcursor(env, query, shards, expected)
     else:
         return query_shards_ft_search(env, query, shards, expected)
 
@@ -52,6 +66,23 @@ def query_shards_ft_aggregate(env, query, shards, expected):
         dups = set(value for value in values if values.count(value) > 1)
         env.assertEqual(dups, set(), message=f"shard {idx} returned {len(dups)} duplicate values in aggregation results", depth=1)
         env.assertEqual(res, expected, message=f"shard {idx} returned unexpected results", depth=1)
+
+def query_shards_ft_aggregate_withcursor(env, query, shards, expected):
+    """Query_shards implementation for FT.AGGREGATE queries with cursor"""
+    results = [shard.execute_command(*query) for shard in shards]
+    for idx, res in enumerate(results):
+        # Extract values from aggregation results
+        full_result = []
+        shard = shards[idx]
+        cursor_id = res[1]
+        while cursor_id != 0:
+            res, cursor_id = shard.execute_command('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
+            full_result.extend(res)
+        values = extract_values(full_result)
+        dups = set(value for value in values if values.count(value) > 1)
+        env.assertEqual(dups, set(), message=f"shard {idx} returned {len(dups)} duplicate values in aggregation results", depth=1)
+        env.assertEqual(full_result, expected, message=f"shard {idx} returned unexpected results", depth=1)
+
 
 def query_shards_hybrid(env, query, shards, expected):
     """Enhanced query_shards implementation for FT.HYBRID queries with score order checking"""
@@ -224,6 +255,8 @@ def import_slot_range_sanity_test(env: Env, query_type: str = 'FT.SEARCH'):
         query = ('FT.SEARCH', 'idx', '@n:[69 1420]', 'SORTBY', 'n', 'LIMIT', 0, n_docs, 'RETURN', 1, 'n')
     elif query_type == 'FT.AGGREGATE':
         query = ('FT.AGGREGATE', 'idx', '@n:[69 1420]', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs, 'LOAD', 1, 'n')
+    elif query_type == 'FT.AGGREGATE.WITHCURSOR':
+        query = ('FT.AGGREGATE', 'idx', '@n:[69 1420]', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs, 'LOAD', 1, 'n', 'WITHCURSOR', 'COUNT', 10)
     elif query_type == 'FT.HYBRID':
         # Create a 10-dimensional query vector for hybrid search
         random_words_to_query = " ".join(random.sample(RANDOM_WORDS, min(3, len(RANDOM_WORDS))))
@@ -232,7 +265,8 @@ def import_slot_range_sanity_test(env: Env, query_type: str = 'FT.SEARCH'):
                 'SEARCH', f'@n:[69 1420] @text:({random_words_to_query})',
                 'VSIM', '@vector', query_vector, 'KNN', '2', 'K', str(n_docs),
                 'COMBINE', 'RRF', '2', 'CONSTANT', '60')
-    expected = env.cmd(*query)
+
+    expected = get_expected(env, query, query_type)
 
     shards = env.getOSSMasterNodesConnectionList()
     # Sanity check - all shards should return the same results
@@ -252,6 +286,8 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH'):
         query = ('FT.SEARCH', 'idx', '@n:[69 1420]', 'SORTBY', 'n', 'LIMIT', 0, n_docs, 'RETURN', 1, 'n')
     elif query_type == 'FT.AGGREGATE':
         query = ('FT.AGGREGATE', 'idx', '@n:[69 1420]', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs, 'LOAD', 1, 'n')
+    elif query_type == 'FT.AGGREGATE.WITHCURSOR':
+        query = ('FT.AGGREGATE', 'idx', '@n:[69 1420]', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs, 'LOAD', 1, 'n', 'WITHCURSOR', 'COUNT', 10)
     elif query_type == 'FT.HYBRID':
         # Create a 10-dimensional query vector for hybrid search
         random_words_to_query = " ".join(random.sample(RANDOM_WORDS, min(3, len(RANDOM_WORDS))))
@@ -261,7 +297,7 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH'):
                 'VSIM', '@vector', query_vector, 'KNN', '2', 'K', str(n_docs),
                 'COMBINE', 'RRF', '2', 'CONSTANT', '60')
 
-    expected = env.cmd(*query)
+    expected = get_expected(env, query, query_type)
 
     shards = env.getOSSMasterNodesConnectionList()
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
@@ -313,6 +349,16 @@ def test_ft_aggregate_import_slot_range_BG():
     import_slot_range_test(env, 'FT.AGGREGATE')
 
 @skip(cluster=False, min_shards=2)
+def test_ft_aggregate_withcursor_import_slot_range():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR')
+
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_withcursor_import_slot_range_BG():
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+    import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR')
+
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.HYBRID')
@@ -343,6 +389,16 @@ def test_ft_aggregate_import_slot_range_sanity_BG():
     import_slot_range_sanity_test(env, 'FT.AGGREGATE')
 
 @skip(cluster=False, min_shards=2)
+def test_ft_aggregate_withcursor_import_slot_range_sanity():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    import_slot_range_sanity_test(env, 'FT.AGGREGATE.WITHCURSOR')
+
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_withcursor_import_slot_range_sanity_BG():
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+    import_slot_range_sanity_test(env, 'FT.AGGREGATE.WITHCURSOR')
+
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_sanity_test(env, 'FT.HYBRID')
@@ -363,6 +419,8 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
         query = ('FT.SEARCH', 'idx', '@n:[69 1420]', 'SORTBY', 'n', 'LIMIT', 0, n_docs, 'RETURN', 1, 'n')
     elif query_type == 'FT.AGGREGATE':
         query = ('FT.AGGREGATE', 'idx', '@n:[69 1420]', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs, 'LOAD', 1, 'n')
+    elif query_type == 'FT.AGGREGATE.WITHCURSOR':
+        query = ('FT.AGGREGATE', 'idx', '@n:[69 1420]', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs, 'LOAD', 1, 'n', 'WITHCURSOR', 'COUNT', 10)
     elif query_type == 'FT.HYBRID':
         # Create a 10-dimensional query vector for hybrid search
         random_words_to_query = " ".join(random.sample(RANDOM_WORDS, min(3, len(RANDOM_WORDS))))
@@ -371,7 +429,8 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
                 'SEARCH', f'@n:[69 1420] @text:({random_words_to_query})',
                 'VSIM', '@vector', query_vector, 'KNN', '2', 'K', str(n_docs),
                 'COMBINE', 'RRF', '2', 'CONSTANT', '60')
-    expected = env.cmd(*query)
+
+    expected = get_expected(env, query, query_type)
 
     # Sanity check - all shards should return the same results
     shards = env.getOSSMasterNodesConnectionList()
@@ -411,6 +470,16 @@ def test_add_shard_and_migrate_aggregate():
 def test_add_shard_and_migrate_aggregate_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.AGGREGATE')
+
+@skip(cluster=False)
+def test_add_shard_and_migrate_aggregate_withcursor():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    add_shard_and_migrate_test(env, 'FT.AGGREGATE.WITHCURSOR')
+
+@skip(cluster=False)
+def test_add_shard_and_migrate_aggregate_withcursor_BG():
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+    add_shard_and_migrate_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
 @skip(cluster=False)
 def test_add_shard_and_migrate_hybrid():
