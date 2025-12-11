@@ -7,13 +7,5 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub(crate) mod ffi;
-#[expect(unused)] // remove in first merged PR where it is used
-pub(crate) mod utils;
-
-mod empty;
-mod id_list;
-mod inverted_index;
-mod maybe_empty;
-mod metric;
-mod wildcard;
+// A build script is required for cargo to consider build dependencies.
+fn main() {}

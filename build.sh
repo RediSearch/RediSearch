@@ -360,9 +360,18 @@ prepare_cmake_arguments() {
     else
       RUSTFLAGS="$RUSTFLAGS -C target-feature=-crt-static"
     fi
-    # Export RUSTFLAGS so it's available to the Rust build process
-    export RUSTFLAGS
   fi
+  # Set up RUSTFLAGS for warnings
+  if [[ "$RUST_DENY_WARNS" == "1" ]]; then
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
+  fi
+  # Ensure we can compute coverage across the FFI boundary
+  if [[ $OS_NAME != "macos" && $COV == "1" ]]; then
+    # Needs the C code to link on gcov
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} } -C link-args=-lgcov"
+  fi
+  # Export RUSTFLAGS so it's available to the Rust build process
+  export RUSTFLAGS
 
   # RUSTFLAGS will be passed as environment variable to avoid quoting issues
   # This prevents CMake argument parsing from truncating complex flag values
@@ -561,11 +570,6 @@ run_rust_tests() {
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
 
-  # Set up RUSTFLAGS for warnings
-  if [[ "$RUST_DENY_WARNS" == "1" ]]; then
-    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
-  fi
-
   # Retrieve our pinned nightly version.
   NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
 
@@ -595,14 +599,9 @@ run_rust_tests() {
     RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
   fi
 
-  if [[ $OS_NAME != "macos" ]]; then
-  # Needs the C code to link on gcov
-    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} } -C link-args=-lgcov"
-  fi
-
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings }" cargo $RUST_TEST_COMMAND $RUST_TEST_OPTIONS --workspace $TEST_FILTER
+  RUSTFLAGS="${RUSTFLAGS}" cargo $RUST_TEST_COMMAND $RUST_TEST_OPTIONS --workspace $TEST_FILTER
 
   # Check test results
   RUST_TEST_RESULT=$?
@@ -628,11 +627,6 @@ run_rust_valgrind_tests() {
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
 
-  # Set up RUSTFLAGS for warnings
-  if [[ "$RUST_DENY_WARNS" == "1" ]]; then
-    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
-  fi
-
   cd "$RUST_DIR"
 
   if [[ "$OS_NAME" == "macos" ]]; then
@@ -643,7 +637,7 @@ run_rust_valgrind_tests() {
   else
     # Run cargo valgrind with the appropriate filter
     VALGRINDFLAGS=--suppressions=$PWD/valgrind.supp \
-        RUSTFLAGS="${RUSTFLAGS:--D warnings}" \
+        RUSTFLAGS="${RUSTFLAGS}" \
         cargo valgrind test \
         --profile=$RUST_PROFILE \
         --workspace $TEST_FILTER \
