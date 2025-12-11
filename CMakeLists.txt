@@ -258,6 +258,7 @@ include_directories(
     ${root}/src/numeric_index
     ${root}/src/redis_index
     ${root}/src/alias
+    ${root}/src/field_spec
     ${root}/src/info/index_error
     ${root}/src/trie
     ${root}/src/rules
@@ -314,6 +315,7 @@ add_subdirectory(src/doc_table)
 add_subdirectory(src/numeric_index)
 add_subdirectory(src/redis_index)
 add_subdirectory(src/alias)
+add_subdirectory(src/field_spec)
 add_subdirectory(src/info/index_error)
 add_subdirectory(src/trie)
 add_subdirectory(src/rules)
@@ -376,6 +378,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:numeric_index>
     $<TARGET_OBJECTS:redis_index>
     $<TARGET_OBJECTS:alias>
+    $<TARGET_OBJECTS:field_spec>
     $<TARGET_OBJECTS:index_error>
     $<TARGET_OBJECTS:trie>
     $<TARGET_OBJECTS:rules>
@@ -452,6 +455,7 @@ target_link_libraries(redisearch
         numeric_index
         redis_index
         alias
+        field_spec
         index_error
         trie
         rules
