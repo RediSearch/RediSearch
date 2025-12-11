@@ -427,6 +427,12 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       ASM_StateMachine_CompleteMigration(slots);
       // Start 2 timers. One for the minimal delay, and one for the maximal delay.
       RedisModule_Log(ctx, "notice", "Got ASM migrate completed event.");
+      // Check if number of indices is 0. If so, we can start trimming immediately.
+      if (Indexes_Count() == 0) {
+        RedisModule_Log(ctx, "notice", "No indices found, enabling trimming immediately.");
+        ASM_StateMachine_StartTrim(slots);
+        break;
+      }
       RedisModule_ClusterDisableTrim(ctx);
       trimmingDelayCtx.checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.minTrimDelayMS, checkTrimmingStateCallback, slots);
       trimmingDelayCtx.enableTrimmingTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.maxTrimDelayMS, enableTrimmingCallback, slots);
