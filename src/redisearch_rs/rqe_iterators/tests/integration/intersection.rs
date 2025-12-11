@@ -9,10 +9,10 @@
 
 //! Integration tests for the Intersection iterator.
 //!
-//! These tests are ported from the C++ tests in
+//! C-Code: These tests are ported from the C++ tests in
 //! `tests/cpptests/test_cpp_iterator_intersection.cpp`.
 //!
-//! Note: Tests for `max_slop` and `in_order` are not included in this first
+//! C-Code: Tests for `max_slop` and `in_order` are not included in this first
 //! version since those features are not yet implemented in the Rust port.
 
 use ffi::t_docId;
@@ -56,7 +56,7 @@ fn create_children(num_children: usize, result_set: &[t_docId]) -> Vec<SortedIdL
 }
 
 // =============================================================================
-// Test parameters - matching C++ INSTANTIATE_TEST_SUITE_P
+// C-Code: Test parameters - matching C++ INSTANTIATE_TEST_SUITE_P
 // =============================================================================
 
 /// Number of child iterators to test with
@@ -76,7 +76,7 @@ const RESULT_SET_CASES: &[&[t_docId]] = &[
 ];
 
 // =============================================================================
-// Read tests - equivalent to TEST_P(IntersectionIteratorCommonTest, Read)
+// C-Code: Read tests - equivalent to TEST_P(IntersectionIteratorCommonTest, Read)
 // =============================================================================
 
 #[test]
@@ -149,7 +149,7 @@ fn read_test_case(num_children: usize, result_set: &[t_docId]) {
 }
 
 // =============================================================================
-// SkipTo tests - equivalent to TEST_P(IntersectionIteratorCommonTest, SkipTo)
+// C-Code: SkipTo tests - equivalent to TEST_P(IntersectionIteratorCommonTest, SkipTo)
 // =============================================================================
 
 #[test]
@@ -279,7 +279,7 @@ fn skip_to_test_case(num_children: usize, result_set: &[t_docId]) {
 }
 
 // =============================================================================
-// Rewind tests - equivalent to TEST_P(IntersectionIteratorCommonTest, Rewind)
+// C-Code: Rewind tests - equivalent to TEST_P(IntersectionIteratorCommonTest, Rewind)
 // =============================================================================
 
 #[test]
@@ -328,10 +328,10 @@ fn rewind_test_case(num_children: usize, result_set: &[t_docId]) {
 }
 
 // =============================================================================
-// Edge case tests - from IntersectionIteratorTest and IntersectionIteratorReducerTest
+// C-Code: Edge case tests - from IntersectionIteratorTest and IntersectionIteratorReducerTest
 // =============================================================================
 
-// Note: Tests for NULL children, empty children, wildcard removal, and single
+// C-Code: Tests for NULL children, empty children, wildcard removal, and single
 // child reduction are constructor-level optimizations that may need to be
 // handled differently in Rust (possibly returning Empty iterator or the
 // single child directly). These tests will be added once the constructor
@@ -408,11 +408,11 @@ fn skip_to_not_found() {
 }
 
 // =============================================================================
-// Additional edge case tests - from IntersectionIteratorReducerTest
+// C-Code: Additional edge case tests - from IntersectionIteratorReducerTest
 // =============================================================================
 
 /// Test intersection with no children - should behave as empty
-/// Equivalent to C++ TestIntersectionWithNoChild
+/// C-Code: Equivalent to C++ TestIntersectionWithNoChild
 #[test]
 fn no_children() {
     let children: Vec<SortedIdList<'static>> = vec![];
@@ -431,7 +431,7 @@ fn no_children() {
 }
 
 /// Test intersection with a single child - should behave like the child itself
-/// Equivalent to C++ TestIntersectionWithSingleChild (without wildcard removal)
+/// C-Code: Equivalent to C++ TestIntersectionWithSingleChild (without wildcard removal)
 #[test]
 #[cfg_attr(miri, ignore)]
 fn single_child() {
@@ -580,7 +580,7 @@ fn many_children() {
 }
 
 // =============================================================================
-// Revalidate tests - from IntersectionIteratorRevalidateTest
+// C-Code: Revalidate tests - from IntersectionIteratorRevalidateTest
 // =============================================================================
 
 // Note: Mock children for revalidate tests are created inline in each test
@@ -591,7 +591,7 @@ fn many_children() {
 // Child 2: [2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70] (11 elements)
 
 /// Test: All children return VALIDATE_OK
-/// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateOK)
+/// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateOK)
 #[test]
 #[cfg_attr(miri, ignore)]
 fn revalidate_ok() {
@@ -634,7 +634,7 @@ fn revalidate_ok() {
 }
 
 /// Test: One child returns VALIDATE_ABORTED
-/// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateAborted)
+/// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateAborted)
 #[test]
 #[cfg_attr(miri, ignore)]
 fn revalidate_aborted() {
@@ -668,7 +668,7 @@ fn revalidate_aborted() {
 }
 
 /// Test: All children return VALIDATE_MOVED
-/// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateMoved)
+/// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateMoved)
 #[test]
 #[cfg_attr(miri, ignore)]
 fn revalidate_moved() {
@@ -713,7 +713,7 @@ fn revalidate_moved() {
 }
 
 /// Test: Mix of OK and MOVED results
-/// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateMixedResults)
+/// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateMixedResults)
 #[test]
 #[cfg_attr(miri, ignore)]
 fn revalidate_mixed_results() {
@@ -748,7 +748,7 @@ fn revalidate_mixed_results() {
 }
 
 /// Test: Revalidate after EOF - should return OK even if children moved
-/// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateAfterEOF)
+/// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateAfterEOF)
 #[test]
 #[cfg_attr(miri, ignore)]
 fn revalidate_after_eof() {
@@ -790,7 +790,7 @@ fn revalidate_after_eof() {
 }
 
 /// Test: Some children move to EOF during revalidate
-/// Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateSomeChildrenMovedToEOF)
+/// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateSomeChildrenMovedToEOF)
 ///
 /// Note: The new Mock doesn't have a MovedToEof variant. Instead, we simulate
 /// this by using a child that has only 2 elements - after reading doc 10, there's only
@@ -1089,4 +1089,73 @@ fn children_sorted_by_estimated() {
 
     // num_estimated should be 1 (smallest child)
     assert_eq!(ii.num_estimated(), 1);
+}
+
+/// Test: Revalidate where children move but skip_to cannot find consensus (returns None)
+///
+/// This tests the specific path in `revalidate()` where:
+/// - At least one child returns `Moved { current: Some(_) }`
+/// - No child moved to EOF directly
+/// - But when we call `skip_to(max_child_doc_id)`, no consensus can be found
+///   because there's no common document ID >= max_child_doc_id
+///
+/// The expected result is `RQEValidateStatus::Moved { current: None }`
+#[test]
+#[cfg_attr(miri, ignore)]
+fn revalidate_moved_skip_to_returns_none() {
+    // Set up children where:
+    // - They share doc 10 (will read this first)
+    // - After Move, child0 goes to doc 15, child1 goes to doc 18, child2 goes to doc 22
+    // - After that, there are no more common documents, so skip_to will return None
+    //
+    // child0: [10, 15] - after Move, at 15
+    // child1: [10, 18] - after Move, at 18  (max_child_doc_id = 18)
+    // child2: [10, 22] - after Move, at 22  (but there's no 18 or higher common doc)
+    //
+    // When skip_to(18) is called on intersection:
+    // - child0 has no doc >= 18, so it goes EOF
+    // - Result: None
+
+    let child0: Mock<'static, 2> = Mock::new([10, 15]);
+    let child1: Mock<'static, 2> = Mock::new([10, 18]);
+    let child2: Mock<'static, 2> = Mock::new([10, 22]);
+
+    // All children will move
+    child0
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Move);
+    child1
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Move);
+    child2
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Move);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+        vec![Box::new(child0), Box::new(child1), Box::new(child2)];
+
+    let mut ii = Intersection::new(children);
+
+    // Read first document (10 is common to all)
+    let result = ii.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 10);
+    assert!(!ii.at_eof());
+
+    // Revalidate: children will move to 15, 18, 22 respectively
+    // max_child_doc_id = 22
+    // skip_to(22) will fail because:
+    // - child0 has no doc >= 22 (only has [10, 15]), goes EOF
+    // - Result: Moved { current: None }
+    let status = ii.revalidate().expect("revalidate failed");
+    assert!(
+        matches!(status, RQEValidateStatus::Moved { current: None }),
+        "Expected Moved {{ current: None }} when skip_to cannot find consensus, got {:?}",
+        status
+    );
+
+    // Intersection should now be at EOF
+    assert!(ii.at_eof(), "Intersection should be at EOF after revalidate returns None");
+
+    // Further reads should return EOF
+    assert!(matches!(ii.read(), Ok(None)));
 }

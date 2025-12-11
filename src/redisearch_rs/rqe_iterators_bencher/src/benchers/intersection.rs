@@ -65,9 +65,9 @@ fn varying_size_ids() -> Vec<Vec<u64>> {
 }
 
 /// Convert ID vectors to Rust SortedIdList iterators.
-fn ids_to_rust_children(ids: &[Vec<u64>]) -> Vec<SortedIdList<'static>> {
-    ids.iter()
-        .map(|id_vec| SortedIdList::new(id_vec.clone()))
+fn ids_to_rust_children(ids: Vec<Vec<u64>>) -> Vec<SortedIdList<'static>> {
+    ids.into_iter()
+        .map(|id_vec| SortedIdList::new(id_vec))
         .collect()
 }
 
@@ -179,7 +179,7 @@ impl Bencher {
         // Rust implementation benchmark
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || Intersection::new(ids_to_rust_children(&make_ids())),
+                || Intersection::new(ids_to_rust_children(make_ids())),
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + STEP) {
                         criterion::black_box(current);
