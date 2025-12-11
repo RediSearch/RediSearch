@@ -120,7 +120,7 @@ class testHybridSearch:
             self._create_index('prefixed_idx', self.dim, prefix="both_")
             index_name = 'prefixed_idx'
         info = {'info before': {'ft.info': self.env.cmd('ft.info', index_name), 'info search': self.env.cmd('info', 'search')}}
-
+        logs = []
         try:
             logs = run_test_scenario(self.env, index_name, scenario, self.vector_blob, collect_logs=True)
         finally:
