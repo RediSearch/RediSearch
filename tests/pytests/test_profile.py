@@ -586,8 +586,8 @@ def TimedOutWarningtestCoord(env):
   if env.protocol == 2:
     profile = res[-1]
     for i in range(env.shardsCount):
-      shard_profile_idx = i * 7
-      warning = profile[shard_profile_idx + 4]
+      shard_profile_idx = i * 8
+      warning = profile[shard_profile_idx + 5]
       env.assertEqual(len(warning), 2)
       env.assertEqual(warning[1], 'Timeout limit was reached')
   else:
@@ -601,7 +601,7 @@ def TimedOutWarningtestCoord(env):
   shards_profile = None
   if env.protocol == 2:
     coord_profile = res[-1]
-    warning_arr = coord_profile[1][0][3]
+    warning_arr = coord_profile[1][0][4]
     env.assertEqual(len(warning_arr), 2)
     coord_warn = warning_arr[1]
     shards_profile = [item for item in res[2] if "Shard #" in item]
