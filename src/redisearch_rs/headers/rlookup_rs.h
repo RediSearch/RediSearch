@@ -481,7 +481,44 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow,
                                 RLookupRow *destRow,
                                 struct RLookup *destLookup);
 
+/**
+ * Get a value from the row, provided the key.
+ *
+ * This does not actually "search" for the key, but simply performs array
+ * lookups!
+ *
+ * @param lookup The lookup table containing the lookup table data
+ * @param key the key that contains the index
+ * @param row the row data which contains the value
+ * @return the value if found, NULL otherwise.
+ */
 RSValue *RLookupRow_Get(const struct RLookupKey *key, const RLookupRow *row);
+
+/**
+ * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+ * for which it is not necessary to use the boilerplate of getting an explicit
+ * key.
+ *
+ * The reference count of the value will be incremented. //?
+ */
+void RLookupRow_WriteByName(struct RLookup *lookup,
+                            const char *name,
+                            size_t len,
+                            RLookupRow *row,
+                            RSValue *value);
+
+/**
+ * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+ * for which it is not necessary to use the boilerplate of getting an explicit
+ * key.
+ *
+ * Like RLookupRow_WriteByName, but consumes a refcount. //?
+ */
+void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
+                                 const char *name,
+                                 size_t len,
+                                 RLookupRow *row,
+                                 RSValue *value);
 
 #ifdef __cplusplus
 }  // extern "C"

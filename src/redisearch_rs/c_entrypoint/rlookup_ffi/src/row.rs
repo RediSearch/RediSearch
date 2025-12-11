@@ -8,10 +8,13 @@
 */
 
 use ffi::RSValue;
+use libc::{c_char, size_t};
 use rlookup::{RLookup, RLookupKey};
 use std::{
+    ffi::CStr,
     mem::ManuallyDrop,
     ptr::{self, NonNull},
+    slice,
 };
 use value::RSValueFFI;
 
@@ -162,6 +165,15 @@ unsafe extern "C" fn RLookupRow_WriteFieldsFrom(
     destRow.copy_fields_from(destLookup, srcRow, srcLookup);
 }
 
+/// Get a value from the row, provided the key.
+///
+/// This does not actually "search" for the key, but simply performs array
+/// lookups!
+///
+/// @param lookup The lookup table containing the lookup table data
+/// @param key the key that contains the index
+/// @param row the row data which contains the value
+/// @return the value if found, NULL otherwise.
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RLookupRow_Get(
     key: *const RLookupKey,
@@ -171,4 +183,65 @@ unsafe extern "C" fn RLookupRow_Get(
     let row = unsafe { row.as_ref().unwrap() };
 
     row.get(key).map(|x| NonNull::new(x.as_ptr())).unwrap()
+}
+
+/// Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+/// for which it is not necessary to use the boilerplate of getting an explicit
+/// key.
+///
+/// The reference count of the value will be incremented. //?
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_WriteByName(
+    lookup: Option<NonNull<RLookup>>,
+    name: *const c_char, // which c_char?
+    len: size_t,
+    row: Option<NonNull<RLookupRow>>,
+    value: Option<NonNull<RSValue>>, // or RSValueFFI?
+) {
+    let lookup = unsafe { lookup.unwrap().as_mut() };
+
+    let name = {
+        // `len` is a value as returned by `strlen` and therefore **does not**
+        // include the null terminator (that is why we do `len + 1` below)
+        let bytes = unsafe { slice::from_raw_parts(name.cast::<u8>(), len + 1) };
+
+        CStr::from_bytes_with_nul(bytes).unwrap()
+    };
+
+    let row = unsafe { row.unwrap().as_mut() };
+
+    let value = unsafe { RSValueFFI::from_raw(value.unwrap()) };
+
+    row.write_key_by_name(lookup, name, value);
+
+    // Increment refcount?
+}
+
+unsafe fn cstr_from_name_and_len<'a>(name: *const c_char, len: size_t) -> &'a CStr {
+    // `len` is a value as returned by `strlen` and therefore **does not**
+    // include the null terminator (that is why we do `len + 1` below)
+    let bytes = unsafe { slice::from_raw_parts(name.cast::<u8>(), len + 1) };
+
+    CStr::from_bytes_with_nul(bytes).unwrap()
+}
+
+/// Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+/// for which it is not necessary to use the boilerplate of getting an explicit
+/// key.
+///
+/// Like RLookupRow_WriteByName, but consumes a refcount. //?
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_WriteByNameOwned(
+    lookup: Option<NonNull<RLookup>>,
+    name: *const c_char,
+    len: size_t,
+    row: Option<NonNull<RLookupRow>>,
+    value: Option<NonNull<RSValue>>,
+) {
+    // Call above impl or duplicate?
+
+    unsafe { RLookupRow_WriteByName(lookup, name, len, row, value) };
+
+    let value = unsafe { RSValueFFI::from_raw(value.unwrap()) };
+    drop(value);
 }
