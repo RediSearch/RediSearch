@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use crate::row::RLookupRow;
+use ffi::SchemaRule;
 use libc::size_t;
-use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags};
+use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags, SchemaRuleWrapper};
 use std::{
     ffi::{CStr, c_char},
     ptr::NonNull,
@@ -277,6 +279,27 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
     lookup
         .get_key_load(name, field_name, flags)
         .map(NonNull::from)
+}
+
+/// Get the amount of visible fields is the RLookup
+#[unsafe(no_mangle)]
+#[allow(non_snake_case)]
+pub unsafe extern "C" fn RLookup_GetLength<'a>(
+    lookup: *const RLookup<'a>,
+    r: *const RLookupRow,
+    _skipFieldIndex: Option<NonNull<i32>>, //?
+    requiredFlags: i32,
+    excludedFlags: i32,
+    rule: *mut SchemaRule, // *mut to work with SchemaRuleWrapper?
+) -> size_t {
+    let lookup = unsafe { lookup.as_ref().unwrap() };
+    let r = unsafe { r.as_ref().unwrap() };
+    let requiredFlags = RLookupKeyFlags::from_bits(requiredFlags.cast_unsigned()).unwrap(); // u32 vs i32?
+    let excludedFlags = RLookupKeyFlags::from_bits(excludedFlags.cast_unsigned()).unwrap();
+    let rule = unsafe { SchemaRuleWrapper::from_raw(rule) };
+    let rule = rule.as_ref();
+
+    r.get_length(lookup, requiredFlags, excludedFlags, rule).0 // .1?
 }
 
 /// Initialize the lookup. If cache is provided, then it will be used as an

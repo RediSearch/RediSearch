@@ -340,6 +340,16 @@ struct RLookupKey *RLookup_GetKey_LoadEx(struct RLookup *lookup,
                                          uint32_t flags);
 
 /**
+ * Get the amount of visible fields is the RLookup
+ */
+size_t RLookup_GetLength(const struct RLookup *lookup,
+                         const RLookupRow *r,
+                         int32_t *_skipFieldIndex,
+                         int32_t requiredFlags,
+                         int32_t excludedFlags,
+                         SchemaRule *rule);
+
+/**
  * Initialize the lookup. If cache is provided, then it will be used as an
  * alternate source for lookups whose fields are absent.
  *
