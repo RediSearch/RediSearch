@@ -95,8 +95,8 @@ def testGetConfigOptions(env):
     check_config('_BG_INDEX_OOM_PAUSE_TIME')
     check_config('INDEXER_YIELD_EVERY_OPS')
     check_config('ON_OOM')
-    check_config('MIN_TRIM_DELAY_MS')
-    check_config('MAX_TRIM_DELAY_MS')
+    check_config('_MIN_TRIM_DELAY_MS')
+    check_config('_MAX_TRIM_DELAY_MS')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
@@ -128,8 +128,8 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'ON_OOM', 1).equal('Invalid ON_OOM value')
-    env.expect(config_cmd(), 'set', 'MIN_TRIM_DELAY_MS', 1000).equal('OK')
-    env.expect(config_cmd(), 'set', 'MAX_TRIM_DELAY_MS', 8000).equal('OK')
+    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 1000).equal('OK')
+    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 8000).equal('OK')
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
@@ -148,12 +148,12 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', -1).contains('Value is outside acceptable bounds')
-    # Test MIN_TRIM_DELAY_MS validation
-    env.expect(config_cmd(), 'set', 'MIN_TRIM_DELAY_MS', 'str').equal('Could not convert argument to expected type')
-    env.expect(config_cmd(), 'set', 'MIN_TRIM_DELAY_MS', -1).contains('Value is outside acceptable bounds')
-    # Test MAX_TRIM_DELAY_MS validation
-    env.expect(config_cmd(), 'set', 'MAX_TRIM_DELAY_MS', 'str').equal('Could not convert argument to expected type')
-    env.expect(config_cmd(), 'set', 'MAX_TRIM_DELAY_MS', -1).contains('Value is outside acceptable bounds')
+    # Test _MIN_TRIM_DELAY_MS validation
+    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 'str').equal('Could not convert argument to expected type')
+    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', -1).contains('Value is outside acceptable bounds')
+    # Test _MAX_TRIM_DELAY_MS validation
+    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 'str').equal('Could not convert argument to expected type')
+    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', -1).contains('Value is outside acceptable bounds')
 
 @skip(cluster=True)
 def testAllConfig(env):
@@ -205,8 +205,8 @@ def testAllConfig(env):
     env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
     env.assertEqual(res_dict['ON_OOM'][0], 'return')
-    env.assertEqual(res_dict['MIN_TRIM_DELAY_MS'][0], '2000')
-    env.assertEqual(res_dict['MAX_TRIM_DELAY_MS'][0], '5000')
+    env.assertEqual(res_dict['_MIN_TRIM_DELAY_MS'][0], '2000')
+    env.assertEqual(res_dict['_MAX_TRIM_DELAY_MS'][0], '5000')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -274,37 +274,37 @@ def test_command_name(env: Env):
 
 @skip(cluster=True)
 def testTrimDelayValidation(env):
-    """Test MIN_TRIM_DELAY_MS and MAX_TRIM_DELAY_MS validation logic"""
+    """Test _MIN_TRIM_DELAY_MS and _MAX_TRIM_DELAY_MS validation logic"""
 
     # Test getting default values
-    env.expect(config_cmd(), 'get', 'MIN_TRIM_DELAY_MS').equal([['MIN_TRIM_DELAY_MS', '2000']])
-    env.expect(config_cmd(), 'get', 'MAX_TRIM_DELAY_MS').equal([['MAX_TRIM_DELAY_MS', '5000']])
+    env.expect(config_cmd(), 'get', '_MIN_TRIM_DELAY_MS').equal([['_MIN_TRIM_DELAY_MS', '2000']])
+    env.expect(config_cmd(), 'get', '_MAX_TRIM_DELAY_MS').equal([['_MAX_TRIM_DELAY_MS', '5000']])
 
     # Test setting valid values
-    env.expect(config_cmd(), 'set', 'MIN_TRIM_DELAY_MS', 1000).equal('OK')
-    env.expect(config_cmd(), 'set', 'MAX_TRIM_DELAY_MS', 8000).equal('OK')
+    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 1000).equal('OK')
+    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 8000).equal('OK')
 
     # Verify the values were set
-    env.expect(config_cmd(), 'get', 'MIN_TRIM_DELAY_MS').equal([['MIN_TRIM_DELAY_MS', '1000']])
-    env.expect(config_cmd(), 'get', 'MAX_TRIM_DELAY_MS').equal([['MAX_TRIM_DELAY_MS', '8000']])
+    env.expect(config_cmd(), 'get', '_MIN_TRIM_DELAY_MS').equal([['_MIN_TRIM_DELAY_MS', '1000']])
+    env.expect(config_cmd(), 'get', '_MAX_TRIM_DELAY_MS').equal([['_MAX_TRIM_DELAY_MS', '8000']])
 
-    # Test validation: MIN_TRIM_DELAY_MS must be less than MAX_TRIM_DELAY_MS
-    env.expect(config_cmd(), 'set', 'MIN_TRIM_DELAY_MS', 9000).error().contains('MIN_TRIM_DELAY_MS (9000) must be less than MAX_TRIM_DELAY_MS (8000)')
-    env.expect(config_cmd(), 'set', 'MAX_TRIM_DELAY_MS', 500).error().contains('MAX_TRIM_DELAY_MS (500) must be greater than MIN_TRIM_DELAY_MS (1000)')
+    # Test validation: _MIN_TRIM_DELAY_MS must be less than _MAX_TRIM_DELAY_MS
+    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 9000).error().contains('_MIN_TRIM_DELAY_MS (9000) must be less than _MAX_TRIM_DELAY_MS (8000)')
+    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 500).error().contains('_MAX_TRIM_DELAY_MS (500) must be greater than _MIN_TRIM_DELAY_MS (1000)')
 
     # Test edge case: equal values should fail
-    env.expect(config_cmd(), 'set', 'MIN_TRIM_DELAY_MS', 8000).error().contains('MIN_TRIM_DELAY_MS (8000) must be less than MAX_TRIM_DELAY_MS (8000)')
-    env.expect(config_cmd(), 'set', 'MAX_TRIM_DELAY_MS', 1000).error().contains('MAX_TRIM_DELAY_MS (1000) must be greater than MIN_TRIM_DELAY_MS (1000)')
+    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 8000).error().contains('_MIN_TRIM_DELAY_MS (8000) must be less than _MAX_TRIM_DELAY_MS (8000)')
+    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 1000).error().contains('_MAX_TRIM_DELAY_MS (1000) must be greater than _MIN_TRIM_DELAY_MS (1000)')
 
     # Test that values remain unchanged after failed validation
-    env.expect(config_cmd(), 'get', 'MIN_TRIM_DELAY_MS').equal([['MIN_TRIM_DELAY_MS', '1000']])
-    env.expect(config_cmd(), 'get', 'MAX_TRIM_DELAY_MS').equal([['MAX_TRIM_DELAY_MS', '8000']])
+    env.expect(config_cmd(), 'get', '_MIN_TRIM_DELAY_MS').equal([['_MIN_TRIM_DELAY_MS', '1000']])
+    env.expect(config_cmd(), 'get', '_MAX_TRIM_DELAY_MS').equal([['_MAX_TRIM_DELAY_MS', '8000']])
 
     # Test setting both values to valid range
-    env.expect(config_cmd(), 'set', 'MIN_TRIM_DELAY_MS', 3000).equal('OK')
-    env.expect(config_cmd(), 'set', 'MAX_TRIM_DELAY_MS', 6000).equal('OK')
-    env.expect(config_cmd(), 'get', 'MIN_TRIM_DELAY_MS').equal([['MIN_TRIM_DELAY_MS', '3000']])
-    env.expect(config_cmd(), 'get', 'MAX_TRIM_DELAY_MS').equal([['MAX_TRIM_DELAY_MS', '6000']])
+    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 3000).equal('OK')
+    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 6000).equal('OK')
+    env.expect(config_cmd(), 'get', '_MIN_TRIM_DELAY_MS').equal([['_MIN_TRIM_DELAY_MS', '3000']])
+    env.expect(config_cmd(), 'get', '_MAX_TRIM_DELAY_MS').equal([['_MAX_TRIM_DELAY_MS', '6000']])
 
 @skip(cluster=True)
 def testImmutable(env):

@@ -91,6 +91,8 @@ configPair_t __configPairs[] = {
   {"_BG_INDEX_OOM_PAUSE_TIME",         "search-_bg-index-oom-pause-time"},
   {"INDEXER_YIELD_EVERY_OPS",         "search-indexer-yield-every-ops"},
   {"ON_OOM",                          "search-on-oom"},
+  {"_MIN_TRIM_DELAY_MS",               "search-_min-trim-delay-ms"},
+  {"_MAX_TRIM_DELAY_MS",               "search-_max-trim-delay-ms"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -142,7 +144,7 @@ long long get_uint_numeric_config(const char *name, void *privdata) {
   return (long long)(*(unsigned int *)privdata);
 }
 
-// Custom setter for MIN_TRIM_DELAY with validation
+// Custom setter for _MIN_TRIM_DELAY with validation
 int set_min_trim_delay_numeric_config(const char *name, long long val,
                                      void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
@@ -150,7 +152,7 @@ int set_min_trim_delay_numeric_config(const char *name, long long val,
   if (val >= (long long)RSGlobalConfig.maxTrimDelayMS) {
     if (err) {
       *err = RedisModule_CreateStringPrintf(NULL,
-        "MIN_TRIM_DELAY_MS (%lld) must be less than MAX_TRIM_DELAY_MS (%u)",
+        "search-_min-trim-delay-ms (%lld) must be less than search-_max-trim-delay-ms (%u)",
         val, RSGlobalConfig.maxTrimDelayMS);
     }
     return REDISMODULE_ERR;
@@ -160,7 +162,7 @@ int set_min_trim_delay_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-// Custom setter for MAX_TRIM_DELAY with validation
+// Custom setter for _MAX_TRIM_DELAY with validation
 int set_max_trim_delay_numeric_config(const char *name, long long val,
                                      void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
@@ -168,7 +170,7 @@ int set_max_trim_delay_numeric_config(const char *name, long long val,
   if (val <= (long long)RSGlobalConfig.minTrimDelayMS) {
     if (err) {
       *err = RedisModule_CreateStringPrintf(NULL,
-        "MAX_TRIM_DELAY_MS (%lld) must be greater than MIN_TRIM_DELAY_MS (%u)",
+        "search-_max-trim-delay-ms (%lld) must be greater than search-_min-trim-delay-ms (%u)",
         val, RSGlobalConfig.minTrimDelayMS);
     }
     return REDISMODULE_ERR;
@@ -1112,7 +1114,7 @@ CONFIG_SETTER(setMinTrimDelay) {
 
   // Validate that minTrimDelay is less than maxTrimDelayMS
   if (minTrimDelayMS >= config->maxTrimDelayMS) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "MIN_TRIM_DELAY_MS (%u) must be less than MAX_TRIM_DELAY_MS (%u)",
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "_MIN_TRIM_DELAY_MS (%u) must be less than _MAX_TRIM_DELAY_MS (%u)",
       minTrimDelayMS, config->maxTrimDelayMS);
     return REDISMODULE_ERR;
   }
@@ -1134,7 +1136,7 @@ CONFIG_SETTER(setMaxTrimDelay) {
 
   // Validate that maxTrimDelay is greater than minTrimDelay
   if (maxTrimDelayMS <= config->minTrimDelayMS) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "MAX_TRIM_DELAY_MS (%u) must be greater than MIN_TRIM_DELAY_MS (%u)",
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "_MAX_TRIM_DELAY_MS (%u) must be greater than _MIN_TRIM_DELAY_MS (%u)",
                                      maxTrimDelayMS, config->minTrimDelayMS);
     return REDISMODULE_ERR;
   }
@@ -1516,11 +1518,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Action to perform when search OOM is exceeded (choose RETURN, FAIL or IGNORE)",
          .setValue = setOnOom,
          .getValue = getOnOom},
-        {.name = "MIN_TRIM_DELAY_MS",
+        {.name = "_MIN_TRIM_DELAY_MS",
          .helpText = "Minimum delay before checking trimming state after slot migration (in milliseconds)",
          .setValue = setMinTrimDelay,
          .getValue = getMinTrimDelay},
-        {.name = "MAX_TRIM_DELAY_MS",
+        {.name = "_MAX_TRIM_DELAY_MS",
          .helpText = "Maximum delay before enabling trimming after slot migration (in milliseconds)",
          .setValue = setMaxTrimDelay,
          .getValue = getMaxTrimDelay},
