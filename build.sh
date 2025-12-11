@@ -633,8 +633,8 @@ run_rust_tests() {
     # Since --build-std is a cargo flag (not rustc), we set it separately
     # The doc tests are disabled under ASAN to avoid issues with linking to the sanitizer runtime
     # in doc tests.
-    RUST_TEST_COMMAND="-Zbuild-std nextest run --tests"
-    RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
+    RUST_TEST_COMMAND="-Zbuild-std nextest run"
+    RUST_TEST_OPTIONS="--tests --cargo-profile=$RUST_PROFILE $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C"
 
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
     # -Zsanitizer=address enables ASAN in Rust
