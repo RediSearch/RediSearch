@@ -102,6 +102,12 @@ uint32_t RSValue_ArrayLen(const struct RsValue *value);
  */
 struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
 
+int RSValue_Cmp(const struct RsValue *v1, const struct RsValue *v2, QueryError *status);
+
+int RSValue_Equal(const struct RsValue *v1, const struct RsValue *v2, QueryError *_status);
+
+int RSValue_BoolTest(const struct RsValue *value);
+
 /**
  * Creates and returns a new **owned** [`RsValue::Undefined`].
  *
@@ -387,6 +393,17 @@ const RedisModuleString *RSValue_RedisString_Get(const struct RsValue *value);
 const char *RSValue_StringPtrLen(const struct RsValue *value, size_t *len_ptr);
 
 /**
+ * Computes a 64-bit FNV-1a hash of an [`RsValue`], using `hval` as the initial offset basis.
+ *
+ * The hashing is recursive for composite types (arrays, maps, references, trios).
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
+uint64_t RSValue_Hash(const struct RsValue *value, uint64_t hval);
+
+/**
  * Allocates a new, uninitialized [`RSValueMapBuilder`] with space for `len` entries.
  *
  * The map entries are uninitialized and must be set using [`RSValue_MapBuilderSetEntry`]
@@ -467,6 +484,8 @@ void RSValue_Map_GetEntry(const struct RsValue *map,
                           uint32_t index,
                           struct RsValue **key,
                           struct RsValue **value);
+
+sds RSValue_DumpSds(const struct RsValue *value, sds sds, bool obfuscate);
 
 /**
  * Converts an [`RsValue`] to a number type in-place.

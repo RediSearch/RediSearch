@@ -8,7 +8,6 @@
 */
 
 use std::{mem::ManuallyDrop, ops::Deref};
-
 use value::{RsValue, SharedRsValue};
 
 /// Decrement the reference count of the provided [`RsValue`] object. If this was
