@@ -14,7 +14,6 @@ pub use crate::{
     shared::SharedRsValue,
     trio::RsValueTrio,
 };
-use std::fmt::Debug;
 
 /// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
 /// Rust port of the RSValue type.

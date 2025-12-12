@@ -7,8 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use crate::util::rsvalue_str_to_float;
 use ffi::RedisModuleString;
 use std::ffi::{CString, c_char, c_double};
+use std::mem::ManuallyDrop;
+use std::ops::Deref;
 use value::{RedisString, RsString, RsValue, RsValueTrio, SharedRsValue};
 
 /// Creates and returns a new **owned** [`RsValue`] object of type undefined.
@@ -88,6 +91,19 @@ pub unsafe extern "C" fn RSValue_NewTrio(
 ///    takes ownership of the allocation.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NullStatic() -> *mut RsValue {
+    SharedRsValue::null_static().into_raw() as *mut _
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewReference(src: *const RsValue) -> *mut RsValue {
+    let shared_src = unsafe { SharedRsValue::from_raw(src) };
+    let shared_src = ManuallyDrop::new(shared_src);
+    let ref_value = RsValue::Ref(shared_src.deref().clone());
+    SharedRsValue::new(ref_value).into_raw() as *mut _
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewString(str: *mut c_char, len: u32) -> *mut RsValue {
     // Safety: ensured by caller (1., 2., 3.)
@@ -198,4 +214,20 @@ pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -
     let value = RsValue::String(string);
     let shared_value = SharedRsValue::new(value);
     shared_value.into_raw().cast_mut()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewParsedNumber(value: *const c_char, len: u32) -> *mut RsValue {
+    // C uses fast_float_strtod
+    let slice = unsafe { std::slice::from_raw_parts(value as *const u8, len as usize) };
+    let Some(number) = rsvalue_str_to_float(slice) else {
+        return std::ptr::null_mut();
+    };
+
+    SharedRsValue::new(RsValue::Number(number)).into_raw() as *mut _
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewNumberFromInt64(number: i64) -> *mut RsValue {
+    SharedRsValue::new(RsValue::Number(number as f64)).into_raw() as *mut _
 }
