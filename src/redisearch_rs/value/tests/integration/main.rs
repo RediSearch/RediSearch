@@ -7,17 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![allow(non_camel_case_types, non_snake_case)]
+// Link both Rust-provided and C-provided symbols
+extern crate redisearch_rs;
+// Mock or stub the ones that aren't provided by the line above
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-pub mod array;
-pub mod comparisons;
-pub mod constructors;
-pub mod conversions;
-pub mod getters;
-pub mod hash;
-pub mod map;
-pub mod sds;
-pub mod setters;
-pub mod shared;
-pub mod util;
-pub mod value_type;
+mod debug;
+mod rs_string;
