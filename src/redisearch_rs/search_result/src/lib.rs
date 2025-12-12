@@ -7,13 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub mod bindings;
-
 use enumflags2::{BitFlags, bitflags};
 use inverted_index::RSIndexResult;
 use std::ptr::{self, NonNull};
 
-use crate::bindings::DocumentMetadata;
+use document::DocumentMetadata;
 
 #[bitflags]
 #[repr(u8)]

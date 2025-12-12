@@ -318,6 +318,10 @@ impl<'a> RLookupKey<'a> {
         self._name.as_ref()
     }
 
+    pub fn path(&self) -> Option<&CStr> {
+        Some(self._path.as_ref()?.as_ref())
+    }
+
     pub fn update_from_field_spec(&mut self, fs: &ffi::FieldSpec) {
         self.flags |= RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc;
 
