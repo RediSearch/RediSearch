@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ffi::c_char, mem::offset_of, ptr::NonNull};
+use std::{ffi::c_char, ptr::NonNull};
 
 /// A trait that defines the behavior of a RediSearch RSValue.
 ///
@@ -188,19 +188,7 @@ impl RSValueTrait for RSValueFFI {
     }
 
     fn refcount(&self) -> Option<usize> {
-        if self.get_type() == ffi::RSValueType_RSValueType_Null {
-            None
-        } else {
-            // Safety: matches the layout of RSValue and `offset_of` can't produce out-of-bounds values
-            let ptr = unsafe {
-                self.0
-                    .byte_add(offset_of!(ffi::RSValue, _refcount))
-                    .cast::<u16>()
-            };
-
-            // Safety: Constructors for Self only return valid, non-null pointers
-            Some(unsafe { ptr.read() as usize })
-        }
+        Some(unsafe { ffi::RSValue_Refcount(self.0.as_ptr()) } as usize)
     }
 }
 
