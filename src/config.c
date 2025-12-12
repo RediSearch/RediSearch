@@ -28,6 +28,7 @@
 #define STRINGIFY(x) __STRINGIFY(x)
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
+#define DEFAULT_DEBUG_DISABLE_TRIMMING false
 
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
@@ -91,9 +92,10 @@ configPair_t __configPairs[] = {
   {"_BG_INDEX_OOM_PAUSE_TIME",         "search-_bg-index-oom-pause-time"},
   {"INDEXER_YIELD_EVERY_OPS",         "search-indexer-yield-every-ops"},
   {"ON_OOM",                          "search-on-oom"},
-  {"_MIN_TRIM_DELAY_MS",               "search-_min-trim-delay-ms"},
-  {"_MAX_TRIM_DELAY_MS",               "search-_max-trim-delay-ms"},
-  {"_TRIMMING_STATE_CHECK_DELAY_MS",   "search-_trimming-state-check-delay-ms"},
+  {"_MIN_TRIM_DELAY_MS",              "search-_min-trim-delay-ms"},
+  {"_MAX_TRIM_DELAY_MS",              "search-_max-trim-delay-ms"},
+  {"_TRIMMING_STATE_CHECK_DELAY_MS",  "search-_trimming-state-check-delay-ms"},
+  {"DEBUG_DISABLE_TRIMMING",          "search-debug-disable-trimming"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -1094,6 +1096,9 @@ CONFIG_GETTER(getIndexCursorLimit) {
 CONFIG_BOOLEAN_SETTER(set_EnableUnstableFeatures, enableUnstableFeatures)
 CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
 
+CONFIG_BOOLEAN_SETTER(set_DebugDisableTrimming, debugDisableTrimming)
+CONFIG_BOOLEAN_GETTER(get_DebugDisableTrimming, debugDisableTrimming, 0)
+
 // INDEXER_YIELD_EVERY_OPS
 CONFIG_SETTER(setIndexerYieldEveryOps) {
   unsigned int yieldEveryOps;
@@ -1545,6 +1550,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Delay between trimming state checks (in milliseconds)",
          .setValue = setTrimmingStateCheckDelay,
          .getValue = getTrimmingStateCheckDelay},
+         {.name = "DEBUG_DISABLE_TRIMMING",
+          .helpText = "Disable trimming of documents from the index. For debugging only.",
+          .setValue = set_DebugDisableTrimming,
+          .getValue = get_DebugDisableTrimming},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -1804,8 +1813,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
       UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
       (void *)&(RSGlobalConfig.numBGIndexingIterationsBeforeSleep)
+    )
   )
-)
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
@@ -2211,6 +2220,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.enableUnstableFeatures)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-debug-disable-trimming", DEFAULT_DEBUG_DISABLE_TRIMMING,
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.debugDisableTrimming)
     )
   )
 
