@@ -7,46 +7,49 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::c_double;
+use ffi::RedisModuleString;
+use std::ffi::{CString, c_char, c_double};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
-use value::trio::RsValueTrio;
-use value::{RsValue, shared::SharedRsValue};
+use value::util::str_to_float;
+use value::{RedisString, RsString, RsValue, RsValueTrio, SharedRsValue};
 
-/// Creates and returns a new **owned** [`RsValue`] object of type undefined.
+/// Creates and returns a new **owned** [`RsValue::Undefined`].
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
-/// ownership taking `RSValue_` methods, directly or indirectly.
+/// ownership taking `RSValue_` functions, directly or indirectly.
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_NewUndefined() -> *mut RsValue {
-    SharedRsValue::new(RsValue::Undefined).into_raw() as *mut _
+    SharedRsValue::new(RsValue::Undefined).into_raw().cast_mut()
 }
 
-/// Creates and returns a new **owned** [`RsValue`] object of type null.
+/// Creates and returns a new **owned** [`RsValue::Null`].
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
-/// ownership taking `RSValue_` methods, directly or indirectly.
+/// ownership taking `RSValue_` functions, directly or indirectly.
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_NewNull() -> *mut RsValue {
-    SharedRsValue::new(RsValue::Null).into_raw() as *mut _
+    SharedRsValue::new(RsValue::Null).into_raw().cast_mut()
 }
 
-/// Creates and returns a new **owned** [`RsValue`] object of type number
+/// Creates and returns a new **owned** [`RsValue::Number`]
 /// containing the given numeric value.
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
-/// ownership taking `RSValue_` methods, directly or indirectly.
+/// ownership taking `RSValue_` functions, directly or indirectly.
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_NewNumber(value: c_double) -> *mut RsValue {
-    SharedRsValue::new(RsValue::Number(value)).into_raw() as *mut _
+    SharedRsValue::new(RsValue::Number(value))
+        .into_raw()
+        .cast_mut()
 }
 
-/// Creates and returns a new **owned** [`RsValue`] object of type trio from three [`RsValue`]s.
+/// Creates and returns a new **owned** [`RsValue::Trio`] from three [`RsValue`]s.
 ///
 /// Takes ownership of all three arguments.
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
-/// ownership taking `RSValue_` methods, directly or indirectly.
+/// ownership taking `RSValue_` functions, directly or indirectly.
 ///
 /// # Safety
 ///
@@ -70,9 +73,24 @@ pub unsafe extern "C" fn RSValue_NewTrio(
         shared_middle,
         shared_right,
     )))
-    .into_raw() as *mut _
+    .into_raw()
+    .cast_mut()
 }
 
+/// Creates and returns a new **owned** [`RsValue::String`],
+/// taking ownership of the given `RedisModule_Alloc`-allocated buffer.
+///
+/// The caller must make sure to pass the returned [`RsValue`] to one of the
+/// ownership taking `RSValue_` functions, directly or indirectly.
+///
+/// # Safety
+///
+/// 1. `str` must be a [valid], non-null pointer to a buffer allocated by `RedisModule_Alloc`.
+/// 2. `str` must be [valid] for reads of `len` bytes.
+/// 3. `str` **must not** be used or freed after this function is called, as this function
+///    takes ownership of the allocation.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NullStatic() -> *mut RsValue {
     SharedRsValue::null_static().into_raw() as *mut _
@@ -84,4 +102,159 @@ pub unsafe extern "C" fn RSValue_NewReference(src: *const RsValue) -> *mut RsVal
     let shared_src = ManuallyDrop::new(shared_src);
     let ref_value = RsValue::Ref(shared_src.deref().clone());
     SharedRsValue::new(ref_value).into_raw() as *mut _
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewString(str: *mut c_char, len: u32) -> *mut RsValue {
+    // Safety: ensured by caller (1., 2., 3.)
+    let string = unsafe { RsString::rm_alloc_string(str, len) };
+
+    let value = RsValue::String(string);
+    let shared_value = SharedRsValue::new(value);
+    shared_value.into_raw().cast_mut()
+}
+
+/// Creates and returns a new **owned** [`RsValue::String`],
+/// taking ownership of the given `RedisModule_Alloc`-allocated buffer.
+///
+/// The caller must make sure to pass the returned [`RsValue`] to one of the
+/// ownership taking `RSValue_` functions, directly or indirectly.
+///
+/// # Safety
+///
+/// 1. `str` must be a [valid], non-null pointer to a buffer allocated by `RedisModule_Alloc`.
+/// 2. `str` must be [valid] for reads of `len` bytes.
+/// 3. `str` **must not** be used or freed after this function is called, as this function
+///    takes ownership of the allocation.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewStringWithoutNulTerminator(
+    str: *mut c_char,
+    len: u32,
+) -> *mut RsValue {
+    // Safety: ensured by caller (1., 2., 3.)
+    let string = unsafe { RsString::rm_alloc_string_without_nul_terminator(str, len) };
+    let value = RsValue::String(string);
+    let shared_value = SharedRsValue::new(value);
+    shared_value.into_raw().cast_mut()
+}
+
+/// Creates and returns a new **owned** [`RsValue::String`],
+/// borrowing the given string buffer without taking ownership.
+///
+/// The caller must make sure to pass the returned [`RsValue`] to one of the
+/// ownership taking `RSValue_` functions, directly or indirectly.
+///
+/// # Safety
+///
+/// 1. `str` must be a [valid], non-null pointer to a string buffer.
+/// 2. `str` must be [valid] for reads of `len` bytes.
+/// 3. The memory pointed to by `str` must remain valid and not be mutated for the entire
+///    lifetime of the returned [`RsValue`] and any clones of it.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewBorrowedString(str: *const c_char, len: u32) -> *mut RsValue {
+    // Safety: ensured by caller (1., 2., 3.)
+    let string = unsafe { RsString::borrowed_string(str, len) };
+
+    let value = RsValue::String(string);
+    let shared_value = SharedRsValue::new(value);
+    shared_value.into_raw().cast_mut()
+}
+
+/// Creates and returns a new **owned** [`RsValue::String`],
+/// taking ownership of the given [`RedisModuleString`].
+///
+/// The caller must make sure to pass the returned [`RsValue`] to one of the
+/// ownership taking `RSValue_` functions, directly or indirectly.
+///
+/// # Safety
+///
+/// 1. `str` must be a [valid], non-null pointer to a [`RedisModuleString`].
+/// 2. `str` **must not** be used or freed after this function is called, as this function
+///    takes ownership of the string.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewRedisString(str: *mut RedisModuleString) -> *mut RsValue {
+    // Safety: ensured by caller (1., 2.)
+    let redis_string = unsafe { RedisString::from_raw(str) };
+
+    let value = RsValue::RedisString(redis_string);
+    let shared_value = SharedRsValue::new(value);
+    shared_value.into_raw().cast_mut()
+}
+
+/// Creates and returns a new **owned** [`RsValue::String`],
+/// copying `len` bytes from the given string buffer into a new Rust-allocated [`Box<CStr>`].
+///
+/// The caller retains ownership of `str`.
+///
+/// The caller must make sure to pass the returned [`RsValue`] to one of the
+/// ownership taking `RSValue_` functions, directly or indirectly.
+///
+/// # Safety
+///
+/// 1. `str` must be a [valid], non-null pointer to a string buffer.
+/// 2. `str` must be [valid] for reads of `len` bytes.
+/// 3. The `len` bytes pointed to by `str` must not contain any null bytes.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -> *mut RsValue {
+    // Safety: ensured by caller (1., 2.)
+    let slice = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len as usize) };
+
+    // Safety: ensured by caller (3.)
+    let cstring = unsafe { CString::from_vec_unchecked(slice.to_vec()) };
+
+    let string = RsString::cstring(cstring);
+    let value = RsValue::String(string);
+    let shared_value = SharedRsValue::new(value);
+    shared_value.into_raw().cast_mut()
+}
+
+/// Creates and returns a new **owned** [`RsValue::Number`] by parsing the given
+/// string as a floating-point number. Returns a null pointer if the string
+/// cannot be parsed.
+///
+/// The caller retains ownership of `value`.
+///
+/// The caller must make sure to pass the returned [`RsValue`] to one of the
+/// ownership taking `RSValue_` functions, directly or indirectly.
+///
+/// # Safety
+///
+/// 1. `value` must be a [valid], non-null pointer to a string buffer.
+/// 2. `value` must be [valid] for reads of `len` bytes.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewParsedNumber(value: *const c_char, len: u32) -> *mut RsValue {
+    // Safety: ensured by caller (1., 2.)
+    let slice = unsafe { std::slice::from_raw_parts(value as *const u8, len as usize) };
+
+    let Some(number) = str_to_float(slice) else {
+        return std::ptr::null_mut();
+    };
+
+    SharedRsValue::new(RsValue::Number(number))
+        .into_raw()
+        .cast_mut()
+}
+
+/// Creates and returns a new **owned** [`RsValue::Number`] from an `i64`.
+///
+/// The `i64` is cast to `f64`, which may lose precision for values outside
+/// the exact representable range of `f64`.
+///
+/// The caller must make sure to pass the returned [`RsValue`] to one of the
+/// ownership taking `RSValue_` functions, directly or indirectly.
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_NewNumberFromInt64(number: i64) -> *mut RsValue {
+    SharedRsValue::new(RsValue::Number(number as f64))
+        .into_raw()
+        .cast_mut()
 }

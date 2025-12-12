@@ -60,6 +60,7 @@ fn main() {
     let deps = root.join("deps");
     let headers = [
         deps.join("RedisModulesSDK").join("redismodule.h"),
+        deps.join("hiredis").join("sds.h"),
         deps.join("rmutil").join("vector.h"),
         src.join("buffer/buffer.h"),
         src.join("config.h"),
@@ -73,6 +74,7 @@ fn main() {
         src.join("json.h"),
         src.join("numeric_index.h"),
         src.join("obfuscation").join("hidden.h"),
+        src.join("obfuscation").join("obfuscation_api.h"),
         src.join("query.h"),
         src.join("redis_index.h"),
         src.join("redisearch.h"),

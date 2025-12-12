@@ -95,7 +95,7 @@ pub unsafe extern "C" fn RSValue_NewMapFromBuilder(map: *mut RSValueMapBuilder) 
 
     let value = RsValue::Map(Map::new(map));
     let shared = SharedRsValue::new(value);
-    shared.into_raw() as *mut _
+    shared.into_raw().cast_mut()
 }
 
 /// Returns the number of key-value pairs in a map [`RsValue`].
@@ -149,9 +149,9 @@ pub unsafe extern "C" fn RSValue_Map_GetEntry(
         // Compatibility: C does an RS_ASSERT on index out of bounds
         let (shared_key, shared_value) = &map[index as usize];
         // Safety: ensured by caller (2.)
-        unsafe { key.write(shared_key.as_ptr() as *mut _) };
+        unsafe { key.write(shared_key.as_ptr().cast_mut()) };
         // Safety: ensured by caller (2.)
-        unsafe { value.write(shared_value.as_ptr() as *mut _) };
+        unsafe { value.write(shared_value.as_ptr().cast_mut()) };
     } else {
         panic!("Expected 'Map' type, got '{}'", map.variant_name())
     }

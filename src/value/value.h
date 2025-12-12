@@ -108,13 +108,15 @@ RSValue *RSValue_NewNull();
  */
 RSValue *RSValue_NewString(char *str, uint32_t len);
 
+RSValue *RSValue_NewStringWithoutNulTerminator(char *str, uint32_t len);
+
 /**
  * Creates a heap-allocated RSValue wrapping a const null-terminated C string.
  * @param str The string to wrap (ownership is transferred)
  * @param len The length of the string
  * @return A pointer to a heap-allocated RSValue wrapping a constant C string
  */
-RSValue *RSValue_NewConstString(const char *str, uint32_t len);
+RSValue *RSValue_NewBorrowedString(const char *str, uint32_t len);
 
 /**
  * Creates a heap-allocated RSValue which takes a reference to the Redis string.
@@ -140,7 +142,7 @@ RSValue *RSValue_NullStatic();
  * @param dst The length of the string to copy
  * @return A pointer to a heap-allocated RSValue owning the copied string
  */
-RSValue *RSValue_NewCopiedString(const char *s, size_t dst);
+RSValue *RSValue_NewCopiedString(const char *s, uint32_t dst);
 
 /**
  * Creates a heap-allocated RSValue by parsing a string as a number.
@@ -281,8 +283,8 @@ double RSValue_Number_Get(const RSValue *v);
 void RSValue_SetNumber(RSValue *v, double n);
 
 // String getters/setters
-void RSValue_SetString(RSValue *v, char *str, size_t len);
-void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
+void RSValue_SetString(RSValue *v, char *str, uint32_t len);
+void RSValue_SetConstString(RSValue *v, const char *str, uint32_t len);
 
 /**
  * Get the string value and length from an RSValue.
@@ -291,7 +293,9 @@ void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
  * @param lenp Output parameter for the string length. Only used if not NULL
  * @return Pointer to the string data
  */
-char *RSValue_String_Get(const RSValue *v, uint32_t *lenp);
+const char *RSValue_String_GetNullTerminated(const RSValue *v, uint32_t *lenp);
+
+const char *RSValue_String_GetSlice(const RSValue *v, uint32_t *lenp);
 
 /**
  * Get the RedisModuleString from an RSValue.
