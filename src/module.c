@@ -74,6 +74,7 @@
 #include "util/redis_mem_info.h"
 #include "aggregate/reply_empty.h"
 #include "asm_state_machine.h"
+#include "tracing_redismodule.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -4072,6 +4073,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
+
+  TracingRedisModule_Init(ctx);
 
   setHiredisAllocators();
   uv_replace_allocator(rm_malloc, rm_realloc, rm_calloc, rm_free);
