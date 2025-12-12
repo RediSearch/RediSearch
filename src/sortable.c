@@ -68,12 +68,12 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb) {
         RedisModule_Free(s);
         break;
       }
-      case RS_SORTABLE_NUM:
+      case RSValueType_Number:
         // load numeric value
         RSSortingVector_PutNum(vec, i, RedisModule_LoadDouble(rdb));
         break;
       // for nil we read nothing
-      case RS_SORTABLE_NIL:
+      case RSValueType_Null:
       default:
         RSSortingVector_PutNull(vec, i);
         break;
