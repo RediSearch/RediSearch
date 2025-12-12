@@ -18,12 +18,6 @@ use value::{RSValueFFI, RSValueTrait as _};
 
 pub const RS_SORTABLES_MAX: usize = 1024;
 
-pub const RS_SORTABLE_NUM: usize = 1;
-pub const RS_SORTABLE_EMBEDDED_STR: usize = 2;
-pub const RS_SORTABLE_STR: usize = 3;
-pub const RS_SORTABLE_NIL: usize = 4;
-pub const RS_SORTABLE_RSVAL: usize = 5;
-
 /// cbindgen:ignore
 pub type RSSortingVector = sorting_vector::RSSortingVector<RSValueFFI>;
 
