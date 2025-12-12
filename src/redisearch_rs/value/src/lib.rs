@@ -7,10 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{
-    collection::{RsValueArray, RsValueMap},
+use std::ffi::CStr;
+
+pub use crate::{
+    collection::{Array, Map},
     shared::SharedRsValue,
-    strings::{ConstString, RedisString, RmAllocString, RsValueString},
+    strings::{ConstString, RedisString, RmAllocString},
     trio::RsValueTrio,
 };
 
@@ -26,7 +28,7 @@ mod test_utils;
 #[cfg(feature = "test_utils")]
 pub use test_utils::RSValueMock;
 
-pub mod collection;
+mod collection;
 pub mod shared;
 pub mod strings;
 pub mod trio;
@@ -47,15 +49,15 @@ pub enum RsValue {
     /// String value backed by a Redis string
     RedisString(RedisString),
     /// String value
-    String(Box<RsValueString>),
+    String(Box<CStr>),
     /// Array value
-    Array(RsValueArray),
+    Array(Array),
     /// Reference value
     Ref(SharedRsValue),
     /// Trio value
     Trio(RsValueTrio),
     /// Map value
-    Map(RsValueMap),
+    Map(Map),
 }
 
 impl RsValue {
