@@ -3835,6 +3835,9 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RS_ASSERT(my_shard_idx < topo->numShards);
   const RedisModuleSlotRangeArray *my_slots = topo->shards[my_shard_idx].slotRanges;
 
+  // Store the local shard id
+  MR_SetLocalNodeId(topo->shards[my_shard_idx].node.id);
+
   // send the topology to the cluster
   MR_UpdateTopology(topo, my_slots);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
