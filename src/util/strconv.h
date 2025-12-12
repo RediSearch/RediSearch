@@ -27,7 +27,7 @@
 #define SSO_MAX_LENGTH 128
 
 /* Parse string into int, returning 1 on success, 0 otherwise */
-static int ParseInteger(const char *arg, long long *val) {
+static inline int ParseInteger(const char *arg, long long *val) {
 
   char *e = NULL;
   errno = 0;
@@ -42,7 +42,7 @@ static int ParseInteger(const char *arg, long long *val) {
 }
 
 /* Parse string into double, returning 1 on success, 0 otherwise */
-static int ParseDouble(const char *arg, double *d, int sign) {
+static inline int ParseDouble(const char *arg, double *d, int sign) {
   char *e;
   errno = 0;
 
@@ -66,7 +66,7 @@ static int ParseDouble(const char *arg, double *d, int sign) {
   return 1;
 }
 
-static int ParseBoolean(const char *arg, int *res) {
+static inline int ParseBoolean(const char *arg, int *res) {
   if (STR_EQCASE(arg, strlen(arg), "true") || STR_EQCASE(arg, strlen(arg), "1")) {
     *res = 1;
     return 1;
@@ -80,7 +80,7 @@ static int ParseBoolean(const char *arg, int *res) {
   return 0;
 }
 
-static char *strtolower(char *str) {
+static inline char *strtolower(char *str) {
   char *p = str;
   while (*p) {
     *p = tolower(*p);
@@ -89,7 +89,7 @@ static char *strtolower(char *str) {
   return str;
 }
 
-static char *rm_strndup_unescape(const char *s, size_t len) {
+static inline char *rm_strndup_unescape(const char *s, size_t len) {
   char *ret = rm_strndup(s, len);
   char *dst = ret;
   char *src = (char *)s;
@@ -173,7 +173,7 @@ static char* unicode_tolower(char *encoded, size_t *inout_len) {
   // Encode Unicode codepoints back to utf8 string
   ssize_t reencoded_len = nu_bytenlen(u_buffer, i, nu_utf8_write);
   if (reencoded_len > 0) {
-    if (reencoded_len <= in_len) {
+    if (reencoded_len <= (ssize_t)in_len) {
       // If the reencoded length is less than or equal to the original length,
       // we can write directly to the original buffer
       // Write the reencoded string back to the original buffer
@@ -196,7 +196,7 @@ static char* unicode_tolower(char *encoded, size_t *inout_len) {
 }
 
 // strndup + unescape + tolower
-static char *rm_normalize(const char *s, size_t len) {
+static inline char *rm_normalize(const char *s, size_t len) {
   char *ret = rm_strndup(s, len);
   char *dst = ret;
   char *src = ret;

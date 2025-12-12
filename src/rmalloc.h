@@ -36,7 +36,7 @@ static inline char *rm_strdup(const char *s) {
   return RedisModule_Strdup(s);
 }
 
-static char *rm_strndup(const char *s, size_t n) {
+static inline char *rm_strndup(const char *s, size_t n) {
   char *ret = (char *)rm_malloc(n + 1);
 
   if (ret) {
@@ -60,7 +60,7 @@ static int rm_vasprintf(char **__restrict __ptr, const char *__restrict __fmt, v
   return res;
 }
 
-static int rm_asprintf(char **__ptr, const char *__restrict __fmt, ...) {
+static inline int rm_asprintf(char **__ptr, const char *__restrict __fmt, ...) {
   va_list ap;
   va_start(ap, __fmt);
 

@@ -93,7 +93,7 @@ static void debugTaskCallback(void* data) {
   GCContext* gc = task->gc;
   RedisModuleBlockedClient* bc = task->bClient;
 
-  int ret = gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx);
 
   // if GC was invoke by debug command, we release the client
   // and terminate without rescheduling the task again.

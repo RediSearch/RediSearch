@@ -218,7 +218,7 @@ static void NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, double va
     if (rv->changed) {
       NumericRangeNode_Balance(np);
       n = *np; // rebalance might have changed the root
-      if (n->maxDepth > RSGlobalConfig.numericTreeMaxDepthRange) {
+      if (n->maxDepth > (int)RSGlobalConfig.numericTreeMaxDepthRange) {
         // we are too high up - we don't retain this node's range anymore.
         removeRange(n, rv);
       }
@@ -243,7 +243,7 @@ static void NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, double va
       // split this node but don't delete its range
       NumericRangeNode_Split(n, rv);
 
-      if (n->maxDepth > RSGlobalConfig.numericTreeMaxDepthRange) {
+      if (n->maxDepth > (int)RSGlobalConfig.numericTreeMaxDepthRange) {
         removeRange(n, rv);
       }
     }
@@ -476,7 +476,7 @@ QueryIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTre
     return NULL;
   }
 
-  int n = Vector_Size(v);
+  size_t n = Vector_Size(v);
   // if we only selected one range - we can just iterate it without union or anything
   if (n == 1) {
     NumericRange *rng;

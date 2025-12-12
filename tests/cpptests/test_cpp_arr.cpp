@@ -90,7 +90,6 @@ TEST_F(ArrTest, testTrimm) {
 
 TEST_F(ArrTest, testEnsure) {
   Foo *f = array_new(Foo, 1);
-  array_hdr_t *hdr = array_hdr(f);
   Foo *tail = array_ensure_tail(&f, Foo);
   // Make sure Valgrind does not complain!
   tail->x = 0;

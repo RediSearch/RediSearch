@@ -105,7 +105,7 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   }
 
   RSOffsetIterator v1, v2;
-  int i = 0;
+  size_t i = 0;
   while (i < num) {
     // if either
     while (i < num && !RSIndexResult_HasOffsets(AggregateResult_GetUnchecked(agg, i))) {
@@ -129,8 +129,8 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
     uint32_t p1 = v1.Next(v1.ctx, NULL);
     uint32_t p2 = v2.Next(v2.ctx, NULL);
     int cd = __absdelta(p2, p1);
-    while (cd > 1 && p1 != RS_OFFSETVECTOR_EOF && p2 != RS_OFFSETVECTOR_EOF) {
-      cd = MIN(__absdelta(p2, p1), cd);
+    while ((uint32_t)cd > 1 && p1 != RS_OFFSETVECTOR_EOF && p2 != RS_OFFSETVECTOR_EOF) {
+      cd = MIN(__absdelta(p2, p1), (uint32_t)cd);
       if (p2 > p1) {
         p1 = v1.Next(v1.ctx, NULL);
       } else {
@@ -159,7 +159,7 @@ void result_GetMatchedTerms(const RSIndexResult *r, RSQueryTerm *arr[], size_t c
       // and skip the tag check on the next line.
       const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
       AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
-      for (int i = 0; i < children.len; i++) {
+      for (size_t i = 0; i < children.len; i++) {
         result_GetMatchedTerms(children.ptr[i], arr, cap, len);
       }
 
@@ -229,7 +229,7 @@ int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *position
 }
 
 static inline uint32_t _arrayMin(uint32_t *arr, int len, uint32_t *pos) {
-  int m = arr[0];
+  uint32_t m = arr[0];
   *pos = 0;
   for (int i = 1; i < len; i++) {
     if (arr[i] < m) {
@@ -241,7 +241,7 @@ static inline uint32_t _arrayMin(uint32_t *arr, int len, uint32_t *pos) {
 }
 
 static inline uint32_t _arrayMax(uint32_t *arr, int len, uint32_t *pos) {
-  int m = arr[0];
+  uint32_t m = arr[0];
   *pos = 0;
   for (int i = 1; i < len; i++) {
     if (arr[i] >= m) {
@@ -315,7 +315,7 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
   int n = 0;
 
   AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
-  for (int i = 0; i < children.len; i++) {
+  for (size_t i = 0; i < children.len; i++) {
     const RSIndexResult *child = children.ptr[i];
     // collect only iterators for nodes that can have offsets
     if (RSIndexResult_HasOffsets(child)) {

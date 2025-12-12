@@ -233,8 +233,7 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
 char *VectorQuery_GetDefaultScoreFieldName(const char *fieldName, size_t fieldNameLen) {
   // Generate default scoreField name using vector field name
   char *scoreFieldName = NULL;
-  int n_written = rm_asprintf(&scoreFieldName, "__%.*s_score", (int)fieldNameLen, fieldName);
-  RS_ASSERT(n_written != -1);
+  rm_asprintf(&scoreFieldName, "__%.*s_score", (int)fieldNameLen, fieldName);
   return scoreFieldName;
 }
 
@@ -251,7 +250,7 @@ void VectorQuery_Free(VectorQuery *vq) {
     case VECSIM_QT_RANGE:
       break;
   }
-  for (int i = 0; i < array_len(vq->params.params); i++) {
+  for (uint32_t i = 0; i < array_len(vq->params.params); i++) {
     rm_free((char *)vq->params.params[i].name);
     rm_free((char *)vq->params.params[i].value);
   }
@@ -306,20 +305,22 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
   }
   return NULL;
 }
-const char *VecSimSearchMode_ToString(VecSearchMode vecsimSearchMode) {
+const char *VecSimSearchMode_ToString(VecSimSearchMode vecsimSearchMode) {
     switch (vecsimSearchMode) {
-    case EMPTY_MODE:
+    case VECSIM_EMPTY_MODE:
         return "EMPTY_MODE";
-    case STANDARD_KNN:
+    case VECSIM_STANDARD_KNN:
         return "STANDARD_KNN";
-    case HYBRID_ADHOC_BF:
+    case VECSIM_HYBRID_ADHOC_BF:
         return "HYBRID_ADHOC_BF";
-    case HYBRID_BATCHES:
+    case VECSIM_HYBRID_BATCHES:
         return "HYBRID_BATCHES";
-    case HYBRID_BATCHES_TO_ADHOC_BF:
+    case VECSIM_HYBRID_BATCHES_TO_ADHOC_BF:
         return "HYBRID_BATCHES_TO_ADHOC_BF";
-    case RANGE_QUERY:
+    case VECSIM_RANGE_QUERY:
         return "RANGE_QUERY";
+    case VECSIM_LAST_SEARCHMODE:
+        break;
     }
     return NULL;
 }
@@ -690,7 +691,7 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
   RedisSearchCtx_LockSpecRead(&sctx);
   // Iterate over the fields and call the GC for each tiered index
   if (sp->flags & Index_HasVecSim) { // Early return if the spec doesn't have vector indexes
-    for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    for (int16_t ii = 0; ii < sp->numFields; ++ii) {
       if (sp->fields[ii].types & INDEXFLD_T_VECTOR &&
           sp->fields[ii].vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
         // Get the vector index
@@ -725,17 +726,16 @@ VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField) {
         return svs_params.metric;
       } else {
         // Unknown primary algorithm in tiered index
-        char error_msg[256];
-        snprintf(error_msg, sizeof(error_msg), "Unknown primary algorithm in tiered index: %s",
-                 VecSimAlgorithm_ToString(primary_params->algo));
-        RS_ABORT(error_msg);
+        RS_LOG_ASSERT_FMT_ALWAYS(false, "Unknown primary algorithm in tiered index: %s",
+                                        VecSimAlgorithm_ToString(primary_params->algo));
       }
       break;
     }
     case VecSimAlgo_BF:
       return algo_params.bfParams.metric;
-    default:
-      // Unknown algorithm type
-      RS_ABORT("Unknown algorithm in vector index");
-  }
+    case VecSimAlgo_HNSWLIB:
+    case VecSimAlgo_SVS:
+      break;
+    }
+  RS_ABORT_ALWAYS("Unknown algorithm in vector index");
 }

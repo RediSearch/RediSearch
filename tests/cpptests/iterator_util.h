@@ -133,25 +133,25 @@ public:
 
     template<typename... Args>
     MockIterator(Args&&... args)
-      : docIds({std::forward<Args>(args)...}), whenDone(ITERATOR_EOF), nextIndex(0), readCount(0), sleepTime(std::nullopt), revalidateResult(VALIDATE_OK), validationCount(0) {
+      : docIds({std::forward<Args>(args)...}), nextIndex(0), whenDone(ITERATOR_EOF), readCount(0), sleepTime(std::nullopt), revalidateResult(VALIDATE_OK), validationCount(0) {
       Init();
     }
 
     template<typename... Args>
     MockIterator(std::chrono::nanoseconds sleep, Args&&... args)
-      : docIds({std::forward<Args>(args)...}), whenDone(ITERATOR_EOF), nextIndex(0), readCount(0), sleepTime(sleep), revalidateResult(VALIDATE_OK), validationCount(0) {
+      : docIds({std::forward<Args>(args)...}), nextIndex(0), whenDone(ITERATOR_EOF), readCount(0), sleepTime(sleep), revalidateResult(VALIDATE_OK), validationCount(0) {
       Init();
     }
 
     template<typename... Args>
     MockIterator(IteratorStatus st, Args&&... ids_args)
-      : docIds({std::forward<Args>(ids_args)...}), whenDone(st), nextIndex(0), readCount(0), sleepTime(std::nullopt), revalidateResult(VALIDATE_OK), validationCount(0) {
+      : docIds({std::forward<Args>(ids_args)...}), nextIndex(0), whenDone(st), readCount(0), sleepTime(std::nullopt), revalidateResult(VALIDATE_OK), validationCount(0) {
       Init();
     }
 
     template<typename... Args>
     MockIterator(IteratorStatus st, std::chrono::nanoseconds sleep, Args&&... ids_args)
-      : docIds({std::forward<Args>(ids_args)...}), whenDone(st), nextIndex(0), readCount(0), sleepTime(sleep), revalidateResult(VALIDATE_OK), validationCount(0) {
+      : docIds({std::forward<Args>(ids_args)...}), nextIndex(0), whenDone(st), readCount(0), sleepTime(sleep), revalidateResult(VALIDATE_OK), validationCount(0) {
       Init();
     }
 };

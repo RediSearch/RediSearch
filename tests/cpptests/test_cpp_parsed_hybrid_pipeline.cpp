@@ -144,7 +144,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
     return nullptr;
   }
 
-  HybridPipelineParams hybridParams = {0};
+  HybridPipelineParams hybridParams = {{{0}}};
   RequestConfig reqConfig = {0};
   CursorConfig cursorConfig = {0};
 

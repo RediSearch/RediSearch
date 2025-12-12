@@ -108,12 +108,13 @@ static inline char highest_descendant_in_range(mm_heap_t* h, int i) {
   int e = first_child(b);
   int f = second_child(b);
 
-  if (f <= h->count) return 0xf;
-  if (e <= h->count) return 0xe;
-  if (d <= h->count) return 0xd;
-  if (c <= h->count) return 0xc;
-  if (b <= h->count) return 0xb;
-  if (a <= h->count) return 0xa;
+  int count = (int)h->count;
+  if (f <= count) return 0xf;
+  if (e <= count) return 0xe;
+  if (d <= count) return 0xd;
+  if (c <= count) return 0xc;
+  if (b <= count) return 0xb;
+  if (a <= count) return 0xa;
 
   return 0x0;
 }

@@ -25,7 +25,7 @@ static const int on_timeout_enums[2] = {
   TimeoutPolicy_Return,
   TimeoutPolicy_Fail
 };
-static const char *on_timeout_vals[2] = {
+static const char *on_timeout_vals[2] __attribute__((unused)) = {
   "return",
   "fail"
 };
@@ -42,7 +42,7 @@ static const int on_oom_enums[3] = {
   OomPolicy_Fail,
   OomPolicy_Ignore
 };
-static const char *on_oom_vals[3] = {
+static const char *on_oom_vals[3] __attribute__((unused)) = {
   "return",
   "fail",
   "ignore"
@@ -182,7 +182,7 @@ typedef struct {
     // The number of indexing operations per field to perform before yielding to Redis during indexing while loading (so redis can be responsive)
   unsigned int indexerYieldEveryOpsWhileLoading;
   // Limit the number of cursors that can be created for a single index
-  long long indexCursorLimit;
+  size_t indexCursorLimit;
   // The maximum ratio between current memory and max memory for which background indexing is allowed
   uint8_t indexingMemoryLimit;
   // Enable to execute unstable features

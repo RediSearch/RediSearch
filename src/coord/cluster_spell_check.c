@@ -59,7 +59,7 @@ static void spellcheckReducerCtx_Free(spellcheckReducerCtx* ctx) {
 static spellCheckReducerTerm *spellcheckReducerCtx_GetOrCreateTermSuggestions(
     spellcheckReducerCtx *ctx, const char *term) {
   spellCheckReducerTerm *reducer_term = NULL;
-  for (int i = 0; i < array_len(ctx->terms); ++i) {
+  for (size_t i = 0; i < array_len(ctx->terms); ++i) {
     if (strcmp(ctx->terms[i]->term, term) == 0) {
       reducer_term = ctx->terms[i];
     }
@@ -166,7 +166,7 @@ static bool spellCheckAnalyzeResult_resp2(spellcheckReducerCtx *ctx, MRReply *re
     return false;
   }
 
-  int i;
+  size_t i;
   for (i = 0; i < MRReply_Length(termSuggestionsReply); ++i) {
     MRReply* termSuggestionReply = MRReply_ArrayElement(termSuggestionsReply, i);
     if (MRReply_Type(termSuggestionReply) != MR_REPLY_ARRAY) {
@@ -221,7 +221,7 @@ static bool spellCheckAnalyzeResult_resp3(spellcheckReducerCtx *ctx, MRReply *te
     return false;
   }
 
-  int i;
+  size_t i;
   for (i = 0; i < MRReply_Length(suggestions); ++i) {
     MRReply *termSuggestion = MRReply_ArrayElement(suggestions, i);
     if (MRReply_Type(termSuggestion) != MR_REPLY_MAP && MRReply_Length(termSuggestion) != 2) {
@@ -256,7 +256,7 @@ void spellCheckSendResult(RedisModule_Reply *reply, spellcheckReducerCtx* spellC
   if (reply->resp3) {
     RedisModule_Reply_Map(reply); // terms' map
   }
-  for (int i = 0; i < array_len(spellCheckCtx->terms); ++i) {
+  for (size_t i = 0; i < array_len(spellCheckCtx->terms); ++i) {
     if (spellCheckCtx->terms[i]->foundInIndex) {
       continue;
     }
@@ -289,8 +289,8 @@ int spellCheckReducer_resp2(struct MRCtx* mc, int count, MRReply** replies) {
   const char *error = NULL;
   spellcheckReducerCtx *spellcheckCtx = spellcheckReducerCtx_Create();
 
-  for (int i = 0; i < count; ++i) {
-    for (int j = 1; j < MRReply_Length(replies[i]); ++j) {
+  for (size_t i = 0; i < (size_t)count; ++i) {
+    for (size_t j = 1; j < MRReply_Length(replies[i]); ++j) {
       MRReply* term = MRReply_ArrayElement(replies[i], j);
       if (MRReply_Type(term) != MR_REPLY_ARRAY) {
         error = "bad reply returned";
@@ -339,7 +339,6 @@ int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
   spellcheckReducerCtx *spellcheckCtx = spellcheckReducerCtx_Create();
 
   for (int i = 0; i < count; ++i) {
-    int j = 0;
     MRReply *dictReply = replies[i];
 
     if (MRReply_Type(dictReply) != MR_REPLY_MAP) {
@@ -353,7 +352,7 @@ int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
       goto finish;
     }
 
-    for (int j = 0; j < MRReply_Length(termMap); j += 2) {
+    for (size_t j = 0; j < MRReply_Length(termMap); j += 2) {
       MRReply *term = MRReply_ArrayElement(termMap, j);
       MRReply *suggestions = MRReply_ArrayElement(termMap, j + 1);
       int sug_type = MRReply_Type(suggestions); // either an array of ERR(SPELL_CHECK_FOUND_TERM_IN_INDEX)

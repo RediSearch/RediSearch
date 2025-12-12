@@ -18,7 +18,7 @@ void Discard_Globals_Backup();
 #define LoadStringBufferAlloc_IOErrors(rdb, ptr, len, exclude_null_delimiter_from_len, cleanup_exp)  \
 do {                                                                \
   size_t tmp_len;                                                   \
-  size_t *tmp_len_ptr = len ? len : &tmp_len;                       \
+  size_t *tmp_len_ptr = (len) != NULL ? (len) : &tmp_len;           \
   char *oldbuf = RedisModule_LoadStringBuffer(rdb, tmp_len_ptr);    \
   if (RedisModule_IsIOError(rdb)) {                                 \
     cleanup_exp;                                                    \

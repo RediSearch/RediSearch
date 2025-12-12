@@ -78,6 +78,7 @@ static int AliasTable_Del(AliasTable *table, const HiddenString *alias, StrongRe
   }
   int rc = dictDelete(table->d, alias);
   RS_LOG_ASSERT(rc == DICT_OK, "Dictionary delete failed");
+  (void)rc;
   if (table->on_del) {
     table->on_del(alias, spec);
   }
@@ -116,6 +117,7 @@ void IndexSpec_ClearAliases(StrongRef spec_ref) {
     QueryError e = QueryError_Default();
     int rc = IndexAlias_Del(*pp, spec_ref, INDEXALIAS_NO_BACKREF, &e);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "Alias delete has failed");
+    (void)rc;
     HiddenString_Free(*pp, true);
     // set to NULL so IndexAlias_Del skips over this
     *pp = NULL;

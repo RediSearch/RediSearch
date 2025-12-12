@@ -117,7 +117,7 @@ static bool parseSlots(RedisModuleCallReply *slots, MRClusterShard *sh) {
   size_t buffer_size = SlotRangeArray_SizeOf(len / 2);
   sh->slotRanges = rm_malloc(buffer_size);
   sh->slotRanges->num_ranges = (int32_t)(len / 2);
-  for (size_t r = 0; r < sh->slotRanges->num_ranges; r++) {
+  for (size_t r = 0; r < (size_t)sh->slotRanges->num_ranges; r++) {
     sh->slotRanges->ranges[r].start = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(slots, r * 2));
     sh->slotRanges->ranges[r].end = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(slots, r * 2 + 1));
   }

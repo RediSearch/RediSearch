@@ -63,7 +63,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
 
       // Create a union iterator - the number of results that the iterator should return is determined
       // based on the current <percent>. Every child iterator of the union contains ids: [i, step+i, 2*step+i , ...]
-      InvertedIndex *inv_indices[percent];
+      std::vector<InvertedIndex *> inv_indices(percent);
       QueryIterator **its = (QueryIterator **)rm_calloc(percent, sizeof(QueryIterator *));
       FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
       for (size_t i = 0; i < percent; i++) {
@@ -76,7 +76,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       QueryIterator *ui = NewUnionIterator(its, percent, 0, 1, QN_UNION, NULL, &config);
       std::cout << "Expected child res: " << ui->NumEstimated(ui) << std::endl;
 
-      float query[NUM_ITERATIONS][d];
+      std::vector<std::vector<float>> query(NUM_ITERATIONS, std::vector<float>(d));
       KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
       VecSimQueryParams queryParams = {.hnswRuntimeParams = HNSWRuntimeParams{.efRuntime = 0}};
       FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
@@ -101,7 +101,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       HybridIterator *hr = (HybridIterator *)hybridIt;
       hr->searchMode = VECSIM_HYBRID_BATCHES;
 
-      size_t hnsw_ids[NUM_ITERATIONS][k];
+      std::vector<std::vector<size_t>> hnsw_ids(NUM_ITERATIONS, std::vector<size_t>(k));
       int count = 0;
       int num_batches_count = 0;
       auto start = std::chrono::high_resolution_clock::now();
@@ -112,7 +112,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
         for (size_t j = 0; j < d; ++j) {
           query[i][j] = (float)distrib(rng);
         }
-        hr->query.vector = query[i];
+        hr->query.vector = query[i].data();
 
         // Run the iterator until it is depleted and save the results.
         while (hybridIt->Read(hybridIt) == ITERATOR_OK) {
@@ -144,10 +144,10 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
       start = std::chrono::high_resolution_clock::now();
 
-      size_t bf_ids[NUM_ITERATIONS][k];
+      std::vector<std::vector<size_t>> bf_ids(NUM_ITERATIONS, std::vector<size_t>(k));
       for (size_t i = 0; i < NUM_ITERATIONS; i++) {
         count = 0;
-        hr->query.vector = query[i];
+        hr->query.vector = query[i].data();
         while (hybridIt->Read(hybridIt) == ITERATOR_OK) {
           bf_ids[i][count++] = hybridIt->lastDocId;
         }

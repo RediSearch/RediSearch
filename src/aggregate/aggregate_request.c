@@ -83,7 +83,6 @@ void FieldList_Free(FieldList *fields) {
 }
 
 ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, const char *path) {
-  size_t foundIndex = -1;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     if (!strcmp(fields->fields[ii].name, name)) {
       return fields->fields + ii;
@@ -121,7 +120,7 @@ static int parseCursorSettings(uint32_t *reqflags, CursorConfig *cursorConfig, A
                         .type = AC_ARGTYPE_UINT,
                         .target = &cursorConfig->chunkSize,
                         .intflags = AC_F_GE1},
-                       {NULL}};
+                       {.name = NULL, .target = NULL, .len = NULL, .type = 0, .intflags = 0, .slicelen = 0}};
 
   int rv;
   ACArgSpec *errArg = NULL;
@@ -149,7 +148,7 @@ static int parseRequiredFields(const char ***requiredFields, ArgsCursor *ac, Que
   // This array contains shallow copy of the required fields names. Those copies are to use only for lookup.
   // If we need to use them in reply we should make a copy of those strings.
   const char** reqFields = array_new(const char*, requiredFieldNum);
-  for(size_t i=0; i < requiredFieldNum; i++) {
+  for(int i=0; i < requiredFieldNum; i++) {
     const char *s = AC_GetStringNC(&args, NULL); {
       if(!s) {
         array_free(reqFields);
@@ -550,7 +549,6 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   ArgsCursor returnFields = {0};
   ArgsCursor inKeys = {0};
   ArgsCursor inFields = {0};
-  Pipeline *pipeline = &req->pipeline;
   ACArgSpec querySpecs[] = {
       {.name = "INFIELDS", .type = AC_ARGTYPE_SUBARGS, .target = &inFields},  // Comment
       {.name = "SLOP",
@@ -575,7 +573,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
        .type = AC_ARGTYPE_STRING,
        .target = &ast->udata,
        .len = &ast->udatalen},
-      {NULL}};
+      {.name = NULL, .target = NULL, .len = NULL, .type = 0, .intflags = 0, .slicelen = 0}};
 
   AREQ_AddRequestFlags(req, QEXEC_FORMAT_DEFAULT);
   bool optimization_specified = false;
@@ -732,8 +730,6 @@ static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCurso
 
   sds out = sdsnew("__generated_alias");
   out = sdscat(out, func);
-  // only put parentheses if we actually have args
-  char buf[255];
   ArgsCursor tmp = *args;
   while (!AC_IsAtEnd(&tmp)) {
     size_t l;
@@ -781,8 +777,8 @@ static RLookup *groupStepGetLookup(PLN_BaseStep *bstp) {
 
 
 PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac) {
-  long long nvars;
-  if (AC_GetLongLong(ac, &nvars, 0) != AC_OK) {
+  size_t nvars;
+  if (AC_GetSize(ac, &nvars, 0) != AC_OK) {
     return NULL;
   }
   size_t nreducers = array_len(gstp->reducers);
@@ -852,8 +848,8 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
   const char *s;
   AC_GetString(ac, &s, NULL, AC_F_NOADVANCE);
 
-  long long nproperties;
-  int rv = AC_GetLongLong(ac, &nproperties, 0);
+  size_t nproperties;
+  int rv = AC_GetSize(ac, &nproperties, 0);
   if (rv != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
@@ -1070,7 +1066,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   req->args = rm_malloc(sizeof(*req->args) * argc);
   req->nargs = argc;
   // Copy the arguments into an owned array of sds strings
-  for (size_t ii = 0; ii < argc; ++ii) {
+  for (int ii = 0; ii < argc; ++ii) {
     size_t n;
     const char *s = RedisModule_StringPtrLen(argv[ii], &n);
     req->args[ii] = sdsnewlen(s, n);

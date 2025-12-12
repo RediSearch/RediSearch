@@ -101,6 +101,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else CHECK_CACHED_EVENT(trimmed)
   else CHECK_CACHED_EVENT(key_trimmed)
   else CHECK_CACHED_EVENT(restore)
+  else CHECK_CACHED_EVENT(hexpire)
   else CHECK_CACHED_EVENT(hexpired)
   else CHECK_CACHED_EVENT(expire)
   else CHECK_CACHED_EVENT(expired)
@@ -160,6 +161,8 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case hincrbyfloat_cmd:
     case hdel_cmd:
     case hexpired_cmd:
+    case hexpire_cmd:
+    case hpersist_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
       break;
 
@@ -168,8 +171,6 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
  ********************************************************/
     case expire_cmd:
     case persist_cmd:
-    case hexpire_cmd:
-    case hpersist_cmd:
     case restore_cmd:
     case copy_to_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
@@ -282,7 +283,7 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
   int fieldsNum = (numArgs - 2) / cmdFactor;
   hashFields = (RedisModuleString **)rm_calloc(fieldsNum + 1, sizeof(*hashFields));
 
-  for (size_t i = 0; i < fieldsNum; ++i) {
+  for (size_t i = 0; i < (size_t)fieldsNum; ++i) {
     RedisModuleString *field = (RedisModuleString *)RedisModule_CommandFilterArgGet(filter, 2 + i * cmdFactor);
     RedisModule_RetainString(RSDummyContext, field);
     hashFields[i] = field;
@@ -358,6 +359,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED:
       ASM_StateMachine_CompleteImport(slots);
       Slots_DropCachedLocalSlots(); // Local slots have changed, drop the cache
+      __attribute__((fallthrough));
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event.", subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED ? "failed" : "completed");
       in_asm_import = false;
@@ -551,7 +553,10 @@ int CheckVersionForShortRead() {
 
 void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
   if (CheckVersionForShortRead() == REDISMODULE_OK) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
+#pragma GCC diagnostic pop
     RS_ASSERT_ALWAYS(success != REDISMODULE_ERR); // should be supported in this redis version/release
 	RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
     if (redisVersion.majorVersion < 7 || IsEnterprise()) {
@@ -577,6 +582,7 @@ void RoleChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t sube
 void Initialize_RoleChangeNotifications(RedisModuleCtx *ctx) {
   int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplicationRoleChanged, RoleChangeCallback);
   RS_ASSERT(success != REDISMODULE_ERR); // should be supported in this redis version/release
+  (void)success;
   RedisModule_Log(ctx, "notice", "Enabled role change notification");
 }
 
@@ -603,7 +609,7 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     RedisModule_Log(RSDummyContext, "notice", "Loading event failed");
     break;
   default:
-    RS_LOG_ASSERT_FMT(0, "Unknown sub-event %d", subevent);
+    RS_LOG_ASSERT_FMT(0, "Unknown sub-event %lu", subevent);
     break;
   }
 }

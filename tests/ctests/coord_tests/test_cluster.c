@@ -79,7 +79,7 @@ static MRClusterTopology *getTopology(size_t numNodes, const char **hosts){
 
   size_t slots_per_node = 16384 / numNodes;
 
-  for (int i = 0; i < numNodes; i++) {
+  for (size_t i = 0; i < numNodes; i++) {
     MRClusterNode *node = &topo->shards[i].node;
     if (REDIS_OK!=MREndpoint_Parse(hosts[i], &node->endpoint)) {
       MRClusterTopology_Free(topo);
@@ -108,7 +108,7 @@ void testClusterTopology_Clone() {
   mu_check(cloned->shards != topo->shards); // Different memory address
 
   // Verify each shard was properly cloned
-  for (int j = 0; j < topo->numShards; j++) {
+  for (uint32_t j = 0; j < topo->numShards; j++) {
     MRClusterShard *original_sh = &topo->shards[j];
     MRClusterShard *cloned_sh = &cloned->shards[j];
 
@@ -131,12 +131,12 @@ void testClusterTopology_Clone() {
 
 void testCluster() {
   for (int num_io_threads = 1; num_io_threads <= 4; num_io_threads++) {
-    int n = 4;
+    uint32_t n = 4;
     const char *hosts[] = {"localhost:6379", "localhost:6389", "localhost:6399", "localhost:6409"};
     MRClusterTopology *topo = getTopology(n, hosts);
 
     mu_check(topo->numShards == n);
-    for (int j = 0; j < topo->numShards; j++) {
+    for (uint32_t j = 0; j < topo->numShards; j++) {
       MRClusterShard *sh = &topo->shards[j];
       mu_check(!strcmp(sh->node.id, hosts[j]));
     }
@@ -144,10 +144,10 @@ void testCluster() {
     MRCluster *cl = MR_NewCluster(topo, 2, num_io_threads);
     mu_check(cl != NULL);
     //  mu_check(cl->tp == tp);
-    for (int i = 0; i < cl->num_io_threads; i++) {
+    for (size_t i = 0; i < cl->num_io_threads; i++) {
       IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cl, i);
       mu_check(ioRuntime->topo->numShards == n);
-      for (int j = 0; j < ioRuntime->topo->numShards; j++) {
+      for (uint32_t j = 0; j < ioRuntime->topo->numShards; j++) {
         MRClusterShard *sh = &ioRuntime->topo->shards[j];
         mu_check(!strcmp(sh->node.id, hosts[j]));
       }

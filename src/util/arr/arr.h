@@ -234,7 +234,6 @@ static ARR_FORCEINLINE uint16_t array_remain_cap(array_t arr) {
 
 static inline void *array_trimm(array_t arr, uint32_t new_len) {
   array_hdr_t *arr_hdr = array_hdr(arr);
-  RS_LOG_ASSERT(new_len >= 0, "trimming len is negative");
   RS_LOG_ASSERT((new_len <= arr_hdr->len), "trimming len is greater then current len");
   arr_hdr->remain_cap += arr_hdr->len - new_len;
   arr_hdr->len = new_len;

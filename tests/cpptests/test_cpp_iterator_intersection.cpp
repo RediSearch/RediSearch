@@ -135,7 +135,6 @@ TEST_P(IntersectionIteratorCommonTest, SkipTo) {
 
 TEST_P(IntersectionIteratorCommonTest, Rewind) {
   IntersectionIterator *ii = (IntersectionIterator *)ii_base;
-  IteratorStatus rc;
   for (int i = 0; i < 5; i++) {
     for (int j = 0; j <= i; j++) {
       ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);

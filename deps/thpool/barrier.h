@@ -43,7 +43,7 @@ int pthread_barrier_destroy( pthread_barrier_t *barrier);
 /* ============= General API extension ============= */
 typedef struct {
     pthread_barrier_t barrier;
-    int count;
+    size_t count;
     volatile atomic_size_t received;
 } barrier_t;
 

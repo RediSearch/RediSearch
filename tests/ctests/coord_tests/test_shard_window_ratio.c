@@ -70,7 +70,7 @@ static void runModifyKNNTest(const char** args, int argCount,
     cmd.strs = rm_malloc(cmd.num * sizeof(char*));
     cmd.lens = rm_malloc(cmd.num * sizeof(size_t));
 
-    for (int i = 0; i < cmd.num; i++) {
+    for (uint32_t i = 0; i < cmd.num; i++) {
         cmd.strs[i] = rm_strdup(args[i]);
         cmd.lens[i] = strlen(args[i]);
     }
@@ -94,7 +94,7 @@ static void runModifyKNNTest(const char** args, int argCount,
     char msg[256];
     size_t expectedK_str_len = snprintf(expectedK_str, sizeof(expectedK_str), "%zu", effectiveK);
 
-    for (int i = 0; i < cmd.num; i++) {
+    for (uint32_t i = 0; i < cmd.num; i++) {
         if (i == 2) { // query string
             char expectedQuery[128];
             mu_check(sizeof(expectedQuery) >= strlen(query) + 1);
@@ -120,7 +120,7 @@ static void runModifyKNNTest(const char** args, int argCount,
     }
 
     // Cleanup
-    for (int i = 0; i < cmd.num; i++) {
+    for (uint32_t i = 0; i < cmd.num; i++) {
         rm_free(cmd.strs[i]);
     }
     rm_free(cmd.strs);

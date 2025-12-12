@@ -208,7 +208,6 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
 
     // Verify field specifications are preserved
     for (int i = 0; i < loadedSpec->numFields; i++) {
-        FieldSpec *field = &spec->fields[i];
         FieldSpec *loadedField = &loadedSpec->fields[i];
         EXPECT_NE(loadedField->types, 0);
         EXPECT_GE(loadedField->index, 0);

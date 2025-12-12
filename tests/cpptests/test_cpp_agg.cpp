@@ -217,7 +217,6 @@ TEST_F(AggTest, testGroupSplit) {
   opt.args = &args;
   Grouper_AddReducer(gr, RDCRCount_New(&opt), count_out);
   SearchResult res = {0};
-  size_t ii = 0;
 
   QITR_PushRP(&qitr, &gen);
 

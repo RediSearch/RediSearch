@@ -24,7 +24,7 @@
 // Helper functions for testing
 void printMRCommand(const MRCommand* cmd) {
     printf("MRCommand (%d args): ", cmd->num);
-    for (int i = 0; i < cmd->num; i++) {
+    for (uint32_t i = 0; i < cmd->num; i++) {
         // Check if this argument contains binary data (non-printable characters or null bytes)
         bool is_binary = false;
         for (size_t j = 0; j < cmd->lens[i]; j++) {
@@ -49,11 +49,11 @@ void printMRCommand(const MRCommand* cmd) {
 }
 
 bool verifyCommandArgs(const MRCommand* cmd, const std::vector<std::string>& expected) {
-    if (cmd->num != (int)expected.size()) {
+    if (cmd->num != expected.size()) {
         return false;
     }
 
-    for (int i = 0; i < cmd->num; i++) {
+    for (uint32_t i = 0; i < cmd->num; i++) {
         if (cmd->lens[i] != expected[i].length() ||
             memcmp(cmd->strs[i], expected[i].c_str(), cmd->lens[i]) != 0) {
             return false;
@@ -63,7 +63,7 @@ bool verifyCommandArgs(const MRCommand* cmd, const std::vector<std::string>& exp
 }
 
 int findArgPosition(const MRCommand* cmd, const char* arg) {
-    for (int i = 0; i < cmd->num; i++) {
+    for (uint32_t i = 0; i < cmd->num; i++) {
         if (cmd->lens[i] == strlen(arg) &&
             memcmp(cmd->strs[i], arg, strlen(arg)) == 0) {
             return i;
@@ -74,7 +74,7 @@ int findArgPosition(const MRCommand* cmd, const char* arg) {
 
 int SlotRangeInfoIndex(const MRCommand* cmd) {
     int pos = findArgPosition(cmd, SLOTS_STR);
-    if (pos == -1 || pos + 1 >= cmd->num) {
+    if (pos == -1 || (uint32_t)pos + 1 >= cmd->num) {
         return -1; // Not found or incomplete
     }
     return pos;

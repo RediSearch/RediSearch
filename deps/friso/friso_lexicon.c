@@ -1,7 +1,7 @@
 /*
  * friso lexicon implemented functions.
  *         used to deal with the friso lexicon, like: load,remove,match...
- * 
+ *
  * @author    chenxin <chenxin619315@gmail.com>
  */
 #include <stdlib.h>
@@ -14,10 +14,10 @@
 #define __FRISO_LEX_IFILE__    "friso.lex.ini"
 
 //create a new lexicon
-FRISO_API friso_dic_t friso_dic_new() 
+FRISO_API friso_dic_t friso_dic_new()
 {
     register uint_t t;
-    friso_dic_t dic = ( friso_dic_t ) FRISO_CALLOC( 
+    friso_dic_t dic = ( friso_dic_t ) FRISO_CALLOC(
             sizeof( friso_hash_t ), __FRISO_LEXICON_LENGTH__ );
     if ( dic == NULL ) {
         ___ALLOCATION_ERROR___
@@ -32,17 +32,17 @@ FRISO_API friso_dic_t friso_dic_new()
 
 /**
  * default callback function to invoke
- *     when free the friso dictionary . 
+ *     when free the friso dictionary .
  *
  * @date 2013-06-12
  */
-__STATIC_API__ void default_fdic_callback( hash_entry_t e ) 
+__STATIC_API__ void default_fdic_callback( hash_entry_t e )
 {
     register uint_t i;
     friso_array_t syn;
     lex_entry_t lex = ( lex_entry_t ) e->_val;
     //free the lex->word
-    FRISO_FREE( lex->word );    
+    FRISO_FREE( lex->word );
     //free the lex->syn if it is not NULL
     if ( lex->syn != NULL ) {
         syn = lex->syn;
@@ -57,7 +57,7 @@ __STATIC_API__ void default_fdic_callback( hash_entry_t e )
     FRISO_FREE(lex);
 }
 
-FRISO_API void friso_dic_free( friso_dic_t dic ) 
+FRISO_API void friso_dic_free( friso_dic_t dic )
 {
     register uint_t t;
     for ( t = 0; t < __FRISO_LEXICON_LENGTH__; t++ ) {
@@ -70,14 +70,14 @@ FRISO_API void friso_dic_free( friso_dic_t dic )
 
 
 //create a new lexicon entry
-FRISO_API lex_entry_t new_lex_entry( 
-        fstring word, 
-        friso_array_t syn, 
-        uint_t fre, 
-        uint_t length, 
-        uint_t type ) 
+FRISO_API lex_entry_t new_lex_entry(
+        fstring word,
+        friso_array_t syn,
+        uint_t fre,
+        uint_t length,
+        uint_t type )
 {
-    lex_entry_t e = ( lex_entry_t ) 
+    lex_entry_t e = ( lex_entry_t )
         FRISO_MALLOC( sizeof( lex_entry_cdt ) );
     if ( e == NULL ) {
         ___ALLOCATION_ERROR___
@@ -106,7 +106,7 @@ FRISO_API lex_entry_t new_lex_entry(
  * 3. free its pos. (friso_array_t)
  * 4. free the lex_entry_t.
  */
-FRISO_API void free_lex_entry_full( lex_entry_t e ) 
+FRISO_API void free_lex_entry_full( lex_entry_t e )
 {
     register uint_t i;
     friso_array_t syn;
@@ -127,7 +127,7 @@ FRISO_API void free_lex_entry_full( lex_entry_t e )
     FRISO_FREE(e);
 }
 
-FRISO_API void free_lex_entry( lex_entry_t e ) 
+FRISO_API void free_lex_entry( lex_entry_t e )
 {
     //if ( e->syn != NULL ) {
     //    if ( flag == 1 ) free_array_list( e->syn);
@@ -139,17 +139,17 @@ FRISO_API void free_lex_entry( lex_entry_t e )
 
 
 //add a new entry to the dictionary.
-FRISO_API void friso_dic_add( 
-        friso_dic_t dic, 
+FRISO_API void friso_dic_add(
+        friso_dic_t dic,
         friso_lex_t lex,
-        fstring word, 
-        friso_array_t syn ) 
+        fstring word,
+        friso_array_t syn )
 {
     void *olex = NULL;
     if ( lex >= 0 && lex < __FRISO_LEXICON_LENGTH__ ) {
         //printf("lex=%d, word=%s, syn=%s\n", lex, word, syn);
-        olex = hash_put_mapping( dic[lex], word, 
-                new_lex_entry( word, syn, 0, 
+        olex = hash_put_mapping( dic[lex], word,
+                new_lex_entry( word, syn, 0,
                     (uint_t) strlen(word),  (uint_t) lex ) );
         if ( olex != NULL ) {
             free_lex_entry_full((lex_entry_t)olex);
@@ -157,17 +157,17 @@ FRISO_API void friso_dic_add(
     }
 }
 
-FRISO_API void friso_dic_add_with_fre( 
+FRISO_API void friso_dic_add_with_fre(
         friso_dic_t dic,
         friso_lex_t lex,
-        fstring word, 
-        friso_array_t syn, 
-        uint_t frequency ) 
+        fstring word,
+        friso_array_t syn,
+        uint_t frequency )
 {
     void *olex = NULL;
     if ( lex >= 0 && lex < __FRISO_LEXICON_LENGTH__ ) {
-        olex = hash_put_mapping( dic[lex], word, 
-                new_lex_entry( word, syn, frequency, 
+        olex = hash_put_mapping( dic[lex], word,
+                new_lex_entry( word, syn, frequency,
                     ( uint_t ) strlen(word), ( uint_t ) lex ) );
         if ( olex != NULL ) {
             free_lex_entry_full((lex_entry_t)olex);
@@ -178,10 +178,10 @@ FRISO_API void friso_dic_add_with_fre(
 /*
  * read a line from a specified stream.
  *         the newline will be cleared.
- * 
- * @date    2012-11-24 
+ *
+ * @date    2012-11-24
  */
-FRISO_API fstring file_get_line( fstring __dst, FILE * _stream ) 
+FRISO_API fstring file_get_line( fstring __dst, FILE * _stream )
 {
     register int c;
     fstring cs;
@@ -189,7 +189,7 @@ FRISO_API fstring file_get_line( fstring __dst, FILE * _stream )
     cs = __dst;
     while ( ( c = fgetc( _stream ) ) != EOF ) {
         if ( c == '\n' ) break;
-        *cs++ = c; 
+        *cs++ = c;
     }
     *cs = '\0';
 
@@ -197,20 +197,20 @@ FRISO_API fstring file_get_line( fstring __dst, FILE * _stream )
 }
 
 /*
- * static function to copy a string. 
+ * static function to copy a string.
  */
 ///instead of memcpy
-__STATIC_API__ fstring string_copy( 
-        fstring _src, 
-        fstring __dst, 
-        uint_t blocks ) 
+__STATIC_API__ fstring string_copy(
+        fstring _src,
+        fstring __dst,
+        uint_t blocks )
 {
 
     register fstring __src = _src;
     register uint_t t;
 
     for ( t = 0; t < blocks; t++ ) {
-        if ( *__src == '\0' ) break; 
+        if ( *__src == '\0' ) break;
         __dst[t] = *__src++;
     }
     __dst[t] = '\0';
@@ -219,15 +219,15 @@ __STATIC_API__ fstring string_copy(
 }
 
 /**
- * make a heap allocation, and copy the 
- *     source fstring to the new allocation, and 
- *     you should free it after use it . 
+ * make a heap allocation, and copy the
+ *     source fstring to the new allocation, and
+ *     you should free it after use it .
  *
  * @param _src      source fstring
  * @param blocks    number of bytes to copy
  */
-__STATIC_API__ fstring string_copy_heap( 
-        fstring _src, uint_t blocks ) 
+__STATIC_API__ fstring string_copy_heap(
+        fstring _src, uint_t blocks )
 {
     register uint_t t;
 
@@ -246,11 +246,11 @@ __STATIC_API__ fstring string_copy_heap(
 }
 
 /*
- * find the postion of the first appear of the given char.
+ * find the position of the first appear of the given char.
  *    address of the char in the fstring will be return .
- *    if not found NULL will be return . 
+ *    if not found NULL will be return .
  */
-__STATIC_API__ fstring indexOf( fstring __str, char delimiter ) 
+__STATIC_API__ fstring indexOf( fstring __str, char delimiter )
 {
     uint_t i, __length__;
 
@@ -265,19 +265,19 @@ __STATIC_API__ fstring indexOf( fstring __str, char delimiter )
 }
 
 /**
- * load all the valid wors from a specified lexicon file . 
+ * load all the valid words from a specified lexicon file .
  *
  * @param dic        friso dictionary instance (A hash array)
  * @param lex        the lexicon type
  * @param lex_file    the path of the lexicon file
  * @param length    the maximum length of the word item
  */
-FRISO_API void friso_dic_load( 
+FRISO_API void friso_dic_load(
         friso_t friso,
         friso_config_t config,
         friso_lex_t lex,
         fstring lex_file,
-        uint_t length ) 
+        uint_t length )
 {
 
     FILE * _stream;
@@ -301,14 +301,14 @@ FRISO_API void friso_dic_load(
             //handle the stopwords.
             if ( lex == __LEX_STOPWORDS__ ) {
                 //clean the chinese words that its length is greater than max length.
-                if ( ((int)_line[0]) < 0 && strlen( _line ) > length ) continue;
-                friso_dic_add( friso->dic, __LEX_STOPWORDS__, 
-                        string_copy_heap( _line, strlen(_line) ), NULL ); 
+                if ( ((unsigned char)_line[0]) > 127 && strlen( _line ) > length ) continue;
+                friso_dic_add( friso->dic, __LEX_STOPWORDS__,
+                        string_copy_heap( _line, strlen(_line) ), NULL );
                 continue;
             }
 
             //split the fstring with '/'.
-            string_split_reset( &sse, "/", _line); 
+            string_split_reset( &sse, "/", _line);
             if ( string_split_next( &sse, _buffer ) == NULL ) {
                 continue;
             }
@@ -317,9 +317,9 @@ FRISO_API void friso_dic_load(
             _word = string_copy_heap( _buffer, strlen(_buffer) );
 
             if ( string_split_next( &sse, _buffer ) == NULL ) {
-                //normal lexicon type, 
+                //normal lexicon type,
                 //add them to the dictionary directly
-                friso_dic_add( friso->dic, lex, _word, NULL ); 
+                friso_dic_add( friso->dic, lex, _word, NULL );
                 continue;
             }
 
@@ -349,7 +349,7 @@ FRISO_API void friso_dic_load(
 
             /**
              * Here:
-             * split the synonyms words with mark "," 
+             * split the synonyms words with mark ","
              *     and put them in a array list if the synonyms is not NULL
              */
             sywords = NULL;
@@ -358,34 +358,34 @@ FRISO_API void friso_dic_load(
                 sywords = new_array_list_with_opacity(5);
                 while ( string_split_next( &sse, _buffer ) != NULL ) {
                     if ( strlen(_buffer) > length ) continue;
-                    array_list_add( sywords, 
+                    array_list_add( sywords,
                             string_copy_heap(_buffer, strlen(_buffer)) );
                 }
                 sywords = array_list_trim( sywords );
             }
 
             //4. add the word item
-            friso_dic_add_with_fre( 
+            friso_dic_add_with_fre(
                     friso->dic, lex, _word, sywords, _fre );
-        } 
+        }
 
         fclose( _stream );
     } else {
         fprintf(stderr, "Warning: Fail to open lexicon file %s\n", lex_file);
         fprintf(stderr, "Warning: Without lexicon file, segment results will not correct \n");
-    } 
+    }
 }
 
 
 /**
- * get the lexicon type index with the specified 
- *     type keywords . 
+ * get the lexicon type index with the specified
+ *     type keywords .
  *
  * @see        friso.h#friso_lex_t
  * @param     _key
  * @return     int
  */
-__STATIC_API__ friso_lex_t get_lexicon_type_with_constant( fstring _key ) 
+__STATIC_API__ friso_lex_t get_lexicon_type_with_constant( fstring _key )
 {
     if ( strcmp( _key, "__LEX_CJK_WORDS__" ) == 0 ) {
         return __LEX_CJK_WORDS__;
@@ -423,13 +423,13 @@ __STATIC_API__ friso_lex_t get_lexicon_type_with_constant( fstring _key )
  * @param friso        friso instance
  * @param    config    friso_config instance
  * @param _path        dictionary directory
- * @param _limitts    words length limit    
+ * @param _limitts    words length limit
  */
-FRISO_API void friso_dic_load_from_ifile( 
-        friso_t friso, 
+FRISO_API void friso_dic_load_from_ifile(
+        friso_t friso,
         friso_config_t config,
         fstring _path,
-        uint_t _limits  ) 
+        uint_t _limits  )
 {
 
     //1.parse the configuration file.
@@ -439,7 +439,7 @@ FRISO_API void friso_dic_load_from_ifile(
     friso_lex_t lex_t;
     string_buffer_t sb;
 
-    //get the lexicon configruation file path
+    //get the lexicon configuration file path
     sb = new_string_buffer();
 
     string_buffer_append( sb, _path );
@@ -447,7 +447,7 @@ FRISO_API void friso_dic_load_from_ifile(
     //printf("%s\n", sb->buffer);
 
     if ( ( __stream = fopen( sb->buffer, "rb" ) ) != NULL ) {
-        while ( ( __line__ = 
+        while ( ( __line__ =
                     file_get_line( __chars__, __stream ) ) != NULL ) {
             //comment filter.
             if ( __line__[0] == '#' )  continue;
@@ -458,9 +458,9 @@ FRISO_API void friso_dic_load_from_ifile(
             if ( __line__[ __length__ - 1 ] == '[' ) {
                 //get the type key
                 for ( i = 0; i < __length__
-                        && ( __line__[i] == ' ' || __line__[i] == '\t' ); i++ ); 
+                        && ( __line__[i] == ' ' || __line__[i] == '\t' ); i++ );
                 for ( t = 0; i < __length__; i++,t++ ) {
-                    if ( __line__[i] == ' ' 
+                    if ( __line__[i] == ' '
                             || __line__[i] == '\t' || __line__[i] == ':' ) break;
                     __key__[t] = __line__[i];
                 }
@@ -468,23 +468,23 @@ FRISO_API void friso_dic_load_from_ifile(
 
                 //get the lexicon type
                 lex_t = get_lexicon_type_with_constant(__key__);
-                if ( lex_t == -1 ) continue; 
+                if ( lex_t == (friso_lex_t)-1 ) continue;
 
                 //printf("key=%s, type=%d\n", __key__, lex_t );
                 while ( ( __line__ = file_get_line( __chars__, __stream ) ) != NULL ) {
                     //comments filter.
                     if ( __line__[0] == '#' ) continue;
-                    if ( __line__[0] == '\0' ) continue; 
+                    if ( __line__[0] == '\0' ) continue;
 
                     __length__ = strlen( __line__ );
                     if ( __line__[ __length__ - 1 ] == ']' ) break;
 
-                    for ( i = 0; i < __length__ 
+                    for ( i = 0; i < __length__
                             && ( __line__[i] == ' ' || __line__[i] == '\t' ); i++ );
                     for ( t = 0; i < __length__; i++,t++ ) {
-                        if ( __line__[i] == ' ' 
+                        if ( __line__[i] == ' '
                                 || __line__[i] == '\t' || __line__[i] == ';' ) break;
-                        __key__[t] = __line__[i]; 
+                        __key__[t] = __line__[i];
                     }
                     __key__[t] = '\0';
 
@@ -496,7 +496,7 @@ FRISO_API void friso_dic_load_from_ifile(
                     friso_dic_load( friso, config, lex_t, sb->buffer, _limits );
                 }
 
-            } 
+            }
 
         } //end while
 
@@ -506,14 +506,14 @@ FRISO_API void friso_dic_load_from_ifile(
         fprintf(stderr, "Warning: Without lexicon file, segment results will not correct \n");
     }
 
-    free_string_buffer(sb);    
+    free_string_buffer(sb);
 }
 
 //match the item.
-FRISO_API int friso_dic_match( 
-        friso_dic_t dic, 
-        friso_lex_t lex, 
-        fstring word ) 
+FRISO_API int friso_dic_match(
+        friso_dic_t dic,
+        friso_lex_t lex,
+        fstring word )
 {
     if ( lex >= 0 && lex < __FRISO_LEXICON_LENGTH__ ) {
         return hash_exist_mapping( dic[lex], word );
@@ -522,10 +522,10 @@ FRISO_API int friso_dic_match(
 }
 
 //get the lex_entry_t associated with the word.
-FRISO_API lex_entry_t friso_dic_get( 
-        friso_dic_t dic, 
-        friso_lex_t lex, 
-        fstring word ) 
+FRISO_API lex_entry_t friso_dic_get(
+        friso_dic_t dic,
+        friso_lex_t lex,
+        fstring word )
 {
     if ( lex >= 0 && lex < __FRISO_LEXICON_LENGTH__ ) {
         return ( lex_entry_t ) hash_get_value( dic[lex], word );
@@ -534,9 +534,9 @@ FRISO_API lex_entry_t friso_dic_get(
 }
 
 //get the size of the specified type dictionary.
-FRISO_API uint_t friso_spec_dic_size( 
-        friso_dic_t dic, 
-        friso_lex_t lex ) 
+FRISO_API uint_t friso_spec_dic_size(
+        friso_dic_t dic,
+        friso_lex_t lex )
 {
     if ( lex >= 0 && lex < __FRISO_LEXICON_LENGTH__ ) {
         return hash_get_size( dic[lex] );
@@ -545,8 +545,8 @@ FRISO_API uint_t friso_spec_dic_size(
 }
 
 //get size of the whole dictionary.
-FRISO_API uint_t friso_all_dic_size( 
-        friso_dic_t dic ) 
+FRISO_API uint_t friso_all_dic_size(
+        friso_dic_t dic )
 {
     register uint_t size = 0, t;
 

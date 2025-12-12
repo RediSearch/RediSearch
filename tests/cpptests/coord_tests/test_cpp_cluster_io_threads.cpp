@@ -99,7 +99,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   MRClusterTopology *topo = getDummyTopology();
 
   // Schedule callbacks on each IO runtime
-  for (int i = 0; i < cluster->num_io_threads; i++) {
+  for (size_t i = 0; i < cluster->num_io_threads; i++) {
     IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cluster, i);
     IORuntimeCtx_Schedule_Topology(ioRuntime, topoCallback, topo, false);
     // Schedule multiple callbacks on each runtime
@@ -115,7 +115,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   int attempt = 0;
   for (; attempt < 30'000'000; attempt++) {
     bool all_done = true;
-    for (int i = 0; i < cluster->num_io_threads; i++) {
+    for (size_t i = 0; i < cluster->num_io_threads; i++) {
       if (counters[i] < target) {
         all_done = false;
       }
@@ -130,7 +130,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   ASSERT_EQ(cluster->num_io_threads, 5);
 
   // Schedule more callbacks on the new threads
-  for (int i = first_num_io_threads; i < cluster->num_io_threads; i++) {
+  for (size_t i = first_num_io_threads; i < cluster->num_io_threads; i++) {
     IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cluster, i);
     for (int j = 0; j < 10; j++) {
       IORuntimeCtx_Schedule(ioRuntime, callback, &counters[i]);
@@ -141,14 +141,14 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   UpdateNumIOThreads(cluster, 1);
   ASSERT_EQ(cluster->num_io_threads, 1);
   // Schedule more callbacks on the new threads
-  for (int i = 0; i < cluster->num_io_threads; i++) {
+  for (size_t i = 0; i < cluster->num_io_threads; i++) {
     IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cluster, i);
     for (int j = 0; j < 10; j++) {
       IORuntimeCtx_Schedule(ioRuntime, callback, &counters[i]);
     }
   }
 
-  for (int i = 0; i < cluster->num_io_threads; i++) {
+  for (size_t i = 0; i < cluster->num_io_threads; i++) {
     IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cluster, i);
     IORuntimeCtx_FireShutdown(ioRuntime);
   }

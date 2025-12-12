@@ -126,7 +126,7 @@ TEST_F(CircularBufferTest, test_CircularBuffer_free) {
 
   uint cap = 16;
   CircularBuffer buff = CircularBuffer_New(sizeof(int64_t *), cap);
-  for (int i = 0; i < cap; i++) {
+  for (uint i = 0; i < cap; i++) {
     int64_t *j = (int64_t *)malloc(sizeof(int64_t));
     CircularBuffer_Add(buff, (void*)&j);
   }
@@ -135,7 +135,7 @@ TEST_F(CircularBufferTest, test_CircularBuffer_free) {
   // free the buffer
   //--------------------------------------------------------------------------
 
-  for (int i = 0; i < cap; i++) {
+  for (uint i = 0; i < cap; i++) {
     int64_t *item;
     CircularBuffer_Read(buff, &item);
     free(item);
@@ -153,7 +153,7 @@ TEST_F(CircularBufferTest, test_CircularBuffer_Reserve) {
   uint cap = 16;
   CircularBuffer buff = CircularBuffer_New(sizeof(int), cap);
   bool wasFull;
-  for (int i = 0; i < 2 * cap; i++) {
+  for (uint i = 0; i < 2 * cap; i++) {
     int *item = (int *)CircularBuffer_Reserve(buff, &wasFull);
     ASSERT_EQ(wasFull, i < cap ? false : true);
     *item = i;
@@ -189,7 +189,7 @@ TEST_F(CircularBufferTest, test_CircularBuffer_ResetReader) {
 
   uint cap = 16;
   CircularBuffer buff = CircularBuffer_New(sizeof(int), cap);
-  for (int i = 0; i < cap + 2; i++) {
+  for (uint i = 0; i < cap + 2; i++) {
     int *item = (int *)CircularBuffer_Reserve(buff, NULL);
     *item = i;
   }
@@ -246,7 +246,6 @@ TEST_F(CircularBufferTest, test_CircularBuffer_multiAdd) {
   uint16_t n_items = CircularBuffer_ItemCount(cb);
   ASSERT_EQ(n_items, NUM_THREADS * NUM_ITEMS_PER_THREAD);
 
-  uint16_t old_item;
   size_t sum = 0;
   for (size_t i = 0; i < n_items; i++) {
     CircularBuffer_Read(cb, &item);
@@ -283,7 +282,6 @@ TEST_F(CircularBufferTest, test_CircularBuffer_multiReserve) {
   uint16_t n_items = CircularBuffer_ItemCount(cb);
   ASSERT_EQ(n_items, NUM_THREADS * NUM_ITEMS_PER_THREAD);
 
-  uint16_t old_item;
   size_t sum = 0;
   for (size_t i = 0; i < n_items; i++) {
     CircularBuffer_Read(cb, &item);

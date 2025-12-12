@@ -65,12 +65,11 @@ true or an error if something went wrong.
 
 static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryError *status) {
   // Assume argc and argv are at proper indices
-  int nosave = 0, replace = 0, partial = 0, foundFields = 0;
+  int replace = 0, partial = 0, foundFields = 0;
   opts->fieldsArray = NULL;
   opts->numFieldElems = 0;
   opts->options = 0;
 
-  char *languageStr = NULL;
   ACArgSpec argList[] = {
       {AC_MKBITFLAG("REPLACE", &opts->options, DOCUMENT_ADD_REPLACE)},
       {AC_MKBITFLAG("PARTIAL", &opts->options, DOCUMENT_ADD_PARTIAL)},
@@ -108,7 +107,6 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
       }
       // Argument not found, that's ok. We'll handle it below
     } else {
-      char message[1024];
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_ADD_ARGS, "Parsing error for document option %s: %s", errArg->name, AC_Strerror(rv));
       return REDISMODULE_ERR;
     }

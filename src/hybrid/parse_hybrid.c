@@ -41,7 +41,7 @@ static void setExpectedArgumentsError(QueryError *status, unsigned int expected,
 }
 
 // Check if we're at the end of arguments in the middle of a clause and set appropriate error for missing argument
-static int inline CheckEnd(ArgsCursor *ac, const char *argument, QueryError *status) {
+static inline int CheckEnd(ArgsCursor *ac, const char *argument, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
                                     "Missing argument value for ", argument);
@@ -139,7 +139,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   bool hasEF = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
-  for (int i=0; i<argumentCount; i+=2) {
+  for (unsigned int i=0; i<argumentCount; i+=2) {
     if (AC_IsAtEnd(ac)) {
       setExpectedArgumentsError(status, argumentCount, i);
       return REDISMODULE_ERR;
@@ -212,7 +212,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
   bool hasEpsilon = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
-  for (int i=0; i<argumentCount; i+=2) {
+  for (unsigned int i=0; i<argumentCount; i+=2) {
     if (AC_IsAtEnd(ac)) {
       setExpectedArgumentsError(status, argumentCount, i);
       return REDISMODULE_ERR;
@@ -763,7 +763,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  IndexSpec *spec = parsedCmdCtx->search->sctx->spec;
   const size_t prefixCount = array_len(*hybridParseCtx.prefixes);
   if (prefixCount && !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, *hybridParseCtx.prefixes, prefixCount)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);

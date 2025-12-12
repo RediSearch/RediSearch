@@ -56,7 +56,7 @@ void SchemaRuleArgs_Free(SchemaRuleArgs *rule_args) {
   FREE_IF_NEEDED(rule_args->score_default);
   FREE_IF_NEEDED(rule_args->score_field);
   FREE_IF_NEEDED((char *)rule_args->type);
-  for (size_t i = 0; i < rule_args->nprefixes; ++i) {
+  for (int i = 0; i < rule_args->nprefixes; ++i) {
     rm_free((char *)rule_args->prefixes[i]);
   }
   rm_free(rule_args->prefixes);
@@ -144,7 +144,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     }
   }
 
-  for (int i = 0; i < array_len(rule->prefixes); ++i) {
+  for (uint32_t i = 0; i < array_len(rule->prefixes); ++i) {
     SchemaPrefixes_Add(rule->prefixes[i], ref);
   }
 
@@ -256,7 +256,6 @@ done:
 
 RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
                                RedisJSON jsonRoot, const char *kname) {
-  int rv = REDISMODULE_ERR;
   JSONResultsIterator jsonIter = NULL;
   RSLanguage lang = rule->lang_default;
   if (!rule->lang_field) {
@@ -387,7 +386,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
     args.prefixes = rm_calloc(args.nprefixes, sizeof(*args.prefixes));
   }
 
-  for (size_t i = 0; i < args.nprefixes; ++i) {
+  for (int i = 0; i < args.nprefixes; ++i) {
     args.prefixes[i] = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
 
@@ -432,7 +431,7 @@ cleanup:
   if (args.type) {
     RedisModule_Free((char *)args.type);
   }
-  for (size_t i = 0; i < args.nprefixes; ++i) {
+  for (int i = 0; i < args.nprefixes; ++i) {
     if (args.prefixes[i]) {
       RedisModule_Free((char *)args.prefixes[i]);
     }
@@ -504,7 +503,7 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
   // check prefixes (always found for an index with no prefixes)
   bool match = false;
   HiddenUnicodeString **prefixes = sp->rule->prefixes;
-  for (int i = 0; i < array_len(prefixes); ++i) {
+  for (uint32_t i = 0; i < array_len(prefixes); ++i) {
     // Using `strncmp` to compare the prefix, since the key might be longer than the prefix
     size_t length = 0;
     const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &length);
@@ -571,7 +570,7 @@ void SchemaPrefixes_RemoveSpec(StrongRef ref) {
   if (!spec || !spec->rule || !spec->rule->prefixes) return;
 
   arrayof(HiddenUnicodeString *) prefixes = spec->rule->prefixes;
-  for (int i = 0; i < array_len(prefixes); ++i) {
+  for (uint32_t i = 0; i < array_len(prefixes); ++i) {
     // retrieve list of specs matching the prefix
     size_t len = 0;
     const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
@@ -580,7 +579,7 @@ void SchemaPrefixes_RemoveSpec(StrongRef ref) {
       continue;
     }
     // iterate over specs list and remove
-    for (int j = 0; j < array_len(node->index_specs); ++j) {
+    for (uint32_t j = 0; j < array_len(node->index_specs); ++j) {
       if (StrongRef_Equals(node->index_specs[j], ref)) {
         array_del_fast(node->index_specs, j);
         if (array_len(node->index_specs) == 0) {

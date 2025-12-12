@@ -185,7 +185,7 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModul
   req->args = rm_calloc(argc, sizeof(*req->args));
   req->nargs = argc;
   // Copy the arguments into an owned array of sds strings
-  for (size_t ii = 0; ii < argc; ++ii) {
+  for (int ii = 0; ii < argc; ++ii) {
     size_t n;
     const char *s = RedisModule_StringPtrLen(argv[ii], &n);
     req->args[ii] = sdsnewlen(s, n);
@@ -311,7 +311,6 @@ static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const 
 }
 
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
-  extern size_t NumShards;  // Declared in module.c
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);

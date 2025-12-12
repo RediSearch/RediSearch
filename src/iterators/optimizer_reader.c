@@ -10,6 +10,7 @@
 #include "iterators_rs.h"
 
 int cmpAsc(const void *v1, const void *v2, const void *udata) {
+  (void)udata;
   RSIndexResult *res1 = (RSIndexResult *)v1;
   RSIndexResult *res2 = (RSIndexResult *)v2;
 
@@ -19,6 +20,7 @@ int cmpAsc(const void *v1, const void *v2, const void *udata) {
 }
 
 int cmpDesc(const void *v1, const void *v2, const void *udata) {
+  (void)udata;
   RSIndexResult *res1 = (RSIndexResult *)v1;
   RSIndexResult *res2 = (RSIndexResult *)v2;
 

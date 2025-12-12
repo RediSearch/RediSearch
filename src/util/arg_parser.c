@@ -335,7 +335,7 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
             }
             if (rv != AC_OK) {
                 set_error(parser, "Failed to parse the argument count", def->name);
-            } else if (count < def->options.subargs.min_args || (def->options.subargs.max_args != -1 && count > def->options.subargs.max_args)) {
+            } else if (count < (unsigned int)def->options.subargs.min_args || (def->options.subargs.max_args != -1 && count > (unsigned int)def->options.subargs.max_args)) {
                 set_error(parser, "Invalid argument count", def->name);
                 rv = AC_ERR_ELIMIT;
             } else {
@@ -486,7 +486,6 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
                     break;
                 }
                 // Parse as positional argument
-                size_t def_index = pos_def - parser->definitions;
                 rv = parse_single_arg(parser, pos_def);
                 if (rv != AC_OK) {
                     if (parser->last_result.success) {

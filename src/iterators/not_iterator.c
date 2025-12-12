@@ -294,7 +294,7 @@ static ValidateStatus NI_Revalidate_Optimized(QueryIterator *base) {
  * 2. If the child is a wildcard iterator, return an empty iterator
  * 3. Otherwise, return NULL and let the caller create the not iterator
  */
-static QueryIterator* NotIteratorReducer(QueryIterator *it, t_docId maxDocId, double weight, struct timespec timeout, QueryEvalCtx *q) {
+static QueryIterator* NotIteratorReducer(QueryIterator *it, double weight, QueryEvalCtx *q) {
   RS_ASSERT(q);
   QueryIterator *ret = NULL;
   if (!it || it->type == EMPTY_ITERATOR) {
@@ -312,7 +312,7 @@ static QueryIterator* NotIteratorReducer(QueryIterator *it, t_docId maxDocId, do
 }
 
 QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight, struct timespec timeout, QueryEvalCtx *q) {
-  QueryIterator *ret = NotIteratorReducer(it, maxDocId, weight, timeout, q);
+  QueryIterator *ret = NotIteratorReducer(it, weight, q);
   if (ret != NULL) {
     return ret;
   }

@@ -32,7 +32,7 @@ static MRConn* MRCluster_GetConn(IORuntimeCtx *ioRuntime, MRCommand *cmd) {
   RS_LOG_ASSERT(ioRuntime->topo != NULL, "IORuntimeCtx must have a valid topology here");
 
   // No target shard, or out of range (may happen during topology updates)
-  if (cmd->targetShard >= ioRuntime->topo->numShards) {
+  if ((uint32_t)cmd->targetShard >= ioRuntime->topo->numShards) {
     RedisModule_Log(RSDummyContext, "warning", "Command targetShard %d is out of bounds (numShards=%u)", cmd->targetShard, ioRuntime->topo->numShards);
     return NULL;
   }

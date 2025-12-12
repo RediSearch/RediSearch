@@ -50,7 +50,7 @@ protected:
     }
     if (!optimized) {
       wcDocIds.clear();
-      for (auto i = 1; i < maxDocId; i++) {
+      for (t_docId i = 1; i < maxDocId; i++) {
         wcDocIds.push_back(i);
       }
     }
@@ -127,7 +127,6 @@ TEST_P(NotIteratorCommonTest, SkipToChildNotOK) {
   if (optimized && opt_max_doc_id.has_value()) {
     GTEST_SKIP() << "For optimized version the maxDocId is not necessarily respected (smaller than the max of Child or WCDocId): Is it worth adding this check? return base->lastDocId < ni->maxDocId ? ITERATOR_EOF : ITERATOR_OK; ";
   }
-  NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
   // Test skipping from 0
   for (t_docId id : childDocIds) {
@@ -177,7 +176,6 @@ TEST_P(NotIteratorCommonTest, SkipToChildNotOK) {
       }
     }
 
-    NotIterator *ni = (NotIterator*) iterator_base;
     if (skipToId <= iterator_base->lastDocId) {
       break;
     }
@@ -200,7 +198,6 @@ TEST_P(NotIteratorCommonTest, SkipToWCIds) {
   if (optimized && opt_max_doc_id.has_value()) {
     GTEST_SKIP() << "For optimized version the maxDocId is not necessarily respected (smaller than the max of Child or WCDocId): Is it worth adding this check? return base->lastDocId < ni->maxDocId ? ITERATOR_EOF : ITERATOR_OK; ";
   }
-  NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
   // Test skipping from 0
   for (t_docId id : wcDocIds) {
@@ -253,7 +250,6 @@ TEST_P(NotIteratorCommonTest, SkipToWCIds) {
       }
     }
 
-    NotIterator *ni = (NotIterator*) iterator_base;
     if (skipToId <= iterator_base->lastDocId) {
       break;
     }
@@ -279,7 +275,6 @@ TEST_P(NotIteratorCommonTest, SkipToAll) {
   if (optimized && opt_max_doc_id.has_value()) {
     GTEST_SKIP() << "For optimized version the maxDocId is not necessarily respected (smaller than the max of Child or WCDocId): Is it worth adding this check? return base->lastDocId < ni->maxDocId ? ITERATOR_EOF : ITERATOR_OK; ";
   }
-  NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
   for (t_docId id = 1; id < maxDocId; id++) {
     t_docId expectedId = 0;
@@ -327,10 +322,8 @@ TEST_P(NotIteratorCommonTest, NumEstimated) {
 }
 
 TEST_P(NotIteratorCommonTest, Rewind) {
-  NotIterator *ni = (NotIterator *)iterator_base;
-  IteratorStatus rc;
-  for (int i = 0; i < 5; i++) {
-    for (int j = 0; j <= i && j < resultSet.size(); j++) {
+  for (size_t i = 0; i < 5; i++) {
+    for (size_t j = 0; j <= i && j < resultSet.size(); j++) {
       ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
       ASSERT_EQ(iterator_base->current->docId, resultSet[j]);
       ASSERT_EQ(iterator_base->lastDocId, resultSet[j]);
@@ -505,13 +498,11 @@ class NotIteratorSelfTimeoutTest : public NotIteratorCommonTest {
   }
 
   void TimeoutSelfTestRead() {
-    NotIterator *ni = (NotIterator *)iterator_base;
     IteratorStatus rc = iterator_base->Read(iterator_base);
     ASSERT_EQ(rc, ITERATOR_TIMEOUT);
   }
 
   void TimeoutSelfTestSkipTo() {
-    NotIterator *ni = (NotIterator *)iterator_base;
     IteratorStatus rc = iterator_base->SkipTo(iterator_base, 1);
     ASSERT_EQ(rc, ITERATOR_TIMEOUT);
   }
@@ -595,7 +586,6 @@ TEST_F(NotIteratorNoChildTest, Read) {
 }
 
 TEST_F(NotIteratorNoChildTest, SkipTo) {
-  NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
   for (t_docId id = 1; id <= maxDocId; id++) {
     iterator_base->Rewind(iterator_base);
@@ -613,10 +603,8 @@ TEST_F(NotIteratorNoChildTest, SkipTo) {
 }
 
 TEST_F(NotIteratorNoChildTest, Rewind) {
-  NotIterator *ni = (NotIterator *)iterator_base;
-  IteratorStatus rc;
-  for (int i = 0; i < maxDocId; i++) {
-    for (int j = 0; j <= i && j < 5; j++) {
+  for (t_docId i = 0; i < maxDocId; i++) {
+    for (t_docId j = 0; j <= i && j < 5; j++) {
       ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
       ASSERT_EQ(iterator_base->current->docId, j + 1);
       ASSERT_EQ(iterator_base->lastDocId, j + 1);
@@ -758,7 +746,6 @@ TEST_F(NotIteratorRevalidateTest, RevalidateOK) {
   ASSERT_LT(firstDoc, 15); // Should be before first excluded doc
 
   ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
-  t_docId secondDoc = ni_base->lastDocId;
 
   // Revalidate should return VALIDATE_OK
   ValidateStatus status = ni_base->Revalidate(ni_base);

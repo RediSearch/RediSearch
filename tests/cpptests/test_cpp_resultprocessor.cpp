@@ -37,7 +37,6 @@ static int p1_Next(ResultProcessor *rp, SearchResult *res) {
 
 static int p2_Next(ResultProcessor *rp, SearchResult *res) {
   int rc = rp->upstream->Next(rp->upstream, res);
-  processor1Ctx *p = static_cast<processor1Ctx *>(rp);
   if (rc == RS_RESULT_EOF) return rc;
   rp->parent->totalResults++;
   return RS_RESULT_OK;

@@ -42,7 +42,7 @@ typedef struct RSSortingVector {
 void RSSortingVector_PutNum(RSSortingVector *vec, size_t idx, double num);
 
 /* Put a string in the sorting vector, the caller has to ensure that the String is normalized, see normalizeStr() */
-void RSSortingVector_PutStr(RSSortingVector* vec, size_t idx, const char* str);
+void RSSortingVector_PutStr(RSSortingVector* vec, size_t idx, char* str);
 
 /* Put another RSValue instance in the sorting vector */
 void RSSortingVector_PutRSVal(RSSortingVector* vec, size_t idx, RSValue* val);

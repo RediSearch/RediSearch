@@ -15,7 +15,7 @@
 #define HLL_PRECISION_BITS 8
 #define INSTANCE_BLOCK_NUM 1024
 
-static const int khid = 35;
+static const int khid __attribute__((unused)) = 35;
 KHASH_SET_INIT_INT64(khid);
 
 typedef struct {
@@ -194,7 +194,7 @@ static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
   // Expected length should be determined from bits (whose value we've also
   // verified)
-  if (regsz != 1 << hdr->bits) {
+  if (regsz != 1u << hdr->bits) {
     return 0;
   }
 

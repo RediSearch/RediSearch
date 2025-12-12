@@ -367,7 +367,7 @@ TEST_F(LLApiTest, testMassivePrefix) {
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_TRUE(iter);
 
-  for (size_t i = 0; i < NUM_OF_DOCS; ++i) {
+  for (int i = 0; i < NUM_OF_DOCS; ++i) {
     size_t len;
     const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
     ASSERT_TRUE(id);
@@ -722,7 +722,7 @@ TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_TRUE(iter);
 
-  for (size_t i = 0; i < NUM_OF_DOCS; ++i) {
+  for (int i = 0; i < NUM_OF_DOCS; ++i) {
     size_t len;
     const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
     ASSERT_TRUE(id);
@@ -767,7 +767,7 @@ TEST_F(LLApiTest, testPrefixIntersection) {
   RSResultsIterator* iter = RediSearch_GetResultsIterator(iqn, index);
   ASSERT_TRUE(iter);
 
-  for (size_t i = 0; i < NUM_OF_DOCS; ++i) {
+  for (int i = 0; i < NUM_OF_DOCS; ++i) {
     size_t len;
     const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
     ASSERT_STRNE(id, NULL);
@@ -811,7 +811,6 @@ TEST_F(LLApiTest, testMultitypeNumericTag) {
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
   RSFieldID f1 =
       RediSearch_CreateField(index, "f1", RSFLDTYPE_TAG | RSFLDTYPE_NUMERIC, RSFLDOPT_NONE);
-  RSFieldID f2 =
       RediSearch_CreateField(index, "f2", RSFLDTYPE_TAG | RSFLDTYPE_NUMERIC, RSFLDOPT_NONE);
 
   RediSearch_TagFieldSetCaseSensitive(index, f1, 1);

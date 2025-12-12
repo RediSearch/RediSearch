@@ -62,7 +62,7 @@ void RSSortingVector_PutNum(struct RSSortingVector *vec,
  */
 void RSSortingVector_PutStr(struct RSSortingVector *vec,
                             size_t idx,
-                            const char *str);
+                            char *str);
 
 /**
  * Puts a value at the given index in the sorting vector. If a out of bounds occurs it returns silently.

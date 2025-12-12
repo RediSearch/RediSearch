@@ -170,7 +170,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   int loc = RMUtil_ArgIndex("PARAMS", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (loc != -1) {
     long long nargs;
-    int rc = RedisModule_StringToLongLong(argv[loc + 3 + 1 + profileArgs], &nargs);
+    RedisModule_StringToLongLong(argv[loc + 3 + 1 + profileArgs], &nargs);
 
     // append params string including PARAMS keyword and nargs
     for (int i = 0; i < nargs + 2; ++i) {
@@ -346,7 +346,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   rc = AGGPLN_Distribute(AREQ_AGGPlan(r), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
-  AREQDIST_UpstreamInfo us = {NULL};
+  AREQDIST_UpstreamInfo us = {NULL, NULL};
   rc = AREQ_BuildDistributedPipeline(r, &us, status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
@@ -481,7 +481,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   MRCommand_Insert(cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
   // insert also debug params at the end
-  for (size_t i = 0; i < debug_argv_count; i++) {
+  for (int i = 0; i < debug_argv_count; i++) {
     size_t n;
     const char *arg = RedisModule_StringPtrLen(debug_params.debug_argv[i], &n);
     MRCommand_Append(cmd, arg, n);

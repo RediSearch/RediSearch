@@ -29,12 +29,13 @@
 #include <cassert>
 #include <mutex>
 
+#ifndef __ignore__
 #define __ignore__(X) \
     do { \
         int rc = (X); \
-        if (rc == -1) \
-            ; \
+        (void)rc; \
     } while(0)
+#endif
 
 static std::mutex RMCK_GlobalLock;
 
@@ -283,7 +284,7 @@ int RMCK_StringToDouble(RedisModuleString *s, double *outval) {
   if (s->empty() || isspace(s->at(0))) {
     return REDISMODULE_ERR;
   }
-  if (eptr - s->c_str() != s->size()) {
+  if ((size_t)(eptr - s->c_str()) != s->size()) {
     return REDISMODULE_ERR;
   }
   if ((errno == ERANGE && (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
@@ -442,7 +443,6 @@ int RMCK_HashGet(RedisModuleKey *key, int flags, ...) {
   HashValue *hv = static_cast<HashValue *>(key->ref);
 
   while (true) {
-    void *vpp = NULL;
     e.rawkey = va_arg(ap, void *);
     if (!e.rawkey) {
       break;

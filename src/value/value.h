@@ -122,7 +122,7 @@ typedef struct RSValue {
 #ifdef __cplusplus
   RSValue() {
   }
-  RSValue(RSValueType t_) : _ref(NULL), _t(t_), _refcount(0), _allocated(0) {
+  RSValue(RSValueType t_) : _ref(NULL), _t(t_), _allocated(0), _refcount(0) {
   }
 
 #endif
@@ -146,7 +146,9 @@ RSValue *RSValue_NewWithType(RSValueType t);
  * The returned value is not allocated on the heap and should not be freed.
  * @return A stack-allocated RSValue of type RSValueType_Undef
  */
+#ifndef __cplusplus
 RSValue RSValue_Undefined();
+#endif
 
 #ifndef __cplusplus
 /**
@@ -156,7 +158,7 @@ RSValue RSValue_Undefined();
  * @param t The type of RSValue to create
  * @return A stack-allocated RSValue
  */
-static RSValue RSValue_WithType(RSValueType t) {
+static inline RSValue RSValue_WithType(RSValueType t) {
   RSValue v = (RSValue){
       ._t = t,
       ._refcount = 1,
@@ -172,7 +174,9 @@ static RSValue RSValue_WithType(RSValueType t) {
  * @param n The numeric value to wrap
  * @return A stack-allocated RSValue of type RSValueType_Number
  */
+#ifndef __cplusplus
 RSValue RSValue_Number(double n);
+#endif
 
 /**
  * Creates a stack-allocated RSValue containing a malloc'd string.
@@ -181,7 +185,9 @@ RSValue RSValue_Number(double n);
  * @param len The length of the string
  * @return A stack-allocated RSValue of type RSValue_String with RSString_Malloc subtype
  */
+#ifndef __cplusplus
 RSValue RSValue_String(char *str, uint32_t len);
+#endif
 
 /**
  * Creates a heap-allocated RSValue wrapping a string.
@@ -696,7 +702,7 @@ static inline int RSValue_BoolTest(const RSValue *v) {
     case RSValueType_RedisString:
     case RSValueType_OwnRstring: {
       size_t l = 0;
-      const char *p = RedisModule_StringPtrLen(v->_rstrval, &l);
+      RedisModule_StringPtrLen(v->_rstrval, &l);
       return l != 0;
     }
     default:
@@ -708,7 +714,7 @@ static inline int RSValue_BoolTest(const RSValue *v) {
  * Formats the passed numeric RSValue as a string.
  * The passed RSValue must be of type RSValueType_Number.
  */
-static size_t RSValue_NumToString(const RSValue *v, char *buf) {
+static inline size_t RSValue_NumToString(const RSValue *v, char *buf) {
   RS_ASSERT(v->_t == RSValueType_Number);
   double dd = v->_numval;
   long long ll = dd;

@@ -40,7 +40,6 @@ TEST_F(ExpireTest, testSkipTo) {
   ASSERT_NE(spec, nullptr);
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, "t1", 2);
   ASSERT_NE(fs, nullptr);
-  RSIndex *index = spec->own_ref.rm;
   ASSERT_TRUE(spec);
   RedisModuleString* hset_args[3] = { NULL,
                                  RedisModule_CreateString(ctx, "t1", strlen("t1")),
@@ -75,7 +74,6 @@ TEST_F(ExpireTest, testSkipTo) {
   ASSERT_EQ(it->lastDocId, 0);
   // should skip to last document, we index every doc twice so we should have 2 * maxDocId entries in the inverted index
   for (t_docId doc = 2; doc < (2 * maxDocId); doc += 2) {
-    RSIndexResult *result = NULL;
     // we index in hset and in hexpire
     // for hset there won't be an expiration
     // for hexpire there will be
