@@ -15,16 +15,6 @@ typedef struct RSSortingVector RSSortingVector;
 
 #define RS_SORTABLES_MAX 1024
 
-#define RS_SORTABLE_NUM 1
-
-#define RS_SORTABLE_EMBEDDED_STR 2
-
-#define RS_SORTABLE_STR 3
-
-#define RS_SORTABLE_NIL 4
-
-#define RS_SORTABLE_RSVAL 5
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
