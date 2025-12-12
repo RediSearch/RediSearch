@@ -98,6 +98,8 @@ extern "C" fn RSValue_NewNumber(numval: f64) -> *mut ffi::RSValue {
             field
         },
         _refcount: 1,
+        _padding1: 0,
+        _padding2: 0,
     }))
 }
 
