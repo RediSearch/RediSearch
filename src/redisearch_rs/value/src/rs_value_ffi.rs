@@ -9,7 +9,6 @@
 
 use std::{
     ffi::{CStr, c_char},
-    mem::offset_of,
     ptr::NonNull,
     slice,
 };
@@ -195,19 +194,8 @@ impl RSValueTrait for RSValueFFI {
     }
 
     fn refcount(&self) -> Option<usize> {
-        if self.get_type() == ffi::RSValueType_RSValueType_Null {
-            None
-        } else {
-            // Safety: matches the layout of RSValue and `offset_of` can't produce out-of-bounds values
-            let ptr = unsafe {
-                self.0
-                    .byte_add(offset_of!(ffi::RSValue, _refcount))
-                    .cast::<u16>()
-            };
-
-            // Safety: Constructors for Self only return valid, non-null pointers
-            Some(unsafe { ptr.read() as usize })
-        }
+        // Safety: self.0 is a valid pointer to an RSValue struct.
+        Some(unsafe { ffi::RSValue_Refcount(self.0.as_ptr()) } as usize)
     }
 }
 
