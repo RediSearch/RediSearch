@@ -47,7 +47,13 @@ jobs:
     name: Build ${{ needs.get-config.outputs.name }}
     needs: [get-config]
     runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
-    container: ${{ needs.get-config.outputs.container || null }}
+    container: ${{ needs.get-config.outputs.container
+      && fromJSON(
+      format('{{"image":"{0}","options":"--user root {1}"}}',
+      needs.get-config.outputs.container,
+      needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared' || '')
+      )
+      || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -58,6 +64,16 @@ jobs:
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
       GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
+      # A workaround to get GitHub Actions to work on Alpine
+      # See https://github.com/actions/runner/issues/801#issuecomment-2976165281 for more details
+      - name: Unlock GitHub Actions on Alpine
+        if: needs.get-config.outputs.container == 'alpine:3.22'
+        shell: sh -l -eo pipefail {0}
+        run: |
+          sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release
+          apk add nodejs --update-cache
+          mkdir -p /opt/bin
+          ln -s /usr/bin/node /opt/bin/node
       # Setup
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Setup Dependencies (Alpine)
@@ -108,7 +124,7 @@ jobs:
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
           CONTAINER="${{ needs.get-config.outputs.container }}"
-          for platform in amazonlinux:2 alpine:3.22; do
+          for platform in amazonlinux:2; do
             if [[ "$CONTAINER" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
@@ -128,7 +144,7 @@ jobs:
           CONTAINER="${{ needs.get-config.outputs.container }}"
           echo "Detected platform: $CONTAINER"
           case "$CONTAINER" in
-            amazonlinux:2 | alpine:3.22)
+            amazonlinux:2)
 
               # Configure the safe directory
               git config --global --add safe.directory "/__w/$GITHUB_REPOSITORY"
