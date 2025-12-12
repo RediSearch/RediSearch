@@ -357,7 +357,8 @@ struct RLookupKey *RLookup_GetKey_LoadEx(struct RLookup *lookup,
  */
 size_t RLookup_GetLength(const struct RLookup *lookup,
                          const RLookupRow *r,
-                         int32_t *_skipFieldIndex,
+                         int32_t *skipFieldIndex,
+                         uintptr_t skipFieldIndex_len,
                          int32_t requiredFlags,
                          int32_t excludedFlags,
                          SchemaRule *rule);
@@ -486,11 +487,6 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow,
  *
  * This does not actually "search" for the key, but simply performs array
  * lookups!
- *
- * @param lookup The lookup table containing the lookup table data
- * @param key the key that contains the index
- * @param row the row data which contains the value
- * @return the value if found, NULL otherwise.
  */
 RSValue *RLookupRow_Get(const struct RLookupKey *key, const RLookupRow *row);
 

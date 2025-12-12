@@ -313,7 +313,8 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
 pub unsafe extern "C" fn RLookup_GetLength<'a>(
     lookup: *const RLookup<'a>,
     r: *const RLookupRow,
-    _skipFieldIndex: Option<NonNull<i32>>, //?
+    skipFieldIndex: Option<NonNull<i32>>, // could be unitialized, all ints would be fine. debug check all 0s?
+    skipFieldIndex_len: usize,
     requiredFlags: i32,
     excludedFlags: i32,
     rule: *mut SchemaRule, // *mut to work with SchemaRuleWrapper?
@@ -325,6 +326,7 @@ pub unsafe extern "C" fn RLookup_GetLength<'a>(
     let rule = unsafe { SchemaRuleWrapper::from_raw(rule) };
     let rule = rule.as_ref();
 
+    // use get_length_no_alloc()
     r.get_length(lookup, requiredFlags, excludedFlags, rule).0 // .1?
 }
 
@@ -396,5 +398,5 @@ pub unsafe extern "C" fn findFieldInSpecCache<'a>(
 
     lookup
         .find_field_in_spec_cache(name)
-        .map_or(ptr::null(), |fs| fs)
+        .map_or(ptr::null(), ptr::from_ref)
 }

@@ -107,6 +107,8 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     ///
     /// # Safety
     /// 1. Caller must ensure that `out_flags` has a length at least equal to `lookup.get_row_len()`.
+    ///
+    // ta bort unsafe, ha kvar debug assert, fixa panic comment ist
     pub unsafe fn get_length_no_alloc(
         &self,
         lookup: &RLookup,

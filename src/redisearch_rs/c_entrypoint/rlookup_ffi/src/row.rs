@@ -10,7 +10,12 @@
 use ffi::RSValue;
 use libc::{c_char, size_t};
 use rlookup::{RLookup, RLookupKey};
-use std::{ffi::CStr, mem::ManuallyDrop, ptr::NonNull, slice};
+use std::{
+    ffi::CStr,
+    mem::{self, ManuallyDrop},
+    ptr::NonNull,
+    slice,
+};
 use value::RSValueFFI;
 
 pub type RLookupRow = rlookup::RLookupRow<'static, RSValueFFI>;
@@ -164,11 +169,6 @@ unsafe extern "C" fn RLookupRow_WriteFieldsFrom(
 ///
 /// This does not actually "search" for the key, but simply performs array
 /// lookups!
-///
-/// @param lookup The lookup table containing the lookup table data
-/// @param key the key that contains the index
-/// @param row the row data which contains the value
-/// @return the value if found, NULL otherwise.
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RLookupRow_Get(
     key: *const RLookupKey,
@@ -207,7 +207,9 @@ unsafe extern "C" fn RLookupRow_WriteByName(
 
     let value = unsafe { RSValueFFI::from_raw(value.unwrap()) };
 
-    row.write_key_by_name(lookup, name, value);
+    // comment on why clone and forget is important ("load-bearing")
+    row.write_key_by_name(lookup, name, value.clone());
+    mem::forget(value);
 
     // Increment refcount?
 }
@@ -233,10 +235,19 @@ unsafe extern "C" fn RLookupRow_WriteByNameOwned(
     row: Option<NonNull<RLookupRow>>,
     value: Option<NonNull<RSValue>>,
 ) {
-    // Call above impl or duplicate?
+    let lookup = unsafe { lookup.unwrap().as_mut() };
 
-    unsafe { RLookupRow_WriteByName(lookup, name, len, row, value) };
+    let name = {
+        // `len` is a value as returned by `strlen` and therefore **does not**
+        // include the null terminator (that is why we do `len + 1` below)
+        let bytes = unsafe { slice::from_raw_parts(name.cast::<u8>(), len + 1) };
+
+        CStr::from_bytes_with_nul(bytes).unwrap()
+    };
+
+    let row = unsafe { row.unwrap().as_mut() };
 
     let value = unsafe { RSValueFFI::from_raw(value.unwrap()) };
-    drop(value);
+
+    row.write_key_by_name(lookup, name, value);
 }

@@ -295,7 +295,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipF
       continue;
     }
 
-    skipFieldIndex[i] = 1;
+    skipFieldIndex[i] = 1; // set a 1 for each one we didn't skip
     ++nfields;
   }
   RS_LOG_ASSERT(i == lookup->rowlen, "'i' should be equal to lookup len");
