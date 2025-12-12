@@ -547,6 +547,10 @@ size_t redisearch_thpool_low_priority_pending_jobs(redisearch_thpool_t *thpool_p
   return __atomic_load_n(&(thpool_p->jobqueues.low_priority_jobqueue.len), __ATOMIC_RELAXED);
 }
 
+size_t redisearch_thpool_admin_priority_pending_jobs(redisearch_thpool_t *thpool_p) {
+  return __atomic_load_n(&(thpool_p->jobqueues.admin_priority_jobqueue.len), __ATOMIC_RELAXED);
+}
+
 thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *thpool_p) {
   /* Locking must be done in the following order to prevent deadlocks. */
   redisearch_thpool_lock(thpool_p);
