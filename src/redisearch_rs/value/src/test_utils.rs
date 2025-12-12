@@ -8,7 +8,7 @@
 */
 
 use crate::RSValueTrait;
-use std::sync::Arc;
+use std::{borrow::Cow, mem::ManuallyDrop, sync::Arc};
 
 /// Mock implementation of `RSValue` for testing purposes.
 #[derive(Clone, Debug, PartialEq)]
@@ -50,12 +50,12 @@ impl RSValueTrait for RSValueMock {
         matches!(self.0.as_ref(), RSValueMockInner::Null)
     }
 
-    fn get_ref(&self) -> Option<&Self> {
-        if let RSValueMockInner::Reference(boxed) = self.0.as_ref() {
-            Some(boxed)
-        } else {
-            None
+    fn deep_deref(&self) -> ManuallyDrop<Cow<'_, Self>> {
+        let mut result = self;
+        while let RSValueMockInner::Reference(reference) = result.0.as_ref() {
+            result = reference;
         }
+        return ManuallyDrop::new(Cow::Borrowed(result));
     }
 
     fn as_str_bytes(&self) -> Option<&[u8]> {
