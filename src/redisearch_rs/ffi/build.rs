@@ -58,11 +58,15 @@ fn main() {
         root.join("deps")
             .join("RedisModulesSDK")
             .join("redismodule.h"),
-        src.join("json.h"),
         src.join("buffer/buffer.h"),
         src.join("config.h"),
         src.join("doc_table.h"),
         src.join("index_result").join("index_result.h"),
+        src.join("iterators").join("intersection_iterator.h"),
+        src.join("iterators").join("inverted_index_iterator.h"),
+        src.join("iterators").join("not_iterator.h"),
+        src.join("iterators").join("optional_iterator.h"),
+        src.join("json.h"),
         src.join("numeric_index.h"),
         src.join("obfuscation").join("hidden.h"),
         src.join("query.h"),
