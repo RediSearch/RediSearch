@@ -10,12 +10,7 @@
 use ffi::RSValue;
 use libc::{c_char, size_t};
 use rlookup::{RLookup, RLookupKey};
-use std::{
-    ffi::CStr,
-    mem::ManuallyDrop,
-    ptr::{self, NonNull},
-    slice,
-};
+use std::{ffi::CStr, mem::ManuallyDrop, ptr::NonNull, slice};
 use value::RSValueFFI;
 
 pub type RLookupRow = rlookup::RLookupRow<'static, RSValueFFI>;
