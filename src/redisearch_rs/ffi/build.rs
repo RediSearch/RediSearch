@@ -57,6 +57,7 @@ fn main() {
     let deps = root.join("deps");
     let headers = [
         deps.join("RedisModulesSDK").join("redismodule.h"),
+        deps.join("hiredis").join("sds.h"),
         deps.join("rmutil").join("vector.h"),
         src.join("buffer/buffer.h"),
         src.join("config.h"),

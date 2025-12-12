@@ -2530,7 +2530,9 @@ dependencies = [
  "c_ffi_utils",
  "cbindgen",
  "ffi",
+ "fnv",
  "libc",
+ "query_error",
  "value",
  "workspace_hack",
 ]
