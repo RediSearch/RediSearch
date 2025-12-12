@@ -9,8 +9,8 @@
 
 use std::ffi::CStr;
 
-use crate::{
-    collection::{RsValueArray, RsValueMap},
+pub use crate::{
+    collection::{Array, Map},
     shared::SharedRsValue,
     strings::{ConstString, RedisString, RmAllocString},
     trio::RsValueTrio,
@@ -28,7 +28,7 @@ mod test_utils;
 #[cfg(feature = "test_utils")]
 pub use test_utils::RSValueMock;
 
-pub mod collection;
+mod collection;
 pub mod shared;
 pub mod strings;
 pub mod trio;
@@ -51,13 +51,13 @@ pub enum RsValue {
     /// String value
     String(Box<CStr>),
     /// Array value
-    Array(RsValueArray),
+    Array(Array),
     /// Reference value
     Ref(SharedRsValue),
     /// Trio value
     Trio(RsValueTrio),
     /// Map value
-    Map(RsValueMap),
+    Map(Map),
 }
 
 impl RsValue {
@@ -66,6 +66,22 @@ impl RsValue {
             ref_value.value().fully_dereferenced()
         } else {
             self
+        }
+    }
+
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            RsValue::Undefined => "Undefined",
+            RsValue::Null => "Null",
+            RsValue::Number(_) => "Number",
+            RsValue::RmAllocString(_) => "RmAllocString",
+            RsValue::ConstString(_) => "ConstString",
+            RsValue::RedisString(_) => "RedisString",
+            RsValue::String(_) => "String",
+            RsValue::Array(_) => "Array",
+            RsValue::Ref(_) => "Ref",
+            RsValue::Trio(_) => "Trio",
+            RsValue::Map(_) => "Map",
         }
     }
 }

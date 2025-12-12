@@ -9,9 +9,10 @@
 
 #![allow(non_camel_case_types, non_snake_case)]
 
-pub mod collection;
+pub mod array;
 pub mod constructors;
 pub mod getters;
+pub mod map;
 pub mod setters;
 pub mod shared;
 pub mod string;
