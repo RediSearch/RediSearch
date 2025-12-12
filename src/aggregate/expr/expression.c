@@ -442,7 +442,7 @@ static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
   pc->eval.err = pc->base.parent->err;
 
   if (!pc->val) {
-    pc->val = RSValue_NewWithType(RSValueType_Undef);
+    pc->val = RSValue_NewUndefined();
   }
 
   rc = ExprEval_Eval(&pc->eval, pc->val);
