@@ -165,6 +165,10 @@ struct RsValue *RSValue_NewTrio(struct RsValue *left,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
+struct RsValue *RSValue_NullStatic(void);
+
+struct RsValue *RSValue_NewReference(const struct RsValue *src);
+
 struct RsValue *RSValue_NewString(char *str, uint32_t len);
 
 /**
@@ -238,6 +242,21 @@ struct RsValue *RSValue_NewRedisString(RedisModuleString *str);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct RsValue *RSValue_NewCopiedString(const char *str, uint32_t len);
+
+struct RsValue *RSValue_NewParsedNumber(const char *value, uint32_t len);
+
+struct RsValue *RSValue_NewNumberFromInt64(int64_t number);
+
+int RSValue_ToNumber(const struct RsValue *value, double *d);
+
+const char *RSValue_ConvertStringPtrLen(const struct RsValue *value,
+                                        size_t *len_ptr,
+                                        char *buf,
+                                        size_t buflen);
+
+void RSValue_ToString(const struct RsValue *dst, const struct RsValue *value);
+
+size_t RSValue_NumToString(const struct RsValue *value, char *buf, size_t buflen);
 
 /**
  * Gets the numeric value from an [`RsValue`].
@@ -364,6 +383,8 @@ const RedisModuleString *RSValue_RedisString_Get(const struct RsValue *value);
  */
 const char *RSValue_StringPtrLen(const struct RsValue *value, size_t *len_ptr);
 
+uint64_t RSValue_Hash(const struct RsValue *value, uint64_t hval);
+
 /**
  * Allocates a new, uninitialized [`RSValueMapBuilder`] with space for `len` entries.
  *
@@ -445,6 +466,8 @@ void RSValue_Map_GetEntry(const struct RsValue *map,
                           uint32_t index,
                           struct RsValue **key,
                           struct RsValue **value);
+
+sds RSValue_DumpSds(const struct RsValue *value, sds sds, bool obfuscate);
 
 /**
  * Converts an [`RsValue`] to a number type in-place.
@@ -529,28 +552,6 @@ void RSValue_SetString(struct RsValue *value, char *str, size_t len);
 void RSValue_SetConstString(struct RsValue *value, const char *str, size_t len);
 
 /**
- * Creates a heap-allocated `RsValue` by parsing a string as a number.
- * Returns an undefined value if the string cannot be parsed as a valid number.
- *
- * # Safety
- * - (1) `str` must be a valid const pointer to a char sequence of `len` bytes.
- *
- * @param p The string to parse
- * @param l The length of the string
- * @return A pointer to a heap-allocated `RsValue`
- */
-const struct RsValue *SharedRsValue_NewParsedNumber(const char *str, uintptr_t len);
-
-/**
- * Creates a heap-allocated `RsValue` containing a number from an int64.
- * This operation casts the passed `i64` to an `f64`, possibly losing information.
- *
- * @param ii The int64 value to convert and wrap
- * @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Number`
- */
-const struct RsValue *SharedRsValue_NewNumberFromInt64(int64_t dd);
-
-/**
  * Decrement the reference count of the provided [`RsValue`] object. If this was
  * the last available reference, it frees the data.
  *
@@ -560,6 +561,20 @@ const struct RsValue *SharedRsValue_NewNumberFromInt64(int64_t dd);
  *    `RSValue_*` function returning an owned [`RsValue`] object.
  */
 void RSValue_DecrRef(const struct RsValue *value);
+
+struct RsValue *RSValue_Dereference(const struct RsValue *value);
+
+void RSValue_Clear(const struct RsValue *value);
+
+struct RsValue *RSValue_IncrRef(const struct RsValue *value);
+
+void RSValue_MakeReference(const struct RsValue *dst, const struct RsValue *src);
+
+void RSValue_MakeOwnReference(const struct RsValue *dst, const struct RsValue *src);
+
+void RSValue_Replace(struct RsValue **dstpp, const struct RsValue *src);
+
+uint16_t RSValue_Refcount(const struct RsValue *value);
 
 /**
  * Returns the type of the given [`RsValue`].
