@@ -71,6 +71,7 @@ pub enum QueryErrorCode {
     WeightNotAllowed,
     VectorNotAllowed,
     OutOfMemory,
+    UnavailableSlots,
 }
 
 impl Debug for QueryErrorCode {
@@ -149,6 +150,7 @@ impl QueryErrorCode {
             Self::WeightNotAllowed => c"Weight attributes are not allowed",
             Self::VectorNotAllowed => c"Vector queries are not allowed",
             Self::OutOfMemory => c"Not enough memory available to execute the query",
+            Self::UnavailableSlots => c"Query requires unavailable slots",
         }
     }
 }

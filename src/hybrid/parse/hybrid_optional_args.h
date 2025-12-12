@@ -57,7 +57,7 @@ typedef struct {
     size_t *maxResults;                     // Maximum results
     arrayof(sds) *prefixes;                 // Prefixes for the index
     const RedisModuleSlotRangeArray **querySlots; // Slots requested from coordinator (referenced from AREQ)
-    uint32_t *slotsVersion;                 // Slots version for the request (referenced from AREQ)
+    uint32_t *keySpaceVersion;                 // Slots version for the request (referenced from AREQ)
 } HybridParseContext;
 
 /**
