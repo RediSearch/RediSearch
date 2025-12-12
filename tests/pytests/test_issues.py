@@ -1798,3 +1798,90 @@ def test_mod_12493(env:Env):
   for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
     stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR|DEL']
     env.assertEqual(stats['calls'], 1, message=f'Expected 1 call on shard {i}, got {stats["calls"]}')
+
+
+def test_mod_13010(env):
+    """Test coherence between aggregate queries with and without groupby on 10k documents"""
+    conn = getConnectionByEnv(env)
+
+    # Create index with schema matching the query requirements
+    env.expect('FT.CREATE', 'messages', 'SCHEMA',
+               'Source', 'TAG',
+               'Name', 'TAG',
+               'option', 'TAG',
+               'Date', 'NUMERIC', 'SORTABLE',
+               'Message', 'TEXT',
+               'BName', 'TAG',
+               'BVersion', 'TAG').ok()
+
+    # Populate with 10k documents
+    sources = ['SourceA', 'SourceB', 'SourceC']
+    names = ['name', 'other_name', 'third_name']
+    options = ['A', 'B', 'C', 'D']
+    bnames = ['BName1', 'BName2', 'BName3']
+    bversions = ['v1.0', 'v2.0', 'v3.0']
+
+    target_date = 20251210
+    matching_docs = 0
+
+    for i in range(10000):
+        source = sources[i % len(sources)]
+        name = names[i % len(names)]
+        option = options[i % len(options)]
+        bname = bnames[i % len(bnames)]
+        bversion = bversions[i % len(bversions)]
+
+        # Make some docs match the query criteria
+        if source in ['SourceA', 'SourceB'] and name == 'name' and option == 'C':
+            date = target_date
+            matching_docs += 1
+        else:
+            date = 20251209 + (i % 5)  # Various dates around target
+
+        # Ensure unique messages - use document ID in message content
+        conn.execute_command('HSET', f'doc{i}',
+                           'Source', source,
+                           'Name', name,
+                           'option', option,
+                           'Date', date,
+                           'Message', f'Unique message content for doc{i}',
+                           'BName', bname,
+                           'BVersion', bversion)
+
+    # Query 1: Basic aggregate with load
+    res1 = env.cmd('FT.AGGREGATE', 'messages',
+                   '@Source:{SourceA|SourceB} @Name:{name} @option:{C} @Date:[20251210 20251210]',
+                   'LOAD', '1', 'Message')
+
+    # Query 2: Same query with groupby and reduce tolist
+    res2 = env.cmd('FT.AGGREGATE', 'messages',
+                   '@Source:{SourceA|SourceB} @Name:{name} @option:{C} @Date:[20251210 20251210]',
+                   'LOAD', '1', 'Message',
+                   'GROUPBY', '2', '@BName', '@BVersion',
+                   'REDUCE', 'TOLIST', '1', '@Message', 'AS', 'v')
+
+    # Verify no duplicate messages in either result set
+    messages_query1_list = []
+    for row in res1[1:]:
+        row_dict = {}
+        for i in range(0, len(row), 2):
+            row_dict[row[i]] = row[i+1]
+        if 'Message' in row_dict:
+            messages_query1_list.append(row_dict['Message'])
+
+    messages_query2_list = []
+    for row in res2[1:]:
+        row_dict = {}
+        for i in range(0, len(row), 2):
+            row_dict[row[i]] = row[i+1]
+        if 'v' in row_dict:
+            for msg in row_dict['v']:
+                messages_query2_list.append(msg)
+
+    messages_query1 = set(messages_query1_list)
+    messages_query2 = set(messages_query2_list)
+    env.assertEqual(messages_query1, messages_query2)
+    env.assertEqual(len(messages_query1_list), len(messages_query1),
+                    f"Query 1 has duplicate messages: {len(messages_query1_list)} total vs {len(messages_query1)} unique")
+    env.assertEqual(len(messages_query2_list), len(messages_query2),
+                    f"Query 2 has duplicate messages: {len(messages_query2_list)} total vs {len(messages_query2)} unique")
