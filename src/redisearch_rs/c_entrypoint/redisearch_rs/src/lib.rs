@@ -22,6 +22,7 @@ pub use inverted_index_ffi as inverted_index;
 pub use iterators_ffi as iterators;
 pub use query_error_ffi as query_error;
 pub use result_processor_ffi as result_processor;
+pub use search_result_ffi as search_result;
 pub use slots_tracker_ffi as slots_tracker;
 pub use triemap_ffi as triemap;
 pub use types_ffi as types;

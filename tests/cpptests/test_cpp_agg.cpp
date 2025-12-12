@@ -17,7 +17,7 @@
 #include "common.h"
 #include "module.h"
 #include "version.h"
-#include "search_result.h"
+#include "search_result_rs.h"
 
 #include <vector>
 #include <array>
@@ -71,7 +71,7 @@ TEST_F(AggTest, testBasic) {
   auto rp = AREQ_RP(rr);
   ASSERT_FALSE(rp == NULL);
 
-  SearchResult res = {0};
+  SearchResult res = SearchResult_New();
   RLookup *lk = AGPLN_GetLookup(AREQ_AGGPlan(rr), NULL, AGPLN_GETLOOKUP_LAST);
   size_t count = 0;
   while ((rv = rp->Next(rp, &res)) == RS_RESULT_OK) {
@@ -178,7 +178,7 @@ TEST_F(AggTest, testGroupBy) {
   auto sumReducer = RDCRSum_New(&sumOptions);
   ASSERT_TRUE(sumReducer != NULL) << QueryError_GetUserError(sumOptions.status);
   Grouper_AddReducer(gr, sumReducer, score_out);
-  SearchResult res = {0};
+  SearchResult res = SearchResult_New();
   ResultProcessor *gp = Grouper_GetRP(gr);
   QITR_PushRP(&qitr, gp);
 
@@ -216,7 +216,7 @@ TEST_F(AggTest, testGroupSplit) {
   ReducerOptions opt = {0};
   opt.args = &args;
   Grouper_AddReducer(gr, RDCRCount_New(&opt), count_out);
-  SearchResult res = {0};
+  SearchResult res = SearchResult_New();
   size_t ii = 0;
 
   QITR_PushRP(&qitr, &gen);
