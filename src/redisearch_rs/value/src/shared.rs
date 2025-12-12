@@ -7,115 +7,60 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ptr, sync::Arc};
+use std::sync::Arc;
 
-use crate::{RsValueInternal, Value};
+use crate::{RsValue, Value};
 
-/// A heap-allocated and refcounted RedisSearch dynamic value.
-/// This type is backed by [`Arc<RsValueInternal>`], but uses
-/// the NULL pointer to encode an undefined value, and is FFI safe.
-///
-/// # Invariants
-/// - If this pointer is non-NULL, it was obtained from `Arc::into_raw`.
-/// - If it is NULL, it represents an undefined value.
-/// - A non-null pointer represents one clone of said `Arc`, and as such, as
-///   long as the [`SharedRsValue`] lives and holds a non-null pointer, the Arc
-///   is still valid.
-#[repr(C)]
+/// A shared RedisSearch dynamic value, backed by an `Arc<RsValue>`.
+#[derive(Clone)]
 pub struct SharedRsValue {
-    /// Pointer representing the `Arc<RsValueInternal>`.
-    ptr: *const RsValueInternal,
+    inner: Arc<RsValue>,
 }
 
-impl Default for SharedRsValue {
-    fn default() -> Self {
-        Self::undefined()
-    }
-}
-
-impl Drop for SharedRsValue {
-    fn drop(&mut self) {
-        if self.ptr.is_null() {
-            return;
+impl SharedRsValue {
+    /// Create a new shared RsValue wrapping an [`RsValue`]
+    pub fn new(value: RsValue) -> Self {
+        Self {
+            inner: Arc::new(value),
         }
-        // Safety: `self.ptr` is not null at this point,
-        // and so must have been originated from a call to `from_internal`.
-        // At least as long as `self` lives, this the strong reference
-        // count of the backing `Arc` is at least 1.
-        unsafe { Arc::decrement_strong_count(self.ptr) };
+    }
+
+    /// Get a raw pointer to the inner [`RsValue`].
+    pub fn as_ptr(&self) -> *const RsValue {
+        Arc::as_ptr(&self.inner)
+    }
+
+    /// Convert a [`SharedRsValue`] into a raw `*const RsValue` pointer.
+    pub fn into_raw(self) -> *const RsValue {
+        Arc::into_raw(self.inner)
+    }
+
+    /// Convert a `*const RsValue` back into a [`SharedRsValue`].
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be a valid pointer obtained from `SharedRsValue::into_raw`.
+    pub unsafe fn from_raw(ptr: *const RsValue) -> Self {
+        Self {
+            // SAFETY: `ptr` is a valid pointer obtained from `SharedRsValue::into_raw`.
+            inner: unsafe { Arc::from_raw(ptr) },
+        }
+    }
+
+    /// Get a reference to the inner [`RsValue`].
+    pub fn value(&self) -> &RsValue {
+        &self.inner
     }
 }
 
 impl Value for SharedRsValue {
-    /// Wraps the passed [`RsValueInternal`] in an [`Arc`]
-    /// allocated by the global allocator,
-    /// and uses `Arc::into_raw` to convert it to a pointer and
-    /// to ensure it doesn't get dropped. All constructors except
-    /// of [`Self::undefined`] call this method to create a
-    /// [`SharedRsValue`], which is relied upon in other method
-    /// and trait implementations for this type, e.g. [`Drop`] and
-    /// [`Clone`].
-    fn from_internal(internal: RsValueInternal) -> Self {
-        let internal = Arc::new(internal);
-
-        Self {
-            ptr: Arc::into_raw(internal),
-        }
-    }
-
-    fn undefined() -> Self {
-        Self {
-            ptr: ptr::null_mut(),
-        }
-    }
-
-    fn internal(&self) -> Option<&RsValueInternal> {
-        if self.ptr.is_null() {
-            return None;
-        }
-        // Safety: `self.ptr` is not null at this point,
-        // and so must have been originated from a call to `from_internal`.
-        // At least as long as `self` lives, this pointer is guaranteed
-        // to be valid by the backing `Arc`.
-        Some(unsafe { &*self.ptr })
+    fn from_value(value: RsValue) -> Self {
+        Self::new(value)
     }
 }
 
 impl std::fmt::Debug for SharedRsValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.internal() {
-            Some(internal) => f.debug_tuple("Defined").field(internal).finish(),
-            None => f.debug_tuple("Undefined").finish(),
-        }
+        self.value().fmt(f)
     }
 }
-
-impl Clone for SharedRsValue {
-    fn clone(&self) -> Self {
-        if self.ptr.is_null() {
-            return Self { ptr: ptr::null() };
-        }
-
-        // Safety: `self.ptr` is not null at this point,
-        // and so must have been originated from a call to `from_internal`.
-        // At least as long as `self` lives, this pointer is guaranteed
-        // to be valid by the backing `Arc`.
-        unsafe { Arc::increment_strong_count(self.ptr) };
-        Self { ptr: self.ptr }
-    }
-}
-
-// Safety: `SharedRsValue` is essentially just a `Arc<RsValueInternal>`.
-// Below static assertion proves that `Arc<RsValueInternal>` is `Send`,
-// and therefore `SharedRsValue` is `Send`
-unsafe impl Send for SharedRsValue {}
-
-// Safety: `SharedRsValue` is essentially just a `Arc<RsValueInternal>`.
-// Below static assertion proves that `Arc<RsValueInternal>` is `Sync`,
-// and therefore `SharedRsValue` is `Sync`
-unsafe impl Sync for SharedRsValue {}
-
-const _ASSERT_ARC_RS_VALUE_INTERNAL_IS_SEND_AND_SYNC: () = {
-    const fn static_assert_send_and_sync<T: Send + Sync>() {}
-    static_assert_send_and_sync::<Arc<RsValueInternal>>();
-};
