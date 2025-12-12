@@ -51,9 +51,7 @@ where
     fn is_ptr_type() -> bool;
 
     /// Returns the approximate memory size of the RSValue instance.
-    fn mem_size() -> usize {
-        std::mem::size_of::<Self>()
-    }
+    fn mem_size() -> usize;
 
     /// Returns the reference count or `None` if the value type does not participate in reference counting.
     fn refcount(&self) -> Option<usize>;
@@ -171,8 +169,7 @@ impl RSValueTrait for RSValueFFI {
     }
 
     fn mem_size() -> usize {
-        // The size of the RSValue struct in C is fixed, so we can use the size of the FFI struct.
-        std::mem::size_of::<ffi::RSValue>()
+        unsafe { ffi::RSValueSize }
     }
 
     fn refcount(&self) -> Option<usize> {
