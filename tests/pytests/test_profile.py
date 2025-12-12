@@ -761,38 +761,89 @@ def testNonZeroTimers(env):
   else:
     test_shard_timers(env)
 
-def testProfileGILTime():
-  env = Env(moduleArgs='WORKERS 1')
+def extract_profile_coordinator_and_shards(env, res):
+  # Extract coordinator and shards from FT.PROFILE response based on protocol.
+  if env.protocol == 3:
+    return res['Profile']['Coordinator'], res['Profile']['Shards']
+  else:
+    # RESP2: res[-1] is ['Shards', [...], 'Coordinator', {...}]
+    # res[-1][1] is shards array, res[-1][-1] is coordinator
+    return to_dict(res[-1][-1]), [to_dict(s) for s in res[-1][1]]
+
+def find_threadsafe_loader(env, shard):
+  # Find the Threadsafe-Loader entry in shard's Result processors profile.
+  rp_profile = shard['Result processors profile']
+  if env.protocol == 3:
+    return next((rp for rp in rp_profile if rp.get('Type') == 'Threadsafe-Loader'), None)
+  else:
+    # RESP2: rp_profile is a list of lists like [['Type', 'Index', ...], ['Type', 'Threadsafe-Loader', ...], ...]
+    return next((to_dict(rp) for rp in rp_profile if 'Threadsafe-Loader' in rp), None)
+
+def ProfileGILTime(env):
+  # Test FT.PROFILE GIL time reporting across all deployment/worker combinations.
+
+  # Test matrix and expected behavior:
+  # +------------+---------+-----------+---------------------------+--------------------------------------+
+  # | Deployment | Workers | With Load | Coordinator               | Shard                                |
+  # +------------+---------+-----------+---------------------------+--------------------------------------+
+  # | SA/COORD   | 0       | N/A       | No "Total GIL time"       | No "Total GIL time"                  |
+  # | SA/COORD   | 1       | No        | No "Total GIL time"       | "Total GIL time" == 0                |
+  # | SA/COORD   | 1       | Yes       | No "Total GIL time"       | "Total GIL time" >= Loader GIL > 0   |
+  # +------------+---------+-----------+---------------------------+--------------------------------------+
+
   conn = getConnectionByEnv(env)
+  is_cluster = env.isCluster()
+  num_shards = env.shardsCount
+  protocol = env.protocol
 
   env.expect('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT').ok()
 
   # Populate db
   for i in range(10):
-    res = conn.execute_command('hset', f'doc{i}', 'f', 'hello world',)
+    conn.execute_command('hset', f'doc{i}', 'f', 'hello world')
 
-  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello' ,'SORTBY', '1', '@f')
+  for workers in [0, 1]:
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
 
-  # Record structure:
-  # ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', ANY, 'Counter', 10]
-  # ['Total GIL time', ANY]
+    # with_load is only meaningful when workers=1 (causes Threadsafe-Loader usage)
+    load_options = [True, False] if workers == 1 else [False]
 
-  # extract the GIL time of the threadsafe loader result processor
-  rp_index = recursive_index(res, 'Threadsafe-Loader')[:-1]
-  rp_record = access_nested_list(res, rp_index)
-  rp_GIL_time = rp_record[rp_record.index('GIL-Time') + 1]
+    for with_load in load_options:
+      scenario = f"protocol={protocol}, cluster={is_cluster}, workers={workers}, with_load={with_load}"
 
-  # extract the total GIL time
-  total_GIL_index = recursive_index(res, 'Total GIL time')
-  total_GIL_index[-1] += 1
-  total_GIL_time = access_nested_list(res, total_GIL_index)
+      res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello', *(['LOAD', 1, '@f'] if with_load else []))
+      coordinator, shards = extract_profile_coordinator_and_shards(env, res)
 
-  # Verify that both are greater than 0 and that the total time is greater than the rp time
-  # Epsilon value (1nanosecond) is added to the total time to verify that it's greater than 0
+      # Validate Coordinator section - should never contain "Total GIL time"
+      env.assertNotContains('Total GIL time', coordinator, message=f"{scenario}: Coordinator should not have Total GIL time")
 
-  env.assertGreater(float(total_GIL_time), 0, message = res)
-  env.assertGreater(float(rp_GIL_time), 0, message = res)
-  env.assertGreaterEqual(float(total_GIL_time), float(rp_GIL_time))
+      # Validate each shard
+      for shard in shards:
+        if workers == 0:
+          # workers=0: No "Total GIL Time"
+          env.assertNotContains('Total GIL time', shard, message=f"{scenario}: Shard should not have Total GIL time when workers=0")
+        else:
+          # workers=1: "Total GIL Time" exists and >= Threadsafe-Loader GIL time
+          env.assertContains('Total GIL time', shard, message=f"{scenario}: Shard should have Total GIL time when workers=1")
+          total_gil_time = float(shard['Total GIL time'])
+
+          if with_load:
+            # Verify Threadsafe-Loader is in profile and has GIL time > 0
+            threadsafe_loader = find_threadsafe_loader(env, shard)
+            env.assertIsNotNone(threadsafe_loader, message=f"{scenario}: Threadsafe-Loader should be in profile when loading")
+            loader_gil_time = float(threadsafe_loader['GIL-Time'])
+            env.assertGreater(loader_gil_time, 0, message=f"{scenario}: Threadsafe-Loader GIL-Time should be > 0 when loading")
+            # Total GIL time should be >= Threadsafe-Loader GIL time
+            env.assertGreaterEqual(total_gil_time, loader_gil_time, message=f"{scenario}: Total GIL time should be >= Threadsafe-Loader GIL time")
+          else:
+            # Without load: Total GIL Time should be 0
+            env.assertEqual(total_gil_time, 0, message=f"{scenario}: Total GIL time should be 0 without load")
+
+def testProfileGILTimeResp2():
+  ProfileGILTime(Env(protocol=2))
+
+def testProfileGILTimeResp3():
+  ProfileGILTime(Env(protocol=3))
 
 def testProfileBM25NormMax(env):
   #create index
