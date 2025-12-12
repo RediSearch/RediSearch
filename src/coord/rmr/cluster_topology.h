@@ -27,7 +27,10 @@ typedef struct {
 /* Create a new cluster shard to be added to a topology */
 MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray *slotRanges);
 
-/* A topology is the mapping of slots to shards and nodes */
+/* A topology is the mapping of slots to shards and nodes
+ * Currently, the shards order is arbitrary, and may also change when the topology refreshed,
+ * even if the actual mapping didn't change.
+ */
 typedef struct MRClusterTopology {
   uint32_t numShards;
   uint32_t capShards;
@@ -36,11 +39,6 @@ typedef struct MRClusterTopology {
 
 MRClusterTopology *MR_NewTopology(uint32_t numShards);
 void MRClusterTopology_AddShard(MRClusterTopology *topo, MRClusterShard *sh);
-
-// Sort shards by their node's id
-// We want to sort by some node value and not by slots, as the nodes in the cluster may be
-// stable while slots can migrate between them
-void MRClusterTopology_SortShards(MRClusterTopology *topo);
 
 /**
  * Frees resources held by an MRClusterNode.

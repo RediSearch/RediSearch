@@ -304,9 +304,6 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   }
   dictReleaseIterator(iter);
 
-  // Sort shards to have a deterministic order
-  MRClusterTopology_SortShards(topo);
-
   // Identify my shard index
   *my_shard_idx = UINT32_MAX;
   for (uint32_t i = 0; i < topo->numShards; i++) {
