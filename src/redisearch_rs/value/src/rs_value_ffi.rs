@@ -36,7 +36,7 @@ where
     fn is_null(&self) -> bool;
 
     /// Gets a reference to the RSValue instance, if it is a reference type or None.
-    fn get_ref(&self) -> Option<&Self>;
+    fn deep_deref(&self) -> &Self;
 
     /// Gets the string slice of the RSValue instance, if it is a string type or None otherwise.
     fn as_str(&self) -> Option<&str>;
@@ -132,18 +132,9 @@ impl RSValueTrait for RSValueFFI {
         self.0.as_ptr() == unsafe { ffi::RSValue_NullStatic() }
     }
 
-    fn get_ref(&self) -> Option<&Self> {
-        // Safety: We assume a valid ptr is given by the C side
-        let p = unsafe { self.0.as_ref() };
-        if p._t() == ffi::RSValueType_RSValueType_Reference {
-            // Safety: We tested that the type is a reference, so we access it over the union safely.
-            let ref_ptr = unsafe { p.__bindgen_anon_1._ref };
-
-            // Safety: We assume that a valid pointer is given by the C side
-            Some(unsafe { &*(ref_ptr as *const RSValueFFI) })
-        } else {
-            None
-        }
+    fn deep_deref(&self) -> &Self {
+        let deref_ptr = unsafe { ffi::RSValue_Dereference(self.0.as_ptr()) };
+        unsafe { &*(deref_ptr as *const RSValueFFI) }
     }
 
     fn as_str(&self) -> Option<&str> {

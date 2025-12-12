@@ -49,12 +49,12 @@ impl RSValueTrait for RSValueMock {
         matches!(self.0.as_ref(), RSValueMockInner::Null)
     }
 
-    fn get_ref(&self) -> Option<&Self> {
-        if let RSValueMockInner::Reference(boxed) = self.0.as_ref() {
-            Some(boxed)
-        } else {
-            None
+    fn deep_deref(&self) -> &Self {
+        let mut result = self;
+        while let RSValueMockInner::Reference(reference) = result.0.as_ref() {
+            result = reference;
         }
+        return result;
     }
 
     fn as_str(&self) -> Option<&str> {
