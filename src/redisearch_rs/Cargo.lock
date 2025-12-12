@@ -2248,8 +2248,8 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "ffi",
- "workspace_hack",
  "redis-module",
+ "workspace_hack",
 ]
 
 [[package]]
@@ -2526,14 +2526,13 @@ checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
 name = "workspace_hack"
 version = "0.1.0"
 dependencies = [
- "bindgen 0.66.1",
- "bindgen 0.72.0",
- "bitflags 2.9.3",
+ "bindgen 0.72.1",
+ "bitflags 2.10.0",
  "clang-sys",
  "clap",
  "clap_builder",
  "either",
- "getrandom 0.3.3",
+ "getrandom 0.3.4",
  "libc",
  "memchr",
  "miniz_oxide",
@@ -2541,18 +2540,18 @@ dependencies = [
  "once_cell",
  "ppv-lite86",
  "proc-macro2",
- "quote 1.0.40",
+ "quote 1.0.42",
  "rand",
  "rand_chacha",
- "redis-module",
  "regex",
  "regex-automata",
  "regex-syntax",
  "serde",
  "serde_core",
  "syn 1.0.109",
- "syn 2.0.106",
+ "syn 2.0.111",
  "thiserror",
+ "zerocopy",
 ]
 
 [[package]]
