@@ -17,16 +17,6 @@ def remove_warnings(result):
 
 def setup_hybrid_test_data(env):
     """Setup test data based on the provided scenario"""
-    # Set up cluster slots for standalone mode - assign all slots (0-16383) to this shard
-    if not env.isCluster():
-        env.expect('SEARCH.CLUSTERSET',
-                   'MYID', '0',
-                   'RANGES', '1',
-                   'SHARD', '0',
-                   'SLOTRANGE', '0', '16383',
-                   'ADDR', f'localhost:{env.port}',
-                   'MASTER').ok()
-
     # Create index with text and vector fields
     env.expect('FT.CREATE', 'idx', 'SCHEMA',
                'description', 'TEXT',
@@ -155,7 +145,6 @@ def get_shard_slot_ranges(env):
 
     # Cluster mode: get actual slot ranges from cluster topology
     cluster_info = env.cmd('CLUSTER', 'SLOTS')
-
     shard_ranges = []
 
     for shard_id, slot_info in enumerate(cluster_info):
@@ -164,13 +153,10 @@ def get_shard_slot_ranges(env):
 
         start_slot = slot_info[0]
         end_slot = slot_info[1]
-        # Node info is at index 2: [ip, port, node_id, []]
-        node_info = slot_info[2]
-        shard_port = node_info[1]
 
         # Generate the slots data for this range
         slots_data = generate_slots(range(start_slot, end_slot + 1))
-        shard_ranges.append((shard_id, slots_data))
+        shard_ranges.append((shard_id + 1, slots_data))
 
     return shard_ranges
 
@@ -195,7 +181,7 @@ def test_basic_hybrid_internal_withcursor(env):
 
         if env.isCluster():
             # In cluster mode, send to specific shard
-            shard_conn = env.getConnection(shardId=shard_id + 1)  # 1-based indexing
+            shard_conn = env.getConnection(shardId=shard_id)
             shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
             result = shard_conn.execute_command('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
                                               'VSIM', '@embedding', query_vec.tobytes(),
@@ -211,8 +197,7 @@ def test_basic_hybrid_internal_withcursor(env):
         env.assertTrue(len(result) > 0)
 
         # Convert list to dict for easier access
-        result = remove_warnings(result)
-        result_dict = dict(zip(result[::2], result[1::2]))
+        result_dict = to_dict(remove_warnings(result))
 
         # Should have VSIM and SEARCH cursor IDs
         env.assertIn('VSIM', result_dict)
@@ -237,7 +222,7 @@ def test_hybrid_internal_with_count_parameter(env):
     for shard_id, slots_data in slot_ranges:
         if env.isCluster():
             # In cluster mode, send to specific shard
-            shard_conn = env.getConnection(shardId=shard_id + 1)  # 1-based indexing
+            shard_conn = env.getConnection(shardId=shard_id)
             shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
             result = shard_conn.execute_command('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
                                               'VSIM', '@embedding', query_vec.tobytes(),
@@ -287,7 +272,7 @@ def test_hybrid_internal_cursor_interaction(env):
 
         if env.isCluster():
             # In cluster mode, send to specific shard
-            shard_conn = env.getConnection(shardId=shard_id + 1)  # 1-based indexing
+            shard_conn = env.getConnection(shardId=shard_id)
             shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
             hybrid_result = shard_conn.execute_command('_FT.HYBRID', 'idx', 'SEARCH', '@description:shoes',
                                                      'VSIM', '@embedding', query_vec.tobytes(),
@@ -394,7 +379,7 @@ def test_hybrid_internal_with_params(env):
         # Execute hybrid command with shard-specific slots
         if env.isCluster():
             # In cluster mode, send to specific shard
-            shard_conn = env.getConnection(shardId=shard_id + 1)  # 1-based indexing
+            shard_conn = env.getConnection(shardId=shard_id)
             shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
             hybrid_result = shard_conn.execute_command('_FT.HYBRID', 'idx', 'SEARCH', '@description:($term)',
                                                      'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR',
@@ -495,7 +480,7 @@ def test_hybrid_internal_empty_search_results(env):
     for shard_id, slots_data in get_shard_slot_ranges(env):
         if env.isCluster():
             # In cluster mode, send to specific shard
-            shard_conn = env.getConnection(shardId=shard_id + 1)  # 1-based indexing
+            shard_conn = env.getConnection(shardId=shard_id)
             shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
             hybrid_result = shard_conn.execute_command('_FT.HYBRID', 'idx', 'SEARCH', '@description:nonexistent',
                                                      'VSIM', '@embedding', query_vec.tobytes(),

@@ -17,4 +17,4 @@ struct RedisModuleCtx;
 void UpdateTopology(struct RedisModuleCtx *ctx);
 int InitRedisTopologyUpdater(struct RedisModuleCtx *ctx);
 int StopRedisTopologyUpdater(RedisModuleCtx *ctx);
-void RedisTopologyUpdater_StopAndRescheduleInmediately(struct RedisModuleCtx *ctx);
+void RedisTopologyUpdater_StopAndRescheduleImmediately(struct RedisModuleCtx *ctx);

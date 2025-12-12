@@ -11,11 +11,16 @@
 #include "slots_tracker.h"
 #include "util/khash.h"
 #include "deps/rmutil/rm_assert.h"
+#include "rmalloc.h"
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <pthread.h>
 
 // Sanitizer detection for leak tracking
+// This is intended to use the ability of Sanitizer to track memory leaks to detect logical leaks.
+// Since we need to keep an exhaustive count of the queries using a specific version, we can use the sanitizer
+// to track the number of allocations and deallocations. If there is a logical leak, the sanitizer will
+// report it.
 #define ASM_SANITIZER_ENABLED 0
 #if defined(__has_feature)
 # if __has_feature(address_sanitizer)
@@ -31,6 +36,60 @@ static int** asm_sanitizer_allocs = NULL;
 static int asm_sanitizer_alloc_count = 0;
 static int asm_sanitizer_alloc_capacity = 0;
 #define ASM_SANITIZER_INITIAL_CAPACITY 100
+
+static void ASM_Sanitizer_Alloc_Init () {
+  if (asm_sanitizer_allocs) {
+    rm_free(asm_sanitizer_allocs);
+  }
+  asm_sanitizer_allocs = (int**)rm_malloc(ASM_SANITIZER_INITIAL_CAPACITY * sizeof(int*));
+  asm_sanitizer_alloc_count = 0;
+  asm_sanitizer_alloc_capacity = ASM_SANITIZER_INITIAL_CAPACITY;
+}
+
+static void ASM_Sanitizer_Alloc_Free () {
+  if (asm_sanitizer_allocs) {
+    rm_free(asm_sanitizer_allocs);
+    asm_sanitizer_allocs = NULL;
+    asm_sanitizer_alloc_count = 0;
+    asm_sanitizer_alloc_capacity = 0;
+  }
+}
+
+static void ASM_Santizer_Alloc_Allocate(uint32_t query_key_space_version) {
+  // Allocate a dummy integer for sanitizer leak detection
+  // We allocate one for each query count increase
+  if (asm_sanitizer_allocs) {
+    // Check if we need to reallocate the array
+    if (asm_sanitizer_alloc_count >= asm_sanitizer_alloc_capacity) {
+      int new_capacity = asm_sanitizer_alloc_capacity * 2;
+      int** new_allocs = (int**)rm_realloc(asm_sanitizer_allocs, new_capacity * sizeof(int*));
+      if (new_allocs) {
+        asm_sanitizer_allocs = new_allocs;
+        asm_sanitizer_alloc_capacity = new_capacity;
+      }
+    }
+
+    // Allocate the tracking integer if we have space
+    if (asm_sanitizer_alloc_count < asm_sanitizer_alloc_capacity) {
+      int *leak_tracker = (int*)rm_malloc(sizeof(int));
+      if (leak_tracker) {
+        *leak_tracker = (int)query_key_space_version; // Store version for debugging
+        asm_sanitizer_allocs[asm_sanitizer_alloc_count++] = leak_tracker;
+      }
+    }
+  }
+}
+
+static void ASM_Sanitizer_Alloc_Deallocate() {
+  // Deallocate a dummy integer for sanitizer leak detection
+  // We deallocate one for each query count decrease (LIFO order)
+  if (asm_sanitizer_alloc_count > 0) {
+    int *leak_tracker = asm_sanitizer_allocs[--asm_sanitizer_alloc_count];
+    if (leak_tracker) {
+      rm_free(leak_tracker);
+    }
+  }
+}
 #endif
 
 #define INVALID_KEYSPACE_VERSION 0
@@ -106,13 +165,7 @@ static inline void ASM_KeySpaceVersionTracker_Init() {
   query_key_space_version_map = kh_init(query_key_space_version_tracker);
 
 #if ASM_SANITIZER_ENABLED
-  // Initialize sanitizer allocation tracking
-  if (asm_sanitizer_allocs) {
-    free(asm_sanitizer_allocs);
-  }
-  asm_sanitizer_allocs = (int**)malloc(ASM_SANITIZER_INITIAL_CAPACITY * sizeof(int*));
-  asm_sanitizer_alloc_count = 0;
-  asm_sanitizer_alloc_capacity = ASM_SANITIZER_INITIAL_CAPACITY;
+  ASM_Sanitizer_Alloc_Init();
 #endif
   pthread_mutex_init(&query_version_tracker_mutex, NULL);
 }
@@ -124,19 +177,12 @@ static inline void ASM_KeySpaceVersionTracker_Destroy() {
   }
 
 #if ASM_SANITIZER_ENABLED
-  // Clean up any remaining sanitizer allocations
-  if (asm_sanitizer_allocs) {
-    // Do not free the integers, so that sanitizer tests would show leaks
-    free(asm_sanitizer_allocs);
-    asm_sanitizer_allocs = NULL;
-    asm_sanitizer_alloc_count = 0;
-    asm_sanitizer_alloc_capacity = 0;
-  }
+  ASM_Sanitizer_Alloc_Free();
 #endif
   pthread_mutex_destroy(&query_version_tracker_mutex);
 }
 
-static inline void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_key_space_version) {
+static void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_key_space_version) {
   pthread_mutex_lock(&query_version_tracker_mutex);
 
   int ret;
@@ -149,33 +195,12 @@ static inline void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_
   }
 
 #if ASM_SANITIZER_ENABLED
-  // Allocate a dummy integer for sanitizer leak detection
-  // We allocate one for each query count increase
-  if (asm_sanitizer_allocs) {
-    // Check if we need to reallocate the array
-    if (asm_sanitizer_alloc_count >= asm_sanitizer_alloc_capacity) {
-      int new_capacity = asm_sanitizer_alloc_capacity * 2;
-      int** new_allocs = (int**)realloc(asm_sanitizer_allocs, new_capacity * sizeof(int*));
-      if (new_allocs) {
-        asm_sanitizer_allocs = new_allocs;
-        asm_sanitizer_alloc_capacity = new_capacity;
-      }
-    }
-
-    // Allocate the tracking integer if we have space
-    if (asm_sanitizer_alloc_count < asm_sanitizer_alloc_capacity) {
-      int *leak_tracker = (int*)malloc(sizeof(int));
-      if (leak_tracker) {
-        *leak_tracker = (int)query_key_space_version; // Store version for debugging
-        asm_sanitizer_allocs[asm_sanitizer_alloc_count++] = leak_tracker;
-      }
-    }
-  }
+  ASM_Santizer_Alloc_Allocate(query_key_space_version);
 #endif
   pthread_mutex_unlock(&query_version_tracker_mutex);
 }
 
-static inline void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_key_space_version) {
+static void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_key_space_version) {
   pthread_mutex_lock(&query_version_tracker_mutex);
 
   khiter_t k = kh_get(query_key_space_version_tracker, query_key_space_version_map, query_key_space_version);
@@ -194,14 +219,7 @@ static inline void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_
   }
 
 #if ASM_SANITIZER_ENABLED
-  // Deallocate a dummy integer for sanitizer leak detection
-  // We deallocate one for each query count decrease (LIFO order)
-  if (asm_sanitizer_alloc_count > 0) {
-    int *leak_tracker = asm_sanitizer_allocs[--asm_sanitizer_alloc_count];
-    if (leak_tracker) {
-      free(leak_tracker);
-    }
-  }
+  ASM_Sanitizer_Alloc_Deallocate();
 #endif
 
   pthread_mutex_unlock(&query_version_tracker_mutex);
