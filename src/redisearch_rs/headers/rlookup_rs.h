@@ -368,6 +368,24 @@ void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
 void RLookup_Cleanup(struct RLookup *lookup);
 
 /**
+ * Find a field in the index spec cache of the lookup.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+ * 2. The memory pointed to by `name` must contain a valid nul terminator at the
+ *    end of the string.
+ * 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
+ *    This means in particular:
+ *     1. The entire memory range of this `CStr` must be contained within a single allocation!
+ *     2. `name` must be non-null even for a zero-length cstr.
+ * 4. The memory referenced by the returned `CStr` must not be mutated for
+ *    the duration of lifetime `'a`.
+ * 5. The nul terminator must be within `isize::MAX` from `name`
+ */
+const FieldSpec *findFieldInSpecCache(const struct RLookup *lookup, const char *name);
+
+/**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
  *
  * # Safety
@@ -434,6 +452,45 @@ void RLookupRow_Reset(RLookupRow *row);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup, RLookupRow *src, RLookupRow *dst);
+
+void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow,
+                                const struct RLookup *srcLookup,
+                                RLookupRow *destRow,
+                                struct RLookup *destLookup);
+
+/**
+ * Get a value from the row, provided the key.
+ *
+ * This does not actually "search" for the key, but simply performs array
+ * lookups!
+ */
+RSValue *RLookupRow_Get(const struct RLookupKey *key, const RLookupRow *row);
+
+/**
+ * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+ * for which it is not necessary to use the boilerplate of getting an explicit
+ * key.
+ *
+ * Like `RLookupRow_WriteByNameOwned`, but increases the refcount.
+ */
+void RLookupRow_WriteByName(struct RLookup *lookup,
+                            const char *name,
+                            size_t len,
+                            RLookupRow *row,
+                            RSValue *value);
+
+/**
+ * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+ * for which it is not necessary to use the boilerplate of getting an explicit
+ * key.
+ *
+ * Like `RLookupRow_WriteByName`, but decreases the refcount.
+ */
+void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
+                                 const char *name,
+                                 size_t len,
+                                 RLookupRow *row,
+                                 RSValue *value);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -137,3 +137,100 @@ pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
 
     dst.move_fields_from(src, lookup);
 }
+
+#[unsafe(no_mangle)]
+#[allow(non_snake_case)]
+unsafe extern "C" fn RLookupRow_WriteFieldsFrom(
+    srcRow: *const RLookupRow,
+    srcLookup: *const RLookup,
+    destRow: Option<NonNull<RLookupRow>>,
+    destLookup: Option<NonNull<RLookup>>,
+) {
+    let srcRow = unsafe { srcRow.as_ref().unwrap() };
+
+    let srcLookup = unsafe { srcLookup.as_ref().unwrap() };
+
+    let destRow = unsafe { destRow.unwrap().as_mut() };
+
+    // No need for mutable?
+    let destLookup = unsafe { destLookup.unwrap().as_ref() };
+
+    destRow.copy_fields_from(destLookup, srcRow, srcLookup);
+}
+
+/// Get a value from the row, provided the key.
+///
+/// This does not actually "search" for the key, but simply performs array
+/// lookups!
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_Get(
+    key: *const RLookupKey,
+    row: *const RLookupRow,
+) -> Option<NonNull<RSValue>> {
+    let key = unsafe { key.as_ref().unwrap() };
+    let row = unsafe { row.as_ref().unwrap() };
+
+    row.get(key).map(|x| NonNull::new(x.as_ptr())).unwrap()
+}
+
+/// Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+/// for which it is not necessary to use the boilerplate of getting an explicit
+/// key.
+///
+/// Like `RLookupRow_WriteByNameOwned`, but increases the refcount.
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_WriteByName(
+    lookup: Option<NonNull<RLookup>>,
+    name: *const c_char,
+    len: size_t,
+    row: Option<NonNull<RLookupRow>>,
+    value: Option<NonNull<RSValue>>,
+) {
+    let lookup = unsafe { lookup.unwrap().as_mut() };
+
+    let name = {
+        // `len` is a value as returned by `strlen` and therefore **does not**
+        // include the null terminator (that is why we do `len + 1` below)
+        let bytes = unsafe { slice::from_raw_parts(name.cast::<u8>(), len + 1) };
+
+        CStr::from_bytes_with_nul(bytes).unwrap()
+    };
+
+    let row = unsafe { row.unwrap().as_mut() };
+
+    let value = unsafe { RSValueFFI::from_raw(value.unwrap()) };
+
+    // TODO: comment on why clone and forget is important ("load-bearing")
+    row.write_key_by_name(lookup, name, value.clone());
+    mem::forget(value);
+}
+
+/// Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+/// for which it is not necessary to use the boilerplate of getting an explicit
+/// key.
+///
+/// Like `RLookupRow_WriteByName`, but decreases the refcount.
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_WriteByNameOwned(
+    lookup: Option<NonNull<RLookup>>,
+    name: *const c_char,
+    len: size_t,
+    row: Option<NonNull<RLookupRow>>,
+    value: Option<NonNull<RSValue>>,
+) {
+    let lookup = unsafe { lookup.unwrap().as_mut() };
+
+    let name = {
+        // `len` is a value as returned by `strlen` and therefore **does not**
+        // include the null terminator (that is why we do `len + 1` below)
+        let bytes = unsafe { slice::from_raw_parts(name.cast::<u8>(), len + 1) };
+
+        CStr::from_bytes_with_nul(bytes).unwrap()
+    };
+
+    let row = unsafe { row.unwrap().as_mut() };
+
+    let value = unsafe { RSValueFFI::from_raw(value.unwrap()) };
+
+    row.write_key_by_name(lookup, name, value);
+}
