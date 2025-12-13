@@ -356,6 +356,28 @@ def config_cmd():
 def enable_unstable_features(env):
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'yes')
 
+def disable_unstable_features(env):
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'false')
+
+class unstable_features:
+    """Context manager to enable unstable features for a block of code.
+
+    Usage:
+        with unstable_features(env):
+            # code that requires unstable features
+        # unstable features are disabled after the block
+    """
+    def __init__(self, env):
+        self.env = env
+
+    def __enter__(self):
+        enable_unstable_features(self.env)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        disable_unstable_features(self.env)
+        return False  # Don't suppress exceptions
+
 def run_command_on_all_shards(env, *args):
     return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
 
@@ -922,9 +944,9 @@ def allShards_getIsRPPaused(env):
         results.append(result)
     return results
 
-def allShards_setPauseRPResume(env):
+def allShards_setPauseRPResume(env, start_shard=1):
     results = []
-    for shardId in range(1, env.shardsCount + 1):
+    for shardId in range(start_shard, env.shardsCount + 1):
         result = env.getConnection(shardId).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
         results.append(result)
     return results
