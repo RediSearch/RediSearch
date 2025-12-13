@@ -83,17 +83,15 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         excluded_flags: RLookupKeyFlags,
         rule: Option<&SchemaRuleWrapper>,
     ) -> (usize, Vec<bool>) {
+        // Ensure that the length of skip_field_indices is lookup.get_row_len(), to avoid a panic in get_length_no_alloc().
         let mut skip_field_indices = vec![false; lookup.get_row_len() as usize];
-        // Safety: We ensure that the length of skip_field_indices is lookup.get_row_len(), as required by the safety contract of get_length_no_alloc.
-        let num_fields = unsafe {
-            self.get_length_no_alloc(
-                lookup,
-                required_flags,
-                excluded_flags,
-                rule,
-                skip_field_indices.as_mut_slice(),
-            )
-        };
+        let num_fields = self.get_length_no_alloc(
+            lookup,
+            required_flags,
+            excluded_flags,
+            rule,
+            skip_field_indices.as_mut_slice(),
+        );
         (num_fields, skip_field_indices)
     }
 
@@ -105,9 +103,9 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     ///
     /// See [`RLookupRow::get_length`] for argument details.
     ///
-    /// # Safety
-    /// 1. Caller must ensure that `out_flags` has a length at least equal to `lookup.get_row_len()`.
-    pub unsafe fn get_length_no_alloc(
+    /// # Panics
+    /// This function will panic if `out_flags` length is less than lookup.get_row_len()`.
+    pub fn get_length_no_alloc(
         &self,
         lookup: &RLookup,
         required_flags: RLookupKeyFlags,
