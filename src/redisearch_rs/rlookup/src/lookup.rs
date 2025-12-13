@@ -956,6 +956,12 @@ impl<'a> RLookup<'a> {
         self.index_spec_cache = spcache;
     }
 
+    pub fn find_field_in_spec_cache(&self, name: &CStr) -> Option<&ffi::FieldSpec> {
+        self.index_spec_cache
+            .as_ref()
+            .and_then(|c| c.find_field(name))
+    }
+
     /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
     /// and return a [`Cursor`] pointing to the key if found.
     // FIXME [MOD-10315] replace with more efficient search
