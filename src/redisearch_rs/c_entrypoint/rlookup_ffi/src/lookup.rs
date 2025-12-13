@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use crate::row::RLookupRow;
+use ffi::SchemaRule;
 use libc::size_t;
-use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags};
+use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags, SchemaRuleWrapper};
 use std::{
     ffi::{CStr, c_char},
     ptr::NonNull,
@@ -277,6 +279,52 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
     lookup
         .get_key_load(name, field_name, flags)
         .map(NonNull::from)
+}
+
+/// Returns the number of visible fields in this RLookupRow.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
+/// 2. `row` must be a [valid], non-null pointer to a [`RLookupRow`]
+/// 3. `skip_field_index` must be [valid] for reads and writes of `skip_field_index_len` boolean values
+/// 4. `rule` must be a [valid], non-null pointer to a [`SchemaRule`] or a null pointer
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_GetLength(
+    lookup: *const RLookup<'_>,
+    row: *const RLookupRow,
+    skip_field_index: Option<NonNull<bool>>,
+    skip_field_index_len: size_t,
+    required_flags: u32,
+    excluded_flags: u32,
+    rule: Option<NonNull<SchemaRule>>,
+) -> size_t {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { lookup.as_ref().unwrap() };
+
+    // Safety: ensured by caller (2.)
+    let row = unsafe { row.as_ref().unwrap() };
+
+    // Safety: ensured by caller (3.)
+    let skip_field_index = unsafe {
+        slice::from_raw_parts_mut(skip_field_index.unwrap().as_ptr(), skip_field_index_len)
+    };
+
+    let required_flags = RLookupKeyFlags::from_bits(required_flags).unwrap();
+    let excluded_flags = RLookupKeyFlags::from_bits(excluded_flags).unwrap();
+
+    // Safety: ensured by caller (4.)
+    let rule = unsafe { SchemaRuleWrapper::from_non_null(rule.unwrap()) };
+
+    row.get_length_no_alloc(
+        lookup,
+        required_flags,
+        excluded_flags,
+        Some(&rule),
+        skip_field_index,
+    )
 }
 
 /// Initialize the lookup. If cache is provided, then it will be used as an
