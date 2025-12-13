@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use crate::row::RLookupRow;
+use ffi::SchemaRule;
 use libc::size_t;
-use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags};
+use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags, SchemaRuleWrapper};
 use std::{
     ffi::{CStr, c_char},
     ptr::NonNull,
@@ -277,6 +279,47 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
     lookup
         .get_key_load(name, field_name, flags)
         .map(NonNull::from)
+}
+
+/// Returns the number of visible fields in this [`RLookupRow`].
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
+/// 2. `r` must be a [valid], non-null pointer to a [`RLookupRow`]
+/// 3. `skipFieldIndex` must be [valid] for reads and writes of `skipFieldIndex_len` boolean values
+/// 4. `rule` must be a [valid], non-null pointer to a [`SchemaRule`] or a null pointer
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+#[allow(non_snake_case)]
+pub unsafe extern "C" fn RLookup_GetLength<'a>(
+    lookup: *const RLookup<'a>,
+    r: *const RLookupRow,
+    skipFieldIndex: Option<NonNull<bool>>,
+    skipFieldIndex_len: size_t,
+    requiredFlags: u32,
+    excludedFlags: u32,
+    rule: *mut SchemaRule,
+) -> size_t {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { lookup.as_ref().unwrap() };
+
+    // Safety: ensured by caller (2.)
+    let r = unsafe { r.as_ref().unwrap() };
+
+    // Safety: ensured by caller (3.)
+    let skipFieldIndex =
+        unsafe { slice::from_raw_parts_mut(skipFieldIndex.unwrap().as_ptr(), skipFieldIndex_len) };
+
+    let requiredFlags = RLookupKeyFlags::from_bits(requiredFlags).unwrap();
+    let excludedFlags = RLookupKeyFlags::from_bits(excludedFlags).unwrap();
+
+    // Safety: ensured by caller (4.)
+    let rule = unsafe { SchemaRuleWrapper::from_raw(rule) };
+    let rule = rule.as_ref();
+
+    r.get_length_no_alloc(lookup, requiredFlags, excludedFlags, rule, skipFieldIndex)
 }
 
 /// Initialize the lookup. If cache is provided, then it will be used as an

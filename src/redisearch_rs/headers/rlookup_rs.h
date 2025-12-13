@@ -340,6 +340,26 @@ struct RLookupKey *RLookup_GetKey_LoadEx(struct RLookup *lookup,
                                          uint32_t flags);
 
 /**
+ * Returns the number of visible fields in this [`RLookupRow`].
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
+ * 2. `r` must be a [valid], non-null pointer to a [`RLookupRow`]
+ * 3. `skipFieldIndex` must be [valid] for reads and writes of `skipFieldIndex_len` boolean values
+ * 4. `rule` must be a [valid], non-null pointer to a [`SchemaRule`] or a null pointer
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+size_t RLookup_GetLength(const struct RLookup *lookup,
+                         const RLookupRow *r,
+                         bool *skipFieldIndex,
+                         size_t skipFieldIndex_len,
+                         uint32_t requiredFlags,
+                         uint32_t excludedFlags,
+                         SchemaRule *rule);
+
+/**
  * Initialize the lookup. If cache is provided, then it will be used as an
  * alternate source for lookups whose fields are absent.
  *
