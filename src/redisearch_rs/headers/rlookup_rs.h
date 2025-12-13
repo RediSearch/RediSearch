@@ -455,6 +455,62 @@ void RLookupRow_Reset(RLookupRow *row);
  */
 void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup, RLookupRow *src, RLookupRow *dst);
 
+/**
+ * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+ * for which it is not necessary to use the boilerplate of getting an explicit
+ * key.
+ *
+ * Like [`RLookupRow_WriteByNameOwned`], but increases the refcount.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ * 2. The memory pointed to by `name` must contain a valid nul terminator at the
+ *    end of the string.
+ * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
+ *    This means in particular:
+ *     1. `name_len` must be same as `strlen(name)`
+ *     2. The entire memory range of this cstr must be contained within a single allocation!
+ *     3. `name` must be non-null even for a zero-length cstr.
+ * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 5. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_WriteByName(struct RLookup *lookup,
+                            const char *name,
+                            size_t name_len,
+                            RLookupRow *row,
+                            RSValue *value);
+
+/**
+ * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+ * for which it is not necessary to use the boilerplate of getting an explicit
+ * key.
+ *
+ * Like [`RLookupRow_WriteByName`], but does not affect the refcount.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ * 2. The memory pointed to by `name` must contain a valid nul terminator at the
+ *    end of the string.
+ * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
+ *    This means in particular:
+ *     1. `name_len` must be same as `strlen(name)`
+ *     2. The entire memory range of this cstr must be contained within a single allocation!
+ *     3. `name` must be non-null even for a zero-length cstr.
+ * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 5. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
+                                 const char *name,
+                                 size_t name_len,
+                                 RLookupRow *row,
+                                 RSValue *value);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
