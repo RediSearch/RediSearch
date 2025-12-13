@@ -174,6 +174,48 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Add all non-overridden keys from `src` to `dest`.
+ *
+ * For each key in `src`, check if it already exists *by name*.
+ * - If it does, the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
+ * - If it doesn't, a new key will be created.
+ *
+ * Flag handling:
+ * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+ * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+ * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+ * - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+ *
+ * `src` and `dest` must not point to the same [`RLookup`].
+ *
+ * # Safety
+ *
+ * 1. `src` must be a [valid], non-null pointer to an [`RLookup`]
+ * 2. `dest` must be a [valid], non-null pointer to an [`RLookup`]
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookup_AddKeysFrom(const struct RLookup *src,
+                         struct RLookup *dest,
+                         uint32_t flags);
+
+/**
+ * Find a field in the index spec cache of the lookup.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+ * 2. The memory pointed to by `name` must contain a valid nul terminator at the
+ *    end of the string.
+ * 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
+ *    This means in particular:
+ *     1. The entire memory range of this cstr must be contained within a single allocation!
+ *     2. `name` must be non-null even for a zero-length cstr.
+ * 4. The nul terminator must be within `isize::MAX` from `name`
+ */
+const FieldSpec *RLookup_FindFieldInSpecCache(const struct RLookup *lookup, const char *name);
+
+/**
  * Get a RLookup key for a given name.
  *
  * A key is returned only if it's already in the lookup table (available from the
