@@ -9,15 +9,10 @@ name: temporary testing
 
 on:
   push:
-    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
 
   merge-queue:
-    uses: ./.github/workflows/flow-test.yml
+    uses: ./.github/workflows/event-merge-to-queue.yml
     secrets: inherit
-    with:
-      platform: ubuntu:jammy
-      architecture: x86_64
-      options: "standalone,rejson"
-      job-test-config: ""
