@@ -44,6 +44,13 @@ typedef struct {
   size_t numVectorFieldsHNSW;
   size_t numVectorFieldsSvsVamana;
   size_t numVectorFieldsSvsVamanaCompressed;
+  // Total number of documents indexed by each field type
+  size_t textTotalDocsIndexed;
+  size_t tagTotalDocsIndexed;
+  size_t numericTotalDocsIndexed;
+  size_t geoTotalDocsIndexed;
+  size_t geometryTotalDocsIndexed;
+  size_t vectorTotalDocsIndexed;
 } FieldsGlobalStats;
 
 typedef struct {
@@ -162,6 +169,9 @@ void GlobalStats_UpdateUvRunningTopoUpdate(int toAdd);
 
 // Get multiThreadingStats
 MultiThreadingStats GlobalStats_GetMultiThreadingStats();
+
+// Increase the number of documents indexed by the given field type by `toAdd`.
+void FieldsGlobalStats_UpdateFieldDocsIndexed(const FieldSpec *fs, int toAdd);
 
 #ifdef __cplusplus
 }

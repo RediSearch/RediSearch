@@ -138,3 +138,37 @@ To build the code with debug symbols, you can use the following commands:
 ```bash
 make DEBUG=1
 ```
+
+## Logging from Rust
+
+The recommended way for Rust code to emit logs is through [`tracing`](https://docs.rs/tracing/latest/tracing/) since it allows us to produce structured logging output, but also generate performance data through spans.
+ To record events to the redis log you can use the macros provided by [`tracing`]:
+ ```rust
+ tracing::trace!("This is the most verbose");
+ tracing::debug!("This is the second most verbose");
+ tracing::info!("This is the third most verbose");
+ tracing::warn!("This is the fourth most verbose");
+ tracing::error!("This is the fifth most verbose");
+ ```
+
+By default, only `error`, `warn`, and `info` events are emitted but you can set the `RUST_LOG` environment variable to customize the behaviour of the system:
+
+```bash
+# enables all verbositity levels from all sources
+RUST_LOG=trace 
+# enables all verbositity levels from all sources EXCEPT the result_processor crate which is fully disabled.
+RUST_LOG=trace,result_processor=off 
+```
+
+These directives can be chained and support quite deep configuration. For details, see the [`tracing_subscriber`](https://docs.rs/tracing-subscriber/0.3.20/tracing_subscriber/filter/struct.EnvFilter.html#directives) documentation.
+
+> Note, the verbosity levels defined by `tracing` are NOT the same as the ones used by redis. The mapping is like so:
+> - `trace` => `LOGLEVEL_DEBUG`
+> - `debug` => `LOGLEVEL_VERBOSE`
+> - `info` => `LOGLEVEL_VERBOSE`
+> - `warn` and `error` => `LOGLEVEL_WARNING`
+
+By default the log output will be colored to help with reading. The system already attempts to be smart about turning it off (e.g. in CI) but if you manually need to disable/enable output coloring set the `RUST_LOG_STYLE` environment variable. It supports the following values:
+- `RUST_LOG_STYLE=never` never print color codes
+- `RUST_LOG_STYLE=always` always print color codes
+- `RUST_LOG_STYLE=auto` automatically detect when to enable or disable color codes (default)

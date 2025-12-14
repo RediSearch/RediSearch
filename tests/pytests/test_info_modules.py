@@ -1999,3 +1999,313 @@ class TestCoordHighPriorityPendingJobs(object):
       return
 
     self.verify_coord_high_priority_pending_jobs('HYBRID', num_commands_per_type, hybrid_threads)
+
+# Test the 'total_num_docs_in_indexes' INFO MODULES metric in standalone mode.
+# This metric counts the total number of documents indexed by all indexes,
+# with potential overlap (a doc counted once per index that indexes it).
+@skip(cluster=True)
+def test_total_docs_indexed_metric_SA(env):
+
+  conn = getConnectionByEnv(env)
+
+  # Helper to get the total_num_docs_in_indexes metric
+  def get_total_docs_indexed():
+    info = conn.execute_command('INFO', 'MODULES')
+    return info['search_total_num_docs_in_indexes']
+
+  # Baseline: no indexes, no docs indexed
+  baseline = get_total_docs_indexed()
+  env.assertEqual(baseline, 0, message="Baseline should be 0 with no indexes")
+
+  # 1. Regular flow: create index, create doc, check metric incremented
+  # Create first index with prefix 'do' (will match 'doc:*')
+  env.expect('FT.CREATE', 'idx1', 'PREFIX', 1, 'do', 'SCHEMA', 'text', 'TEXT').ok()
+  env.assertEqual(get_total_docs_indexed(), 0, message="No docs yet, metric should be 0")
+
+  # Add first document
+  conn.execute_command('HSET', 'doc:1', 'text', 'hello world')
+  # For inline indexing (foreground), the doc is indexed immediately
+  env.assertEqual(get_total_docs_indexed(), 1, message="After adding 1 doc to 1 index")
+
+  # 2. Double counting: create another index, check metric increments again
+  # Create second index with prefix 'doc' (more specific, also matches 'doc:*')
+  env.expect('FT.CREATE', 'idx2', 'PREFIX', 1, 'doc', 'SCHEMA', 'text', 'TEXT').ok()
+  # Wait for background indexing to complete
+  waitForIndex(env, 'idx2')
+
+  # The existing doc 'doc:1' should now be indexed by idx2 as well
+  env.assertEqual(get_total_docs_indexed(), 2,
+                  message="doc:1 indexed by both idx1 and idx2")
+
+  # 3. Multiple docs: add more docs, each indexed by both indexes
+  conn.execute_command('HSET', 'doc:2', 'text', 'foo bar')
+  conn.execute_command('HSET', 'doc:3', 'text', 'baz qux')
+
+  # Each doc is indexed by both indexes (inline indexing)
+  # doc:1 was indexed 2 times (by idx1 and idx2)
+  # doc:2 is indexed 2 times (by idx1 and idx2)
+  # doc:3 is indexed 2 times (by idx1 and idx2)
+  # Total = 6
+  env.assertEqual(get_total_docs_indexed(), 6,
+                  message="3 docs, each indexed by 2 indexes = 6")
+
+  # 4. Partial indexing: create a doc that only matches one index's prefix
+  # 'doar:1' matches 'do' prefix (idx1) but NOT 'doc' prefix (idx2)
+  conn.execute_command('HSET', 'doar:1', 'text', 'partial match')
+
+  # Only idx1 should index this doc
+  # Previous total was 6, now should be 7
+  env.assertEqual(get_total_docs_indexed(), 7,
+                  message="'doar:1' only indexed by idx1 (prefix 'do'), not idx2 (prefix 'doc')")
+
+  # 5. Delete doc: verify metric is updated correctly
+  # Delete doc:2 (which was indexed by both indexes)
+  conn.execute_command('DEL', 'doc:2')
+
+  # Force GC to clean up the deleted doc from both indexes
+  forceInvokeGC(env, 'idx1')
+  forceInvokeGC(env, 'idx2')
+
+  # After deletion:
+  # - doc:1 still indexed by both indexes (2)
+  # - doc:2 deleted (was 2, now 0)
+  # - doc:3 indexed by both indexes (2)
+  # - doar:1 indexed by idx1 only (1)
+  # Total = 5
+  env.assertEqual(get_total_docs_indexed(), 5,
+                  message="After deleting doc:2 (was indexed by 2 indexes)")
+
+  # 6. Delete index: verify metric is updated correctly
+  # Drop idx2 (which indexed doc:1 and doc:3)
+  conn.execute_command('FT.DROPINDEX', 'idx2')
+
+  # Wait for cleanup to complete
+  waitForNoCleanup(env, 'idx1')
+
+  # After dropping idx2:
+  # - doc:1 indexed by idx1 only (1)
+  # - doc:3 indexed by idx1 only (1)
+  # - doar:1 indexed by idx1 only (1)
+  # Total = 3
+  env.assertEqual(get_total_docs_indexed(), 3,
+                  message="After dropping idx2, only idx1 remains")
+
+# Test the 'total_indexing_ops_<field_type>_fields' INFO MODULES metrics.
+# These metrics count how many times each field type has indexed a document.
+@skip(cluster=True)
+def test_total_docs_indexed_by_field_type_SA(env):
+  conn = getConnectionByEnv(env)
+
+  # Helper to get all field-type metrics
+  def get_field_metrics():
+    info = conn.execute_command('INFO', 'MODULES')
+    return {
+      'text': info['search_total_indexing_ops_text_fields'],
+      'tag': info['search_total_indexing_ops_tag_fields'],
+      'numeric': info['search_total_indexing_ops_numeric_fields'],
+      'geo': info['search_total_indexing_ops_geo_fields'],
+      'geoshape': info['search_total_indexing_ops_geoshape_fields'],
+      'vector': info['search_total_indexing_ops_vector_fields'],
+    }
+
+  # Baseline: all metrics should be 0
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], 0, message="Baseline text should be 0")
+  env.assertEqual(metrics['tag'], 0, message="Baseline tag should be 0")
+  env.assertEqual(metrics['numeric'], 0, message="Baseline numeric should be 0")
+  env.assertEqual(metrics['geo'], 0, message="Baseline geo should be 0")
+  env.assertEqual(metrics['geoshape'], 0, message="Baseline geoshape should be 0")
+  env.assertEqual(metrics['vector'], 0, message="Baseline vector should be 0")
+
+  # 1. Test TEXT field indexing
+  env.expect('FT.CREATE', 'idx_text', 'PREFIX', 1, 'text:', 'SCHEMA', 't', 'TEXT').ok()
+
+  conn.execute_command('HSET', 'text:1', 't', 'hello world')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], 1, message="After 1 text doc")
+
+  # 2. Test TAG field indexing
+  env.expect('FT.CREATE', 'idx_tag', 'PREFIX', 1, 'tag:', 'SCHEMA', 'tag', 'TAG').ok()
+  waitForIndex(env, 'idx_tag')
+
+  conn.execute_command('HSET', 'tag:1', 'tag', 'value1,value2')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['tag'], 1, message="After 1 tag doc")
+
+  # 3. Test NUMERIC field indexing
+  env.expect('FT.CREATE', 'idx_num', 'PREFIX', 1, 'num:', 'SCHEMA', 'n', 'NUMERIC').ok()
+  waitForIndex(env, 'idx_num')
+
+  conn.execute_command('HSET', 'num:1', 'n', '42')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['numeric'], 1, message="After 1 numeric doc")
+
+  # 4. Test GEO field indexing
+  env.expect('FT.CREATE', 'idx_geo', 'PREFIX', 1, 'geo:', 'SCHEMA', 'g', 'GEO').ok()
+  waitForIndex(env, 'idx_geo')
+
+  conn.execute_command('HSET', 'geo:1', 'g', '13.361389,52.519444')  # Berlin
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['geo'], 1, message="After 1 geo doc")
+
+  # 5. Test GEOSHAPE field indexing
+  env.expect('FT.CREATE', 'idx_geoshape', 'PREFIX', 1, 'geoshape:', 'SCHEMA', 'gs', 'GEOSHAPE').ok()
+  waitForIndex(env, 'idx_geoshape')
+
+  conn.execute_command('HSET', 'geoshape:1', 'gs', 'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['geoshape'], 1, message="After 1 geoshape doc")
+
+  # 6. Test VECTOR field indexing
+  env.expect('FT.CREATE', 'idx_vec', 'PREFIX', 1, 'vec:',
+             'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
+             'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  waitForIndex(env, 'idx_vec')
+
+  vec1 = np.array([1.0, 0.0]).astype(np.float32).tobytes()
+
+  conn.execute_command('HSET', 'vec:1', 'v', vec1)
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['vector'], 1, message="After 1 vector doc")
+
+  # 7. Test multiple fields in same document (all field types at once)
+  env.expect('FT.CREATE', 'idx_multi', 'PREFIX', 1, 'multi:',
+             'SCHEMA', 't', 'TEXT', 'tag', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'gs', 'GEOSHAPE',
+             'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  waitForIndex(env, 'idx_multi')
+
+  # Store current counts
+  prev_metrics = get_field_metrics()
+
+  multi_vec = np.array([0.5, 0.5]).astype(np.float32).tobytes()
+  conn.execute_command('HSET', 'multi:1', 't', 'hello', 'tag', 'mytag', 'n', '1',
+                       'g', '13.361389,52.519444', 'gs', 'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))',
+                       'v', multi_vec)
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], prev_metrics['text'] + 1,
+                  message="Multi-field doc increments text")
+  env.assertEqual(metrics['tag'], prev_metrics['tag'] + 1,
+                  message="Multi-field doc increments tag")
+  env.assertEqual(metrics['numeric'], prev_metrics['numeric'] + 1,
+                  message="Multi-field doc increments numeric")
+  env.assertEqual(metrics['geo'], prev_metrics['geo'] + 1,
+                  message="Multi-field doc increments geo")
+  env.assertEqual(metrics['geoshape'], prev_metrics['geoshape'] + 1,
+                  message="Multi-field doc increments geoshape")
+  env.assertEqual(metrics['vector'], prev_metrics['vector'] + 1,
+                  message="Multi-field doc increments vector")
+
+  # 8. Test double counting with overlapping indexes
+  # Create another text index that will also match 'text:*' docs
+  env.expect('FT.CREATE', 'idx_text2', 'PREFIX', 1, 'text:', 'SCHEMA', 't', 'TEXT').ok()
+  waitForIndex(env, 'idx_text2')
+
+  # The 1 existing text doc (text:1) should now be re-indexed
+  metrics = get_field_metrics()
+  # Previously had 2 text docs (text:1, multi:1), now +1 from background indexing
+  env.assertEqual(metrics['text'], 3,
+                  message="After creating overlapping text index, existing docs re-indexed")
+
+  # 9. Test partial field matching (doc with only some fields)
+  prev_metrics = get_field_metrics()
+
+  # Add doc with only text field (no tag or numeric)
+  conn.execute_command('HSET', 'multi:2', 't', 'only text here')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], prev_metrics['text'] + 1,
+                  message="Partial doc increments only text")
+  env.assertEqual(metrics['tag'], prev_metrics['tag'],
+                  message="Partial doc doesn't increment tag (field not present)")
+  env.assertEqual(metrics['numeric'], prev_metrics['numeric'],
+                  message="Partial doc doesn't increment numeric (field not present)")
+
+  # 10. Test index with multiple fields of the same type
+  env.expect('FT.CREATE', 'idx_same_type', 'PREFIX', 1, 'sametype:',
+             'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()
+  waitForIndex(env, 'idx_same_type')
+
+  prev_metrics = get_field_metrics()
+
+  # Doc that matches only one text field
+  conn.execute_command('HSET', 'sametype:1', 't1', 'hello')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], prev_metrics['text'] + 1,
+                  message="Doc with one text field increments text by 1")
+
+  prev_metrics = get_field_metrics()
+
+  # Doc that contains both text fields
+  conn.execute_command('HSET', 'sametype:2', 't1', 'hello', 't2', 'world')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], prev_metrics['text'] + 2,
+                  message="Doc with two text fields increments text by 2 (per fold, not per doc)")
+
+
+# Test the 'total_indexing_ops_<field_type>_fields' INFO MODULES metrics with multi-value JSON.
+# Multi-value JSON fields (using array paths like $[*]) should increment the metrics once per document.
+@skip(cluster=True, no_json=True)
+def test_total_indexing_ops_multi_value_json(env):
+  """Test that multi-value JSON indexing properly increments field metrics."""
+  conn = getConnectionByEnv(env)
+
+  def get_field_metrics():
+    info = conn.execute_command('INFO', 'MODULES')
+    return {
+      'text': info['search_total_indexing_ops_text_fields'],
+      'tag': info['search_total_indexing_ops_tag_fields'],
+      'numeric': info['search_total_indexing_ops_numeric_fields'],
+      'geo': info['search_total_indexing_ops_geo_fields'],
+      'vector': info['search_total_indexing_ops_vector_fields'],
+    }
+
+  # Baseline metrics
+  baseline = get_field_metrics()
+
+  # Create a JSON index with multi-value paths for all supported field types
+  env.expect('FT.CREATE', 'idx_json_multi', 'ON', 'JSON', 'PREFIX', 1, 'jdoc:',
+             'SCHEMA',
+             '$.texts[*]', 'AS', 't', 'TEXT',
+             '$.tags[*]', 'AS', 'tag', 'TAG',
+             '$.nums[*]', 'AS', 'n', 'NUMERIC',
+             '$.geos[*]', 'AS', 'g', 'GEO',
+             '$.vecs[*]', 'AS', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  waitForIndex(env, 'idx_json_multi')
+
+  # Add a JSON document with arrays for each field type
+  import json
+  doc = {
+    'texts': ['hello', 'world'],    # 2 text values
+    'tags': ['tag1', 'tag2'],              # 2 tag values
+    'nums': [1, 2,],                  # 2 numeric values
+    'geos': ['13.361389,52.519444', '2.349014,48.864716'],  # 2 geo values (Berlin, Paris)
+    'vecs': [[1.0, 0.0], [0.0, 1.0]]  # 2 vector values
+  }
+  conn.execute_command('JSON.SET', 'jdoc:1', '$', json.dumps(doc))
+
+  # Verify that metrics increment by 1 per field (not per value in array)
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], baseline['text'] + 1,
+                  message="Multi-value JSON text field increments by 1 per doc")
+  env.assertEqual(metrics['tag'], baseline['tag'] + 1,
+                  message="Multi-value JSON tag field increments by 1 per doc")
+  env.assertEqual(metrics['numeric'], baseline['numeric'] + 1,
+                  message="Multi-value JSON numeric field increments by 1 per doc")
+  env.assertEqual(metrics['geo'], baseline['geo'] + 1,
+                  message="Multi-value JSON geo field increments by 1 per doc")
+  env.assertEqual(metrics['vector'], baseline['vector'] + 1,
+                  message="Multi-value JSON vector field increments by 1 per doc")
+
+  # Add docs with multi geometry fields and verify that metrics doesn't change
+  # Since multi geometry fields are not supported, the doc should be ignored
+  env.expect('FT.CREATE', 'idx_json_multi_geo', 'ON', 'JSON', 'PREFIX', 1, 'jdoc:',
+             'SCHEMA', '$.geos[*]', 'AS', 'g', 'GEOSHAPE').ok()
+
+  # Add document with multi geometry field
+  doc = {
+    'geos': ['POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))', 'POLYGON((1 1, 1 2, 2 2, 2 1, 1 1))']
+  }
+  prev_metrics = get_field_metrics()
+  conn.execute_command('JSON.SET', 'jdoc:2', '$', json.dumps(doc))
+  metrics = get_field_metrics()
+  env.assertEqual(metrics, prev_metrics,
+                  message="Multi-value JSON geoshape field is not supported")
