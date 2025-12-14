@@ -148,8 +148,8 @@ jobs:
                      needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container)
           )
        || null }}
-    # Rocky Linux 9 has known dnf module yaml parsing issues - allow job to pass even if steps fail
-    continue-on-error: ${{ needs.get-config.outputs.container == 'rockylinux:9' }}
+    # Rocky Linux 9 aarch64 has known dnf module yaml parsing issues - allow job to pass even if steps fail
+    continue-on-error: ${{ needs.get-config.outputs.container == 'rockylinux:9' && inputs.architecture == 'aarch64' }}
 
     defaults:
       run:
@@ -234,13 +234,13 @@ jobs:
               sleep 30
             fi
           done
-          # Rocky Linux 9 has known dnf module yaml parsing issues - expect failure
-          if [ "${{ needs.get-config.outputs.container }}" = "rockylinux:9" ]; then
+          # Rocky Linux 9 aarch64 has known dnf module yaml parsing issues - expect failure
+          if [ "${{ needs.get-config.outputs.container }}" = "rockylinux:9" ] && [ "${{ inputs.architecture }}" = "aarch64" ]; then
             if [ $SUCCESS -eq 0 ]; then
-              echo "::warning::Setup Dependencies failed on Rocky Linux 9 as expected due to known dnf issues"
+              echo "::warning::Setup Dependencies failed on Rocky Linux 9 aarch64 as expected due to known dnf issues"
               exit 0
             else
-              echo "::error::Setup Dependencies succeeded on Rocky Linux 9 - the known dnf issue may be fixed, please investigate"
+              echo "::error::Setup Dependencies succeeded on Rocky Linux 9 aarch64 - the known dnf issue may be fixed, please investigate"
               exit 1
             fi
           fi
