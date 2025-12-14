@@ -68,19 +68,19 @@ on:
         default: master
         description: 'Branch to use when building RedisJSON for tests (default: master)'
       standalone:
-        description: 'Whether to run standalone tests'
+        description: 'Run standalone tests'
         type: boolean
         default: true
       cluster:
-        description: 'Whether to run tests in cluster mode'
+        description: 'Run cluster mode tests'
         type: boolean
         default: true
-      RedisJSON:
-        description: 'Whether to include RedisJSON in the tests'
+      rejson:
+        description: 'Include RedisJSON tests'
         type: boolean
         default: true
       fail-fast:
-        description: 'Whether to fail fast on test failures'
+        description: 'Fail fast on test failures'
         type: boolean
         default: true
 
@@ -95,7 +95,7 @@ jobs:
 
   # Unified test matrix - includes Linux and macOS platforms, plus optional coverage and sanitize
   test-matrix:
-    name: ${{ (matrix.job-type || 'test') == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', (matrix.job-type || 'test'), matrix.architecture) }}
+    name: ${{ matrix.job-type == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', matrix.job-type, matrix.architecture) }}
     needs: [generate-matrix]
     if: ${{ needs.generate-matrix.outputs.has-jobs == 'true' }}
     strategy:
@@ -107,11 +107,11 @@ jobs:
       platform: ${{ matrix.platform }}
       architecture: ${{ matrix.architecture }}
       get-redis: ${{ inputs.redis-ref }}
-      rejson: ${{ contains(inputs.options, 'rejson') || inputs.RedisJSON == true }}
+      rejson: ${{ contains(inputs.options, 'rejson') || inputs.rejson == true }}
       rejson-branch: ${{ inputs.rejson-branch }}
       coordinator: ${{ contains(inputs.options, 'coordinator') || inputs.cluster == true }}
       standalone: ${{ contains(inputs.options, 'standalone') || inputs.standalone == true }}
-      test-config: ${{ fromJson(inputs.job-test-config || '{"test":""}')[(matrix.job-type || 'test')] || inputs.test-config }}
-      coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
-      san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
+      test-config: ${{ fromJson(inputs.job-test-config || '{}')[matrix.job-type] || inputs.test-config }}
+      coverage: ${{ matrix.job-type == 'coverage' }}
+      san: ${{ matrix.job-type == 'sanitize' && 'address' || '' }}
       fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
