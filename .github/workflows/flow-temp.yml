@@ -20,3 +20,4 @@ jobs:
       platform: ubuntu:jammy
       architecture: x86_64
       options: "standalone,rejson"
+      job-test-config: ""
