@@ -111,7 +111,7 @@ jobs:
       rejson-branch: ${{ inputs.rejson-branch }}
       coordinator: ${{ contains(inputs.options, 'coordinator') || inputs.cluster }}
       standalone: ${{ contains(inputs.options, 'standalone') || inputs.standalone }}
-      test-config: ${{ fromJson(inputs.job-test-config)[(matrix.job-type || 'test')] || inputs.test-config }}
+      test-config: ${{ fromJson(inputs.job-test-config || '{"test":""}')[(matrix.job-type || 'test')] || inputs.test-config }}
       coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
       san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
       fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast }}
