@@ -645,7 +645,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   uint32_t slotsVersion;
 
   if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Expected subquery count for HYBRID");
+    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
     goto error;
   }
 

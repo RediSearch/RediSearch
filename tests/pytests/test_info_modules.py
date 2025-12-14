@@ -690,7 +690,7 @@ class testWarningsAndErrorsStandalone:
     syntax_error_count = info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC]
     self.env.assertEqual(syntax_error_count, '2')
     # Test syntax errors in hybrid
-    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world:', 'VSIM', 'vector').error()
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world:', 'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', np.array([0.0, 0.0]).astype(np.float32).tobytes()).error().contains('Syntax error at offset')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
     syntax_error_count = info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC]
@@ -716,7 +716,7 @@ class testWarningsAndErrorsStandalone:
     args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
     self.env.assertEqual(args_error_count, '2')
     # Test args errors in hybrid
-    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '$BLOB ', 'LIMIT', 0, 0, 'MEOW', 'PARAMS', '2', 'BLOB', np.array([0.0, 0.0]).astype(np.float32).tobytes(), 'DIALECT', '2'  ).error()
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '$BLOB ', 'LIMIT', 0, 0, 'MEOW', 'PARAMS', '2', 'BLOB', np.array([0.0, 0.0]).astype(np.float32).tobytes()).error().contains('Unknown argument')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
     args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
