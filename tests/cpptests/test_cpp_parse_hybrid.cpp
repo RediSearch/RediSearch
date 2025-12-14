@@ -779,6 +779,12 @@ TEST_F(ParseHybridTest, testBlobWithoutParams) {
   testErrorCode(args, QUERY_ERROR_CODE_NO_PARAM, "No such parameter `BLOB`");
 }
 
+TEST_F(ParseHybridTest, testDirectVector) {
+  // Test using direct vector - should fail
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Invalid vector argument, expected a parameter name starting with $");
+}
+
 // KNN parsing error tests
 TEST_F(ParseHybridTest, testKNNMissingArgumentCount) {
   // Test KNN without argument count
