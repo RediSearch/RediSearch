@@ -1439,7 +1439,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
 
 # Test the 'total_indexing_ops_<field_type>_fields' INFO MODULES metrics with multi-value JSON.
 # Multi-value JSON fields (using array paths like $[*]) should increment the metrics once per document.
-@skip(cluster=True, no_json=True)
+@skip(cluster=True)
 def test_total_indexing_ops_multi_value_json(env):
   """Test that multi-value JSON indexing properly increments field metrics."""
   conn = getConnectionByEnv(env)
