@@ -94,10 +94,15 @@ jobs:
               sleep 30
             fi
           done
-          # Ignore errors on Rocky Linux 9 due to known dnf module yaml parsing issues
-          if [ $SUCCESS -eq 0 ] && [ "${{ needs.get-config.outputs.container }}" = "rockylinux:9" ]; then
-            echo "::warning::Setup Dependencies failed on Rocky Linux 9, but ignoring due to known dnf issues"
-            exit 0
+          # Rocky Linux 9 has known dnf module yaml parsing issues - expect failure
+          if [ "${{ needs.get-config.outputs.container }}" = "rockylinux:9" ]; then
+            if [ $SUCCESS -eq 0 ]; then
+              echo "::warning::Setup Dependencies failed on Rocky Linux 9 as expected due to known dnf issues"
+              exit 0
+            else
+              echo "::error::Setup Dependencies succeeded on Rocky Linux 9 - the known dnf issue may be fixed, please investigate"
+              exit 1
+            fi
           fi
           [ $SUCCESS -eq 1 ] || exit 1
       - name: Post-setup
