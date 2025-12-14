@@ -48,7 +48,7 @@ static inline mempool_t *getPool() {
 
 static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t l2) {
   // Use memcmp instead of strncmp to correctly handle binary data with embedded NULLs
-  int cmp = strncmp(s1, s2, MIN(l1, l2));
+  int cmp = memcmp(s1, s2, MIN(l1, l2));
   if (l1 == l2) {
     // if the strings are the same length, just return the result of memcmp
     return cmp;
