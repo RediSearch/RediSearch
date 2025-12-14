@@ -785,7 +785,7 @@ def ProfileGILTime(env):
   # | Deployment | Workers | With Load | Coordinator               | Shard                                |
   # +------------+---------+-----------+---------------------------+--------------------------------------+
   # | SA/COORD   | 0       | N/A       | No "Total GIL time"       | No "Total GIL time"                  |
-  # | SA/COORD   | 1       | No        | No "Total GIL time"       | "Total GIL time" == 0                |
+  # | SA/COORD   | 1       | No        | No "Total GIL time"       | "Total GIL time" > 0                |
   # | SA/COORD   | 1       | Yes       | No "Total GIL time"       | "Total GIL time" >= Loader GIL > 0   |
   # +------------+---------+-----------+---------------------------+--------------------------------------+
 
@@ -834,8 +834,8 @@ def ProfileGILTime(env):
             # Total GIL time should be >= Threadsafe-Loader GIL time
             env.assertGreaterEqual(total_gil_time, loader_gil_time, message=f"{scenario}: Total GIL time should be >= Threadsafe-Loader GIL time")
           else:
-            # Without load: Total GIL Time should be 0
-            env.assertEqual(total_gil_time, 0, message=f"{scenario}: Total GIL time should be 0 without load")
+            # Without load: Total GIL Time should be greater than 0 since there is processing time on the main thread before moving to the background
+            env.assertGreater(total_gil_time, 0, message=f"{scenario}: Total GIL time should be greater than 0 without load")
 
 def testProfileGILTimeResp2():
   ProfileGILTime(Env(protocol=2))
