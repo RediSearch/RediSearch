@@ -86,7 +86,8 @@ def test_hybrid_knn_invalid_syntax():
     env.expect(
         'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
         'VSIM' ,'@embedding', '$BLOB',
-        'KNN', 'K', 15
+        'KNN', 'K', 15,
+        'PARAMS', '2', 'BLOB', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e"
     ).error().contains('Invalid argument count: expected an unsigned integer')
 
 def test_invalid_ef_runtime():
