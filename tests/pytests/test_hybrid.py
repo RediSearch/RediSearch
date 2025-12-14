@@ -106,7 +106,7 @@ class testHybridSearch:
         run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     def test_knn_wildcard_search(self):
-        # skipping due to MOD-12377
+        # This test is enabled for debugging and collecting logs; disable it if it causes issues in CI.
         """Test hybrid search using KNN + wildcard search scenario"""
         scenario = {
             "hybrid_query": "SEARCH * YIELD_SCORE_AS search_score \
