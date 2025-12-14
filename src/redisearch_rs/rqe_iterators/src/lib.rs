@@ -18,6 +18,7 @@ pub mod inverted_index;
 pub mod maybe_empty;
 pub mod metric;
 pub mod wildcard;
+pub mod profile;
 
 pub use empty::Empty;
 pub use id_list::IdList;
