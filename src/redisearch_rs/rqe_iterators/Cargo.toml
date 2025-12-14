@@ -15,12 +15,14 @@ disable_sort_checks_in_idlist = []
 
 [dependencies]
 ffi.workspace = true
+field.workspace = true
 inverted_index.workspace = true
 thiserror.workspace = true
 redis_mock.workspace = true
 value_ffi = { path = "../c_entrypoint/value_ffi" }
 types_ffi = { path = "../c_entrypoint/types_ffi" }
 value = { workspace = true, features = ["c_ffi_impl"] }
+workspace_hack.workspace = true
 
 [build-dependencies]
 build_utils = { path = "../build_utils" }

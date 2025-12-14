@@ -28,12 +28,12 @@
  * This includes SEARCH keyword, query, and optional SCORER and YIELD_SCORE_AS parameters
  * that come immediately after the query in sequence.
  *
+ * @param xcmd - destination MR command to append arguments to
  * @param argv - source command arguments array
  * @param argc - total argument count
- * @param xcmd - destination MR command to append arguments to
  * @param searchOffset - offset where SEARCH keyword appears
  */
-static void HybridRequest_appendSearch(RedisModuleString **argv, int argc, MRCommand *xcmd, int searchOffset) {
+static void MRCommand_appendSearch(MRCommand *xcmd, RedisModuleString **argv, int argc, int searchOffset) {
   // Add SEARCH keyword and query
   MRCommand_AppendRstr(xcmd, argv[searchOffset]);     // SEARCH
   MRCommand_AppendRstr(xcmd, argv[searchOffset + 1]); // query
@@ -63,15 +63,60 @@ static void HybridRequest_appendSearch(RedisModuleString **argv, int argc, MRCom
 }
 
 /**
+ * Appends VSIM FILTER arguments to MR command.
+ * This includes FILTER keyword, filter expression, and optional POLICY and BATCH_SIZE parameters.
+ *
+ * @param xcmd - destination MR command to append arguments to
+ * @param argv - source command arguments array
+ * @param argc - total argument count
+ * @param actualFilterOffset - offset where FILTER keyword appears
+ * @return number of tokens parsed/appended
+ */
+static int MRCommand_appendVsimFilter(MRCommand *xcmd, RedisModuleString **argv, int argc,
+                                      int actualFilterOffset) {
+  // This is a VSIM FILTER - append it to the command
+  // Format: FILTER [count] <expression>...
+  // If count is present, append FILTER, count, and the next count tokens
+  // If count is not present, append FILTER and the filter-expression
+
+  MRCommand_AppendRstr(xcmd, argv[actualFilterOffset]);     // FILTER keyword
+
+  // Check if the next token is an unsigned integer (count)
+  if (actualFilterOffset + 1 >= argc) {
+    return 1; // Only FILTER keyword, no more tokens
+  }
+
+  unsigned long long count = 0;
+  int isCount = (RedisModule_StringToULongLong(argv[actualFilterOffset + 1], &count) == REDISMODULE_OK);
+
+  if (isCount) {
+    // Format: FILTER count <expression>... (count tokens)
+    MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + 1]); // count
+    int tokensAppended = 2; // FILTER + count
+
+    // Append the next count tokens
+    for (unsigned long long i = 0; i < count && actualFilterOffset + tokensAppended < argc; i++) {
+      MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + tokensAppended]);
+      tokensAppended++;
+    }
+    return tokensAppended;
+  } else {
+    // Format: FILTER <filter-expression>, for backward compatibility
+    MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + 1]); // filter expression
+    return 2; // FILTER + filter-expression
+  }
+}
+
+/**
  * Appends all VSIM-related arguments to MR command.
  * This includes VSIM keyword, field, vector, KNN/RANGE method, and VSIM FILTER if present.
  *
+ * @param xcmd - destination MR command to append arguments to
  * @param argv - source command arguments array
  * @param argc - total argument count
- * @param xcmd - destination MR command to append arguments to
  * @param vsimOffset - offset where VSIM keyword appears
  */
-static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRCommand *xcmd, int vsimOffset) {
+static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv, int argc, int vsimOffset) {
   // Add VSIM keyword and field
   MRCommand_AppendRstr(xcmd, argv[vsimOffset]);     // VSIM
   MRCommand_AppendRstr(xcmd, argv[vsimOffset + 1]); // field
@@ -109,7 +154,7 @@ static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRComma
   }
 
   // Add VSIM FILTER if present at expected position
-  // Format: VSIM <field> <vector> [KNN/RANGE <count> <args...>] FILTER <expression>
+  // Format: VSIM <field> <vector> [KNN/RANGE <count> <args...>] [FILTER <expression> [[POLICY ADHOC/BATCHES] [BATCH_SIZE <value>]]]
   int expectedFilterOffset = vsimOffset + 3; // VSIM + field + vector
   if (vectorMethodOffset != -1) {
     expectedFilterOffset += 2 + methodNargs; // method + count + args
@@ -117,19 +162,21 @@ static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRComma
 
   int actualFilterOffset = RMUtil_ArgIndex("FILTER", argv + vsimOffset, argc - vsimOffset);
   actualFilterOffset = actualFilterOffset != -1 ? actualFilterOffset + vsimOffset : -1;
-  int expectedYieldScoreOffset = expectedFilterOffset;
+  int tokensAppended = 0;
 
   if (actualFilterOffset == expectedFilterOffset && actualFilterOffset < argc - 1) {
-    // This is a VSIM FILTER - append it to the command
-    MRCommand_AppendRstr(xcmd, argv[actualFilterOffset]);     // FILTER keyword
-    MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + 1]); // filter expression
-    expectedYieldScoreOffset += 2; // Update expected offset after processing FILTER
+    tokensAppended = MRCommand_appendVsimFilter(xcmd, argv, argc, actualFilterOffset);
   }
 
   // Add YIELD_SCORE_AS if present
-  // Format: VSIM <field> <vector> [KNN/RANGE <count> <args...>] [FILTER <expression>] YIELD_SCORE_AS <alias>
+  // Format: ... [FILTER count <expression> [[POLICY ADHOC/BATCHES] [BATCH_SIZE <value>]]] YIELD_SCORE_AS <alias>
   int yieldScoreOffset = RMUtil_ArgIndex("YIELD_SCORE_AS", argv + vsimOffset, argc - vsimOffset);
   yieldScoreOffset = yieldScoreOffset != -1 ? yieldScoreOffset + vsimOffset : -1;
+
+  // Calculate expected position: base it on actualFilterOffset (zero-based from FILTER) if present, otherwise expectedFilterOffset
+  int expectedYieldScoreOffset = (actualFilterOffset == expectedFilterOffset)
+                                  ? actualFilterOffset + tokensAppended
+                                  : expectedFilterOffset;
 
   if (yieldScoreOffset == expectedYieldScoreOffset && yieldScoreOffset < argc - 1) {
     // This is a VSIM YIELD_SCORE_AS - append it to the command
@@ -152,11 +199,11 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 
   // Add all SEARCH-related arguments (SEARCH, query, optional SCORER, YIELD_SCORE_AS)
   int searchOffset = RMUtil_ArgIndex("SEARCH", argv, argc);
-  HybridRequest_appendSearch(argv, argc, xcmd, searchOffset);
+  MRCommand_appendSearch(xcmd, argv, argc, searchOffset);
 
   // Add all VSIM-related arguments (VSIM, field, vector, methods, filter)
   int vsimOffset = RMUtil_ArgIndex("VSIM", argv, argc);
-  HybridRequest_appendVsim(argv, argc, xcmd, vsimOffset);
+  MRCommand_appendVsim(xcmd, argv, argc, vsimOffset);
 
   int combineOffset = RMUtil_ArgIndex("COMBINE", argv + vsimOffset, argc - vsimOffset);
   combineOffset = combineOffset != -1 ? combineOffset + vsimOffset : -1;

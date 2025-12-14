@@ -32,7 +32,7 @@ jobs:
             echo "resubmit=false" >> $GITHUB_OUTPUT
             exit 0
           fi
-          
+
           echo "Checking PR #$PR_NUM"
           echo "Current HEAD SHA: $HEAD_SHA"
           echo "Current BASE SHA: $BASE_SHA"
@@ -95,7 +95,7 @@ jobs:
             echo "resubmit=false" >> $GITHUB_OUTPUT
             exit 0
           fi
-          
+
           echo "Found previous failed/cancelled run for PR #$PR_NUM"
           echo "Previous run ID: $PREVIOUS_RUN_ID"
           echo "No new commits detected since the previous run!"
@@ -107,7 +107,7 @@ jobs:
           PR_TITLE=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.title')
           PR_URL=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.html_url')
           PR_AUTHOR=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.user.login')
-          
+
           echo "pr_title=$PR_TITLE" >> $GITHUB_OUTPUT
           echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
           echo "pr_author=$PR_AUTHOR" >> $GITHUB_OUTPUT
@@ -120,9 +120,8 @@ jobs:
         with:
           payload: |
             {
-              "PR": "${{ steps.check.outputs.pr_url }}",
-              "Title": "${{ toJson(steps.check.outputs.pr_title) }}",
-              "Author": "${{ toJson(steps.check.outputs.pr_author) }}",
+              "PR": ${{ toJson(steps.check.outputs.pr_url) }},
+              "Title": ${{ toJson(steps.check.outputs.pr_title) }},
+              "Author": ${{ toJson(steps.check.outputs.pr_author) }},
               "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
-

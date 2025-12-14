@@ -189,6 +189,19 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
                                      FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_GEOMETRY));
     RedisModule_InfoEndDictField(ctx);
   }
+  // Total number of documents indexed by each field type
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_text_fields",
+                                  RSGlobalStats.fieldsStats.textTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_tag_fields",
+                                  RSGlobalStats.fieldsStats.tagTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_numeric_fields",
+                                  RSGlobalStats.fieldsStats.numericTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_geo_fields",
+                                  RSGlobalStats.fieldsStats.geoTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_geoshape_fields",
+                                  RSGlobalStats.fieldsStats.geometryTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_vector_fields",
+                                  RSGlobalStats.fieldsStats.vectorTotalDocsIndexed);
 }
 
 void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
@@ -199,6 +212,7 @@ void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", total_info->num_active_indexes_indexing);
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads", total_info->total_active_write_threads);
   RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", (float)total_info->indexing_time / (float)CLOCKS_PER_MILLISEC);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_num_docs_in_indexes", total_info->total_num_docs_in_indexes);
 }
 
 void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
@@ -277,7 +291,8 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
 void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "multi_threading");
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
-  RedisModule_InfoAddFieldULongLong(ctx, "active_io_threads", stats.active_io_threads);
+  RedisModule_InfoAddFieldULongLong(ctx, "uv_threads_running_queries", stats.uv_threads_running_queries);
+  RedisModule_InfoAddFieldULongLong(ctx, "uv_threads_running_topology_update", stats.uv_threads_running_topology_update);
   RedisModule_InfoAddFieldULongLong(ctx, "active_worker_threads", stats.active_worker_threads);
   RedisModule_InfoAddFieldULongLong(ctx, "active_coord_threads", stats.active_coord_threads);
   RedisModule_InfoAddFieldULongLong(ctx, "workers_low_priority_pending_jobs", stats.workers_low_priority_pending_jobs);

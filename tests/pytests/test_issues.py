@@ -1789,10 +1789,12 @@ def test_mod_12493(env:Env):
   # If we call READ instead, they won't be deleted or depleted (3rd read, and we have 4 chunks), and the test will fail.
   env.expect('FT.CURSOR', 'DEL', 'idx', cursor).ok()
 
+  # Check that the internal cursors were deleted on all shards. This happens asynchronously
+  with TimeLimit(10, 'Internal cursors were not deleted within the time limit'):
+    while to_dict(index_info(env)['cursor_stats'])['index_total'] != 0:
+      time.sleep(0.1)
+
   # Expect another call on each shard for the DEL command
   for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
     stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR|DEL']
     env.assertEqual(stats['calls'], 1, message=f'Expected 1 call on shard {i}, got {stats["calls"]}')
-
-  # Check that the internal cursors were deleted on all shards
-  env.assertEqual(to_dict(index_info(env)['cursor_stats'])['index_total'], 0)

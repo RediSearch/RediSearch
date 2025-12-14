@@ -169,20 +169,31 @@ void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bo
 }
 
 // Update the number of active io threads.
-void GlobalStats_UpdateActiveIoThreads(int toAdd) {
+void GlobalStats_UpdateUvRunningQueries(int toAdd) {
 #ifdef ENABLE_ASSERT
-  RS_LOG_ASSERT(toAdd != 0, "Attempt to change active_io_threads by 0");
-  size_t current = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
+  RS_LOG_ASSERT(toAdd != 0, "Attempt to change uv_threads_running_queries by 0");
+  size_t current = READ(RSGlobalStats.totalStats.multi_threading.uv_threads_running_queries);
   RS_LOG_ASSERT_FMT(toAdd > 0 || current > 0,
-    "Cannot decrease active_io_threads below 0. toAdd: %d, current: %zu", toAdd, current);
+    "Cannot decrease uv_threads_running_queries below 0. toAdd: %d, current: %zu", toAdd, current);
 #endif
-  INCR_BY(RSGlobalStats.totalStats.multi_threading.active_io_threads, toAdd);
+  INCR_BY(RSGlobalStats.totalStats.multi_threading.uv_threads_running_queries, toAdd);
+}
+
+void GlobalStats_UpdateUvRunningTopoUpdate(int toAdd) {
+#ifdef ENABLE_ASSERT
+  RS_LOG_ASSERT(toAdd != 0, "Attempt to change uv_threads_running_topology_update by 0");
+  size_t current = READ(RSGlobalStats.totalStats.multi_threading.uv_threads_running_topology_update);
+  RS_LOG_ASSERT_FMT(toAdd > 0 || current > 0,
+    "Cannot decrease uv_threads_running_topology_update below 0. toAdd: %d, current: %zu", toAdd, current);
+#endif
+  INCR_BY(RSGlobalStats.totalStats.multi_threading.uv_threads_running_topology_update, toAdd);
 }
 
 // Get multiThreadingStats
 MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   MultiThreadingStats stats;
-  stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
+  stats.uv_threads_running_queries = READ(RSGlobalStats.totalStats.multi_threading.uv_threads_running_queries);
+  stats.uv_threads_running_topology_update = READ(RSGlobalStats.totalStats.multi_threading.uv_threads_running_topology_update);
 
   // Workers stats
   // We don't use workersThreadPool_getStats here to avoid the overhead of locking the thread pool.
@@ -195,4 +206,33 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   stats.active_coord_threads = ConcurrentSearchPool_WorkingThreadCount();
   stats.coord_high_priority_pending_jobs = ConcurrentSearchPool_HighPriorityPendingJobsCount();
   return stats;
+}
+
+void FieldsGlobalStats_UpdateFieldDocsIndexed(const FieldSpec *fs, int toAdd) {
+  // Indexing documents happens only in the main thread or with the GIL locked.
+  // Therefore, there is no need for atomic operations.
+
+  if (!FieldSpec_IsIndexable(fs)) return;
+
+  FieldType field_type = fs->types;
+  switch (field_type) {
+    case INDEXFLD_T_FULLTEXT:
+      RSGlobalStats.fieldsStats.textTotalDocsIndexed += toAdd;
+      break;
+    case INDEXFLD_T_NUMERIC:
+      RSGlobalStats.fieldsStats.numericTotalDocsIndexed += toAdd;
+      break;
+    case INDEXFLD_T_GEO:
+      RSGlobalStats.fieldsStats.geoTotalDocsIndexed += toAdd;
+      break;
+    case INDEXFLD_T_TAG:
+      RSGlobalStats.fieldsStats.tagTotalDocsIndexed += toAdd;
+      break;
+    case INDEXFLD_T_VECTOR:
+      RSGlobalStats.fieldsStats.vectorTotalDocsIndexed += toAdd;
+      break;
+    case INDEXFLD_T_GEOMETRY:
+      RSGlobalStats.fieldsStats.geometryTotalDocsIndexed += toAdd;
+      break;
+  }
 }
