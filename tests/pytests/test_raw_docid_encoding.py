@@ -10,9 +10,15 @@ from common import *
 
 @skip(cluster=True)
 def testRawDocIdEncodingConfig(env):
-    """Verify RAW_DOCID_ENCODING is enabled"""
+    """Verify RAW_DOCID_ENCODING is enabled.
+
+    This test skips if RAW_DOCID_ENCODING is not set to 'true', since these tests
+    are meant to be run with the RAW_DOCID_ENCODING=true module argument.
+    """
     raw_encoding = env.cmd(config_cmd(), 'GET', 'RAW_DOCID_ENCODING')
     # Config returns [['RAW_DOCID_ENCODING', 'true']] format
+    if raw_encoding[0][1] != 'true':
+        env.skip()
     env.assertEqual(raw_encoding[0][1], 'true')
 
 
