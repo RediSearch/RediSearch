@@ -238,7 +238,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       uint32_t excludeFlags = RLOOKUP_F_HIDDEN;
       uint32_t requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
       size_t skipFieldIndex_len = lk->rowlen;
-      bool skipFieldIndex[skipFieldIndex_len]; // Array has `0` for fields which will be skipped
+      bool skipFieldIndex[skipFieldIndex_len]; // After calling `RLookup_GetLength` will contain `0` for fields which we should skip below 
       memset(skipFieldIndex, 0, skipFieldIndex_len * sizeof(*skipFieldIndex));
       size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, skipFieldIndex_len, requiredFlags, excludeFlags, rule);
 
