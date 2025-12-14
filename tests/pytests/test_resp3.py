@@ -210,7 +210,7 @@ def test_coord_profile():
       },
       'Profile': {
         'Shards': env.shardsCount * [
-                      {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Total GIL time': ANY, 'Warning': 'None',
+                      {'Shard ID': ANY, 'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Total GIL time': ANY, 'Warning': 'None',
                         'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
                         'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Scorer', 'Time': ANY, 'Results processed': ANY},
@@ -237,6 +237,7 @@ def test_coord_profile():
       'Profile': {
         'Shards': ANY, # Checking separately. When profiling Aggregation, the number of shards is not fixed (empty replies are not returned)
         'Coordinator': {
+          'Shard ID': ANY,
           'Total profile time': ANY,
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
@@ -247,6 +248,7 @@ def test_coord_profile():
       }
     }
     shard = {
+      'Shard ID': ANY,
       'Total profile time': ANY,
       'Parsing time': ANY,
       'Pipeline creation time': ANY,

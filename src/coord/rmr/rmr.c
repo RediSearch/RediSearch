@@ -47,7 +47,8 @@ static MRCluster *cluster_g = NULL;
 // Number of shards in the cluster (main-thread variable)
 extern size_t NumShards;
 
-// Local node ID (main-thread variable, set when topology is updated)
+// Local node ID (set from main-thread when topology is updated, and may be accessed from worker
+// thread upon replying to a query - hence it is synchronized)
 static char *local_node_id_g = NULL;
 
 /* Coordination request timeout */
@@ -271,15 +272,18 @@ void MR_UpdateTopology(MRClusterTopology *newTopo, const RedisModuleSlotRangeArr
 
 /* Set the local node ID for this shard */
 void MR_SetLocalNodeId(const char *node_id) {
-  if (local_node_id_g) {
-    rm_free(local_node_id_g);
+  char *new_node_id = node_id ? rm_strdup(node_id) : NULL;
+  // Atomically exchange the old node ID with the new one
+  char *old_node_id = __atomic_exchange_n(&local_node_id_g, new_node_id, __ATOMIC_SEQ_CST);
+  if (old_node_id) {
+    rm_free(old_node_id);
   }
-  local_node_id_g = node_id ? rm_strdup(node_id) : NULL;
 }
 
 /* Get the local node ID for this shard. Returns NULL if not set or in standalone mode. */
 const char *MR_GetLocalNodeId(void) {
-  return local_node_id_g;
+  // Atomically load the local node ID pointer
+  return __atomic_load_n(&local_node_id_g, __ATOMIC_ACQUIRE);
 }
 
 struct UpdateConnPoolSizeCtx {
