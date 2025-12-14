@@ -533,10 +533,18 @@ if [[ $REDIS_STANDALONE == 1 ]]; then
 	fi
 
 	if [[ $QUICK != 1 ]]; then
+		if [[ -z $CONFIG || $CONFIG == raw_docid ]]; then
+			{ (MODARGS="${MODARGS}; RAW_DOCID_ENCODING true;" \
+				RLTEST_ARGS="${RLTEST_ARGS} --test test_raw_docid_encoding.py" \
+				run_tests "with raw DocID encoding"); (( E |= $? )); } || true
+		fi
+
 		if [[ -z $CONFIG || $CONFIG == dialect_2 ]]; then
 			{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" \
 				run_tests "with Dialect v2"); (( E |= $? )); } || true
 		fi
+
+
 	fi
 
 elif [[ $REDIS_STANDALONE == 0 ]]; then
