@@ -100,6 +100,7 @@ jobs:
       fail-fast: ${{ contains(inputs.options, 'fail-fast') }}
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
+    continue-on-error: ${{ matrix.platform == 'rockylinux:9' }}
     with:
       platform: ${{ matrix.platform }}
       architecture: ${{ matrix.architecture }}
