@@ -644,19 +644,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
   uint32_t slotsVersion;
 
-  // Check for optional FILTER clause - argument may not be in our scope
-  unsigned long long subqueries_count = 0;
-  if (AC_IsAtEnd(ac)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing subqueries count for HYBRID");
-    goto error;
-  }
-  if (AC_GetUnsignedLongLong(ac, &subqueries_count, 0) == AC_OK) {
-    if (subqueries_count != HYBRID_REQUEST_NUM_SUBQUERIES) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "HYBRID supports only 2 subqueries");
-      goto error;
-    }
-  }
-
   if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Expected subquery count for HYBRID");
     goto error;
