@@ -100,18 +100,18 @@ jobs:
     if: ${{ needs.generate-matrix.outputs.has-jobs == 'true' }}
     strategy:
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
-      fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast }}
+      fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
       platform: ${{ matrix.platform }}
       architecture: ${{ matrix.architecture }}
       get-redis: ${{ inputs.redis-ref }}
-      rejson: ${{ contains(inputs.options, 'rejson') || inputs.RedisJSON }}
+      rejson: ${{ contains(inputs.options, 'rejson') || inputs.RedisJSON == true }}
       rejson-branch: ${{ inputs.rejson-branch }}
-      coordinator: ${{ contains(inputs.options, 'coordinator') || inputs.cluster }}
-      standalone: ${{ contains(inputs.options, 'standalone') || inputs.standalone }}
+      coordinator: ${{ contains(inputs.options, 'coordinator') || inputs.cluster == true }}
+      standalone: ${{ contains(inputs.options, 'standalone') || inputs.standalone == true }}
       test-config: ${{ fromJson(inputs.job-test-config || '{"test":""}')[(matrix.job-type || 'test')] || inputs.test-config }}
       coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
       san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
-      fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast }}
+      fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
