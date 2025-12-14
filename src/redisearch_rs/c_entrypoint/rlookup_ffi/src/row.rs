@@ -165,7 +165,7 @@ pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_WriteByName(
+pub unsafe extern "C" fn RLookupRow_WriteByName(
     lookup: Option<NonNull<RLookup>>,
     name: *const c_char,
     name_len: size_t,
@@ -218,7 +218,7 @@ unsafe extern "C" fn RLookupRow_WriteByName(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_WriteByNameOwned(
+pub unsafe extern "C" fn RLookupRow_WriteByNameOwned(
     lookup: Option<NonNull<RLookup<'_>>>,
     name: *const c_char,
     name_len: size_t,

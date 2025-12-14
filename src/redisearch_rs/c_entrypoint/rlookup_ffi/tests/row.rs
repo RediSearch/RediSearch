@@ -7,18 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::cmp;
 use std::mem::offset_of;
 use std::ptr;
 use std::ptr::NonNull;
 use std::sync::atomic::AtomicU16;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+use std::{cmp, ffi::CString};
 
 use rlookup::RLookup;
 use rlookup::RLookupKeyFlags;
 use rlookup::RLookupRow;
-use rlookup_ffi::row::RLookupRow_MoveFieldsFrom;
+use rlookup_ffi::row::{
+    RLookupRow_MoveFieldsFrom, RLookupRow_WriteByName, RLookupRow_WriteByNameOwned,
+};
 use std::ffi::c_char;
 use std::ffi::c_int;
 use value::RSValueFFI;
@@ -54,6 +56,52 @@ fn rlookuprow_move() {
     assert!(dst.get(&key).is_some());
 }
 
+#[test]
+fn rlookuprow_writebyname() {
+    let lookup = RLookup::new();
+    let name = CString::new("name").unwrap();
+    let len = 4;
+    let row = RLookupRow::new(&lookup);
+    let value = unsafe { RSValueFFI::from_raw(NonNull::new(RSValue_NewNumber(42.0)).unwrap()) };
+
+    assert_eq!(value.refcount(), Some(1));
+
+    unsafe {
+        RLookupRow_WriteByName(
+            Some(NonNull::from(&lookup)),
+            name.as_ptr(),
+            len,
+            Some(NonNull::from(&row)),
+            NonNull::new(value.as_ptr()),
+        );
+    }
+
+    assert_eq!(value.refcount(), Some(2));
+}
+
+#[test]
+fn rlookuprow_writebynameowned() {
+    let lookup = RLookup::new();
+    let name = CString::new("name").unwrap();
+    let len = 4;
+    let row = RLookupRow::new(&lookup);
+    let value = unsafe { RSValueFFI::from_raw(NonNull::new(RSValue_NewNumber(42.0)).unwrap()) };
+
+    assert_eq!(value.refcount(), Some(1));
+
+    unsafe {
+        RLookupRow_WriteByNameOwned(
+            Some(NonNull::from(&lookup)),
+            name.as_ptr(),
+            len,
+            Some(NonNull::from(&row)),
+            NonNull::new(value.as_ptr()),
+        );
+    }
+
+    assert_eq!(value.refcount(), Some(1));
+}
+
 /// Mock implementation of `RSValue_IncrRef` for testing purposes
 #[unsafe(no_mangle)]
 extern "C" fn RSValue_IncrRef(v: Option<NonNull<ffi::RSValue>>) -> *mut ffi::RSValue {
@@ -72,7 +120,7 @@ extern "C" fn RSValue_IncrRef(v: Option<NonNull<ffi::RSValue>>) -> *mut ffi::RSV
     v.as_ptr()
 }
 
-/// Mock implementation of `RSValue_IncrRef` for testing purposes
+/// Mock implementation of `RSValue_DecrRef` for testing purposes
 #[unsafe(no_mangle)]
 extern "C" fn RSValue_DecrRef(v: Option<NonNull<ffi::RSValue>>) {
     let v = v.unwrap();
@@ -86,7 +134,7 @@ extern "C" fn RSValue_DecrRef(v: Option<NonNull<ffi::RSValue>>) {
     }
 }
 
-/// Mock implementation of `RSValue_IncrRef` for testing purposes
+/// Mock implementation of `RSValue_NewNumber` for testing purposes
 #[unsafe(no_mangle)]
 extern "C" fn RSValue_NewNumber(numval: f64) -> *mut ffi::RSValue {
     Box::into_raw(Box::new(ffi::RSValue {
