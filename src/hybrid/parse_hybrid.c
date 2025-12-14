@@ -641,8 +641,27 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
   uint32_t slotsVersion;
 
-  if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
+  // Parse subqueries count - support only 2 subqueries for now
+  // FT.HYBRID <index> <subqueries_count> <search_query> <vsim_query>
+  // We still support the old format: FT.HYBRID <index> <search_query> <vsim_query> for backward compatibility
+  unsigned long long subqueries_count = 0;
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing subqueries count for HYBRID");
+    goto error;
+  }
+  bool countRet = AC_GetUnsignedLongLong(ac, &subqueries_count, AC_F_GE1) == AC_OK;
+  if (countRet) {
+    if (subqueries_count != HYBRID_REQUEST_NUM_SUBQUERIES) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "HYBRID supports only 2 subqueries");
+      goto error;
+    }
+  }
+  if (!AC_AdvanceIfMatch(ac, "SEARCH")) {
+    if (countRet) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
+    } else {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid subqueries count: expected an unsigned integer");
+    }
     goto error;
   }
 
