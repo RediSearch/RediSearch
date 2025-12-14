@@ -33,6 +33,9 @@ on:
       standalone:
         type: boolean
         default: true
+      unit-tests:
+        type: boolean
+        default: true
       rejson:
         type: boolean
         default: true
@@ -65,7 +68,7 @@ jobs:
     runs-on: ${{ inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container: ${{ needs.get-config.outputs.container || null }}
     # Nothing to do if both are `false`, skip
-    if: ${{ inputs.standalone || inputs.coordinator }}
+    if: ${{ inputs.standalone || inputs.coordinator || inputs.unit-tests }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -222,7 +225,7 @@ jobs:
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
-        if: ${{ inputs.standalone }}
+        if: ${{ inputs.unit-tests }}
         continue-on-error: true
         env:
           SAN: ${{ inputs.san }}
@@ -246,7 +249,7 @@ jobs:
         run: make pytest ${{ inputs.test-config }}
       - name: Unit tests (coordinator)
         id: coordinator_unit_tests
-        if: ${{ inputs.coordinator }}
+        if: ${{ inputs.unit-tests }}
         continue-on-error: true
         env:
           SAN: ${{ inputs.san }}
