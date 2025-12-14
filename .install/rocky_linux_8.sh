@@ -2,6 +2,11 @@
 MODE=$1 # whether to install using sudo or not
 set -e
 
+# Clean module cache to avoid "Module yaml error: Parser error" issues
+# that can occur with corrupted/stale module metadata
+$MODE dnf clean all
+$MODE rm -rf /var/cache/dnf
+
 $MODE dnf update -y
 
 # Development Tools includes config-manager

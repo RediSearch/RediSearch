@@ -2,6 +2,12 @@
 MODE=$1 # whether to install using sudo or not
 set -e
 export DEBIAN_FRONTEND=noninteractive
+
+# Clean module cache to avoid "Module yaml error: Parser error" issues
+# that can occur with corrupted/stale module metadata
+$MODE dnf clean all
+$MODE rm -rf /var/cache/dnf
+
 $MODE dnf update -y
 
 $MODE dnf install -y gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ make wget git --nobest --skip-broken --allowerasing
