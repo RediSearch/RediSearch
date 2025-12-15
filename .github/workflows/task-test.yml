@@ -33,6 +33,9 @@ on:
       standalone:
         type: boolean
         default: true
+      unit-tests:
+        type: boolean
+        default: true
       rejson:
         type: boolean
         default: true
@@ -139,7 +142,7 @@ jobs:
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
-      (inputs.standalone || inputs.coordinator)
+      (inputs.standalone || inputs.coordinator || inputs.unit-tests)
     runs-on: ${{ inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container: ${{ needs.get-config.outputs.container && fromJSON(format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache"}}', needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container)) || null }}
 
@@ -451,6 +454,7 @@ jobs:
       - name: "C/C++ tests"
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: c_unit_tests
+        if: ${{ inputs.unit-tests }}
         continue-on-error: ${{ !inputs.fail-fast }}
         env:
           SAN: ${{ inputs.san }}
@@ -461,6 +465,7 @@ jobs:
       - name: Rust tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: rust_unit_tests
+        if: ${{ inputs.unit-tests }}
         continue-on-error: ${{ !inputs.fail-fast }}
         env:
           SAN: ${{ inputs.san }}
