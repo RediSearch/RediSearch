@@ -42,6 +42,7 @@ pub struct ProfileCounters {
 pub struct Profile<'index, I: RQEIterator<'index>> {
     child: I,
     counters: ProfileCounters,
+    /// Time spent in child iterator operations.
     wall_time: Duration,
     _marker: std::marker::PhantomData<&'index ()>,
 }
@@ -65,7 +66,8 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
         &self.counters
     }
 
-    /// Returns the accumulated wall time in nanoseconds.
+    /// Returns the accumulated wall time in nanoseconds assuming u64 is enough and there is
+    /// no risk of overflow.
     #[inline]
     pub const fn wall_time_ns(&self) -> u64 {
         self.wall_time.as_nanos() as u64
