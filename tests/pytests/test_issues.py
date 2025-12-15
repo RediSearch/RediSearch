@@ -1757,6 +1757,7 @@ def test_mod_11658_avoid_deadlock_while_reducing_num_workers():
     env.assertTrue(final_search[0] > 0, message="Search should return results at end of test")
 
     check_threads(env, 0, 0)
+
 @skip(cluster=False)
 def test_mod_12493(env:Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
