@@ -377,9 +377,7 @@ mod tests {
             let boxed_rule = Box::new(schema_rule);
             let non_null_ptr = NonNull::new(Box::into_raw(boxed_rule)).unwrap();
 
-            unsafe {
-                TestSchemaRuleWrapper(SchemaRuleWrapper::from_raw(non_null_ptr.as_ptr()).unwrap())
-            }
+            unsafe { TestSchemaRuleWrapper(SchemaRuleWrapper::from_non_null(non_null_ptr)) }
         }
     }
 
