@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ffi::RSValue;
 use libc::size_t;
 use rlookup::{RLookup, RLookupKey};
 use std::{
@@ -246,4 +247,70 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned(
 
     // 'value' is moved directly into the function without affecting its refcount.
     row.write_key_by_name(lookup, name, value);
+}
+
+/// Write fields from a source row into this row, the fields must exist in both lookups (schemas).
+///
+/// Iterate through the source lookup keys, if it finds a corresponding key in the destination
+/// lookup by name, then it's value is written to this row as a destination.
+///
+/// If a source key is not found in the destination lookup the function will panic (same as C behavior).
+///
+/// If a source key has no value in the source row, it is skipped.
+///
+/// # Safety
+///
+/// 1. `src_row` must be a [valid], non-null pointer to an [`RLookupRow`].
+/// 2. `src_lookup` must be a [valid], non-null pointer to an [`RLookup`].
+/// 3. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`].
+/// 4. `dst_lookup` must be a [valid], non-null pointer to an [`RLookup`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_WriteFieldsFrom(
+    src_row: *const RLookupRow,
+    src_lookup: *const RLookup,
+    dst_row: Option<NonNull<RLookupRow>>,
+    dst_lookup: *const RLookup,
+) {
+    // Safety: ensured by caller (1.)
+    let src_row = unsafe { src_row.as_ref().unwrap() };
+
+    // Safety: ensured by caller (2.)
+    let src_lookup = unsafe { src_lookup.as_ref().unwrap() };
+
+    // Safety: ensured by caller (3.)
+    let dst_row = unsafe { dst_row.unwrap().as_mut() };
+
+    // Safety: ensured by caller (4.)
+    let dst_lookup = unsafe { dst_lookup.as_ref().unwrap() };
+
+    dst_row.copy_fields_from(dst_lookup, src_row, src_lookup);
+}
+
+/// Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
+///
+/// The function first checks for dynamic values, and if not found, it checks the sorting vector
+/// if the `SvSrc` flag is set in the key.
+///
+/// If the item is not found in either location, it returns a NULL pointer.
+///
+/// # Safety
+///
+/// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+/// 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_Get(
+    key: *const RLookupKey,
+    row: *const RLookupRow,
+) -> Option<NonNull<RSValue>> {
+    // Safety: ensured by caller (1.)
+    let key = unsafe { key.as_ref().unwrap() };
+
+    // Safety: ensured by caller (2.)
+    let row = unsafe { row.as_ref().unwrap() };
+
+    row.get(key).map(|x| NonNull::new(x.as_ptr()).unwrap())
 }
