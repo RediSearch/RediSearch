@@ -1187,7 +1187,20 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_Reply_SimpleString(reply, "warning"); // >warning
     if (rCtx->warning) {
-      MR_ReplyWithMRReply(reply, rCtx->warning);
+      RedisModule_Reply_Array(reply);
+      // Iterate over warning array and track warnings
+      size_t len = MRReply_Length(rCtx->warning);
+      for (size_t i = 0; i < len; ++i) {
+        // Extract warning string and track it
+        MRReply *currentWarning = MRReply_ArrayElement(rCtx->warning, i);
+        const char *warning_str = MRReply_String(currentWarning, NULL);
+        QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
+        QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
+
+        // Reply warning
+        MR_ReplyWithMRReply(reply, currentWarning);
+      }
+      RedisModule_Reply_ArrayEnd(reply);
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }
@@ -1387,12 +1400,14 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
   return REDISMODULE_OK;
 }
 
-static bool should_return_error(MRReply *reply) {
-  // TODO: Replace third condition with a var instead of hard-coded string
-  const char *errStr = MRReply_String(reply, NULL);
-  return (!errStr
-          || RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
-          || strcmp(errStr, "Timeout limit was reached"));
+// TODO - get RequestConfig ptr as parameter instead of global config
+bool should_return_error(QueryErrorCode errCode) {
+  // Check if this is a timeout error with non-fail policy
+  if (errCode == QUERY_ETIMEDOUT) {
+    return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail;
+  }
+  // For any other error, return it
+  return true;
 }
 
 static bool should_return_timeout_error(searchRequestCtx *req) {
@@ -1423,7 +1438,10 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     if (MRReply_Type(curr_rep) == MR_REPLY_ERROR) {
       rCtx.errorOccurred = true;
       rCtx.lastError = curr_rep;
-      if (should_return_error(curr_rep)) {
+      QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(curr_rep, NULL));
+      if (should_return_error(errCode)) {
+        // Track error in global statistics
+        QueryErrorsGlobalStats_UpdateError(errCode, 1, COORD_ERR_WARN);
         res = MR_ReplyWithMRReply(reply, curr_rep);
         goto cleanup;
       }
@@ -1474,6 +1492,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
     // If we timed out on strict timeout policy, return a timeout error
     if (should_return_timeout_error(req)) {
+      // Track timeout error in global statistics
+      QueryErrorsGlobalStats_UpdateError(QUERY_ETIMEDOUT, 1, COORD_ERR_WARN);
       RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
       goto cleanup;
     }
