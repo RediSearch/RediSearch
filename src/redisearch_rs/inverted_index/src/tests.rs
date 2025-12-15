@@ -2036,7 +2036,9 @@ fn test_refresh_buffer_pointers_after_reallocation() {
     // This should cause the buffer to grow and potentially move
     unsafe {
         for i in 12..1000 {
-            (*ii_ptr).add_record(&RSIndexResult::default().doc_id(i)).unwrap();
+            (*ii_ptr)
+                .add_record(&RSIndexResult::default().doc_id(i))
+                .unwrap();
         }
     }
 
@@ -2056,5 +2058,4 @@ fn test_refresh_buffer_pointers_after_reallocation() {
     // Should have read all 990 documents (10, 11, 12..999)
     assert_eq!(doc_count, 990);
     assert_eq!(expected_doc_id, 1000);
-
 }
