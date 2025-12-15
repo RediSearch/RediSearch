@@ -46,7 +46,9 @@ static void processHybridUnknownReplyType(processCursorMappingCallbackContext *c
 static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply *rep, MRCommand *cmd) {
     for (size_t i = 0; i < INTERNAL_HYBRID_RESP2_LENGTH; i += 2) {
         CursorMapping mapping = {0};
+        // cmd outlives mapping when Processing Hybrid callbacks, it is okey to share the string
         mapping.targetShard = cmd->targetShard;
+        mapping.targetShardIdx = cmd->targetShardIdx;
 
         MRReply *key_reply = MRReply_ArrayElement(rep, i);
         MRReply *value_reply = MRReply_ArrayElement(rep, i + 1);
@@ -105,7 +107,9 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
         RS_ASSERT(cursorId);
 
         CursorMapping mapping = {0};
+        // cmd outlives mapping when Processing Hybrid callbacks, it is okey to share the string
         mapping.targetShard = cmd->targetShard;
+        mapping.targetShardIdx = cmd->targetShardIdx;
         long long cid;
         MRReply_ToInteger(cursorId, &cid);
         // Check for early bailout (Cursor ID 0 means no cursor was opened)

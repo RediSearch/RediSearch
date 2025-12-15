@@ -33,8 +33,13 @@ typedef struct {
   /* Slots info offset - 0 if not set (first argument is always the command) */
   uint32_t slotsInfoArgIndex;
 
-  /* if not NULL, this value indicate to which shard the command should be sent */
-  char *targetShard;
+  /* if not NULL, this value indicate to which shard the command should be sent.*/
+  const char *targetShard;
+
+  /* Index of the target shard in the cluster's shards array when command is created. Useful to keep track of responses.
+  Can't be used to know where to send the command, since the cluster's shards array can change. In case of new shards added, ASM should control not to trim
+  the slots from the old shard until all cursors are terminated (expected time limit for this). */
+  uint16_t targetShardIdx;
 
   /* 0 (undetermined), 2, or 3 */
   unsigned char protocol;

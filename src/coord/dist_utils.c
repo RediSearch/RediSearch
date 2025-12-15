@@ -67,7 +67,7 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
     if (barrier && barrier->notifyCallback) {
       // Notify an error was received
-      barrier->notifyCallback(cmd->targetShard, 0, true, barrier);
+      barrier->notifyCallback(cmd->targetShardIdx, 0, true, barrier);
     }
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
@@ -147,9 +147,9 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       // Response is malformed: log a warning and set total to 0.
       // Notice: must still call the notify callback since a response was received
       shardTotal = 0;
-      RedisModule_Log(RSDummyContext, "notice", "Coordinator could not extract total_results from shard %d reply", cmd->targetShard);
+      RedisModule_Log(RSDummyContext, "notice", "Coordinator could not extract total_results from shard %d reply", cmd->targetShardIdx);
     }
-    barrier->notifyCallback(cmd->targetShard, shardTotal, false, barrier);
+    barrier->notifyCallback(cmd->targetShardIdx, shardTotal, false, barrier);
   }
 
   if (cmd->forProfiling && cmd->protocol == 3) {
@@ -220,6 +220,7 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
     }
 
     newCmd.targetShard = cmd->targetShard;
+    newCmd.targetShardIdx = cmd->targetShardIdx;
     cmd->targetShard = NULL; // transfer ownership
     newCmd.protocol = cmd->protocol;
     newCmd.forCursor = cmd->forCursor;
