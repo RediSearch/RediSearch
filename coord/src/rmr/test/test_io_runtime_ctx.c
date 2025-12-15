@@ -89,11 +89,6 @@ static int wait_for_topo_metric_value(size_t expected_value, int timeout_ms) {
 }
 
 void testMetricUpdateDuringCallback() {
-  // Init workers thpool and ConcurrentSearch required to call GlobalStats_GetMultiThreadingStats
-#ifdef MT_BUILD
-  workersThreadPool_CreatePool(1);
-#endif
-  ConcurrentSearch_CreatePool(1);
 
   CallbackFlags flags;
   atomic_init(&flags.started, false);
@@ -130,18 +125,9 @@ void testMetricUpdateDuringCallback() {
 
   // Clean up
   RQ_Done(q);
-#ifdef MT_BUILD
-  workersThreadPool_Destroy();
-#endif
-  ConcurrentSearch_ThreadPoolDestroy();
 }
 
 void testActiveTopologyUpdateThreadsMetric() {
-  // Init workers thpool and ConcurrentSearch required to call GlobalStats_GetMultiThreadingStats
-#ifdef MT_BUILD
-  workersThreadPool_CreatePool(1);
-#endif
-  ConcurrentSearch_CreatePool(1);
 
   // Create an empty cluster with empty topology to prevent crashes in topology validation timer
   // (MR_CheckTopologyConnections accesses cl->topo->numShards)
@@ -183,10 +169,6 @@ void testActiveTopologyUpdateThreadsMetric() {
   // Clean up
   RQ_Debug_StopTopologyTimers();
   MRClust_Free(cluster);
-#ifdef MT_BUILD
-  workersThreadPool_Destroy();
-#endif
-  ConcurrentSearch_ThreadPoolDestroy();
 }
 
 static void dummyLog(RedisModuleCtx *ctx, const char *level, const char *fmt, ...) {}
@@ -194,9 +176,17 @@ static void dummyLog(RedisModuleCtx *ctx, const char *level, const char *fmt, ..
 int main(int argc, char **argv) {
   RMUTil_InitAlloc();
   RedisModule_Log = dummyLog;
+  // Init workers thpool and ConcurrentSearch required to call GlobalStats_GetMultiThreadingStats
+#ifdef MT_BUILD
+  workersThreadPool_CreatePool(1);
+#endif
+  ConcurrentSearch_CreatePool(1);
   MU_RUN_TEST(testMetricUpdateDuringCallback);
   MU_RUN_TEST(testActiveTopologyUpdateThreadsMetric);
   MU_REPORT();
-
+#ifdef MT_BUILD
+  workersThreadPool_Destroy();
+#endif
+  ConcurrentSearch_ThreadPoolDestroy();
   return minunit_status;
 }
