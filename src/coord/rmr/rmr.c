@@ -577,15 +577,15 @@ void iterStartCb(void *p) {
 
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
-  size_t targetShard;
-  for (targetShard = 1; targetShard < numShards; targetShard++) {
-    it->cbxs[targetShard].it = it;
-    it->cbxs[targetShard].cmd = MRCommand_Copy(cmd);
+  size_t targetShardIdx;
+  for (targetShardIdx = 1; targetShardIdx < numShards; targetShardIdx++) {
+    it->cbxs[targetShardIdx].it = it;
+    it->cbxs[targetShardIdx].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
-    it->cbxs[targetShard].cmd.targetShard = rm_strdup(shards[targetShard].node.id);
-    MRCommand_SetSlotInfo(&it->cbxs[targetShard].cmd, shards[targetShard].slotRanges);
+    it->cbxs[targetShardIdx].cmd.targetShard = rm_strdup(shards[targetShardIdx].node.id);
+    MRCommand_SetSlotInfo(&it->cbxs[targetShardIdx].cmd, shards[targetShardIdx].slotRanges);
 
-    it->cbxs[targetShard].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+    it->cbxs[targetShardIdx].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
   }
 
   // Set the first command to target the first shard (while not having copied it)
