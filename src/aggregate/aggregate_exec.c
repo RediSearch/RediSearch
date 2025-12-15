@@ -527,7 +527,7 @@ done_2:
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
     req->has_timedout |= has_timedout;
 
-    if (req->has_timedout) {
+    if (has_timedout) {
       // Track warnings in global statistics
       // Assuming that if we reached here, timeout is not an error.
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
