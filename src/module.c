@@ -73,6 +73,7 @@
 #include "util/redis_mem_info.h"
 #include "notifications.h"
 #include "aggregate/reply_empty.h"
+#include "tracing_redismodule.h"
 #include "asm_state_machine.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
@@ -101,6 +102,9 @@ extern RedisModuleCtx *RSDummyContext;
 khash_t(query_key_space_version_tracker) *query_key_space_version_map = NULL;
 uint32_t key_space_version = INVALID_KEYSPACE_VERSION;
 pthread_mutex_t query_version_tracker_mutex;
+#ifdef ASM_SANITIZER_ENABLED
+arrayof(int*) asm_sanitizer_allocs;
+#endif
 
 redisearch_thpool_t *depleterPool = NULL;
 
@@ -3997,6 +4001,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
+
+  TracingRedisModule_Init(ctx);
 
   setHiredisAllocators();
   uv_replace_allocator(rm_malloc, rm_realloc, rm_calloc, rm_free);
