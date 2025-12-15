@@ -16,7 +16,7 @@ ROOT=${ROOT:=$CURR_DIR}  # unless ROOT is set, assume it is the current director
 BINROOT=${BINROOT:=${ROOT}/bin/linux-x64-release}
 
 JSON_MODULE_DIR="${ROOT}/deps/RedisJSON"
-JSON_BIN_DIR="${BINROOT}/RedisJSON/${JSON_BRANCH}"
+JSON_BIN_DIR="${BINROOT}/RedisJSON"
 export JSON_BIN_PATH="${JSON_BIN_DIR}/rejson.so"
 # Instruct RedisJSON to use the same pinned nightly version as RediSearch
 export RUST_GOOD_NIGHTLY=$(cat ${ROOT}/.rust-nightly)
@@ -42,7 +42,7 @@ if [[ -f /etc/os-release ]]; then
 	fi
 fi
 
-echo "Building RedisJSON module for branch $JSON_BRANCH..."
+echo "Building RedisJSON module..."
 run_command make SAN=$SAN BINROOT=${JSON_BIN_DIR}
 echo "RedisJSON module built and is available at ${JSON_BIN_PATH}"
 cd $CURR_DIR
