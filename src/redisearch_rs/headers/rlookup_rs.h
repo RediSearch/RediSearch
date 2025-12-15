@@ -553,6 +553,47 @@ void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
                                  RLookupRow *row,
                                  RSValue *value);
 
+/**
+ * Write fields from a source row into this row, the fields must exist in both lookups (schemas).
+ *
+ * Iterate through the source lookup keys, if it finds a corresponding key in the destination
+ * lookup by name, then it's value is written to this row as a destination.
+ *
+ * If a source key is not found in the destination lookup the function will panic (same as C behavior).
+ *
+ * If a source key has no value in the source row, it is skipped.
+ *
+ * # Safety
+ *
+ * 1. `src_row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 2. `src_lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ * 3. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 4. `dst_lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_WriteFieldsFrom(const RLookupRow *src_row,
+                                const struct RLookup *src_lookup,
+                                RLookupRow *dst_row,
+                                const struct RLookup *dst_lookup);
+
+/**
+ * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
+ *
+ * The function first checks for dynamic values, and if not found, it checks the sorting vector
+ * if the `SvSrc` flag is set in the key.
+ *
+ * If the item is not found in either location, it returns a NULL pointer.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RSValue *RLookupRow_Get(const struct RLookupKey *key, const RLookupRow *row);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
