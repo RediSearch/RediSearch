@@ -47,17 +47,18 @@ jobs:
     name: Build ${{ needs.get-config.outputs.name }}
     needs: [get-config]
     runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
-    container: >
-      ${{ needs.get-config.outputs.container
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    container: ${{
+      needs.get-config.outputs.container
         && fromJSON(
           format('{{"image":"{0}","options":"--user root {1}"}}',
             needs.get-config.outputs.container,
             needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared' || '')
         )
       || null }}
-    defaults:
-      run:
-        shell: bash -l -eo pipefail {0}
+
     env:
       VERBOSE: 1 # For logging
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
