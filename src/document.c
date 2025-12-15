@@ -24,6 +24,7 @@
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
 #include "redis_index.h"
+#include "info/global_stats.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -513,6 +514,10 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     // Decrease the last increment
     aCtx->tokenizer->ctx.lastOffset -= multiTextOffsetDelta;
   }
+
+  // Since we are here, the indexing was successful, update the global statistics.
+  FieldsGlobalStats_UpdateFieldDocsIndexed(fs, 1);
+
   return 0;
 }
 
@@ -630,6 +635,7 @@ FIELD_BULK_INDEXER(geometryIndexer) {
 
 
 FIELD_BULK_INDEXER(numericIndexer) {
+
   RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
   NumericRangeTree *rt = openNumericKeysDict(ctx->spec, keyName, CREATE_INDEX);
   if (!rt) {
@@ -649,6 +655,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
       ctx->spec->stats.numRecords += rv.numRecords;
     }
   }
+
   return 0;
 }
 
@@ -779,7 +786,6 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       field->multisv = NULL;
     }
   }
-
   return REDISMODULE_OK;
 }
 
@@ -855,6 +861,10 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
           break;
       }
     }
+  }
+  // If the indexing was successful, update the global statistics.
+  if (rc == 0) {
+    FieldsGlobalStats_UpdateFieldDocsIndexed(fs, 1);
   }
   return rc;
 }
