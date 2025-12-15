@@ -182,6 +182,7 @@ void testActiveTopologyUpdateThreadsMetric() {
 
   // Clean up
   RQ_Debug_StopTopologyTimers();
+  MRClust_Free(cluster);
 #ifdef MT_BUILD
   workersThreadPool_Destroy();
 #endif
