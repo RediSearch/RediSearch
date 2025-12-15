@@ -210,13 +210,13 @@ jobs:
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
 
       - name: Build Standalone
-        if: ${{ inputs.standalone }}
+        if: ${{ inputs.standalone || inputs.unit-tests }}
         env:
           SAN: ${{ inputs.san }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
       - name: Build Coordinator
-        if: ${{ inputs.coordinator }}
+        if: ${{ inputs.coordinator || inputs.unit-tests }}
         env:
           SAN: ${{ inputs.san }}
           COORD: 1
