@@ -986,7 +986,7 @@ class testWarningsAndErrorsCluster:
 
     # Test syntax errors in hybrid
     # Syntax errors in the hybrid command are only counted on the coordinator.
-    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world:', 'VSIM', '@vector', '0').error().contains('Syntax error at offset')
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world:', 'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', np.array([0.0, 0.0]).astype(np.float32).tobytes()).error().contains('Syntax error at offset')
     # Test counter on each shard unchanged
     for shardId in range(1, self.env.shardsCount + 1):
       shard_conn = self.env.getConnection(shardId)
