@@ -2008,3 +2008,48 @@ fn ii_apply_gc_entries_tracking_index() {
         }
     );
 }
+
+#[test]
+fn test_refresh_buffer_pointers_after_reallocation() {
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+
+    // Add initial records
+    ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
+    ii.add_record(&RSIndexResult::default().doc_id(11)).unwrap();
+
+    // SAFETY: We need to bypass Rust's borrowing rules to simulate the real-world
+    // scenario where buffer reallocation happens while a reader is active.
+    // This is safe because:
+    // 1. We're not accessing the reader during the mutation
+    // 2. The InvertedIndex structure remains valid
+    // 3. We call refresh_buffer_pointers before using the reader again
+    let ii_ptr = &mut ii as *mut InvertedIndex<Dummy>;
+
+    let mut reader: crate::IndexReaderCore<'_, Dummy> = ii.reader();
+    let mut result = RSIndexResult::default();
+
+    // Read first record
+    assert!(reader.next_record(&mut result).unwrap());
+    assert_eq!(result.doc_id, 10);
+
+    // Store the current buffer pointer for comparison
+    let original_position = reader.current_buffer.position();
+
+    // Force buffer reallocation by adding many records to the same block
+    // This should cause the buffer to grow and potentially move
+    unsafe {
+        for i in 12..1000 {
+            (*ii_ptr).add_record(&RSIndexResult::default().doc_id(i)).unwrap();
+        }
+    }
+
+    // Buffer was reallocated - test refresh_buffer_pointers
+    reader.refresh_buffer_pointers();
+
+    // Verify position was preserved
+    assert_eq!(reader.current_buffer.position(), original_position);
+
+    // Verify we can still read correctly from the new buffer
+    assert!(reader.next_record(&mut result).unwrap());
+    assert_eq!(result.doc_id, 11);
+}
