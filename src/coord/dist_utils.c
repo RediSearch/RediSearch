@@ -119,7 +119,6 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       shardTotal = 0;
       RedisModule_Log(RSDummyContext, "notice", "Coordinator could not extract total_results from shard %d reply", cmd->targetShard);
     }
-    RedisModule_Log(RSDummyContext, "notice", "Nafraf: Coordinator calling notifyCallback with total_results %lld from shard %d", shardTotal, cmd->targetShard);
     barrier->notifyCallback(cmd->targetShard, shardTotal, false, barrier);
   }
 
