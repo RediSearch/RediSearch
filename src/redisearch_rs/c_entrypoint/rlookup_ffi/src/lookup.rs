@@ -31,7 +31,7 @@ use std::{
 ///     1. The entire memory range of this `CStr` must be contained within a single allocation!
 ///     2. `name` must be non-null even for a zero-length cstr.
 /// 4. The memory referenced by the returned `CStr` must not be mutated for
-///    the duration of the returned key.
+///    the lifetime of the returned key.
 /// 5. The nul terminator must be within `isize::MAX` from `name`
 /// 6. All bits set in `flags` must correspond to a value of the enum.
 ///
@@ -70,7 +70,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Read(
 ///     2. The entire memory range of this `CStr` must be contained within a single allocation!
 ///     3. `name` must be non-null even for a zero-length cstr.
 /// 4. The memory referenced by the returned `CStr` must not be mutated for
-///    the duration of the returned key.
+///    the lifetime of the returned key.
 /// 5. The nul terminator must be within `isize::MAX` from `name`
 /// 6. All bits set in `flags` must correspond to a value of the enum.
 ///
@@ -114,7 +114,7 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx(
 ///     1. The entire memory range of this `CStr` must be contained within a single allocation!
 ///     2. `name` must be non-null even for a zero-length cstr.
 /// 4. The memory referenced by the returned `CStr` must not be mutated for
-///    the duration of the returned key.
+///    the lifetime of the returned key.
 /// 5. The nul terminator must be within `isize::MAX` from `name`
 /// 6. All bits set in `flags` must correspond to a value of the enum.
 ///
@@ -152,7 +152,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Write(
 ///     2. The entire memory range of this `CStr` must be contained within a single allocation!
 ///     3. `name` must be non-null even for a zero-length cstr.
 /// 4. The memory referenced by the returned `CStr` must not be mutated for
-///    the duration of the returned key.
+///    the lifetime of the returned key.
 /// 5. The nul terminator must be within `isize::MAX` from `name`
 /// 6. All bits set in `flags` must correspond to a value of the enum.
 ///
@@ -198,7 +198,7 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx(
 ///     1. The entire memory range of these `CStr` must be contained within a single allocation!
 ///     2. `name` and `field_name` must be non-null even for a zero-length cstr.
 /// 4. The memory referenced by the returned `CStr` must not be mutated for
-///    the duration of the returned key.
+///    the lifetime of the returned key.
 /// 5. The nul terminator must be within `isize::MAX` from `name` and `field_name`
 /// 6. All bits set in `flags` must correspond to a value of the enum.
 ///
@@ -244,7 +244,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Load(
 ///     2. The entire memory range of these `CStr` must be contained within a single allocation!
 ///     3. `name` and `field_name` must be non-null even for a zero-length cstr.
 /// 4. The memory referenced by the returned `CStr` must not be mutated for
-///    the duration of the returned key.
+///    the lifetime of the returned key.
 /// 5. The nul terminator must be within `isize::MAX` from `name` and `field_name`
 /// 6. All bits set in `flags` must correspond to a value of the enum.
 ///
