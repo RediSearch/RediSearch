@@ -352,33 +352,54 @@ def test_WriteCommandsOnReplica():
   master = env.getConnection()
   slave = env.getSlaveConnection()
 
-  write_commands = ['FT.CREATE', 'FT.SUGADD', 'FT.SUGDEL', 'FT.CREATE',
-                    'FT._CREATEIFNX', 'FT.ALTER', 'FT._ALTERIFNX', 'FT.DROPINDEX',
-                    'FT._DROPINDEXIFX', 'FT.SYNUPDATE', 'FT.DICTADD',
-                    'FT.DICTDEL', 'FT.ALIASADD', 'FT._ALIASADDIFNX', 'FT.ALIASDEL',
-                    'FT._ALIASDELIFX', 'FT.ALIASUPDATE']
+  write_commands = [
+    ['FT.CREATE', 'idx', 'SCHEMA', 'f', 'TEXT'],
+    ['FT.SUGADD','h:sug{3}', 'hello', '1'],
+    ['FT.SUGDEL','h:sug{3}', 'hello'],
+    ['FT._CREATEIFNX','idx', 'SCHEMA', 'f', 'TEXT'],
+    ['FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'n', 'NUMERIC'],
+    ['FT._ALTERIFNX','idx', 'SCHEMA', 'ADD', 'n', 'NUMERIC'],
+    ['FT.DROPINDEX', 'idx'],
+    ['FT._DROPINDEXIFX', 'idx'],
+    ['FT.SYNUPDATE','idx', 'bark', 'dog'],
+    ['FT.DICTADD', 'dict', 'hello'],
+    ['FT.DICTDEL', 'dict', 'hello'],
+    ['FT.ALIASADD', 'myalias', 'idx'],
+    ['FT._ALIASADDIFNX', 'myalias', 'idx'],
+    ['FT.ALIASDEL','myAlias'],
+    ['FT._ALIASDELIFX', 'myAlias'],
+    ['FT.ALIASUPDATE', 'myalias', 'idx2'],
+  ]
 
-  read_commands = ['FT.AGGREGATE', 'FT.INFO', 'FT.SEARCH', 'FT.PROFILE', 'FT.CURSOR',
-                   'FT.SPELLCHECK', 'FT.SUGGET', 'FT.SUGLEN']
+  read_commands = [
+    ['FT.AGGREGATE', 'idx', '*'],
+    ['FT.INFO', 'idx'],
+    ['FT.SEARCH', 'idx', '*'],
+    ['FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'],
+    ['FT.CURSOR', 'READ', 'idx', '1234'],
+    ['FT.SPELLCHECK', 'idx', 'held' ],
+    ['FT.SUGGET', 'h:sug{3}', 'hello'],
+    ['FT.SUGLEN', 'h:sug{3}'],
+  ]
 
   # Run read and write commands on the master - should not raise RO exception
   for command in write_commands + read_commands:
     try:
-      master.execute_command(command)
+      master.execute_command(*command)
     except Exception as e:
       env.assertNotContains("You can't write against a read only replica.", str(e))
 
   # Run read commands on the replica - should not raise RO exception
   for command in read_commands:
     try:
-      slave.execute_command(command)
+      slave.execute_command(*command)
     except Exception as e:
       env.assertNotContains("You can't write against a read only replica.", str(e))
 
   # Run write commands on the replica - should raise RO exception
   for command in write_commands:
     try:
-      slave.execute_command(command)
+      slave.execute_command(*command)
       env.assertTrue(False, message=f'Command {command} should have failed on the slave')
     except Exception as e:
       env.assertContains("You can't write against a read only replica.", str(e))
