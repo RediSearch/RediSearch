@@ -729,10 +729,10 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterVectorField) {
 // ============================================================================
 
 // Basic parsing error tests
-TEST_F(ParseHybridTest, testMissingSubqueryCountOrSearchArgument) {
+TEST_F(ParseHybridTest, testMissingSearchArgument) {
   // Missing SEARCH argument: FT.HYBRID <index> VSIM @vector_field
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Expected subquery count for HYBRID");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
 }
 
 TEST_F(ParseHybridTest, testMissingQueryStringAfterSearch) {
