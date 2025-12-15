@@ -341,7 +341,7 @@ jobs:
         working-directory: .install
         env:
           MODE: ${{ steps.mode.outputs.mode }}
-        run: >
+        run: |
           ${{ format(env.SETUP_RETRY_LOOP, './install_llvm.sh $MODE') }}
           echo "Install LLVM for sanitizer succeeded"
           CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
