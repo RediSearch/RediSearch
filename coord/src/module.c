@@ -2092,6 +2092,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisMo
 
   if (!req) {
     RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
     RedisModule_ReplyWithError(clientCtx, QueryError_GetError(&status));
     QueryError_ClearError(&status);
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);

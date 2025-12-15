@@ -19,6 +19,7 @@
 #include "util/misc.h"
 #include "util/units.h"
 #include "rs_wall_clock.h"
+#include "info/global_stats.h"
 
 #include <err.h>
 
@@ -837,6 +838,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 // See if we can distribute the plan...
 err:
   RS_ASSERT(QueryError_HasError(&status));
+  QueryErrorsGlobalStats_UpdateError(status.code, 1, COORD_ERR_WARN);
   QueryError_ReplyAndClear(ctx, &status);
   SpecialCaseCtx_Free(knnCtx);
   AREQ_Free(r);

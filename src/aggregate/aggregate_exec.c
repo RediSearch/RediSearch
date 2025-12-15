@@ -1143,6 +1143,9 @@ error:
   if (r) {
     AREQ_Free(r);
   }
+  // Update global query errors statistics before freeing the request.
+  // Both SA and internal are considered shards.
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, SHARD_ERR_WARN);
   return QueryError_ReplyAndClear(ctx, &status);
 }
 
