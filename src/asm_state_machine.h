@@ -31,63 +31,42 @@
 #endif
 
 #if ASM_SANITIZER_ENABLED
+#include "util/arr_rm_alloc.h"
+
 // Dynamic array to track allocated pointers for leak detection
-static int** asm_sanitizer_allocs = NULL;
-static int asm_sanitizer_alloc_count = 0;
-static int asm_sanitizer_alloc_capacity = 0;
-#define ASM_SANITIZER_INITIAL_CAPACITY 100
+extern arrayof(int*) asm_sanitizer_allocs;
 
 static void ASM_Sanitizer_Alloc_Init () {
   if (asm_sanitizer_allocs) {
-    rm_free(asm_sanitizer_allocs);
+    array_free(asm_sanitizer_allocs);
   }
-  asm_sanitizer_allocs = (int**)rm_malloc(ASM_SANITIZER_INITIAL_CAPACITY * sizeof(int*));
-  asm_sanitizer_alloc_count = 0;
-  asm_sanitizer_alloc_capacity = ASM_SANITIZER_INITIAL_CAPACITY;
+  asm_sanitizer_allocs = array_new(int*, 100);
 }
 
 static void ASM_Sanitizer_Alloc_Free () {
   if (asm_sanitizer_allocs) {
-    rm_free(asm_sanitizer_allocs);
+    array_free(asm_sanitizer_allocs);
     asm_sanitizer_allocs = NULL;
-    asm_sanitizer_alloc_count = 0;
-    asm_sanitizer_alloc_capacity = 0;
   }
 }
 
 static void ASM_Santizer_Alloc_Allocate(uint32_t query_key_space_version) {
-  // Allocate a dummy integer for sanitizer leak detection
-  // We allocate one for each query count increase
   if (asm_sanitizer_allocs) {
-    // Check if we need to reallocate the array
-    if (asm_sanitizer_alloc_count >= asm_sanitizer_alloc_capacity) {
-      int new_capacity = asm_sanitizer_alloc_capacity * 2;
-      int** new_allocs = (int**)rm_realloc(asm_sanitizer_allocs, new_capacity * sizeof(int*));
-      if (new_allocs) {
-        asm_sanitizer_allocs = new_allocs;
-        asm_sanitizer_alloc_capacity = new_capacity;
-      }
-    }
-
-    // Allocate the tracking integer if we have space
-    if (asm_sanitizer_alloc_count < asm_sanitizer_alloc_capacity) {
-      int *leak_tracker = (int*)rm_malloc(sizeof(int));
-      if (leak_tracker) {
-        *leak_tracker = (int)query_key_space_version; // Store version for debugging
-        asm_sanitizer_allocs[asm_sanitizer_alloc_count++] = leak_tracker;
-      }
+    int *leak_tracker = (int*)rm_malloc(sizeof(int));
+    if (leak_tracker) {
+      *leak_tracker = (int)query_key_space_version;
+      array_append(asm_sanitizer_allocs, leak_tracker);
     }
   }
 }
 
 static void ASM_Sanitizer_Alloc_Deallocate() {
-  // Deallocate a dummy integer for sanitizer leak detection
-  // We deallocate one for each query count decrease (LIFO order)
-  if (asm_sanitizer_alloc_count > 0) {
-    int *leak_tracker = asm_sanitizer_allocs[--asm_sanitizer_alloc_count];
+  if (array_len(asm_sanitizer_allocs) > 0) {
+    int *leak_tracker = asm_sanitizer_allocs[array_len(asm_sanitizer_allocs) - 1];
     if (leak_tracker) {
       rm_free(leak_tracker);
     }
+    array_pop(asm_sanitizer_allocs);
   }
 }
 #endif
