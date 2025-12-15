@@ -65,7 +65,7 @@ jobs:
       # Build command
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
       GITHUB_REPOSITORY: ${{ github.repository }}
-      SETUP_RETRY_FORMAT: |
+      SETUP_RETRY_LOOP: |
         SUCCESS=0
         for i in {{1..5}}; do
           echo "Attempt $i of 5"
@@ -84,7 +84,7 @@ jobs:
       # Setup
       - name: Setup Dependencies
         if: needs.get-config.outputs.setup_script
-        run: ${{ format(env.SETUP_RETRY_FORMAT, needs.get-config.outputs.setup_script) }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
@@ -149,18 +149,18 @@ jobs:
         working-directory: .install
         env:
           INSTALL_MODE: ${{ steps.mode.outputs.mode }}
-        run: ${{ format(env.SETUP_RETRY_FORMAT, './install_script.sh $INSTALL_MODE') }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, './install_script.sh $INSTALL_MODE') }}
       - name: Install aws cli
         working-directory: .install
         env:
           INSTALL_MODE: ${{ steps.mode.outputs.mode }}
-        run: ${{ format(env.SETUP_RETRY_FORMAT, './install_aws_cli.sh $INSTALL_MODE') }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, './install_aws.sh $INSTALL_MODE') }}
       - name: Setup test dependencies
         env:
           INSTALL_MODE: ${{ steps.mode.outputs.mode }}
-        run: ${{ format(env.SETUP_RETRY_FORMAT, '.install/test_deps/common_installations.sh $INSTALL_MODE') }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, '.install/test_deps/common_installations.sh $INSTALL_MODE') }}
       - name: install build artifacts req
-        run: ${{ format(env.SETUP_RETRY_FORMAT, 'uv pip install -q -r .install/build_package_requirments.txt') }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'uv pip install -q -r .install/build_package_requirments.txt') }}
 
       # Get Redis
       - name: Get Redis (node20)
