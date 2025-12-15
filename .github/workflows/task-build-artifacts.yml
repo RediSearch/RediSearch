@@ -47,8 +47,8 @@ jobs:
     name: Build ${{ needs.get-config.outputs.name }}
     needs: [get-config]
     runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
-    container: ${{
-      needs.get-config.outputs.container
+    container: >
+      ${{ needs.get-config.outputs.container
         && fromJSON(
           format('{{"image":"{0}","options":"--user root {1}"}}',
             needs.get-config.outputs.container,
@@ -64,7 +64,7 @@ jobs:
       # Build command
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
       GITHUB_REPOSITORY: ${{ github.repository }}
-      SETUP_RETRY_FORMAT: >
+      SETUP_RETRY_FORMAT: |
         SUCCESS=0
         for i in {1..5}; do
           echo "Attempt $i of 5"
