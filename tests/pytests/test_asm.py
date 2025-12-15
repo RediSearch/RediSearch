@@ -4,6 +4,8 @@ from redis import Redis
 import random
 import re
 import numpy as np
+import threading
+import time
 
 # Random words for generating more diverse text content
 RANDOM_WORDS = [
@@ -212,11 +214,15 @@ def wait_for_slot_import(conn: Redis, task_id: str, timeout: float = 20.0):
 def create_and_populate_index(env: Env, index_name: str, n_docs: int):
     """Create index with numeric, text, and vector fields and populate with test data"""
     # Create index with multiple field types including vector (using 10 dimensions)
+    # Also include fields that will be updated by parallel update threads
     env.expect('FT.CREATE', index_name, 'SCHEMA',
                'n', 'NUMERIC', 'SORTABLE',
                'text', 'TEXT',
                'tag', 'TAG',
-               'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '10', 'DISTANCE_METRIC', 'L2').ok()
+               'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '10', 'DISTANCE_METRIC', 'L2',
+               'update_counter', 'NUMERIC',
+               'timestamp', 'NUMERIC',
+               'extra_data', 'TEXT').ok()
 
     # Set random seed for reproducible vectors
     np.random.seed(42)
@@ -241,7 +247,10 @@ def create_and_populate_index(env: Env, index_name: str, n_docs: int):
                               'n', i,
                               'text', text_content,
                               'tag', tag_value,
-                              'vector', vector.tobytes())
+                              'vector', vector.tobytes(),
+                              'update_counter', 0,
+                              'timestamp', int(time.time() * 1000),
+                              'extra_data', f'initial_{i}')
 
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
@@ -277,8 +286,33 @@ def import_slot_range_sanity_test(env: Env, query_type: str = 'FT.SEARCH'):
     wait_for_slot_import(shard2, task_id)
     query_shards(env, query, shards, expected, query_type)
 
-def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH'):
-    n_docs = 2**14
+def parallel_update_worker(env, n_docs, stop_event):
+    """Worker function that continuously updates documents and forces GC"""
+    with env.getClusterConnectionIfNeeded() as con:
+        update_counter = 0
+        while not stop_event.is_set():
+            # Update some unrelated fields that are not part of the query
+            # We'll add a new field 'update_counter' and 'timestamp' that won't affect search results
+            doc_id = random.randint(0, n_docs - 1)
+            key = f'doc-{doc_id}:{{{doc_id % 2**14}}}'
+
+            # Update fields that are not queried in the test
+            con.execute_command('HSET', key,
+                              'update_counter', update_counter,
+                              'timestamp', int(time.time() * 1000),
+                              'extra_data', f'updated_{update_counter}')
+
+            update_counter += 1
+
+            # Force GC collection periodically (every 100 updates)
+            if update_counter % 100 == 0:
+                forceInvokeGC(env)
+
+            # Small sleep to avoid overwhelming the system
+            time.sleep(0.1)
+
+def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH', parallel_updates: bool = False):
+    n_docs = 5 * 2**14
     create_and_populate_index(env, 'idx', n_docs)
 
     if query_type == 'FT.SEARCH':
@@ -306,26 +340,39 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH'):
     query_shards(env, query, shards, expected, query_type)
     env.debugPrint("Sanity check passed")
 
+    update_thread = None
+    stop_event = None
+    if parallel_updates:
+        # Start background threads that will keep doing updates and forcing GC
+        env.debugPrint("Starting parallel update thread")
+        stop_event = threading.Event()
+        update_thread = threading.Thread(target=parallel_update_worker,
+                                  args=(env, n_docs, stop_event),
+                                  name=f"UpdateWorker")
+        update_thread.daemon = True
+        update_thread.start()
+
+        time.sleep(0.5)
+
     # Test searching while importing slots from shard 2 to shard 1
     with TimeLimit(60):
         task_id = import_middle_slot_range(shard1, shard2)
         while not is_migration_complete(shard1, task_id):
-            try:
-                env.debugPrint("Querying shards while migration is in progress")
-                query_shards(env, query, shards, expected, query_type)
-                env.debugPrint("Query passed")
-                if is_migration_complete(shard1, task_id):
-                    env.debugPrint("Migration completed")
-            except Exception as e:
-                # If Migration has completed and Trimming have started we can accept errors, but if migration did not complete it should work still
-                if not is_migration_complete(shard1, task_id):
-                    env.debugPrint(f"Migration did not complete but query failed: {e}")
-                    raise e
-            time.sleep(0.1)
+            env.debugPrint("Querying shards while migration is in progress")
+            query_shards(env, query, shards, expected, query_type)
+            env.debugPrint("Query passed")
+            time.sleep(0.001)
 
     env.debugPrint("Querying shards after migration")
     query_shards(env, query, shards, expected, query_type)
     env.debugPrint("Query after migration passed")
+
+    if update_thread:
+        # Stop and join the update threads
+        env.debugPrint("Stopping parallel update thread")
+        stop_event.set()
+        update_thread.join(timeout=30.0)  # Wait up to 30 seconds for the thread to stop
+        env.debugPrint("Parallel update thread stopped")
 
 @skip(cluster=False, min_shards=2)
 def test_ft_search_import_slot_range():
@@ -366,6 +413,47 @@ def test_ft_hybrid_import_slot_range():
 def test_ft_hybrid_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.HYBRID')
+
+# Tests with parallel updates enabled
+@skip(cluster=False, min_shards=2)
+def test_ft_search_import_slot_range_parallel_updates():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    import_slot_range_test(env, 'FT.SEARCH', parallel_updates=True)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_search_import_slot_range_parallel_updates_BG():
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+    import_slot_range_test(env, 'FT.SEARCH', parallel_updates=True)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_import_slot_range_parallel_updates():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    import_slot_range_test(env, 'FT.AGGREGATE', parallel_updates=True)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_import_slot_range_parallel_updates_BG():
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+    import_slot_range_test(env, 'FT.AGGREGATE', parallel_updates=True)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_withcursor_import_slot_range_parallel_updates():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR', parallel_updates=True)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_withcursor_import_slot_range_parallel_updates_BG():
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+    import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR', parallel_updates=True)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_hybrid_import_slot_range_parallel_updates():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    import_slot_range_test(env, 'FT.HYBRID', parallel_updates=True)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_hybrid_import_slot_range_parallel_updates_BG():
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+    import_slot_range_test(env, 'FT.HYBRID', parallel_updates=True)
 
 @skip(cluster=False, min_shards=2)
 def test_ft_search_import_slot_range_sanity():
@@ -439,9 +527,13 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
     env.addShardToClusterIfExists()
     new_shard = env.getConnection(shardId=initial_shards_count+1)
     # ...and migrate slots from shard 1 to the new shard
-    task = import_middle_slot_range(new_shard, shard1)
-    wait_for_slot_import(new_shard, task)
-    wait_for_slot_import(shard1, task)
+    with TimeLimit(60):
+      task_id = import_middle_slot_range(new_shard, shard1)
+      while not is_migration_complete(new_shard, task_id):
+          env.debugPrint("Querying shards while migration is in progress")
+          query_shards(env, query, shards, expected, query_type)
+          env.debugPrint("Query passed")
+          time.sleep(0.001)
 
     # Expect new shard to have the index schema
     env.assertEqual(new_shard.execute_command('FT._LIST'), ['idx'])
