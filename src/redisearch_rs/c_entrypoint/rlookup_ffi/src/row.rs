@@ -11,7 +11,7 @@ use rlookup::{RLookup, RLookupKey};
 use std::{mem::ManuallyDrop, ptr::NonNull};
 use value::RSValueFFI;
 
-pub type RLookupRow = rlookup::RLookupRow<'static, RSValueFFI>;
+pub type RLookupRow<'a> = rlookup::RLookupRow<'a, RSValueFFI>;
 
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
 ///
@@ -109,7 +109,7 @@ unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<RLookupRow>>) {
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
-    lookup: *const RLookup<'static>,
+    lookup: *const RLookup,
     src: Option<NonNull<RLookupRow>>,
     dst: Option<NonNull<RLookupRow>>,
 ) {

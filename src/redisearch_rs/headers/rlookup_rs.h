@@ -190,7 +190,7 @@ extern "C" {
  *     1. The entire memory range of this `CStr` must be contained within a single allocation!
  *     2. `name` must be non-null even for a zero-length cstr.
  * 4. The memory referenced by the returned `CStr` must not be mutated for
- *    the duration of lifetime `'a`.
+ *    the duration of the returned key.
  * 5. The nul terminator must be within `isize::MAX` from `name`
  * 6. All bits set in `flags` must correspond to a value of the enum.
  *
@@ -216,7 +216,7 @@ struct RLookupKey *RLookup_GetKey_Read(struct RLookup *lookup, const char *name,
  *     2. The entire memory range of this `CStr` must be contained within a single allocation!
  *     3. `name` must be non-null even for a zero-length cstr.
  * 4. The memory referenced by the returned `CStr` must not be mutated for
- *    the duration of lifetime `'a`.
+ *    the duration of the returned key.
  * 5. The nul terminator must be within `isize::MAX` from `name`
  * 6. All bits set in `flags` must correspond to a value of the enum.
  *
@@ -243,7 +243,7 @@ struct RLookupKey *RLookup_GetKey_ReadEx(struct RLookup *lookup,
  *     1. The entire memory range of this `CStr` must be contained within a single allocation!
  *     2. `name` must be non-null even for a zero-length cstr.
  * 4. The memory referenced by the returned `CStr` must not be mutated for
- *    the duration of lifetime `'a`.
+ *    the duration of the returned key.
  * 5. The nul terminator must be within `isize::MAX` from `name`
  * 6. All bits set in `flags` must correspond to a value of the enum.
  *
@@ -268,7 +268,7 @@ struct RLookupKey *RLookup_GetKey_Write(struct RLookup *lookup, const char *name
  *     2. The entire memory range of this `CStr` must be contained within a single allocation!
  *     3. `name` must be non-null even for a zero-length cstr.
  * 4. The memory referenced by the returned `CStr` must not be mutated for
- *    the duration of lifetime `'a`.
+ *    the duration of the returned key.
  * 5. The nul terminator must be within `isize::MAX` from `name`
  * 6. All bits set in `flags` must correspond to a value of the enum.
  *
@@ -297,7 +297,7 @@ struct RLookupKey *RLookup_GetKey_WriteEx(struct RLookup *lookup,
  *     1. The entire memory range of these `CStr` must be contained within a single allocation!
  *     2. `name` and `field_name` must be non-null even for a zero-length cstr.
  * 4. The memory referenced by the returned `CStr` must not be mutated for
- *    the duration of lifetime `'a`.
+ *    the duration of the returned key.
  * 5. The nul terminator must be within `isize::MAX` from `name` and `field_name`
  * 6. All bits set in `flags` must correspond to a value of the enum.
  *
@@ -327,7 +327,7 @@ struct RLookupKey *RLookup_GetKey_Load(struct RLookup *lookup,
  *     2. The entire memory range of these `CStr` must be contained within a single allocation!
  *     3. `name` and `field_name` must be non-null even for a zero-length cstr.
  * 4. The memory referenced by the returned `CStr` must not be mutated for
- *    the duration of lifetime `'a`.
+ *    the duration of the returned key.
  * 5. The nul terminator must be within `isize::MAX` from `name` and `field_name`
  * 6. All bits set in `flags` must correspond to a value of the enum.
  *
