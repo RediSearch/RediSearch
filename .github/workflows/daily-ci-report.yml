@@ -1,0 +1,129 @@
+name: Daily CI Report
+
+on:
+  schedule:
+    # Runs at 5:00 AM UTC+2 (3:00 AM UTC)
+    # Note: GitHub Actions uses UTC, so 5:00 AM UTC+2 = 3:00 AM UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:  # Allows manual triggering
+    inputs:
+      date:
+        description: 'Date to generate report for (YYYY-MM-DD). Leave empty for yesterday.'
+        required: false
+        type: string
+      slack_channel:
+        description: 'Slack channel to send reports to (default: rqe_ci_discussions)'
+        required: false
+        type: string
+        default: 'rqe_ci_discussions'
+
+jobs:
+  generate-and-send-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      
+      - name: Install dependencies
+        run: |
+          pip install requests
+      
+      - name: Determine date
+        id: date
+        run: |
+          # Use input date if provided, otherwise use yesterday
+          if [ -n "${{ inputs.date }}" ]; then
+            TARGET_DATE="${{ inputs.date }}"
+            echo "Using manually specified date: $TARGET_DATE"
+          else
+            TARGET_DATE=$(date -d "yesterday" +%Y-%m-%d)
+            echo "Using yesterday's date: $TARGET_DATE"
+          fi
+          echo "date=$TARGET_DATE" >> $GITHUB_OUTPUT
+      
+      - name: Run collect_nightly_results.py
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/collect_nightly_results.py --date ${{ steps.date.outputs.date }}
+      
+      - name: Read summary file
+        id: summary
+        run: |
+          SUMMARY_FILE="merge-to-queue_${{ steps.date.outputs.date }}/merge-to-queue_${{ steps.date.outputs.date }}_summary.txt"
+          if [ -f "$SUMMARY_FILE" ]; then
+            echo "summary_exists=true" >> $GITHUB_OUTPUT
+            # Read file content and escape for JSON
+            SUMMARY_CONTENT=$(cat "$SUMMARY_FILE")
+            echo "summary_file=$SUMMARY_FILE" >> $GITHUB_OUTPUT
+          else
+            echo "summary_exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Summary file not found: $SUMMARY_FILE"
+          fi
+      
+      - name: Read failure report file
+        id: failure_report
+        run: |
+          FAILURE_FILE="merge-to-queue_${{ steps.date.outputs.date }}/merge-to-queue_${{ steps.date.outputs.date }}_failure_report.txt"
+          if [ -f "$FAILURE_FILE" ]; then
+            echo "failure_exists=true" >> $GITHUB_OUTPUT
+            echo "failure_file=$FAILURE_FILE" >> $GITHUB_OUTPUT
+          else
+            echo "failure_exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Failure report file not found: $FAILURE_FILE"
+          fi
+      
+      - name: Send summary to Slack
+        if: steps.summary.outputs.summary_exists == 'true'
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "📊 Daily CI Summary - ${{ steps.date.outputs.date }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Daily CI Summary - ${{ steps.date.outputs.date }}*"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
+
+      - name: Send failure report to Slack
+        if: steps.failure_report.outputs.failure_exists == 'true'
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "❌ Daily Failure Report - ${{ steps.date.outputs.date }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Daily Failure Report - ${{ steps.date.outputs.date }}*"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
+      
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-reports-${{ steps.date.outputs.date }}
+          path: merge-to-queue_${{ steps.date.outputs.date }}/
+          retention-days: 30
+
