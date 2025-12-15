@@ -31,25 +31,22 @@ fn main() {
     }
 
     let includes = {
-        let redis_modules = root.join("deps").join("RedisModulesSDK");
         let src = root.join("src");
         let deps = root.join("deps");
 
-        let redisearch_rs = src.join("redisearch_rs").join("headers");
-        let inverted_index = src.join("inverted_index");
-        let vecsim = deps.join("VectorSimilarity").join("src");
-        let buffer = src.join("buffer");
-        let ttl_table = src.join("ttl_table");
-
         [
-            redis_modules,
+            deps.join("RedisModulesSDK"),
+            deps.join("VectorSimilarity").join("src"),
+            deps.join("RedisJSON")
+                .join("redis_json")
+                .join("src")
+                .join("include"),
+            src.join("redisearch_rs").join("headers"),
+            src.join("inverted_index"),
+            src.join("buffer"),
+            src.join("ttl_table"),
             src,
             deps,
-            redisearch_rs,
-            inverted_index,
-            vecsim,
-            buffer,
-            ttl_table,
         ]
     };
 

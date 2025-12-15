@@ -16,3 +16,6 @@
 [submodule "deps/RedisModulesSDK"]
 	path = deps/RedisModulesSDK
 	url = https://github.com/RedisLabs/RedisModulesSDK.git
+[submodule "deps/RedisJSON"]
+	path = deps/RedisJSON
+	url = https://github.com/RedisJSON/RedisJSON

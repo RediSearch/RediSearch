@@ -25,7 +25,6 @@ callgrind.out.*
 **/.ipynb_checkpoints/
 /tests/logs/
 /tests/pytests/logs/
-/deps/RedisJSON/
 /1/
 /.install/boost*
 tests/deps/RedisJSON

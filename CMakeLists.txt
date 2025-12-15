@@ -225,6 +225,7 @@ include_directories(
     ${root}/deps/libuv/include
     ${root}/deps
     ${root}/deps/RedisModulesSDK
+    ${root}/deps/RedisJSON/redis_json/src/include
     ${root}/deps/VectorSimilarity/src
     ${root}/src/ttl_table
     ${BOOST_DIR}
