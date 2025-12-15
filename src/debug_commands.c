@@ -6,6 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+
+#include "commands.h"
 #include "debug_commands.h"
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
@@ -1493,6 +1495,7 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
     REPLY_WITH_LONG_LONG("highPriorityPendingJobs", stats.high_priority_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));
     REPLY_WITH_LONG_LONG("lowPriorityPendingJobs", stats.low_priority_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));
     REPLY_WITH_LONG_LONG("numThreadsAlive", stats.num_threads_alive, ARRAY_LEN_VAR(num_stats_fields));
+    REPLY_WITH_LONG_LONG("numJobsInProgress", stats.num_jobs_in_progress, ARRAY_LEN_VAR(num_stats_fields));
     END_POSTPONED_LEN_ARRAY(num_stats_fields);
     return REDISMODULE_OK;
   }  else if (!strcasecmp(op, "n_threads")) {
@@ -1525,6 +1528,8 @@ DEBUG_COMMAND(CoordThreadsSwitch) {
       return RedisModule_ReplyWithError(ctx, "Operation failed: coordinator thread pool doesn't exists"
                                         " or is already running");
     }
+  } else if (!strcasecmp(op, "is_paused")) {
+    return RedisModule_ReplyWithLongLong(ctx, ConcurrentSearch_isPaused());
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'COORD_THREADS' subcommand");
   }

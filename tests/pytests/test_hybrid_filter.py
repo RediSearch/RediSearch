@@ -55,8 +55,9 @@ def test_hybrid_filter_behavior():
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
-        'VSIM', '@vector', query_vector,
-        'FILTER', '@category:{"fruit"}'
+        'VSIM', '@vector', '$BLOB',
+        'FILTER', '@category:{"fruit"}',
+        'PARAMS', '2', 'BLOB', query_vector
     )
     results, _ = get_results_from_hybrid_response(response)
     env.assertEqual(set(results.keys()), {"doc:1", "doc:2", "doc:3"})
@@ -64,8 +65,9 @@ def test_hybrid_filter_behavior():
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
-        'VSIM', '@vector', query_vector,
+        'VSIM', '@vector', '$BLOB',
         'FILTER', '@category:{"fruit"}', "COMBINE", "RRF", "2", "CONSTANT", "30",
+        'PARAMS', '2', 'BLOB', query_vector
     )
     results, _ = get_results_from_hybrid_response(response)
     env.assertEqual(set(results.keys()), {"doc:1", "doc:2", "doc:3"})
@@ -73,8 +75,9 @@ def test_hybrid_filter_behavior():
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
-        'VSIM', '@vector', query_vector,
+        'VSIM', '@vector', '$BLOB',
         "COMBINE", "RRF", "2", "CONSTANT", "30", "LOAD", 2, "@__key", "@category", "FILTER", "@category==\"fruit\"",
+        'PARAMS', '2', 'BLOB', query_vector
     )
     results, _ = get_results_from_hybrid_response(response)
     env.assertEqual(set(results.keys()), {"doc:1", "doc:2"})
@@ -82,8 +85,9 @@ def test_hybrid_filter_behavior():
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
-        'VSIM', '@vector', query_vector,
+        'VSIM', '@vector', '$BLOB',
         'FILTER', '@category:{"vegetable"}', "COMBINE", "RRF", "2", "CONSTANT", "30", "LOAD", 2, "@__key", "@category", "FILTER", "@category==\"fruit\"",
+        'PARAMS', '2', 'BLOB', query_vector
     )
     results, _ = get_results_from_hybrid_response(response)
     env.assertEqual(results, {})
@@ -91,8 +95,9 @@ def test_hybrid_filter_behavior():
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
-        'VSIM', '@vector', query_vector,
+        'VSIM', '@vector', '$BLOB',
         'FILTER', '@category:{"vegetable"}', "LOAD", 2, "@__key", "@category", "FILTER", "@category==\"clothing\"",
+        'PARAMS', '2', 'BLOB', query_vector
     )
     results, _ = get_results_from_hybrid_response(response)
     env.assertEqual(set(results.keys()), {"doc:3"})
@@ -100,8 +105,9 @@ def test_hybrid_filter_behavior():
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
-        'VSIM', '@vector', query_vector,
+        'VSIM', '@vector', '$BLOB',
         'FILTER', '@category:{"vegetable"}',
+        'PARAMS', '2', 'BLOB', query_vector
     )
     results, _ = get_results_from_hybrid_response(response)
     env.assertEqual(set(results.keys()), {"doc:3", "doc:4"})
@@ -109,8 +115,9 @@ def test_hybrid_filter_behavior():
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
-        'VSIM', '@vector', query_vector,
+        'VSIM', '@vector', '$BLOB',
         'FILTER', '@category:{"vegetable"}', "FILTER", "@__key!=\"doc:3\"",
+        'PARAMS', '2', 'BLOB', query_vector
     )
     results, _ = get_results_from_hybrid_response(response)
     env.assertEqual(set(results.keys()), {"doc:4"})
@@ -118,8 +125,62 @@ def test_hybrid_filter_behavior():
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
-        'VSIM', '@vector', query_vector,
+        'VSIM', '@vector', '$BLOB',
         'FILTER', '@category:{"vegetable"}', "FILTER", "@__key==\"doc:3\"",
+        'PARAMS', '2', 'BLOB', query_vector
     )
     results, _ = get_results_from_hybrid_response(response)
     env.assertEqual(set(results.keys()), {"doc:3"})
+
+def test_hybrid_policy_errors():
+    """Test that errors are returned for invalid POLICY values"""
+    env = Env()
+    setup_filter_test_index(env)
+    query_vector = np.array([0.0, 0.2]).astype(np.float32).tobytes()
+
+    env.expect(
+        'FT.HYBRID', 'filter_idx',
+        'SEARCH', '@text:(green)',
+        'VSIM', '@vector', '$BLOB',
+        'FILTER', '3','@category:{"vegetable"}', "POLICY", "INVALID_POLICY",
+        'PARAMS', '2', 'BLOB', query_vector).error().contains("POLICY: Invalid value for argument")
+
+    env.expect(
+        'FT.HYBRID', 'filter_idx',
+        'SEARCH', '@text:(green)',
+        'VSIM', '@vector', '$BLOB',
+        'FILTER', '5', '@category:{"vegetable"}', "POLICY", "ADHOC", "BATCH_SIZE", "100",
+        'PARAMS', '2', 'BLOB', query_vector).error().contains("Error parsing vector similarity parameters: 'batch size' is irrelevant for the selected policy")
+
+    env.expect(
+        'FT.HYBRID', 'filter_idx',
+        'SEARCH', '@text:(green)',
+        'VSIM', '@vector', '$BLOB',
+        'FILTER', '3', '@category:{"vegetable"}', "POLICY", "ADHOC_BF",
+        'PARAMS', '2', 'BLOB', query_vector).error().contains("POLICY: Invalid value for argument")
+
+    env.expect(
+        'FT.HYBRID', 'filter_idx',
+        'SEARCH', '@text:(green)',
+        'VSIM', '@vector', '$BLOB', "RANGE", "2", "RADIUS", "2",
+        'FILTER', '3', '@category:{"vegetable"}', "POLICY", "ADHOC",
+        'PARAMS', '2', 'BLOB', query_vector ).error().contains("Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query")
+
+    env.expect(
+        'FT.HYBRID', 'filter_idx',
+        'SEARCH', '@text:(green)',
+        'VSIM', '@vector', '$BLOB', "RANGE", "2", "RADIUS", "2",
+        'FILTER', '3', '@category:{"vegetable"}', "BATCH_SIZE", "5",
+        'PARAMS', '2', 'BLOB', query_vector ).error().contains("Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query")
+
+    env.expect(
+        'FT.HYBRID', 'filter_idx',
+        'SEARCH', '@text:(green)',
+        'VSIM', '@vector', '$BLOB', "RANGE", "2", "RADIUS", "2",
+        'FILTER').error().contains("Missing argument count for FILTER")
+
+    env.expect(
+        'FT.HYBRID', 'filter_idx',
+        'SEARCH', '@text:(green)',
+        'VSIM', '@vector', '$BLOB', "RANGE", "2", "RADIUS", "2",
+        'FILTER', '3', '@category:{"vegetable"}').error().contains("Not enough arguments in FILTER, specified 3 but provided only 1")

@@ -48,42 +48,11 @@ use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{NumericFilter, RSIndexResult};
 use std::ptr;
 
-// Direct C benchmark functions that eliminate FFI overhead
-// by implementing the benchmark loop entirely in C
-unsafe extern "C" {
-    /// Benchmark wildcard iterator read operations directly in C
-    /// Returns the number of iterations performed and total time in nanoseconds
-    fn benchmark_wildcard_read_direct_c(
-        max_id: u64,
-        iterations_out: *mut u64,
-        time_ns_out: *mut u64,
-    );
-
-    /// Benchmark wildcard iterator skip_to operations directly in C
-    /// Returns the number of iterations performed and total time in nanoseconds
-    fn benchmark_wildcard_skip_to_direct_c(
-        max_id: u64,
-        step: u64,
-        iterations_out: *mut u64,
-        time_ns_out: *mut u64,
-    );
-}
-
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
 pub struct QueryIterator(*mut bindings::QueryIterator);
 
 impl QueryIterator {
-    #[inline(always)]
-    pub fn new_empty() -> Self {
-        Self(unsafe { bindings::NewEmptyIterator() })
-    }
-
-    #[inline(always)]
-    pub fn new_wildcard(max_id: u64) -> Self {
-        Self(unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, 1f64) })
-    }
-
     #[inline(always)]
     pub unsafe fn new_numeric(
         ii: *mut bindings::InvertedIndex,
@@ -175,34 +144,6 @@ impl QueryIterator {
 pub struct DirectBenchmarkResult {
     pub iterations: u64,
     pub time_ns: u64,
-}
-
-impl QueryIterator {
-    /// Run direct C benchmark for wildcard read operations
-    pub fn benchmark_wildcard_read_direct(max_id: u64) -> DirectBenchmarkResult {
-        let mut iterations = 0u64;
-        let mut time_ns = 0u64;
-        unsafe {
-            benchmark_wildcard_read_direct_c(max_id, &mut iterations, &mut time_ns);
-        }
-        DirectBenchmarkResult {
-            iterations,
-            time_ns,
-        }
-    }
-
-    /// Run direct C benchmark for wildcard skip_to operations
-    pub fn benchmark_wildcard_skip_to_direct(max_id: u64, step: u64) -> DirectBenchmarkResult {
-        let mut iterations = 0u64;
-        let mut time_ns = 0u64;
-        unsafe {
-            benchmark_wildcard_skip_to_direct_c(max_id, step, &mut iterations, &mut time_ns);
-        }
-        DirectBenchmarkResult {
-            iterations,
-            time_ns,
-        }
-    }
 }
 
 /// Simple wrapper around the C InvertedIndex.
@@ -326,24 +267,6 @@ mod tests {
         IndexFlags_Index_StoreNumeric, IteratorStatus_ITERATOR_EOF,
         IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK, ValidateStatus_VALIDATE_OK,
     };
-
-    #[test]
-    fn empty_iterator() {
-        let it = QueryIterator::new_empty();
-        assert_eq!(it.num_estimated(), 0);
-        assert!(it.at_eof());
-
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
-        assert_eq!(it.skip_to(1), IteratorStatus_ITERATOR_EOF);
-
-        it.rewind();
-        assert!(it.at_eof());
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
-
-        assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
-
-        it.free();
-    }
 
     #[test]
     fn numeric_iterator_full() {

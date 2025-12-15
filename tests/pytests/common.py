@@ -53,7 +53,7 @@ class TimeLimit(object):
     def handler(self, signum, frame):
         raise Exception(f'Timeout: {self.message}')
 
-def wait_for_condition(check_fn, message):
+def wait_for_condition(check_fn, message, timeout=120):
     """
     Wait for a condition with timeout and status reporting.
 
@@ -67,7 +67,7 @@ def wait_for_condition(check_fn, message):
     timeout_msg = {}
 
     try:
-        with TimeLimit(120):
+        with TimeLimit(timeout):
             while True:
                 done, state = check_fn()
                 if done:
@@ -441,6 +441,8 @@ def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None
 def to_dict(res):
     if type(res) == dict:
         return res
+    if len(res) % 2 != 0:
+        raise ValueError(f"to_dict expects even-length array (key-value pairs), got {len(res)} elements")
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
 

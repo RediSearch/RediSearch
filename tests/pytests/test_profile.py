@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import math
 import unittest
 from includes import *
 from common import *
@@ -463,7 +464,6 @@ def TimeoutWarningInProfile(env):
      [['Total profile time', ANY,
        'Parsing time', ANY,
        'Pipeline creation time', ANY,
-       'Total GIL time', ANY,
        'Warning', 'Timeout limit was reached',
        'Iterators profile',
          ['Type', 'WILDCARD', 'Time', ANY, 'Number of reading operations', ANY],
@@ -484,7 +484,6 @@ def TimeoutWarningInProfile(env):
      [['Total profile time', ANY,
        'Parsing time', ANY,
        'Pipeline creation time', ANY,
-       'Total GIL time', ANY,
        'Warning', 'Timeout limit was reached',
        'Iterators profile',
         ['Type', 'WILDCARD', 'Time', ANY, 'Number of reading operations', ANY],
@@ -589,6 +588,119 @@ def testTimedOutWarningCoordResp3():
 def testTimedOutWarningCoordResp2():
   TimedOutWarningtestCoord(Env(protocol=2))
 
+def get_shards_profile(env, res):
+  """Extract shard profiles from FT.PROFILE AGGREGATE response."""
+  if env.protocol == 3:
+    return res['Profile']['Shards']
+  else:
+    return [to_dict(p) for p in res[-1][1]]
+
+def InternalCursorReadsInProfile(protocol):
+  """Tests that 'Internal cursor reads' appears in shard profiles for AGGREGATE."""
+  # Limit number of shards to avoid creating too many docs
+  env = Env(shardsCount=2, protocol=protocol)
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  # Insert docs - with default cursorReadSize=1000, each shard needs more than 1000 to require 2 reads
+  num_docs = int(1000 * 1.1 * env.shardsCount)
+  for i in range(num_docs):
+    conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+
+  # Run FT.PROFILE AGGREGATE - coordinator uses internal cursors to shards
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
+
+  shards_profile = get_shards_profile(env, res)
+  env.assertEqual(len(shards_profile), env.shardsCount, message=f"unexpected number of shards. full reply output: {res}")
+
+  # Each shard should have exactly 2 cursor reads (1000+ docs per shard, default cursorReadSize=1000)
+  for shard_profile in shards_profile:
+    env.assertContains('Internal cursor reads', shard_profile)
+    env.assertEqual(shard_profile['Internal cursor reads'], 2)
+
+@skip(cluster=False)
+def testInternalCursorReadsInProfileResp3():
+  InternalCursorReadsInProfile(protocol=3)
+
+@skip(cluster=False)
+def testInternalCursorReadsInProfileResp2():
+  InternalCursorReadsInProfile(protocol=2)
+
+@skip(cluster=False)
+def testInternalCursorReadsWithTimeoutResp3():
+  """Tests 'Internal cursor reads' with timeout - RESP3 coordinator detects timeout and stops early."""
+  env = Env(protocol=3)
+  conn = getConnectionByEnv(env)
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  num_docs = 100
+  for i in range(num_docs):
+    conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+
+  # Run FT.PROFILE AGGREGATE with simulated timeout on shards only
+  query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*']
+  timeout_after_n = 5
+  res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after_n, internal_only=True)
+
+  # RESP3: coordinator detects shard timeout and stops early after reading first shard's reply
+  # Results count equals first shard's reply length (timeout_after_n)
+  env.assertEqual(len(res['Results']['results']), timeout_after_n)
+
+  shards_profile = get_shards_profile(env, res)
+  for shard_profile in shards_profile:
+    env.assertContains('Internal cursor reads', shard_profile, message=f"full reply output: {res}")
+    # Coordinator stops after first timeout, so only 1 cursor read per shard
+    env.assertEqual(shard_profile['Internal cursor reads'], 1, message=f"full reply output: {res}")
+    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached', message=f"full reply output: {res}")
+
+@skip(cluster=False)
+def testInternalCursorReadsWithTimeoutResp2():
+  """Tests 'Internal cursor reads' with timeout - RESP2 coordinator doesn't detect timeout, reads until EOF."""
+  env = Env(shardsCount=2, protocol=2)
+  conn = getConnectionByEnv(env)
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  num_docs = 100
+  for i in range(num_docs):
+    conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+
+  # Run FT.PROFILE AGGREGATE with simulated timeout on shards only
+  query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*']
+  timeout_after_n = 5
+  res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after_n, internal_only=True)
+
+  # RESP2: coordinator doesn't check shard timeout, reads until EOF
+  # All docs are returned
+  env.assertEqual(len(res[0]) - 1, num_docs)
+
+  shards_profile = get_shards_profile(env, res)
+  env.assertEqual(len(shards_profile), env.shardsCount, message=f"unexpected number of shards. full reply output: {res}")
+
+  # Verify total cursor reads matches expected (order of shards may differ)
+  total_expected_reads = 0
+  for shard_conn in env.getOSSMasterNodesConnectionList():
+    docs_on_shard = shard_conn.execute_command('DBSIZE')
+    total_expected_reads += math.ceil(docs_on_shard / timeout_after_n)
+
+  # The order of shards in the profile response may differ, so we can't check per-shard
+  total_actual_reads = sum(sp['Internal cursor reads'] for sp in shards_profile)
+  env.assertEqual(total_actual_reads, total_expected_reads, message=f"full reply output: {res}")
+
+  # Verify each shard has warning
+  for shard_profile in shards_profile:
+    env.assertContains('Internal cursor reads', shard_profile, message=f"full reply output: {res}")
+    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached', message=f"full reply output: {res}")
+
+  # Coordinator should NOT have timeout warning (it doesn't detect it in RESP2)
+  coord_profile = to_dict(res[-1][-1])
+  env.assertEqual(coord_profile['Warning'], 'None', message=f"full reply output: {res}")
+
 # This test is currently skipped due to flaky behavior of some of the machines'
 # timers. MOD-6436
 @skip()
@@ -647,41 +759,90 @@ def testNonZeroTimers(env):
   else:
     test_shard_timers(env)
 
-def testPofileGILTime():
-  env = Env(moduleArgs='WORKERS 1')
+def extract_profile_coordinator_and_shards(env, res):
+  # Extract coordinator and shards from FT.PROFILE response based on protocol.
+  if env.protocol == 3:
+    return res['Profile']['Coordinator'], res['Profile']['Shards']
+  else:
+    # RESP2: res[-1] is ['Shards', [...], 'Coordinator', {...}]
+    # res[-1][1] is shards array, res[-1][-1] is coordinator
+    return to_dict(res[-1][-1]), [to_dict(s) for s in res[-1][1]]
+
+def find_threadsafe_loader(env, shard):
+  # Find the Threadsafe-Loader entry in shard's Result processors profile.
+  rp_profile = shard['Result processors profile']
+  if env.protocol == 3:
+    return next((rp for rp in rp_profile if rp.get('Type') == 'Threadsafe-Loader'), None)
+  else:
+    # RESP2: rp_profile is a list of lists like [['Type', 'Index', ...], ['Type', 'Threadsafe-Loader', ...], ...]
+    return next((to_dict(rp) for rp in rp_profile if 'Threadsafe-Loader' in rp), None)
+
+def ProfileGILTime(env):
+  # Test FT.PROFILE GIL time reporting across all worker combinations.
+  # (Standalone and Coordinator behave the same)
+
+  # Test matrix and expected behavior:
+  # +---------+-----------+---------------------------+--------------------------------------+
+  # | Workers | With Load | Coordinator               | Shard                                |
+  # +---------+-----------+---------------------------+--------------------------------------+
+  # | 0       | N/A       | No "Total GIL time"       | No "Total GIL time"                  |
+  # | 1       | No        | No "Total GIL time"       | "Total GIL time" > 0                 |
+  # | 1       | Yes       | No "Total GIL time"       | "Total GIL time" >= Loader GIL > 0   |
+  # +---------+-----------+---------------------------+--------------------------------------+
+
   conn = getConnectionByEnv(env)
+  is_cluster = env.isCluster()
+  num_shards = env.shardsCount
+  protocol = env.protocol
+
+  env.expect('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT').ok()
 
   # Populate db
-  with env.getClusterConnectionIfNeeded() as conn:
-    for i in range(100):
-      res = conn.execute_command('hset', f'doc{i}',
-                      'f', 'hello world',
-                      'g', 'foo bar',
-                      'h', 'baz qux')
+  for i in range(10):
+    conn.execute_command('hset', f'doc{i}', 'f', 'hello world')
 
-  env.cmd('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT', 'g', 'TEXT', 'h', 'TEXT')
-  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello' ,'SORTBY', '1', '@f')
+  for workers in [0, 1]:
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
 
-  # Record structure:
-  # ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', ANY, 'Results processed', 100]
-  # ['Total GIL time', ANY]
+    # with_load is only meaningful when workers=1 (causes Threadsafe-Loader usage)
+    load_options = [True, False] if workers == 1 else [False]
 
-  env.assertTrue(recursive_contains(res, 'Threadsafe-Loader'), message=f"res: {res}")
-  env.assertTrue(recursive_contains(res, 'Total GIL time'), message=f"res: {res}")
+    for with_load in load_options:
+      scenario = f"protocol={protocol}, cluster={is_cluster}, workers={workers}, with_load={with_load}"
 
-  # extract the GIL time of the threadsafe loader result processor
-  rp_index = recursive_index(res, 'Threadsafe-Loader')[:-1]
-  rp_record = access_nested_list(res, rp_index)
-  rp_GIL_time = rp_record[rp_record.index('GIL-Time') + 1]
+      res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello', *(['LOAD', 1, '@f'] if with_load else []))
+      coordinator, shards = extract_profile_coordinator_and_shards(env, res)
 
-  # extract the total GIL time
-  total_GIL_index = recursive_index(res, 'Total GIL time')
-  total_GIL_index[-1] += 1
-  total_GIL_time = access_nested_list(res, total_GIL_index)
+      # Validate Coordinator section - should never contain "Total GIL time"
+      env.assertNotContains('Total GIL time', coordinator, message=f"{scenario}: Coordinator should not have Total GIL time")
 
-  env.assertGreaterEqual(float(total_GIL_time), 0)
-  env.assertGreaterEqual(float(rp_GIL_time), 0)
-  env.assertGreaterEqual(float(total_GIL_time), float(rp_GIL_time))
+      # Validate each shard
+      for shard in shards:
+        if workers == 0:
+          # workers=0: No "Total GIL Time"
+          env.assertNotContains('Total GIL time', shard, message=f"{scenario}: Shard should not have Total GIL time when workers=0")
+        else:
+          # workers=1: "Total GIL Time" exists and >= Threadsafe-Loader GIL time
+          env.assertContains('Total GIL time', shard, message=f"{scenario}: Shard should have Total GIL time when workers=1")
+          total_gil_time = float(shard['Total GIL time'])
+
+          if with_load:
+            # Verify Threadsafe-Loader is in profile and has GIL time > 0
+            threadsafe_loader = find_threadsafe_loader(env, shard)
+            env.assertIsNotNone(threadsafe_loader, message=f"{scenario}: Threadsafe-Loader should be in profile when loading")
+            loader_gil_time = float(threadsafe_loader['GIL-Time'])
+            env.assertGreater(loader_gil_time, 0, message=f"{scenario}: Threadsafe-Loader GIL-Time should be > 0 when loading")
+            # Total GIL time should be >= Threadsafe-Loader GIL time
+            env.assertGreaterEqual(total_gil_time, loader_gil_time, message=f"{scenario}: Total GIL time should be >= Threadsafe-Loader GIL time")
+          else:
+            # Without load: Total GIL Time should be greater than 0 since there is processing time on the main thread before moving to the background
+            env.assertGreater(total_gil_time, 0, message=f"{scenario}: Total GIL time should be greater than 0 without load")
+
+def testProfileGILTimeResp2():
+  ProfileGILTime(Env(protocol=2))
+
+def testProfileGILTimeResp3():
+  ProfileGILTime(Env(protocol=3))
 
 def testProfileBM25NormMax(env):
   #create index

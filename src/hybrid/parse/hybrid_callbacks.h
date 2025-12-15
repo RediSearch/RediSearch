@@ -126,6 +126,18 @@ void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data);
  */
 void handleSlotsInfo(ArgParser *parser, const void *value, void *user_data);
 
+/**
+ * POLICY callback for FILTER clause - handles POLICY ADHOC/BATCHES
+ * Maps ADHOC to adhoc_bf and creates QueryAttribute
+ */
+void handleFilterPolicy(ArgParser *parser, const void *value, void *user_data);
+
+/**
+ * BATCH_SIZE callback for FILTER clause - handles BATCH_SIZE batch-size-value
+ * Creates QueryAttribute for batch size
+ */
+void handleFilterBatchSize(ArgParser *parser, const void *value, void *user_data);
+
 #ifdef __cplusplus
 }
 #endif

@@ -250,8 +250,12 @@ def test_expire_aggregate(env):
     # If not cleared, it might affect subsequent results.
     # This test ensures that the flag indicating expiration is cleared and the search result struct is ready to be reused.
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t')
-    # The result count is not accurate in aggregation, for now we compare res to the expected results with the wrong count
+    # The result count is not accurate in aggregation, because WITHOUTCOUNT is the default
     env.assertEqual(res, [1, ['t', 'arr'], ['t', 'bar']])
+    # Test using WITHCOUNT
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@t')
+    env.assertEqual(res, [2, ['t', 'arr'], ['t', 'bar']])
+
 
 
 def expire_ft_hybrid_test(protocol):
@@ -286,7 +290,7 @@ def expire_ft_hybrid_test(protocol):
     time.sleep(0.01)
 
     # Test FT.HYBRID requesting 1000 results but expecting only 10 (non-expired documents)
-    hybrid_query = ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', query_vector, 'LIMIT', '0', '1000', 'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'LOAD', '4', '@__key', '@__score', '@t', '@n']
+    hybrid_query = ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB' , 'LIMIT', '0', '1000', 'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'LOAD', '4', '@__key', '@__score', '@t', '@n', 'PARAMS', '2', 'BLOB', query_vector]
 
     # Execute query using cluster-aware command to get expected results
     actual_res = env.cmd(*hybrid_query)

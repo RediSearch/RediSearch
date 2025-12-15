@@ -44,6 +44,13 @@ typedef struct {
   size_t numVectorFieldsHNSW;
   size_t numVectorFieldsSvsVamana;
   size_t numVectorFieldsSvsVamanaCompressed;
+  // Total number of documents indexed by each field type
+  size_t textTotalDocsIndexed;
+  size_t tagTotalDocsIndexed;
+  size_t numericTotalDocsIndexed;
+  size_t geoTotalDocsIndexed;
+  size_t geometryTotalDocsIndexed;
+  size_t vectorTotalDocsIndexed;
 } FieldsGlobalStats;
 
 typedef struct {
@@ -71,11 +78,13 @@ typedef struct {
 } QueriesGlobalStats;
 
 typedef struct {
-  size_t active_io_threads; // number of I/O thread callbacks currently executing
+  size_t uv_threads_running_queries; // number of I/O thread callbacks currently executing
+  size_t uv_threads_running_topology_update; // number of topology update callbacks currently executing
   size_t active_worker_threads; // number of worker threads currently executing jobs
   size_t active_coord_threads; // number of coordinator threads currently executing jobs
   size_t workers_low_priority_pending_jobs; // number of low priority jobs waiting to be executed (currently only vecsim background indexing)
   size_t workers_high_priority_pending_jobs; // number of high priority jobs waiting to be executed (currently only queries)
+  size_t workers_admin_priority_pending_jobs; // number of admin priority jobs waiting to be executed (currently only threadpool resize)
   size_t coord_high_priority_pending_jobs; // number of high priority jobs waiting to be executed by the coordinator
 } MultiThreadingStats;
 
@@ -153,10 +162,16 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd, bool co
 void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord);
 
 // Update the number of active io threads.
-void GlobalStats_UpdateActiveIoThreads(int toAdd);
+void GlobalStats_UpdateUvRunningQueries(int toAdd);
+
+// Update the number of active topology updates.
+void GlobalStats_UpdateUvRunningTopoUpdate(int toAdd);
 
 // Get multiThreadingStats
 MultiThreadingStats GlobalStats_GetMultiThreadingStats();
+
+// Increase the number of documents indexed by the given field type by `toAdd`.
+void FieldsGlobalStats_UpdateFieldDocsIndexed(const FieldSpec *fs, int toAdd);
 
 #ifdef __cplusplus
 }

@@ -150,7 +150,8 @@ def test_basic_hybrid_internal_withcursor(env):
     # Execute _FT.HYBRID command with WITHCURSOR using direct vector specification
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-                     'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR', '_SLOTS_INFO', generate_slots())
+                     'VSIM', '@embedding', '$BLOB', 'WITHCURSOR', '_SLOTS_INFO', generate_slots(),
+                     'PARAMS', '2', 'BLOB', query_vec.tobytes())
 
     # Should return a map with VSIM and SEARCH cursor IDs
     env.assertTrue(isinstance(result, list))
@@ -179,7 +180,8 @@ def test_hybrid_internal_with_count_parameter(env):
     count_param = 2
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-                     'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR', 'COUNT', str(count_param), '_SLOTS_INFO', generate_slots())
+                     'VSIM', '@embedding', '$BLOB', 'WITHCURSOR', 'COUNT', str(count_param), '_SLOTS_INFO', generate_slots(),
+                     'PARAMS', '2', 'BLOB', query_vec.tobytes())
 
     # Should return a map with cursor IDs
     env.assertTrue(isinstance(result, list))
@@ -211,7 +213,8 @@ def test_hybrid_internal_cursor_interaction(env):
     # Execute the hybrid command with cursors using direct vector specification
     query_vec = create_np_array_typed([1.0, 0.0], 'FLOAT32')
     hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:shoes',
-                           'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR', '_SLOTS_INFO', generate_slots())
+                           'VSIM', '@embedding', '$BLOB', 'WITHCURSOR', '_SLOTS_INFO', generate_slots(),
+                           'PARAMS', '2', 'BLOB', query_vec.tobytes())
 
     hybrid_result = remove_warnings(hybrid_result)
     # Should return a map with cursor IDs
@@ -304,8 +307,8 @@ def test_hybrid_internal_with_params(env):
 
     # Execute hybrid command with direct vector specification (keeping text param)
     hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:($term)',
-                           'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR',
-                           'PARAMS', '2', 'term', 'shoes', '_SLOTS_INFO', generate_slots())
+                           'VSIM', '@embedding', '$BLOB', 'WITHCURSOR',
+                           'PARAMS', '4', 'term', 'shoes', 'BLOB', query_vec.tobytes(), '_SLOTS_INFO', generate_slots(),)
     hybrid_result = remove_warnings(hybrid_result)
 
     # Should return cursor map
@@ -344,18 +347,18 @@ def test_hybrid_internal_error_cases(env):
     # Test with non-existent index using direct vector specification
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     env.expect('_FT.HYBRID', 'nonexistent', 'SEARCH', '@description:running',
-               'VSIM', '@embedding', query_vec.tobytes(), '_SLOTS_INFO', generate_slots()).error().contains('No such index nonexistent')
+               'VSIM', '@embedding', '$BLOB', '_SLOTS_INFO', generate_slots(), 'PARAMS', '2', 'BLOB', query_vec.tobytes()).error().contains('No such index nonexistent')
 
     # Test with invalid vector field using direct vector specification
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-               'VSIM', '@nonexistent', query_vec.tobytes(), '_SLOTS_INFO', generate_slots()).error().contains('Unknown field `nonexistent`')
+               'VSIM', '@nonexistent', '$BLOB', '_SLOTS_INFO', generate_slots(), 'PARAMS', '2', 'BLOB', query_vec.tobytes()).error().contains('Unknown field `nonexistent`')
 
     # Test with bad slots data
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-               'VSIM', '@embedding', query_vec.tobytes(), '_SLOTS_INFO', 'BAD_SLOTS_DATA').error().contains('Failed to deserialize _SLOTS_INFO data')
+               'VSIM', '@embedding', '$BLOB', '_SLOTS_INFO', 'BAD_SLOTS_DATA', 'PARAMS', '2', 'BLOB', query_vec.tobytes()).error().contains('Failed to deserialize _SLOTS_INFO data')
     # Edge case: Test syntax error after parsing _SLOTS_INFO (for coverage and memory leaks)
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-               'VSIM', '@embedding', query_vec.tobytes(), '_SLOTS_INFO', generate_slots(), 'INVALID_SYNTAX').error().contains('Unknown argument')
+               'VSIM', '@embedding', '$BLOB', '_SLOTS_INFO', generate_slots(), 'PARAMS', '2', 'BLOB', query_vec.tobytes(), 'INVALID_SYNTAX').error().contains('Unknown argument')
 
 
 def test_hybrid_internal_cursor_limit(env):
@@ -372,7 +375,8 @@ def test_hybrid_internal_cursor_limit(env):
     # _FT.HYBRID command should fail because it tries to create 2 cursors but limit is 1
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-               'VSIM', '@embedding', query_vec.tobytes(),
+               'VSIM', '@embedding', '$BLOB',
+               'PARAMS', '2', 'BLOB', query_vec.tobytes(),
                'WITHCURSOR', '_SLOTS_INFO', generate_slots()).error().contains('INDEX_CURSOR_LIMIT of 1 has been reached for an index')
 
 
@@ -387,7 +391,7 @@ def test_hybrid_internal_empty_search_results(env):
     # Search for a term that doesn't exist in any document
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:nonexistent',
-                           'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR', '_SLOTS_INFO', generate_slots())
+                           'VSIM', '@embedding', '$BLOB', 'WITHCURSOR', '_SLOTS_INFO', generate_slots(), 'PARAMS', '2', 'BLOB', query_vec.tobytes())
 
     hybrid_result = remove_warnings(hybrid_result)
     # Should return a map with cursor IDs
@@ -428,7 +432,8 @@ def test_hybrid_internal_withcursor_with_load():
     # Execute _FT.HYBRID command with WITHCURSOR using direct vector specification
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-                     'VSIM', '@embedding', query_vec.tobytes(),
+                     'VSIM', '@embedding', '$BLOB',
+                     'PARAMS', '2', 'BLOB', query_vec.tobytes(),
                      'LOAD', '2', '@__key', '@description',
                      'WITHCURSOR', '_SLOTS_INFO', generate_slots())
 

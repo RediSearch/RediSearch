@@ -7,10 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include <algorithm>
-#include "rmutil/alloc.h"
 #include "gtest/gtest.h"
-#include "src/iterators/empty_iterator.h"
+#include "iterators_rs.h"
 
 class EmptyIteratorTest : public ::testing::Test {
 protected:

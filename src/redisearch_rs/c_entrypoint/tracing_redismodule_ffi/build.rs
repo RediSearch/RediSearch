@@ -7,16 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#pragma once
+use build_utils::run_cbinden;
 
-#include "iterator_api.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-QueryIterator *NewEmptyIterator(void);
-
-#ifdef __cplusplus
+fn main() {
+    run_cbinden("../../headers/tracing_redismodule.h").unwrap();
 }
-#endif

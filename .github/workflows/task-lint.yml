@@ -20,7 +20,18 @@ jobs:
       - name: Setup
         working-directory: .install
         run: ./install_script.sh sudo
-
+      # Cache Rust packages and binaries
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          # The cargo workspaces and target directory configuration.
+          # These entries are separated by newlines and have the form
+          # `$workspace -> $target`. The `$target` part is treated as a directory
+          # relative to the `$workspace` and defaults to "target" if not explicitly given.
+          # default: ". -> target"
+          workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
+      - name: Hakari
+        run: cargo install cargo-hakari --locked
       - name: Lint
         id: lint
         continue-on-error: true
@@ -54,6 +65,17 @@ jobs:
           command: check licenses
           arguments: --all-features
           manifest-path: src/redisearch_rs/Cargo.toml
+      - name: Workspace hack check
+        id: workspace_hack
+        working-directory: src/redisearch_rs
+        continue-on-error: true
+        run: |
+          if ! cargo hakari generate --diff || ! cargo hakari manage-deps --dry-run; then
+            echo "Suggested fix:"
+            echo "  Run the following command in 'src/redisearch_rs' to update workspace_hack's Cargo.toml and ensure all workspace crates depend on workspace_hack:"
+            echo "    cargo hakari generate && cargo hakari manage-deps"
+            exit 1
+          fi
       - name: Fail if any step failed
         if: |
           steps.lint.outcome == 'failure' ||
@@ -61,7 +83,8 @@ jobs:
           steps.license-header.outcome == 'failure' ||
           steps.fmt.outcome == 'failure' ||
           steps.advisories.outcome == 'failure' ||
-          steps.dep-licenses.outcome == 'failure'
+          steps.dep-licenses.outcome == 'failure' ||
+          steps.workspace_hack.outcome == 'failure'
         run: |
           echo "Linting: ${{ steps.lint.outcome }}"
           echo "License header: ${{ steps.license-header.outcome }}"
@@ -69,4 +92,5 @@ jobs:
           echo "Formatting: ${{ steps.fmt.outcome }}"
           echo "Security advisories: ${{ steps.advisories.outcome }}"
           echo "Dependency licenses: ${{ steps.dep-licenses.outcome }}"
+          echo "Workspace hack: ${{ steps.workspace_hack.outcome }}"
           exit 1

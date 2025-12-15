@@ -76,10 +76,6 @@ jobs:
           # Platform configurations
           platform_configs = {
               "macos": {
-                  "x86_64": {
-                      'env': 'macos-15-intel',
-                      'name': 'macOS x86_64'
-                  },
                   "aarch64": {
                       'env': 'macos-latest',
                       'name': 'macOS ARM64'
@@ -173,15 +169,15 @@ jobs:
                       'name': 'Amazon Linux 2 ARM64'
                   }
               },
-              "alpine:3": {
+              "alpine:3.22": {
                   "x86_64": {
-                      'container': 'alpine:3',
+                      'container': 'alpine:3.22',
                       'setup_script': 'apk add bash git',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV',
                       'name': 'Alpine 3 x86_64'
                   },
                   "aarch64": {
-                      'container': 'alpine:3',
+                      'container': 'alpine:3.22',
                       'setup_script': 'apk add bash gcompat libstdc++ libgcc git',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV',
                       'name': 'Alpine 3 ARM64'

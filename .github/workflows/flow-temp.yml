@@ -13,6 +13,6 @@ on:
 
 jobs:
 
-  run-on-intel:
-    uses: ./.github/workflows/flow-intel.yml
+  merge-queue:
+    uses: ./.github/workflows/event-merge-to-queue.yml
     secrets: inherit

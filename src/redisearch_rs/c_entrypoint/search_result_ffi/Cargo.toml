@@ -11,6 +11,7 @@ inverted_index.workspace = true
 ffi.workspace = true
 
 unsafe-tools.workspace = true
+workspace_hack.workspace = true
 
 [build-dependencies]
 build_utils = { path = "../../build_utils" }

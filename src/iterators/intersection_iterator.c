@@ -8,7 +8,7 @@
 */
 
 #include "intersection_iterator.h"
-#include "empty_iterator.h"
+#include "iterators_rs.h"
 #include "union_iterator.h"
 #include "index_result.h"
 #include "wildcard_iterator.h"

@@ -16,3 +16,4 @@ build_utils = { path = "../../build_utils" }
 ffi = { workspace = true }
 buffer = { workspace = true }
 varint = { workspace = true }
+workspace_hack.workspace = true
