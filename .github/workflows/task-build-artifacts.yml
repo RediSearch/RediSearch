@@ -47,13 +47,14 @@ jobs:
     name: Build ${{ needs.get-config.outputs.name }}
     needs: [get-config]
     runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
-    container: ${{ needs.get-config.outputs.container
-      && fromJSON(
-      format('{{"image":"{0}","options":"--user root {1}"}}',
-      needs.get-config.outputs.container,
-      needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared' || '')
-      )
-      || null }}
+    container: >
+      needs.get-config.outputs.container
+        && fromJSON(
+          format('{{"image":"{0}","options":"--user root {1}"}}',
+            needs.get-config.outputs.container,
+            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared' || '')
+        )
+      || null
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -63,54 +64,26 @@ jobs:
       # Build command
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
       GITHUB_REPOSITORY: ${{ github.repository }}
+      SETUP_RETRY_FORMAT: >
+        SUCCESS=0
+        for i in {1..5}; do
+          echo "Attempt $i of 5"
+          if {0}; then
+            echo "Setup succeeded"
+            SUCCESS=1
+            break
+          fi
+          if [ $i -lt 5 ]; then
+            echo "Setup failed, retrying in 30 seconds..."
+            sleep 30
+          fi
+        done
+        [ $SUCCESS -eq 1 ] || exit 1
     steps:
-      # A workaround to get GitHub Actions to work on Alpine
-      # See https://github.com/actions/runner/issues/801#issuecomment-2976165281 for more details
-      - name: Unlock GitHub Actions on Alpine
-        if: needs.get-config.outputs.container == 'alpine:3.22'
-        shell: sh -l -eo pipefail {0}
-        run: |
-          sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release
-          apk add nodejs --update-cache
-          mkdir -p /opt/bin
-          ln -s /usr/bin/node /opt/bin/node
       # Setup
-      # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
-      - name: Setup Dependencies (Alpine)
-        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3.22'
-        shell: sh -l -eo pipefail {0}
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ${{ needs.get-config.outputs.setup_script }}; then
-              echo "Setup Dependencies succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup Dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          [ $SUCCESS -eq 1 ] || exit 1
-      - name: Setup Dependencies (Non-Alpine)
-        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3.22'
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ${{ needs.get-config.outputs.setup_script }}; then
-              echo "Setup Dependencies succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup Dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          [ $SUCCESS -eq 1 ] || exit 1
+      - name: Setup Dependencies
+        if: needs.get-config.outputs.setup_script
+        run: ${{ format(env.SETUP_RETRY_FORMAT, needs.get-config.outputs.setup_script) }}
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
@@ -173,70 +146,20 @@ jobs:
           esac
       - name: Setup
         working-directory: .install
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ./install_script.sh ${{ steps.mode.outputs.mode }}; then
-              echo "Setup succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          [ $SUCCESS -eq 1 ] || exit 1
+        env:
+          INSTALL_MODE: ${{ steps.mode.outputs.mode }}
+        run: ${{ format(env.SETUP_RETRY_FORMAT, './install_script.sh $INSTALL_MODE') }}
       - name: Install aws cli
         working-directory: .install
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ./install_aws.sh ${{ steps.mode.outputs.mode }}; then
-              echo "Install aws cli succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Install aws cli failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          [ $SUCCESS -eq 1 ] || exit 1
+        env:
+          INSTALL_MODE: ${{ steps.mode.outputs.mode }}
+        run: ${{ format(env.SETUP_RETRY_FORMAT, './install_aws_cli.sh $INSTALL_MODE') }}
       - name: Setup test dependencies
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}; then
-              echo "Setup test dependencies succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup test dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          [ $SUCCESS -eq 1 ] || exit 1
+        env:
+          INSTALL_MODE: ${{ steps.mode.outputs.mode }}
+        run: ${{ format(env.SETUP_RETRY_FORMAT, '.install/test_deps/common_installations.sh $INSTALL_MODE') }}
       - name: install build artifacts req
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if uv pip install -q -r .install/build_package_requirments.txt; then
-              echo "Install build artifacts req succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Install build artifacts req failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          [ $SUCCESS -eq 1 ] || exit 1
+        run: ${{ format(env.SETUP_RETRY_FORMAT, 'uv pip install -q -r .install/build_package_requirments.txt') }}
 
       # Get Redis
       - name: Get Redis (node20)
