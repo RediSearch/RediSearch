@@ -40,10 +40,10 @@ use std::{
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_GetKey_Read(
-    lookup: Option<NonNull<RLookup>>,
+    lookup: Option<NonNull<RLookup<'_>>>,
     name: *const c_char,
     flags: u32,
-) -> Option<NonNull<RLookupKey>> {
+) -> Option<NonNull<RLookupKey<'_>>> {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
 
@@ -79,11 +79,11 @@ pub unsafe extern "C" fn RLookup_GetKey_Read(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_GetKey_ReadEx(
-    lookup: Option<NonNull<RLookup>>,
+    lookup: Option<NonNull<RLookup<'_>>>,
     name: *const c_char,
     name_len: size_t,
     flags: u32,
-) -> Option<NonNull<RLookupKey>> {
+) -> Option<NonNull<RLookupKey<'_>>> {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
 
@@ -123,10 +123,10 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_GetKey_Write(
-    lookup: Option<NonNull<RLookup>>,
+    lookup: Option<NonNull<RLookup<'_>>>,
     name: *const c_char,
     flags: u32,
-) -> Option<NonNull<RLookupKey>> {
+) -> Option<NonNull<RLookupKey<'_>>> {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
 
@@ -161,11 +161,11 @@ pub unsafe extern "C" fn RLookup_GetKey_Write(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_GetKey_WriteEx(
-    lookup: Option<NonNull<RLookup>>,
+    lookup: Option<NonNull<RLookup<'_>>>,
     name: *const c_char,
     name_len: size_t,
     flags: u32,
-) -> Option<NonNull<RLookupKey>> {
+) -> Option<NonNull<RLookupKey<'_>>> {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
 
@@ -207,11 +207,11 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_GetKey_Load(
-    lookup: Option<NonNull<RLookup>>,
+    lookup: Option<NonNull<RLookup<'_>>>,
     name: *const c_char,
     field_name: *const c_char,
     flags: u32,
-) -> Option<NonNull<RLookupKey>> {
+) -> Option<NonNull<RLookupKey<'_>>> {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
 
@@ -253,12 +253,12 @@ pub unsafe extern "C" fn RLookup_GetKey_Load(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_GetKey_LoadEx(
-    lookup: Option<NonNull<RLookup>>,
+    lookup: Option<NonNull<RLookup<'_>>>,
     name: *const c_char,
     name_len: size_t,
     field_name: *const c_char,
     flags: u32,
-) -> Option<NonNull<RLookupKey>> {
+) -> Option<NonNull<RLookupKey<'_>>> {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
 
