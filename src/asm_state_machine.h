@@ -53,20 +53,15 @@ static void ASM_Sanitizer_Alloc_Free () {
 static void ASM_Santizer_Alloc_Allocate(uint32_t query_key_space_version) {
   if (asm_sanitizer_allocs) {
     int *leak_tracker = (int*)rm_malloc(sizeof(int));
-    if (leak_tracker) {
-      *leak_tracker = (int)query_key_space_version;
-      array_append(asm_sanitizer_allocs, leak_tracker);
-    }
+    *leak_tracker = (int)query_key_space_version;
+    array_append(asm_sanitizer_allocs, leak_tracker);
   }
 }
 
 static void ASM_Sanitizer_Alloc_Deallocate() {
   if (array_len(asm_sanitizer_allocs) > 0) {
-    int *leak_tracker = asm_sanitizer_allocs[array_len(asm_sanitizer_allocs) - 1];
-    if (leak_tracker) {
-      rm_free(leak_tracker);
-    }
-    array_pop(asm_sanitizer_allocs);
+    int *leak_tracker = array_pop(asm_sanitizer_allocs);
+    rm_free(leak_tracker);
   }
 }
 #endif
