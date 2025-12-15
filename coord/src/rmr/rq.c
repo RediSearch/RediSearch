@@ -282,3 +282,8 @@ void RQ_Debug_SetLoopReady() {
   loop_th_ready = true;
   triggerPendingQueues();  // Process any pending callbacks
 }
+
+void RQ_Debug_StopTopologyTimers() {
+  uv_timer_stop(&topologyValidationTimer);
+  uv_timer_stop(&topologyFailureTimer);
+}

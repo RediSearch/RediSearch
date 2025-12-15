@@ -165,6 +165,7 @@ void workersThreadPool_Terminate(void) {
 
 void workersThreadPool_Destroy(void) {
   redisearch_thpool_destroy(_workers_thpool);
+  _workers_thpool = NULL;
 }
 
 void workersThreadPool_OnEventStart() {

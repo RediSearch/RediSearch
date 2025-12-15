@@ -5,7 +5,9 @@
  */
 
 #include "coord/tests/utils/minunit.h"
-#include "coord/src/rmr/rq.h"
+#include "rq.h"
+#include "cluster.h"
+#include "rmr.h"
 #include "info/global_stats.h"
 #include "util/workers.h"
 #include "rmutil/alloc.h"
@@ -29,6 +31,21 @@ static void slowCallback(void *arg) {
 
   // Wait until test tells us to finish
   while (!atomic_load(&flags->should_finish)) {
+    usleep(100); // 100us
+  }
+}
+
+// Static flags for topology callback (needed because RQ_Push_Topology uses void* privdata for topology)
+static atomic_bool topo_callback_started;
+static atomic_bool topo_callback_should_finish;
+
+// Slow topology callback that blocks until signaled to finish
+static void slowTopologyCallback(void *arg) {
+  // Signal that we've started
+  atomic_store(&topo_callback_started, true);
+
+  // Wait until test tells us to finish
+  while (!atomic_load(&topo_callback_should_finish)) {
     usleep(100); // 100us
   }
 }
@@ -57,9 +74,25 @@ static int wait_for_metric_value(size_t expected_value, int timeout_ms) {
   return 0; // Timeout
 }
 
+// Helper function to wait for topology update metric to reach a specific value with timeout
+static int wait_for_topo_metric_value(size_t expected_value, int timeout_ms) {
+  int elapsed = 0;
+  while (elapsed < timeout_ms) {
+    MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
+    if (stats.uv_threads_running_topology_update == expected_value) {
+      return 1; // Success
+    }
+    usleep(1000); // 1ms
+    elapsed++;
+  }
+  return 0; // Timeout
+}
+
 void testMetricUpdateDuringCallback() {
   // Init workers thpool and ConcurrentSearch required to call GlobalStats_GetMultiThreadingStats
+#ifdef MT_BUILD
   workersThreadPool_CreatePool(1);
+#endif
   ConcurrentSearch_CreatePool(1);
 
   CallbackFlags flags;
@@ -97,7 +130,61 @@ void testMetricUpdateDuringCallback() {
 
   // Clean up
   RQ_Done(q);
+#ifdef MT_BUILD
   workersThreadPool_Destroy();
+#endif
+  ConcurrentSearch_ThreadPoolDestroy();
+}
+
+void testActiveTopologyUpdateThreadsMetric() {
+  // Init workers thpool and ConcurrentSearch required to call GlobalStats_GetMultiThreadingStats
+#ifdef MT_BUILD
+  workersThreadPool_CreatePool(1);
+#endif
+  ConcurrentSearch_CreatePool(1);
+
+  // Create an empty cluster with empty topology to prevent crashes in topology validation timer
+  // (MR_CheckTopologyConnections accesses cl->topo->numShards)
+  MRClusterTopology *emptyTopo = MR_NewTopology(0, 0, MRHashFunc_None);
+  MRCluster *cluster = MR_NewCluster(emptyTopo, 1);
+  MR_Init(cluster, 5000);
+
+  // Reset static flags for this test run
+  atomic_store(&topo_callback_started, false);
+  atomic_store(&topo_callback_should_finish, false);
+
+  // Phase 1: Verify metric starts at 0
+  MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
+  mu_assert_int_eq(0, stats.uv_threads_running_topology_update);
+
+  // Mark the IO runtime as ready to process callbacks (bypass topology validation timeout)
+  RQ_Debug_SetLoopReady();
+
+  // Phase 2: Schedule topology callback and verify metric increases
+  // Create an empty topology (will be freed by RQ_Push_Topology if replaced)
+  MRClusterTopology *dummyTopo = MR_NewTopology(0, 0, MRHashFunc_None);
+  RQ_Push_Topology(slowTopologyCallback, dummyTopo);
+
+  // Wait for callback to start
+  int started = wait_for_atomic_bool(&topo_callback_started, 30000); // 30s timeout
+  mu_check(started);
+
+  // Verify metric increased to 1 while callback is executing
+  stats = GlobalStats_GetMultiThreadingStats();
+  mu_assert_int_eq(1, stats.uv_threads_running_topology_update);
+
+  // Phase 3: Signal callback to finish and wait for metric to return to 0
+  atomic_store(&topo_callback_should_finish, true);
+
+  // Wait for metric to return to 0
+  int returned_to_zero = wait_for_topo_metric_value(0, 30000); // 30s timeout
+  mu_check(returned_to_zero);
+
+  // Clean up
+  RQ_Debug_StopTopologyTimers();
+#ifdef MT_BUILD
+  workersThreadPool_Destroy();
+#endif
   ConcurrentSearch_ThreadPoolDestroy();
 }
 
@@ -107,6 +194,7 @@ int main(int argc, char **argv) {
   RMUTil_InitAlloc();
   RedisModule_Log = dummyLog;
   MU_RUN_TEST(testMetricUpdateDuringCallback);
+  MU_RUN_TEST(testActiveTopologyUpdateThreadsMetric);
   MU_REPORT();
 
   return minunit_status;
