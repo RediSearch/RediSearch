@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -e
 
 # Function to run a command, and only if it fails, print stdout and stderr and then exit
 run_command() {
