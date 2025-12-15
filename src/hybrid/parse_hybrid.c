@@ -392,6 +392,9 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     vectorParam++;  // Skip '$'
     vectorParamLen--;  // Adjust length for skipped '$'
     pvd->isParameter = true;
+  } else {
+    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid vector argument, expected a parameter name starting with $");
+    goto error;
   }
 
   // Set default KNN values before checking for more arguments

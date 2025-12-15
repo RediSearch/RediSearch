@@ -137,7 +137,7 @@ class ParseHybridTest : public ::testing::Test {
 
 TEST_F(ParseHybridTest, testBasicValidInput) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
@@ -156,8 +156,8 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
 TEST_F(ParseHybridTest, testValidInputWithParams) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "@title:($param1)", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "PARAMS", "2", "param1", "hello");
+                      "SEARCH", "@title:($param1)", "VSIM", "@vector", "$BLOB",
+                      "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
@@ -175,7 +175,7 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
 
 TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "TIMEOUT", "240");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "TIMEOUT", "240");
 
   parseCommand(args);
 
@@ -194,7 +194,7 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
 TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Fail;
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Fail);
@@ -205,7 +205,7 @@ TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
 TEST_F(ParseHybridTest, testConfigOOMReturnPolicyPropagation) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Return);
@@ -217,7 +217,7 @@ TEST_F(ParseHybridTest, testConfigOOMIgnorePolicyPropagation) {
 
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Ignore;
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Ignore);
   ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Ignore);
@@ -356,7 +356,7 @@ TEST_F(ParseHybridTest, testExplicitWindowAndLimitWithImplicitK) {
 
 TEST_F(ParseHybridTest, testNOSORTDisablesImplicitSort) {
   // Test SORTBY 0 to disable implicit sorting
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "NOSORT");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "NOSORT");
 
   parseCommand(args);
 
@@ -367,7 +367,7 @@ TEST_F(ParseHybridTest, testNOSORTDisablesImplicitSort) {
 
 TEST_F(ParseHybridTest, testSortByFieldDoesNotDisableImplicitSort) {
   // Test SORTBY with actual field (not 0) - should not disable implicit sorting
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "1", "@score");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "SORTBY", "1", "@score");
 
   parseCommand(args);
 
@@ -383,7 +383,7 @@ TEST_F(ParseHybridTest, testSortByFieldDoesNotDisableImplicitSort) {
 
 TEST_F(ParseHybridTest, testNoSortByWillHaveImplicitSort) {
   // Test without SORTBY - should not disable implicit sorting (default behavior)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
@@ -649,7 +649,7 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
 
 TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-        "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING");
+        "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "_NUM_SSTRING");
 
   QueryError status = QueryError_Default();
   ArgsCursor ac = {0};
@@ -667,7 +667,7 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
 
 TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-        "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING", SLOTS_STR);
+        "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "_NUM_SSTRING", SLOTS_STR);
   static RedisModuleSlotRangeArray slots = {
     .num_ranges = 1,
     .ranges = {
@@ -689,38 +689,6 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
 
   // Verify _NUM_SSTRING flag is set after parsing
   ASSERT_TRUE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
-}
-
-TEST_F(ParseHybridTest, testDirectVectorSyntax) {
-  // Test with direct vector data (not argument)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "2", "K", "5");
-
-  parseCommand(args);
-
-  AREQ* vecReq = result.vector;
-
-  // Test the AST root
-  ASSERT_TRUE(vecReq->ast.root != NULL);
-  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
-
-  QueryNode *vn = vecReq->ast.root;
-  ASSERT_EQ(vn->opts.flags & QueryNode_HybridVectorSubqueryNode, QueryNode_HybridVectorSubqueryNode); // Should be marked as hybrid vector subquery node
-  ASSERT_EQ(QueryNode_NumParams(vn), 0);  // No parameters for direct vector data
-
-  // Verify VectorQuery structure in the AST
-  VectorQuery *vq = vn->vn.vq;
-  ASSERT_TRUE(vq != NULL);
-  ASSERT_TRUE(vq->field != NULL);
-  ASSERT_TRUE(vq->scoreField != NULL);
-  ASSERT_STREQ(vq->scoreField, "__vector_score");
-  ASSERT_EQ(vq->type, VECSIM_QT_KNN);
-  ASSERT_EQ(vq->knn.k, 5);
-  ASSERT_EQ(vq->knn.order, BY_SCORE);
-
-  // Verify vector data is directly assigned (not through argument resolution)
-  ASSERT_TRUE(vq->knn.vector != NULL);
-  ASSERT_STREQ((const char*)vq->knn.vector, TEST_BLOB_DATA);
-  ASSERT_EQ(vq->knn.vecLen, strlen(TEST_BLOB_DATA));
 }
 
 TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
@@ -809,6 +777,18 @@ TEST_F(ParseHybridTest, testBlobWithoutParams) {
   // Test using $BLOB without PARAMS section - should fail
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10");
   testErrorCode(args, QUERY_ENOPARAM, "No such parameter `BLOB`");
+}
+
+TEST_F(ParseHybridTest, testDirectVector) {
+  // Test using direct vector - should fail
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Invalid vector argument, expected a parameter name starting with $");
+}
+
+TEST_F(ParseHybridTest, testDirectVector) {
+  // Test using direct vector - should fail
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid vector argument, expected a parameter name starting with $");
 }
 
 // KNN parsing error tests
@@ -978,8 +958,9 @@ TEST_F(ParseHybridTest, testCombineRRFInvalidConstantValue) {
 }
 
 TEST_F(ParseHybridTest, testDefaultTextScorerForLinear) {
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,\
-   "COMBINE", "LINEAR", "4", "ALPHA", "0.6", "BETA", "0.4");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", \
+   "COMBINE", "LINEAR", "4", "ALPHA", "0.6", "BETA", "0.4",
+   "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   // No explicit scorer should be set; the default scorer will be used
@@ -987,8 +968,9 @@ TEST_F(ParseHybridTest, testDefaultTextScorerForLinear) {
 }
 
 TEST_F(ParseHybridTest, testExplicitTextScorerForLinear) {
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "SCORER", "TFIDF", "VSIM", "@vector", TEST_BLOB_DATA,\
-   "COMBINE", "LINEAR", "4", "ALPHA", "0.6", "BETA", "0.4");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "SCORER", "TFIDF", "VSIM", "@vector", "$BLOB", \
+   "COMBINE", "LINEAR", "4", "ALPHA", "0.6", "BETA", "0.4",
+   "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
@@ -996,8 +978,9 @@ TEST_F(ParseHybridTest, testExplicitTextScorerForLinear) {
 }
 
 TEST_F(ParseHybridTest, testDefaultTextScorerForRRF) {
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,\
-   "COMBINE", "RRF", "2", "CONSTANT", "10");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", \
+   "COMBINE", "RRF", "2", "CONSTANT", "10",
+   "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
@@ -1006,8 +989,9 @@ TEST_F(ParseHybridTest, testDefaultTextScorerForRRF) {
 }
 
 TEST_F(ParseHybridTest, testExplicitTextScorerForRRF) {
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "SCORER", "TFIDF", "VSIM", "@vector", TEST_BLOB_DATA,\
-   "COMBINE", "RRF", "2", "CONSTANT", "10");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "SCORER", "TFIDF", "VSIM", "@vector", "$BLOB",\
+   "COMBINE", "RRF", "2", "CONSTANT", "10",
+   "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
@@ -1080,7 +1064,7 @@ TEST_F(ParseHybridTest, testKNNMissingYieldDistanceAsValue) {
   // Test KNN with missing YIELD_SCORE_AS value (early return before CheckEnd)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
     "SEARCH", "hello",
-    "VSIM", "@vector", TEST_BLOB_DATA,
+    "VSIM", "@vector", "$BLOB",
       "KNN", "2", "K", "10",
       "YIELD_SCORE_AS");
   testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for YIELD_SCORE_AS");
@@ -1090,7 +1074,7 @@ TEST_F(ParseHybridTest, testRangeMissingYieldDistanceAsValue) {
   // Test RANGE with missing YIELD_SCORE_AS value (early return before CheckEnd)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
     "SEARCH", "hello",
-    "VSIM", "@vector", TEST_BLOB_DATA,
+    "VSIM", "@vector", "$BLOB",
       "RANGE", "2", "RADIUS", "0.5",
       "YIELD_SCORE_AS");
   testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for YIELD_SCORE_AS");

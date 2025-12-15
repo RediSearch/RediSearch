@@ -690,7 +690,7 @@ class testWarningsAndErrorsStandalone:
     syntax_error_count = info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC]
     self.env.assertEqual(syntax_error_count, '2')
     # Test syntax errors in hybrid
-    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world:', 'VSIM', '@vector', '0').error().contains('Syntax error at offset')
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world:', 'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', np.array([0.0, 0.0]).astype(np.float32).tobytes()).error().contains('Syntax error at offset')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
     syntax_error_count = info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC]
@@ -716,7 +716,7 @@ class testWarningsAndErrorsStandalone:
     args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
     self.env.assertEqual(args_error_count, '2')
     # Test args errors in hybrid
-    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '$BLOB ', 'LIMIT', 0, 0, 'MEOW', 'PARAMS', '2', 'BLOB', np.array([0.0, 0.0]).astype(np.float32).tobytes()).error().contains('Unknown argument')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
     args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
@@ -749,7 +749,7 @@ class testWarningsAndErrorsStandalone:
     # Test timeout error in FT.HYBRID (single shard debug)
     #### Test needs to be fixed (should return error, metric should increment by 1)
     self.env.expect(debug_cmd(), 'FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world',
-                    'VSIM', '@vector', np.array([0.0, 0.0]).astype(np.float32).tobytes(),
+                    'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', np.array([0.0, 0.0]).astype(np.float32).tobytes(),
                     'TIMEOUT_AFTER_N_SEARCH', 0, 'DEBUG_PARAMS_COUNT', 2).noError()
     info_dict = info_modules_to_dict(self.env)
     self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err + 2))
@@ -873,7 +873,7 @@ class testWarningsAndErrorsStandalone:
       # Test max prefix expansions warning in FT.HYBRID
       # "hello*" will match "hello", "helloworld" - 2 terms, but limit is 1
       query_vec = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-      self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello*', 'VSIM', '@vector', query_vec).noError()
+      self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello*', 'VSIM', '@vector','$BLOB', 'PARAMS', '2', 'BLOB', query_vec).noError()
       info_dict = info_modules_to_dict(self.env)
       self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], str(base_warn + 3))
 
@@ -904,7 +904,7 @@ class testWarningsAndErrorsStandalone:
     self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
 
     # Test no error queries in hybrid
-    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', np.array([0.0, 0.0]).astype(np.float32).tobytes()).noError()
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', np.array([0.0, 0.0]).astype(np.float32).tobytes()).noError()
     after_info_dict = info_modules_to_dict(self.env)
     self.env.assertEqual(before_info_dict[WARN_ERR_SECTION], after_info_dict[WARN_ERR_SECTION])
     self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
@@ -986,7 +986,7 @@ class testWarningsAndErrorsCluster:
 
     # Test syntax errors in hybrid
     # Syntax errors in the hybrid command are only counted on the coordinator.
-    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world:', 'VSIM', '@vector', '0').error().contains('Syntax error at offset')
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world:', 'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', np.array([0.0, 0.0]).astype(np.float32).tobytes()).error().contains('Syntax error at offset')
     # Test counter on each shard unchanged
     for shardId in range(1, self.env.shardsCount + 1):
       shard_conn = self.env.getConnection(shardId)
@@ -1077,7 +1077,7 @@ class testWarningsAndErrorsCluster:
 
     # Test args errors in hybrid
     # All args errors in FT.HYBRID are counted on the coordinator
-    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', np.array([0.0, 0.0]).astype(np.float32).tobytes(), 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
     # Test counter on each shard
     for shardId in range(1, self.env.shardsCount + 1):
       shard_conn = self.env.getConnection(shardId)
@@ -1201,7 +1201,7 @@ class testWarningsAndErrorsCluster:
 
     # Test OOM error in FT.HYBRID
     query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', query_vector).error().contains('Not enough memory available to execute the query')
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector).error().contains('Not enough memory available to execute the query')
     # Coord: +1
     info_coord = info_modules_to_dict(self.env)
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC], str(base_err_coord + 3),
@@ -1241,7 +1241,7 @@ class testWarningsAndErrorsCluster:
 
     # Test warning in FT.HYBRID
     query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', query_vector).noError()
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector).noError()
     # Coord: +1
     info_coord = info_modules_to_dict(self.env)
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord + 3),
@@ -1298,7 +1298,7 @@ class testWarningsAndErrorsCluster:
 
     # Test OOM error in FT.HYBRID
     query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', query_vector).error().contains('Not enough memory available to execute the query')
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector).error().contains('Not enough memory available to execute the query')
     # Coord: +1
     info_coord = info_modules_to_dict(self.env)
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC], str(base_err_coord + 3),
@@ -1335,7 +1335,7 @@ class testWarningsAndErrorsCluster:
                          message="Wrong number of shards with OOM warning +1 after FT.AGGREGATE")
     # Test warning in FT.HYBRID
     query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', query_vector).noError()
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector).noError()
     # Coord: +1
     info_coord = info_modules_to_dict(self.env)
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord + 1),
@@ -1410,7 +1410,7 @@ class testWarningsAndErrorsCluster:
       # Trigger max prefix expansions warning in FT.HYBRID is not supported yet in cluster mode
       # Change test when FT.HYBRID max prefix expansion warnings is supported in cluster mode
       query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-      res = self.env.cmd('FT.HYBRID', 'idx_vec', 'SEARCH', 'hell*', 'VSIM', '@vector', query_vector)
+      res = self.env.cmd('FT.HYBRID', 'idx_vec', 'SEARCH', 'hell*', 'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector)
       # Verify *no* warning is returned in ft.hybrid response
       warnings_idx = res.index('warnings') + 1
       self.env.assertFalse('Max prefix expansions limit was reached' in res[warnings_idx])
@@ -1477,7 +1477,7 @@ class testWarningsAndErrorsCluster:
                            message=f"Shard {shardId} has wrong coordinator warnings/errors section after no-error aggregate query")
 
     # Test no error queries in hybrid
-    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', np.array([0.0, 0.0]).astype(np.float32).tobytes()).noError()
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', np.array([0.0, 0.0]).astype(np.float32).tobytes()).noError()
     for shardId in range(1, self.env.shardsCount + 1):
       shard_conn = self.env.getConnection(shardId)
       after_info_dict = info_modules_to_dict(shard_conn)
@@ -1988,7 +1988,7 @@ class TestCoordHighPriorityPendingJobs(object):
     self.env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
 
     hybrid_threads = launch_cmds_in_bg_with_exception_check(self.env, ['FT.HYBRID', DEFAULT_INDEX_NAME, 'SEARCH', 'hello',
-                                 'VSIM', f'@{DEFAULT_FIELD_NAME}', query_vector], num_commands_per_type)
+                                 'VSIM', f'@{DEFAULT_FIELD_NAME}', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector], num_commands_per_type)
     if hybrid_threads is None:
       self.env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
       return

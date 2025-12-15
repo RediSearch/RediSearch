@@ -57,8 +57,9 @@ def test_hybrid_apply_filter_linear():
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0, 0]).astype(np.float32).tobytes()
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', query_vector,\
-         'COMBINE', 'LINEAR', '4', 'ALPHA', '0.0', 'BETA', '1.0', 'APPLY', '2*@__score', 'AS', 'doubled_score', 'FILTER', '@doubled_score>1')
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', '$BLOB',\
+         'COMBINE', 'LINEAR', '4', 'ALPHA', '0.0', 'BETA', '1.0', 'APPLY', '2*@__score', 'AS', 'doubled_score',
+         'FILTER', '@doubled_score>1', 'PARAMS', '2', 'BLOB', query_vector)
     results, count = get_results_from_hybrid_response(response)
     env.assertTrue(set(results.keys()) == {"doc:1"})
     env.assertEqual(count, 1)
@@ -74,9 +75,10 @@ def test_hybrid_apply_filter_rrf():
     # For doc:4: rank_vector = 1 (closest vector match to query_vector)
     threshold = 2*(1/61 + 1/61)
     epsilon = 0.001
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query, 'VSIM' ,'@embedding', query_vector,\
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query, 'VSIM' ,'@embedding', '$BLOB',\
         'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'WINDOW', '10',
-         'APPLY', '2*@__score', 'AS', 'doubled_score', 'FILTER', f'@doubled_score>{threshold - epsilon}')
+         'APPLY', '2*@__score', 'AS', 'doubled_score', 'FILTER', f'@doubled_score>{threshold - epsilon}',
+         'PARAMS', '2', 'BLOB', query_vector)
     results, count = get_results_from_hybrid_response(response)
     env.assertTrue(set(results.keys()) == {"doc:4"})
     env.assertEqual(count, 1)
@@ -92,9 +94,10 @@ def test_hybrid_apply_filter_rrf_no_results():
     # For doc:4: rank_vector = 1 (closest vector match to query_vector)
     threshold = 2*(1/61 + 1/61)
     epsilon = 0.001
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query, 'VSIM' ,'@embedding', query_vector,\
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query, 'VSIM' ,'@embedding', '$BLOB',\
         'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'WINDOW', '10',
-         'APPLY', '2*@__score', 'AS', 'doubled_score', 'FILTER', f'@doubled_score<0')
+         'APPLY', '2*@__score', 'AS', 'doubled_score', 'FILTER', f'@doubled_score<0',
+         'PARAMS', '2', 'BLOB', query_vector)
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(len(results.keys()), 0)
     env.assertEqual(count, 0)
@@ -105,6 +108,6 @@ def test_hybrid_bad_apply():
     setup_basic_index(env)
     query_vector = test_data['doc:4']['embedding']
     search_query = "blue | shoes"
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', search_query, 'VSIM' ,'@embedding', query_vector,\
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', search_query, 'VSIM' ,'@embedding', '$BLOB',\
         'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'WINDOW', '10',
-         'APPLY', 'whoami').error().contains("Unknown symbol 'whoami'")
+         'APPLY', 'whoami', 'PARAMS', '2', 'BLOB', query_vector).error().contains("Unknown symbol 'whoami'")

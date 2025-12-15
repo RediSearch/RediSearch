@@ -47,7 +47,8 @@ def test_hybrid_dialects():
         hybrid_cmd = [
             'FT.HYBRID', 'idx',
             'SEARCH', '@text:(apples)',
-            'VSIM', '@vector', query_vector,
+            'VSIM', '@vector', '$BLOB',
+            'PARAMS', '2', 'BLOB', query_vector
         ]
         exec_and_validate_query(env, hybrid_cmd)
 
@@ -55,17 +56,8 @@ def test_hybrid_dialects():
         hybrid_cmd = [
             'FT.HYBRID', 'idx',
             'SEARCH', '@text:($WORD)',
-            'VSIM', '@vector', query_vector,
-            'PARAMS', '2', 'WORD', 'apples'
-        ]
-        exec_and_validate_query(env, hybrid_cmd)
-
-        # Simple query with parameters in VSIM
-        hybrid_cmd = [
-            'FT.HYBRID', 'idx',
-            'SEARCH', '@text:(apples)',
             'VSIM', '@vector', '$BLOB',
-            'PARAMS', '2', 'BLOB', query_vector,
+            'PARAMS', '4', 'WORD', 'apples', 'BLOB', query_vector
         ]
         exec_and_validate_query(env, hybrid_cmd)
 
@@ -73,7 +65,8 @@ def test_hybrid_dialects():
         hybrid_cmd = [
             'FT.HYBRID', 'idx',
             'SEARCH', '@tag:{"57-300"}',
-            'VSIM', '@vector', query_vector,
+            'VSIM', '@vector', '$BLOB',
+            'PARAMS', '2', 'BLOB', query_vector
         ]
         exec_and_validate_query(env, hybrid_cmd)
 
@@ -81,7 +74,8 @@ def test_hybrid_dialects():
         hybrid_cmd = [
             'FT.HYBRID', 'idx',
             'SEARCH', '@text:(apples)',
-            'VSIM', '@vector', query_vector, 'FILTER', '@tag:{"57-300"}',
+            'VSIM', '@vector', '$BLOB', 'FILTER', '@tag:{"57-300"}',
+            'PARAMS', '2', 'BLOB', query_vector
         ]
         exec_and_validate_query(env, hybrid_cmd)
 
@@ -89,8 +83,8 @@ def test_hybrid_dialects():
         hybrid_cmd = [
             'FT.HYBRID', 'idx',
             'SEARCH', '@text:(apples)',
-            'VSIM', '@vector', query_vector, 'FILTER', '@text:($WORD)',
-            'PARAMS', '2', 'WORD', 'apples',
+            'VSIM', '@vector', '$BLOB', 'FILTER', '@text:($WORD)',
+            'PARAMS', '4', 'WORD', 'apples', 'BLOB', query_vector
         ]
         exec_and_validate_query(env, hybrid_cmd)
 
@@ -98,9 +92,10 @@ def test_hybrid_dialects():
         hybrid_cmd = [
             'FT.HYBRID', 'idx',
             'SEARCH', '@text:(apples)',
-            'VSIM', '@vector', query_vector,
+            'VSIM', '@vector', '$BLOB',
             'COMBINE', 'RRF', '2', 'CONSTANT', '30',
             'FILTER', '@__key == "doc:1" || @__key == "doc:2"',
+            'PARAMS', '2', 'BLOB', query_vector
         ]
         exec_and_validate_query(env, hybrid_cmd)
 
@@ -124,7 +119,8 @@ def test_hybrid_dialect_stats_tracking():
     env.expect(
         'FT.HYBRID', 'idx',
         'SEARCH', '@text:(apples)', 'DIALECT', '2',  # DIALECT not allowed in SEARCH subquery
-        'VSIM', '@vector', query_vector
+        'VSIM', '@vector', '$BLOB',
+        'PARAMS', '2', 'BLOB', query_vector
     ).error().contains('DIALECT is not supported in FT.HYBRID or any of its subqueries')
 
     # Check that dialect stats were NOT updated after parsing error
@@ -136,7 +132,8 @@ def test_hybrid_dialect_stats_tracking():
     env.expect(
         'FT.HYBRID', 'idx',
         'SEARCH', '@nonexistent_field:(apples)',  # Field doesn't exist
-        'VSIM', '@vector', query_vector
+        'VSIM', '@vector', '$BLOB',
+        'PARAMS', '2', 'BLOB', query_vector
     ).error().contains('Unknown field at offset 0 near nonexistent_field')
 
     # Check that dialect stats were NOT updated after execution error
@@ -148,7 +145,8 @@ def test_hybrid_dialect_stats_tracking():
     hybrid_cmd = [
         'FT.HYBRID', 'idx',
         'SEARCH', '@text:(apples)',
-        'VSIM', '@vector', query_vector
+        'VSIM', '@vector', '$BLOB',
+        'PARAMS', '2', 'BLOB', query_vector
     ]
     exec_and_validate_query(env, hybrid_cmd)
 
@@ -178,29 +176,33 @@ def test_hybrid_dialect_errors():
     env.expect(
         'FT.HYBRID', 'idx',
         'SEARCH', '@text:(apples)', 'DIALECT', '2',
-        'VSIM', '@vector', query_vector
+        'VSIM', '@vector', '$BLOB',
+        'PARAMS', '2', 'BLOB', query_vector
     ).error().contains('DIALECT is not supported in FT.HYBRID or any of its subqueries. Please check the documentation on search-default-dialect configuration.')
 
     # Test DIALECT in KNN subquery - should fail
     env.expect(
         'FT.HYBRID', 'idx',
         'SEARCH', '@text:(apples)',
-        'VSIM', '@vector', query_vector, 'KNN', '2', 'DIALECT', '2'
+        'VSIM', '@vector', '$BLOB', 'KNN', '2', 'DIALECT', '2',
+        'PARAMS', '2', 'BLOB', query_vector
     ).error().contains('Unknown argument `DIALECT` in KNN')
 
     # Test DIALECT in RANGE subquery - should fail
     env.expect(
         'FT.HYBRID', 'idx',
         'SEARCH', '@text:(apples)',
-        'VSIM', '@vector', query_vector, 'RANGE', '2', 'DIALECT', '2'
+        'VSIM', '@vector', '$BLOB', 'RANGE', '2', 'DIALECT', '2',
+        'PARAMS', '2', 'BLOB', query_vector
     ).error().contains('Unknown argument `DIALECT` in RANGE')
 
     # Test DIALECT in tail section - should fail
     hybrid_cmd = [
         'FT.HYBRID', 'idx',
         'SEARCH', '@text:(apples)',
-        'VSIM', '@vector', query_vector,
-        'DIALECT', '2'
+        'VSIM', '@vector', '$BLOB',
+        'DIALECT', '2',
+        'PARAMS', '2', 'BLOB', query_vector
     ]
     env.expect(*hybrid_cmd).error().contains('DIALECT is not supported in FT.HYBRID or any of its subqueries. Please check the documentation on search-default-dialect configuration.')
 
@@ -208,8 +210,9 @@ def test_hybrid_dialect_errors():
     hybrid_cmd = [
         'FT.HYBRID', 'idx',
         'SEARCH', '@text:(apples)',
-        'VSIM', '@vector', query_vector,
+        'VSIM', '@vector', '$BLOB',
         'COMBINE', 'RRF', '2', 'CONSTANT', '30',
-        'DIALECT', '3'
+        'DIALECT', '3',
+        'PARAMS', '2', 'BLOB', query_vector
     ]
     env.expect(*hybrid_cmd).error().contains('DIALECT is not supported in FT.HYBRID or any of its subqueries. Please check the documentation on search-default-dialect configuration.')
