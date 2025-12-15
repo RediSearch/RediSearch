@@ -1076,8 +1076,9 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
-    if (r->qiter.isProfile){
-      r->qiter.queryGILTime += rs_wall_clock_elapsed_ns(&r->qiter.initTime);
+    if (AREQ_QueryProcessingCtx(r)->isProfile ){
+      // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
+      AREQ_QueryProcessingCtx(r)->queryGILTime += rs_wall_clock_elapsed_ns(&(AREQ_QueryProcessingCtx(r)->initTime)) + 1;
     }
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(rc == 0);
