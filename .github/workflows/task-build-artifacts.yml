@@ -47,7 +47,7 @@ jobs:
     name: Build ${{ needs.get-config.outputs.name }}
     needs: [get-config]
     runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
-    container: >
+    container: |
       needs.get-config.outputs.container
         && fromJSON(
           format('{{"image":"{0}","options":"--user root {1}"}}',
