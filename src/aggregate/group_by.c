@@ -39,7 +39,7 @@ typedef struct {
     ret;                                \
   })
 
-static const int khid = 33;
+static const int khid __attribute__((unused)) = 33;
 KHASH_MAP_INIT_INT64(khid, Group *);
 
 #define GROUPER_NREDUCERS(g) (array_len((g)->reducers))
@@ -201,7 +201,6 @@ static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t 
 }
 
 static void invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
-  uint64_t hval = 0;
   size_t nkeys = GROUPER_NSRCKEYS(g);
   const RSValue *groupvals[nkeys];
 

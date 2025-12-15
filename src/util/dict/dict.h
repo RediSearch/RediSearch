@@ -155,8 +155,16 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
 #define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
-#define dictPauseRehashing(d) (__atomic_fetch_add(&(d)->pauserehash, 1, __ATOMIC_RELAXED) >= 0)
-#define dictResumeRehashing(d) (__atomic_fetch_add(&(d)->pauserehash, -1, __ATOMIC_RELAXED) > 0)
+
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-value"
+#endif
+#define dictPauseRehashing(d) (__atomic_fetch_add(&(d)->pauserehash, 1, __ATOMIC_RELAXED))
+#define dictResumeRehashing(d) (__atomic_fetch_add(&(d)->pauserehash, -1, __ATOMIC_RELAXED))
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 
 /* API - RediSearch-specific dict functions to avoid conflicts with Redis dict functions */
 dict *RS_dictCreate(dictType *type, void *privDataPtr);

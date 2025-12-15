@@ -112,10 +112,6 @@ static int SlavoGermanic(metastring *s) {
     return 0;
 }
 
-static int GetLength(metastring *s) {
-  return s->length;
-}
-
 static char GetAt(metastring *s, int pos) {
   if ((pos < 0) || (pos >= s->length)) return '\0';
 
@@ -516,7 +512,7 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
         /*  -ger-,  -gy- */
         if ((StringAt(original, (current + 1), 2, "ER", "") ||
              (GetAt(original, current + 1) == 'Y')) &&
-            !StringAt(original, 0, 6, "DANGER", "RANGER", "MANGER", "") &&
+            !StringAt(original, 0, 6, "DANGER", "RANGER", "MANGER", "") && // codespell:ignore
             !StringAt(original, (current - 1), 1, "E", "I", "") &&
             !StringAt(original, (current - 1), 3, "RGY", "OGY", "")) {
           MetaphAdd(primary, "K");
@@ -624,10 +620,10 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
         if (GetAt(original, current + 1) == 'L') {
           /* spanish e.g. 'cabrillo', 'gallegos' */
           if (((current == (length - 3)) &&
-               StringAt(original, (current - 1), 4, "ILLO", "ILLA", "ALLE", "")) ||
+               StringAt(original, (current - 1), 4, "ILLO", "ILLA", "ALLE", "")) || // codespell:ignore
               ((StringAt(original, (last - 1), 2, "AS", "OS", "") ||
                 StringAt(original, last, 1, "A", "O", "")) &&
-               StringAt(original, (current - 1), 4, "ALLE", ""))) {
+               StringAt(original, (current - 1), 4, "ALLE", ""))) { // codespell:ignore
             MetaphAdd(primary, "L");
             MetaphAdd(secondary, "");
             current += 2;
@@ -755,8 +751,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
           break;
         }
 
-        /* german & anglicisations, e.g. 'smith' match 'schmidt', 'snider' match 'schneider'
-           also, -sz- in slavic language altho in hungarian it is pronounced 's' */
+        /* german & anglicization, e.g. 'smith' match 'schmidt', 'snider' match 'schneider'
+           also, -sz- in slavic language although in hungarian it is pronounced 's' */
         if (((current == 0) && StringAt(original, (current + 1), 1, "M", "N", "L", "W", "")) ||
             StringAt(original, (current + 1), 1, "Z", "")) {
           MetaphAdd(primary, "S");

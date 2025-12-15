@@ -109,7 +109,6 @@ TEST_F(ExprTest, testExpr) {
   RSExpr *l = RS_NewNumberLiteral(2);
   RSExpr *r = RS_NewNumberLiteral(4);
   RSExpr *op = RS_NewOp('+', l, r);
-  QueryError status = QueryError_Default();
   TEvalCtx eval(op);
 
   int rc = eval.eval();
@@ -244,9 +243,9 @@ TEST_F(ExprTest, testGetFields) {
   RLookup lk;
 
   RLookup_Init(&lk, NULL);
-  auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
-  auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  auto *kbaz = RLookup_GetKey_Write(&lk, "baz", RLOOKUP_F_NOFLAGS);
+  RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
+  RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
+  RLookup_GetKey_Write(&lk, "baz", RLOOKUP_F_NOFLAGS);
   int rc = ExprAST_GetLookupKeys(root, &lk, &status);
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   RLookup_Cleanup(&lk);

@@ -160,7 +160,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
   const bool hasExpireTimeOnFields = spec->monitorFieldExpiration && RedisModule_HashFieldMinExpire(k) != REDISMODULE_NO_EXPIRE;
   // Load indexed fields from the document
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
-  for (size_t ii = 0; ii < spec->numFields; ++ii) {
+  for (size_t ii = 0; ii < (size_t)spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
     RedisModuleString *v = NULL;
     RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, HiddenString_GetUnsafe(field->fieldPath, NULL), &v, NULL);
@@ -235,7 +235,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
 
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   size_t ii = 0;
-  for (; ii < spec->numFields; ++ii) {
+  for (; ii < (size_t)spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
 
     jsonIter = japi->get(jsonRoot, HiddenString_GetUnsafe(field->fieldPath, NULL));
@@ -401,7 +401,7 @@ void ClearOwnedField(DocumentField *field) {
     case FLD_VAR_T_ARRAY:
       // TODO: GEOMETRY Handle multi-value geometry fields
         if (field->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG | INDEXFLD_T_GEO)) {
-          for (int i = 0; i < field->arrayLen; ++i) {
+          for (size_t i = 0; i < field->arrayLen; ++i) {
             rm_free(field->multiVal[i]);
           }
           rm_free(field->multiVal);

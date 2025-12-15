@@ -119,7 +119,7 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
     case '^':
       res = pow(n1, n2);
       break;
-    default: RS_LOG_ASSERT_FMT(0, "Invalid operator %c", op->op);
+    default: RS_LOG_ASSERT_FMT(0, "Invalid operator %c", op->op); goto cleanup;
   }
 
   RSValue_IntoNumber(result, res);
@@ -520,9 +520,8 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
     RedisModule_Reply_SimpleString(reply, title);
   }
 
-  ResultProcessorType type = rp->type;
   const char *typeStr = RPTypeToString(rp->type);
-  RS_LOG_ASSERT (type == RP_PROJECTOR || type == RP_FILTER, "Error");
+  RS_LOG_ASSERT (rp->type == RP_PROJECTOR || rp->type == RP_FILTER, "Error");
 
   char buf[32];
   size_t len;

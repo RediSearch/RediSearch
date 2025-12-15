@@ -348,8 +348,7 @@ class Module {
 
 extern int RMCK_LogLevel;
 
-class RedisModuleCommand {
- public:
+struct RedisModuleCommand {
   typedef std::map<std::string, RedisModuleCommand *> CommandMap;
   std::string name;
   RedisModuleCmdFunc handler;

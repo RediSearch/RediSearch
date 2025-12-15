@@ -137,12 +137,10 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     // RediSearch_api - No coverage
     if (fs->options & FieldSpec_Dynamic) {
       REPLY_KVSTR("type", "<DYNAMIC>");
-      size_t ntypes = 0;
 
       RedisModule_ReplyKV_Array(reply, "types"); // >>>types
       for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
         if (FIELD_IS(fs, INDEXTYPE_FROM_POS(jj))) {
-          ntypes++;
           RedisModule_Reply_SimpleString(reply, FieldSpec_GetTypeNames(jj));
         }
       }

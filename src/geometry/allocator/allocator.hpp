@@ -38,7 +38,7 @@ inline auto Allocator<T>::allocate(std::size_t n) noexcept -> value_type* {
 }
 
 template <class T>
-inline void Allocator<T>::deallocate(value_type* p, std::size_t n) noexcept {
+inline void Allocator<T>::deallocate(value_type* p, std::size_t n [[maybe_unused]]) noexcept {
   rm_free(p);
 }
 

@@ -139,7 +139,7 @@ unsafe extern "C" fn RSSortingVector_PutNum(
 unsafe extern "C" fn RSSortingVector_PutStr(
     vec: Option<NonNull<RSSortingVector>>,
     idx: libc::size_t,
-    str: *const c_char,
+    str: *mut c_char,
 ) {
     assert!(
         vec.is_some(),
@@ -156,7 +156,7 @@ unsafe extern "C" fn RSSortingVector_PutStr(
     let len = unsafe { libc::strlen(str) };
 
     // Safety: RSValue_NewString receives a valid C string pointer (1) and length
-    let value = unsafe { RSValue_NewString(str.cast_mut(), len as u32) };
+    let value = unsafe { RSValue_NewString(str, len as u32) };
 
     // Safety: We assume RSValue_NewString always returns valid pointers
     let value = unsafe {

@@ -22,6 +22,7 @@ static uint64_t hashFunction_DocId(const void *key) {
   return (t_docId)key;
 }
 static void destructor_TimeToLiveEntry(void *privdata, void *val) {
+    (void)privdata;
     TimeToLiveEntry* entry = (TimeToLiveEntry*)val;
     array_free(entry->fieldExpirations);
     rm_free(entry);
@@ -54,7 +55,7 @@ void TimeToLiveTable_Add(TimeToLiveTable *table, t_docId docId, t_expirationTime
   entry->documentExpirationPoint = docExpirationTime;
   entry->fieldExpirations = sortedById;
   // we don't want the operation to fail so we use dictReplace
-  const bool added = dictAdd(table, (void*)docId, entry) == DICT_OK;
+  const bool added __attribute__((unused)) = dictAdd(table, (void*)docId, entry) == DICT_OK;
   RS_LOG_ASSERT(added, "Failed to add document to ttl table");
 }
 

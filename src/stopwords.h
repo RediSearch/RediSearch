@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-static const char *DEFAULT_STOPWORDS[] = {
+static const char *DEFAULT_STOPWORDS[] __attribute__((unused)) = {
     "a",    "is",    "the",   "an",   "and",  "are", "as",  "at",   "be",   "but",  "by",   "for",
     "if",   "in",    "into",  "it",   "no",   "not", "of",  "on",   "or",   "such", "that", "their",
     "then", "there", "these", "they", "this", "to",  "was", "will", "with", NULL};

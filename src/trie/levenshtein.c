@@ -43,10 +43,10 @@ sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, rune
     }
   }
 
-  for (int j = 0; j < state->len; j++) {
+  for (size_t j = 0; j < state->len; j++) {
     sparseVectorEntry *entry = &state->entries[j];
 
-    if (entry->idx == a->len) {
+    if ((size_t)entry->idx == a->len) {
       break;
     }
 
@@ -73,7 +73,7 @@ sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, rune
 // within the max
 // edit distance from the initial automaton string
 inline int SparseAutomaton_IsMatch(SparseAutomaton *a, sparseVector *v) {
-  return v->len && v->entries[v->len - 1].idx == a->len;
+  return v->len && (size_t)v->entries[v->len - 1].idx == a->len;
 }
 
 // CanMatch returns true if there is a possibility that feeding the automaton
@@ -104,7 +104,7 @@ void __dfaNode_free(dfaNode *d) {
 int __sv_equals(sparseVector *sv1, sparseVector *sv2) {
   if (sv1->len != sv2->len) return 0;
 
-  for (int i = 0; i < sv1->len; i++) {
+  for (size_t i = 0; i < sv1->len; i++) {
     if (sv1->entries[i].idx != sv2->entries[i].idx || sv1->entries[i].val != sv2->entries[i].val) {
       return 0;
     }
@@ -115,7 +115,7 @@ int __sv_equals(sparseVector *sv1, sparseVector *sv2) {
 
 dfaNode *__dfn_getCache(Vector *cache, sparseVector *v) {
   size_t n = Vector_Size(cache);
-  for (int i = 0; i < n; i++) {
+  for (size_t i = 0; i < n; i++) {
     dfaNode *dfn;
     Vector_Get(cache, i, &dfn);
 
@@ -131,7 +131,7 @@ void __dfn_putCache(Vector *cache, dfaNode *dfn) {
 }
 
 inline dfaNode *__dfn_getEdge(dfaNode *n, rune r) {
-  for (int i = 0; i < n->numEdges; i++) {
+  for (size_t i = 0; i < n->numEdges; i++) {
     if (n->edges[i].r == r) {
       return n->edges[i].n;
     }
@@ -147,8 +147,8 @@ void __dfn_addEdge(dfaNode *n, rune r, dfaNode *child) {
 void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
   parent->match = SparseAutomaton_IsMatch(a, parent->v);
 
-  for (int i = 0; i < parent->v->len; i++) {
-    if (parent->v->entries[i].idx < a->len) {
+  for (size_t i = 0; i < parent->v->len; i++) {
+    if ((size_t)parent->v->entries[i].idx < a->len) {
       rune c = a->string[parent->v->entries[i].idx];
       dfaNode *edge = __dfn_getEdge(parent, c);
       if (edge == NULL) {
@@ -214,7 +214,7 @@ DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode) {
 }
 
 void DFAFilter_Free(DFAFilter *fc) {
-  for (int i = 0; i < Vector_Size(fc->cache); i++) {
+  for (size_t i = 0; i < Vector_Size(fc->cache); i++) {
     dfaNode *dn;
     Vector_Get(fc->cache, i, &dn);
 

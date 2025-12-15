@@ -76,7 +76,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
        .type = AC_ARGTYPE_SUBARGS_N,
        .target = &pauseBeforeArgs,
        .slicelen = 2},
-      {NULL}};
+      {.name = NULL, .target = NULL, .len = NULL, .type = 0, .intflags = 0, .slicelen = 0}};
 
   ACArgSpec *errSpec = NULL;
   int rv = AC_ParseArgSpec(&ac, debugArgsSpec, &errSpec);

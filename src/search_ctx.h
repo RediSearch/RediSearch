@@ -65,6 +65,8 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .key_ = NULL,
                           .spec = sp,
                           .time = {.current = { 0, 0 }, .timeout = { 0, 0 }},
+                          .apiVersion = 0,
+                          .expanded = 0,
                           .flags = RS_CTX_UNSET,};
   return sctx;
 }

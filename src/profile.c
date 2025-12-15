@@ -283,7 +283,7 @@ void Profile_AddIters(QueryIterator **root) {
     }
     case UNION_ITERATOR: {
       UnionIterator *ui = (UnionIterator *)(*root);
-      for (int i = 0; i < ui->num_orig; i++) {
+      for (uint32_t i = 0; i < ui->num_orig; i++) {
         Profile_AddIters(&(ui->its_orig[i]));
       }
       UI_SyncIterList(ui);
@@ -291,7 +291,7 @@ void Profile_AddIters(QueryIterator **root) {
     }
     case INTERSECT_ITERATOR: {
       IntersectionIterator *ii = (IntersectionIterator *)(*root);
-      for (int i = 0; i < ii->num_its; i++) {
+      for (uint32_t i = 0; i < ii->num_its; i++) {
         Profile_AddIters(&(ii->its[i]));
       }
       break;
@@ -364,7 +364,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   RedisModule_Reply_SimpleString(reply, "Child iterators");
   if (printFull) {
     RedisModule_Reply_Array(reply);
-      for (int i = 0; i < ui->num_orig; i++) {
+      for (uint32_t i = 0; i < ui->num_orig; i++) {
         printIteratorProfile(reply, ui->its_orig[i], 0, 0, depth + 1, limited, config);
       }
     RedisModule_Reply_ArrayEnd(reply);
@@ -389,7 +389,7 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
   printProfileCounters(counters);
 
   RedisModule_ReplyKV_Array(reply, "Child iterators");
-    for (int i = 0; i < ii->num_its; i++) {
+    for (uint32_t i = 0; i < ii->num_its; i++) {
       printIteratorProfile(reply, ii->its[i], 0, 0, depth + 1, limited, config);
     }
   RedisModule_Reply_ArrayEnd(reply);
@@ -429,7 +429,6 @@ PRINT_PROFILE_FUNC(printMetricIt) {
 
 void PrintIteratorChildProfile(RedisModule_Reply *reply, QueryIterator *root, ProfileCounters *counters, double cpuTime,
                   int depth, int limited, PrintProfileConfig *config, QueryIterator *child, const char *text) {
-  size_t nlen = 0;
   RedisModule_Reply_Map(reply);
     printProfileType(text);
     if (config->printProfileClock) {

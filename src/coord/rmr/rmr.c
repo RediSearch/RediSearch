@@ -416,7 +416,7 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
     RedisModule_ReplyKV_Null(reply, "shards");
   } else {
     RedisModule_ReplyKV_Array(reply, "shards"); // >shards
-    for (int i = 0; i < topo->numShards; i++) {
+    for (uint32_t i = 0; i < topo->numShards; i++) {
       RedisModule_Reply_Map(reply); // >>(shard)
 
       // Same syntax as in CLUSTER SHARDS
@@ -538,6 +538,7 @@ void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   ctx->cmd.depleted = true;
   short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
   RS_ASSERT(pending >= 0);
+  (void)pending; // suppress unused variable warning in release builds
   MRIteratorCallback_ProcessDone(ctx);
 }
 
@@ -702,6 +703,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
     // We need to take a reference to the iterator for the next batch of commands.
     int8_t refCount = MRIterator_IncreaseRefCount(it);
     REFCOUNT_INCR_MSG("MR_ManuallyTriggerNextIfNeeded", refCount);
+    (void)refCount; // suppress unused variable warning in release builds
     IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, it);
     return true; // We may have more replies (and we surely will)
   }
@@ -854,7 +856,7 @@ sds MRCommand_SafeToString(const MRCommand *cmd) {
     return NULL;
   }
 
-  for (int i = 0; i < cmd->num; i++) {
+  for (uint32_t i = 0; i < cmd->num; i++) {
     // Validate each argument before accessing
     if (!cmd->strs[i] || cmd->lens[i] <= 0 || cmd->lens[i] >= 1024 * 1024) {
       // Skip invalid arguments but continue processing
@@ -870,7 +872,7 @@ sds MRCommand_SafeToString(const MRCommand *cmd) {
     cmd_str = new_str;
 
     // Add space separator (except for the last argument)
-    if (i < cmd->num - 1) {
+    if (i < (uint32_t)(cmd->num - 1)) {
       sds space_str = sdscatlen(cmd_str, " ", 1);
       if (!space_str) {
         // Memory allocation failed

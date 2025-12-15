@@ -42,7 +42,7 @@ void HybridSearchResult_Free(HybridSearchResult* result);
  * Store a SearchResult from a source into the HybridSearchResult.
  * Updates the score of the SearchResult and marks the source as having results.
  */
-void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResult* searchResult, int sourceIndex);
+void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResult* searchResult, size_t sourceIndex);
 
 /**
  * Calculate hybrid score from multiple sources by combining their individual scores.

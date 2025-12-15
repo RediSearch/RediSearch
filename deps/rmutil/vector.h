@@ -27,10 +27,10 @@ typedef struct {
 } Vector;
 
 /* Create a new vector with element size. This should generally be used
- * internall by the NewVector macro */
+ * internally by the NewVector macro */
 Vector *__newVectorSize(size_t elemSize, size_t cap);
 
-// Put a pointer in the vector. To be used internall by the library
+// Put a pointer in the vector. To be used internally by the library
 int __vector_PutPtr(Vector *v, size_t pos, void *elem);
 
 /*
@@ -68,10 +68,10 @@ int __vector_PushPtr(Vector *v, void *elem);
 int Vector_Resize(Vector *v, size_t newcap);
 
 /* return the used size of the vector, regardless of capacity */
-int Vector_Size(Vector *v);
+size_t Vector_Size(Vector *v);
 
 /* return the actual capacity */
-int Vector_Cap(Vector *v);
+size_t Vector_Cap(Vector *v);
 
 /* free the vector and the underlying data. Does not release its elements if
  * they are pointers*/

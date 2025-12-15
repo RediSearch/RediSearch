@@ -35,9 +35,6 @@ public:
 
     // The ratio between wildcard result set size and child result set size
     double ratio_multiplier = state.range(0);
-    // Total number of documents in the universe
-    size_t numChildDocIds = 100'000;
-    size_t numWcDocIds = numChildDocIds * ratio_multiplier;
 
     std::mt19937 rng(46);
     std::uniform_int_distribution<t_docId> dist(1, maxDocId);

@@ -293,7 +293,7 @@ static int distributeCountDistinctish(ReducerDistCtx *rdctx, QueryError *status)
 
 static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   PLN_Reducer *src = rdctx->srcReducer;
-  PLN_GroupStep *local = rdctx->localGroup, *remote = rdctx->remoteGroup;
+  PLN_GroupStep *local = rdctx->localGroup;
   CHECK_ARG_COUNT(1);
 
   // COUNT to know how many results

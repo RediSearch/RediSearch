@@ -21,12 +21,13 @@
 #include <unistd.h>
 #endif
 
+#ifndef __ignore__
 #define __ignore__(X) \
     do { \
         int rc = (X); \
-        if (rc == -1) \
-            ; \
+        (void)rc; \
     } while(0)
+#endif
 
 #define get_spec(x) ((IndexSpec*)__RefManager_Get_Object(x))
 

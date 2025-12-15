@@ -433,7 +433,7 @@ expr(A) ::= modifierlist(B) COLON text_expr(C) . {
   } else {
     t_fieldMask mask = 0;
     if (ctx->sctx->spec) {
-      for (int i = 0; i < array_len(B); i++) {
+      for (uint32_t i = 0; i < array_len(B); i++) {
         mask |= FIELD_BIT(B[i].fs);
       }
     }

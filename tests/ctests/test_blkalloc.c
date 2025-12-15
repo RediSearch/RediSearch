@@ -41,6 +41,7 @@ int testBlockAlloc() {
   BlkAllocBlock *lastHead = alloc.last;
   // Alloc a new item
   char *buf4 = BlkAlloc_Alloc(&alloc, 16, 16);
+  ASSERT(buf4 != NULL);
   ASSERT(alloc.last != lastHead);
 
   BlkAlloc_Clear(&alloc, NULL, NULL, 0);

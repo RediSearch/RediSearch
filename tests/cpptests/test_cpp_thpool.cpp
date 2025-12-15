@@ -118,10 +118,10 @@ THPOOL_TEST_SUITE(PriorityThpoolTestBasic, 1, 1)
  */
 TEST_P(PriorityThpoolTestBasic, AllLowPriority) {
     int array_len = 10;
-    std::chrono::time_point<std::chrono::high_resolution_clock> arr[array_len];
-    test_struct ts[array_len];
+    std::vector<std::chrono::time_point<std::chrono::high_resolution_clock>> arr(array_len);
+    std::vector<test_struct> ts(array_len);
     for (int i = 0; i < array_len; i++) {
-        ts[i].arr = arr;
+        ts[i].arr = arr.data();
         ts[i].index = i;
         redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[i], THPOOL_PRIORITY_LOW);
     }
@@ -137,10 +137,10 @@ TEST_P(PriorityThpoolTestBasic, AllLowPriority) {
  */
 TEST_P(PriorityThpoolTestBasic, AllHighPriority) {
     int array_len = 10;
-    std::chrono::time_point<std::chrono::high_resolution_clock> arr[array_len];
-    test_struct ts[array_len];
+    std::vector<std::chrono::time_point<std::chrono::high_resolution_clock>> arr(array_len);
+    std::vector<test_struct> ts(array_len);
     for (int i = 0; i < array_len; i++) {
-        ts[i].arr = arr;
+        ts[i].arr = arr.data();
         ts[i].index = i;
         redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[i], THPOOL_PRIORITY_HIGH);
     }
@@ -157,12 +157,12 @@ TEST_P(PriorityThpoolTestBasic, AllHighPriority) {
  */
 TEST_P(PriorityThpoolTestBasic, HighLowHighTest) {
     int high_priority_tasks = 2;
-    std::chrono::time_point<std::chrono::high_resolution_clock> arr[high_priority_tasks];
+    std::vector<std::chrono::time_point<std::chrono::high_resolution_clock>> arr(high_priority_tasks);
     std::chrono::time_point<std::chrono::high_resolution_clock> low_priority_timestamp;
     // Initialize the test_struct array
-    test_struct ts[high_priority_tasks + 1];
+    std::vector<test_struct> ts(high_priority_tasks + 1);
     for (int i = 0; i < high_priority_tasks; i++) {
-        ts[i].arr = arr;
+        ts[i].arr = arr.data();
         ts[i].index = i;
     }
     ts[high_priority_tasks] = {&low_priority_timestamp, 0};
@@ -183,12 +183,12 @@ THPOOL_TEST_SUITE(PriorityThpoolTestWithoutBiasThreads, 1, 0)
 
 TEST_P(PriorityThpoolTestWithoutBiasThreads, CombinationTest) {
     int total_tasks = 5;
-    std::chrono::time_point<std::chrono::high_resolution_clock> arr[total_tasks];
+    std::vector<std::chrono::time_point<std::chrono::high_resolution_clock>> arr(total_tasks);
 
     // Initialize the test_struct array
-    test_struct ts[total_tasks];
+    std::vector<test_struct> ts(total_tasks);
     for (int i = 0; i < total_tasks; i++) {
-        ts[i].arr = arr;
+        ts[i].arr = arr.data();
         ts[i].index = i;
     }
 
@@ -244,7 +244,7 @@ TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
     size_t time_us = 1;
 
     // Let the threads wait until we push change state jobs.
-    for (int i = 0; i < TEST_FUNCTIONALITY_N_THREADS; i++) {
+    for (size_t i = 0; i < TEST_FUNCTIONALITY_N_THREADS; i++) {
         redisearch_thpool_add_work(this->pool, waitForAdminJobFunc, this->pool, THPOOL_PRIORITY_HIGH);
     }
 
@@ -256,7 +256,7 @@ TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
     volatile std::atomic<bool> sign {true};
     volatile std::atomic<size_t> received {0};
     MarkAndWait mark_and_wait = {sign, received};
-    for (int i = 0; i < TEST_FUNCTIONALITY_N_THREADS; i++) {
+    for (size_t i = 0; i < TEST_FUNCTIONALITY_N_THREADS; i++) {
         redisearch_thpool_add_work(this->pool, MarkAndWaitForSignFunc, &mark_and_wait, THPOOL_PRIORITY_HIGH);
     }
 
@@ -363,7 +363,7 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
     ASSERT_TRUE(redisearch_thpool_is_initialized(this->pool));
 
     // Let the thread wait until an admin job is pushed to the queue.
-    for (int i = 0; i < n_threads; i++) {
+    for (size_t i = 0; i < n_threads; i++) {
         redisearch_thpool_add_work(this->pool, waitForAdminJobFunc, this->pool, THPOOL_PRIORITY_HIGH);
         total_jobs_pushed++;
     }
@@ -437,7 +437,7 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_thpool_t *thpo
      * 7. Expect final_n_threads threads in the pool */
 
     // Keep all the threads busy until while we schedule the reduction of all threads
-    for (int i = 0; i < RUNTIME_CONFIG_N_THREADS; i++) {
+    for (size_t i = 0; i < RUNTIME_CONFIG_N_THREADS; i++) {
         redisearch_thpool_add_work(thpool_p, waitForAdminJobFunc, thpool_p, THPOOL_PRIORITY_HIGH);
         ++total_jobs_pushed;
     }
@@ -449,7 +449,7 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_thpool_t *thpo
 
     // Keep `n_threads_to_keep_alive` of the threads working and alive during remove threads + verify init
     bool unblock = false;
-    for (int i = 0; i < n_threads_to_keep_alive; i++) {
+    for (size_t i = 0; i < n_threads_to_keep_alive; i++) {
         redisearch_thpool_add_work(thpool_p, waitForSignFunc, &unblock, THPOOL_PRIORITY_HIGH);
         ++total_jobs_pushed;
     }
@@ -535,12 +535,11 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestReinitializeThreadsWhileTerminateWhe
  * decrease the value of n_threads without affecting the current running thread. */
 TEST_P(PriorityThpoolTestRuntimeConfig, TestSetToZeroWhileTerminateWhenEmpty) {
     size_t total_jobs_pushed = 0;
-    size_t time_us = 1;
 
     auto dummyJob = [](void *p) {};
     // Decrease number of threads to 1 while jobs are still in the queue.
     // These jobs will run while we kill excessive threads.
-    for (int i = 0; i < RUNTIME_CONFIG_N_THREADS; i++) {
+    for (size_t i = 0; i < RUNTIME_CONFIG_N_THREADS; i++) {
         redisearch_thpool_add_work(this->pool, waitForAdminJobFunc, this->pool, THPOOL_PRIORITY_HIGH);
         ++total_jobs_pushed;
     }
@@ -565,7 +564,7 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestSetToZeroWhileTerminateWhenEmpty) {
     // Add jobs to be done in TERMINATE_WHEN_EMPTY state.
     size_t n_jobs = 10;
     size_t sleep_us = 1;
-    for (int i = 0; i < n_jobs; i++) {
+    for (size_t i = 0; i < n_jobs; i++) {
         redisearch_thpool_add_work(this->pool, sleep_job_us, &sleep_us, THPOOL_PRIORITY_HIGH);
         ++total_jobs_pushed;
     }
@@ -682,7 +681,7 @@ TEST_P(PriorityThpoolTestBiasAndNonBias, TestTakingTasksAsBias) {
     // Wait for the threads to take the jobs before adding any high priority jobs.
     jobs_pull_wait(this->pool, 2);
     // Add 5 count jobs for each priority.
-    for (int i = 0; i < num_jobs; i++) {
+    for (size_t i = 0; i < num_jobs; i++) {
         redisearch_thpool_add_work(this->pool, countFunc, &countHigh, THPOOL_PRIORITY_HIGH);
         redisearch_thpool_add_work(this->pool, countFunc, &countLow, THPOOL_PRIORITY_LOW);
     }

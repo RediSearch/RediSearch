@@ -828,7 +828,7 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
         s = sdscat(s, ": ");
         s = RSValue_DumpSds(v->_mapval.entries[i].value, s, obfuscate);
       }
-      s = sdscat(s, "}");
+      return sdscat(s, "}");
       break;
     case RSValueType_Reference:
       return RSValue_DumpSds(v->_ref, s, obfuscate);
@@ -836,8 +836,8 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
 
     case RSValueType_Trio:
       return RSValue_DumpSds(RSValue_Trio_GetLeft(v), s, obfuscate);
-      break;
   }
+  return s; // Should never reach here
 }
 
 ///////////////////////////////////////////////////////////////

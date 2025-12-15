@@ -105,6 +105,7 @@ typedef struct QueryIterator {
 
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base) {
   // Default implementation does nothing.
+  (void)base;
   return VALIDATE_OK;
 }
 

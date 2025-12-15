@@ -887,8 +887,6 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
             // For numeric iterators, we can simulate index disappearance by
             // manipulating the revision ID. NumericCheckAbort compares the stored
             // revision ID with the current one from the NumericRangeTree.
-            NumericInvIndIterator *numIt = (NumericInvIndIterator *)iterator;
-            uint32_t originalRevisionId = numIt->revisionId;
 
             // Simulate the range tree being modified by incrementing its revision ID
             // This simulates a scenario where the tree was modified (e.g., node split, removal)

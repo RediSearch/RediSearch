@@ -115,7 +115,7 @@ int test_removeEscape() {
   return 0;
 }
 
-int _testTrimPattern(char *str, char *strAfter, int lenAfter) {
+int _testTrimPattern(char *str, char *strAfter, size_t lenAfter) {
   //printf("%d %s ", i++, str);
   size_t len = Wildcard_TrimPattern(str, strlen(str));
   //printf("%s %d\n", str, len);
@@ -176,31 +176,31 @@ int _testMatch(char *pattern, char *str, match_t expected) {
 int test_match() {
   // no wildcard
   _testMatch("foo", "foo", FULL_MATCH);
-  _testMatch("foo", "fo", PARTIAL_MATCH);
+  _testMatch("foo", "fo", PARTIAL_MATCH); // codespell:ignore fo
   _testMatch("foo", "fooo", NO_MATCH);
   _testMatch("foo", "bar", NO_MATCH);
 
   // ? at end
-  _testMatch("fo?", "foo", FULL_MATCH);
-  _testMatch("fo?", "fo", PARTIAL_MATCH);
-  _testMatch("fo?", "fooo", NO_MATCH);
-  _testMatch("fo?", "bar", NO_MATCH);
+  _testMatch("fo?", "foo", FULL_MATCH); // codespell:ignore fo
+  _testMatch("fo?", "fo", PARTIAL_MATCH); // codespell:ignore fo
+  _testMatch("fo?", "fooo", NO_MATCH); // codespell:ignore fo
+  _testMatch("fo?", "bar", NO_MATCH); // codespell:ignore fo
 
   // ? at beginning
   _testMatch("?oo", "foo", FULL_MATCH);
-  _testMatch("?oo", "fo", PARTIAL_MATCH);
+  _testMatch("?oo", "fo", PARTIAL_MATCH); // codespell:ignore fo
   _testMatch("?oo", "fooo", NO_MATCH);
   _testMatch("?oo", "bar", NO_MATCH);
 
   // * at end
-  _testMatch("fo*", "foo", FULL_MATCH);
-  _testMatch("fo*", "fo", FULL_MATCH);
-  _testMatch("fo*", "fooo", FULL_MATCH);
-  _testMatch("fo*", "bar", NO_MATCH);
+  _testMatch("fo*", "foo", FULL_MATCH); // codespell:ignore fo
+  _testMatch("fo*", "fo", FULL_MATCH); // codespell:ignore fo
+  _testMatch("fo*", "fooo", FULL_MATCH); // codespell:ignore fo
+  _testMatch("fo*", "bar", NO_MATCH); // codespell:ignore fo
 
   // * at beginning - at least partial match
   _testMatch("*oo", "foo", FULL_MATCH);
-  _testMatch("*oo", "fo", PARTIAL_MATCH);
+  _testMatch("*oo", "fo", PARTIAL_MATCH); // codespell:ignore fo
   _testMatch("*oo", "fooo", FULL_MATCH);
   _testMatch("*oo", "bar", PARTIAL_MATCH);
   _testMatch("*", "bar", FULL_MATCH);
@@ -222,5 +222,5 @@ TEST_MAIN({
   TESTFUNC(test_StarBreak);
   TESTFUNC(test_removeEscape);
   TESTFUNC(test_trimPattern);
-  TESTFUNC(test_match); 
+  TESTFUNC(test_match);
 });

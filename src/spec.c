@@ -182,7 +182,7 @@ static void Cursors_initSpec(IndexSpec *spec) {
  * Assuming the spec is properly locked before calling this function.
  */
 const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char *name, size_t len) {
-  for (size_t i = 0; i < spec->numFields; i++) {
+  for (int16_t i = 0; i < spec->numFields; i++) {
     const FieldSpec *fs = spec->fields + i;
     if (!HiddenString_CompareC(fs->fieldName, name, len)) {
       return fs;
@@ -192,7 +192,7 @@ const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char 
 }
 
 const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenString *name) {
-  for (size_t i = 0; i < spec->numFields; i++) {
+  for (int16_t i = 0; i < spec->numFields; i++) {
     const FieldSpec *fs = spec->fields + i;
     if (!HiddenString_Compare(fs->fieldName, name)) {
       return fs;
@@ -220,7 +220,7 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
     return 1;
   }
 
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+  for (int16_t ii = 0; ii < sp->numFields; ++ii) {
     if (fm & ((t_fieldMask)1 << ii)) {
       const FieldSpec *fs = sp->fields + ii;
       if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsPhonetics(fs))) {
@@ -233,7 +233,7 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
 
 // Assuming the spec is properly locked before calling this function.
 int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, QueryError *status) {
-  for (size_t ii = 0; ii < spec->numFields; ++ii) {
+  for (int16_t ii = 0; ii < spec->numFields; ++ii) {
     if (fm & ((t_fieldMask)1 << ii)) {
       const FieldSpec *fs = spec->fields + ii;
       if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsUndefinedOrder(fs))) {
@@ -248,7 +248,7 @@ int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, Qu
 
 // Assuming the spec is properly locked before calling this function.
 const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t idx) {
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+  for (int16_t ii = 0; ii < sp->numFields; ++ii) {
     if (sp->fields[ii].options & FieldSpec_Sortable && sp->fields[ii].sortIdx == idx) {
       return sp->fields + ii;
     }
@@ -377,6 +377,11 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
   StrongRef_Release(spec_ref);
 }
 
+// Wrapper function to match RedisModuleTimerProc signature
+static void IndexSpec_TimedOutProcWrapper(RedisModuleCtx *ctx, void *data) {
+  IndexSpec_TimedOutProc(ctx, (WeakRef){.rm = data});
+}
+
 // Assuming the GIL is held.
 // This can be done without locking the spec for write, since the timer is not modified or read by any other thread.
 static void IndexSpec_SetTimeoutTimer(IndexSpec *sp, WeakRef spec_ref) {
@@ -387,7 +392,7 @@ static void IndexSpec_SetTimeoutTimer(IndexSpec *sp, WeakRef spec_ref) {
     }
   }
   sp->timerId = RedisModule_CreateTimer(RSDummyContext, sp->timeout,
-                                        (RedisModuleTimerProc)IndexSpec_TimedOutProc, spec_ref.rm);
+                                        IndexSpec_TimedOutProcWrapper, spec_ref.rm);
   sp->isTimerSet = true;
 }
 
@@ -438,7 +443,7 @@ double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanne
 size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp) {
   // Traverse the fields and calculates the overhead of the numeric tree index
   size_t overhead = 0;
-  for (size_t i = 0; i < sp->numFields; i++) {
+  for (int16_t i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_NUMERIC) || FIELD_IS(fs, INDEXFLD_T_GEO)) {
       RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, fs->types);
@@ -457,7 +462,7 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp) {
 size_t IndexSpec_collect_tags_overhead(const IndexSpec *sp) {
   // Traverse the fields and calculates the overhead of the tags
   size_t overhead = 0;
-  for (size_t i = 0; i < sp->numFields; i++) {
+  for (int16_t i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
       overhead += TagIndex_GetOverhead(sp, fs);
@@ -1496,14 +1501,14 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
   IndexSpecCache_Decref(sp->spcache);
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 
-  for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
+  for (int16_t ii = prevNumFields; ii < sp->numFields; ++ii) {
     FieldsGlobalStats_UpdateStats(sp->fields + ii, 1);
   }
 
   return 1;
 
 reset:
-  for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
+  for (int16_t ii = prevNumFields; ii < sp->numFields; ++ii) {
     IndexError_Clear(sp->fields[ii].indexError);
     FieldSpec_Cleanup(&sp->fields[ii]);
   }
@@ -1723,7 +1728,7 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   ret->nfields = spec->numFields;
   ret->fields = rm_malloc(sizeof(*ret->fields) * ret->nfields);
   ret->refcount = 1;
-  for (size_t ii = 0; ii < spec->numFields; ++ii) {
+  for (int16_t ii = 0; ii < spec->numFields; ++ii) {
     const FieldSpec* fs = spec->fields + ii;
     FieldSpec* field = ret->fields + ii;
     *field = *fs;
@@ -1819,7 +1824,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
 
   // Free fields formatted names
   if (spec->indexStrs) {
-    for (size_t ii = 0; ii < spec->numFields; ++ii) {
+    for (int16_t ii = 0; ii < spec->numFields; ++ii) {
       IndexSpecFmtStrings *fmts = spec->indexStrs + ii;
       for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
         if (fmts->types[jj]) {
@@ -1831,7 +1836,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   }
   // Free fields data
   if (spec->fields != NULL) {
-    for (size_t i = 0; i < spec->numFields; i++) {
+    for (int16_t i = 0; i < spec->numFields; i++) {
       FieldSpec_Cleanup(&spec->fields[i]);
     }
     rm_free(spec->fields);
@@ -1887,7 +1892,7 @@ void IndexSpec_Free(IndexSpec *spec) {
 
   IndexError_Clear(spec->stats.indexError);
   if (spec->fields != NULL) {
-    for (size_t i = 0; i < spec->numFields; i++) {
+    for (int16_t i = 0; i < spec->numFields; i++) {
       IndexError_Clear((spec->fields[i]).indexError);
     }
   }
@@ -1932,7 +1937,7 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
   }
 
   // Remove spec's fields from global statistics
-  for (size_t i = 0; i < spec->numFields; i++) {
+  for (int16_t i = 0; i < spec->numFields; i++) {
     FieldSpec *field = spec->fields + i;
     FieldsGlobalStats_UpdateStats(field, -1);
     FieldsGlobalStats_UpdateIndexError(field->types, -FieldSpec_GetIndexErrorCount(field));
@@ -2090,7 +2095,7 @@ void IndexSpec_InitializeSynonym(IndexSpec *sp) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 static void IndexSpec_InitLock(IndexSpec *sp) {
-  int res = 0;
+  int res;
   pthread_rwlockattr_t attr;
   res = pthread_rwlockattr_init(&attr);
   RS_ASSERT(res == 0);
@@ -2099,7 +2104,7 @@ static void IndexSpec_InitLock(IndexSpec *sp) {
   res = pthread_rwlockattr_setkind_np(&attr, pref);
   RS_ASSERT(res == 0);
 #endif
-
+  (void)res;
   pthread_rwlock_init(&sp->rwlock, &attr);
 }
 
@@ -2247,7 +2252,7 @@ void IndexSpec_StartGC(StrongRef global, IndexSpec *sp) {
 
 // given a field mask with one bit lit, it returns its offset
 int bit(t_fieldMask id) {
-  for (int i = 0; i < sizeof(t_fieldMask) * 8; i++) {
+  for (int i = 0; i < (int)(sizeof(t_fieldMask) * 8); i++) {
     if (((id >> i) & 1) == 1) {
       return i;
     }
@@ -2911,7 +2916,7 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   TrieIterator_Free(it);
 
   // Delete the numeric, tag, and geo indexes which reside on separate keys
-  for (size_t i = 0; i < ctx.spec->numFields; i++) {
+  for (int16_t i = 0; i < ctx.spec->numFields; i++) {
     const FieldSpec *fs = ctx.spec->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
       Redis_DeleteKey(ctx.redisCtx, IndexSpec_GetFormattedKey(ctx.spec, fs, INDEXFLD_T_NUMERIC));
@@ -3143,7 +3148,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
   char *legacyName = RedisModule_LoadStringBuffer(rdb, NULL);
 
-  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   IndexSpec_InitLock(sp);
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
@@ -3164,7 +3168,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   sp->numFields = RedisModule_LoadUnsigned(rdb);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
-  int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     initializeFieldSpec(fs, i);
@@ -3210,9 +3213,10 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       HiddenString* alias = NewHiddenString(s, strlen(s), false);
       int rc = IndexAlias_Add(alias, spec_ref, 0, &status);
+      RS_ASSERT(rc == REDISMODULE_OK);
+      (void)rc;
       HiddenString_Free(alias, false);
       RedisModule_Free(s);
-      RS_ASSERT(rc == REDISMODULE_OK);
     }
   }
 
@@ -3589,9 +3593,9 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   // collect specs that their name is prefixed by the key name
   // `prefixes` includes list of arrays of specs, one for each prefix of key name
   TrieMapResultBuf prefixes = TrieMap_FindPrefixes(SchemaPrefixes_g, key_p, n);
-  for (int i = 0; i < TrieMapResultBuf_Len(&prefixes); ++i) {
+  for (uintptr_t i = 0; i < TrieMapResultBuf_Len(&prefixes); ++i) {
     SchemaPrefixNode *node = TrieMapResultBuf_GetByIndex(&prefixes, i);
-    for (int j = 0; j < array_len(node->index_specs); ++j) {
+    for (uint32_t j = 0; j < array_len(node->index_specs); ++j) {
       StrongRef global = node->index_specs[j];
       IndexSpec *spec = StrongRef_Get(global);
       if (spec && !dictFind(specs, spec->specName)) {
@@ -3647,7 +3651,7 @@ static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
   for (size_t i = 0; hashFields[i] != NULL; ++i) {
     size_t length = 0;
     const char *field = RedisModule_StringPtrLen(hashFields[i], &length);
-    for (size_t j = 0; j < spec->numFields; ++j) {
+    for (int16_t j = 0; j < spec->numFields; ++j) {
       if (!HiddenString_CompareC(spec->fields[j].fieldName, field, length)) {
         return true;
       }
@@ -3810,12 +3814,12 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
     dScanner->status = DEBUG_INDEX_SCANNER_CODE_RUNNING;
   }
 
-  if (dScanner->maxDocsTBscannedPause > 0 && (!dScanner->wasPaused) && scanner->scannedKeys == dScanner->maxDocsTBscannedPause) {
+  if (dScanner->maxDocsTBscannedPause > 0 && (!dScanner->wasPaused) && scanner->scannedKeys == (size_t)dScanner->maxDocsTBscannedPause) {
     globalDebugCtx.bgIndexing.pause = true;
     dScanner->wasPaused = true;
   }
 
-  if ((dScanner->maxDocsTBscanned > 0) && (scanner->scannedKeys == dScanner->maxDocsTBscanned)) {
+  if ((dScanner->maxDocsTBscanned > 0) && (scanner->scannedKeys == (size_t)dScanner->maxDocsTBscanned)) {
     scanner->cancelled = true;
     dScanner->status = DEBUG_INDEX_SCANNER_CODE_CANCELLED;
   }

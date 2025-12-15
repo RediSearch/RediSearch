@@ -22,12 +22,13 @@
 
 #define REPLY_KVSTR_SAFE(k, v)         \
   do {                                 \
+    const char *v_orig_ = (v);         \
     char *v_ = (char *)(v);            \
     if (isUnsafeForSimpleString(v_)) { \
       v_ = escapeSimpleString(v_);     \
     }                                  \
     REPLY_KVSTR(k, v_);                \
-    if (v_ != (v)) rm_free(v_);        \
+    if (v_ != v_orig_) rm_free(v_);    \
   } while (0)
 
 #define REPLY_SIMPLE_SAFE(v)                   \

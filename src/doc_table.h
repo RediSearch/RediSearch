@@ -196,6 +196,7 @@ int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const c
   ({                                                                          \
     uint16_t count = __atomic_fetch_add(&md->ref_count, 1, __ATOMIC_RELAXED); \
     RS_LOG_ASSERT(count < (1 << 16) - 1, "overflow of dmd ref_count");        \
+    (void)count;                                                              \
   })
 
 /* don't use this function directly. Use DMD_Return */

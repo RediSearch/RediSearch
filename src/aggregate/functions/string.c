@@ -22,7 +22,9 @@
 #define STRING_BLOCK_SIZE 512
 #define FMT_OUT_STR_MIN_PREALLOC 8
 #define FMT_OUT_STR_MAX_PREALLOC (1024 * 1024)
+#ifndef MAX
 #define MAX(i, j) (((i) > (j)) ? (i) : (j))
+#endif
 
 static int func_matchedTerms(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   int maxTerms = 100;
@@ -97,12 +99,12 @@ static int stringfunc_substr(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   if (offset < 0) {
     offset = (int)sz + offset;
   }
-  offset = MAX(0, MIN(offset, sz));
+  offset = MAX(0, MIN(offset, (int)sz));
   // len < 0 means read until the end of the string
   if (len < 0) {
     len = MAX(0, ((int)sz - offset) + len);
   }
-  if (offset + len > sz) {
+  if ((size_t)(offset + len) > sz) {
     len = sz - offset;
   }
 
@@ -367,7 +369,7 @@ static int stringfunc_strlen(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   RSValue *str = RSValue_Dereference(&argv[0]);
 
   size_t n;
-  const char *p_pref = (char *)RSValue_StringPtrLen(str, &n);
+  RSValue_StringPtrLen(str, &n);
   RSValue_IntoNumber(result, n);
   return EXPR_EVAL_OK;
 }

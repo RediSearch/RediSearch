@@ -20,7 +20,7 @@ int testStopwordList() {
   StopWordList *sl = NewStopWordListCStr((const char **)terms, sizeof(terms) / sizeof(char *));
   ASSERT(sl != NULL);
 
-  for (int i = 0; i < sizeof(test_terms) / sizeof(const char *); i++) {
+  for (size_t i = 0; i < sizeof(test_terms) / sizeof(const char *); i++) {
     ASSERT(StopWordList_Contains(sl, test_terms[i], strlen(test_terms[i])));
   }
 
@@ -29,7 +29,7 @@ int testStopwordList() {
   ASSERT(!StopWordList_Contains(NULL, NULL, 0));
 
   StopWordList_Free(sl);
-  for (int i = 0; i < sizeof(terms) / sizeof(const char *); i++) {
+  for (size_t i = 0; i < sizeof(terms) / sizeof(const char *); i++) {
     free(terms[i]);
   }
   return 0;
@@ -42,7 +42,7 @@ int testDefaultStopwords() {
     ASSERT(StopWordList_Contains(sl, DEFAULT_STOPWORDS[i], strlen(DEFAULT_STOPWORDS[i])));
   }
   const char *test_terms[] = {"foo", "bar", "שלום", "hello", "world", "x", "i", "t"};
-  for (int i = 0; i < sizeof(test_terms) / sizeof(const char *); i++) {
+  for (size_t i = 0; i < sizeof(test_terms) / sizeof(const char *); i++) {
     // printf("checking %s\n", test_terms[i]);
     ASSERT(!StopWordList_Contains(sl, test_terms[i], strlen(test_terms[i])));
   }

@@ -241,7 +241,6 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
  *
  */
 int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo) {
-#define SYNONYM_BUFF_LEN 100
   int options = TOKOPT_F_RAW;  // this is the actual word given in the query
   if (tokInfo->flags & Token_CopyRaw) {
     options |= TOKOPT_F_COPYSTR;
@@ -262,9 +261,7 @@ int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo
   if (tokCtx->idx->smap) {
     TermData *t_data = SynonymMap_GetIdsBySynonym(tokCtx->idx->smap, tokInfo->tok, tokInfo->tokLen);
     if (t_data) {
-      char synonym_buff[SYNONYM_BUFF_LEN];
-      size_t synonym_len;
-      for (int i = 0; i < array_len(t_data->groupIds); ++i) {
+      for (uint32_t i = 0; i < array_len(t_data->groupIds); ++i) {
         ForwardIndex_HandleToken(tokCtx->idx, t_data->groupIds[i], strlen(t_data->groupIds[i]), tokInfo->pos,
                                  tokCtx->fieldScore, tokCtx->fieldId, TOKOPT_F_COPYSTR);
       }
@@ -287,8 +284,6 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntr
                        .freq = ent->freq,
                        .fieldMask = ent->fieldMask};
 
-  RSQueryTerm *term = IndexResult_QueryTermRef(&rec);
-  term = NULL;
   RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(&rec);
   if (ent->vw) {
     RSOffsetVector_SetData(offsets, (char *) VVW_GetByteData(ent->vw), VVW_GetByteLength(ent->vw));

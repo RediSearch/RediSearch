@@ -61,7 +61,7 @@ void HybridSearchResult_Free(HybridSearchResult* result) {
  * Store a SearchResult from a source into the HybridSearchResult.
  * Updates the score of the SearchResult and marks the source as having results.
  */
-void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResult* searchResult, int sourceIndex) {
+void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResult* searchResult, size_t sourceIndex) {
   RS_ASSERT(hybridResult && searchResult);
   RS_ASSERT(sourceIndex < hybridResult->numSources);
 
@@ -151,7 +151,7 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
 
   // Merge flags from all upstreams
   for (size_t i = 0; i < hybridResult->numSources; i++) {
-    if (hybridResult->hasResults[i] && i != targetIndex) {
+    if (hybridResult->hasResults[i] && i != (size_t)targetIndex) {
       RS_ASSERT(hybridResult->searchResults[i]);
       SearchResult_MergeFlags(primary, hybridResult->searchResults[i]);
     }

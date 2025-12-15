@@ -65,7 +65,6 @@ static void setFieldSettings(ReturnedField *tgt, const ReturnedField *defaults, 
 }
 
 static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
-  size_t numFields = 0;
   int rc = REDISMODULE_OK;
 
   ReturnedField defOpts = {.summarizeSettings = {.contextLen = SUMMARIZE_FRAGSIZE_DEFAULT,

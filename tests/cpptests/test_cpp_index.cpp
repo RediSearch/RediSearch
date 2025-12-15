@@ -195,7 +195,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
     h.freq = (1 + i % 100) / (float)101;
 
     h.vw = NewVarintVectorWriter(8);
-    for (int n = 0; n < i % 4; n++) {
+    for (uint32_t n = 0; n < i % 4; n++) {
       VVW_Write(h.vw, n);
     }
     VVW_Truncate(h.vw);
@@ -222,7 +222,6 @@ TEST_P(IndexFlagsTest, testRWFlags) {
     res->fieldMask = RS_FIELDMASK_ALL;
 
     int n = 1;
-    IteratorStatus rc;
     while (IndexReader_Next(reader, res)) {
       ASSERT_EQ(res->docId, n);
       n++;
@@ -382,7 +381,6 @@ TEST_F(IndexTest, testPureNot) {
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
   QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1), InvertedIndex_LastId(w) + 5, 1, {0}, &ctx->qctx);
 
-  RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
                     20, 22, 23, 25, 26, 28, 29, 31, 32, 33, 34, 35};
   int i = 0;
@@ -493,8 +491,7 @@ TEST_F(IndexTest, testNumericVaried) {
   static const size_t numCount = sizeof(nums) / sizeof(double);
 
   for (size_t i = 0; i < numCount; i++) {
-    size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
-    // printf("[%lu]: Stored %lf\n", i, nums[i]);
+    InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
   }
 
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
@@ -553,11 +550,10 @@ void testNumericEncodingHelper(bool isMulti) {
   InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, &index_memsize);
 
   for (size_t ii = 0; ii < numInfos; ii++) {
-    // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
-    size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
+    InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
 
     if (isMulti) {
-      size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
+      InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
     }
   }
 
@@ -673,17 +669,17 @@ TEST_F(IndexTest, testHybridVector) {
                       .logCtx = &logCtx};
   VecSimIndex *index = VecSimIndex_New(&params);
   for (size_t i = 1; i <= max_id; i++) {
-    float f[d];
+    std::vector<float> f(d);
     for (size_t j = 0; j < d; j++) {
       f[j] = (float)i;
     }
-    VecSimIndex_AddVector(index, (const void *)f, (int)i);
+    VecSimIndex_AddVector(index, (const void *)f.data(), (int)i);
   }
   ASSERT_EQ(VecSimIndex_IndexSize(index), max_id);
 
   float query[] = {(float)max_id, (float)max_id, (float)max_id, (float)max_id};
   KNNVectorQuery top_k_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_SCORE};
-  VecSimQueryParams queryParams = {0};
+  VecSimQueryParams queryParams = {{{0}}};
   queryParams.hnswRuntimeParams.efRuntime = max_id;
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
   FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
@@ -844,7 +840,6 @@ TEST_F(IndexTest, testMetric_VectorRange) {
 
   size_t n = 100;
   size_t d = 4;
-  size_t k = 10;
   VecSimMetric met = VecSimMetric_Cosine;
   VecSimType t = VecSimType_FLOAT32;
 
@@ -860,18 +855,18 @@ TEST_F(IndexTest, testMetric_VectorRange) {
                       .logCtx = &logCtx};
   VecSimIndex *index = VecSimIndex_New(&params);
   for (size_t i = 1; i <= n; i++) {
-    float f[d];
+    std::vector<float> f(d);
     f[0] = 1.0f;
     for (size_t j = 1; j < d; j++) {
       f[j] = (float)i / n;
     }
-    VecSimIndex_AddVector(index, (const void *)f, (int)i);
+    VecSimIndex_AddVector(index, (const void *)f.data(), (int)i);
   }
   ASSERT_EQ(VecSimIndex_IndexSize(index), n);
 
   float query[] = {(float)n, (float)n, (float)n, (float)n};
   RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
-  VecSimQueryParams queryParams = {0};
+  VecSimQueryParams queryParams = {{{0}}};
   queryParams.hnswRuntimeParams.efRuntime = n;
   VecSimQueryReply *results =
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
@@ -1346,7 +1341,7 @@ TEST_F(IndexTest, testVarintFieldMask) {
   Buffer b = {0};
   Buffer_Init(&b, 1);
   BufferWriter bw = NewBufferWriter(&b);
-  for (int i = 0; i < sizeof(t_fieldMask); i++, x |= x << 8) {
+  for (size_t i = 0; i < sizeof(t_fieldMask); i++, x |= x << 8) {
     size_t sz = WriteVarintFieldMask(x, &bw);
     ASSERT_EQ(expected[i], sz);
     BufferReader br = NewBufferReader(bw.buf);
@@ -1451,13 +1446,10 @@ TEST_F(IndexTest, testRawDocId) {
 // Test HybridIteratorReducer optimization with NULL child iterator
 TEST_F(IndexTest, testHybridIteratorReducerWithEmptyChild) {
   // Create hybrid params with NULL child iterator
-  size_t n = 100;
   size_t d = 4;
-  size_t step = 4;
-  size_t max_id = n*step;
   size_t k = 10;
 
-  VecSimQueryParams queryParams = {0};
+  VecSimQueryParams queryParams = {{{0}}};
   KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
 
   HybridIteratorParams hParams = {
@@ -1492,7 +1484,7 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
   size_t max_id = n*step;
   size_t k = 10;
 
-  VecSimQueryParams queryParams = {0};
+  VecSimQueryParams queryParams = {{{0}}};
   KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
 

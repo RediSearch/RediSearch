@@ -22,7 +22,6 @@ static void *quantileNewInstance(Reducer *parent) {
 
 static int quantileAdd(Reducer *rbase, void *ctx, const RLookupRow *row) {
   double d;
-  QTLReducer *qt = (QTLReducer *)rbase;
   QuantStream *qs = ctx;
   RSValue *v = RLookup_GetItem(rbase->srckey, row);
   if (!v) {

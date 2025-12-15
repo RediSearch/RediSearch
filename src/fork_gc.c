@@ -69,7 +69,7 @@ static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
 static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
   RS_LOG_ASSERT(len > 0, "buffer length cannot be 0");
   ssize_t size = write(fgc->pipe_write_fd, buff, len);
-  if (size != len) {
+  if (size != (ssize_t)len) {
     perror("broken pipe, exiting GC fork: write() failed");
     // just exit, do not abort(), which will trigger a watchdog on RLEC, causing adverse effects
     RedisModule_Log(fgc->ctx, "warning", "GC fork: broken pipe, exiting");
@@ -270,7 +270,7 @@ static FGCError recvNumericTagHeader(ForkGC *fgc, char **fieldName, size_t *fiel
 static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   arrayof(FieldSpec*) numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
 
-  for (int i = 0; i < array_len(numericFields); ++i) {
+  for (uint32_t i = 0; i < array_len(numericFields); ++i) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
     NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
 
@@ -344,7 +344,7 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
   arrayof(FieldSpec*) tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
   if (array_len(tagFields) != 0) {
-    for (int i = 0; i < array_len(tagFields); ++i) {
+    for (uint32_t i = 0; i < array_len(tagFields); ++i) {
       RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, tagFields[i], INDEXFLD_T_TAG);
       TagIndex *tagIdx = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
       if (!tagIdx) {
@@ -559,7 +559,6 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
 
   InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd);
-  bool shouldFreeDeltas = true;
 
   if (delta == NULL) {
     rm_free(term);
@@ -592,8 +591,6 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
 
     // inverted index was cleaned entirely lets free it
     RedisModuleString *termKey = fmtRedisTermKey(sctx, term, len);
-    size_t formatedTremLen;
-    const char *formatedTrem = RedisModule_StringPtrLen(termKey, &formatedTremLen);
     if (sctx->spec->keysDict) {
       // get memory before deleting the inverted index
       size_t inv_idx_size = InvertedIndex_MemUsage(idx);
@@ -649,7 +646,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
   while (status == FGC_COLLECTED) {
     // Read from GC process
     FGCError status2 = recvNumIdx(gc, &ninfo);
-    bool shouldFreeDeltas = true;
     if (status2 == FGC_DONE) {
       break;
     } else if (status2 != FGC_COLLECTED) {
@@ -686,7 +682,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     }
 
     applyNumIdx(gc, sctx, &ninfo);
-    shouldFreeDeltas = false; // ownership passed to applyNumIdx
+    ninfo.delta = NULL; // ownership passed to applyNumIdx
     rt->numEntries -= ninfo.info.entries_removed;
     rt->invertedIndexesSize -= ninfo.info.bytes_freed;
     rt->invertedIndexesSize += ninfo.info.bytes_allocated;
@@ -696,9 +692,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     }
 
   loop_cleanup:
-    if (shouldFreeDeltas) {
-      InvertedIndex_GcDelta_Free(ninfo.delta);
-    }
+    InvertedIndex_GcDelta_Free(ninfo.delta);
     if (sp) {
       RedisSearchCtx_UnlockSpec(sctx);
       IndexSpecRef_Release(spec_ref);
@@ -770,7 +764,6 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 
     II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
     delta = InvertedIndex_GcDelta_Read(&rd);
-    bool shouldFreeDeltas = true;
 
     if (delta == NULL) {
       status = FGC_CHILD_ERROR;
@@ -840,7 +833,6 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   II_GCScanStats info = {0};
   II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
   InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd);
-  bool shouldFreeDeltas = true;
 
   if (delta == NULL) {
     rm_free(rawFieldName);
@@ -906,7 +898,6 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
   II_GCScanStats info = {0};
   II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
   InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd);
-  bool shouldFreeDeltas = true;
 
   if (delta == NULL) {
     rm_free(empty_indicator);

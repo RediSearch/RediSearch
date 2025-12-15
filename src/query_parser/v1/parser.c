@@ -1315,7 +1315,7 @@ static YYACTIONTYPE yy_reduce(
     } else {
         //yymsp[0].minor.yy75->opts.fieldMask = 0;
         t_fieldMask mask = 0;
-        for (int i = 0; i < Vector_Size(yymsp[-2].minor.yy42); i++) {
+        for (size_t i = 0; i < Vector_Size(yymsp[-2].minor.yy42); i++) {
             char *p;
             Vector_Get(yymsp[-2].minor.yy42, i, &p);
             if (ctx->sctx->spec) {

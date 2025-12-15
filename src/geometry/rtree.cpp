@@ -131,7 +131,7 @@ auto from_wkt(std::string_view wkt) -> geom_type<cs> {
 
 template <typename cs>
 constexpr auto geometry_reporter =
-    overload{[](point_type<cs> const& point) -> std::size_t { return 0; },
+    overload{[](point_type<cs> const& point [[maybe_unused]]) -> std::size_t { return 0; },
              [](poly_type<cs> const& geom) -> std::size_t {
                const auto& inners = geom.inners();
                const auto outer_size = geom.outer().get_allocator().report();
@@ -151,7 +151,7 @@ constexpr auto geometry_reporter =
 template <typename cs>
 constexpr auto within_filter = overload{
     // nothing is within a point. (except itself?)
-    [](auto const& geom, point_type<cs> const& point) -> bool { return false; },
+    [](auto const& geom [[maybe_unused]], point_type<cs> const& point [[maybe_unused]]) -> bool { return false; },
     [](auto const& geom, poly_type<cs> const& poly) -> bool { return bg::within(geom, poly); }};
 template <typename cs>
 constexpr auto intersects_filter =

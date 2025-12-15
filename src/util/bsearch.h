@@ -129,7 +129,7 @@ static inline int rsb_eq(const void *arr, size_t narr, size_t elemsz, const void
   assert(begin == end);
   size_t tmpidx = begin * elemsz;
   const void *p = ((const char *)arr) + tmpidx;
-  return cmp(s, p) == 0 ? begin : -1;
+  return cmp(s, p) == 0 ? (int)begin : -1;
 }
 
 #ifdef __cplusplus

@@ -262,7 +262,7 @@ static QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *n
   bool all_wildcards = true;
   for (size_t read_idx = 0; read_idx < current_size; read_idx++) {
     if (IsWildcardIterator(its[read_idx])) {
-      if (!all_wildcards || all_wildcards && read_idx != current_size - 1) {
+      if (!all_wildcards || (all_wildcards && read_idx != current_size - 1)) {
         // remove all the wildcards in case there are other non-wildcard iterators
         // avoid removing it in case it's the last one and all are wildcards
         its[read_idx]->Free(its[read_idx]);

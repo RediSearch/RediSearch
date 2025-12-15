@@ -526,7 +526,6 @@ inline static int __trieNode_Cmp_Score(const void *p1, const void *p2) {
 
 /* Sort the children of a node */
 static void __trieNode_sortChildren(TrieNode *n) {
-  TrieNode **node = __trieNode_children(n);
   if (n->numChildren > 1) {
     switch (n->sortMode) {
     case Trie_Sort_Lex:
@@ -620,6 +619,7 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
       } else {
         // switch to "children mode"
         current->state = ITERSTATE_CHILDREN;
+        __attribute__((fallthrough));
       }
 
     case ITERSTATE_CHILDREN:
@@ -905,7 +905,7 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
     beginIdx = rsb_gt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
   }
 
-  int endIdx = nmax ? arrlen - 1 : -1;
+  int endIdx = nmax ? (int)arrlen - 1 : -1;
   if (nmax > 0) {
     // search for the first element which are less then our max value
     h.r = max;
@@ -1039,8 +1039,6 @@ static void containsNext(TrieNode *n, t_len localOffset, t_len globalOffset, Ran
  * size is not negatively impacted and prone to attack.
  */
 static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r) {
-  size_t len;
-  char *str;
 
   // No match
   if ((n->numChildren == 0 && r->lenOrigStr - globalOffset > n->len) || r->stop) {
@@ -1117,10 +1115,11 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
           r->callback(r->buf, array_len(r->buf), r->cbctx, n->payload);
         }
         // fall through - continue to look for matches on children similar to PARTIAL_MATCH
+        __attribute__((fallthrough));
       }
     }
     case PARTIAL_MATCH: {
-      if (!r->containsStars && array_len(r->buf) >= r->lenOrigStr) {
+      if (!r->containsStars && array_len(r->buf) >= (uint32_t)r->lenOrigStr) {
         break;
       }
       TrieNode **children = __trieNode_children(n);

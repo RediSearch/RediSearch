@@ -98,7 +98,6 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
 static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, const SearchResult *r,
                               const cachedVars *cv) {
   const uint32_t options = HREQ_RequestFlags(hreq);
-  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
 
   RedisModule_Reply_Map(reply); // >result
 
@@ -131,7 +130,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       int requiredFlags = RLOOKUP_F_NOFLAGS;  //Hybrid does not use RETURN fields; it uses LOAD fields instead
       int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
       memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, requiredFlags, excludeFlags, rule);
+      RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, requiredFlags, excludeFlags, rule);
 
       int i = 0;
       for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
@@ -554,6 +553,7 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
 
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, BCHCtx);
     RS_ASSERT(rc == 0);
+    (void)rc; // to avoid unused variable warning in release builds
 
     return REDISMODULE_OK;
   } else {
@@ -613,7 +613,6 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx);
   StrongRef hybrid_ref = StrongRef_New(hybridRequest, &FreeHybridRequest);
-  HybridPipelineParams hybridParams = {0};
 
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hybridRequest->requests[SEARCH_INDEX];
@@ -630,7 +629,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
   }
 
-  for (int i = 0; i < hybridRequest->nrequests; i++) {
+  for (size_t i = 0; i < hybridRequest->nrequests; i++) {
     AREQ *subquery = hybridRequest->requests[i];
     SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hybridRequest->reqConfig.queryTimeoutMS);
   }

@@ -175,7 +175,7 @@ typedef enum {
 /* Schema nodes. Each node contains an element (apart from schema nodes). The node has its name
  * and flags, and the element defines how to parse the element this node contains */
 typedef struct CmdSchemaNode {
-  /* The value element conatined in this node. NULL for schema/sub-schema nodes */
+  /* The value element contained in this node. NULL for schema/sub-schema nodes */
   CmdSchemaElement *val;
   /* Flags - required / optional and repeatable */
   CmdSchemaFlags flags;
@@ -293,21 +293,11 @@ size_t CmdArg_Count(CmdArg *arg, const char *key);
  * to Next() will return NULL */
 CmdArgIterator CmdArg_Select(CmdArg *arg, const char *key);
 
-/* Create an iterator of all the children of an objet or array node */
+/* Create an iterator of all the children of an object or array node */
 CmdArgIterator CmdArg_Children(CmdArg *arg);
-
-/* Parse an argument as a double. Argument may already be a double or an int in which case it gets
- * returned, or a string in which case we try to parse it. Returns 1 if the conversion/parsing was
- * successful, 0 if not */
-int CmdArg_ParseDouble(CmdArg *arg, double *d);
 
 /* return 1 if a flag with a given name exists in parent and is set to true */
 int CmdArg_GetFlag(CmdArg *parent, const char *flag);
-
-/* Parse an argument as a integer. Argument may already be a int or a double in which case it
- * gets returned, or a string in which case we try to parse it. Returns 1 if the
- * conversion/parsing was successful, 0 if not */
-int CmdArg_ParseInt(CmdArg *arg, int64_t *i);
 
 #define CMDARG_TYPE(arg) (arg ? arg->type : CmdArg_NullPtr)
 
@@ -332,7 +322,7 @@ int CmdArg_ParseInt(CmdArg *arg, int64_t *i);
 
 int CmdArg_ArrayAssign(CmdArray *arg, const char *fmt, ...);
 
-/* Advane an iterator. Return NULL if the no objects can be read from the iterator */
+/* Advance an iterator. Return NULL if the no objects can be read from the iterator */
 CmdArg *CmdArgIterator_Next(CmdArgIterator *it, const char **key);
 
 /* Return the fist child of an object node that is named as key, NULL if this is not an object or no

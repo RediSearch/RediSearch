@@ -31,7 +31,7 @@ static inline void dropCachedCmdIfNeeded(MRCommand *cmd) {
 
 void MRCommand_Free(MRCommand *cmd) {
   dropCachedCmdIfNeeded(cmd);
-  for (int i = 0; i < cmd->num; i++) {
+  for (uint32_t i = 0; i < cmd->num; i++) {
     rm_free(cmd->strs[i]);
   }
   rm_free(cmd->strs);
@@ -99,7 +99,7 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
   ret.forProfiling = cmd->forProfiling;
   ret.rootCommand = cmd->rootCommand;
   ret.depleted = cmd->depleted;
-  for (int i = 0; i < cmd->num; i++) {
+  for (uint32_t i = 0; i < cmd->num; i++) {
     copyStr(&ret, i, cmd, i);
   }
   return ret;
@@ -133,8 +133,8 @@ static void extendCommandList(MRCommand *cmd, size_t toAdd) {
   cmd->lens = rm_realloc(cmd->lens, sizeof(*cmd->lens) * cmd->num);
 }
 
-void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n) {
-  RS_ASSERT(0 <= pos && pos <= cmd->num);
+void MRCommand_Insert(MRCommand *cmd, uint32_t pos, const char *s, size_t n) {
+  RS_ASSERT(pos <= cmd->num);
   int oldNum = cmd->num;
   extendCommandList(cmd, 1);
 
@@ -179,7 +179,7 @@ void MRCommand_SetPrefix(MRCommand *cmd, const char *newPrefix) {
 }
 
 void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, char *newArg, size_t len) {
-  RS_ASSERT(0 <= index && index < cmd->num);
+  RS_ASSERT(0 <= index && (uint32_t)index < cmd->num);
   rm_free(cmd->strs[index]);
   cmd->strs[index] = newArg;
   cmd->lens[index] = len;
@@ -194,7 +194,7 @@ void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t 
 }
 
 void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t oldSubStringLen, const char *newStr, size_t newLen) {
-  RS_LOG_ASSERT_FMT(index >= 0 && index < cmd->num, "Invalid index %d. Command has %d arguments", index, cmd->num);
+  RS_LOG_ASSERT_FMT(index >= 0 && (uint32_t)index < cmd->num, "Invalid index %d. Command has %d arguments", index, cmd->num);
 
   char *oldArg = cmd->strs[index];
   // Get full argument length
@@ -239,7 +239,7 @@ void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx) {
 }
 
 void MRCommand_PrepareForSlotInfo(MRCommand *cmd, uint32_t pos) {
-  RS_ASSERT(0 <= pos && pos <= cmd->num);
+  RS_ASSERT(pos <= cmd->num);
   RS_LOG_ASSERT(cmd->slotsInfoArgIndex == 0, "Slot info already set for this command");
   uint32_t oldNum = cmd->num;
   // Make place for SLOTS_STR + <binary data>

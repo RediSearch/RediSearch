@@ -34,7 +34,7 @@ protected:
 
     void printMRCommand(const MRCommand *cmd) {
         printf("MRCommand: ");
-        for (int i = 0; i < cmd->num; i++) {
+        for (uint32_t i = 0; i < cmd->num; i++) {
             printf("%s ", cmd->strs[i]);
         }
         printf("\n");

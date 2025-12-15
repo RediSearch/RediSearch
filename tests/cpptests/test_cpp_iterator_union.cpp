@@ -124,7 +124,6 @@ TEST_P(UnionIteratorCommonTest, SkipTo) {
 
 TEST_P(UnionIteratorCommonTest, Rewind) {
   UnionIterator *ui = (UnionIterator *)ui_base;
-  IteratorStatus rc;
   for (int i = 0; i < 5; i++) {
     for (int j = 0; j <= i; j++) {
       ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);

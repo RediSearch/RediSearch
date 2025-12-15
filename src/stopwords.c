@@ -198,7 +198,7 @@ void ReplyWithStopWordsList(RedisModule_Reply *reply, struct StopWordList *sl) {
   void *ptr;
 
   RedisModule_Reply_Array(reply);
-    for (size_t i = 0; TrieMapIterator_Next(it, &str, &len, &ptr); ++i) {
+    while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
       RedisModule_Reply_StringBuffer(reply, str, len);
     }
   RedisModule_Reply_ArrayEnd(reply);

@@ -136,7 +136,7 @@ size_t Wildcard_TrimPattern(char *pattern, size_t p_len) {
 }
 
 size_t Wildcard_RemoveEscape(char *str, size_t len) {
-  int i = 0;
+  size_t i = 0;
   do {
     if (str[i] == '\\') break;
   } while (++i < len && str[i] != '\0');
@@ -146,8 +146,8 @@ size_t Wildcard_RemoveEscape(char *str, size_t len) {
     return len;
   }
 
-  // skip '\'
-  int runner = i;
+  // skip '\\'
+  size_t runner = i;
   for (; i < len; ++i, ++runner) {
     if (str[i] == '\\') {
       ++i;

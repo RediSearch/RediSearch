@@ -254,7 +254,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
   // searching the term on the exclude list, if its there we just return false
   // because there is no need to return suggestions on it.
-  for (int i = 0; i < array_len(scCtx->excludeDict); ++i) {
+  for (uint32_t i = 0; i < array_len(scCtx->excludeDict); ++i) {
     Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->excludeDict[i], REDISMODULE_READ);
     if (t == NULL) {
       continue;
@@ -271,7 +271,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
   // sorting results by score
 
   // searching the term on the include list for more suggestions.
-  for (int i = 0; i < array_len(scCtx->includeDict); ++i) {
+  for (uint32_t i = 0; i < array_len(scCtx->includeDict); ++i) {
     Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->includeDict[i], REDISMODULE_READ);
     if (t == NULL) {
       continue;
@@ -300,13 +300,13 @@ static bool SpellCheck_CheckDictExistence(SpellCheckCtx *scCtx, const char *dict
 }
 
 static bool SpellCheck_CheckTermDictsExistance(SpellCheckCtx *scCtx) {
-  for (int i = 0; i < array_len(scCtx->includeDict); ++i) {
+  for (uint32_t i = 0; i < array_len(scCtx->includeDict); ++i) {
     if (!SpellCheck_CheckDictExistence(scCtx, scCtx->includeDict[i])) {
       return false;
     }
   }
 
-  for (int i = 0; i < array_len(scCtx->excludeDict); ++i) {
+  for (uint32_t i = 0; i < array_len(scCtx->excludeDict); ++i) {
     if (!SpellCheck_CheckDictExistence(scCtx, scCtx->excludeDict[i])) {
       return false;
     }
