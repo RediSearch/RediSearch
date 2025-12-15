@@ -48,7 +48,7 @@ static int wait_for_metric_value(size_t expected_value, int timeout_ms) {
   int elapsed = 0;
   while (elapsed < timeout_ms) {
     MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
-    if (stats.active_io_threads == expected_value) {
+    if (stats.uv_threads_running_queries == expected_value) {
       return 1; // Success
     }
     usleep(1000); // 1ms
@@ -72,7 +72,7 @@ void testMetricUpdateDuringCallback() {
 
   // Phase 1: Verify metric starts at 0
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
-  mu_assert_int_eq(0, stats.active_io_threads);
+  mu_assert_int_eq(0, stats.uv_threads_running_queries);
 
   // Mark the IO runtime as ready to process callbacks (bypass topology validation timeout)
   RQ_Debug_SetLoopReady();
@@ -86,7 +86,7 @@ void testMetricUpdateDuringCallback() {
 
   // Verify metric increased to 1 while callback is executing
   stats = GlobalStats_GetMultiThreadingStats();
-  mu_assert_int_eq(1, stats.active_io_threads);
+  mu_assert_int_eq(1, stats.uv_threads_running_queries);
 
   // Phase 3: Signal callback to finish and wait for metric to return to 0
   atomic_store(&flags.should_finish, true);
