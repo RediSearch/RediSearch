@@ -869,6 +869,7 @@ def test_errors_and_warnings_init(env):
 
 MULTI_THREADING_SECTION = f'{SEARCH_PREFIX}multi_threading'
 UV_THREADS_RUNNING_QUERIES_METRIC = f'{SEARCH_PREFIX}uv_threads_running_queries'
+UV_THREADS_RUNNING_TOPO_UPDATE_METRIC = f'{SEARCH_PREFIX}uv_threads_running_topology_update'
 ACTIVE_WORKER_THREADS_METRIC = f'{SEARCH_PREFIX}active_worker_threads'
 ACTIVE_COORD_THREADS_METRIC = f'{SEARCH_PREFIX}active_coord_threads'
 WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}workers_low_priority_pending_jobs'
@@ -883,7 +884,6 @@ def test_initial_multi_threading_stats(env):
   for i in range(10):
     conn.execute_command('HSET', f'doc{i}', 'name', f'name{i}', 'age', i)
 
-  # Phase 1: Verify multi_threading section exists and uv_threads_running_queries starts at 0
   info_dict = info_modules_to_dict(env)
 
   # Verify multi_threading section exists
@@ -893,6 +893,8 @@ def test_initial_multi_threading_stats(env):
   # Verify all expected fields exist
   env.assertTrue(UV_THREADS_RUNNING_QUERIES_METRIC in info_dict[MULTI_THREADING_SECTION],
                  message=f"{UV_THREADS_RUNNING_QUERIES_METRIC} field should exist in multi_threading section")
+  env.assertTrue(UV_THREADS_RUNNING_TOPO_UPDATE_METRIC in info_dict[MULTI_THREADING_SECTION],
+                 message=f"{UV_THREADS_RUNNING_TOPO_UPDATE_METRIC} field should exist in multi_threading section")
   env.assertTrue(ACTIVE_WORKER_THREADS_METRIC in info_dict[MULTI_THREADING_SECTION],
                  message=f"{ACTIVE_WORKER_THREADS_METRIC} field should exist in multi_threading section")
   env.assertTrue(ACTIVE_COORD_THREADS_METRIC in info_dict[MULTI_THREADING_SECTION],
