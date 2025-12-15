@@ -96,7 +96,8 @@ def test_hybrid_groupby_small():
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
     radius = 1**2
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query_with_no_results,
-                       'VSIM', '@embedding', query_vector, 'RANGE', '2', 'RADIUS', str(radius), 'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count')
+                       'VSIM', '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', str(radius), 'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count',
+                       'PARAMS', '2', 'BLOB', query_vector)
 
     results = parse_hybrid_groupby_response(response)
     # Distance 1 docs: doc:1, doc:2, doc:3 -> automotive, automotive, clothing
@@ -115,7 +116,8 @@ def test_hybrid_groupby_medium():
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
     radius = 2**2
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query_with_no_results,
-                       'VSIM', '@embedding', query_vector, 'RANGE', '2', 'RADIUS', str(radius), 'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count')
+                       'VSIM', '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', str(radius), 'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count',
+                       'PARAMS', '2', 'BLOB', query_vector)
 
     results = parse_hybrid_groupby_response(response)
     expected_categories = Counter(doc['category'] for doc in test_docs.values() if l2_from_bytes(doc['embedding'], query_vector)**2 <= radius)
@@ -133,7 +135,8 @@ def test_hybrid_groupby_large():
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
     radius = 3**2
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query_with_no_results,
-                       'VSIM', '@embedding', query_vector, 'RANGE', '2', 'RADIUS', str(radius), 'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count')
+                       'VSIM', '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', str(radius), 'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count',
+                       'PARAMS', '2', 'BLOB', query_vector)
 
     results = parse_hybrid_groupby_response(response)
     # All 9 docs -> automotive(2), clothing(2), footwear(2), food(2), fitness(1)
@@ -154,9 +157,10 @@ def test_hybrid_groupby_with_filter():
 
     # Apply filter to only include categories with count > 1 (should exclude fitness which has count=1)
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query_with_no_results,
-                       'VSIM', '@embedding', query_vector, 'RANGE', '2', 'RADIUS', str(radius),
+                       'VSIM', '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', str(radius),
                        'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count',
-                       'FILTER', '@count > 1')
+                       'FILTER', '@count > 1',
+                       'PARAMS', '2', 'BLOB', query_vector)
 
     # Parse the response to get both results and total_results
     results = parse_hybrid_groupby_response(response)
