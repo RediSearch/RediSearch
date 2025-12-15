@@ -78,7 +78,7 @@ int TrieMap_Add(TrieMap *t, const char *str, tm_len_t len, void *value, TrieMapR
  *
  * NOTE: If the key does not exist in the trie, we return the special
  * constant value TRIEMAP_NOTFOUND, so checking if the key exists is done by
- * comparing to it, becase NULL can be a valid result.
+ * comparing to it, because NULL can be a valid result.
  */
 void *TrieMap_Find(TrieMap *t, const char *str, tm_len_t len);
 
@@ -95,7 +95,7 @@ int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, freeCB func);
  * call it to free individual payload values. If not, free() is used instead. */
 void TrieMap_Free(TrieMap *t, freeCB func);
 
-size_t TrieMap_MemUsage(TrieMap *t);
+size_t TrieMap_MemUsage(const TrieMap *t);
 
 /**************  Iterator API  - not ported from the textual trie yet
  * ***********/

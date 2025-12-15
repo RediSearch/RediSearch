@@ -117,7 +117,7 @@ static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
 static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS,
                                           FieldType t) {
   const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, NULL);
-  const FieldSpec *fieldSpec = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
+  const FieldSpec *fieldSpec = IndexSpec_GetFieldWithLength(spec, fieldName, strlen(fieldName));
   if (!fieldSpec) {
     return NULL;
   }
@@ -322,7 +322,7 @@ DEBUG_COMMAND(DumpGeometryIndex) {
   }
   GET_SEARCH_CTX(argv[2])
   const char *fieldName = RedisModule_StringPtrLen(argv[3], NULL);
-  const FieldSpec *fs = IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName));
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, strlen(fieldName));
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
@@ -733,7 +733,7 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
   // mark as stopped. This will prevent the GC from scheduling itself again if it was already running.
   sp->gc->timerID = 0;
-  RedisModule_Log(ctx, "verbose", "Stopped GC %p periodic run for index %s", sp->gc, sp->name);
+  RedisModule_Log(ctx, "verbose", "Stopped GC %p periodic run for index %s", sp->gc, IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -1047,10 +1047,16 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
 
       if (!fs) {
         RedisModule_Reply_CString(reply, "!!! AS ???");
-      } else if (!fs->path) {
-        RedisModule_Reply_CString(reply, fs->name);
+      } else if (!fs->fieldPath) {
+        char *name = FieldSpec_FormatName(fs, obfuscate);
+        RedisModule_Reply_CString(reply, name);
+        rm_free(name);
       } else {
-        RedisModule_Reply_Stringf(reply, "%s AS %s", fs->path, fs->name);
+        char *path = FieldSpec_FormatPath(fs, obfuscate);
+        char *name = FieldSpec_FormatName(fs, obfuscate);
+        RedisModule_Reply_Stringf(reply, "%s AS %s", path, name);
+        rm_free(path);
+        rm_free(name);
       }
 
       RedisModule_Reply_CString(reply, "value");
@@ -1082,7 +1088,6 @@ DEBUG_COMMAND(DocInfo) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Invalid argument. Expected REVEAL or OBFUSCATE as the last argument");
   }
-
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   RedisModule_Reply_Map(reply);

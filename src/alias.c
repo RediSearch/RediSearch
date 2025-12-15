@@ -13,7 +13,7 @@ AliasTable *AliasTable_g = NULL;
 
 AliasTable *AliasTable_New(void) {
   AliasTable *t = rm_calloc(1, sizeof(*t));
-  t->d = dictCreate(&dictTypeHeapStrings, NULL);
+  t->d = dictCreate(&dictTypeHeapHiddenStrings, NULL);
   return t;
 }
 
@@ -30,7 +30,7 @@ void IndexAlias_DestroyGlobal(AliasTable **t) {
   *t = NULL;
 }
 
-static int AliasTable_Add(AliasTable *table, const char *alias, StrongRef spec_ref, int options, QueryError *error) {
+static int AliasTable_Add(AliasTable *table, const HiddenString *alias, StrongRef spec_ref, int options, QueryError *error) {
   // look up and see if it exists:
   dictEntry *e, *existing = NULL;
   IndexSpec *spec = StrongRef_Get(spec_ref);
@@ -43,8 +43,8 @@ static int AliasTable_Add(AliasTable *table, const char *alias, StrongRef spec_r
   // Dictionary holds a pointer tho the spec manager. Its the same reference owned by the specs dictionary.
   e->v.val = spec_ref.rm;
   if (!(options & INDEXALIAS_NO_BACKREF)) {
-    char *duped = rm_strdup(alias);
-    spec->aliases = array_ensure_append(spec->aliases, &duped, 1, char *);
+    HiddenString *dup = HiddenString_Duplicate(alias);
+    spec->aliases = array_ensure_append_1(spec->aliases, dup);
   }
   if (table->on_add) {
     table->on_add(alias, spec);
@@ -52,15 +52,15 @@ static int AliasTable_Add(AliasTable *table, const char *alias, StrongRef spec_r
   return REDISMODULE_OK;
 }
 
-static int AliasTable_Del(AliasTable *table, const char *alias, StrongRef spec_ref, int options,
+static int AliasTable_Del(AliasTable *table, const HiddenString *alias, StrongRef spec_ref, int options,
                           QueryError *error) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
-  char *toFree = NULL;
+  HiddenString *toFree = NULL;
 
   ssize_t idx = -1;
   for (size_t ii = 0; ii < array_len(spec->aliases); ++ii) {
     // note, NULL might be here if we're clearing the spec's aliases
-    if (spec->aliases[ii] && !strcasecmp(spec->aliases[ii], alias)) {
+    if (spec->aliases[ii] && !HiddenString_CaseInsensitiveCompare(spec->aliases[ii], alias)) {
       idx = ii;
       break;
     }
@@ -81,12 +81,12 @@ static int AliasTable_Del(AliasTable *table, const char *alias, StrongRef spec_r
   }
 
   if (toFree) {
-    rm_free(toFree);
+    HiddenString_Free(toFree, true);
   }
   return REDISMODULE_OK;
 }
 
-StrongRef AliasTable_Get(AliasTable *tbl, const char *alias) {
+StrongRef AliasTable_Get(AliasTable *tbl, const HiddenString *alias) {
   StrongRef ret = {0};
   dictEntry *e = dictFind(tbl->d, alias);
   if (e) {
@@ -95,26 +95,26 @@ StrongRef AliasTable_Get(AliasTable *tbl, const char *alias) {
   return ret;
 }
 
-int IndexAlias_Add(const char *alias, StrongRef spec_ref, int options, QueryError *status) {
+int IndexAlias_Add(const HiddenString *alias, StrongRef spec_ref, int options, QueryError *status) {
   return AliasTable_Add(AliasTable_g, alias, spec_ref, options, status);
 }
 
-int IndexAlias_Del(const char *alias, StrongRef spec_ref, int options, QueryError *status) {
+int IndexAlias_Del(const HiddenString *alias, StrongRef spec_ref, int options, QueryError *status) {
   return AliasTable_Del(AliasTable_g, alias, spec_ref, options, status);
 }
 
-StrongRef IndexAlias_Get(const char *alias) {
+StrongRef IndexAlias_Get(const HiddenString *alias) {
   return AliasTable_Get(AliasTable_g, alias);
 }
 
 void IndexSpec_ClearAliases(StrongRef spec_ref) {
   IndexSpec *sp = StrongRef_Get(spec_ref);
   for (size_t ii = 0; ii < array_len(sp->aliases); ++ii) {
-    char **pp = sp->aliases + ii;
+    HiddenString **pp = sp->aliases + ii;
     QueryError e = {0};
     int rc = IndexAlias_Del(*pp, spec_ref, INDEXALIAS_NO_BACKREF, &e);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "Alias delete has failed");
-    rm_free(*pp);
+    HiddenString_Free(*pp, true);
     // set to NULL so IndexAlias_Del skips over this
     *pp = NULL;
   }
