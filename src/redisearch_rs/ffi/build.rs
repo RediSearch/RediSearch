@@ -73,6 +73,7 @@ fn main() {
         src.join("redisearch.h"),
         src.join("result_processor.h"),
         src.join("rlookup").join("rlookup.h"),
+        src.join("rules").join("rules.h"),
         src.join("score_explain.h"),
         src.join("search_ctx.h"),
         src.join("search_disk_api.h"),
