@@ -70,18 +70,6 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
     pub fn wall_time_ns(&self) -> u64 {
         self.wall_time_ns
     }
-
-    /// Returns a mutable reference to the child iterator.
-    #[inline]
-    pub fn child_mut(&mut self) -> &mut I {
-        &mut self.child
-    }
-
-    /// Returns a reference to the child iterator.
-    #[inline]
-    pub fn child(&self) -> &I {
-        &self.child
-    }
 }
 
 impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> {
