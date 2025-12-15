@@ -61,13 +61,13 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
 
     /// Returns a reference to the collected profile counters.
     #[inline]
-    pub fn counters(&self) -> &ProfileCounters {
+    pub const fn counters(&self) -> &ProfileCounters {
         &self.counters
     }
 
     /// Returns the accumulated wall time in nanoseconds.
     #[inline]
-    pub fn wall_time_ns(&self) -> u64 {
+    pub const fn wall_time_ns(&self) -> u64 {
         self.wall_time_ns
     }
 }
