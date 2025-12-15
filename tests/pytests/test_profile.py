@@ -778,16 +778,17 @@ def find_threadsafe_loader(env, shard):
     return next((to_dict(rp) for rp in rp_profile if 'Threadsafe-Loader' in rp), None)
 
 def ProfileGILTime(env):
-  # Test FT.PROFILE GIL time reporting across all deployment/worker combinations.
+  # Test FT.PROFILE GIL time reporting across all worker combinations.
+  # (Standalone and Coordinator behave the same)
 
   # Test matrix and expected behavior:
-  # +------------+---------+-----------+---------------------------+--------------------------------------+
-  # | Deployment | Workers | With Load | Coordinator               | Shard                                |
-  # +------------+---------+-----------+---------------------------+--------------------------------------+
-  # | SA/COORD   | 0       | N/A       | No "Total GIL time"       | No "Total GIL time"                  |
-  # | SA/COORD   | 1       | No        | No "Total GIL time"       | "Total GIL time" > 0                |
-  # | SA/COORD   | 1       | Yes       | No "Total GIL time"       | "Total GIL time" >= Loader GIL > 0   |
-  # +------------+---------+-----------+---------------------------+--------------------------------------+
+  # +---------+-----------+---------------------------+--------------------------------------+
+  # | Workers | With Load | Coordinator               | Shard                                |
+  # +---------+-----------+---------------------------+--------------------------------------+
+  # | 0       | N/A       | No "Total GIL time"       | No "Total GIL time"                  |
+  # | 1       | No        | No "Total GIL time"       | "Total GIL time" > 0                 |
+  # | 1       | Yes       | No "Total GIL time"       | "Total GIL time" >= Loader GIL > 0   |
+  # +---------+-----------+---------------------------+--------------------------------------+
 
   conn = getConnectionByEnv(env)
   is_cluster = env.isCluster()
