@@ -2032,9 +2032,6 @@ fn test_refresh_buffer_pointers_after_reallocation() {
     assert!(reader.next_record(&mut result).unwrap());
     assert_eq!(result.doc_id, 10);
 
-    // Store the current buffer pointer for comparison
-    let original_position = reader.current_buffer.position();
-
     // Force buffer reallocation by adding many records to the same block
     // This should cause the buffer to grow and potentially move
     unsafe {
@@ -2046,10 +2043,18 @@ fn test_refresh_buffer_pointers_after_reallocation() {
     // Buffer was reallocated - test refresh_buffer_pointers
     reader.refresh_buffer_pointers();
 
-    // Verify position was preserved
-    assert_eq!(reader.current_buffer.position(), original_position);
-
     // Verify we can still read correctly from the new buffer
-    assert!(reader.next_record(&mut result).unwrap());
-    assert_eq!(result.doc_id, 11);
+    let mut doc_count = 1; // Already read doc_id 10
+    let mut expected_doc_id = 11;
+
+    while reader.next_record(&mut result).unwrap() {
+        assert_eq!(result.doc_id, expected_doc_id);
+        doc_count += 1;
+        expected_doc_id += 1;
+    }
+
+    // Should have read all 990 documents (10, 11, 12..999)
+    assert_eq!(doc_count, 990);
+    assert_eq!(expected_doc_id, 1000);
+
 }
