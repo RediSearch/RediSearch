@@ -650,16 +650,15 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     goto error;
   }
   bool countRet = AC_GetUnsignedLongLong(ac, &subqueries_count, AC_F_GE1) == AC_OK;
-  if (countRet) {
-    if (subqueries_count != HYBRID_REQUEST_NUM_SUBQUERIES) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "HYBRID supports only 2 subqueries");
-      goto error;
-    }
+  if (countRet && subqueries_count != HYBRID_REQUEST_NUM_SUBQUERIES) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "HYBRID supports only 2 subqueries");
+    goto error;
   }
   if (!AC_AdvanceIfMatch(ac, "SEARCH")) {
     if (countRet) {
       QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
     } else {
+      // Wrong syntax for both old and new format, error massage according to the new format
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid subqueries count: expected an unsigned integer");
     }
     goto error;
