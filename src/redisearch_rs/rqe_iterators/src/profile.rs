@@ -13,14 +13,14 @@
 //! (read/skip counts and wall-clock time) from a child iterator without
 //! modifying its behavior.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
 /// Profile counters collected during query execution.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 pub struct ProfileCounters {
     /// Number of `read()` calls made.
     pub read: usize,
@@ -42,7 +42,7 @@ pub struct ProfileCounters {
 pub struct Profile<'index, I: RQEIterator<'index>> {
     child: I,
     counters: ProfileCounters,
-    wall_time_ns: u64,
+    wall_time: Duration,
     _marker: std::marker::PhantomData<&'index ()>,
 }
 
@@ -54,7 +54,7 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
         Self {
             child,
             counters: ProfileCounters::default(),
-            wall_time_ns: 0,
+            wall_time: Duration::ZERO,
             _marker: std::marker::PhantomData,
         }
     }
@@ -68,7 +68,7 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
     /// Returns the accumulated wall time in nanoseconds.
     #[inline]
     pub const fn wall_time_ns(&self) -> u64 {
-        self.wall_time_ns
+        self.wall_time.as_nanos() as u64
     }
 }
 
@@ -81,7 +81,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         let start = Instant::now();
         let result = self.child.read();
-        self.wall_time_ns += start.elapsed().as_nanos() as u64;
+        self.wall_time += start.elapsed();
 
         self.counters.read += 1;
         if matches!(&result, Ok(None)) {
@@ -96,7 +96,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         let start = Instant::now();
         let result = self.child.skip_to(doc_id);
-        self.wall_time_ns += start.elapsed().as_nanos() as u64;
+        self.wall_time += start.elapsed();
 
         self.counters.skip_to += 1;
         if matches!(&result, Ok(None)) {
