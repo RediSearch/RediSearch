@@ -171,8 +171,8 @@ fn test_inverted_index_raw_doc_ids_gc() {
             |doc_id| doc_id >= 2_000,
             None::<fn(&RSIndexResult, &IndexBlock)>,
         )
-        .unwrap()
-        .unwrap();
+        .expect("scan_gc should not fail for valid index")
+        .expect("scan_gc should return Some delta when entries are removed");
     let apply_info = ii.apply_gc(delta);
 
     assert_eq!(apply_info.entries_removed, 2_000);
@@ -198,8 +198,8 @@ fn test_inverted_index_raw_doc_ids_gc() {
             |doc_id| doc_id < 3_000,
             None::<fn(&RSIndexResult, &IndexBlock)>,
         )
-        .unwrap()
-        .unwrap();
+        .expect("scan_gc should not fail for valid index")
+        .expect("scan_gc should return Some delta when entries are removed");
     let apply_info = ii.apply_gc(delta);
 
     assert_eq!(apply_info.entries_removed, 200);
@@ -208,8 +208,8 @@ fn test_inverted_index_raw_doc_ids_gc() {
     // Test GC: Remove all remaining records
     let delta = ii
         .scan_gc(|_| false, None::<fn(&RSIndexResult, &IndexBlock)>)
-        .unwrap()
-        .unwrap();
+        .expect("scan_gc should not fail for valid index")
+        .expect("scan_gc should return Some delta when entries are removed");
     let apply_info = ii.apply_gc(delta);
 
     assert_eq!(apply_info.entries_removed, 1_000);
@@ -241,8 +241,8 @@ fn test_inverted_index_raw_doc_ids_gc() {
             |doc_id| doc_id % (u32::MAX as t_docId * 2) == 0,
             None::<fn(&RSIndexResult, &IndexBlock)>,
         )
-        .unwrap()
-        .unwrap();
+        .expect("scan_gc should not fail for valid index")
+        .expect("scan_gc should return Some delta when entries are removed");
     let apply_info = ii.apply_gc(delta);
 
     assert_eq!(apply_info.entries_removed, 50);
