@@ -630,10 +630,8 @@ void iterCursorMappingCb(void *p) {
   it->ctx.inProcess = numShardsWithMapping; // Initially all commands are in process
 
   it->cbxs = rm_realloc(it->cbxs, numShardsWithMapping * sizeof(*it->cbxs));
+  // Command should already not own a target shard
   MRCommand *cmd = &it->cbxs->cmd;
-  cmd->targetShard = vsimOrSearch->mappings[0].targetShard;
-  vsimOrSearch->mappings[0].targetShard = NULL; // transfer ownership
-  cmd->targetShardIdx = vsimOrSearch->mappings[0].targetShardIdx;
   char buf[128];
   sprintf(buf, "%lld", vsimOrSearch->mappings[0].cursorId);
   MRCommand_Append(cmd, buf, strlen(buf));
@@ -653,6 +651,10 @@ void iterCursorMappingCb(void *p) {
     sprintf(buf, "%lld", vsimOrSearch->mappings[i].cursorId);
     MRCommand_ReplaceArg(&it->cbxs[i].cmd, 3, buf, strlen(buf));
   }
+  // Set the first command to target the shard of the first mapping (while not having copied it)
+  cmd->targetShard = vsimOrSearch->mappings[0].targetShard;
+  cmd->targetShardIdx = vsimOrSearch->mappings[0].targetShardIdx;
+  vsimOrSearch->mappings[0].targetShard = NULL; // transfer ownership
 
   // Send commands to all shards
   for (size_t i = 0; i < it->len; i++) {
