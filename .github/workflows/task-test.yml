@@ -60,7 +60,7 @@ env:
   BUILD_INTEL_SVS_OPT: "yes"
   SETUP_RETRY_LOOP: |
     SUCCESS=0
-    for i in {{1..5}}; do
+    for i in 1 2 3 4 5; do
       echo "Attempt $i of 5"
       if {0}; then
         echo "Setup succeeded"
