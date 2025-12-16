@@ -889,18 +889,8 @@ def testProfileVectorSearchMode():
   verify_search_mode('AGGREGATE', '(@t:hello other)=>[KNN 3 @v $vec BATCH_SIZE 100]', ['vec', '????????'], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
 
-def ShardIdInProfile(protocol):
+def ShardIdInProfile(env):
   """Tests that 'shard_id' field appears in shard profiles."""
-  env = Env(shardsCount=2, protocol=protocol)
-  conn = getConnectionByEnv(env)
-  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
-
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-
-  # Insert some docs
-  num_docs = 10
-  for i in range(num_docs):
-    conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
 
   # Run FT.PROFILE SEARCH
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
@@ -930,8 +920,59 @@ def ShardIdInProfile(protocol):
 
 @skip(cluster=False)
 def testShardIdInProfileResp3():
-  ShardIdInProfile(protocol=3)
+    env = Env(protocol=3)
+    conn = getConnectionByEnv(env)
+    run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Insert some docs
+    num_docs = 10
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+
+    ShardIdInProfile(env)
 
 @skip(cluster=False)
 def testShardIdInProfileResp2():
-  ShardIdInProfile(protocol=2)
+    env = Env(protocol=2)
+    conn = getConnectionByEnv(env)
+    run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Insert some docs
+    num_docs = 10
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+        ShardIdInProfile(env)
+
+
+# Run testShardIdInProfileResp3 for a few seconds to ensure that we update the node ID in search.clusterset (expected
+# every 1 sec) in parallel to running profile (and synchronously)
+@skip(cluster=False)
+def testConcurrentSetClusterAndProfile():
+    env = Env(protocol=3)
+    conn = getConnectionByEnv(env)
+    run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Insert some docs
+    num_docs = 10
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+    # Run ShardIdInProfile from parallel 3 threads, where each running the call repeatedly for 3 seconds
+    def run_shard_id_in_profile_in_loop():
+        now = time.time()
+        while time.time() - now < 3:
+            ShardIdInProfile(env)
+
+    threads = []
+    for _ in range(3):
+        thread = threading.Thread(target=run_shard_id_in_profile_in_loop)
+        threads.append(thread)
+        thread.start()
+
+    for thread in threads:
+        thread.join()

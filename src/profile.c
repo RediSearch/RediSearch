@@ -147,11 +147,12 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   RedisModule_Reply_Map(reply);
   int profile_verbose = req->reqConfig.printProfileClock;
 
-  // Get and add shard_id to the profile reply
-  const char *node_id = MR_GetLocalNodeId();
-  if (node_id) {
-    RedisModule_ReplyKV_SimpleString(reply, "Shard ID", node_id);
+  // Get and add the Shard ID string to the profile reply (guarded by a ref count).
+  NodeIdRef *node_id_ref = MR_GetLocalNodeIdRef();
+  if (node_id_ref && node_id_ref->node_id) {
+    RedisModule_ReplyKV_SimpleString(reply, "Shard ID", node_id_ref->node_id);
   }
+  MR_ReleaseLocalNodeIdRef(node_id_ref);
 
   // Print total time
   if (profile_verbose) {

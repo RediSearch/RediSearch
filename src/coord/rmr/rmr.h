@@ -26,6 +26,13 @@ typedef struct {
   long long cursorId;
 } CursorMapping;
 
+
+// Reference-counted wrapper for the local node ID string
+typedef struct {
+  char *node_id;
+  int refcount;
+} NodeIdRef;
+
 void iterStartCb(void *p);
 
 void iterCursorMappingCb(void *p);
@@ -51,10 +58,15 @@ void MR_UpdateTopology(MRClusterTopology *newTopology, const RedisModuleSlotRang
  */
 void MR_SetLocalNodeId(const char *node_id);
 
-/* @brief Get the local node ID for this shard.
- * @return The local node ID string, or NULL if not set or in standalone mode.
+/* @brief Get the local node ID reference for this shard.
+ * The caller must call MR_ReleaseLocalNodeIdRef() when done using the returned string.
  */
-const char *MR_GetLocalNodeId(void);
+NodeIdRef *MR_GetLocalNodeIdRef(void);
+
+/* @brief Release the local node ID obtained from MR_GetLocalNodeIdRef().
+ * Must be called after MR_GetLocalNodeIdRef() to decrement the reference count.
+ */
+void MR_ReleaseLocalNodeIdRef(NodeIdRef *ref);
 
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
 

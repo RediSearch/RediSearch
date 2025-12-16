@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/param.h>
+#include <stddef.h>
 
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
@@ -48,8 +49,8 @@ static MRCluster *cluster_g = NULL;
 extern size_t NumShards;
 
 // Local node ID (set from main-thread when topology is updated, and may be accessed from worker
-// thread upon replying to a query - hence it is synchronized)
-static char *local_node_id_g = NULL;
+// thread upon replying to a query - hence it is synchronized reference counting)
+static NodeIdRef *local_node_id_g = NULL;
 
 /* Coordination request timeout */
 long long timeout_g = 5000; // unused value. will be set in MR_Init
@@ -270,20 +271,45 @@ void MR_UpdateTopology(MRClusterTopology *newTopo, const RedisModuleSlotRangeArr
   }
 }
 
-/* Set the local node ID for this shard */
-void MR_SetLocalNodeId(const char *node_id) {
-  char *new_node_id = node_id ? rm_strdup(node_id) : NULL;
-  // Atomically exchange the old node ID with the new one
-  char *old_node_id = __atomic_exchange_n(&local_node_id_g, new_node_id, __ATOMIC_SEQ_CST);
-  if (old_node_id) {
-    rm_free(old_node_id);
+void MR_ReleaseLocalNodeIdRef(NodeIdRef *node_id_ref) {
+  // If ref count is now zero, release the old local node ID.
+  int ret = __atomic_sub_fetch(&node_id_ref->refcount, 1, __ATOMIC_RELAXED);
+  RS_ASSERT(ret >= 0);
+  if (ret == 0) {
+    if (node_id_ref->node_id != NULL) {
+      rm_free(node_id_ref->node_id);
+    }
+    rm_free(node_id_ref);
   }
 }
 
+
+/* Set the local node ID for this shard */
+void MR_SetLocalNodeId(const char *node_id) {
+  NodeIdRef *new_node_id_ref = rm_malloc(sizeof(NodeIdRef));
+  new_node_id_ref->node_id = node_id != NULL ? rm_strdup(node_id) : NULL;
+  new_node_id_ref->refcount = 1;
+
+  // Get the current local node ID.
+  NodeIdRef *old_node_id_ref = local_node_id_g;
+  // Set the new local node ID atomically.
+  __atomic_store_n(&local_node_id_g, new_node_id_ref, __ATOMIC_RELAXED);
+
+  if (old_node_id_ref == NULL) {
+    return;
+  }
+  MR_ReleaseLocalNodeIdRef(old_node_id_ref);
+}
+
 /* Get the local node ID for this shard. Returns NULL if not set or in standalone mode. */
-const char *MR_GetLocalNodeId(void) {
-  // Atomically load the local node ID pointer
-  return __atomic_load_n(&local_node_id_g, __ATOMIC_ACQUIRE);
+NodeIdRef *MR_GetLocalNodeIdRef(void) {
+  NodeIdRef *node_id_ref = __atomic_load_n(&local_node_id_g, __ATOMIC_RELAXED);
+  if (node_id_ref == NULL) {
+    return NULL;
+  }
+  int ret = __atomic_fetch_add(&node_id_ref->refcount, 1, __ATOMIC_RELAXED);
+  RS_ASSERT(ret > 0);
+  return node_id_ref;
 }
 
 struct UpdateConnPoolSizeCtx {
