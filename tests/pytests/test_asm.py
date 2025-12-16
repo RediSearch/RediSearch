@@ -499,7 +499,7 @@ def test_ft_hybrid_import_slot_range_sanity_BG():
 
 def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
     initial_shards_count = env.shardsCount
-    n_docs = 2**14
+    n_docs = 5 * 2**14
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1 = env.getConnection(1)
@@ -626,3 +626,33 @@ def test_ft_cursors_trimmed():
 def test_ft_cursors_trimmed_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     _test_ft_cursors_trimmed(env)
+
+@skip(cluster=False)
+def test_migrate_no_indexes():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+
+    # Set trim delay to prevent trimming during test
+    for shard in env.getOSSMasterNodesConnectionList():
+        shard.execute_command('CONFIG', 'SET', 'search-_max-trim-delay-ms', 100000)
+        shard.execute_command('CONFIG', 'SET', 'search-_min-trim-delay-ms', 50000)
+
+    # Add documents without creating any index
+    n_docs = 5 * 2**14
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(n_docs):
+            con.execute_command('HSET', f'doc-{i}:{{{i % 2**14}}}',
+                              'n', i,
+                              'text', f'document {i} content data',
+                              'tag', 'even' if i % 2 == 0 else 'odd')
+
+    shard1, shard2 = env.getConnection(1), env.getConnection(2)
+
+    # Measure migration time
+    start_time = time.time()
+    task_id = import_middle_slot_range(shard1, shard2)
+    wait_for_slot_import(shard1, task_id)
+    wait_for_slot_import(shard2, task_id)
+    migration_time = time.time() - start_time
+
+    # Migration should complete quickly without indexes (under 10 seconds (a lot of time for CI))
+    env.assertLess(migration_time, 10.0)
