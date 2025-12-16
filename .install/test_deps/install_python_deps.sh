@@ -17,36 +17,17 @@ activate_venv() {
 		# We work around it by appending the required lines to the shell profile
 		# _after_ the venv activation script
 
+		# Always use $HOME - works in both container and non-container
+		# In container: HOME=/root (fixed by workflow step 117-132)
+		# On runner: HOME=/home/runner (already correct)
 		# cargo
 		echo '. "$HOME/.cargo/env"' >> ~/.bash_profile
+		# rustup
+		echo 'export RUSTUP_HOME=$HOME/.rustup' >> ~/.bash_profile
 		# uv
 		echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bash_profile
 	fi
 }
-
-# retrieve nightly version from build.sh
-NIGHTLY_VERSION=$(grep "NIGHTLY_VERSION=" build.sh | cut -d'=' -f2 | tr -d '"')
-# --allow-downgrade:
-#   Allow `rustup` to install an older `nightly` if the latest one
-#   is missing one of the components we need.
-# llvm-tools-preview:
-#   Required by `cargo-llvm-cov` for test coverage
-# miri:
-#   Required to run `cargo miri test` for UB detection
-# rust-src:
-#   Required to build RedisJSON with address sanitizer
-rustup toolchain install $NIGHTLY_VERSION \
-    --allow-downgrade \
-    --component llvm-tools-preview \
-    --component miri \
-    --component rust-src
-
-# Tool required to compute test coverage for Rust code
-cargo install cargo-llvm-cov --locked
-# Make sure `miri` is fully operational before running tests with it.
-# See https://github.com/rust-lang/miri/blob/master/README.md#running-miri-on-ci
-# for more details.
-cargo +$NIGHTLY_VERSION miri setup
 
 # Create a virtual environment for Python tests, with `pip` pre-installed (--seed)
 uv venv --seed
