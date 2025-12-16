@@ -190,6 +190,33 @@ fn skip_to_child_at_eof_returns_found() {
     }
 }
 
+// skip_to to child's last doc when child is at EOF: should exclude it
+#[test]
+fn skip_to_child_last_doc_when_at_eof_excludes_it() {
+    let mut it = Not::new(SortedIdList::new(vec![5, 10]), 15);
+
+    // Read up to doc 9 to exhaust the child
+    while let Some(doc) = it.read().unwrap() {
+        if doc.doc_id >= 9 {
+            break; // Now child is at EOF with last_doc_id=10, NOT is at 9
+        }
+    }
+
+    // Child is at EOF with last_doc_id=10, NOT is at 9
+    // skip_to(10) should NOT return Found(10) because 10 is in the child
+    // It should skip to the next valid doc (11) and return NotFound(11)
+    let outcome = it.skip_to(10).expect("skip_to(10) must not error");
+    match outcome {
+        Some(SkipToOutcome::NotFound(doc)) => {
+            assert_eq!(doc.doc_id, 11, "Should skip to next valid doc after 10");
+        }
+        other => panic!(
+            "Expected NotFound(11) when skipping to child's last doc at EOF, got {:?}",
+            other
+        ),
+    }
+}
+
 // skip_to past max_doc_id: should return None and move to EOF.
 #[test]
 fn skip_to_past_max_docid_returns_none_and_sets_eof() {

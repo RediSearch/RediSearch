@@ -106,7 +106,9 @@ where
         }
 
         // Case 1: Child is ahead or at EOF - docId is not in child
-        if self.child.last_doc_id() > doc_id || self.child.at_eof() {
+        // When child is at EOF, only accept doc_id if it's past the child's last document
+        if self.child.last_doc_id() > doc_id
+            || (self.child.at_eof() && doc_id > self.child.last_doc_id()) {
             self.result.doc_id = doc_id;
             return Ok(Some(SkipToOutcome::Found(&mut self.result)));
         }
