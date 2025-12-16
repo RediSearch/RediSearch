@@ -35,6 +35,7 @@ void MRCommand_Free(MRCommand *cmd) {
     rm_free(cmd->strs[i]);
   }
   rm_free(cmd->targetShard);
+  cmd->targetShard = NULL;
   rm_free(cmd->strs);
   rm_free(cmd->lens);
 }
