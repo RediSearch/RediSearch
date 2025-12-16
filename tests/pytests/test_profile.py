@@ -995,7 +995,8 @@ def testShardIdInProfileResp2():
     num_docs = 10
     for i in range(num_docs):
         conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
-        ShardIdInProfile(env)
+
+    ShardIdInProfile(env)
 
 
 # Run testShardIdInProfileResp3 for a few seconds to ensure that we update the node ID in search.clusterset (expected

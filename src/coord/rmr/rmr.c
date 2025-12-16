@@ -272,6 +272,9 @@ void MR_UpdateTopology(MRClusterTopology *newTopo, const RedisModuleSlotRangeArr
 }
 
 void MR_ReleaseLocalNodeIdRef(NodeIdRef *node_id_ref) {
+  if (node_id_ref == NULL) {
+    return;
+  }
   // If ref count is now zero, release the old local node ID.
   int ret = __atomic_sub_fetch(&node_id_ref->refcount, 1, __ATOMIC_RELAXED);
   RS_ASSERT(ret >= 0);
@@ -294,10 +297,6 @@ void MR_SetLocalNodeId(const char *node_id) {
   NodeIdRef *old_node_id_ref = local_node_id_g;
   // Set the new local node ID atomically.
   __atomic_store_n(&local_node_id_g, new_node_id_ref, __ATOMIC_RELAXED);
-
-  if (old_node_id_ref == NULL) {
-    return;
-  }
   MR_ReleaseLocalNodeIdRef(old_node_id_ref);
 }
 
