@@ -58,6 +58,21 @@ env:
   COV: ${{ inputs.coverage && 1 || 0 }} # convert the boolean input to numeric
   RUST_BACKTRACE: "full"
   BUILD_INTEL_SVS_OPT: "yes"
+  SETUP_RETRY_LOOP: |
+    SUCCESS=0
+    for i in 1 2 3 4 5; do
+      echo "Attempt $i of 5"
+      if {0}; then
+        echo "Setup succeeded"
+        SUCCESS=1
+        break
+      fi
+      if [ $i -lt 5 ]; then
+        echo "Setup failed, retrying in 30 seconds..."
+        sleep 30
+      fi
+    done
+    [ $SUCCESS -eq 1 ] || exit 1
 
 jobs:
   # Get configuration for this specific platform and architecture
@@ -155,42 +170,14 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
-      - name: Setup Dependencies (Alpine)
-        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3.22'
+      - name: Install bash
+        if: needs.get-config.outputs.container == 'alpine:3.22'
         shell: sh -l -eo pipefail {0}
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ${{ needs.get-config.outputs.setup_script }}; then
-              echo "Setup Dependencies succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup Dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          [ $SUCCESS -eq 1 ] || exit 1
-      - name: Setup Dependencies (Non-Alpine)
-        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3.22'
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ${{ needs.get-config.outputs.setup_script }}; then
-              echo "Setup Dependencies succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup Dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          [ $SUCCESS -eq 1 ] || exit 1
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
+      - name: Setup Dependencies
+        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
+        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
+
       - name: Free up disk space (container)
         # For container jobs - delete mounted host directories
         if: ${{ needs.get-config.outputs.container }}
@@ -246,7 +233,7 @@ jobs:
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
           CONTAINER="${{ needs.get-config.outputs.container }}"
-          for platform in amazonlinux:2 alpine:3.22; do
+          for platform in amazonlinux:2; do
             if [[ "$CONTAINER" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
@@ -272,7 +259,7 @@ jobs:
           CONTAINER="${{ needs.get-config.outputs.container }}"
           echo "Detected platform: $CONTAINER"
           case "$CONTAINER" in
-            amazonlinux:2 | alpine:3.22)
+            amazonlinux:2)
 
               # Configure the safe directory
               git config --global --add safe.directory "/__w/$GITHUB_REPO"
@@ -324,27 +311,12 @@ jobs:
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ./install_script.sh ${{ steps.mode.outputs.mode }}; then
-              echo "Setup succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          if [ $SUCCESS -eq 0 ]; then
-            echo "Setup failed after 5 attempts"
-            exit 1
-          fi
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, './install_script.sh $MODE') }}
       - name: Setup Rust test dependencies
         if: needs.build-image.outputs.succeeded != 'true' # Only run if NOT using custom container
-        run: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, '.install/test_deps/install_rust_deps.sh $MODE') }}
 
       - name: Setup Python test dependencies
         env:
@@ -353,30 +325,17 @@ jobs:
       - name: Install LLVM for sanitizer
         if: inputs.san == 'address'
         working-directory: .install
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
         run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ./install_llvm.sh ${{ steps.mode.outputs.mode }}; then
-              echo "Install LLVM for sanitizer succeeded"
-              CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
-              CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
-              echo "Using LLVM version: $CLANG_VERSION"
-              echo "CC=$CLANG_BIN" >> $GITHUB_ENV
-              echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
-              echo "LD=$CLANG_BIN" >> $GITHUB_ENV
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Install LLVM for sanitizer failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          if [ $SUCCESS -eq 0 ]; then
-            echo "Install LLVM for sanitizer failed after 5 attempts"
-            exit 1
-          fi
+          ${{ format(env.SETUP_RETRY_LOOP, './install_llvm.sh $MODE') }}
+          echo "Install LLVM for sanitizer succeeded"
+          CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
+          CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
+          echo "Using LLVM version: $CLANG_VERSION"
+          echo "CC=$CLANG_BIN" >> $GITHUB_ENV
+          echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
+          echo "LD=$CLANG_BIN" >> $GITHUB_ENV
       - name: Get Redis (node20)
         if: ${{ steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
