@@ -15,7 +15,7 @@ mod id_list;
 mod inverted_index;
 mod maybe_empty;
 mod metric;
+mod not_iterator;
 mod optional;
 mod profile;
-mod not_iterator;
 mod wildcard;

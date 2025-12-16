@@ -17,9 +17,9 @@ pub mod id_list;
 pub mod inverted_index;
 pub mod maybe_empty;
 pub mod metric;
+pub mod not_iterator;
 pub mod optional;
 pub mod profile;
-pub mod not_iterator;
 pub mod wildcard;
 
 pub use empty::Empty;

@@ -12,9 +12,9 @@
 use std::time::Duration;
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
-use rqe_iterators::{RQEIterator, not_iterator::Not, id_list::SortedIdList, empty::Empty};
+use rqe_iterators::{RQEIterator, empty::Empty, id_list::SortedIdList, not_iterator::Not};
 
-use crate::ffi::{QueryIterator, IteratorStatus_ITERATOR_OK};
+use crate::ffi::{IteratorStatus_ITERATOR_OK, QueryIterator};
 
 static WEIGHT: f64 = 1.0;
 static MAX_DOC_ID: u64 = 1_000_000;

@@ -138,7 +138,10 @@ fn skip_to_child_doc_at_max_docid_returns_none() {
 
     // skip_to(10) - 10 is in child AND is max_doc_id, so there's no next doc
     let outcome = it.skip_to(10).expect("skip_to(10) must not error");
-    assert!(outcome.is_none(), "Expected None when skipping to child doc at max_doc_id");
+    assert!(
+        outcome.is_none(),
+        "Expected None when skipping to child doc at max_doc_id"
+    );
     assert!(it.at_eof());
 }
 
@@ -156,7 +159,10 @@ fn skip_to_child_ahead_returns_found() {
     if let Some(SkipToOutcome::Found(doc)) = outcome {
         assert_eq!(doc.doc_id, 3);
     } else {
-        panic!("Expected Found outcome for skip_to(3) when child is ahead, got {:?}", outcome);
+        panic!(
+            "Expected Found outcome for skip_to(3) when child is ahead, got {:?}",
+            outcome
+        );
     }
 }
 
@@ -177,7 +183,10 @@ fn skip_to_child_at_eof_returns_found() {
     if let Some(SkipToOutcome::Found(doc)) = outcome {
         assert_eq!(doc.doc_id, 8);
     } else {
-        panic!("Expected Found outcome for skip_to(8) when child at EOF, got {:?}", outcome);
+        panic!(
+            "Expected Found outcome for skip_to(8) when child at EOF, got {:?}",
+            outcome
+        );
     }
 }
 

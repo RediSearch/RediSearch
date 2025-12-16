@@ -133,7 +133,10 @@ impl QueryIterator {
             ptr::null_mut()
         };
 
-        Self(unsafe { iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, num, 1.0) } as *mut bindings::QueryIterator)
+        Self(
+            unsafe { iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, num, 1.0) }
+                as *mut bindings::QueryIterator,
+        )
     }
 
     /// Create a non-optimized NOT iterator with the given child and max_doc_id.
@@ -150,13 +153,7 @@ impl QueryIterator {
         };
 
         let it = unsafe {
-            bindings::NewNotIterator(
-                child.0,
-                max_doc_id,
-                weight,
-                timeout,
-                query_eval_ctx,
-            )
+            bindings::NewNotIterator(child.0, max_doc_id, weight, timeout, query_eval_ctx)
         };
 
         free_redis_search_ctx(query_eval_ctx);
