@@ -166,6 +166,7 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
     }
 
     newCmd.targetShard = cmd->targetShard;
+    cmd->targetShard = NULL; // transfer ownership
     newCmd.protocol = cmd->protocol;
     newCmd.forCursor = cmd->forCursor;
     newCmd.forProfiling = cmd->forProfiling;

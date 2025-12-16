@@ -23,6 +23,11 @@ typedef enum  {
 } MappingType;
 
 typedef struct {
+  char * targetShard;
+  long long cursorId;
+} CursorMapping;
+
+typedef struct {
   MappingType type;
   arrayof(CursorMapping) mappings;
 } CursorMappings;
@@ -44,6 +49,11 @@ typedef struct QueryError QueryError;
  * @return true if processing completed (even with warnings), false on fatal errors; status will contain error/warning information
  */
 bool ProcessHybridCursorMappings(const MRCommand *cmd,int numShards, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status, RSOomPolicy oomPolicy);
+
+/**
+ * Release resources associated with a cursor mapping
+ */
+void CursorMapping_Release(CursorMapping *mapping);
 
 #ifdef __cplusplus
 }

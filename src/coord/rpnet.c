@@ -73,7 +73,6 @@ static RSValue *MRReply_ToValue(MRReply *r) {
   return v;
 }
 
-
 int getNextReply(RPNet *nc) {
   if (nc->cmd.forCursor) {
     // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
