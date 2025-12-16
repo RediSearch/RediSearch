@@ -591,6 +591,7 @@ void iterStartCb(void *p) {
 
   // Set the first command to target the first shard (while not having copied it)
   cmd->targetShard = rm_strdup(shards[0].node.id);
+  cmd->targetShardIdx = 0;
   MRCommand_SetSlotInfo(cmd, shards[0].slotRanges);
 
   // This implies that every connection to each shard will work inside a single IO thread
@@ -631,12 +632,11 @@ void iterCursorMappingCb(void *p) {
 
   it->cbxs = rm_realloc(it->cbxs, numShardsWithMapping * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
-  cmd->targetShard = vsimOrSearch->mappings[0].targetShard;
+  cmd->targetShard = rm_strdup(vsimOrSearch->mappings[0].targetShard);
   cmd->targetShardIdx = vsimOrSearch->mappings[0].targetShardIdx;
   char buf[128];
   sprintf(buf, "%lld", vsimOrSearch->mappings[0].cursorId);
   MRCommand_Append(cmd, buf, strlen(buf));
-
 
   // Create FT.CURSOR READ commands for each mapping
   for (size_t i = 1; i < numShardsWithMapping; i++) {
@@ -645,7 +645,7 @@ void iterCursorMappingCb(void *p) {
 
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
 
-    it->cbxs[i].cmd.targetShard = vsimOrSearch->mappings[i].targetShard;
+    it->cbxs[i].cmd.targetShard = rm_strdup(vsimOrSearch->mappings[i].targetShard);
     it->cbxs[i].cmd.targetShardIdx = vsimOrSearch->mappings[i].targetShardIdx;
     it->cbxs[i].cmd.num = 4;
     char buf[128];
