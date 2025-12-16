@@ -71,6 +71,7 @@
 #include "search_disk.h"
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
+#include "hybrid/hybrid_config_snapshot.h"
 #include "util/redis_mem_info.h"
 #include "notifications.h"
 #include "aggregate/reply_empty.h"
@@ -3461,8 +3462,14 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
-                                               StrongRef_Demote(spec_ref));
+  // Create config snapshot for thread-safe access in worker thread
+  HybridConfigSnapshot *configSnapshot = HybridConfigSnapshot_Create();
+
+  return ConcurrentSearch_HandleRedisCommandExWithPrivateData(
+      DIST_THREADPOOL, dist_callback, ctx, argv, argc,
+      StrongRef_Demote(spec_ref),
+      configSnapshot,
+      HybridConfigSnapshot_Free);
 }
 
 static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisModuleCmdFunc subcmd, ConcurrentCmdHandler dist_callback) {

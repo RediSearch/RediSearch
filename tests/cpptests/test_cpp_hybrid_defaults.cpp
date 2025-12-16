@@ -3,6 +3,7 @@
 #include "redismock/util.h"
 #include "spec.h"
 #include "hybrid/parse_hybrid.h"
+#include "hybrid/hybrid_config_snapshot.h"
 #include "hybrid/hybrid_scoring.h"
 #include "common.h"
 
@@ -71,6 +72,9 @@ protected:
 
     EXPECT_TRUE(result->sctx != NULL) << "Failed to create search context";
 
+    // Create config snapshot for parsing
+    HybridConfigSnapshot *configSnapshot = HybridConfigSnapshot_Create();
+
     ParseHybridCommandCtx cmd = {0};
     cmd.search = result->requests[0];
     cmd.vector = result->requests[1];
@@ -78,10 +82,15 @@ protected:
     cmd.hybridParams = &hybridParams;
     cmd.reqConfig = &result->reqConfig;
     cmd.cursorConfig = &result->cursorConfig;
+    cmd.configSnapshot = configSnapshot;
 
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(result, &ac, args, args.size());
     int rc =  parseHybridCommand(ctx, &ac, result->sctx, &cmd, &status, false);
+
+    // Snapshot no longer needed after parsing
+    HybridConfigSnapshot_Free(configSnapshot);
+
     if (rc != REDISMODULE_OK) {
       HybridRequest_Free(result);
       result = nullptr;

@@ -179,8 +179,10 @@ void handleWithCursor(ArgParser *parser, const void *value, void *user_data) {
         return;
     }
 
-    if (ctx->cursorConfig->maxIdle == 0 || ctx->cursorConfig->maxIdle > RSGlobalConfig.cursorMaxIdle) {
-        ctx->cursorConfig->maxIdle = RSGlobalConfig.cursorMaxIdle;
+    // Clamp maxIdle to cursorMaxIdle limit
+    long long cursorMaxIdle = ctx->configSnapshot->cursorMaxIdle;
+    if (ctx->cursorConfig->maxIdle == 0 || ctx->cursorConfig->maxIdle > cursorMaxIdle) {
+        ctx->cursorConfig->maxIdle = cursorMaxIdle;
     }
 }
 

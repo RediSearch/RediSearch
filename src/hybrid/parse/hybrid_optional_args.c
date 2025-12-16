@@ -8,7 +8,6 @@
 */
 #include "hybrid/parse/hybrid_optional_args.h"
 #include "hybrid/parse/hybrid_callbacks.h"
-#include "config.h"
 #include "util/arg_parser.h"
 #include <string.h>
 
@@ -79,15 +78,16 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                          ARG_OPT_END);
 
     // TIMEOUT timeout - query timeout in milliseconds
+    long long defaultTimeout = ctx->configSnapshot->requestConfig.queryTimeoutMS;
     ArgParser_AddLongLongV(parser, "TIMEOUT", "Query timeout in milliseconds",
                       &ctx->reqConfig->queryTimeoutMS,
                       ARG_OPT_OPTIONAL,
-                      ARG_OPT_DEFAULT_INT, RSGlobalConfig.requestConfigParams.queryTimeoutMS,
+                      ARG_OPT_DEFAULT_INT, defaultTimeout,
                       ARG_OPT_CALLBACK, handleTimeout, ctx,
                       ARG_OPT_END);
 
     // DIALECT dialect - query dialect version
-    unsigned int defaultDialect = RSGlobalConfig.requestConfigParams.dialectVersion;
+    unsigned int defaultDialect = ctx->configSnapshot->requestConfig.dialectVersion;
     if (defaultDialect < MIN_HYBRID_DIALECT) {
         defaultDialect = MIN_HYBRID_DIALECT;
     }

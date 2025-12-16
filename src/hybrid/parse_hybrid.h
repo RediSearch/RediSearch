@@ -19,6 +19,7 @@
 #include "search_ctx.h"
 #include "hybrid_request.h"
 #include "hybrid_scoring.h"
+#include "hybrid_config_snapshot.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,6 +35,7 @@ typedef struct ParseHybridCommandCtx {
     HybridPipelineParams* hybridParams;
     RequestConfig* reqConfig;
     CursorConfig* cursorConfig;
+    const HybridConfigSnapshot *configSnapshot;  // Thread-safe config snapshot (required)
 } ParseHybridCommandCtx;
 
 // Function for parsing hybrid command arguments - exposed for testing

@@ -11,6 +11,7 @@
 #include "hybrid_exec.h"
 #include "hybrid_request.h"
 #include "parse_hybrid.h"
+#include "hybrid_config_snapshot.h"
 #include "result_processor.h"
 #include "rmutil/args.h"
 #include "rmalloc.h"
@@ -200,6 +201,9 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hreq, &ac, argv, hybrid_argc);
 
+  // Create config snapshot for consistent config access
+  HybridConfigSnapshot *configSnapshot = HybridConfigSnapshot_Create();
+
   HybridPipelineParams hybridParams = {0};  // Stack allocation
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hreq->requests[SEARCH_INDEX];
@@ -208,8 +212,13 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   cmd.hybridParams = &hybridParams;
   cmd.tailPlan = &hreq->tailPipeline->ap;
   cmd.reqConfig = &hreq->reqConfig;
+  cmd.configSnapshot = configSnapshot;
 
   int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, status, false);
+
+  // Snapshot no longer needed after parsing
+  HybridConfigSnapshot_Free(configSnapshot);
+
   if (rc != REDISMODULE_OK) {
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);

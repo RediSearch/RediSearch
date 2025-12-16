@@ -10,6 +10,7 @@
 #include "hybrid_exec.h"
 #include "parse_hybrid.h"
 #include "hybrid_request.h"
+#include "hybrid_config_snapshot.h"
 #include "aggregate/aggregate_exec_common.h"
 
 #include "redismodule.h"
@@ -616,6 +617,9 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   StrongRef hybrid_ref = StrongRef_New(hybridRequest, &FreeHybridRequest);
   HybridPipelineParams hybridParams = {0};
 
+  // Create config snapshot for consistent config access
+  HybridConfigSnapshot *configSnapshot = HybridConfigSnapshot_Create();
+
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hybridRequest->requests[SEARCH_INDEX];
   cmd.vector = hybridRequest->requests[VECTOR_INDEX];
@@ -623,11 +627,17 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.cursorConfig = &hybridRequest->cursorConfig;
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
+  cmd.configSnapshot = configSnapshot;
 
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, argv, argc);
 
-  if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal) != REDISMODULE_OK) {
+  int parseResult = parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal);
+
+  // Snapshot no longer needed after parsing
+  HybridConfigSnapshot_Free(configSnapshot);
+
+  if (parseResult != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
   }
 

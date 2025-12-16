@@ -47,6 +47,8 @@ typedef struct ConcurrentCmdCtx {
   int argc;
   int options;
   WeakRef spec_ref;
+  void *privateData;                    // User-provided context data
+  void (*privateDataFree)(void *);      // Optional cleanup function
 } ConcurrentCmdCtx;
 
 /* Run a function on the concurrent thread pool */
@@ -82,6 +84,12 @@ static void threadHandleCommand(void *p) {
   RedisModule_BlockedClientMeasureTimeEnd(ctx->bc);
 
   RedisModule_UnblockClient(ctx->bc, NULL);
+
+  // Cleanup private data if provided
+  if (ctx->privateData && ctx->privateDataFree) {
+    ctx->privateDataFree(ctx->privateData);
+  }
+
   rm_free(ctx->argv);
   rm_free(p);
 }
@@ -94,9 +102,15 @@ WeakRef ConcurrentCmdCtx_GetWeakRef(ConcurrentCmdCtx *cctx) {
   return cctx->spec_ref;
 }
 
-int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
+void *ConcurrentCmdCtx_GetPrivateData(ConcurrentCmdCtx *cctx) {
+  return cctx->privateData;
+}
+
+int ConcurrentSearch_HandleRedisCommandExWithPrivateData(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                          WeakRef spec_ref) {
+                                          WeakRef spec_ref,
+                                          void *privateData,
+                                          void (*privateDataFree)(void *)) {
   ConcurrentCmdCtx *cmdCtx = rm_malloc(sizeof(*cmdCtx));
 
   cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
@@ -106,6 +120,8 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;
   cmdCtx->options = 0;
+  cmdCtx->privateData = privateData;
+  cmdCtx->privateDataFree = privateDataFree;
   // Copy command arguments so they can be released by the calling thread
   cmdCtx->argv = rm_calloc(argc, sizeof(RedisModuleString *));
   for (int i = 0; i < argc; i++) {
@@ -116,6 +132,16 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
 
   ConcurrentSearch_ThreadPoolRun(threadHandleCommand, cmdCtx, poolType);
   return REDISMODULE_OK;
+}
+
+int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
+                                          RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                          WeakRef spec_ref) {
+  return ConcurrentSearch_HandleRedisCommandExWithPrivateData(
+      poolType, handler, ctx, argv, argc, spec_ref,
+      NULL,   // no private data
+      NULL    // no private data
+  );
 }
 
 /********************************************* for debugging **********************************/

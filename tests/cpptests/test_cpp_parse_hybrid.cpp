@@ -13,6 +13,7 @@
 #include "common.h"
 #include "src/hybrid/hybrid_request.h"
 #include "src/hybrid/parse_hybrid.h"
+#include "src/hybrid/hybrid_config_snapshot.h"
 #include "src/hybrid/hybrid_scoring.h"
 #include "src/hybrid/vector_query_utils.h"
 #include "src/spec.h"
@@ -37,6 +38,7 @@ class ParseHybridTest : public ::testing::Test {
   HybridRequest *hybridRequest;
   HybridPipelineParams hybridParams;
   ParseHybridCommandCtx result;
+  HybridConfigSnapshot *configSnapshot;
 
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(NULL);
@@ -63,6 +65,9 @@ class ParseHybridTest : public ::testing::Test {
     ASSERT_TRUE(spec);
     hybridRequest = MakeDefaultHybridRequest(NewSearchCtxC(ctx, index_name.c_str(), true));
 
+    // Create config snapshot for tests
+    configSnapshot = HybridConfigSnapshot_Create();
+
     hybridParams = {0};
     result.search = hybridRequest->requests[0];
     result.vector = hybridRequest->requests[1];
@@ -70,6 +75,7 @@ class ParseHybridTest : public ::testing::Test {
     result.hybridParams = &hybridParams;
     result.reqConfig = &hybridRequest->reqConfig;
     result.cursorConfig = &hybridRequest->cursorConfig;
+    result.configSnapshot = configSnapshot;
   }
 
   void TearDown() override {
@@ -78,6 +84,10 @@ class ParseHybridTest : public ::testing::Test {
     }
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
+    }
+    if (configSnapshot) {
+      HybridConfigSnapshot_Free(configSnapshot);
+      configSnapshot = nullptr;
     }
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
@@ -191,38 +201,31 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
 }
 
-TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
-  // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
-  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Fail;
+// Parameterized test fixture for OomPolicy propagation
+class OomPolicyParseHybridTest : public ParseHybridTest,
+                                  public ::testing::WithParamInterface<RSOomPolicy> {
+protected:
+  void SetUp() override {
+    RSGlobalConfig.requestConfigParams.oomPolicy = GetParam();
+    ParseHybridTest::SetUp();
+  }
+};
+
+TEST_P(OomPolicyParseHybridTest, testConfigOOMPolicyPropagation) {
+  RSOomPolicy expectedPolicy = GetParam();
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
-  ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Fail);
-  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Fail);
-  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Fail);
+  ASSERT_EQ(result.reqConfig->oomPolicy, expectedPolicy);
+  ASSERT_EQ(result.vector->reqConfig.oomPolicy, expectedPolicy);
+  ASSERT_EQ(result.search->reqConfig.oomPolicy, expectedPolicy);
 }
 
-TEST_F(ParseHybridTest, testConfigOOMReturnPolicyPropagation) {
-  // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
-  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-
-  parseCommand(args);
-  ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Return);
-  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Return);
-  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Return);
-}
-
-TEST_F(ParseHybridTest, testConfigOOMIgnorePolicyPropagation) {
-
-  // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
-  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Ignore;
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  parseCommand(args);
-  ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Ignore);
-  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Ignore);
-  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Ignore);
-}
+INSTANTIATE_TEST_SUITE_P(
+    OomPolicies,
+    OomPolicyParseHybridTest,
+    ::testing::Values(OomPolicy_Fail, OomPolicy_Return, OomPolicy_Ignore)
+);
 
 TEST_F(ParseHybridTest, testWithCombineLinear) {
   // Test with LINEAR combine method

@@ -11,6 +11,7 @@
 #include "aggregate/aggregate_plan.h"
 #include "query_error.h"
 #include "hybrid//hybrid_scoring.h"
+#include "hybrid/hybrid_config_snapshot.h"
 #include "util/arg_parser.h"
 #include "aggregate/aggregate.h"
 
@@ -58,6 +59,7 @@ typedef struct {
     arrayof(sds) *prefixes;                 // Prefixes for the index
     const RedisModuleSlotRangeArray **querySlots; // Slots requested from coordinator (referenced from AREQ)
     uint32_t *slotsVersion;                 // Slots version for the request (referenced from AREQ)
+    const HybridConfigSnapshot *configSnapshot;   // Thread-safe config snapshot (required)
 } HybridParseContext;
 
 /**

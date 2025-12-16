@@ -6,6 +6,7 @@
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/parse_hybrid.h"
+#include "hybrid/hybrid_config_snapshot.h"
 #include "result_processor.h"
 #include "redismock/redismock.h"
 #include "redismock/util.h"
@@ -144,6 +145,9 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
     return nullptr;
   }
 
+  // Create config snapshot for parsing
+  HybridConfigSnapshot *configSnapshot = HybridConfigSnapshot_Create();
+
   HybridPipelineParams hybridParams = {0};
   RequestConfig reqConfig = {0};
   CursorConfig cursorConfig = {0};
@@ -154,13 +158,18 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
     .tailPlan = &hybridReq->tailPipeline->ap,
     .hybridParams = &hybridParams,
     .reqConfig = &reqConfig,
-    .cursorConfig = &cursorConfig
+    .cursorConfig = &cursorConfig,
+    .configSnapshot = configSnapshot
   };
 
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridReq, &ac, args, args.size());
   // Parse the hybrid command - this fills out hybridParams
   int rc = parseHybridCommand(ctx, &ac, test_sctx, &cmd, status, false);
+
+  // Snapshot no longer needed after parsing
+  HybridConfigSnapshot_Free(configSnapshot);
+
   if (rc != REDISMODULE_OK) {
     HybridRequest_Free(hybridReq);
     return nullptr;

@@ -13,6 +13,7 @@
 #include "common.h"
 #include "src/hybrid/hybrid_request.h"
 #include "src/hybrid/parse_hybrid.h"
+#include "src/hybrid/hybrid_config_snapshot.h"
 #include "src/hybrid/hybrid_scoring.h"
 #include "iterators/hybrid_reader.h"
 #include "src/spec.h"
@@ -120,19 +121,27 @@ bool SetupHybridIteratorTest(RedisModuleCtx *ctx,
     RequestConfig reqConfig = {0};
     CursorConfig cursorConfig = {0};
 
+    // Create config snapshot for parsing
+    HybridConfigSnapshot *configSnapshot = HybridConfigSnapshot_Create();
+
     ParseHybridCommandCtx cmd = {
       .search = testCtx->hybridReq->requests[SEARCH_REQUEST_INDEX],
       .vector = testCtx->hybridReq->requests[VECTOR_REQUEST_INDEX],
       .tailPlan = &testCtx->hybridReq->tailPipeline->ap,
       .hybridParams = &testCtx->hybridParams,
       .reqConfig = &reqConfig,
-      .cursorConfig = &cursorConfig
+      .cursorConfig = &cursorConfig,
+      .configSnapshot = configSnapshot
     };
 
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(testCtx->hybridReq, &ac, args, args.size());
 
     int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &testCtx->status, false);
+
+    // Snapshot no longer needed after parsing
+    HybridConfigSnapshot_Free(configSnapshot);
+
     if (rc != REDISMODULE_OK) return false;
 
     // Step 5: Create iterator from vector request

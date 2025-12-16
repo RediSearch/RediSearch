@@ -60,10 +60,23 @@ void ConcurrentCmdCtx_KeepRedisCtx(struct ConcurrentCmdCtx *ctx);
 // Returns the WeakRef held in the context.
 WeakRef ConcurrentCmdCtx_GetWeakRef(struct ConcurrentCmdCtx *cctx);
 
+// Returns the private data pointer held in the context.
+void *ConcurrentCmdCtx_GetPrivateData(struct ConcurrentCmdCtx *cctx);
+
 /* Same as handleRedis command, but set flags for the concurrent context */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           WeakRef spec_ref);
+
+/* Extended version with private data support.
+ * privateData: User-provided context data to pass to the handler
+ * privateDataFree: Optional cleanup function called after handler completes (can be NULL)
+ */
+int ConcurrentSearch_HandleRedisCommandExWithPrivateData(int poolType, ConcurrentCmdHandler handler,
+                                          RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                          WeakRef spec_ref,
+                                          void *privateData,
+                                          void (*privateDataFree)(void *));
 
 /********************************************* for debugging **********************************/
 

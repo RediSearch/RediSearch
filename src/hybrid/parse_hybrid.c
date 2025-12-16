@@ -9,6 +9,7 @@
 
 #include "parse_hybrid.h"
 #include "query_optimizer.h"
+#include "hybrid_config_snapshot.h"
 
 #include <string.h>
 #include <strings.h>
@@ -615,7 +616,13 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   uint32_t *mergeReqflags = &hybridParams->aggregationParams.common.reqflags;
   // Don't expect any flag to be on yet
   RS_ASSERT(*mergeReqflags == 0);
-  *parsedCmdCtx->reqConfig = RSGlobalConfig.requestConfigParams;
+
+  // Use config snapshot (must be provided by caller)
+  const HybridConfigSnapshot *snapshot = parsedCmdCtx->configSnapshot;
+  RS_ASSERT(snapshot != NULL);
+
+  // Initialize request config from snapshot
+  *parsedCmdCtx->reqConfig = snapshot->requestConfig;
 
   // Use default dialect if > 1, otherwise use dialect 2
   if (parsedCmdCtx->reqConfig->dialectVersion < MIN_HYBRID_DIALECT) {
@@ -626,7 +633,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   RSSearchOptions mergeSearchopts = {0};
   RSSearchOptions_Init(&mergeSearchopts);
-  size_t maxHybridResults = RSGlobalConfig.maxSearchResults;
+  size_t maxHybridResults = snapshot->maxSearchResults;
 
   AREQ *vectorRequest = parsedCmdCtx->vector;
   AREQ *searchRequest = parsedCmdCtx->search;
@@ -671,6 +678,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .prefixes = &prefixes,
       .querySlots = &requestSlotRanges,
       .slotsVersion = &slotsVersion,
+      .configSnapshot = snapshot,  // Pass thread-safe config snapshot
   };
   // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
