@@ -66,13 +66,12 @@ where
             };
         };
 
-        let result = RSIndexResult::intersect(children.len());
         Self {
             children,
             last_doc_id: 0,
             num_expected,
             is_eof: false,
-            result,
+            result: RSIndexResult::intersect(children.len()),
         }
     }
 
