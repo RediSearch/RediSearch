@@ -41,6 +41,7 @@ static atomic_bool topo_callback_should_finish;
 
 // Slow topology callback that blocks until signaled to finish
 static void slowTopologyCallback(void *arg) {
+  REDISMODULE_NOT_USED(arg);
   // Signal that we've started
   atomic_store(&topo_callback_started, true);
 
@@ -48,6 +49,7 @@ static void slowTopologyCallback(void *arg) {
   while (!atomic_load(&topo_callback_should_finish)) {
     usleep(100); // 100us
   }
+  // Note: We don't free the topology here - it's owned by the cluster and freed via MRClust_Free
 }
 
 // Helper function to wait for an atomic bool condition with timeout
@@ -147,9 +149,8 @@ void testActiveTopologyUpdateThreadsMetric() {
   RQ_Debug_SetLoopReady();
 
   // Phase 2: Schedule topology callback and verify metric increases
-  // Create an empty topology (will be freed by RQ_Push_Topology if replaced)
-  MRClusterTopology *dummyTopo = MR_NewTopology(0, 0, MRHashFunc_None);
-  RQ_Push_Topology(slowTopologyCallback, dummyTopo);
+  // Use the cluster's topology - it will be freed via MRClust_Free at cleanup
+  RQ_Push_Topology(slowTopologyCallback, cluster->topo);
 
   // Wait for callback to start
   int started = wait_for_atomic_bool(&topo_callback_started, 30000); // 30s timeout
