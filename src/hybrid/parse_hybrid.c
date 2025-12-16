@@ -680,6 +680,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Set slots info in both subqueries
   if (internal) {
+    RS_ASSERT(requestSlotRanges != NULL);
     vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
     vectorRequest->keySpaceVersion = keySpaceVersion;
     if (vectorRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {

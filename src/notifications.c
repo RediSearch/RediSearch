@@ -17,7 +17,6 @@
 #include "dictionary.h"
 #include "slot_ranges.h"
 #include "asm_state_machine.h"
-//TODO ASM: Review this, maybe is worth duplicating the logic or moving to utils?
 #include "src/coord/rmr/redis_cluster.h"
 
 #define JSON_LEN 5 // length of string "json."
@@ -361,19 +360,20 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
   // 1. Check counter of queries with old version
   // 2. If counter is 0, enable trimming and stop enableTrimmingTimer.
   // 3. Otherwise, reschedule the timer after TRIMMING_STATE_CHECK_DELAY.
-  trimmingDelayCtx.checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
-  trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = false;
+
   RedisModule_Log(ctx, "verbose", "Checking if we can start trimming migrated slots.");
   if (ASM_CanStartTrimming()) {
     if (RSGlobalConfig.debugDisableTrimming) {
       RedisModule_Log(ctx, "verbose", "Trimming disabled by debug flag, skipping EnableTrim.");
       return;
     }
-    RedisModule_Log(ctx, "verbose", "No queries using the old version, Enabling trimming.");
+    RedisModule_Log(ctx, "notice", "No queries using the old version, Enabling trimming.");
     RS_ASSERT(trimmingDelayCtx.enableTrimmingTimerIdScheduled);
     RedisModule_StopTimer(ctx, trimmingDelayCtx.enableTrimmingTimerId, NULL);
     trimmingDelayCtx.enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
     trimmingDelayCtx.enableTrimmingTimerIdScheduled = false;
+    trimmingDelayCtx.checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
+    trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = false;
     RedisModule_ClusterEnableTrim(ctx);
   } else {
     RedisModule_Log(ctx, "verbose", "Queries still using the old version, rescheduling check in %d milliseconds.", RSGlobalConfig.trimmingStateCheckDelayMS);
@@ -384,8 +384,6 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
 
 static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
   REDISMODULE_NOT_USED(privdata);
-  trimmingDelayCtx.enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
-  trimmingDelayCtx.enableTrimmingTimerIdScheduled = false;
   // Cancel the checkTrimmingStateCallback timer (Ignore error if it did not exist it does not matter)
   if (RSGlobalConfig.debugDisableTrimming) {
     RedisModule_Log(ctx, "verbose", "Trimming disabled by debug flag, skipping EnableTrim.");
@@ -399,6 +397,8 @@ static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
   RedisModule_StopTimer(ctx, trimmingDelayCtx.checkTrimmingStateTimerId, NULL);
   trimmingDelayCtx.checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
   trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = false;
+  trimmingDelayCtx.enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
+  trimmingDelayCtx.enableTrimmingTimerIdScheduled = false;
   RedisModule_ClusterEnableTrim(ctx);
 }
 
@@ -432,14 +432,25 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       ASM_StateMachine_CompleteMigration(slots);
       // Start 2 timers. One for the minimal delay, and one for the maximal delay.
       RedisModule_Log(ctx, "notice", "Got ASM migrate completed event.");
+      RS_ASSERT(trimmingDelayCtx.enableTrimmingTimerIdScheduled == trimmingDelayCtx.checkTrimmingStateTimerIdScheduled);
+      if (trimmingDelayCtx.checkTrimmingStateTimerIdScheduled && trimmingDelayCtx.enableTrimmingTimerIdScheduled) {
+        RedisModule_StopTimer(ctx, trimmingDelayCtx.checkTrimmingStateTimerId, NULL);
+        trimmingDelayCtx.checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
+        RedisModule_StopTimer(ctx, trimmingDelayCtx.enableTrimmingTimerId, NULL);
+        trimmingDelayCtx.enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
+        // This involves that a previous MIGRATION had already completed so we disable trimming, we need to enable trim to avoid a leak in
+        // counter of Modules enabling trimming
+        RedisModule_Log(ctx, "warning", "A migration completed while waiting to enable trimming from a previous migration");
+        RedisModule_ClusterEnableTrim(ctx);
+      }
+
       // Check if number of indices is 0. If so, we can start trimming immediately.
       if (Indexes_Count() == 0) {
         RedisModule_Log(ctx, "notice", "No indices found, enabling trimming immediately.");
         break;
       }
+
       RedisModule_ClusterDisableTrim(ctx);
-      RS_ASSERT(!trimmingDelayCtx.checkTrimmingStateTimerIdScheduled);
-      RS_ASSERT(!trimmingDelayCtx.enableTrimmingTimerIdScheduled);
       trimmingDelayCtx.checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.minTrimDelayMS, checkTrimmingStateCallback, NULL);
       trimmingDelayCtx.enableTrimmingTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.maxTrimDelayMS, enableTrimmingCallback, NULL);
       trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = true;

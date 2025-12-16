@@ -59,7 +59,7 @@ static void ASM_Santizer_Alloc_Allocate(uint32_t query_key_space_version) {
 }
 
 static void ASM_Sanitizer_Alloc_Deallocate() {
-  if (array_len(asm_sanitizer_allocs) > 0) {
+  if (asm_sanitizer_allocs && array_len(asm_sanitizer_allocs) > 0) {
     int *leak_tracker = array_pop(asm_sanitizer_allocs);
     rm_free(leak_tracker);
   }
