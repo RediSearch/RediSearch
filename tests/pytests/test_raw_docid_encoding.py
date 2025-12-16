@@ -5,7 +5,7 @@ These tests should be run with RAW_DOCID_ENCODING=true module argument to verify
 that the raw DocID encoding (4-byte fixed) works correctly with TAG indexes and GC.
 """
 
-from common import *
+from common import skip, config_cmd, waitForIndex, forceInvokeGC
 
 
 @skip(cluster=True)
