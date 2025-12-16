@@ -422,7 +422,7 @@ void RSValue_Clear(RSValue *v) {
       RedisModule_FreeString(RSDummyContext, v->_rstrval);
       break;
     case RSValueType_Null:
-      return;  // prevent changing global RS_NULL to RSValue_Undef
+      return;  // prevent changing global RS_NULL to RSValueType_Undef
     case RSValueType_Trio:
       RSValue_DecrRef(RSValue_Trio_GetLeft(v));
       RSValue_DecrRef(RSValue_Trio_GetMiddle(v));
