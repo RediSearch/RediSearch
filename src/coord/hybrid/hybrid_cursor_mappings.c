@@ -82,10 +82,8 @@ static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply
                 CursorMappings *vsim = StrongRef_Get(ctx->vsimMappings);
                 CursorMappings *search = StrongRef_Get(ctx->searchMappings);
                 while (array_len(vsim->mappings) > array_len(search->mappings)) {
-                    if (array_len(vsim->mappings) > 0) {
-                      CursorMapping_Release(&vsim->mappings[array_len(vsim->mappings) - 1]);
-                    }
-                    array_pop(vsim->mappings);
+                    CursorMapping cur = array_pop(vsim->mappings);
+                    CursorMapping_Release(&cur);
                 }
                 continue;
             }
@@ -131,10 +129,8 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
             // Pop all mappings from previous subqueries
             for (int j = 0; j < i; j++) {
                 CursorMappings *vsimOrSearch = StrongRef_Get(*mappings[j]);
-                if (array_len(vsimOrSearch->mappings) > 0) {
-                  CursorMapping_Release(&vsimOrSearch->mappings[array_len(vsimOrSearch->mappings) - 1]);
-                }
-                array_pop(vsimOrSearch->mappings);
+                CursorMapping cur = array_pop(vsimOrSearch->mappings);
+                CursorMapping_Release(&cur);
             }
             break;
         }
