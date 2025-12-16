@@ -1959,6 +1959,7 @@ void Indexes_Free(dict *d) {
   // free the schema dictionary this way avoid iterating over it for each combination of
   // spec<-->prefix
   SchemaPrefixes_Free(SchemaPrefixes_g);
+  SchemaPrefixes_g = NULL;
   SchemaPrefixes_Create();
 
   CursorList_Empty(&g_CursorsListCoord);
