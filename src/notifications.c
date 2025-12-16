@@ -17,7 +17,6 @@
 #include "dictionary.h"
 #include "slot_ranges.h"
 #include "asm_state_machine.h"
-//TODO ASM: Review this, maybe is worth duplicating the logic or moving to utils?
 #include "src/coord/rmr/redis_cluster.h"
 
 #define JSON_LEN 5 // length of string "json."
@@ -364,7 +363,7 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
 
   RedisModule_Log(ctx, "verbose", "Checking if we can start trimming migrated slots.");
   if (ASM_CanStartTrimming()) {
-    RedisModule_Log(ctx, "verbose", "No queries using the old version, Enabling trimming.");
+    RedisModule_Log(ctx, "notice", "No queries using the old version, Enabling trimming.");
     RS_ASSERT(trimmingDelayCtx.enableTrimmingTimerIdScheduled);
     RedisModule_StopTimer(ctx, trimmingDelayCtx.enableTrimmingTimerId, NULL);
     trimmingDelayCtx.enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
@@ -438,6 +437,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
         trimmingDelayCtx.enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
         // This involves that a previous MIGRATION had already completed so we disable trimming, we need to enable trim to avoid a leak in
         // counter of Modules enabling trimming
+        RedisModule_Log(ctx, "warning", "A migration completed while waiting to enable trimming from a previous migration");
         RedisModule_ClusterEnableTrim(ctx);
       }
 
