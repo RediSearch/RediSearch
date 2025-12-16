@@ -56,6 +56,7 @@ where
     #[must_use]
     pub fn new(mut children: Vec<I>) -> Self {
         children.sort_by_cached_key(|c| c.num_estimated());
+
         let Some(num_expected) = children.first().map(|c| c.num_estimated()) else {
             return Self {
                 children,
@@ -65,13 +66,13 @@ where
                 result: RSIndexResult::intersect(0),
             };
         };
-
+        let num_children = children.len();
         Self {
             children,
             last_doc_id: 0,
             num_expected,
             is_eof: false,
-            result: RSIndexResult::intersect(children.len()),
+            result: RSIndexResult::intersect(num_children),
         }
     }
 
