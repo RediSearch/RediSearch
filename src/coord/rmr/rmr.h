@@ -21,12 +21,6 @@
 struct MRCtx;
 struct RedisModuleCtx;
 
-typedef struct {
-  char * targetShard;
-  uint16_t targetShardIdx;
-  long long cursorId;
-} CursorMapping;
-
 void iterStartCb(void *p);
 
 void iterCursorMappingCb(void *p);
