@@ -79,8 +79,9 @@ where
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if let Some(child) = self.child.as_mut()
             && child.last_doc_id() == self.result.doc_id
+            && let Some(child_result) = child.current()
         {
-            child.current()
+            Some(child_result)
         } else {
             Some(&mut self.result)
         }
