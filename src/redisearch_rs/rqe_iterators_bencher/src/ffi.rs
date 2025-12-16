@@ -41,12 +41,12 @@ mod bindings {
 pub use bindings::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
-    IndexFlags_Index_StoreTermOffsets,
+    IndexFlags_Index_StoreTermOffsets, IteratorStatus_ITERATOR_OK,
 };
 use ffi::{RedisModule_Alloc, RedisModule_Free};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{NumericFilter, RSIndexResult, t_docId};
-use bindings::{IteratorStatus, IteratorStatus_ITERATOR_OK, ValidateStatus};
+use bindings::{IteratorStatus, ValidateStatus};
 use std::ffi::c_void;
 use std::ptr;
 
