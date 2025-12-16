@@ -207,3 +207,32 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   stats.coord_high_priority_pending_jobs = ConcurrentSearchPool_HighPriorityPendingJobsCount();
   return stats;
 }
+
+void FieldsGlobalStats_UpdateFieldDocsIndexed(const FieldSpec *fs, int toAdd) {
+  // Indexing documents happens only in the main thread or with the GIL locked.
+  // Therefore, there is no need for atomic operations.
+
+  if (!FieldSpec_IsIndexable(fs)) return;
+
+  FieldType field_type = fs->types;
+  switch (field_type) {
+    case INDEXFLD_T_FULLTEXT:
+      RSGlobalStats.fieldsStats.textTotalDocsIndexed += toAdd;
+      break;
+    case INDEXFLD_T_NUMERIC:
+      RSGlobalStats.fieldsStats.numericTotalDocsIndexed += toAdd;
+      break;
+    case INDEXFLD_T_GEO:
+      RSGlobalStats.fieldsStats.geoTotalDocsIndexed += toAdd;
+      break;
+    case INDEXFLD_T_TAG:
+      RSGlobalStats.fieldsStats.tagTotalDocsIndexed += toAdd;
+      break;
+    case INDEXFLD_T_VECTOR:
+      RSGlobalStats.fieldsStats.vectorTotalDocsIndexed += toAdd;
+      break;
+    case INDEXFLD_T_GEOMETRY:
+      RSGlobalStats.fieldsStats.geometryTotalDocsIndexed += toAdd;
+      break;
+  }
+}

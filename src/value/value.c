@@ -47,9 +47,10 @@ static inline mempool_t *getPool() {
 ///////////////////////////////////////////////////////////////
 
 static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t l2) {
-  int cmp = strncmp(s1, s2, MIN(l1, l2));
+  // Use memcmp instead of strncmp to correctly handle binary data with embedded NULLs
+  int cmp = memcmp(s1, s2, MIN(l1, l2));
   if (l1 == l2) {
-    // if the strings are the same length, just return the result of strcmp
+    // if the strings are the same length, just return the result of memcmp
     return cmp;
   } else {  // if the lengths aren't identical
     // if the strings are identical but the lengths aren't, return the longer string
@@ -155,6 +156,11 @@ RSValue RSValue_String(char *str, uint32_t len) {
   v._strval.str = str;
   v._strval.len = len;
   v._strval.stype = RSStringType_RMAlloc;
+  return v;
+}
+
+RSValue *RSValue_NewUndefined() {
+  RSValue *v = RSValue_NewWithType(RSValueType_Undef);
   return v;
 }
 
@@ -522,7 +528,7 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
     }
     case RSValueType_Number: {
       char tmpbuf[128];
-      size_t len = RSValue_NumToString(v, tmpbuf);
+      size_t len = RSValue_NumToString(v, tmpbuf, sizeof(tmpbuf));
       char *buf = rm_strdup(tmpbuf);
       RSValue_SetString(dst, buf, len);
       break;
@@ -799,7 +805,7 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
         return sdscat(s, Obfuscate_Number(v->_numval));
       } else {
         char buf[128];
-        size_t len = RSValue_NumToString(v, buf);
+        size_t len = RSValue_NumToString(v, buf, sizeof(buf));
         return sdscatlen(s, buf, len);
       }
       break;
@@ -809,6 +815,7 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
       break;
     case RSValueType_Undef:
       return sdscat(s, "<Undefined>");
+      break;
     case RSValueType_Array:
       s = sdscat(s, "[");
       for (uint32_t i = 0; i < v->_arrval.len; i++) {
@@ -827,12 +834,11 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
         s = sdscat(s, ": ");
         s = RSValue_DumpSds(v->_mapval.entries[i].value, s, obfuscate);
       }
-      s = sdscat(s, "}");
+      return sdscat(s, "}");
       break;
     case RSValueType_Reference:
       return RSValue_DumpSds(v->_ref, s, obfuscate);
       break;
-
     case RSValueType_Trio:
       return RSValue_DumpSds(RSValue_Trio_GetLeft(v), s, obfuscate);
       break;

@@ -72,7 +72,6 @@ do {                                            \
   RedisModule_ReplyWithStringBuffer(ctx, literal, sizeof(literal) - 1)
 
 #define SEARCH_ACL_CATEGORY "search"
-#define SEARCH_ACL_INTERNAL_CATEGORY "_search_internal"
 
 #define NOPERM_ERR "NOPERM User does not have the required permissions to query the index"
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"

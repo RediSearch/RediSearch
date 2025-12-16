@@ -13,6 +13,8 @@ on:
 
 jobs:
 
-  merge-queue:
-    uses: ./.github/workflows/event-merge-to-queue.yml
+  alpine-test:
+    uses: ./.github/workflows/flow-test.yml
     secrets: inherit
+    with:
+      platform: alpine:3.22

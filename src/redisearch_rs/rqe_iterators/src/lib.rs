@@ -18,6 +18,8 @@ pub mod intersection;
 pub mod inverted_index;
 pub mod maybe_empty;
 pub mod metric;
+pub mod optional;
+pub mod profile;
 pub mod wildcard;
 
 pub use empty::Empty;

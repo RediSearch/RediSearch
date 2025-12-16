@@ -10,7 +10,7 @@ test_data = {
         'embedding': np.array([0.0, 0.0]).astype(np.float32).tobytes()
     },
     'doc:2': {
-        'description': "red running shoes", 
+        'description': "red running shoes",
         'embedding': np.array([1.0, 0.0]).astype(np.float32).tobytes()
     },
     'doc:3': {
@@ -37,21 +37,24 @@ def test_hybrid_sortby_nosort_conflict():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
-    
+
     # Test SORTBY followed by NOSORT - should fail
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'SORTBY', '1', '@description', 'NOSORT').error().contains('NOSORT is not allowed with SORTBY')
-    
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
+               'SORTBY', '1', '@description', 'NOSORT', 'PARAMS', '2', 'BLOB', query_vector).error().contains('NOSORT is not allowed with SORTBY')
+
     # Test NOSORT followed by SORTBY - should fail
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
+               'PARAMS', '2', 'BLOB', query_vector,
                'NOSORT', 'SORTBY', '1', '@description').error().contains('NOSORT is not allowed with SORTBY')
-    
+
     # Test that SORTBY alone works (should not fail)
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
+               'PARAMS', '2', 'BLOB', query_vector,
                'SORTBY', '1', '@description').noError()
-    
+
     # Test that NOSORT alone works (should not fail)
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
+               'PARAMS', '2', 'BLOB', query_vector,
                'NOSORT').noError()
 
 
@@ -60,13 +63,15 @@ def test_hybrid_sortby_nosort_with_combine():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
-    
+
     # Test SORTBY followed by NOSORT with COMBINE - should fail
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
                'COMBINE', 'RRF', '2', 'CONSTANT', '60',
+               'PARAMS', '2', 'BLOB', query_vector,
                'SORTBY', '1', '@description', 'NOSORT').error().contains('NOSORT is not allowed with SORTBY')
-    
+
     # Test NOSORT followed by SORTBY with COMBINE - should fail
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
                'COMBINE', 'RRF', '2', 'CONSTANT', '60',
+               'PARAMS', '2', 'BLOB', query_vector,
                'NOSORT', 'SORTBY', '1', '@description').error().contains('NOSORT is not allowed with SORTBY')
