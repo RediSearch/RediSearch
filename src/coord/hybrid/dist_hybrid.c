@@ -440,6 +440,9 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
 static void FreeCursorMappings(void *mappings) {
   CursorMappings *vsimOrSearch = (CursorMappings *)mappings;
+  for (size_t i = 0; i < array_len(vsimOrSearch->mappings); i++) {
+    rm_free(vsimOrSearch->mappings[i].targetShard);
+  }
   array_free(vsimOrSearch->mappings);
   rm_free(mappings);
 }

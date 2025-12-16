@@ -532,7 +532,7 @@ void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   // Mark the command of the context as depleted (so we won't send another command to the shard)
   RS_DEBUG_LOG_FMT(
       "depleted(should be false): %d, Pending: (%d), inProcess: %d, itRefCount: %d, channel size: "
-      "%zu, target_shard_idx: %zu, target_shard: %s",
+      "%zu, target_shard_idx: %hu, target_shard: %s",
       ctx->cmd.depleted, ctx->it->ctx.pending, ctx->it->ctx.inProcess, ctx->it->ctx.itRefCount,
       MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetShardIdx, ctx->cmd.targetShard);
   ctx->cmd.depleted = true;
@@ -632,7 +632,8 @@ void iterCursorMappingCb(void *p) {
 
   it->cbxs = rm_realloc(it->cbxs, numShardsWithMapping * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
-  cmd->targetShard = rm_strdup(vsimOrSearch->mappings[0].targetShard);
+  cmd->targetShard = vsimOrSearch->mappings[0].targetShard;
+  vsimOrSearch->mappings[0].targetShard = NULL; // transfer ownership
   cmd->targetShardIdx = vsimOrSearch->mappings[0].targetShardIdx;
   char buf[128];
   sprintf(buf, "%lld", vsimOrSearch->mappings[0].cursorId);
@@ -645,7 +646,8 @@ void iterCursorMappingCb(void *p) {
 
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
 
-    it->cbxs[i].cmd.targetShard = rm_strdup(vsimOrSearch->mappings[i].targetShard);
+    it->cbxs[i].cmd.targetShard = vsimOrSearch->mappings[i].targetShard;
+    vsimOrSearch->mappings[i].targetShard = NULL; // transfer ownership
     it->cbxs[i].cmd.targetShardIdx = vsimOrSearch->mappings[i].targetShardIdx;
     it->cbxs[i].cmd.num = 4;
     char buf[128];
