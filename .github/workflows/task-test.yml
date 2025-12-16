@@ -391,11 +391,18 @@ jobs:
                              ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
                              ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
+      # Cache FetchContent downloads (SVS binaries, cpu_features, etc.) to speed up builds
+      - name: Cache FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: /tmp/fetchcontent-cache
+          key: fetchcontent-${{ hashFiles('deps/VectorSimilarity/cmake/svs.cmake') }}-${{ inputs.platform }}-${{ inputs.architecture }}
       - name: Build
         env:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
+          FETCHCONTENT_BASE_DIR: /tmp/fetchcontent-cache
         run: make build TESTS=1
       - name: Check disk space after build
         run: |

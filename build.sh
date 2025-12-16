@@ -348,9 +348,14 @@ prepare_cmake_arguments() {
 
   if [[ "$BUILD_INTEL_SVS_OPT" == "yes" || "$BUILD_INTEL_SVS_OPT" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_INTEL_SVS_OPT=ON"
+    # Support caching FetchContent downloads (e.g., SVS binaries) via environment variable
+    if [[ -n "$FETCHCONTENT_BASE_DIR" ]]; then
+      CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DFETCHCONTENT_BASE_DIR=$FETCHCONTENT_BASE_DIR"
+    fi
   else
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSVS_SHARED_LIB=OFF"
   fi
+
 
   # Handle RUST_DYN_CRT flag for Alpine Linux compatibility
   if [[ "$RUST_DYN_CRT" == "1" ]]; then
