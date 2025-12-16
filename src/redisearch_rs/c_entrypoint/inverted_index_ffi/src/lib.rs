@@ -1313,11 +1313,19 @@ pub unsafe extern "C" fn IndexReader_SwapIndex(ir: *mut IndexReader, ii: *const 
 /// The following invariant must be upheld when calling this function:
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_Revalidate(ir: *const IndexReader) -> bool {
+pub unsafe extern "C" fn IndexReader_Revalidate(ir: *mut IndexReader) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");
 
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
-    let ir = unsafe { &*ir };
+    let ir = unsafe { &mut *ir };
 
-    ir_dispatch!(ir, needs_revalidation)
+    let needs_revalidation = ir_dispatch!(ir, needs_revalidation);
+
+    if !needs_revalidation {
+        // No GC occurred, but we still need to refresh buffer pointers
+        // in case blocks were reallocated
+        ir_dispatch!(ir, refresh_buffer_pointers);
+    }
+
+    needs_revalidation
 }
