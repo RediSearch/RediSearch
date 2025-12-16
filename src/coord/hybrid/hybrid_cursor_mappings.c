@@ -99,7 +99,7 @@ static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply
         }
 
         RS_ASSERT(vsimOrSearch);
-        if (i == INTERNAL_HYBRID_RESP2_LENGTH - 1) {
+        if (i == INTERNAL_HYBRID_RESP2_LENGTH - 2) {
             //Transferring ownership at the tail to avoid potential leak of cmd->targetShard on early bailout
             mapping.targetShard = cmd->targetShard;
             cmd->targetShard = NULL; // transfer ownership
