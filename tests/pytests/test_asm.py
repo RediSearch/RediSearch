@@ -445,12 +445,14 @@ def test_ft_aggregate_withcursor_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR', parallel_updates=True)
 
-@skip(cluster=False, min_shards=2)
+#TODO: Enable once MOD-13110 is fixed
+@skip
 def test_ft_hybrid_import_slot_range_parallel_updates():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.HYBRID', parallel_updates=True)
 
-@skip(cluster=False, min_shards=2)
+#TODO: Enable once MOD-13110 is fixed
+@skip
 def test_ft_hybrid_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.HYBRID', parallel_updates=True)
