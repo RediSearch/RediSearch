@@ -92,8 +92,10 @@ struct TEvalCtx : ExprEval {
   void clear() {
     QueryError_ClearError(&status_s);
 
-    RSValue_DecrRef(res_s);
-    res_s = NULL;
+    if (res_s) {
+      RSValue_DecrRef(res_s);
+      res_s = NULL;
+    }
 
     if (root) {
       ExprAST_Free(const_cast<RSExpr *>(root));
