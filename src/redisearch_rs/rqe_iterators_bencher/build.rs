@@ -20,13 +20,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("src/value", "value"),
     ]);
 
-    // Compile the C benchmark files
+    // Compile the wildcard iterator benchmark C file
     let root = git_root().expect("Could not find git root");
-
-    cc::Build::new()
-        .file("src/benchers/c/not.c")
-        .opt_level(3)
-        .compile("not_iterator_benchmark");
 
     // Generate C bindings - fail build if this doesn't work
     let headers = ["iterator_api.h", "inverted_index_iterator.h"]
