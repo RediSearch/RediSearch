@@ -82,6 +82,10 @@ jobs:
         [ $SUCCESS -eq 1 ] || exit 1
     steps:
       # Setup
+      - name: Install bash
+        if: needs.get-config.outputs.container == 'alpine:3.22'
+        shell: sh -l -eo pipefail {0}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
       - name: Setup Dependencies
         if: needs.get-config.outputs.setup_script
         run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
