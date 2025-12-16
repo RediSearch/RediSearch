@@ -79,8 +79,9 @@ def test_hybrid_vector_knn_with_score():
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green',
-                       'VSIM', '@embedding', query_vector,
-                       'KNN', '2', 'K', '10', 'YIELD_SCORE_AS', 'vector_score')
+                       'VSIM', '@embedding', '$BLOB',
+                       'KNN', '2', 'K', '10', 'YIELD_SCORE_AS', 'vector_score',
+                       'PARAMS', '2', 'BLOB', query_vector)
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
 
@@ -102,9 +103,10 @@ def test_hybrid_vector_range_with_score():
     radius = 2
     response = env.cmd('FT.HYBRID', 'idx',
                        'SEARCH', 'green',
-                       'VSIM', '@embedding', query_vector,
+                       'VSIM', '@embedding', '$BLOB',
                             'RANGE', '2', 'RADIUS', str(radius),
-                            'YIELD_SCORE_AS', 'vector_score')
+                            'YIELD_SCORE_AS', 'vector_score',
+                        'PARAMS', '2', 'BLOB', query_vector)
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
 

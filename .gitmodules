@@ -15,5 +15,4 @@
 	url = https://github.com/google/s2geometry.git
 [submodule "deps/RedisModulesSDK"]
 	path = deps/RedisModulesSDK
-	url = git@github.com:JoanFM/RedisModulesSDK.git
-	branch = joan-delay-trimming
+	url = https://github.com/RedisLabs/RedisModulesSDK.git

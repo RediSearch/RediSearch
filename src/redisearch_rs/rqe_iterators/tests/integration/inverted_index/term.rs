@@ -18,15 +18,14 @@ use rqe_iterators::inverted_index::Term;
 
 use crate::{
     ffi::query_term::QueryTermBuilder,
-    inverted_index::utils::{BaseTest, RevalidateTest},
+    inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest},
 };
 
-struct TermTest {
+struct TermBaseTest {
     test: BaseTest<Full>,
-    revalidate_test: RevalidateTest<Full>,
 }
 
-impl TermTest {
+impl TermBaseTest {
     // # Safety
     // The returned RSIndexResult contains raw pointers to `term` and `offsets`.
     // These pointers are valid for 'static because the data is moved into the closure
@@ -55,7 +54,6 @@ impl TermTest {
         const TEST_STR: &str = "term";
 
         let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let offsets_clone = offsets.clone();
 
         Self {
             test: BaseTest::new(
@@ -73,21 +71,6 @@ impl TermTest {
                 }),
                 n_docs,
             ),
-            revalidate_test: RevalidateTest::new(
-                IndexFlags_Index_StoreTermOffsets,
-                Box::new(move |doc_id| {
-                    let term2 = QueryTermBuilder {
-                        token: TEST_STR,
-                        idf: 5.0,
-                        id: 1,
-                        flags: 0,
-                        bm25_idf: 10.0,
-                    }
-                    .allocate();
-                    Self::expected_record(doc_id, term2, &offsets_clone)
-                }),
-                n_docs,
-            ),
         }
     }
 }
@@ -95,64 +78,30 @@ impl TermTest {
 #[test]
 /// test reading from Term iterator
 fn term_full_read() {
-    let test = TermTest::new(100);
+    let test = TermBaseTest::new(100);
     let reader = test.test.ii.reader();
-    let mut it = Term::new(reader);
+    let mut it = Term::new_simple(reader);
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
 #[test]
 /// test skipping from Term iterator
 fn term_full_skip_to() {
-    let test = TermTest::new(100);
+    let test = TermBaseTest::new(100);
     let reader = test.test.ii.reader();
-    let mut it = Term::new(reader);
+    let mut it = Term::new_simple(reader);
     test.test.skip_to(&mut it);
 }
 
 #[test]
 /// test reading from Term iterator with a filter
 fn term_filter() {
-    let test = TermTest::new(10);
+    let test = TermBaseTest::new(10);
     let reader = FilterMaskReader::new(1, test.test.ii.reader());
-    let mut it = Term::new(reader);
+    let mut it = Term::new_simple(reader);
     // results have their doc id as field mask so we filter by odd ids
     let docs_ids = test.test.docs_ids_iter().filter(|id| id % 2 == 1);
     test.test.read(&mut it, docs_ids);
-}
-
-#[test]
-fn term_full_revalidate_basic() {
-    let test = TermTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Term::new(reader);
-    test.revalidate_test.revalidate_basic(&mut it);
-}
-
-#[test]
-fn term_full_revalidate_at_eof() {
-    let test = TermTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Term::new(reader);
-    test.revalidate_test.revalidate_at_eof(&mut it);
-}
-
-#[test]
-fn term_full_revalidate_after_index_disappears() {
-    let test = TermTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Term::new(reader);
-    test.revalidate_test
-        .revalidate_after_index_disappears(&mut it, true);
-}
-
-#[test]
-fn term_full_revalidate_after_document_deleted() {
-    let test = TermTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Term::new(reader);
-    test.revalidate_test
-        .revalidate_after_document_deleted(&mut it);
 }
 
 #[cfg(not(miri))]
@@ -237,7 +186,7 @@ mod not_miri {
                 .mark_index_expired(even_ids, FieldMaskOrIndex::Mask(FIELD_MASK));
 
             let reader = self.test.ii.reader();
-            let mut it = Term::with_context(
+            let mut it = Term::new(
                 reader,
                 self.test.context(),
                 FIELD_MASK,
@@ -262,7 +211,7 @@ mod not_miri {
                 .mark_index_expired(even_ids, FieldMaskOrIndex::Mask(FIELD_MASK));
 
             let reader = self.test.ii.reader();
-            let mut it = Term::with_context(
+            let mut it = Term::new(
                 reader,
                 self.test.context(),
                 FIELD_MASK,
@@ -291,5 +240,86 @@ mod not_miri {
     #[test]
     fn term_skip_to_expiration() {
         TermExpirationTest::<Full>::new(100, false, false).test_skip_to_expiration();
+    }
+
+    struct TermRevalidateTest {
+        test: RevalidateTest<Full>,
+    }
+
+    impl TermRevalidateTest {
+        // # Safety
+        // The returned RSIndexResult contains raw pointers to `term` and `offsets`.
+        // These pointers are valid for 'static because the data is moved into the closure
+        // in `new()` and lives for the entire duration of the test. The raw pointers are
+        // only used within the test's lifetime, making this safe despite the 'static claim.
+        fn expected_record(
+            doc_id: t_docId,
+            term: *mut ffi::RSQueryTerm,
+            offsets: &Vec<u8>,
+        ) -> RSIndexResult<'static> {
+            RSIndexResult::term_with_term_ptr(
+                term,
+                RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
+                doc_id,
+                doc_id as t_fieldMask,
+                (doc_id / 2) as u32 + 1,
+            )
+        }
+
+        fn new(n_docs: u64) -> Self {
+            const TEST_STR: &str = "term";
+
+            let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+            Self {
+                test: RevalidateTest::new(
+                    RevalidateIndexType::Term,
+                    Box::new(move |doc_id| {
+                        let term = QueryTermBuilder {
+                            token: TEST_STR,
+                            idf: 5.0,
+                            id: 1,
+                            flags: 0,
+                            bm25_idf: 10.0,
+                        }
+                        .allocate();
+                        Self::expected_record(doc_id, term, &offsets)
+                    }),
+                    n_docs,
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn term_full_revalidate_basic() {
+        let test = TermRevalidateTest::new(10);
+        let reader = unsafe { (*test.test.ii.get()).reader() };
+        let mut it = Term::new_simple(reader);
+        test.test.revalidate_basic(&mut it);
+    }
+
+    #[test]
+    fn term_full_revalidate_at_eof() {
+        let test = TermRevalidateTest::new(10);
+        let reader = unsafe { (*test.test.ii.get()).reader() };
+        let mut it = Term::new_simple(reader);
+        test.test.revalidate_at_eof(&mut it);
+    }
+
+    #[test]
+    fn term_full_revalidate_after_index_disappears() {
+        let test = TermRevalidateTest::new(10);
+        let reader = unsafe { (*test.test.ii.get()).reader() };
+        let mut it = Term::new_simple(reader);
+        test.test.revalidate_after_index_disappears(&mut it, true);
+    }
+
+    #[test]
+    fn term_full_revalidate_after_document_deleted() {
+        let test = TermRevalidateTest::new(10);
+        let reader = unsafe { (*test.test.ii.get()).reader() };
+        let mut it = Term::new_simple(reader);
+        test.test.revalidate_after_document_deleted(&mut it);
     }
 }

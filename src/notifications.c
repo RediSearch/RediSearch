@@ -438,6 +438,8 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
         break;
       }
       RedisModule_ClusterDisableTrim(ctx);
+      RS_ASSERT(!trimmingDelayCtx.checkTrimmingStateTimerIdScheduled);
+      RS_ASSERT(!trimmingDelayCtx.enableTrimmingTimerIdScheduled);
       trimmingDelayCtx.checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.minTrimDelayMS, checkTrimmingStateCallback, NULL);
       trimmingDelayCtx.enableTrimmingTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.maxTrimDelayMS, enableTrimmingCallback, NULL);
       trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = true;

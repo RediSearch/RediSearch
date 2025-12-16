@@ -264,8 +264,11 @@ RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFieldIndex,
-                         int requiredFlags, int excludeFlags, SchemaRule *rule) {
+size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipFieldIndex,
+                         size_t skipFieldIndex_len, uint32_t requiredFlags, uint32_t excludeFlags,
+                         SchemaRule *rule) {
+  RS_LOG_ASSERT(skipFieldIndex_len >= lookup->rowlen, "'skipFieldIndex_len' should be at least equal to lookup len");
+  
   int i = 0;
   size_t nfields = 0;
   for (const RLookupKey *kk = lookup->head; kk; kk = kk->next, ++i) {
@@ -292,7 +295,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
       continue;
     }
 
-    skipFieldIndex[i] = 1;
+    skipFieldIndex[i] = true;
     ++nfields;
   }
   RS_LOG_ASSERT(i == lookup->rowlen, "'i' should be equal to lookup len");

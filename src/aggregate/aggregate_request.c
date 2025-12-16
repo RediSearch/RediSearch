@@ -408,7 +408,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     if (!version.is_some) {
       rm_free((void *)slot_array);
       QueryError_SetError(status, QUERY_ERROR_CODE_UNAVAILABLE_SLOTS, "Query requires unavailable slots");
-      return REDISMODULE_ERR;
+      return ARG_ERROR;
     }
     *papCtx->keySpaceVersion = version.version;
     if (*papCtx->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
