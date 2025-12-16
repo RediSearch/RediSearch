@@ -428,8 +428,10 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       if (trimmingDelayCtx.checkTrimmingStateTimerIdScheduled && trimmingDelayCtx.enableTrimmingTimerIdScheduled) {
         RedisModule_StopTimer(ctx, trimmingDelayCtx.checkTrimmingStateTimerId, NULL);
         trimmingDelayCtx.checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
+        trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = false;
         RedisModule_StopTimer(ctx, trimmingDelayCtx.enableTrimmingTimerId, NULL);
         trimmingDelayCtx.enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
+        trimmingDelayCtx.enableTrimmingTimerIdScheduled = false;
         // This involves that a previous MIGRATION had already completed so we disable trimming, we need to enable trim to avoid a leak in
         // counter of Modules enabling trimming
         RedisModule_Log(ctx, "warning", "A migration completed while waiting to enable trimming from a previous migration");
