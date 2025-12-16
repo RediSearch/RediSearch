@@ -152,9 +152,10 @@ TEST_F(HybridRequestParseTest, testFilterBatchSize) {
     // Test FILTER with BATCH_SIZE - verifies batch size is propagated to iterator runtime params
     RMCK::ArgvList args(ctx, "FT.HYBRID", "test_batch_size",
                         "SEARCH", "hello",
-                        "VSIM", "@vector_field", TEST_BLOB_DATA,
+                        "VSIM", "@vector_field", "$BLOB",
                         "FILTER", "3", "hello",
-                        "BATCH_SIZE", "100");
+                        "BATCH_SIZE", "100",
+                        "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
     HybridIteratorTestCtx testCtx;
     ASSERT_TRUE(SetupHybridIteratorTest(ctx, "test_batch_size", args, &testCtx))
@@ -167,9 +168,10 @@ TEST_F(HybridRequestParseTest, testPolicyBatchesWithBatchSize) {
     // Test POLICY BATCHES with BATCH_SIZE - verifies explicit batches policy with custom batch size
     RMCK::ArgvList args(ctx, "FT.HYBRID", "test_policy_batches",
                         "SEARCH", "hello",
-                        "VSIM", "@vector_field", TEST_BLOB_DATA,
+                        "VSIM", "@vector_field", "$BLOB",
                         "FILTER","5", "hello",
-                        "POLICY", "BATCHES", "BATCH_SIZE", "50");
+                        "POLICY", "BATCHES", "BATCH_SIZE", "50",
+                        "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
     HybridIteratorTestCtx testCtx;
     ASSERT_TRUE(SetupHybridIteratorTest(ctx, "test_policy_batches", args, &testCtx))
@@ -183,9 +185,10 @@ TEST_F(HybridRequestParseTest, testPolicyAdhoc) {
     // Test POLICY ADHOC - verifies adhoc policy results in ADHOC_BF search mode
     RMCK::ArgvList args(ctx, "FT.HYBRID", "test_policy_adhoc",
                         "SEARCH", "hello",
-                        "VSIM", "@vector_field", TEST_BLOB_DATA,
+                        "VSIM", "@vector_field", "$BLOB",
                         "FILTER","3", "hello",
-                        "POLICY", "ADHOC");
+                        "POLICY", "ADHOC",
+                        "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
     HybridIteratorTestCtx testCtx;
     ASSERT_TRUE(SetupHybridIteratorTest(ctx, "test_policy_adhoc", args, &testCtx))
