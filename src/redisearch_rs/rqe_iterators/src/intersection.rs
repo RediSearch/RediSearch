@@ -55,9 +55,8 @@ where
     /// is empty, returns an iterator immediately at EOF.
     #[must_use]
     pub fn new(mut children: Vec<I>) -> Self {
-        let num_children = children.len();
-
-        if num_children == 0 {
+        children.sort_by_cached_key(|c| c.num_estimated());
+        let Some(num_expected) = children.first().map(|c| c.num_estimated()) else {
             return Self {
                 children,
                 last_doc_id: 0,
@@ -65,26 +64,20 @@ where
                 is_eof: true,
                 result: RSIndexResult::intersect(0),
             };
-        }
+        };
 
-        children.sort_by_cached_key(|c| c.num_estimated());
-        let num_expected = children
-            .first()
-            .map(|c| c.num_estimated())
-            .expect("should have at least one child");
+        let result = RSIndexResult::intersect(children.len());
         Self {
             children,
             last_doc_id: 0,
             num_expected,
             is_eof: false,
-            result: RSIndexResult::intersect(num_children),
+            result,
         }
     }
 
     /// Reads from the first child. Returns the doc_id or None if EOF.
     fn read_from_first_child(&mut self) -> Result<Option<t_docId>, RQEIteratorError> {
-        debug_assert!(!self.children.is_empty());
-
         match self.children[0].read()? {
             Some(r) => Ok(Some(r.doc_id)),
             None => {
@@ -119,15 +112,11 @@ where
     }
 
     /// Loops until all children agree on a doc_id, or EOF is reached.
-    fn find_consensus(
-        &mut self,
-        initial_target: t_docId,
-    ) -> Result<Option<t_docId>, RQEIteratorError> {
-        let mut curr_target = initial_target;
+    fn find_consensus(&mut self, mut target: t_docId) -> Result<Option<t_docId>, RQEIteratorError> {
         loop {
-            match self.agree_on_doc_id(curr_target)? {
-                AgreeResult::Agreed => return Ok(Some(curr_target)),
-                AgreeResult::Ahead(new_target) => curr_target = new_target,
+            match self.agree_on_doc_id(target)? {
+                AgreeResult::Agreed => return Ok(Some(target)),
+                AgreeResult::Ahead(new_target) => target = new_target,
                 AgreeResult::Eof => return Ok(None),
             }
         }
@@ -182,11 +171,7 @@ where
 {
     #[inline]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        if self.is_eof {
-            None
-        } else {
-            Some(&mut self.result)
-        }
+        (!self.is_eof).then_some(&mut self.result)
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
@@ -194,9 +179,8 @@ where
             return Ok(None);
         }
 
-        let target = match self.read_from_first_child()? {
-            Some(doc_id) => doc_id,
-            None => return Ok(None),
+        let Some(target) = self.read_from_first_child()? else {
+            return Ok(None);
         };
 
         match self.find_consensus(target)? {
