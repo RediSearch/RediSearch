@@ -2008,7 +2008,8 @@ fn ii_apply_gc_entries_tracking_index() {
         }
     );
 }
-
+// the memory hack below raises error in miri
+#[cfg(not(miri))] 
 #[test]
 fn test_refresh_buffer_pointers_after_reallocation() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
