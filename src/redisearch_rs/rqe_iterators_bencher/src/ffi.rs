@@ -44,8 +44,10 @@ pub use bindings::{
     IndexFlags_Index_StoreTermOffsets,
 };
 use bindings::{IteratorStatus, ValidateStatus};
+use ffi::{RedisModule_Alloc, RedisModule_Free};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{NumericFilter, RSIndexResult};
+use std::ffi::c_void;
 use std::ptr;
 
 /// Simple wrapper around the C `QueryIterator` type.
@@ -77,6 +79,36 @@ impl QueryIterator {
                 std::f64::MAX,
             )
         })
+    }
+
+    #[inline(always)]
+    pub fn new_optional_full_child_wildcard(max_id: u64, weight: f64) -> Self {
+        let child = iterators_ffi::wildcard::NewWildcardIterator_NonOptimized(max_id, 1f64)
+            as *mut QueryIterator;
+        Self::new_optional_full_child(max_id, weight, child)
+    }
+
+    #[inline(always)]
+    pub fn new_optional_full_child(max_id: u64, weight: f64, child: *mut QueryIterator) -> Self {
+        let query_eval_ctx = new_redis_search_ctx(max_id);
+        let it = unsafe {
+            bindings::NewOptionalIterator(
+                child as *mut bindings::QueryIterator,
+                query_eval_ctx,
+                weight,
+            )
+        };
+        free_redis_search_ctx(query_eval_ctx);
+        Self(it)
+    }
+
+    #[inline(always)]
+    pub fn new_optional_virtual_only(max_id: u64, weight: f64) -> Self {
+        let child = std::ptr::null_mut();
+        let query_eval_ctx = new_redis_search_ctx(max_id);
+        let it = unsafe { bindings::NewOptionalIterator(child, query_eval_ctx, weight) };
+        free_redis_search_ctx(query_eval_ctx);
+        Self(it)
     }
 
     #[inline(always)]
@@ -137,6 +169,68 @@ impl QueryIterator {
         let current = unsafe { (*self.0).current };
         unsafe { current.as_ref() }
     }
+}
+
+fn new_redis_search_ctx(max_id: u64) -> *mut bindings::QueryEvalCtx {
+    let query_eval_ctx = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::QueryEvalCtx>())
+            as *mut bindings::QueryEvalCtx
+    };
+    unsafe {
+        (*query_eval_ctx) = std::mem::zeroed();
+    }
+    let doc_table = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::DocTable>())
+            as *mut bindings::DocTable
+    };
+    unsafe {
+        (*doc_table) = std::mem::zeroed();
+    }
+    let search_ctx = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::RedisSearchCtx>())
+            as *mut bindings::RedisSearchCtx
+    };
+    unsafe {
+        (*search_ctx) = std::mem::zeroed();
+    }
+    let spec = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::IndexSpec>())
+            as *mut bindings::IndexSpec
+    };
+    unsafe {
+        (*spec) = std::mem::zeroed();
+    }
+    unsafe {
+        (*doc_table).maxSize = max_id;
+    }
+    unsafe {
+        (*doc_table).maxDocId = max_id;
+    }
+    unsafe {
+        (*search_ctx).spec = spec;
+    }
+    unsafe {
+        (*query_eval_ctx).docTable = doc_table;
+    }
+    unsafe {
+        (*query_eval_ctx).sctx = search_ctx;
+    }
+    query_eval_ctx
+}
+
+fn free_redis_search_ctx(ctx: *mut bindings::QueryEvalCtx) {
+    unsafe {
+        RedisModule_Free.unwrap()((*(*ctx).sctx).spec as *mut c_void);
+    };
+    unsafe {
+        RedisModule_Free.unwrap()((*ctx).sctx as *mut c_void);
+    };
+    unsafe {
+        RedisModule_Free.unwrap()((*ctx).docTable as *mut c_void);
+    };
+    unsafe {
+        RedisModule_Free.unwrap()(ctx as *mut c_void);
+    };
 }
 
 /// Direct C benchmark results

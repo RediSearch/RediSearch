@@ -130,6 +130,10 @@ static void MRConnPool_Free(void *privdata, void *p) {
   if (!pool) return;
   for (size_t i = 0; i < pool->num; i++) {
     MRConn *conn = pool->conns[i];
+    // Avoid callbacks (MRConn_DisconnectCallback) to access freed memory
+    if (conn->conn) {
+      conn->conn->data = NULL;
+    }
     freeConn(conn);
   }
   rm_free(pool->conns);

@@ -11,14 +11,13 @@ use ffi::{IndexFlags_Index_StoreNumeric, t_docId};
 use inverted_index::{FilterNumericReader, InvertedIndex, NumericFilter, RSIndexResult};
 use rqe_iterators::{RQEIterator, inverted_index::Numeric};
 
-use crate::inverted_index::utils::{BaseTest, RevalidateTest};
+use crate::inverted_index::utils::BaseTest;
 
-struct NumericTest {
+struct NumericBaseTest {
     test: BaseTest<inverted_index::numeric::Numeric>,
-    revalidate_test: RevalidateTest<inverted_index::numeric::Numeric>,
 }
 
-impl NumericTest {
+impl NumericBaseTest {
     fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
         // The numeric record has a value of `doc_id * 2.0`.
         RSIndexResult::numeric(doc_id as f64 * 2.0).doc_id(doc_id)
@@ -31,11 +30,6 @@ impl NumericTest {
                 Box::new(Self::expected_record),
                 n_docs,
             ),
-            revalidate_test: RevalidateTest::new(
-                IndexFlags_Index_StoreNumeric,
-                Box::new(Self::expected_record),
-                n_docs,
-            ),
         }
     }
 }
@@ -43,81 +37,46 @@ impl NumericTest {
 #[test]
 /// test reading from NumericFull iterator
 fn numeric_full_read() {
-    let test = NumericTest::new(100);
+    let test = NumericBaseTest::new(100);
     let reader = test.test.ii.reader();
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
     test.test.read(&mut it, test.test.docs_ids_iter());
 
     // same but using a passthrough filter
-    let test = NumericTest::new(100);
+    let test = NumericBaseTest::new(100);
     let filter = NumericFilter::default();
     let reader = test.test.ii.reader();
     let reader = FilterNumericReader::new(&filter, reader);
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
 #[test]
 /// test skipping from Numeric iterator
 fn numeric_full_skip_to() {
-    let test = NumericTest::new(100);
+    let test = NumericBaseTest::new(100);
     let reader = test.test.ii.reader();
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
     test.test.skip_to(&mut it);
 }
 
 #[test]
 /// test reading from Numeric iterator with a filter
 fn numeric_filter() {
-    let test = NumericTest::new(100);
+    let test = NumericBaseTest::new(100);
     let filter = NumericFilter {
         min: 50.0,
         max: 75.0,
         ..Default::default()
     };
     let reader = FilterNumericReader::new(&filter, test.test.ii.reader());
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
     let docs_ids = test
         .test
         .docs_ids_iter()
         // records have a numeric value of twice their doc id
         .filter(|id| *id * 2 >= 50 && *id * 2 <= 75);
     test.test.read(&mut it, docs_ids);
-}
-
-#[test]
-fn numeric_full_revalidate_basic() {
-    let test = NumericTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Numeric::new(reader);
-    test.revalidate_test.revalidate_basic(&mut it);
-}
-
-#[test]
-fn numeric_full_revalidate_at_eof() {
-    let test = NumericTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Numeric::new(reader);
-    test.revalidate_test.revalidate_at_eof(&mut it);
-}
-
-#[test]
-fn numeric_full_revalidate_after_index_disappears() {
-    let test = NumericTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Numeric::new(reader);
-    test.revalidate_test
-        .revalidate_after_index_disappears(&mut it, true);
-}
-
-#[cfg(not(miri))] // Miri does not like UnsafeCell
-#[test]
-fn numeric_full_revalidate_after_document_deleted() {
-    let test = NumericTest::new(10);
-    let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Numeric::new(reader);
-    test.revalidate_test
-        .revalidate_after_document_deleted(&mut it);
 }
 
 #[test]
@@ -129,7 +88,7 @@ fn skip_multi_id() {
     let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
     let _ = ii.add_record(&RSIndexResult::numeric(3.0).doc_id(1));
 
-    let mut it = Numeric::new(ii.reader());
+    let mut it = Numeric::new_simple(ii.reader());
 
     // Read the first entry. Expect to get the entry with value 1.0
     let record = it
@@ -155,7 +114,7 @@ fn skip_multi_id_and_value() {
     let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
     let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
 
-    let mut it = Numeric::new(ii.reader());
+    let mut it = Numeric::new_simple(ii.reader());
 
     // Read the first entry. Expect to get the entry with value 1.0
     let record = it
@@ -188,7 +147,7 @@ fn get_correct_value() {
         ..Default::default()
     };
     let reader = FilterNumericReader::new(&filter, ii.reader());
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
 
     // Read the first entry. Expect to get the entry with value 2.0
     let record = it
@@ -222,7 +181,7 @@ fn eof_after_filtering() {
         ..Default::default()
     };
     let reader = FilterNumericReader::new(&filter, ii.reader());
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new_simple(reader);
 
     // Attempt to skip to the first entry, expecting EOF since no entries match the filter
     assert_eq!(it.skip_to(1).expect("skip_to failed"), None);
@@ -231,7 +190,7 @@ fn eof_after_filtering() {
 #[cfg(not(miri))]
 mod not_miri {
     use super::*;
-    use crate::inverted_index::utils::ExpirationTest;
+    use crate::inverted_index::utils::{ExpirationTest, RevalidateIndexType, RevalidateTest};
     use ffi::t_fieldIndex;
     use field::FieldExpirationPredicate;
 
@@ -271,7 +230,7 @@ mod not_miri {
                 .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(FIELD_INDEX));
 
             let reader = self.test.ii.reader();
-            let mut it = Numeric::with_context(
+            let mut it = Numeric::new(
                 reader,
                 self.test.context(),
                 FIELD_INDEX,
@@ -296,7 +255,7 @@ mod not_miri {
                 .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(FIELD_INDEX));
 
             let reader = self.test.ii.reader();
-            let mut it = Numeric::with_context(
+            let mut it = Numeric::new(
                 reader,
                 self.test.context(),
                 FIELD_INDEX,
@@ -320,5 +279,58 @@ mod not_miri {
     #[test]
     fn numeric_skip_to_expiration() {
         NumericExpirationTest::new(100, false).test_skip_to_expiration();
+    }
+
+    struct NumericRevalidateTest {
+        test: RevalidateTest<inverted_index::numeric::Numeric>,
+    }
+
+    impl NumericRevalidateTest {
+        fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+            // The numeric record has a value of `doc_id * 2.0`.
+            RSIndexResult::numeric(doc_id as f64 * 2.0).doc_id(doc_id)
+        }
+
+        fn new(n_docs: u64) -> Self {
+            Self {
+                test: RevalidateTest::new(
+                    RevalidateIndexType::Numeric,
+                    Box::new(Self::expected_record),
+                    n_docs,
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn numeric_full_revalidate_basic() {
+        let test = NumericRevalidateTest::new(10);
+        let reader = unsafe { (*test.test.ii.get()).reader() };
+        let mut it = Numeric::new_simple(reader);
+        test.test.revalidate_basic(&mut it);
+    }
+
+    #[test]
+    fn numeric_full_revalidate_at_eof() {
+        let test = NumericRevalidateTest::new(10);
+        let reader = unsafe { (*test.test.ii.get()).reader() };
+        let mut it = Numeric::new_simple(reader);
+        test.test.revalidate_at_eof(&mut it);
+    }
+
+    #[test]
+    fn numeric_full_revalidate_after_index_disappears() {
+        let test = NumericRevalidateTest::new(10);
+        let reader = unsafe { (*test.test.ii.get()).reader() };
+        let mut it = Numeric::new_simple(reader);
+        test.test.revalidate_after_index_disappears(&mut it, true);
+    }
+
+    #[test]
+    fn numeric_full_revalidate_after_document_deleted() {
+        let test = NumericRevalidateTest::new(10);
+        let reader = unsafe { (*test.test.ii.get()).reader() };
+        let mut it = Numeric::new_simple(reader);
+        test.test.revalidate_after_document_deleted(&mut it);
     }
 }

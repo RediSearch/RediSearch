@@ -24,10 +24,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = git_root().expect("Could not find git root");
 
     // Generate C bindings - fail build if this doesn't work
-    let headers = ["iterator_api.h", "inverted_index_iterator.h"]
-        .iter()
-        .map(|h| root.join("src").join("iterators").join(h))
-        .collect::<Vec<_>>();
+    let headers = [
+        "iterator_api.h",
+        "inverted_index_iterator.h",
+        "optional_iterator.h",
+    ]
+    .iter()
+    .map(|h| root.join("src").join("iterators").join(h))
+    .collect::<Vec<_>>();
 
     generate_c_bindings(headers, ".*/iterators/.*.h")?;
 

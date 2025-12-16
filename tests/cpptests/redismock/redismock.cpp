@@ -1316,6 +1316,11 @@ static int RMCK_SetCommandACLCategories(RedisModuleCommand *cmd, const char *cat
   return REDISMODULE_OK;
 }
 
+static int RMCK_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo *info) {
+  // Nothing for the mock.
+  return REDISMODULE_OK;
+}
+
 /** Misc */
 RedisModuleCtx::~RedisModuleCtx() {
   if (automemory) {
@@ -1522,6 +1527,7 @@ static void registerApis() {
   REGISTER_API(Fork);
   REGISTER_API(AddACLCategory);
   REGISTER_API(SetCommandACLCategories);
+  REGISTER_API(SetCommandInfo);
   REGISTER_API(Yield);
   REGISTER_API(GetContextFlags);
   REGISTER_API(GetSelectedDb);

@@ -59,6 +59,7 @@ stub_c_fn! {
     isWithinRadius,
     Redis_OpenInvertedIndex,
     RS_dictFetchValue,
+    SearchDisk_NewWildcardIterator,
     TagIndex_OpenIndex,
     TimeToLiveTable_VerifyDocAndField,
     TimeToLiveTable_VerifyDocAndFieldMask,
