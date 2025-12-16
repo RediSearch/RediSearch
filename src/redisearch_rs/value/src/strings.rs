@@ -168,6 +168,10 @@ impl ConstString {
 
     /// Get the string's bytes as a slice of `u8`'s.
     pub const fn as_bytes(&self) -> &[u8] {
+        if self.len == 0 {
+            return &[];
+        }
+
         // Safety: invariants (1) and (2) uphold the safety requirements
         // of `slice::from_raw_parts`
         unsafe { slice::from_raw_parts(self.str as *const u8, self.len as usize) }

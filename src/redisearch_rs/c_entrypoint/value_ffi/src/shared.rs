@@ -320,7 +320,7 @@ pub unsafe extern "C" fn SharedRsValue_NewConstStringArray(
             let len = unsafe { libc::strlen(str) };
             // Safety: caller must ensure (4).
             let len = unsafe {
-                expect_unchecked!(len.try_into(), "`strlen(str)` must note exceed u32::MAX")
+                expect_unchecked!(len.try_into(), "`strlen(str)` must not exceed u32::MAX")
             };
             (str, len)
         })
