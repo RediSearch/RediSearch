@@ -12,6 +12,7 @@ pub(crate) mod utils;
 
 mod empty;
 mod id_list;
+mod intersection;
 mod inverted_index;
 mod maybe_empty;
 mod metric;
