@@ -16,4 +16,5 @@ mod id_list;
 mod inverted_index;
 mod maybe_empty;
 mod metric;
+mod profile;
 mod wildcard;

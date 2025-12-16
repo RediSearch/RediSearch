@@ -50,14 +50,16 @@ def test_default_scorer_behavior():
 
     hybrid_default_bm25std = env.cmd('FT.HYBRID', 'idx',
                             'SEARCH', 'hello',
-                            'VSIM', '@vector', vector_blob,
-                            'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3')
+                            'VSIM', '@vector', '$BLOB',
+                            'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3',
+                            'PARAMS', '2', 'BLOB', vector_blob)
     hybrid_default_bm25std_results, hybrid_default_bm25std_count = get_results_from_hybrid_response(hybrid_default_bm25std)
 
     hybrid_explicit_bm25std = env.cmd('FT.HYBRID', 'idx',
                                      'SEARCH', 'hello', 'SCORER', 'BM25STD',
-                                     'VSIM', '@vector', vector_blob,
-                                     'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3')
+                                     'VSIM', '@vector', '$BLOB',
+                                     'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3',
+                                     'PARAMS', '2', 'BLOB', vector_blob)
     hybrid_explicit_bm25std_results, hybrid_explicit_bm25std_count = get_results_from_hybrid_response(hybrid_explicit_bm25std)
 
     env.assertEqual(hybrid_default_bm25std_results, hybrid_explicit_bm25std_results)
@@ -65,8 +67,9 @@ def test_default_scorer_behavior():
 
     hybrid_tfidf_in_query = env.cmd('FT.HYBRID', 'idx',
                           'SEARCH', 'hello', 'SCORER', 'TFIDF',
-                          'VSIM', '@vector', vector_blob,
-                          'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3')
+                          'VSIM', '@vector', '$BLOB',
+                          'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3',
+                          'PARAMS', '2', 'BLOB', vector_blob)
     hybrid_tfidf_in_query_results, _ = get_results_from_hybrid_response(hybrid_tfidf_in_query)
 
     first_doc_default = list(hybrid_default_bm25std_results.keys())[0]
@@ -92,14 +95,16 @@ def test_default_scorer_behavior():
 
     hybrid_default_tfidf = env.cmd('FT.HYBRID', 'idx',
                             'SEARCH', 'hello',
-                            'VSIM', '@vector', vector_blob,
-                            'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3')
+                            'VSIM', '@vector', '$BLOB',
+                            'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3',
+                            'PARAMS', '2', 'BLOB', vector_blob)
     hybrid_default_tfidf_results, _ = get_results_from_hybrid_response(hybrid_default_tfidf)
     env.assertEqual(hybrid_default_tfidf_results, hybrid_tfidf_in_query_results)
     hybrid_bm25std_in_query = env.cmd('FT.HYBRID', 'idx',
                                      'SEARCH', 'hello', 'SCORER', 'BM25STD',
-                                     'VSIM', '@vector', vector_blob,
-                                     'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3')
+                                     'VSIM', '@vector', '$BLOB',
+                                     'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3',
+                                     'PARAMS', '2', 'BLOB', vector_blob)
     hybrid_bm25std_in_query_results, _ = get_results_from_hybrid_response(hybrid_bm25std_in_query)
     env.assertEqual(hybrid_default_bm25std_results, hybrid_bm25std_in_query_results)
 
@@ -179,14 +184,16 @@ def test_default_scorer_with_extension():
 
     hybrid_default_example = env.cmd('FT.HYBRID', 'idx',
                             'SEARCH', 'hello',
-                            'VSIM', '@vector', vector_blob,
-                            'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3')
+                            'VSIM', '@vector', '$BLOB',
+                            'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3',
+                            'PARAMS', '2', 'BLOB', vector_blob)
     hybrid_default_example_results, hybrid_default_example_count = get_results_from_hybrid_response(hybrid_default_example)
 
     hybrid_explicit_example = env.cmd('FT.HYBRID', 'idx',
                                      'SEARCH', 'hello', 'SCORER', 'example_scorer',
-                                     'VSIM', '@vector', vector_blob,
-                                     'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3')
+                                     'VSIM', '@vector', '$BLOB',
+                                     'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3',
+                                     'PARAMS', '2', 'BLOB', vector_blob)
     hybrid_explicit_example_results, hybrid_explicit_example_count = get_results_from_hybrid_response(hybrid_explicit_example)
 
     env.assertEqual(hybrid_default_example_results, hybrid_explicit_example_results)
@@ -195,8 +202,9 @@ def test_default_scorer_with_extension():
     # Test that explicit BM25STD still works in hybrid when default is extension scorer
     hybrid_explicit_bm25std_after = env.cmd('FT.HYBRID', 'idx',
                                            'SEARCH', 'hello', 'SCORER', 'BM25STD',
-                                           'VSIM', '@vector', vector_blob,
-                                           'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3')
+                                           'VSIM', '@vector', '$BLOB',
+                                           'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3',
+                                           'PARAMS', '2', 'BLOB', vector_blob)
     hybrid_explicit_bm25std_after_results, _ = get_results_from_hybrid_response(hybrid_explicit_bm25std_after)
 
     # Should be different from extension scorer results
