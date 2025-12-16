@@ -166,7 +166,12 @@ where
             RQEValidateStatus::Moved { .. } => {
                 // Invariant: after read/skip_to, child is always ahead of NOT's position (or at EOF).
                 // Moved means child moved forward (can't move backward), so our doc remains valid.
-                debug_assert!(self.child.at_eof() || self.child.last_doc_id() > self.last_doc_id());
+                // Special case: both at initial state (doc_id = 0) is also valid.
+                debug_assert!(
+                    self.child.at_eof()
+                    || self.child.last_doc_id() > self.last_doc_id()
+                    || (self.child.last_doc_id() == 0 && self.last_doc_id() == 0)
+                );
                 Ok(RQEValidateStatus::Ok)
             }
             RQEValidateStatus::Ok => {

@@ -265,6 +265,93 @@ fn revalidate_child_aborted_replaces_child_with_empty() {
     assert_eq!(seen, vec![1, 2, 3, 4, 5]);
 }
 
+// Child revalidate Moved on fresh iterator: should not panic.
+#[test]
+fn revalidate_child_moved_on_fresh_iterator() {
+    let child = Mock::new([2, 4]);
+    let mut data = child.data();
+    data.set_revalidate_result(MockRevalidateResult::Move);
+    let mut it = Not::new(child, 5);
+
+    // Revalidate before any read/skip_to - both iterators at doc_id = 0
+    let status = it.revalidate().expect("revalidate() failed");
+    assert_eq!(status, RQEValidateStatus::Ok);
+
+    // Iterator should still work correctly after revalidate
+    let mut seen = Vec::new();
+    while let Some(doc) = it.read().unwrap() {
+        seen.push(doc.doc_id);
+    }
+
+    // Child has [2, 4] in [1..=5], so NOT must yield the complement [1, 3, 5].
+    assert_eq!(seen, vec![1, 3, 5]);
+}
+
+// Child revalidate Moved after read: child ahead, should not panic.
+#[test]
+fn revalidate_child_moved_after_read_with_child_ahead() {
+    let child = Mock::new([5, 10]);
+    let mut data = child.data();
+    let mut it = Not::new(child, 15);
+
+    // Read first doc (1) - child will be at 5, NOT at 1
+    let doc = it.read().expect("read() failed").expect("expected doc");
+    assert_eq!(doc.doc_id, 1);
+    assert_eq!(it.last_doc_id(), 1);
+
+    // Now child is ahead (at 5) and NOT is at 1
+    // Simulate child moving forward during revalidate (child advances from 5 to 10)
+    data.set_revalidate_result(MockRevalidateResult::Move);
+
+    // This should not panic - child is ahead of NOT's position
+    let status = it.revalidate().expect("revalidate() failed");
+    assert_eq!(status, RQEValidateStatus::Ok);
+
+    // Continue reading - should still work correctly
+    let mut seen = vec![1]; // Already read 1
+    while let Some(doc) = it.read().unwrap() {
+        seen.push(doc.doc_id);
+    }
+
+    // After revalidate, child moved from 5 to 10, so only 10 is excluded now
+    // NOT yields [1,2,3,4,5,6,7,8,9,11,12,13,14,15] (5 is now included!)
+    assert_eq!(seen, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15]);
+}
+
+// Child revalidate Moved after skip_to: child ahead, should not panic.
+#[test]
+fn revalidate_child_moved_after_skip_to_with_child_ahead() {
+    let child = Mock::new([8, 15]);
+    let mut data = child.data();
+    let mut it = Not::new(child, 20);
+
+    // Skip to 3 - child will be at 8, NOT at 3
+    let outcome = it.skip_to(3).expect("skip_to() failed").expect("expected outcome");
+    match outcome {
+        SkipToOutcome::Found(doc) => assert_eq!(doc.doc_id, 3),
+        _ => panic!("Expected Found outcome"),
+    }
+    assert_eq!(it.last_doc_id(), 3);
+
+    // Now child is ahead (at 8) and NOT is at 3
+    // Simulate child moving forward during revalidate (child advances from 8 to 15)
+    data.set_revalidate_result(MockRevalidateResult::Move);
+
+    // This should not panic - child is ahead of NOT's position
+    let status = it.revalidate().expect("revalidate() failed");
+    assert_eq!(status, RQEValidateStatus::Ok);
+
+    // Continue reading - should still work correctly
+    let mut seen = vec![3]; // Already at 3
+    while let Some(doc) = it.read().unwrap() {
+        seen.push(doc.doc_id);
+    }
+
+    // After revalidate, child moved from 8 to 15, so only 15 is excluded now
+    // NOT at 3 should yield [4,5,6,7,8,9,10,11,12,13,14,16,17,18,19,20] (8 is now included!)
+    assert_eq!(seen, vec![3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20]);
+}
+
 // Timeout propagation: child timeout during read() should propagate to NOT iterator.
 #[test]
 fn read_propagates_child_timeout() {
