@@ -22,7 +22,7 @@ struct MRCtx;
 struct RedisModuleCtx;
 
 typedef struct {
-  const char * targetShard;
+  char * targetShard;
   uint16_t targetShardIdx;
   long long cursorId;
 } CursorMapping;

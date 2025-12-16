@@ -136,7 +136,7 @@ void shardResponseBarrier_Notify(uint16_t shardIndex, long long totalResults, bo
 
   // Validate shardId bounds
   size_t numShards = atomic_load(&barrier->numShards);
-  if (shardIndex < 0 || shardIndex >= numShards) {
+  if (shardIndex >= numShards) {
     return;
   }
 
