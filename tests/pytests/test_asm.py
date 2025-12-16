@@ -271,8 +271,8 @@ def import_slot_range_sanity_test(env: Env, query_type: str = 'FT.SEARCH'):
         query_vector = np.array([5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0], dtype=np.float32).tobytes()
         query = ('FT.HYBRID', 'idx',
                 'SEARCH', f'@n:[69 1420] @text:({random_words_to_query})',
-                'VSIM', '@vector', query_vector, 'KNN', '2', 'K', str(n_docs),
-                'COMBINE', 'RRF', '2', 'CONSTANT', '60')
+                'VSIM', '@vector', '$BLOB', 'KNN', '2', 'K', str(n_docs),
+                'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'PARAMS', 2, 'BLOB', query_vector)
 
     expected = get_expected(env, query, query_type)
 
@@ -327,8 +327,8 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH', parallel_upd
         query_vector = np.array([5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0], dtype=np.float32).tobytes()
         query = ('FT.HYBRID', 'idx',
                 'SEARCH', f'@n:[69 1420] @text:({random_words_to_query})',
-                'VSIM', '@vector', query_vector, 'KNN', '2', 'K', str(n_docs),
-                'COMBINE', 'RRF', '2', 'CONSTANT', '60')
+                'VSIM', '@vector', '$BLOB', 'KNN', '2', 'K', str(n_docs),
+                'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'PARAMS', 2, 'BLOB', query_vector)
 
     expected = get_expected(env, query, query_type)
 
@@ -514,8 +514,8 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
         query_vector = np.array([5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0], dtype=np.float32).tobytes()
         query = ('FT.HYBRID', 'idx',
                 'SEARCH', f'@n:[69 1420] @text:({random_words_to_query})',
-                'VSIM', '@vector', query_vector, 'KNN', '2', 'K', str(n_docs),
-                'COMBINE', 'RRF', '2', 'CONSTANT', '60')
+                'VSIM', '@vector', '$BLOB', 'KNN', '2', 'K', str(n_docs),
+                'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'PARAMS', 2, 'BLOB', query_vector)
 
     expected = get_expected(env, query, query_type)
 
