@@ -41,7 +41,7 @@ mod bindings {
 pub use bindings::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
-    IndexFlags_Index_StoreTermOffsets,
+    IndexFlags_Index_StoreTermOffsets, IteratorStatus_ITERATOR_OK,
 };
 use bindings::{IteratorStatus, ValidateStatus};
 use ffi::{RedisModule_Alloc, RedisModule_Free};
@@ -111,6 +111,58 @@ impl QueryIterator {
         Self(it)
     }
 
+    /// Create an empty iterator (returns no results).
+    #[inline(always)]
+    pub fn new_empty() -> Self {
+        Self(iterators_ffi::empty::NewEmptyIterator() as *mut bindings::QueryIterator)
+    }
+
+    /// Create an ID list iterator from a vector of sorted document IDs.
+    #[inline(always)]
+    pub fn new_id_list(ids: Vec<u64>) -> Self {
+        let num = ids.len() as u64;
+        let ids_ptr = if num > 0 {
+            let ptr = unsafe {
+                RedisModule_Alloc.unwrap()(num as usize * std::mem::size_of::<u64>()) as *mut u64
+            };
+            unsafe {
+                std::ptr::copy_nonoverlapping(ids.as_ptr(), ptr, num as usize);
+            }
+            ptr
+        } else {
+            ptr::null_mut()
+        };
+
+        Self(unsafe { iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, num, 1.0) } as *mut bindings::QueryIterator)
+    }
+
+    /// Create a non-optimized NOT iterator with the given child and max_doc_id.
+    /// This creates a minimal QueryEvalCtx to ensure the C code creates a non-optimized version.
+    #[inline(always)]
+    pub fn new_not_non_optimized(child: Self, max_doc_id: u64, weight: f64) -> Self {
+        // Create a minimal QueryEvalCtx that will NOT trigger optimization
+        // The C code checks: optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all
+        // By zeroing everything, we ensure spec->rule is NULL, so optimized = false
+        let query_eval_ctx = new_redis_search_ctx_non_optimized(max_doc_id);
+        let timeout = bindings::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+
+        let it = unsafe {
+            bindings::NewNotIterator(
+                child.0,
+                max_doc_id,
+                weight,
+                timeout,
+                query_eval_ctx,
+            )
+        };
+
+        free_redis_search_ctx(query_eval_ctx);
+        Self(it)
+    }
+
     #[inline(always)]
     pub unsafe fn new_term(ii: *mut bindings::InvertedIndex) -> Self {
         Self(unsafe {
@@ -172,6 +224,58 @@ impl QueryIterator {
 }
 
 fn new_redis_search_ctx(max_id: u64) -> *mut bindings::QueryEvalCtx {
+    let query_eval_ctx = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::QueryEvalCtx>())
+            as *mut bindings::QueryEvalCtx
+    };
+    unsafe {
+        (*query_eval_ctx) = std::mem::zeroed();
+    }
+    let doc_table = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::DocTable>())
+            as *mut bindings::DocTable
+    };
+    unsafe {
+        (*doc_table) = std::mem::zeroed();
+    }
+    let search_ctx = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::RedisSearchCtx>())
+            as *mut bindings::RedisSearchCtx
+    };
+    unsafe {
+        (*search_ctx) = std::mem::zeroed();
+    }
+    let spec = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::IndexSpec>())
+            as *mut bindings::IndexSpec
+    };
+    unsafe {
+        (*spec) = std::mem::zeroed();
+    }
+    unsafe {
+        (*doc_table).maxSize = max_id;
+    }
+    unsafe {
+        (*doc_table).maxDocId = max_id;
+    }
+    unsafe {
+        (*search_ctx).spec = spec;
+    }
+    unsafe {
+        (*query_eval_ctx).docTable = doc_table;
+    }
+    unsafe {
+        (*query_eval_ctx).sctx = search_ctx;
+    }
+    query_eval_ctx
+}
+
+/// Helper function to create a minimal QueryEvalCtx for non-optimized NOT iterator.
+/// This ensures the C code does NOT create an optimized version (no wildcard iterator).
+///
+/// The C code checks: optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all
+/// By zeroing everything (spec->rule is NULL), we ensure optimized = false.
+fn new_redis_search_ctx_non_optimized(max_id: u64) -> *mut bindings::QueryEvalCtx {
     let query_eval_ctx = unsafe {
         RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::QueryEvalCtx>())
             as *mut bindings::QueryEvalCtx
