@@ -127,7 +127,7 @@ const char* TEST_BLOB_DATA = "\x12\xa9\xf5\x6c";
 
 // All defaults applied
 TEST_F(HybridDefaultsTest, testDefaultValues) {
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   validateDefaultParams(result, parseCtx, HYBRID_DEFAULT_WINDOW, HYBRID_DEFAULT_KNN_K);
@@ -136,7 +136,7 @@ TEST_F(HybridDefaultsTest, testDefaultValues) {
 // LIMIT affects both implicit parameters
 TEST_F(HybridDefaultsTest, testLimitFallbackBoth) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
+                      "SEARCH", "hello", "VSIM", "@vector","$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA,
                       "LIMIT", "0", "25");
 
   parseCommand(args);
@@ -146,8 +146,9 @@ TEST_F(HybridDefaultsTest, testLimitFallbackBoth) {
 // LIMIT affects only implicit K, but K gets capped at explicit WINDOW
 TEST_F(HybridDefaultsTest, testLimitFallbackKOnly) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "COMBINE", "RRF", "2", "WINDOW", "15", "LIMIT", "0", "25");
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "COMBINE", "RRF", "2", "WINDOW", "15", "LIMIT", "0", "25",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   // K should be capped at WINDOW=15 even though LIMIT fallback would set it to 25
@@ -157,8 +158,8 @@ TEST_F(HybridDefaultsTest, testLimitFallbackKOnly) {
 // LIMIT affects only implicit WINDOW
 TEST_F(HybridDefaultsTest, testLimitFallbackWindowOnly) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "8", "LIMIT", "0", "25");
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "KNN", "2", "K", "8", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "LIMIT", "0", "25");
 
   parseCommand(args);
   validateDefaultParams(result, parseCtx, HYBRID_DEFAULT_WINDOW, 8);
@@ -167,8 +168,9 @@ TEST_F(HybridDefaultsTest, testLimitFallbackWindowOnly) {
 // Explicit parameters override LIMIT
 TEST_F(HybridDefaultsTest, testExplicitOverridesLimit) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "8", "COMBINE", "RRF", "2", "WINDOW", "15", "LIMIT", "0", "25");
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "8",
+                      "COMBINE", "RRF", "2", "WINDOW", "15", "LIMIT", "0", "25",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   validateDefaultParams(result, parseCtx, 15, 8);
@@ -177,8 +179,8 @@ TEST_F(HybridDefaultsTest, testExplicitOverridesLimit) {
 // Large LIMIT values work
 TEST_F(HybridDefaultsTest, testLargeLimitFallback) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "LIMIT", "0", "10000");
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "LIMIT", "0", "10000");
 
   parseCommand(args);
   validateDefaultParams(result, parseCtx, HYBRID_DEFAULT_WINDOW, HYBRID_DEFAULT_KNN_K); // K capped at WINDOW (DEFAULT_WINDOW)
@@ -187,7 +189,8 @@ TEST_F(HybridDefaultsTest, testLargeLimitFallback) {
 // Flag verification tests
 TEST_F(HybridDefaultsTest, testFlagTrackingImplicitBoth) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   // Both flags should be false
@@ -197,8 +200,8 @@ TEST_F(HybridDefaultsTest, testFlagTrackingImplicitBoth) {
 
 TEST_F(HybridDefaultsTest, testFlagTrackingExplicitK) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "8");
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "8",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   // K explicit, WINDOW implicit
@@ -208,8 +211,9 @@ TEST_F(HybridDefaultsTest, testFlagTrackingExplicitK) {
 
 TEST_F(HybridDefaultsTest, testFlagTrackingExplicitWindow) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "COMBINE", "RRF", "2", "WINDOW", "15");
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "COMBINE", "RRF", "2", "WINDOW", "15",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   // WINDOW explicit, K implicit
@@ -219,8 +223,9 @@ TEST_F(HybridDefaultsTest, testFlagTrackingExplicitWindow) {
 
 TEST_F(HybridDefaultsTest, testFlagTrackingExplicitBoth) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "8", "COMBINE", "RRF", "2", "WINDOW", "15");
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "KNN", "2", "K", "8", "COMBINE", "RRF", "2", "WINDOW", "15",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   // Both flags should be true
@@ -230,8 +235,9 @@ TEST_F(HybridDefaultsTest, testFlagTrackingExplicitBoth) {
 
 TEST_F(HybridDefaultsTest, testLinearDefaults) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "COMBINE", "LINEAR", "4", "ALPHA", "0.6", "BETA", "0.4");
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "COMBINE", "LINEAR", "4", "ALPHA", "0.6", "BETA", "0.4",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   // LINEAR should not have window parameter (uses regular limit instead)
@@ -245,8 +251,9 @@ TEST_F(HybridDefaultsTest, testLinearDefaults) {
 // Test K ≤ WINDOW constraint: explicit K > explicit WINDOW should cap K to WINDOW
 TEST_F(HybridDefaultsTest, testKCappedAtExplicitWindow) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "50", "COMBINE", "RRF", "2", "WINDOW", "15");
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "KNN", "2", "K", "50", "COMBINE", "RRF", "2", "WINDOW", "15",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   // Verify K was capped to WINDOW value
@@ -258,8 +265,9 @@ TEST_F(HybridDefaultsTest, testKCappedAtExplicitWindow) {
 // Test K ≤ WINDOW constraint: K from LIMIT fallback > explicit WINDOW should cap K to WINDOW
 TEST_F(HybridDefaultsTest, testKFromLimitCappedAtExplicitWindow) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "COMBINE", "RRF", "2", "WINDOW", "12", "LIMIT", "0", "30");
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "COMBINE", "RRF", "2", "WINDOW", "12", "LIMIT", "0", "30",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   // K should be capped to WINDOW (12) even though LIMIT fallback would set it to 30
@@ -271,8 +279,9 @@ TEST_F(HybridDefaultsTest, testKFromLimitCappedAtExplicitWindow) {
 // Test K = min{ K, WINDOW} optimization is used in LINEAR
 TEST_F(HybridDefaultsTest, testLinearScoringKWindowConstraint) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "50", "COMBINE", "LINEAR", "6", "ALPHA", "0.7", "BETA", "0.3", "WINDOW", "12");
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "KNN", "2", "K", "50", "COMBINE", "LINEAR", "6", "ALPHA", "0.7", "BETA", "0.3", "WINDOW", "12",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   ASSERT_EQ(parseCtx.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
@@ -283,8 +292,9 @@ TEST_F(HybridDefaultsTest, testLinearScoringKWindowConstraint) {
 // Test that K ≤ WINDOW constraint doesn't affect cases where K is already ≤ WINDOW
 TEST_F(HybridDefaultsTest, testKAlreadyWithinWindow) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "8", "COMBINE", "RRF", "2", "WINDOW", "20");
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "KNN", "2", "K", "8", "COMBINE", "RRF", "2", "WINDOW", "20",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   // K should remain unchanged since 8 ≤ 20
@@ -296,8 +306,9 @@ TEST_F(HybridDefaultsTest, testKAlreadyWithinWindow) {
 // Test LINEAR with explicit WINDOW parameter
 TEST_F(HybridDefaultsTest, testLinearExplicitWindow) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "30");
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "30",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   ASSERT_EQ(parseCtx.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
@@ -313,8 +324,9 @@ TEST_F(HybridDefaultsTest, testLinearExplicitWindow) {
 // Test LINEAR WINDOW defaults to HYBRID_DEFAULT_WINDOW
 TEST_F(HybridDefaultsTest, testLinearWindowDefaults) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "COMBINE", "LINEAR", "4", "ALPHA", "0.6", "BETA", "0.4");
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "COMBINE", "LINEAR", "4", "ALPHA", "0.6", "BETA", "0.4",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   ASSERT_EQ(parseCtx.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
@@ -325,9 +337,9 @@ TEST_F(HybridDefaultsTest, testLinearWindowDefaults) {
 // Test LINEAR WINDOW with LIMIT fallback (WINDOW should ignore LIMIT fallback)
 TEST_F(HybridDefaultsTest, testLinearWindowLimitFallback) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
                       "COMBINE", "LINEAR", "4", "ALPHA", "0.6", "BETA", "0.4",
-                      "LIMIT", "0", "50");
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "LIMIT", "0", "50");
 
   parseCommand(args);
   ASSERT_EQ(parseCtx.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
@@ -338,9 +350,9 @@ TEST_F(HybridDefaultsTest, testLinearWindowLimitFallback) {
 // Test LINEAR WINDOW independent of LIMIT
 TEST_F(HybridDefaultsTest, testLinearExplicitWindowOverridesLimit) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
                       "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "25",
-                      "LIMIT", "0", "100");
+                      "LIMIT", "0", "100", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
   ASSERT_EQ(parseCtx.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);

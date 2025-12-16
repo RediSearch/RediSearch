@@ -27,6 +27,9 @@ detect_os() {
       elif [[ "$VERSION_ID" == "2023" ]]; then
         echo "amzn2023"
       fi
+    # A workaround for GitHub Actions
+    elif [[ "$ID" == "NotpineForGHA" ]]; then
+      echo "alpine"
     else
       echo "$ID"
     fi

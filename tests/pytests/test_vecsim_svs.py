@@ -526,11 +526,7 @@ def test_drop_index_during_query():
     env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
     env.expect(*query_cmd).error().contains(f"No such index")
 
-@skip(cluster=True)
-def test_gc():
-    num_workers = 2
-    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' _FREE_RESOURCE_ON_THREAD FALSE')
+def gc_test_common(env, num_workers):
     dim = 28
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
@@ -579,15 +575,29 @@ def test_gc():
         env.assertEqual(label_count_after, label_count_before - vecs_to_delete, message=f"{message_prefix}: labels_count_before: {label_count_before}, vecs_to_delete: {vecs_to_delete}")
 
         # Phase 2: Force garbage collection to reclaim memory
-        # Explicit GC should reduce memory usage after marked deletions
-        env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
-        forceInvokeGC(env, DEFAULT_INDEX_NAME)
-        cur_workers_stats = getWorkersThpoolStats(env)
+        if num_workers > 0:
+            # With workers: GC jobs should be scheduled to the thread pool
+            env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+            forceInvokeGC(env, DEFAULT_INDEX_NAME)
+            cur_workers_stats = getWorkersThpoolStats(env)
 
-        # GC background jobs for SVS should be pending in low priority queue.
-        env.assertEqual(cur_workers_stats['lowPriorityPendingJobs'], num_workers, message=f"{message_prefix}")
-        env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
-        env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+            # GC background jobs for SVS should be pending in low priority queue.
+            env.assertEqual(cur_workers_stats['lowPriorityPendingJobs'], num_workers, message=f"{message_prefix}")
+            env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
+            env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+        else:
+            # Without workers: GC should complete in place without using the thread pool
+            workers_stats_before = getWorkersThpoolStats(env)
+            forceInvokeGC(env, DEFAULT_INDEX_NAME)
+            workers_stats_after = getWorkersThpoolStats(env)
+
+            # Verify that no jobs were added to the thread pool (GC completed in place)
+            env.assertEqual(workers_stats_before['totalPendingJobs'], 0, message=f"{message_prefix}")
+            env.assertEqual(workers_stats_after['totalPendingJobs'], 0, message=f"{message_prefix}")
+            env.assertEqual(workers_stats_before['highPriorityPendingJobs'], 0, message=f"{message_prefix}")
+            env.assertEqual(workers_stats_after['highPriorityPendingJobs'], 0, message=f"{message_prefix}")
+            env.assertEqual(workers_stats_before['lowPriorityPendingJobs'], 0, message=f"{message_prefix}")
+            env.assertEqual(workers_stats_after['lowPriorityPendingJobs'], 0, message=f"{message_prefix}")
 
         tiered_backend_debug_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
 
@@ -607,3 +617,17 @@ def test_gc():
         env.assertEqual(label_count_after, label_count_before - vecs_to_delete, message=f"{message_prefix}")
 
         env.execute_command('FLUSHALL')
+
+@skip(cluster=True)
+def test_gc():
+    num_workers = 2
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
+                         f' _FREE_RESOURCE_ON_THREAD FALSE')
+    gc_test_common(env, num_workers)
+
+@skip(cluster=True)
+def test_gc_no_workers():
+    num_workers = 0
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
+                         f' _FREE_RESOURCE_ON_THREAD FALSE')
+    gc_test_common(env, num_workers)
