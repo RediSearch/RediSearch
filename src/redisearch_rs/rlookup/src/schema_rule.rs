@@ -29,15 +29,13 @@ use crate::RLookupKey;
 pub struct SchemaRuleWrapper(NonNull<ffi::SchemaRule>);
 
 impl SchemaRuleWrapper {
-    /// Create a SchemaRuleWrapper from a raw pointer.
-    ///
-    /// Returns None if the pointer is null.
+    /// Create a SchemaRuleWrapper from a non-null pointer.
     ///
     /// # Safety
     ///
     /// The caller must ensure that the given pointer upholds the safety invariants described on the type documentation.
-    pub unsafe fn from_raw(ptr: *mut ffi::SchemaRule) -> Option<Self> {
-        NonNull::new(ptr).map(SchemaRuleWrapper)
+    pub const unsafe fn from_non_null(ptr: NonNull<ffi::SchemaRule>) -> Self {
+        SchemaRuleWrapper(ptr)
     }
 
     /// Access the underlying SchemaRule pointer.
