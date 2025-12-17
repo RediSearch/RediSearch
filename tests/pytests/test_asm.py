@@ -316,7 +316,12 @@ def import_slot_range_sanity_test(env: Env, query_type: str = 'FT.SEARCH'):
 
     # Import slots from shard 2 to shard 1, and wait for it to complete
     wait_for_migration_complete(env, shard1, shard2)
-    query_shards(env, query, shards, expected, query_type)
+
+    # Run query_shards for 5 seconds
+    start_time = time.time()
+    while time.time() - start_time < 5:
+        query_shards(env, query, shards, expected, query_type)
+        time.sleep(0.1)
 
 def parallel_update_worker(env, n_docs, stop_event):
     """Worker function that continuously updates documents and forces GC"""
@@ -389,7 +394,11 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH', parallel_upd
     # Test searching while importing slots from shard 2 to shard 1
     wait_for_migration_complete(env, shard1, shard2, query_during_migration={'query': query, 'shards': shards, 'expected': expected, 'query_type': query_type})
     env.debugPrint("Querying shards after migration")
-    query_shards(env, query, shards, expected, query_type)
+    # Run query_shards for 5 seconds
+    start_time = time.time()
+    while time.time() - start_time < 5:
+        query_shards(env, query, shards, expected, query_type)
+        time.sleep(0.1)
     env.debugPrint("Query after migration passed")
 
     if update_thread:
@@ -571,7 +580,11 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
 
     env.waitCluster()
     shards.append(new_shard)
-    query_shards(env, query, shards, expected, query_type)
+    # Run query_shards for 5 seconds
+    start_time = time.time()
+    while time.time() - start_time < 5:
+        query_shards(env, query, shards, expected, query_type)
+        time.sleep(0.1)
 
 @skip(cluster=False)
 def test_add_shard_and_migrate():
@@ -639,6 +652,7 @@ def _test_ft_cursors_trimmed(env: Env):
 
     _, cursor_id = env.cmd(*query)
     wait_for_migration_complete(env, shard1, shard2)
+    time.sleep(5)
     total_results = []
     while cursor_id != 0:
         res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
