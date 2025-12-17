@@ -316,13 +316,14 @@ pub unsafe extern "C" fn RLookup_GetLength(
     let excluded_flags = RLookupKeyFlags::from_bits(excluded_flags).unwrap();
 
     // Safety: ensured by caller (4.)
-    let rule = unsafe { SchemaRuleWrapper::from_non_null(rule.unwrap()) };
+    let rule = rule.map(|ptr| unsafe { SchemaRuleWrapper::from_non_null(ptr) });
+    let rule = rule.as_ref();
 
     row.get_length_no_alloc(
         lookup,
         required_flags,
         excluded_flags,
-        Some(&rule),
+        rule,
         skip_field_index,
     )
 }
