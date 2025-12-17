@@ -243,15 +243,6 @@ RSValue *RSValue_NewMap(RSValueMap map) {
   return v;
 }
 
-RSValue *RSValue_NewConstStringArray(char **strs, uint32_t sz) {
-  RSValue **arr = RSValue_AllocateArray(sz);
-
-  for (uint32_t i = 0; i < sz; i++) {
-    arr[i] = RSValue_NewConstString(strs[i], strlen(strs[i]));
-  }
-  return RSValue_NewArray(arr, sz);
-}
-
 RSValue *RSValue_NewTrio(RSValue *val, RSValue *otherval, RSValue *other2val) {
   RSValue *trio = RSValue_NewWithType(RSValueType_Trio);
   trio->_trioval.vals = rm_calloc(3, sizeof(*trio->_trioval.vals));
