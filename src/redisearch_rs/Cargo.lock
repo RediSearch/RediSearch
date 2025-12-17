@@ -1501,6 +1501,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "redis-module",
+ "tracing",
  "value",
  "workspace_hack",
 ]
@@ -2674,6 +2675,7 @@ dependencies = [
  "syn 1.0.109",
  "syn 2.0.111",
  "thiserror",
+ "tracing-core",
  "zerocopy",
 ]
 
