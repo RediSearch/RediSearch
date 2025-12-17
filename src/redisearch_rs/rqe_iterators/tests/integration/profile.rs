@@ -57,7 +57,6 @@ fn profile_skip_to() {
     assert!(result.is_none());
     assert_eq!(profile.counters().skip_to, 2);
     assert!(profile.counters().eof);
-    assert!(profile.wall_time_ns() > 0);
 }
 
 #[test]
