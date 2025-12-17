@@ -57,6 +57,7 @@ static ValidateStatus TermCheckAbort(QueryIterator *base) {
   }
   RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
   // sctx and term should always be set, except in some tests.
+  // FIXME: not true: spell_check.c:97
   RS_ASSERT(term);
   InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, term->str, term->len, false, NULL);
   if (!idx || !IndexReader_IsIndex(it->reader, idx)) {
