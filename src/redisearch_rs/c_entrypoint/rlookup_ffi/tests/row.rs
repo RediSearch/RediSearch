@@ -94,7 +94,7 @@ fn rlookuprow_writebynameowned() {
             Some(NonNull::from(&lookup)),
             name.as_ptr(),
             len,
-            Some(NonNull::from(&row)),
+            Some(NonNull::from(&mut row)),
             NonNull::new(value.as_ptr()),
         );
     }
