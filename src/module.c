@@ -75,6 +75,7 @@
 #include "notifications.h"
 #include "aggregate/reply_empty.h"
 #include "tracing_redismodule.h"
+#include "asm_state_machine.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -96,6 +97,15 @@
 extern RSConfig RSGlobalConfig;
 
 extern RedisModuleCtx *RSDummyContext;
+
+// This map is used to track the number of queries that are using a specific version of the key space. This is needed to
+// determine when it's safe to trim slots after a migration is complete.
+khash_t(query_key_space_version_tracker) *query_key_space_version_map = NULL;
+uint32_t key_space_version = INVALID_KEYSPACE_VERSION;
+pthread_mutex_t query_version_tracker_mutex;
+#if ASM_SANITIZER_ENABLED
+arrayof(int*) asm_sanitizer_allocs;
+#endif
 
 redisearch_thpool_t *depleterPool = NULL;
 
@@ -1678,6 +1688,7 @@ void RediSearch_CleanupModule(void) {
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
   SchemaPrefixes_Free(SchemaPrefixes_g);
+  ASM_StateMachine_End();
   // GeometryApi_Free();
 
   Dictionary_Free();
@@ -3871,7 +3882,6 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->spec_ref = StrongRef_Demote(spec_ref);
-
   RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
@@ -3980,6 +3990,13 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       // We are not in cluster mode. No need to init the topology updater cron loop.
       // Set the number of shards to 1 to indicate the topology is "set"
       NumShards = 1;
+      // Setting all slots for the case where we send/test internal commands directly from client (potentially with _SLOTS_INFO)
+      RedisModuleSlotRangeArray *all_slots = rm_malloc(SlotRangeArray_SizeOf(1));
+      all_slots->num_ranges = 1;
+      all_slots->ranges[0].start = 0;
+      all_slots->ranges[0].end = 16383;
+      ASM_StateMachine_SetLocalSlots(all_slots);
+      rm_free(all_slots);
     }
   }
 
