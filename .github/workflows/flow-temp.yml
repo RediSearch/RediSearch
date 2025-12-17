@@ -9,12 +9,12 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-
-  alpine-test:
-    uses: ./.github/workflows/flow-test.yml
+  run-on-intel:
+    needs: get-latest-redis-tag
     secrets: inherit
+    uses: ./.github/workflows/flow-intel.yml
     with:
-      platform: alpine:3.22
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
