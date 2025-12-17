@@ -188,7 +188,7 @@ static void ASM_KeySpaceVersionTracker_CleanupOldVersions_Unsafe() {
       uint32_t version = kh_key(query_key_space_version_map, k);
       uint32_t count = kh_value(query_key_space_version_map, k);
 
-      if (count == 0 && version < current_version) {
+      if (count == 0 && version != current_version) {
         keys_to_delete[delete_count++] = version;
       }
     }
