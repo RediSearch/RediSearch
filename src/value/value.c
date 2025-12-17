@@ -249,7 +249,7 @@ RSValue *RSValue_NewVStringArray(uint32_t sz, ...) {
   va_start(ap, sz);
   for (uint32_t i = 0; i < sz; i++) {
     char *p = va_arg(ap, char *);
-    arr[i] = RSValue_NewCString(p);
+    arr[i] = RSValue_NewString(p, strlen(p));
   }
   va_end(ap);
   return RSValue_NewArray(arr, sz);
@@ -260,7 +260,7 @@ RSValue *RSValue_NewStringArray(char **strs, uint32_t sz) {
   RSValue **arr = RSValue_AllocateArray(sz);
 
   for (uint32_t i = 0; i < sz; i++) {
-    arr[i] = RSValue_NewCString(strs[i]);
+    arr[i] = RSValue_NewString(strs[i], strlen(strs[i]));
   }
   return RSValue_NewArray(arr, sz);
 }
