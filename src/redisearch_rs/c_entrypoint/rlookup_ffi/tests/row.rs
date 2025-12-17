@@ -58,7 +58,7 @@ fn rlookuprow_move() {
 
 #[test]
 fn rlookuprow_writebyname() {
-    let lookup = RLookup::new();
+    let mut lookup = RLookup::new();
     let name = CString::new("name").unwrap();
     let len = 4;
     let row = RLookupRow::new(&lookup);
