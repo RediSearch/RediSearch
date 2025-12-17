@@ -91,7 +91,7 @@ fn rlookuprow_writebynameowned() {
 
     unsafe {
         RLookupRow_WriteByNameOwned(
-            Some(NonNull::from(&lookup)),
+            Some(NonNull::from(&mut lookup)),
             name.as_ptr(),
             len,
             Some(NonNull::from(&mut row)),
