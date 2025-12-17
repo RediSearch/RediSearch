@@ -29,7 +29,7 @@ struct ShardResponseBarrier;
 //   totalResults: extracted total_results from the reply (-1 if error or not found)
 //   isError: true if this is an error reply
 //   privateData: the ShardResponseBarrier passed via MRIteratorCallback_GetPrivateData
-typedef void (*ReplyNotifyCallback)(int16_t shardId, long long totalResults, bool isError, void *privateData);
+typedef void (*ReplyNotifyCallback)(uint16_t shardId, long long totalResults, bool isError, void *privateData);
 
 // Structure for collecting first responses from all shards
 // Shared with I/O threads via MRIterator's privateData
@@ -96,7 +96,7 @@ void shardResponseBarrier_Init(void *ptr, MRIterator *it);
 void shardResponseBarrier_Free(void *ptr);
 
 // Callback for accumulating total_results from shard replies (called from IO thread)
-void shardResponseBarrier_Notify(int16_t shardId, long long totalResults, bool isError, void *privateData);
+void shardResponseBarrier_Notify(uint16_t shardId, long long totalResults, bool isError, void *privateData);
 
 #ifdef __cplusplus
 }

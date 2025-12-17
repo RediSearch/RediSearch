@@ -131,12 +131,12 @@ void shardResponseBarrier_Init(void *ptr, MRIterator *it) {
 
 // Callback invoked by IO thread for each shard reply to accumulate totals
 // This function implements the ReplyNotifyCallback signature
-void shardResponseBarrier_Notify(int16_t shardId, long long totalResults, bool isError, void *privateData) {
+void shardResponseBarrier_Notify(uint16_t shardId, long long totalResults, bool isError, void *privateData) {
   ShardResponseBarrier *barrier = (ShardResponseBarrier *)privateData;
 
   // Validate shardId bounds
   size_t numShards = atomic_load(&barrier->numShards);
-  if (shardId < 0 || shardId >= (int16_t)numShards) {
+  if (shardId >= numShards) {
     return;
   }
 
