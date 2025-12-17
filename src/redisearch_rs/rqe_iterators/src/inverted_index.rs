@@ -9,14 +9,14 @@
 
 //! Supporting types for [`Numeric`] and [`Term`].
 
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 
 use ffi::{
     IndexFlags_Index_WideSchema, NumericRangeTree, RS_INVALID_FIELD_INDEX, RedisSearchCtx, t_docId,
     t_fieldIndex, t_fieldMask,
 };
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::{IndexReader, NumericReader, RSIndexResult, TermReader};
+use inverted_index::{IndexReader, NumericReader, RSIndexResult, RSOffsetVector, TermReader};
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
@@ -590,19 +590,27 @@ where
     ///
     /// `context`, `mask` and `predicate` are used to check for expired
     /// documents when reading from the inverted index.
+    /// `term` is the term that is being searched for. The iterator is
+    /// taking ownership of `term`.
     ///
     /// # Safety
     ///
     /// 1. `context` is a valid pointer to a `RedisSearchCtx`.
     /// 2. `context.spec` is a valid pointer to an `IndexSpec`.
     /// 3. 1 and 2 must stay valid during the iterator's lifetime.
+    /// 4. `term` is a valid pointer to a `RSQueryTerm`.
     pub fn new(
         reader: R,
         context: NonNull<RedisSearchCtx>,
         mask: t_fieldMask,
         predicate: FieldExpirationPredicate,
+        term: ptr::NonNull<ffi::RSQueryTerm>,
+        weight: f64,
     ) -> Self {
-        let result = RSIndexResult::term();
+        let result =
+            RSIndexResult::term_with_term_ptr(term.as_ptr(), RSOffsetVector::empty(), 0, 0, 0)
+                .weight(weight);
+
         Self {
             it: InvIndIterator::new(
                 reader,
@@ -615,6 +623,47 @@ where
                     },
                 }),
             ),
+        }
+    }
+
+    /// Get a mutable reference to the reader. This is only used for testing.
+    #[doc(hidden)]
+    pub fn reader_mut(&mut self) -> &mut R {
+        &mut self.it.reader
+    }
+
+    fn check_abort(&self) -> bool {
+        let Some(query_ctx) = self.it.query_ctx.as_ref() else {
+            return true;
+        };
+
+        let term_result = self.it.result.as_term().expect("result is not a term");
+        let term = term_result.query_term();
+        let term = unsafe { term.as_ref() }.expect("result term is NULL");
+
+        let ii = unsafe {
+            ffi::Redis_OpenInvertedIndex(
+                query_ctx.sctx.as_ptr(),
+                term.str_,
+                term.len,
+                0,
+                ptr::null_mut(),
+            )
+        };
+        dbg!(ii);
+
+        let ii = unsafe { ii.as_ref() };
+        match ii {
+            None => {
+                // The inverted index was collected entirely by GC.
+                // All the documents that were inside were deleted and new ones were added.
+                // We will not continue reading those new results and instead abort reading
+                // for this specific inverted index.
+                true
+                // FIXME: should be false
+            }
+            //Some(ii) => self.it.reader.has_index(ii),
+            Some(_ii) => true,
         }
     }
 }
@@ -663,6 +712,10 @@ where
 
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        if !self.check_abort() {
+            return Ok(RQEValidateStatus::Aborted);
+        }
+
         self.it.revalidate()
     }
 }
