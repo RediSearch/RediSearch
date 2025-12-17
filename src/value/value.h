@@ -41,8 +41,6 @@ typedef enum {
   RSValueType_RedisString = 5,
   // An array of values, that can be of any type
   RSValueType_Array = 6,
-  // A redis string, but we own a refcount to it; tied to RSDummy
-  RSValueType_OwnRstring = 7,
   // Reference to another value
   RSValueType_Reference = 8,
   // Trio value
@@ -312,13 +310,6 @@ bool RSValue_IsArray(const RSValue *v);
 bool RSValue_IsRedisString(const RSValue *v);
 
 /**
- * Check if the RSValue is an owned Redis string type.
- * @param v The value to check
- * @return true if the value is of type RSValueType_OwnRstring, false otherwise
- */
-bool RSValue_IsOwnRString(const RSValue *v);
-
-/**
  * Check whether the RSValue is of type RSValueType_Trio.
  * @param v The value to check
  * @return true if the value is of type RSValueType_Trio, false otherwise
@@ -327,8 +318,7 @@ bool RSValue_IsTrio(const RSValue *v);
 
 // Returns true if the value contains any type of string
 static inline int RSValue_IsAnyString(const RSValue *value) {
-  return value && (value->_t == RSValueType_String || value->_t == RSValueType_RedisString ||
-                   value->_t == RSValueType_OwnRstring);
+  return value && (value->_t == RSValueType_String || value->_t == RSValueType_RedisString);
 }
 
 /* Return 1 if the value is NULL, RSValueType_Null or a reference to RSValue_NullStatic */
@@ -376,7 +366,7 @@ char *RSValue_String_GetPtr(const RSValue *v);
 
 /**
  * Get the RedisModuleString from an RSValue.
- * The value must be of type RSValueType_RedisString or RSValueType_OwnRstring.
+ * The value must be of type RSValueType_RedisString.
  * @param v The value to extract the Redis string from
  * @return The RedisModuleString pointer
  */
@@ -549,8 +539,7 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
     case RSValueType_Number:
       return fnv_64a_buf(&v->_numval, sizeof(double), hval);
 
-    case RSValueType_RedisString:
-    case RSValueType_OwnRstring: {
+    case RSValueType_RedisString: {
       size_t sz;
       const char *c = RedisModule_StringPtrLen(v->_rstrval, &sz);
       return fnv_64a_buf((void *)c, sz, hval);
@@ -613,8 +602,7 @@ static inline int RSValue_BoolTest(const RSValue *v) {
       return v->_numval != 0;
     case RSValueType_String:
       return v->_strval.len != 0;
-    case RSValueType_RedisString:
-    case RSValueType_OwnRstring: {
+    case RSValueType_RedisString: {
       size_t l = 0;
       const char *p = RedisModule_StringPtrLen(v->_rstrval, &l);
       return l != 0;
