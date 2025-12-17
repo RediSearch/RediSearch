@@ -403,12 +403,6 @@ void RSValue_DecrRef(RSValue* v) {
   }
 }
 
-// Type conversion setters
-void RSValue_IntoUndefined(RSValue *v) {
-  RS_ASSERT(v);
-  v->_t = RSValueType_Undef;
-}
-
 void RSValue_IntoNull(RSValue *v) {
   RS_ASSERT(v);
   v->_t = RSValueType_Null;

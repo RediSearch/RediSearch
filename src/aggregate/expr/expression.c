@@ -211,7 +211,7 @@ success:
     RSValue_IntoNumber(result, res);
     rc = EXPR_EVAL_OK;
   } else {
-    RSValue_IntoUndefined(result);
+    RSValue_Clear(result);
   }
 
 cleanup:
