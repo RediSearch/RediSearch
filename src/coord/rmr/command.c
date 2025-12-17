@@ -72,6 +72,7 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->lens = rm_malloc(sizeof(*cmd->lens) * len);
   cmd->slotsInfoArgIndex = 0;
   cmd->targetShard = NULL;
+  cmd->targetShardIdx = 0;
   cmd->cmd = NULL;
   cmd->protocol = 0;
   cmd->depleted = false;
@@ -95,6 +96,7 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
   MRCommand_Init(&ret, cmd->num);
   ret.slotsInfoArgIndex = cmd->slotsInfoArgIndex;
   ret.targetShard = cmd->targetShard ? rm_strdup(cmd->targetShard) : NULL;
+  ret.targetShardIdx = cmd->targetShardIdx;
   ret.protocol = cmd->protocol;
   ret.forCursor = cmd->forCursor;
   ret.forProfiling = cmd->forProfiling;

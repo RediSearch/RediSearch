@@ -24,6 +24,7 @@ typedef enum  {
 
 typedef struct {
   char * targetShard;
+  uint16_t targetShardIdx;
   long long cursorId;
 } CursorMapping;
 

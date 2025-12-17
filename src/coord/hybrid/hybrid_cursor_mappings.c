@@ -51,6 +51,7 @@ static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply
     for (size_t i = 0; i < INTERNAL_HYBRID_RESP2_LENGTH; i += 2) {
         CursorMapping mapping;
         mapping.targetShard = NULL;
+        mapping.targetShardIdx = 0;
         mapping.cursorId = 0;
 
         MRReply *key_reply = MRReply_ArrayElement(rep, i);
@@ -103,6 +104,7 @@ static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply
         } else {
             mapping.targetShard = rm_strdup(cmd->targetShard);
         }
+        mapping.targetShardIdx = cmd->targetShardIdx;
         vsimOrSearch->mappings = array_ensure_append_1(vsimOrSearch->mappings, mapping);
     }
 }
@@ -119,6 +121,7 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
         CursorMapping mapping;
         mapping.targetShard = NULL;
         mapping.cursorId = 0;
+        mapping.targetShardIdx = 0;
         long long cid;
         MRReply_ToInteger(cursorId, &cid);
         // Check for early bailout (Cursor ID 0 means no cursor was opened)
@@ -141,6 +144,7 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
         } else {
             mapping.targetShard = rm_strdup(cmd->targetShard);
         }
+        mapping.targetShardIdx = cmd->targetShardIdx;
         vsimOrSearch->mappings = array_ensure_append_1(vsimOrSearch->mappings, mapping);
     }
     // Handle warnings
