@@ -104,7 +104,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// See [`RLookupRow::get_length`] for argument details.
     ///
     /// # Panics
-    /// This function will panic if `out_flags` length is less than lookup.get_row_len()`.
+    /// This function will panic if `out_flags` length is less than `lookup.get_row_len()`.
     pub fn get_length_no_alloc(
         &self,
         lookup: &RLookup,
