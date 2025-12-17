@@ -86,10 +86,6 @@ RSValue *RSValue_Trio_GetRight(const RSValue *v) {
 // Setters (needed by some constructors)
 ///////////////////////////////////////////////////////////////
 
-// Forward declarations needed for RSValue_Clear and other functions
-void RSValue_DecrRef(RSValue* v);
-RSValue* RSValue_IncrRef(RSValue* v);
-
 inline void RSValue_SetNumber(RSValue *v, double n) {
   v->_t = RSValueType_Number;
   v->_numval = n;
