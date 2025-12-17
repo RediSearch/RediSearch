@@ -7,11 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{IndexFlags_Index_StoreNumeric, t_docId};
+use ffi::{IndexFlags_Index_StoreNumeric, RS_INVALID_FIELD_INDEX, t_docId};
+use field::FieldExpirationPredicate;
 use inverted_index::{FilterNumericReader, InvertedIndex, NumericFilter, RSIndexResult};
 use rqe_iterators::{RQEIterator, inverted_index::Numeric};
 
-use crate::inverted_index::utils::BaseTest;
+use crate::inverted_index::utils::{BaseTest, MockContext};
 
 struct NumericBaseTest {
     test: BaseTest<inverted_index::numeric::Numeric>,
@@ -32,14 +33,27 @@ impl NumericBaseTest {
             ),
         }
     }
+
+    fn create_iterator(
+        &self,
+    ) -> Numeric<'_, inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>> {
+        let reader = self.test.ii.reader();
+
+        Numeric::new(
+            reader,
+            self.test.mock_ctx.sctx(),
+            RS_INVALID_FIELD_INDEX,
+            FieldExpirationPredicate::Default,
+            self.test.mock_ctx.numeric_range_tree(),
+        )
+    }
 }
 
 #[test]
 /// test reading from Numeric iterator
 fn numeric_read() {
     let test = NumericBaseTest::new(100);
-    let reader = test.test.ii.reader();
-    let mut it = Numeric::new_simple(reader);
+    let mut it = test.create_iterator();
     test.test.read(&mut it, test.test.docs_ids_iter());
 
     // same but using a passthrough filter
@@ -47,7 +61,13 @@ fn numeric_read() {
     let filter = NumericFilter::default();
     let reader = test.test.ii.reader();
     let reader = FilterNumericReader::new(&filter, reader);
-    let mut it = Numeric::new_simple(reader);
+    let mut it = Numeric::new(
+        reader,
+        test.test.mock_ctx.sctx(),
+        RS_INVALID_FIELD_INDEX,
+        FieldExpirationPredicate::Default,
+        test.test.mock_ctx.numeric_range_tree(),
+    );
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
@@ -55,8 +75,7 @@ fn numeric_read() {
 /// test skipping from Numeric iterator
 fn numeric_skip_to() {
     let test = NumericBaseTest::new(100);
-    let reader = test.test.ii.reader();
-    let mut it = Numeric::new_simple(reader);
+    let mut it = test.create_iterator();
     test.test.skip_to(&mut it);
 }
 
@@ -70,7 +89,13 @@ fn numeric_filter() {
         ..Default::default()
     };
     let reader = FilterNumericReader::new(&filter, test.test.ii.reader());
-    let mut it = Numeric::new_simple(reader);
+    let mut it = Numeric::new(
+        reader,
+        test.test.mock_ctx.sctx(),
+        RS_INVALID_FIELD_INDEX,
+        FieldExpirationPredicate::Default,
+        test.test.mock_ctx.numeric_range_tree(),
+    );
     let docs_ids = test
         .test
         .docs_ids_iter()
@@ -88,7 +113,14 @@ fn skip_multi_id() {
     let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
     let _ = ii.add_record(&RSIndexResult::numeric(3.0).doc_id(1));
 
-    let mut it = Numeric::new_simple(ii.reader());
+    let context = MockContext::new(0, 0);
+    let mut it = Numeric::new(
+        ii.reader(),
+        context.sctx(),
+        RS_INVALID_FIELD_INDEX,
+        FieldExpirationPredicate::Default,
+        context.numeric_range_tree(),
+    );
 
     // Read the first entry. Expect to get the entry with value 1.0
     let record = it
@@ -114,7 +146,14 @@ fn skip_multi_id_and_value() {
     let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
     let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
 
-    let mut it = Numeric::new_simple(ii.reader());
+    let context = MockContext::new(0, 0);
+    let mut it = Numeric::new(
+        ii.reader(),
+        context.sctx(),
+        RS_INVALID_FIELD_INDEX,
+        FieldExpirationPredicate::Default,
+        context.numeric_range_tree(),
+    );
 
     // Read the first entry. Expect to get the entry with value 1.0
     let record = it
@@ -147,7 +186,15 @@ fn get_correct_value() {
         ..Default::default()
     };
     let reader = FilterNumericReader::new(&filter, ii.reader());
-    let mut it = Numeric::new_simple(reader);
+
+    let context = MockContext::new(0, 0);
+    let mut it = Numeric::new(
+        reader,
+        context.sctx(),
+        RS_INVALID_FIELD_INDEX,
+        FieldExpirationPredicate::Default,
+        context.numeric_range_tree(),
+    );
 
     // Read the first entry. Expect to get the entry with value 2.0
     let record = it
@@ -181,7 +228,14 @@ fn eof_after_filtering() {
         ..Default::default()
     };
     let reader = FilterNumericReader::new(&filter, ii.reader());
-    let mut it = Numeric::new_simple(reader);
+    let context = MockContext::new(0, 0);
+    let mut it = Numeric::new(
+        reader,
+        context.sctx(),
+        RS_INVALID_FIELD_INDEX,
+        FieldExpirationPredicate::Default,
+        context.numeric_range_tree(),
+    );
 
     // Attempt to skip to the first entry, expecting EOF since no entries match the filter
     assert_eq!(it.skip_to(1).expect("skip_to failed"), None);
