@@ -14,6 +14,7 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <time.h>
+#include "document_rs.h"
 #include "util/dllist.h"
 #include "stemmer.h"
 #include "types_rs.h"
@@ -64,12 +65,6 @@ do {                                                                            
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef enum {
-  DocumentType_Hash,
-  DocumentType_Json,
-  DocumentType_Unsupported,
-} DocumentType;
 
 #define isSpecHash(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Hash)
 #define isSpecJson(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Json)

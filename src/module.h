@@ -72,7 +72,6 @@ do {                                            \
   RedisModule_ReplyWithStringBuffer(ctx, literal, sizeof(literal) - 1)
 
 #define SEARCH_ACL_CATEGORY "search"
-#define SEARCH_ACL_INTERNAL_CATEGORY "_search_internal"
 
 #define NOPERM_ERR "NOPERM User does not have the required permissions to query the index"
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
@@ -119,8 +118,10 @@ void SpecialCaseCtx_Free(specialCaseCtx* ctx);
 
 void processResultFormat(uint32_t *flags, MRReply *map);
 
-int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
+int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
+int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
+int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
 
 void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx);
 

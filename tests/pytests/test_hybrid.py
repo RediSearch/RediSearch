@@ -104,9 +104,9 @@ class testHybridSearch:
             "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]"
         }
         run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
+
     def test_knn_wildcard_search(self):
-        # skipping due to MOD-12377
-        raise SkipTest()
+        # This test is enabled for debugging and collecting logs; disable it if it causes issues in CI.
         """Test hybrid search using KNN + wildcard search scenario"""
         scenario = {
             "hybrid_query": "SEARCH * YIELD_SCORE_AS search_score \
@@ -114,12 +114,23 @@ class testHybridSearch:
             "search_equivalent": "*",
             "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]"
         }
+        index_name = self.index_name
         if CLUSTER:
             # Create prefixed index to avoid tied scores
             self._create_index('prefixed_idx', self.dim, prefix="both_")
-            run_test_scenario(self.env, 'prefixed_idx', scenario, self.vector_blob)
-        else:
-            run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
+            waitForIndex(self.env, 'prefixed_idx')
+            index_name = 'prefixed_idx'
+        info = {'info before': {'ft.info': self.env.cmd('ft.info', index_name), 'info search': self.env.cmd('info', 'search')}}
+        logs = []
+        try:
+            logs = run_test_scenario(self.env, index_name, scenario, self.vector_blob, collect_logs=True)
+        finally:
+            info['info after'] = {'ft.info': self.env.cmd('ft.info', index_name), 'info search': self.env.cmd('info', 'search')}
+            if self.env.getNumberOfFailedAssertion() > 0:
+                from pprint import pprint
+                pprint(logs)
+                print("info:")
+                pprint(info)
 
     def test_knn_custom_k(self):
         """Test hybrid search using KNN with custom k scenario"""
@@ -487,9 +498,9 @@ class testHybridSearch:
         hybrid_cmd = (
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:($MYTEXT) @number:[4 5]',
-            'VSIM', '@vector', self.vector_blob, 'FILTER', '@number:[3 3]',
+            'VSIM', '@vector', '$BLOB', 'FILTER', '@number:[3 3]',
             'COMBINE', 'RRF', '2', 'CONSTANT', '1',
-            'PARAMS', '2', 'MYTEXT', 'both'
+            'PARAMS', '4', 'MYTEXT', 'both', 'BLOB', self.vector_blob
         )
         res = self.env.executeCommand(*hybrid_cmd)
         self.env.assertEqual(res, expected_result)
@@ -498,10 +509,10 @@ class testHybridSearch:
         hybrid_cmd = (
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:(both) @number:[4 5]',
-            'VSIM', '@vector', self.vector_blob,
+            'VSIM', '@vector', '$BLOB',
             'FILTER', '@number:[$MYNUMBER 3]',
             'COMBINE', 'RRF', '2', 'CONSTANT', '1',
-            'PARAMS', '2', 'MYNUMBER', '3'
+            'PARAMS', '4', 'MYNUMBER', '3', 'BLOB', self.vector_blob
         )
         res = self.env.executeCommand(*hybrid_cmd)
         self.env.assertEqual(res, expected_result)
@@ -525,10 +536,11 @@ class testHybridSearch:
         hybrid_cmd = [
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:(both) @number:[1 3]',
-            'VSIM', '@vector', self.vector_blob,
+            'VSIM', '@vector', '$BLOB',
             'FILTER', '@text:(both) @number:[1 3]',
             'COMBINE', 'RRF', '2', 'CONSTANT', '3',
             'LOAD', '2', '@__key', '@__score',
+            'PARAMS', '2', 'BLOB', self.vector_blob,
         ]
         unfiltered_res = self.env.executeCommand(*hybrid_cmd)
         unfiltered_dict = to_dict(unfiltered_res)

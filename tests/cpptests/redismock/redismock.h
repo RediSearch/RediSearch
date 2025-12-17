@@ -25,6 +25,8 @@ struct RedisModuleIO {
 
 std::vector<std::vector<std::string>> &RMCK_GetPropagatedCommands(RedisModuleCtx *ctx);
 
+std::string &RMCK_GetLastError(RedisModuleCtx *ctx);
+
 extern "C" {
 #else
 struct RedisModuleIO;
@@ -61,6 +63,8 @@ RedisModuleString *RMCK_LoadString(RedisModuleIO *io);
 char *RMCK_LoadStringBuffer(RedisModuleIO *io, size_t *lenptr);
 int RMCK_IsIOError(RedisModuleIO *io);
 RedisModuleCtx *RMCK_GetContextFromIO(RedisModuleIO *io);
+int RMCK_StringToULongLong(const RedisModuleString *str, unsigned long long *ull);
+
 
 #ifdef __cplusplus
 }

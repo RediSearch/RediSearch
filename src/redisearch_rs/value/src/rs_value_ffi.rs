@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ffi::c_char, ptr::NonNull};
+use std::{ffi::c_char, mem::offset_of, ptr::NonNull};
 
 /// A trait that defines the behavior of a RediSearch RSValue.
 ///
@@ -35,25 +35,28 @@ where
     /// Checks if the RSValue is null
     fn is_null(&self) -> bool;
 
-    /// gets a reference to the RSValue instance, if it is a reference type or None.
+    /// Gets a reference to the RSValue instance, if it is a reference type or None.
     fn get_ref(&self) -> Option<&Self>;
 
-    /// gets the string slice of the RSValue instance, if it is a string type or None otherwise.
+    /// Gets the string slice of the RSValue instance, if it is a string type or None otherwise.
     fn as_str(&self) -> Option<&str>;
 
-    /// gets the number (double) value of the RSValue instance, if it is a number type or None otherwise.
+    /// Gets the number (double) value of the RSValue instance, if it is a number type or None otherwise.
     fn as_num(&self) -> Option<f64>;
 
-    /// gets the type of the RSValue instance, it either null, string, number, or reference.
+    /// Gets the type of the RSValue instance, it either null, string, number, or reference.
     fn get_type(&self) -> ffi::RSValueType;
 
-    /// returns true if the RSValue is stored as a pointer on the heap (the C implementation)
+    /// Returns true if the RSValue is stored as a pointer on the heap (the C implementation)
     fn is_ptr_type() -> bool;
 
-    /// returns the approximate memory size of the RSValue instance.
+    /// Returns the approximate memory size of the RSValue instance.
     fn mem_size() -> usize {
         std::mem::size_of::<Self>()
     }
+
+    /// Returns the reference count or `None` if the value type does not participate in reference counting.
+    fn refcount(&self) -> Option<usize>;
 }
 
 /// [RSValueFFI] is a wrapper around the C struct `RSValue` implement as new-type over a [std::ptr::NonNull<ffi::RSValue>].
@@ -182,6 +185,22 @@ impl RSValueTrait for RSValueFFI {
     fn mem_size() -> usize {
         // The size of the RSValue struct in C is fixed, so we can use the size of the FFI struct.
         std::mem::size_of::<ffi::RSValue>()
+    }
+
+    fn refcount(&self) -> Option<usize> {
+        if self.get_type() == ffi::RSValueType_RSValueType_Null {
+            None
+        } else {
+            // Safety: matches the layout of RSValue and `offset_of` can't produce out-of-bounds values
+            let ptr = unsafe {
+                self.0
+                    .byte_add(offset_of!(ffi::RSValue, _refcount))
+                    .cast::<u16>()
+            };
+
+            // Safety: Constructors for Self only return valid, non-null pointers
+            Some(unsafe { ptr.read() as usize })
+        }
     }
 }
 

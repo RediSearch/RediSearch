@@ -9,7 +9,7 @@
 
 //! Supporting types for [`Wildcard`].
 
-use ffi::t_docId;
+use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
@@ -25,10 +25,13 @@ pub struct Wildcard<'index> {
 }
 
 impl Wildcard<'_> {
-    pub const fn new(top_id: t_docId) -> Self {
+    pub const fn new(top_id: t_docId, weight: f64) -> Self {
         Wildcard {
             top_id,
-            result: RSIndexResult::virt().frequency(1),
+            result: RSIndexResult::virt()
+                .frequency(1)
+                .weight(weight)
+                .field_mask(RS_FIELDMASK_ALL),
         }
     }
 }

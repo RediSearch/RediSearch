@@ -243,8 +243,9 @@ RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name
 /**
  * Get the amount of visible fields is the RLookup
  */
-size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFieldIndex,
-                         int requiredFlags, int excludeFlags, SchemaRule *rule);
+size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipFieldIndex,
+                         size_t skipFieldIndex_len, uint32_t requiredFlags, uint32_t excludeFlags,
+                         SchemaRule *rule);
 
 /**
  * Get a value from the lookup.
@@ -267,13 +268,11 @@ void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value)
 
 /**
  * Move data from the source row to the destination row. The source row is cleared.
- * The destination row should be pre-cleared (though its cache may still
- * exist).
  * @param lk lookup common to both rows
  * @param src the source row
  * @param dst the destination row
  */
-void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
+void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
 
 /**
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys

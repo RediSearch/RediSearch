@@ -87,4 +87,8 @@ impl RSValueTrait for RSValueMock {
         // Mock implementation, return false
         false
     }
+
+    fn refcount(&self) -> Option<usize> {
+        Some(Arc::strong_count(&self.0))
+    }
 }

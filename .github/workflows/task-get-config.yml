@@ -76,10 +76,6 @@ jobs:
           # Platform configurations
           platform_configs = {
               "macos": {
-                  "x86_64": {
-                      'env': 'macos-15-intel',
-                      'name': 'macOS x86_64'
-                  },
                   "aarch64": {
                       'env': 'macos-latest',
                       'name': 'macOS ARM64'
@@ -174,17 +170,19 @@ jobs:
                       'name': 'Amazon Linux 2 ARM64'
                   }
               },
-              "alpine:3": {
+              "alpine:3.22": {
+                # A workaround to get GitHub Actions to work on Alpine in 'post_setup_script'
+                # See https://github.com/actions/runner/issues/801#issuecomment-2976165281 for more details
                   "x86_64": {
-                      'container': 'alpine:3',
+                      'container': 'alpine:3.22',
                       'setup_script': 'apk add bash git',
-                      'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV',
+                      'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV; sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release; apk add nodejs --update-cache; mkdir -p /opt/bin; ln -s /usr/bin/node /opt/bin/node',
                       'name': 'Alpine 3 x86_64'
                   },
                   "aarch64": {
-                      'container': 'alpine:3',
+                      'container': 'alpine:3.22',
                       'setup_script': 'apk add bash gcompat libstdc++ libgcc git',
-                      'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV',
+                      'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV; sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release; apk add nodejs --update-cache; mkdir -p /opt/bin; ln -s /usr/bin/node /opt/bin/node',
                       'name': 'Alpine 3 ARM64'
                   }
               },

@@ -16,6 +16,7 @@
 #include "../hybrid/hybrid_exec.h"
 #include "../rmutil/util.h"
 #include "reply_empty.h"
+#include "info/global_stats.h"
 
 // Helper function that performs minimal parsing of query arguments to support sendChunk output
 static int shallow_parse_query_args(RedisModuleString **argv, int argc, AREQ *req) {
@@ -43,12 +44,9 @@ static int shallow_parse_query_args(RedisModuleString **argv, int argc, AREQ *re
 // Assumes req has already been compiled, including REQFLAGS and AREQ_QueryProcessingCtx(req)->err has been set.
 static int empty_sendChunk_common(RedisModuleCtx *ctx, AREQ *req) {
 
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-    sendChunk_ReplyOnly_EmptyResults(reply, req);
+    sendChunk_ReplyOnly_EmptyResults(ctx, req);
 
     AREQ_Free(req);
-    RedisModule_EndReply(reply);
     return REDISMODULE_OK;
 }
 
@@ -125,6 +123,7 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
         RedisModule_ReplyKV_LongLong(coordInfoReply, "VSIM", 0);
         RedisModule_ReplyKV_Array(coordInfoReply,"warnings"); // warnings []
         if (QueryError_HasQueryOOMWarning(&status)) {
+            QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, SHARD_ERR_WARN);
             RedisModule_Reply_SimpleString(coordInfoReply, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
         }
         RedisModule_Reply_ArrayEnd(coordInfoReply); // ~warnings

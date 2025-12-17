@@ -1177,7 +1177,7 @@ pub trait IndexReader<'index> {
     fn reset(&mut self);
 
     /// Return the number of unique documents in the underlying index.
-    fn unique_docs(&self) -> u32;
+    fn unique_docs(&self) -> u64;
 
     /// Returns true if the underlying index has duplicate document IDs.
     fn has_duplicates(&self) -> bool;
@@ -1188,6 +1188,9 @@ pub trait IndexReader<'index> {
     /// Check if the underlying index has been modified since the last time this reader read from it.
     /// If it has, then the reader should be reset before reading from it again.
     fn needs_revalidation(&self) -> bool;
+
+    /// Refresh buffer pointers in case blocks were reallocated without GC changes
+    fn refresh_buffer_pointers(&mut self);
 }
 
 /// Marker trait for readers producing numeric values.
@@ -1299,8 +1302,8 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
     }
 
-    fn unique_docs(&self) -> u32 {
-        self.ii.unique_docs()
+    fn unique_docs(&self) -> u64 {
+        self.ii.unique_docs() as u64
     }
 
     fn has_duplicates(&self) -> bool {
@@ -1313,6 +1316,16 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
 
     fn needs_revalidation(&self) -> bool {
         self.gc_marker != self.ii.gc_marker.load(atomic::Ordering::Relaxed)
+    }
+
+    fn refresh_buffer_pointers(&mut self) {
+        if !self.ii.blocks.is_empty() && self.current_block_idx < self.ii.blocks.len() {
+            let current_block = &self.ii.blocks[self.current_block_idx];
+            // Update the cursor to point to the current position in the refreshed buffer
+            let position = self.current_buffer.position();
+            self.current_buffer = Cursor::new(&current_block.buffer);
+            self.current_buffer.set_position(position);
+        }
     }
 }
 
@@ -1447,7 +1460,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
         self.inner.reset();
     }
 
-    fn unique_docs(&self) -> u32 {
+    fn unique_docs(&self) -> u64 {
         self.inner.unique_docs()
     }
 
@@ -1461,6 +1474,10 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
 
     fn needs_revalidation(&self) -> bool {
         self.inner.needs_revalidation()
+    }
+
+    fn refresh_buffer_pointers(&mut self) {
+        self.inner.refresh_buffer_pointers();
     }
 }
 
@@ -1580,7 +1597,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
         self.inner.reset();
     }
 
-    fn unique_docs(&self) -> u32 {
+    fn unique_docs(&self) -> u64 {
         self.inner.unique_docs()
     }
 
@@ -1594,6 +1611,10 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
 
     fn needs_revalidation(&self) -> bool {
         self.inner.needs_revalidation()
+    }
+
+    fn refresh_buffer_pointers(&mut self) {
+        self.inner.refresh_buffer_pointers();
     }
 }
 
@@ -1740,7 +1761,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
         self.inner.reset();
     }
 
-    fn unique_docs(&self) -> u32 {
+    fn unique_docs(&self) -> u64 {
         self.inner.unique_docs()
     }
 
@@ -1754,6 +1775,10 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
 
     fn needs_revalidation(&self) -> bool {
         self.inner.needs_revalidation()
+    }
+
+    fn refresh_buffer_pointers(&mut self) {
+        self.inner.refresh_buffer_pointers();
     }
 }
 

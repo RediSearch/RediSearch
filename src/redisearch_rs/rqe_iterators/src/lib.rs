@@ -17,12 +17,14 @@ pub mod id_list;
 pub mod inverted_index;
 pub mod maybe_empty;
 pub mod metric;
+pub mod optional;
+pub mod profile;
 pub mod wildcard;
 
 pub use empty::Empty;
 pub use id_list::IdList;
 pub use inverted_index::{Numeric, Term};
-pub use metric::MetricIterator;
+pub use metric::Metric;
 pub use wildcard::Wildcard;
 
 #[derive(Debug, PartialEq)]

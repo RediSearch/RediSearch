@@ -2,7 +2,6 @@ import threading
 import time
 from common import *
 
-@skip(asan=True)
 def test_query_while_flush():
     """
     Test scenario:

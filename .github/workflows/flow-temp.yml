@@ -13,11 +13,8 @@ on:
 
 jobs:
 
-  run-on-intel:
+  clang20-test:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
       platform: ubuntu:noble
-      rejson-branch: master
-      architecture: 'x86_64'
-      options: 'coordinator,standalone,rejson'

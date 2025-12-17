@@ -253,20 +253,20 @@ class testOomHybridStandaloneBehavior:
     def test_hybrid_oom_ignore(self):
         change_oom_policy(self.env, 'ignore')
         query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector)
+        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector)
         # Should get results despite OOM condition
         self.env.assertEqual(res[1], 1)
 
     def test_hybrid_oom_fail(self):
         change_oom_policy(self.env, 'fail')
         query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-        run_cmd_expect_oom(self.env, ['FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector])
+        run_cmd_expect_oom(self.env, ['FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector])
 
     def test_hybrid_oom_return(self):
         change_oom_policy(self.env, 'return')
         query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
         # Should return empty results
-        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector)
+        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector)
         self.env.assertEqual(res[1], 0)
 
 class testOomHybridClusterBehavior:
@@ -285,7 +285,7 @@ class testOomHybridClusterBehavior:
     def test_hybrid_oom_ignore(self):
         allShards_change_oom_policy(self.env, 'ignore')
         query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
+        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB', 'COMBINE', 'RRF', '2', 'WINDOW', '1000', 'PARAMS', '2', 'BLOB', query_vector)
         self.env.assertEqual(res[1], self.n_docs)
 
     def test_hybrid_oom_coord_fail(self):
@@ -293,7 +293,7 @@ class testOomHybridClusterBehavior:
         allShards_change_oom_policy(self.env, 'fail')
         query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
         # Test class invariant - coord maxmemory is 1
-        run_cmd_expect_oom(self.env, ['FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector])
+        run_cmd_expect_oom(self.env, ['FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector])
 
     def test_hybrid_oom_shards_fail(self):
         # Test coord passing OOM but shards failing with OOM
@@ -302,7 +302,7 @@ class testOomHybridClusterBehavior:
         # Change back coord maxmemory to 0 so it doesn't fail
         set_unlimited_maxmemory_for_oom(self.env)
         query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-        run_cmd_expect_oom(self.env, ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000'])
+        run_cmd_expect_oom(self.env, ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB', 'COMBINE', 'RRF', '2', 'WINDOW', '1000', 'PARAMS', '2', 'BLOB', query_vector])
 
     def test_hybrid_oom_shards_return(self):
         # Test coord passing OOM, but shards returning empty results due to OOM
@@ -314,7 +314,7 @@ class testOomHybridClusterBehavior:
         # Note - only the coordinator shard will return results
         n_keys = len(self.env.cmd('KEYS', '*'))
         # Verify partial results in hybrid search
-        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
+        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB', 'COMBINE', 'RRF', '2', 'WINDOW', '1000', 'PARAMS', '2', 'BLOB', query_vector)
         self.env.assertEqual(res[1] , n_keys)
         # Testing warnings verbosity
         self.env.assertEqual(res[5][0], COORD_OOM_WARNING)
@@ -367,6 +367,6 @@ def test_oom_verbosity_cluster_return():
     # Aggregate Profile
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
     # TODO - Check coordinator warning when empty results are handled correctly
-    shards_warning_lst = [shard_res[9] for shard_res in res[1][1]]
+    shards_warning_lst = [shard_res[7] for shard_res in res[1][1]]
     # Since we don't know the order of responses, we need to count 2 errors
     env.assertEqual(shards_warning_lst.count(SHARD_OOM_WARNING), 2)

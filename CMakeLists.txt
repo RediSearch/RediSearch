@@ -1,7 +1,12 @@
 cmake_minimum_required(VERSION 3.13)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
+# The `binroot` path includes a platform+profile segment
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
+# Rust takes care of the different platform+profiles on its own,
+# therefore we don't need to use separate target directories for different
+# platform+profiles combinations.
+get_filename_component(rust_binroot ${binroot}/.. ABSOLUTE)
 
 # Platform detection
 if(APPLE)
@@ -89,6 +94,7 @@ if(NOT DEFINED COORD_TYPE)
     set(COORD_TYPE "oss")
 endif()
 
+set(RUST_BINROOT "${rust_binroot}")
 if(COORD_TYPE STREQUAL "oss")
     set(BINDIR "${binroot}/search-community")
 elseif(COORD_TYPE STREQUAL "rlec")
@@ -99,6 +105,32 @@ else()
 endif()
 
 #----------------------------------------------------------------------------------------------
+
+
+# Define paths for the script and output files
+set(GEN_SCRIPT "${CMAKE_SOURCE_DIR}/srcutil/gen_command_info.py")
+set(COMMAND_JSON "${CMAKE_SOURCE_DIR}/commands.json")
+set(COMMAND_INFO_FILE_NAME "command_info")
+set(COMMAND_INFO_FOLDER_NAME "command_info")
+set(COMMAND_OUTPUT_FOLDER "${CMAKE_SOURCE_DIR}/src/${COMMAND_INFO_FOLDER_NAME}")
+set(COMMAND_OUTPUT_FILE "${COMMAND_OUTPUT_FOLDER}/${COMMAND_INFO_FILE_NAME}")
+set(COMMAND_OUTPUT_H "${COMMAND_OUTPUT_FILE}.h")
+set(COMMAND_OUTPUT_C "${COMMAND_OUTPUT_FILE}.c")
+
+# Add custom command to run the Python script
+add_custom_command(
+        OUTPUT ${COMMAND_OUTPUT_H} ${COMMAND_OUTPUT_C}
+        COMMAND python3 ${GEN_SCRIPT} -j ${COMMAND_JSON} -f ${COMMAND_OUTPUT_FILE} -i ${COMMAND_INFO_FOLDER_NAME}
+        DEPENDS ${GEN_SCRIPT} ${COMMAND_JSON}
+        COMMENT "Generating ${COMMAND_INFO_FILE_NAME}.h, ${COMMAND_INFO_FILE_NAME}.c"
+        VERBATIM
+)
+
+# Create a custom target that relies on the generated files
+add_custom_target(generate_command_info ALL DEPENDS ${COMMAND_OUTPUT_H} ${COMMAND_OUTPUT_C})
+
+#----------------------------------------------------------------------------------------------
+
 
 # Configure compiler options
 setup_cc_options()
@@ -248,6 +280,9 @@ add_subdirectory(src/geometry)
 add_subdirectory(src/buffer)
 add_subdirectory(src/iterators)
 add_subdirectory(src/wildcard)
+add_subdirectory(src/index_result)
+add_subdirectory(src/value)
+add_subdirectory(src/util/mempool)
 add_subdirectory(src/util/arr)
 add_subdirectory(src/util/dict)
 add_subdirectory(src/util/hash)
@@ -264,6 +299,7 @@ file(GLOB SOURCES
     "src/aggregate/expr/*.c"
     "src/aggregate/functions/*.c"
     "src/aggregate/reducers/*.c"
+    "src/command_info/*.c"
     "src/hybrid/*.c"
     "src/hybrid/parse/*.c"
     "src/ext/*.c"
@@ -296,6 +332,9 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:dict>
     $<TARGET_OBJECTS:iterators>
     $<TARGET_OBJECTS:wildcard>
+    $<TARGET_OBJECTS:index_result>
+    $<TARGET_OBJECTS:mempool>
+    $<TARGET_OBJECTS:value>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
@@ -354,6 +393,9 @@ target_link_libraries(redisearch
         buffer
         dict
         iterators
+        index_result
+        value
+        mempool
         wildcard
         uv_a
         redisearch_rs
@@ -364,6 +406,7 @@ target_link_libraries(redisearch
 
 extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
+add_dependencies(redisearch generate_command_info)
 add_dependencies(redisearch uv_a)
 add_dependencies(redisearch redisearch_rs)
 

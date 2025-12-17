@@ -60,7 +60,8 @@ void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP);
 bool QueryDebugCtx_HasDebugRP(void);
 
 // Yield counter functions
-void IncrementYieldCounter(void);
+void IncrementLoadYieldCounter(void);
+void IncrementBgIndexYieldCounter(void);
 
 // Indexer sleep before yield functions
 unsigned int GetIndexerSleepBeforeYieldMicros(void);

@@ -14,3 +14,5 @@ echo "Cargo binary location: $(which cargo)"
 
 # Update to the latest stable toolchain
 rustup update
+# Ensure we have both clippy and rustfmt installed for the stable toolchain
+rustup component add --toolchain stable clippy rustfmt

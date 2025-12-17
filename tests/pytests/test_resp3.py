@@ -168,7 +168,6 @@ def test_profile(env):
           'Total profile time': ANY,
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
-          'Total GIL time': ANY,
           'Warning': 'None',
           'Iterators profile':
             {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': 2},
@@ -210,7 +209,7 @@ def test_coord_profile():
       },
       'Profile': {
         'Shards': env.shardsCount * [
-                      {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Total GIL time': ANY, 'Warning': 'None',
+                      {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
                         'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
                         'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Scorer', 'Time': ANY, 'Results processed': ANY},
@@ -240,7 +239,6 @@ def test_coord_profile():
           'Total profile time': ANY,
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
-          'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [{'Type': 'Network', 'Time': ANY, 'Results processed': 2}]
         }
@@ -250,8 +248,8 @@ def test_coord_profile():
       'Total profile time': ANY,
       'Parsing time': ANY,
       'Pipeline creation time': ANY,
-      'Total GIL time': ANY,
       'Warning': 'None',
+      'Internal cursor reads': ANY,
       'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
       'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},]
     }
@@ -638,7 +636,6 @@ def test_profile_crash_mod5323():
             },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
-          'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [
             { 'Results processed': 3, 'Time': ANY, 'Type': 'Index' },
@@ -687,7 +684,6 @@ def test_profile_child_itrerators_array():
             },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
-          'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [
             {'Results processed': 2, 'Time': ANY, 'Type': 'Index'},
@@ -725,7 +721,6 @@ def test_profile_child_itrerators_array():
             },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
-          'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [
             { 'Results processed': 0, 'Time': ANY, 'Type': 'Index'},

@@ -189,10 +189,12 @@ setup_build_environment() {
         RUST_PROFILE="dev"
       else
         if [[ "$RUN_MICRO_BENCHMARKS" == "1" ]]; then
-            RUST_PROFILE="profiling"
+            # We don't want debug assertions to be enabled in microbenchmarks
+            RUST_PROFILE="release"
         else
             RUST_PROFILE="optimised_test"
         fi
+
       fi
     else
       if [[ "$DEBUG" == "1" ]]; then
@@ -358,9 +360,18 @@ prepare_cmake_arguments() {
     else
       RUSTFLAGS="$RUSTFLAGS -C target-feature=-crt-static"
     fi
-    # Export RUSTFLAGS so it's available to the Rust build process
-    export RUSTFLAGS
   fi
+  # Set up RUSTFLAGS for warnings
+  if [[ "$RUST_DENY_WARNS" == "1" ]]; then
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
+  fi
+  # Ensure we can compute coverage across the FFI boundary
+  if [[ $OS_NAME != "macos" && $COV == "1" ]]; then
+    # Needs the C code to link on gcov
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} } -C link-args=-lgcov"
+  fi
+  # Export RUSTFLAGS so it's available to the Rust build process
+  export RUSTFLAGS
 
   # RUSTFLAGS will be passed as environment variable to avoid quoting issues
   # This prevents CMake argument parsing from truncating complex flag values
@@ -559,26 +570,21 @@ run_rust_tests() {
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
 
-  # Set up RUSTFLAGS for warnings
-  if [[ "$RUST_DENY_WARNS" == "1" ]]; then
-    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
-  fi
-
-  # Pin a specific working version of nightly to prevent breaking the CI because
-  # regressions in a nightly build.
-  # Make sure to synchronize updates across all modules: Redis and RedisJSON.
-  NIGHTLY_VERSION="nightly-2025-07-30"
+  # Retrieve our pinned nightly version.
+  NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
 
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
     # We use the `nightly` compiler in order to include doc tests in the coverage computation.
     # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
-    RUST_EXTENSIONS="+$NIGHTLY_VERSION llvm-cov"
+    RUST_TEST_COMMAND="+$NIGHTLY_VERSION llvm-cov test"
     # We exclude Rust benchmarking crates that link to C code when computing coverage.
     # On one side, we aren't interested in coverage of those utilities.
     # On top of that, it causes linking issues since, when computing coverage, it seems to
     # require C symbols to be defined even if they aren't invoked at runtime.
+    echo "Using nightly version: ${NIGHTLY_VERSION}"
     RUST_TEST_OPTIONS="
+      --profile=$RUST_PROFILE
       --doctests
       $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C
       --codecov
@@ -586,17 +592,16 @@ run_rust_tests() {
       --output-path=$BINROOT/rust_cov.info
     "
   elif [[ -n "$SAN" || "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
-    RUST_EXTENSIONS="+$NIGHTLY_VERSION miri"
-  fi
-  
-  if [[ $OS_NAME != "macos" ]]; then
-  # Needs the C code to link on gcov
-    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} } -C link-args=-lgcov"
+    RUST_TEST_COMMAND="+$NIGHTLY_VERSION miri test "
+    RUST_TEST_OPTIONS="--profile=$RUST_PROFILE"
+  else
+    RUST_TEST_COMMAND="nextest run"
+    RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
   fi
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings }" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $TEST_FILTER -- --nocapture
+  RUSTFLAGS="${RUSTFLAGS}" cargo $RUST_TEST_COMMAND $RUST_TEST_OPTIONS --workspace $TEST_FILTER
 
   # Check test results
   RUST_TEST_RESULT=$?
@@ -622,11 +627,6 @@ run_rust_valgrind_tests() {
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
 
-  # Set up RUSTFLAGS for warnings
-  if [[ "$RUST_DENY_WARNS" == "1" ]]; then
-    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
-  fi
-
   cd "$RUST_DIR"
 
   if [[ "$OS_NAME" == "macos" ]]; then
@@ -637,10 +637,9 @@ run_rust_valgrind_tests() {
   else
     # Run cargo valgrind with the appropriate filter
     VALGRINDFLAGS=--suppressions=$PWD/valgrind.supp \
-        RUSTFLAGS="${RUSTFLAGS:--D warnings}" \
+        RUSTFLAGS="${RUSTFLAGS}" \
         cargo valgrind test \
         --profile=$RUST_PROFILE \
-        $RUST_TEST_OPTIONS \
         --workspace $TEST_FILTER \
         -- --nocapture
   fi

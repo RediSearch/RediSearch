@@ -34,6 +34,7 @@ trie_rs.workspace = true
 ureq.workspace = true
 wildcard.workspace = true
 ffi.workspace = true
+workspace_hack.workspace = true
 
 [lints]
 workspace = true

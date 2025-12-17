@@ -9,15 +9,13 @@
 
 #include <algorithm>
 #include <vector>
-#include "rmutil/alloc.h"
 #include "gtest/gtest.h"
 
 #include "src/iterators/optional_iterator.h"
-#include "src/iterators/idlist_iterator.h"
-#include "src/iterators/empty_iterator.h"
+#include "iterators_rs.h"
 #include "iterator_util.h"
 #include "index_utils.h"
-#include "src/iterators/wildcard_iterator.h"
+#include "iterators_rs.h"
 #include "src/iterators/inverted_index_iterator.h"
 #include "inverted_index.h"
 
@@ -617,7 +615,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithWildcardChild) {
   MockQueryEvalCtx ctx(maxDocId, numDocs);
 
   // Create wildcard child iterator
-  QueryIterator *wildcardChild = NewWildcardIterator_NonOptimized(maxDocId, numDocs, 2.0);
+  QueryIterator *wildcardChild = NewWildcardIterator_NonOptimized(maxDocId, 2.0);
 
   // Create optional iterator with wildcard child - should return the child directly
   QueryIterator *it = NewOptionalIterator(wildcardChild, &ctx.qctx, childWeight);

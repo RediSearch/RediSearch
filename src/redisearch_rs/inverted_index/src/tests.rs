@@ -948,7 +948,7 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> IndexReader<'index> for 
         unimplemented!("This test won't reset")
     }
 
-    fn unique_docs(&self) -> u32 {
+    fn unique_docs(&self) -> u64 {
         unimplemented!("This test won't count unique docs")
     }
 
@@ -962,6 +962,10 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> IndexReader<'index> for 
 
     fn needs_revalidation(&self) -> bool {
         false
+    }
+
+    fn refresh_buffer_pointers(&mut self) {
+        unimplemented!("This test won't refresh buffer pointers")
     }
 }
 
@@ -2003,4 +2007,56 @@ fn ii_apply_gc_entries_tracking_index() {
             blocks_ignored: 0
         }
     );
+}
+// the memory hack below raises error in miri
+#[cfg(not(miri))]
+#[test]
+fn test_refresh_buffer_pointers_after_reallocation() {
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+
+    // Add initial records
+    ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
+    ii.add_record(&RSIndexResult::default().doc_id(11)).unwrap();
+
+    // SAFETY: We need to bypass Rust's borrowing rules to simulate the real-world
+    // scenario where buffer reallocation happens while a reader is active.
+    // This is safe because:
+    // 1. We're not accessing the reader during the mutation
+    // 2. The InvertedIndex structure remains valid
+    // 3. We call refresh_buffer_pointers before using the reader again
+    let ii_ptr = &mut ii as *mut InvertedIndex<Dummy>;
+
+    let mut reader: crate::IndexReaderCore<'_, Dummy> = ii.reader();
+    let mut result = RSIndexResult::default();
+
+    // Read first record
+    assert!(reader.next_record(&mut result).unwrap());
+    assert_eq!(result.doc_id, 10);
+
+    // Force buffer reallocation by adding many records to the same block
+    // This should cause the buffer to grow and potentially move
+    unsafe {
+        for i in 12..1000 {
+            (*ii_ptr)
+                .add_record(&RSIndexResult::default().doc_id(i))
+                .unwrap();
+        }
+    }
+
+    // Buffer was reallocated - test refresh_buffer_pointers
+    reader.refresh_buffer_pointers();
+
+    // Verify we can still read correctly from the new buffer
+    let mut doc_count = 1; // Already read doc_id 10
+    let mut expected_doc_id = 11;
+
+    while reader.next_record(&mut result).unwrap() {
+        assert_eq!(result.doc_id, expected_doc_id);
+        doc_count += 1;
+        expected_doc_id += 1;
+    }
+
+    // Should have read all 990 documents (10, 11, 12..999)
+    assert_eq!(doc_count, 990);
+    assert_eq!(expected_doc_id, 1000);
 }

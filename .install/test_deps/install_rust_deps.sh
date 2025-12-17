@@ -3,8 +3,8 @@ set -e
 OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
 
-# retrieve nightly version from build.sh
-NIGHTLY_VERSION=$(grep "NIGHTLY_VERSION=" build.sh | cut -d'=' -f2 | tr -d '"' | head -n1)
+# retrieve nightly version
+NIGHTLY_VERSION=$(cat .rust-nightly)
 # --allow-downgrade:
 #   Allow `rustup` to install an older `nightly` if the latest one
 #   is missing one of the components we need.
@@ -22,6 +22,12 @@ rustup toolchain install $NIGHTLY_VERSION \
 
 # Tool required to compute test coverage for Rust code
 cargo install cargo-llvm-cov --locked
+# Our preferred test runner, instead of the default `cargo test`
+cargo install cargo-nextest --locked
+# Tool to aggressively unify the feature sets of our dependencies,
+# thus improving the cacheability of our builds
+# See https://docs.rs/cargo-hakari/latest/cargo_hakari/about/
+cargo install cargo-hakari --locked
 # Make sure `miri` is fully operational before running tests with it.
 # See https://github.com/rust-lang/miri/blob/master/README.md#running-miri-on-ci
 # for more details.

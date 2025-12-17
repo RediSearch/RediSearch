@@ -33,6 +33,7 @@ typedef struct {
   unsigned long low_priority_pending_jobs;
   unsigned long admin_priority_pending_jobs;
   unsigned long num_threads_alive;
+  unsigned long num_jobs_in_progress;
 } thpool_stats;
 
 // A callback to call redis log.
@@ -274,6 +275,12 @@ int redisearch_thpool_is_initialized(redisearch_thpool_t *);
 thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *);
 
 size_t redisearch_thpool_get_num_threads(redisearch_thpool_t *);
+
+size_t redisearch_thpool_high_priority_pending_jobs(redisearch_thpool_t *);
+
+size_t redisearch_thpool_low_priority_pending_jobs(redisearch_thpool_t *);
+
+size_t redisearch_thpool_admin_priority_pending_jobs(redisearch_thpool_t *);
 
 /**
  * @brief Schedule a job to reduce the number of threads in the threadpool in an asynchronous manner.

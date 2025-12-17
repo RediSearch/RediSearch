@@ -28,6 +28,7 @@ static inline void AddToInfo_Cursors(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
+static inline void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Dialects(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx);
@@ -73,6 +74,9 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
   // Errors statistics
   AddToInfo_ErrorsAndWarnings(ctx, &total_info);
+
+  // Multi threading statistics
+  AddToInfo_MultiThreading(ctx, &total_info);
 
   // Dialect statistics
   AddToInfo_Dialects(ctx);
@@ -185,6 +189,19 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
                                      FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_GEOMETRY));
     RedisModule_InfoEndDictField(ctx);
   }
+  // Total number of documents indexed by each field type
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_text_fields",
+                                  RSGlobalStats.fieldsStats.textTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_tag_fields",
+                                  RSGlobalStats.fieldsStats.tagTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_numeric_fields",
+                                  RSGlobalStats.fieldsStats.numericTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_geo_fields",
+                                  RSGlobalStats.fieldsStats.geoTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_geoshape_fields",
+                                  RSGlobalStats.fieldsStats.geometryTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_vector_fields",
+                                  RSGlobalStats.fieldsStats.vectorTotalDocsIndexed);
 }
 
 void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
@@ -195,6 +212,7 @@ void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", total_info->num_active_indexes_indexing);
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads", total_info->total_active_write_threads);
   RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", (float)total_info->indexing_time / (float)CLOCKS_PER_MILLISEC);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_num_docs_in_indexes", total_info->total_num_docs_in_indexes);
 }
 
 void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
@@ -255,12 +273,32 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_arguments", stats.shard_errors.arguments);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_timeout", stats.shard_errors.timeout);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_timeout", stats.shard_warnings.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_oom", stats.shard_errors.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_oom", stats.shard_warnings.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_max_prefix_expansions", stats.shard_warnings.maxPrefixExpansion);
+
   // Coordinator errors and warnings
   RedisModule_InfoAddSection(ctx, "coordinator_warnings_and_errors");
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_syntax", stats.coord_errors.syntax);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_arguments", stats.coord_errors.arguments);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout", stats.coord_errors.timeout);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout", stats.coord_warnings.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_oom", stats.coord_errors.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_oom", stats.coord_warnings.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_max_prefix_expansions", stats.coord_warnings.maxPrefixExpansion);
+}
+
+void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
+  RedisModule_InfoAddSection(ctx, "multi_threading");
+  MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
+  RedisModule_InfoAddFieldULongLong(ctx, "uv_threads_running_queries", stats.uv_threads_running_queries);
+  RedisModule_InfoAddFieldULongLong(ctx, "uv_threads_running_topology_update", stats.uv_threads_running_topology_update);
+  RedisModule_InfoAddFieldULongLong(ctx, "active_worker_threads", stats.active_worker_threads);
+  RedisModule_InfoAddFieldULongLong(ctx, "active_coord_threads", stats.active_coord_threads);
+  RedisModule_InfoAddFieldULongLong(ctx, "workers_low_priority_pending_jobs", stats.workers_low_priority_pending_jobs);
+  RedisModule_InfoAddFieldULongLong(ctx, "workers_high_priority_pending_jobs", stats.workers_high_priority_pending_jobs);
+  RedisModule_InfoAddFieldULongLong(ctx, "workers_admin_priority_pending_jobs", stats.workers_admin_priority_pending_jobs);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_high_priority_pending_jobs", stats.coord_high_priority_pending_jobs);
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {

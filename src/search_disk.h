@@ -30,8 +30,7 @@ void SearchDisk_Close();
 // Basic API wrappers
 
 /**
- * @brief Open an index
- *
+ * @brief Open an index, **Important** must be called once and only once for every index
  * @param indexName Name of the index to open
  * @param indexNameLen Length of the index name
  * @param type Document type
@@ -40,7 +39,7 @@ void SearchDisk_Close();
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, size_t indexNameLen, DocumentType type);
 
 /**
- * @brief Close an index
+ * @brief Close an index, **Important** must be called once and only once for every index
  *
  * @param index Pointer to the index to close
  */

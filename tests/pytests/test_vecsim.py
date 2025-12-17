@@ -703,8 +703,8 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b]=>{$HYBRID_POLICY: bad_policy;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('invalid hybrid policy was given')
 
     # Invalid hybrid attributes combinations.
-    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'batch size' is irrelevant for 'ADHOC_BF' policy")
-    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF EF_RUNTIME 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'batch size' is irrelevant for the selected policy")
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF EF_RUNTIME 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'EF_RUNTIME' is irrelevant for the selected policy")
 
     # Invalid query combination with query attributes syntax.
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS score]=>{$yield_distance_as:score2;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and score2')
@@ -871,6 +871,8 @@ def test_memory_info():
 # This test doesn't cover medium and large index scenarios to avoid extensive CI running time.
 # The heuristic is implemented in VectorSimilarity library in SVSIndex::preferAdHocSearch.
 # The test scenarios below demonstrate each heuristic path with detailed explanations.
+@skip(asan=True)
+# Skipping on sanitizer due to MOD-12901
 def test_hybrid_query_with_text_vamana():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
@@ -1771,11 +1773,12 @@ def test_rdb_memory_limit():
 
 class TestTimeoutReached(object):
     def __init__(self):
-        if SANITIZER or OS == 'macos':
-            raise SkipTest()
         self.env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
         n_shards = self.env.shardsCount
-        self.index_sizes = {'FLAT': 80000 * n_shards, 'HNSW': 10000 * n_shards, 'SVS-VAMANA': 10000 * n_shards}
+        # We need at least DEFAULT_BLOCK_SIZE at every shard, due to nature of hash slot distribution, we need a bit extra
+        # for that reason we multiply by 1.1
+        minimal_svs_index_size = int(DEFAULT_BLOCK_SIZE * 1.1 * n_shards)
+        self.index_sizes = {'FLAT': 100 * n_shards, 'HNSW': 100 * n_shards, 'SVS-VAMANA': minimal_svs_index_size}
         self.hybrid_modes = ['BATCHES', 'ADHOC_BF']
         self.dim = 10
         self.type = 'FLOAT32'
@@ -1783,38 +1786,36 @@ class TestTimeoutReached(object):
     def tearDown(self): # cleanup after each test
         self.env.flush()
 
-    def run_long_queries(self, n_vec, query_vec):
+    def run_timeout_tests(self, n_vec, query_vec):
+        small_k = 10
         # STANDARD KNN
-        large_k = 1000
         # run query with no timeout. should succeed.
-        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, large_k,
-                                   'PARAMS', 4, 'K', large_k, 'vec_param', query_vec.tobytes(),
+        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                   'PARAMS', 4, 'K', small_k, 'vec_param', query_vec.tobytes(),
                                    'TIMEOUT', 0)
-        self.env.assertEqual(res[0], large_k)
-        # run query with 1 millisecond timeout. should fail.
-        self.env.expect(
-            'FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
-            'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', n_vec,
-            'vec_param', query_vec.tobytes(), 'TIMEOUT', 1
-        ).error().contains('Timeout limit was reached')
+        self.env.assertEqual(res[0], small_k)
 
-        # RANGE QUERY
-        # run query with 1 millisecond timeout. should fail.
-        self.env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                   'PARAMS', 2, 'vec_param', query_vec.tobytes(),
-                   'TIMEOUT', 1).error().contains('Timeout limit was reached')
+        # Enable VECSIM mock timeout to simulate timeout in the vecsim library
+        with vecsimMockTimeoutContext(self.env):
+            # run query with timeout enabled in vecsim
+            self.env.expect('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
+                           'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', small_k,
+                           'vec_param', query_vec.tobytes()).error().contains('Timeout limit was reached')
 
-        # HYBRID MODES
-        # Add some dummy documents so `-dummy` won't be empty and optimized away.
-        with self.env.getClusterConnectionIfNeeded() as conn:
-            for i in range(n_vec + 1, n_vec + 5 * self.env.shardsCount):
-                conn.execute_command('HSET', i, 't', 'dummy')
-        for mode in self.hybrid_modes:
-            self.env.expect(
-                'FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
-                'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec,
-                'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 1
-            ).error().contains('Timeout limit was reached')
+            # RANGE QUERY
+            # run query with timeout enabled in vecsim
+            self.env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                           'PARAMS', 2, 'vec_param', query_vec.tobytes()).error().contains('Timeout limit was reached')
+
+            # HYBRID MODES
+            # Add some dummy documents so `-dummy` won't be empty and optimized away.
+            with self.env.getClusterConnectionIfNeeded() as conn:
+                for i in range(n_vec + 1, n_vec + 5 * self.env.shardsCount):
+                    conn.execute_command('HSET', i, 't', 'dummy')
+            for mode in self.hybrid_modes:
+                self.env.expect('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
+                               'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', small_k,
+                               'vec_param', query_vec.tobytes(), 'hp', mode).error().contains('Timeout limit was reached')
 
     def test_flat(self):
         # Create index and load vectors.
@@ -1824,7 +1825,7 @@ class TestTimeoutReached(object):
                     'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
         waitForIndex(self.env, 'idx')
 
-        self.run_long_queries(n_vec, query_vec)
+        self.run_timeout_tests(n_vec, query_vec)
 
     def test_hnsw(self):
         # Create index and load vectors.
@@ -1834,7 +1835,7 @@ class TestTimeoutReached(object):
                         'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
         waitForIndex(self.env, 'idx')
 
-        self.run_long_queries(n_vec, query_vec)
+        self.run_timeout_tests(n_vec, query_vec)
 
     def test_svs(self):
         # Create index and load vectors.
@@ -1844,7 +1845,7 @@ class TestTimeoutReached(object):
                         'DIM', self.dim, 'DISTANCE_METRIC', 'L2').ok()
         waitForIndex(self.env, 'idx')
 
-        self.run_long_queries(n_vec, query_vec)
+        self.run_timeout_tests(n_vec, query_vec)
 
 @skip(no_json=True)
 def test_create_multi_value_json():
@@ -1880,6 +1881,8 @@ def test_index_multi_value_json():
     per_doc = 5
 
     for data_t in VECSIM_DATA_TYPES:
+        # Skipping on sanitizer due to MOD-12768
+        run_svs_test = data_t in ('FLOAT32', 'FLOAT16') and SANITIZER == ''
         n = 100
         conn.flushall()
 
@@ -1890,7 +1893,7 @@ def test_index_multi_value_json():
         args = ['FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
                 '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
                 '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
-        if data_t in ('FLOAT32', 'FLOAT16'):
+        if run_svs_test:
             # Add enough vectors to trigger svs backend index initialization
             n = 250 * env.shardsCount
             args += ['$.vecs[*]', 'AS', 'svs', 'VECTOR', 'SVS-VAMANA', '10', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'CONSTRUCTION_WINDOW_SIZE', n, 'SEARCH_WINDOW_SIZE', n]
@@ -1957,7 +1960,7 @@ def test_index_multi_value_json():
             flat_res = conn.execute_command(*cmd_range)
             env.assertEqual(sortedResults(flat_res), expected_res_range, message=f'data_t: {data_t}')
 
-            if data_t in ('FLOAT32', 'FLOAT16'):
+            if run_svs_test:
                 env.assertGreater(get_tiered_backend_debug_info(env, 'idx', 'svs')['INDEX_SIZE'], 0)
                 cmd_knn[2] = f'*=>[KNN {k} @svs $b AS {score_field_name}]'
                 svs_res = conn.execute_command(*cmd_knn)[1:]
