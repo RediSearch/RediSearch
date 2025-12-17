@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::mem::offset_of;
+use std::mem::{self, offset_of};
 use std::ptr;
 use std::ptr::NonNull;
 use std::sync::atomic::AtomicU16;
@@ -100,7 +100,7 @@ fn rlookuprow_writebynameowned() {
     }
 
     assert_eq!(value.refcount(), Some(1));
-    
+
     mem::forget(value);
 }
 
