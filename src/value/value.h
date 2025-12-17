@@ -258,14 +258,6 @@ RSValueMap RSValueMap_AllocUninit(uint32_t len);
 RSValue *RSValue_NewMap(RSValueMap map);
 
 /**
- * Creates a heap-allocated RSValue array from variadic string arguments.
- * @param sz Number of strings to expect
- * @param ... Variadic list of char* strings
- * @return A pointer to a heap-allocated RSValue array
- */
-RSValue *RSValue_NewVStringArray(uint32_t sz, ...);
-
-/**
  * Creates a heap-allocated RSValue array from NULL terminated C strings.
  * @param strs Array of string pointers
  * @param sz Number of strings in the array

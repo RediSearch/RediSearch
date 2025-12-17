@@ -243,18 +243,6 @@ RSValue *RSValue_NewMap(RSValueMap map) {
   return v;
 }
 
-RSValue *RSValue_NewVStringArray(uint32_t sz, ...) {
-  RSValue **arr = RSValue_AllocateArray(sz);
-  va_list ap;
-  va_start(ap, sz);
-  for (uint32_t i = 0; i < sz; i++) {
-    char *p = va_arg(ap, char *);
-    arr[i] = RSValue_NewString(p, strlen(p));
-  }
-  va_end(ap);
-  return RSValue_NewArray(arr, sz);
-}
-
 /* Wrap an array of NULL terminated C strings into an RSValue array */
 RSValue *RSValue_NewStringArray(char **strs, uint32_t sz) {
   RSValue **arr = RSValue_AllocateArray(sz);
