@@ -81,7 +81,7 @@ fn rlookuprow_writebyname() {
 
 #[test]
 fn rlookuprow_writebynameowned() {
-    let lookup = RLookup::new();
+    let mut lookup = RLookup::new();
     let name = CString::new("name").unwrap();
     let len = 4;
     let row = RLookupRow::new(&lookup);
