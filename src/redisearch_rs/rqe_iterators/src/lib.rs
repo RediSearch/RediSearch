@@ -14,14 +14,17 @@ use ::inverted_index::RSIndexResult;
 
 pub mod empty;
 pub mod id_list;
+pub mod intersection;
 pub mod inverted_index;
 pub mod maybe_empty;
 pub mod metric;
+pub mod optional;
 pub mod profile;
 pub mod wildcard;
 
 pub use empty::Empty;
 pub use id_list::IdList;
+pub use intersection::Intersection;
 pub use inverted_index::{Numeric, Term};
 pub use metric::Metric;
 pub use wildcard::Wildcard;
@@ -70,6 +73,10 @@ pub trait RQEIterator<'index> {
     /// not have an immediate use for the actual result, and would instead want to keep it aside
     /// for later in time. The child iterator already has that result anyway,
     /// and it is this method which provides the ability to expose it (for later use).
+    ///
+    ///  # Usage
+    ///
+    /// Calling this method before the first `read` or `skip_to`, or directly after `rewind` will return a default result    /// without meaningful data.
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>>;
 
     /// Read the next entry from the iterator.
@@ -111,4 +118,42 @@ pub trait RQEIterator<'index> {
     /// Returns `false` if the iterator can yield more results.
     /// The iterator implementation must ensure that `at_eof` returns `false` when it is sure that the [`RQEIterator::read`] returns `Ok(None)`.
     fn at_eof(&self) -> bool;
+}
+
+// Implement RQEIterator for Box<dyn RQEIterator> to support dynamic dispatch
+impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        (**self).current()
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (**self).read()
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        (**self).skip_to(doc_id)
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate()
+    }
+
+    fn rewind(&mut self) {
+        (**self).rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        (**self).num_estimated()
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        (**self).last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        (**self).at_eof()
+    }
 }

@@ -224,8 +224,6 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     return NULL;
   }
 
-  // Sort shards by the port of their node (master), to have a stable order while the topology is stable
-  MRClusterTopology_SortShards(topo);
   return topo;
 }
 

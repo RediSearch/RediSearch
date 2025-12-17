@@ -21,12 +21,6 @@
 struct MRCtx;
 struct RedisModuleCtx;
 
-typedef struct {
-  int16_t targetShard;
-  long long cursorId;
-} CursorMapping;
-
-
 // Reference-counted wrapper for the local node ID string
 typedef struct {
   char *node_id;
