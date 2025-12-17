@@ -87,7 +87,6 @@ RSValue *RSValue_Trio_GetRight(const RSValue *v) {
 ///////////////////////////////////////////////////////////////
 
 // Forward declarations needed for RSValue_Clear and other functions
-void RSValue_Free(RSValue *v);
 void RSValue_DecrRef(RSValue* v);
 RSValue* RSValue_IncrRef(RSValue* v);
 
@@ -399,7 +398,10 @@ RSValue* RSValue_IncrRef(RSValue* v) {
 
 void RSValue_DecrRef(RSValue* v) {
   if (__atomic_sub_fetch(&(v)->_refcount, 1, __ATOMIC_RELAXED) == 0) {
-    RSValue_Free(v);
+    RSValue_Clear(v);
+    if (v->_allocated) {
+      mempool_release(getPool(), v);
+    }
   }
 }
 
@@ -418,15 +420,6 @@ uint16_t RSValue_Refcount(const RSValue *v) {
 ///////////////////////////////////////////////////////////////
 // Other Functions (utility, comparison, conversion, etc.)
 ///////////////////////////////////////////////////////////////
-
-/* Free a value's internal value. It only does anything in the case of a string, and doesn't free
- * the actual value object */
-void RSValue_Free(RSValue *v) {
-  RSValue_Clear(v);
-  if (v->_allocated) {
-    mempool_release(getPool(), v);
-  }
-}
 
 /* Convert a value to a string value. If the value is already a string value it gets
  * shallow-copied (no string buffer gets copied) */

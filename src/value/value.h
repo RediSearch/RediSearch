@@ -494,10 +494,6 @@ uint16_t RSValue_Refcount(const RSValue *v);
 // Other Functions (utility, memory management, comparison, etc.)
 ///////////////////////////////////////////////////////////////
 
-/* Free a value's internal value. It only does anything in the case of a string, and doesn't free
- * the actual value object */
-void RSValue_Free(RSValue *v);
-
 /* Convert a value to a string value. If the value is already a string value it gets
  * shallow-copied (no string buffer gets copied) */
 void RSValue_ToString(RSValue *dst, RSValue *v);
