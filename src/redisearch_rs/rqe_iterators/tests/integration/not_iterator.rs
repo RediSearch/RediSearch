@@ -76,7 +76,7 @@ fn read_with_empty_child_behaves_like_wildcard() {
 // Child covers full range: NOT should be empty and report EOF.
 #[test]
 fn read_with_child_covering_full_range_yields_no_docs() {
-    let mut it = Not::new(SortedIdList::new(vec![1, 2, 3, 4, 5], 1.0), 5);
+    let mut it = Not::new(SortedIdList::new(vec![1, 2, 3, 4, 5]), 5, 1.0);
 
     // Child already produces 1..=5, so there is no doc left for NOT to return.
     let res = it.read().expect("read() must not error");
@@ -91,7 +91,7 @@ fn read_with_child_covering_full_range_yields_no_docs() {
 // skip_to on ids below, between and inside child: Found vs NotFound semantics.
 #[test]
 fn skip_to_honours_child_membership() {
-    let mut it = Not::new(SortedIdList::new(vec![2, 4, 7], 1.0), 10);
+    let mut it = Not::new(SortedIdList::new(vec![2, 4, 7]), 10, 1.0);
 
     // 5 is not in child {2, 4, 7}, so NOT must return Found(5).
     let outcome = it.skip_to(5).expect("skip_to(5) must not error");
@@ -130,7 +130,7 @@ fn skip_to_honours_child_membership() {
 #[test]
 fn skip_to_child_doc_at_max_docid_returns_none() {
     // Child has doc 10, which is also max_doc_id
-    let mut it = Not::new(SortedIdList::new(vec![2, 5, 10], 1.0), 10);
+    let mut it = Not::new(SortedIdList::new(vec![2, 5, 10]), 10, 1.0);
 
     // Read first to position before the skip
     let doc = it.read().unwrap().unwrap();
@@ -148,7 +148,7 @@ fn skip_to_child_doc_at_max_docid_returns_none() {
 // skip_to when child is ahead of docId: Case 1 - child.last_doc_id() > doc_id
 #[test]
 fn skip_to_child_ahead_returns_found() {
-    let mut it = Not::new(SortedIdList::new(vec![5, 10], 1.0), 15);
+    let mut it = Not::new(SortedIdList::new(vec![5, 10]), 15, 1.0);
 
     // Read once to advance child to doc_id=5
     let doc = it.read().unwrap().unwrap();
@@ -169,7 +169,7 @@ fn skip_to_child_ahead_returns_found() {
 // skip_to when child is at EOF: Case 1 - child.at_eof()
 #[test]
 fn skip_to_child_at_eof_returns_found() {
-    let mut it = Not::new(SortedIdList::new(vec![1, 2], 1.0), 10);
+    let mut it = Not::new(SortedIdList::new(vec![1, 2]), 10, 1.0);
 
     // Exhaust the child by reading past its docs
     while let Some(doc) = it.read().unwrap() {
@@ -193,7 +193,7 @@ fn skip_to_child_at_eof_returns_found() {
 // skip_to to child's last doc when child is at EOF: should exclude it
 #[test]
 fn skip_to_child_last_doc_when_at_eof_excludes_it() {
-    let mut it = Not::new(SortedIdList::new(vec![5, 10], 1.0), 15);
+    let mut it = Not::new(SortedIdList::new(vec![5, 10]), 15, 1.0);
 
     // Read up to doc 9 to exhaust the child
     while let Some(doc) = it.read().unwrap() {
@@ -220,7 +220,7 @@ fn skip_to_child_last_doc_when_at_eof_excludes_it() {
 // skip_to past max_doc_id: should return None and move to EOF.
 #[test]
 fn skip_to_past_max_docid_returns_none_and_sets_eof() {
-    let mut it = Not::new(SortedIdList::new(vec![2, 4, 7], 1.0), 10);
+    let mut it = Not::new(SortedIdList::new(vec![2, 4, 7]), 10, 1.0);
 
     // 11 > max_doc_id=10, so there is no valid target and we end at EOF.
     let res = it.skip_to(11).expect("skip_to(11) must not error");
@@ -234,7 +234,7 @@ fn skip_to_past_max_docid_returns_none_and_sets_eof() {
 // rewind should restore the initial state and read sequence.
 #[test]
 fn rewind_resets_state() {
-    let mut it = Not::new(SortedIdList::new(vec![2, 4, 7], 1.0), 10);
+    let mut it = Not::new(SortedIdList::new(vec![2, 4, 7]), 10, 1.0);
 
     // For child [2, 4, 7] and max_doc_id=10, the first two NOT results are 1 and 3.
     for expected in [1u64, 3] {
