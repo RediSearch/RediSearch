@@ -111,12 +111,6 @@ inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
   v->_strval.stype = RSStringType_Const;
 }
 
-void RSValue_MakeRStringOwner(RSValue *v) {
-  RS_LOG_ASSERT(v->_t == RSValueType_RedisString, "RSvalue type should be string");
-  v->_t = RSValueType_OwnRstring;
-  RedisModule_RetainString(RSDummyContext, v->_rstrval);
-}
-
 ///////////////////////////////////////////////////////////////
 // Constructors
 ///////////////////////////////////////////////////////////////
@@ -159,24 +153,18 @@ RSValue *RSValue_NewConstString(const char *str, uint32_t len) {
   return v;
 }
 
-/* Wrap a redis string value */
-RSValue *RSValue_NewBorrowedRedisString(RedisModuleString *str) {
-  RSValue *v = RSValue_NewWithType(RSValueType_RedisString);
+RSValue *RSValue_NewOwnedRedisString(RedisModuleString *str) {
+  RedisModule_RetainString(RSDummyContext, str);
+  RSValue *v = RSValue_NewWithType(RSValueType_OwnRstring);
   v->_rstrval = str;
   return v;
 }
 
-RSValue *RSValue_NewOwnedRedisString(RedisModuleString *str) {
-  RSValue *r = RSValue_NewBorrowedRedisString(str);
-  RSValue_MakeRStringOwner(r);
-  return r;
-}
-
 // TODO : NORMALLY
 RSValue *RSValue_NewStolenRedisString(RedisModuleString *str) {
-  RSValue *ret = RSValue_NewBorrowedRedisString(str);
-  ret->_t = RSValueType_OwnRstring;
-  return ret;
+  RSValue *v = RSValue_NewWithType(RSValueType_OwnRstring);
+  v->_rstrval = str;
+  return v;
 }
 
 RSValue RS_NULL = {._t = RSValueType_Null, ._refcount = 1, ._allocated = 0};

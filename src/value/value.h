@@ -165,16 +165,6 @@ RSValue *RSValue_NewString(char *str, uint32_t len);
 RSValue *RSValue_NewConstString(const char *str, uint32_t len);
 
 /**
- * Creates a heap-allocated RSValue wrapping a RedisModuleString.
- * Does not increment the refcount of the Redis string.
- * The passed Redis string's refcount does not get decremented
- * upon freeing the returned RSValue.
- * @param str The RedisModuleString to wrap
- * @return A pointer to a heap-allocated RSValue
- */
-RSValue *RSValue_NewBorrowedRedisString(RedisModuleString *str);
-
-/**
  * Creates a heap-allocated RSValue which increments and owns a reference to the Redis string.
  * The RSValue will decrement the refcount when freed.
  * @param str The RedisModuleString to wrap (refcount is incremented)
@@ -538,8 +528,6 @@ uint16_t RSValue_Refcount(const RSValue *v);
 /* Free a value's internal value. It only does anything in the case of a string, and doesn't free
  * the actual value object */
 void RSValue_Free(RSValue *v);
-
-void RSValue_MakeRStringOwner(RSValue *v);
 
 /* Convert a value to a string value. If the value is already a string value it gets
  * shallow-copied (no string buffer gets copied) */
