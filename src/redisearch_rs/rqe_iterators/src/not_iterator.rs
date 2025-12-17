@@ -9,6 +9,8 @@
 
 //! Supporting types for [`Not`].
 
+use std::cmp::Ordering;
+
 use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 
@@ -38,9 +40,7 @@ where
         Self {
             child: MaybeEmpty::new(child),
             max_doc_id,
-            result: RSIndexResult::virt()
-                .weight(weight)
-                .field_mask(RS_FIELDMASK_ALL),
+            result: RSIndexResult::virt().weight(weight).field_mask(RS_FIELDMASK_ALL),
         }
     }
 }
@@ -60,29 +60,31 @@ where
         while !self.at_eof() {
             self.result.doc_id += 1;
 
-            if self.result.doc_id < self.child.last_doc_id() {
-                // no child to NOT results, return our result as-is
-                return Ok(Some(&mut self.result));
-            }
-
-            if self.child.last_doc_id() == self.result.doc_id {
-                // we caught up with child iterator,
-                // skip the _real_ result as part of the NOT iterator negation
-                continue;
-            }
-
-            if let Some(result) = self.child.read()? {
-                if result.doc_id > self.result.doc_id {
-                    // child skipped ahead already
+            match self.result.doc_id.cmp(&self.child.last_doc_id()) {
+                Ordering::Less => {
+                    // Our doc_id is before child's position - it's not in the child, return it
                     return Ok(Some(&mut self.result));
                 }
-                debug_assert_eq!(
-                    result.doc_id, self.result.doc_id,
-                    "child read backwards without rewind"
-                );
-            } else {
-                // child EOF at read
-                return Ok(Some(&mut self.result));
+                Ordering::Equal => {
+                    // We caught up with child iterator - this doc is in the child, skip it
+                    continue;
+                }
+                Ordering::Greater => {
+                    // Our doc_id is past child's position - need to advance child
+                    if let Some(result) = self.child.read()? {
+                        if result.doc_id > self.result.doc_id {
+                            // child skipped ahead already
+                            return Ok(Some(&mut self.result));
+                        }
+                        debug_assert_eq!(
+                            result.doc_id, self.result.doc_id,
+                            "child read backwards without rewind"
+                        );
+                    } else {
+                        // child EOF at read
+                        return Ok(Some(&mut self.result));
+                    }
+                }
             }
         }
 
@@ -110,8 +112,7 @@ where
         // Case 1: Child is ahead or at EOF - docId is not in child
         // When child is at EOF, only accept doc_id if it's past the child's last document
         if self.child.last_doc_id() > doc_id
-            || (self.child.at_eof() && doc_id > self.child.last_doc_id())
-        {
+            || (self.child.at_eof() && doc_id > self.child.last_doc_id()) {
             self.result.doc_id = doc_id;
             return Ok(Some(SkipToOutcome::Found(&mut self.result)));
         }
@@ -174,8 +175,8 @@ where
                 // Special case: both at initial state (doc_id = 0) is also valid.
                 debug_assert!(
                     self.child.at_eof()
-                        || self.child.last_doc_id() > self.last_doc_id()
-                        || (self.child.last_doc_id() == 0 && self.last_doc_id() == 0)
+                    || self.child.last_doc_id() > self.last_doc_id()
+                    || (self.child.last_doc_id() == 0 && self.last_doc_id() == 0)
                 );
                 Ok(RQEValidateStatus::Ok)
             }
