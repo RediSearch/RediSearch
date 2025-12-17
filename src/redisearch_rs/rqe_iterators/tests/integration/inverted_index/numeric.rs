@@ -35,8 +35,8 @@ impl NumericBaseTest {
 }
 
 #[test]
-/// test reading from NumericFull iterator
-fn numeric_full_read() {
+/// test reading from Numeric iterator
+fn numeric_read() {
     let test = NumericBaseTest::new(100);
     let reader = test.test.ii.reader();
     let mut it = Numeric::new_simple(reader);
@@ -53,7 +53,7 @@ fn numeric_full_read() {
 
 #[test]
 /// test skipping from Numeric iterator
-fn numeric_full_skip_to() {
+fn numeric_skip_to() {
     let test = NumericBaseTest::new(100);
     let reader = test.test.ii.reader();
     let mut it = Numeric::new_simple(reader);
@@ -303,7 +303,7 @@ mod not_miri {
     }
 
     #[test]
-    fn numeric_full_revalidate_basic() {
+    fn numeric_revalidate_basic() {
         let test = NumericRevalidateTest::new(10);
         let reader = unsafe { (*test.test.ii.get()).reader() };
         let mut it = Numeric::new_simple(reader);
@@ -311,7 +311,7 @@ mod not_miri {
     }
 
     #[test]
-    fn numeric_full_revalidate_at_eof() {
+    fn numeric_revalidate_at_eof() {
         let test = NumericRevalidateTest::new(10);
         let reader = unsafe { (*test.test.ii.get()).reader() };
         let mut it = Numeric::new_simple(reader);
@@ -319,7 +319,7 @@ mod not_miri {
     }
 
     #[test]
-    fn numeric_full_revalidate_after_index_disappears() {
+    fn numeric_revalidate_after_index_disappears() {
         let test = NumericRevalidateTest::new(10);
         let reader = unsafe { (*test.test.ii.get()).reader() };
         let mut it = Numeric::new_simple(reader);
@@ -327,7 +327,7 @@ mod not_miri {
     }
 
     #[test]
-    fn numeric_full_revalidate_after_document_deleted() {
+    fn numeric_revalidate_after_document_deleted() {
         let test = NumericRevalidateTest::new(10);
         let reader = unsafe { (*test.test.ii.get()).reader() };
         let mut it = Numeric::new_simple(reader);
