@@ -69,6 +69,7 @@ fn main() {
         src.join("numeric_index").join("numeric_index.h"),
         src.join("obfuscation").join("hidden.h"),
         src.join("query.h"),
+        src.join("redis_index").join("redis_index.h"),
         src.join("redis_index.h"),
         src.join("redisearch.h"),
         src.join("result_processor.h"),
