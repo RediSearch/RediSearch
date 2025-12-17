@@ -51,11 +51,11 @@ pub unsafe extern "C" fn RedisModule_ScanKey(
             *mut redis_module::raw::RedisModuleKey,
             *mut redis_module::raw::RedisModuleString,
             *mut redis_module::raw::RedisModuleString,
-            *mut ::std::os::raw::c_void,
+            *mut ::std::ffi::c_void,
         ),
     >,
-    _privdata: *mut ::std::os::raw::c_void,
-) -> ::std::os::raw::c_int {
+    _privdata: *mut ::std::ffi::c_void,
+) -> ::std::ffi::c_int {
     // Safety: Caller has to ensure 1
     let key = unsafe { &*(key.cast::<UserKey>()) };
     let ctx = key.get_ctx();

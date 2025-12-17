@@ -12,7 +12,6 @@ use std::{
     ptr::NonNull,
 };
 
-use libc::strlen;
 use redis_module::RedisModuleString;
 use value::{
     RsValueInternal, Value,
@@ -48,7 +47,7 @@ pub unsafe extern "C" fn RSValue_NewCString(str: Option<NonNull<c_char>>) -> Sha
         let str = unsafe { str.unwrap_unchecked() };
         // Safety:
         // Caller must ensure `str` is a NULL-terminated C string
-        unsafe { strlen(str.as_ptr()) }
+        unsafe { libc::strlen(str.as_ptr()) }
     };
 
     #[cfg(debug_assertions)]

@@ -25,7 +25,7 @@ pub(crate) struct UserString {
 #[allow(non_snake_case)]
 pub(crate) unsafe extern "C" fn RedisModule_CreateString(
     _ctx: *mut redis_module::raw::RedisModuleCtx,
-    ptr: *const ::std::os::raw::c_char,
+    ptr: *const ::std::ffi::c_char,
     len: usize,
 ) -> *mut redis_module::raw::RedisModuleString {
     let val = Box::new(UserString {
@@ -44,7 +44,7 @@ pub(crate) unsafe extern "C" fn RedisModule_CreateString(
 pub(crate) unsafe extern "C" fn RedisModule_StringPtrLen(
     s: *const redis_module::raw::RedisModuleString,
     len: *mut usize,
-) -> *const ::std::os::raw::c_char {
+) -> *const ::std::ffi::c_char {
     // Safety: we know we're using UserString here (1)
     let s = unsafe { &*(s.cast::<UserString>()) };
     // Safety: Caller provides valid len pointer (2)
