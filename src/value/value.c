@@ -153,8 +153,7 @@ RSValue *RSValue_NewConstString(const char *str, uint32_t len) {
   return v;
 }
 
-// TODO : NORMALLY
-RSValue *RSValue_NewStolenRedisString(RedisModuleString *str) {
+RSValue *RSValue_NewRedisString(RedisModuleString *str) {
   RSValue *v = RSValue_NewWithType(RSValueType_RedisString);
   v->_rstrval = str;
   return v;
