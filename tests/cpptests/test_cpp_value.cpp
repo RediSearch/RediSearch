@@ -35,11 +35,6 @@ TEST_F(ValueTest, testBasic) {
   ASSERT_EQ(strlen(str), v_str_len);
   ASSERT_EQ(0, strcmp(str, v_str));
   RSValue_DecrRef(v);
-
-  // cannot use redis strings in tests...
-  v = RSValue_NewBorrowedRedisString(NULL);
-  ASSERT_EQ(RSValueType_RedisString, RSValue_Type(v));
-  RSValue_DecrRef(v);
 }
 
 TEST_F(ValueTest, testArray) {
