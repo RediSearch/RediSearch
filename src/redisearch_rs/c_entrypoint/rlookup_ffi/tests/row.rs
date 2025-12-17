@@ -84,7 +84,7 @@ fn rlookuprow_writebynameowned() {
     let mut lookup = RLookup::new();
     let name = CString::new("name").unwrap();
     let len = 4;
-    let row = RLookupRow::new(&lookup);
+    let mut row = RLookupRow::new(&lookup);
     let value = unsafe { RSValueFFI::from_raw(NonNull::new(RSValue_NewNumber(42.0)).unwrap()) };
 
     assert_eq!(value.refcount(), Some(1));
