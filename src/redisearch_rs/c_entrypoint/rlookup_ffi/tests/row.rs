@@ -68,7 +68,7 @@ fn rlookuprow_writebyname() {
 
     unsafe {
         RLookupRow_WriteByName(
-            Some(NonNull::from(&lookup)),
+            Some(NonNull::from(&mut lookup)),
             name.as_ptr(),
             len,
             Some(NonNull::from(&row)),
