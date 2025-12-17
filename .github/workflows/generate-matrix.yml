@@ -73,9 +73,6 @@ jobs:
               ('intel', 'x86_64'),  # Self-hosted EC2 runner
           ]
 
-          # Platforms that require self-hosted EC2 runners
-          self_hosted_platforms = {'intel'}
-
           platform_filter = "${{ inputs.platform }}"
           architecture_filter = "${{ inputs.architecture }}"
           include_coverage = "${{ inputs.include-coverage }}" == "true"
@@ -85,13 +82,12 @@ jobs:
           platform_list = [p.strip() for p in platform_filter.split(',')]
 
           # Filter combinations based on inputs
-          matrix_items = []
-          for platform, architecture in all_combinations:
-              if (platform in platform_list or 'all' in platform_list) and (architecture == architecture_filter or architecture_filter == 'all'):
-                  item = {'platform': platform, 'architecture': architecture, 'job-type': 'test'}
-                  if platform in self_hosted_platforms:
-                      item['self-hosted'] = True
-                  matrix_items.append(item)
+          matrix_items = [
+              {'platform': platform, 'architecture': architecture, 'job-type': 'test'}
+              for platform, architecture in all_combinations
+              if (platform in platform_list or 'all' in platform_list) and
+                 (architecture == architecture_filter or architecture_filter == 'all')
+          ]
 
           # Add coverage job if requested (only on ubuntu:default x86_64)
           if include_coverage:

@@ -46,6 +46,7 @@ on:
           - azurelinux:3
           - alpine:3.22
           - macos
+          - intel
         description: 'Platform to test on. Use "all" to test on all platforms'
         default: all
       architecture:
@@ -120,4 +121,3 @@ jobs:
       coverage: ${{ matrix.job-type == 'coverage' }}
       san: ${{ matrix.job-type == 'sanitize' && 'address' || '' }}
       fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
-      self-hosted: ${{ matrix.self-hosted || false }}

@@ -51,10 +51,6 @@ on:
         type: boolean
         default: false
         description: "If true, the workflow will terminate as soon as one test step fails."
-      self-hosted:
-        type: boolean
-        default: false
-        description: "If true, the workflow will provision a self-hosted EC2 runner."
 
 env:
   REJSON: ${{ inputs.rejson && 1 || 0 }} # convert the boolean input to numeric
@@ -90,22 +86,21 @@ jobs:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
 
-  # Start EC2 runner for self-hosted platforms
+  # Start EC2 runner for self-hosted platforms (runs only if ec2_image_id is set in config)
   start-runner:
+    needs: get-config
     name: Start self-hosted EC2 runner
-    if: ${{ inputs.self-hosted }}
+    if: ${{ needs.get-config.outputs.ec2_image_id }}
     runs-on: ubuntu-latest
     env:
-      AWS_IMAGE_ID: ami-09fabd03bb09b3704
-      AWS_INSTANCE_TYPE: c7i.xlarge
       TAGS: | # Make sure there is no trailing comma!
         [
-        {"Key": "Name",         "Value": "redisearch-ci-runner"},
-        {"Key": "Environment",  "Value": "CI"},
-        {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
-        {"Key": "PR",           "Value": "${{ github.event.number }}"},
-        {"Key": "Owner",        "Value": "${{ github.actor }}"},
-        {"Key": "Project",      "Value": "${{ github.repository }}"}
+          {"Key": "Name",         "Value": "redisearch-ci-runner"},
+          {"Key": "Environment",  "Value": "CI"},
+          {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
+          {"Key": "PR",           "Value": "${{ github.event.number }}"},
+          {"Key": "Owner",        "Value": "${{ github.actor }}"},
+          {"Key": "Project",      "Value": "${{ github.repository }}"}
         ]
     outputs:
       label: ${{ steps.start-ec2-runner.outputs.label }}
@@ -123,8 +118,8 @@ jobs:
         with:
           mode: start
           github-token: ${{ secrets.CI_GH_P_TOKEN }}
-          ec2-image-id: ${{ env.AWS_IMAGE_ID }}
-          ec2-instance-type: ${{ env.AWS_INSTANCE_TYPE }}
+          ec2-image-id: ${{ needs.get-config.outputs.ec2_image_id }}
+          ec2-instance-type: ${{ needs.get-config.outputs.ec2_instance_type }}
           subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
           security-group-id: ${{ secrets.AWS_EC2_SG_ID_BENCHMARK }}
           aws-resource-tags: ${{ env.TAGS }}
@@ -203,7 +198,7 @@ jobs:
       !cancelled() &&
       needs.get-config.result == 'success' &&
       (inputs.standalone || inputs.coordinator || inputs.unit-tests)
-    runs-on: ${{ inputs.self-hosted && needs.start-runner.outputs.label || inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ needs.get-config.outputs.ec2_image_id && needs.start-runner.outputs.label || inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container: ${{
       needs.get-config.outputs.container
         && fromJSON(
