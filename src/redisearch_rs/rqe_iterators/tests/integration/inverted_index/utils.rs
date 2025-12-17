@@ -7,17 +7,236 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{IndexFlags, t_docId};
+use std::{pin::Pin, ptr};
+
+use ffi::{
+    IndexFlags, IndexSpec, NumericRangeTree, QueryEvalCtx, RedisSearchCtx, SchemaRule, t_docId,
+};
+#[cfg(not(miri))]
+use field::FieldMaskOrIndex;
 use inverted_index::{
     Encoder, InvertedIndex, RSIndexResult, RSResultKind, test_utils::TermRecordCompare,
 };
 use rqe_iterators::{RQEIterator, SkipToOutcome};
+
+/// Mock search context creating fake objects for testing.
+/// It can be used to test expiration but not validation.
+/// Use [`TestContext`] instead to test revalidation.
+pub(crate) struct MockContext {
+    rule: SchemaRule,
+    spec: IndexSpec,
+    sctx: RedisSearchCtx,
+    qctx: QueryEvalCtx,
+    /// fake NumericRangeTree, cannot be used but those tests do not call revalidate()
+    numeric_range_tree: NumericRangeTree,
+}
+
+impl Default for MockContext {
+    fn default() -> Self {
+        let rule: SchemaRule = unsafe { std::mem::zeroed() };
+        let spec: IndexSpec = unsafe { std::mem::zeroed() };
+        let sctx: RedisSearchCtx = unsafe { std::mem::zeroed() };
+        let qctx: QueryEvalCtx = unsafe { std::mem::zeroed() };
+        let numeric_range_tree: NumericRangeTree = unsafe { std::mem::zeroed() };
+
+        Self {
+            rule,
+            spec,
+            sctx,
+            qctx,
+            numeric_range_tree,
+        }
+    }
+}
+
+// Only the miri version will allocate those as it needs to do ffi calls
+#[cfg(not(miri))]
+impl Drop for MockContext {
+    fn drop(&mut self) {
+        unsafe {
+            ffi::array_free(self.spec.fieldIdToIndex as _);
+        }
+
+        unsafe {
+            if !self.spec.docs.ttl.is_null() {
+                ffi::TimeToLiveTable_Destroy(&mut self.spec.docs.ttl as _);
+            }
+        }
+    }
+}
+
+impl MockContext {
+    pub(crate) fn new(max_doc_id: t_docId, num_docs: usize) -> Pin<Box<Self>> {
+        // Need to Pin the whole struct so pointers remain valid.
+        let mut boxed = Box::pin(Self::default());
+
+        // SAFETY: We need to set up self-referential pointers after pinning.
+        // The struct is now pinned and won't move, so these pointers will remain valid.
+        unsafe {
+            let ptr = boxed.as_mut().get_unchecked_mut();
+
+            // Initialize SchemaRule
+            ptr.rule.index_all = false;
+
+            // Initialize IndexSpec
+            ptr.spec.rule = &mut ptr.rule;
+            ptr.spec.monitorDocumentExpiration = true; // Only depends on API availability, so always true
+            ptr.spec.monitorFieldExpiration = true; // Only depends on API availability, so always true
+            ptr.spec.docs.maxDocId = max_doc_id;
+            ptr.spec.docs.size = if num_docs > 0 {
+                num_docs
+            } else {
+                max_doc_id as usize
+            };
+            ptr.spec.stats.scoring.numDocuments = ptr.spec.docs.size;
+
+            // Initialize RedisSearchCtx
+            ptr.sctx.spec = &mut ptr.spec;
+
+            // Initialize QueryEvalCtx
+            ptr.qctx.sctx = &mut ptr.sctx;
+            ptr.qctx.docTable = &mut ptr.spec.docs;
+        }
+
+        boxed
+    }
+
+    #[cfg(not(miri))] // those functions do ffi calls which are not supported by miri
+    /// Mark the given field of the given documents as expired.
+    fn mark_index_expired(&mut self, ids: Vec<t_docId>, field: FieldMaskOrIndex) {
+        use ffi::t_expirationTimePoint;
+
+        // Already expired
+        let expiration = t_expirationTimePoint {
+            tv_nsec: 1,
+            tv_sec: 1,
+        };
+
+        for id in ids {
+            self.ttl_add(id, field, expiration);
+        }
+
+        // Set up the mock current time further in the future than the expiration point.
+        self.sctx.time.current = t_expirationTimePoint {
+            tv_sec: 100,
+            tv_nsec: 100,
+        };
+    }
+
+    #[cfg(not(miri))]
+    /// Add a TTL entry for the given field in the given document.
+    fn ttl_add(
+        &mut self,
+        doc_id: t_docId,
+        field: FieldMaskOrIndex,
+        expiration: ffi::t_expirationTimePoint,
+    ) {
+        use ffi::FieldExpiration;
+
+        self.verify_ttl_init();
+
+        let fe = match field {
+            FieldMaskOrIndex::Index(index) => {
+                let fe_entry = FieldExpiration {
+                    index,
+                    point: expiration,
+                };
+
+                let fe = unsafe {
+                    ffi::array_new_sz(std::mem::size_of::<FieldExpiration>() as u16, 0, 1)
+                };
+                let fe = fe.cast();
+                unsafe {
+                    *fe = fe_entry;
+                };
+
+                fe
+            }
+            FieldMaskOrIndex::Mask(mask) => {
+                let mut entries = vec![];
+                // Add a FieldExpiration for each bit set in the mask
+                let mut value = mask;
+                while value != 0 {
+                    let index = value.trailing_zeros();
+                    let fe_entry = FieldExpiration {
+                        index: index as u16,
+                        point: expiration,
+                    };
+                    entries.push(fe_entry);
+                    value &= value - 1;
+                }
+
+                let fe = unsafe {
+                    ffi::array_new_sz(
+                        std::mem::size_of::<FieldExpiration>() as u16,
+                        0,
+                        entries.len() as u32,
+                    )
+                };
+
+                let fe = fe.cast::<FieldExpiration>();
+                for (i, fe_entry) in entries.into_iter().enumerate() {
+                    unsafe {
+                        *fe.offset(i as isize) = fe_entry;
+                    }
+                }
+
+                fe
+            }
+        };
+
+        let doc_expiration_time = ffi::t_expirationTimePoint {
+            tv_sec: i64::MAX,
+            tv_nsec: i64::MAX,
+        };
+
+        unsafe {
+            ffi::TimeToLiveTable_Add(self.spec.docs.ttl, doc_id, doc_expiration_time, fe as _);
+        }
+    }
+
+    #[cfg(not(miri))]
+    /// Ensure the spec TTL table is initialized.
+    fn verify_ttl_init(&mut self) {
+        use ffi::t_fieldIndex;
+
+        if !self.spec.fieldIdToIndex.is_null() {
+            return;
+        }
+
+        // By default, set a max-length array (128 text fields) with fieldId(i) -> index(i)
+        let arr = unsafe { ffi::array_new_sz(std::mem::size_of::<t_fieldIndex>() as u16, 0, 128) };
+        let arr = arr.cast::<t_fieldIndex>();
+
+        for i in 0..128 as t_fieldIndex {
+            unsafe {
+                arr.offset(i as isize).write(i);
+            }
+        }
+
+        self.spec.fieldIdToIndex = arr as _;
+        unsafe {
+            ffi::TimeToLiveTable_VerifyInit(&mut self.spec.docs.ttl);
+        }
+    }
+
+    pub(crate) fn sctx(&self) -> ptr::NonNull<RedisSearchCtx> {
+        ptr::NonNull::new(&self.sctx as *const _ as *mut _)
+            .expect("mock context should not be null")
+    }
+
+    pub(crate) fn numeric_range_tree(&self) -> ptr::NonNull<NumericRangeTree> {
+        ptr::NonNull::new(&self.numeric_range_tree as *const _ as *mut _)
+            .expect("NumericRangeTree should not be null")
+    }
+}
 
 /// Test basic read and skip_to functionality for a given iterator.
 pub(super) struct BaseTest<E> {
     doc_ids: Vec<t_docId>,
     pub(super) ii: InvertedIndex<E>,
     expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+    pub(super) mock_ctx: Pin<Box<MockContext>>,
 }
 
 /// assert that both records are equal
@@ -49,10 +268,13 @@ impl<E: Encoder> BaseTest<E> {
             ii.add_record(&record).expect("failed to add record");
         }
 
+        let mock_ctx = MockContext::new(0, 0);
+
         Self {
             doc_ids,
             ii,
             expected_record,
+            mock_ctx,
         }
     }
 
@@ -177,11 +399,9 @@ impl<E: Encoder> BaseTest<E> {
 pub(super) mod not_miri {
     use super::*;
     use ffi::{
-        FieldExpiration, IndexFlags, IndexFlags_Index_StoreByteOffsets,
-        IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs,
-        IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets, IndexSpec,
-        NumericRangeTree, QueryEvalCtx, RedisSearchCtx, SchemaRule, t_docId, t_expirationTimePoint,
-        t_fieldIndex,
+        IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
+        IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
+        IndexFlags_Index_StoreTermOffsets, t_docId,
     };
     use field::FieldMaskOrIndex;
     use inverted_index::{DecodedBy, Encoder, InvertedIndex, RSIndexResult};
@@ -336,206 +556,6 @@ pub(super) mod not_miri {
             // Test skipping to ID beyond range
             it.rewind();
             assert!(it.skip_to(last_id + 1).expect("skip_to failed").is_none());
-        }
-    }
-
-    /// Mock search context creating fake objects for testing.
-    /// It can be used to test expiration but not validation.
-    /// Use [`TestContext`] instead to test revalidation.
-    pub(crate) struct MockContext {
-        rule: SchemaRule,
-        spec: IndexSpec,
-        sctx: RedisSearchCtx,
-        qctx: QueryEvalCtx,
-        /// fake NumericRangeTree, cannot be used but those tests do not call revalidate()
-        numeric_range_tree: NumericRangeTree,
-    }
-
-    impl Default for MockContext {
-        fn default() -> Self {
-            let rule: SchemaRule = unsafe { std::mem::zeroed() };
-            let spec: IndexSpec = unsafe { std::mem::zeroed() };
-            let sctx: RedisSearchCtx = unsafe { std::mem::zeroed() };
-            let qctx: QueryEvalCtx = unsafe { std::mem::zeroed() };
-            let numeric_range_tree: NumericRangeTree = unsafe { std::mem::zeroed() };
-
-            Self {
-                rule,
-                spec,
-                sctx,
-                qctx,
-                numeric_range_tree,
-            }
-        }
-    }
-
-    impl Drop for MockContext {
-        fn drop(&mut self) {
-            unsafe {
-                ffi::array_free(self.spec.fieldIdToIndex as _);
-            }
-
-            unsafe {
-                ffi::TimeToLiveTable_Destroy(&mut self.spec.docs.ttl as _);
-            }
-        }
-    }
-
-    impl MockContext {
-        fn new(max_doc_id: t_docId, num_docs: usize) -> Pin<Box<Self>> {
-            // Need to Pin the whole struct so pointers remain valid.
-            let mut boxed = Box::pin(Self::default());
-
-            // SAFETY: We need to set up self-referential pointers after pinning.
-            // The struct is now pinned and won't move, so these pointers will remain valid.
-            unsafe {
-                let ptr = boxed.as_mut().get_unchecked_mut();
-
-                // Initialize SchemaRule
-                ptr.rule.index_all = false;
-
-                // Initialize IndexSpec
-                ptr.spec.rule = &mut ptr.rule;
-                ptr.spec.monitorDocumentExpiration = true; // Only depends on API availability, so always true
-                ptr.spec.monitorFieldExpiration = true; // Only depends on API availability, so always true
-                ptr.spec.docs.maxDocId = max_doc_id;
-                ptr.spec.docs.size = if num_docs > 0 {
-                    num_docs
-                } else {
-                    max_doc_id as usize
-                };
-                ptr.spec.stats.scoring.numDocuments = ptr.spec.docs.size;
-
-                // Initialize RedisSearchCtx
-                ptr.sctx.spec = &mut ptr.spec;
-
-                // Initialize QueryEvalCtx
-                ptr.qctx.sctx = &mut ptr.sctx;
-                ptr.qctx.docTable = &mut ptr.spec.docs;
-            }
-
-            boxed
-        }
-
-        /// Mark the given field of the given documents as expired.
-        fn mark_index_expired(&mut self, ids: Vec<t_docId>, field: FieldMaskOrIndex) {
-            // Already expired
-            let expiration = t_expirationTimePoint {
-                tv_nsec: 1,
-                tv_sec: 1,
-            };
-
-            for id in ids {
-                self.ttl_add(id, field, expiration);
-            }
-
-            // Set up the mock current time further in the future than the expiration point.
-            self.sctx.time.current = t_expirationTimePoint {
-                tv_sec: 100,
-                tv_nsec: 100,
-            };
-        }
-
-        /// Add a TTL entry for the given field in the given document.
-        fn ttl_add(
-            &mut self,
-            doc_id: t_docId,
-            field: FieldMaskOrIndex,
-            expiration: t_expirationTimePoint,
-        ) {
-            self.verify_ttl_init();
-
-            let fe = match field {
-                FieldMaskOrIndex::Index(index) => {
-                    let fe_entry = FieldExpiration {
-                        index,
-                        point: expiration,
-                    };
-
-                    let fe = unsafe {
-                        ffi::array_new_sz(std::mem::size_of::<FieldExpiration>() as u16, 0, 1)
-                    };
-                    let fe = fe.cast();
-                    unsafe {
-                        *fe = fe_entry;
-                    };
-
-                    fe
-                }
-                FieldMaskOrIndex::Mask(mask) => {
-                    let mut entries = vec![];
-                    // Add a FieldExpiration for each bit set in the mask
-                    let mut value = mask;
-                    while value != 0 {
-                        let index = value.trailing_zeros();
-                        let fe_entry = FieldExpiration {
-                            index: index as u16,
-                            point: expiration,
-                        };
-                        entries.push(fe_entry);
-                        value &= value - 1;
-                    }
-
-                    let fe = unsafe {
-                        ffi::array_new_sz(
-                            std::mem::size_of::<FieldExpiration>() as u16,
-                            0,
-                            entries.len() as u32,
-                        )
-                    };
-
-                    let fe = fe.cast::<FieldExpiration>();
-                    for (i, fe_entry) in entries.into_iter().enumerate() {
-                        unsafe {
-                            *fe.offset(i as isize) = fe_entry;
-                        }
-                    }
-
-                    fe
-                }
-            };
-
-            let doc_expiration_time = ffi::t_expirationTimePoint {
-                tv_sec: i64::MAX,
-                tv_nsec: i64::MAX,
-            };
-
-            unsafe {
-                ffi::TimeToLiveTable_Add(self.spec.docs.ttl, doc_id, doc_expiration_time, fe as _);
-            }
-        }
-
-        /// Ensure the spec TTL table is initialized.
-        fn verify_ttl_init(&mut self) {
-            if !self.spec.fieldIdToIndex.is_null() {
-                return;
-            }
-
-            // By default, set a max-length array (128 text fields) with fieldId(i) -> index(i)
-            let arr =
-                unsafe { ffi::array_new_sz(std::mem::size_of::<t_fieldIndex>() as u16, 0, 128) };
-            let arr = arr.cast::<t_fieldIndex>();
-
-            for i in 0..128 as t_fieldIndex {
-                unsafe {
-                    arr.offset(i as isize).write(i);
-                }
-            }
-
-            self.spec.fieldIdToIndex = arr as _;
-            unsafe {
-                ffi::TimeToLiveTable_VerifyInit(&mut self.spec.docs.ttl);
-            }
-        }
-
-        pub(crate) fn sctx(&self) -> ptr::NonNull<RedisSearchCtx> {
-            ptr::NonNull::new(&self.sctx as *const _ as *mut _)
-                .expect("mock context should not be null")
-        }
-
-        pub(crate) fn numeric_range_tree(&self) -> ptr::NonNull<NumericRangeTree> {
-            ptr::NonNull::new(&self.numeric_range_tree as *const _ as *mut _)
-                .expect("NumericRangeTree should not be null")
         }
     }
 

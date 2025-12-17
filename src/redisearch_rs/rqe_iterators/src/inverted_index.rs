@@ -39,6 +39,7 @@ pub struct InvIndIterator<'index, R> {
     result: RSIndexResult<'index>,
 
     /// Query context used to revalidate the iterator and to check for expiration.
+    /// TODO: remove the Option once Term::new_simple() has been removed.
     query_ctx: Option<QueryContext>,
 
     /// The implementation of the `read` method.
@@ -431,7 +432,7 @@ where
 pub struct Numeric<'index, R> {
     it: InvIndIterator<'index, R>,
     /// The numeric range tree used to query the inverted index.
-    range_tree: Option<NonNull<ffi::NumericRangeTree>>,
+    range_tree: NonNull<ffi::NumericRangeTree>,
     /// The revision ID of the numeric range tree. Used to detect changes to the tree when revalidating.
     revision_id: u32,
 }
@@ -440,24 +441,6 @@ impl<'index, R> Numeric<'index, R>
 where
     R: NumericReader<'index>,
 {
-    /// Create an iterator returning results from a numeric inverted index.
-    ///
-    /// Filtering the results can be achieved by wrapping the reader with
-    /// a [`NumericReader`] such as [`inverted_index::FilterNumericReader`]
-    /// or [`inverted_index::FilterGeoReader`].
-    ///
-    /// This constructor should only used in tests, production code should use
-    /// [`Numeric::new`] instead.
-    #[doc(hidden)]
-    pub fn new_simple(reader: R) -> Self {
-        let result = RSIndexResult::numeric(0.0);
-        Self {
-            it: InvIndIterator::new(reader, result, None),
-            range_tree: None,
-            revision_id: 0,
-        }
-    }
-
     /// Create an iterator returning results from a numeric inverted index.
     ///
     /// Filtering the results can be achieved by wrapping the reader with
@@ -501,7 +484,7 @@ where
                     },
                 }),
             ),
-            range_tree: Some(range_tree),
+            range_tree,
             revision_id: rt.revisionId,
         }
     }
@@ -511,12 +494,8 @@ where
             return true;
         };
 
-        let Some(range_tree) = &self.range_tree else {
-            return true;
-        };
-
         // SAFETY: 5. from [`Self::new`]
-        let rt = unsafe { range_tree.as_ref() };
+        let rt = unsafe { self.range_tree.as_ref() };
         // If the revision id changed the numeric tree was either completely deleted or a node was split or removed.
         // The cursor is invalidated so we cannot revalidate the iterator.
         rt.revisionId == self.revision_id
