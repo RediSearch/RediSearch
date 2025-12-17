@@ -199,9 +199,13 @@ jobs:
     needs: [get-config, build-image, start-runner]
     name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
     # Run if get-config succeeded and at least one test type is enabled
+    # Note: start-runner may be skipped for non-self-hosted platforms
+    # always() is required for the if condition to be evaluated when start-runner is skipped
     if: |
+      always() &&
       !cancelled() &&
       needs.get-config.result == 'success' &&
+      (needs.start-runner.result == 'success' || needs.start-runner.result == 'skipped') &&
       (inputs.standalone || inputs.coordinator || inputs.unit-tests)
     runs-on: ${{ inputs.self-hosted && needs.start-runner.outputs.label || inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container: ${{
