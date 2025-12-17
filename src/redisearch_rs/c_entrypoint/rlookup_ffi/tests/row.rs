@@ -101,6 +101,7 @@ fn rlookuprow_writebynameowned() {
 
     assert_eq!(value.refcount(), Some(1));
 
+    // See the comment regarding `mem::forget()` at the end of `RLookupRow_WriteByName()` for more info.
     mem::forget(value);
 }
 
