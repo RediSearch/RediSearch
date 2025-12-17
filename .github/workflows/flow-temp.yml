@@ -13,8 +13,7 @@ on:
 
 jobs:
   run-on-intel:
-    needs: get-latest-redis-tag
     secrets: inherit
     uses: ./.github/workflows/flow-intel.yml
     with:
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      get-redis: 'unstable'
