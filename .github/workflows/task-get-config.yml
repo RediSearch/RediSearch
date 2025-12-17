@@ -101,6 +101,7 @@ jobs:
                   "x86_64": {
                       'container': 'ubuntu:noble',
                       'setup_script': 'apt update && apt install -y git',
+                      'post_setup_script': 'echo CC=clang-20 >> $GITHUB_ENV; echo CXX=clang++-20 >> $GITHUB_ENV',
                       'name': 'Ubuntu Noble x86_64'
                   },
                   "aarch64": {
@@ -244,7 +245,19 @@ jobs:
                       'setup_script': 'tdnf install -y --noplugins tar git ca-certificates',
                       'name': 'Azure Linux 3 ARM64'
                   }
-              }
+              },
+              "silkeh/clang:20": {
+                  "x86_64": {
+                      'container': 'silkeh/clang:20',
+                      'post_setup_script': 'echo CC=clang >> $GITHUB_ENV; echo CXX=clang++ >> $GITHUB_ENV',
+                      'name': 'Clang 20 x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'silkeh/clang:20',
+                      'post_setup_script': 'echo CC=clang >> $GITHUB_ENV; echo CXX=clang++ >> $GITHUB_ENV',
+                      'name': 'Clang 20 ARM64'
+                  }
+              },
           }
 
           if platform in platform_configs:

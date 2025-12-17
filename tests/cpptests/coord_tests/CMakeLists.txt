@@ -1,4 +1,4 @@
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/../../.. ABSOLUTE)
@@ -25,7 +25,7 @@ set(COMMON_FILES
 )
 
 add_executable(rstest_coord ${TEST_SOURCES} ${COMMON_FILES})
-target_link_libraries(rstest_coord gtest ${TEST_MODULE} redismock ${CMAKE_LD_LIBS})
+target_link_libraries(rstest_coord gtest ${TEST_MODULE} redismock)
 set_target_properties(rstest_coord PROPERTIES LINKER_LANGUAGE CXX)
 gtest_discover_tests(rstest_coord
     PROPERTIES TIMEOUT 300  # Timeout for each individual test

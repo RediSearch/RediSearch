@@ -27,9 +27,14 @@ function(setup_cc_options)
     message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
     # Common compiler flags
-    set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
-    set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
-    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_C_FLAGS "-v -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS "-v -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
+    set(CMAKE_CXX_STANDARD 20 PARENT_SCOPE)
+
+    # Use LLD linker if explicitly requested (affects all linking)
+    set(CMAKE_EXE_LINKER_FLAGS "-fuse-ld=lld" PARENT_SCOPE)
+    set(CMAKE_SHARED_LINKER_FLAGS "-fuse-ld=lld" PARENT_SCOPE)
+
     # Release/Debug/Profile specific flags
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
@@ -373,6 +378,8 @@ endif()
 set_target_properties(redisearch
     PROPERTIES
     LINKER_LANGUAGE CXX
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
     C_STANDARD 17
     C_STANDARD_REQUIRED ON
     POSITION_INDEPENDENT_CODE ON)
@@ -395,7 +402,7 @@ target_link_libraries(redisearch
         ttl_table
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
-        ${CMAKE_LD_LIBS})
+)
 
 extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
@@ -406,6 +413,12 @@ add_dependencies(redisearch redisearch_rs)
 #----------------------------------------------------------------------------------------------
 # Unit tests configuration
 if(BUILD_SEARCH_UNIT_TESTS)
+    # Special linker flags to ignore unresolved symbols in shared libraries
+    # if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "20.0")
+    #     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--unresolved-symbols=ignore-in-shared-libs")
+    #     message(STATUS "Clang ${CMAKE_CXX_COMPILER_VERSION}: Setting --unresolved-symbols=ignore-in-shared-libs for test executables")
+    # endif()
+
     enable_testing()
 
     add_subdirectory(tests/cpptests/redismock)

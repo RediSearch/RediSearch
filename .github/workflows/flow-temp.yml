@@ -9,12 +9,13 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
 
-  alpine-test:
+  clang20-test:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: alpine:3.22
+      platform: ubuntu:noble
+      architecture: x86_64
