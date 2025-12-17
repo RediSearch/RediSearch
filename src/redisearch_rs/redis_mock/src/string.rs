@@ -73,7 +73,7 @@ pub(crate) unsafe extern "C" fn RedisModule_FreeString(
 /// # Safety
 /// 1. `s` must be a valid pointer to a NULL-terminated string.
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn RedisModule_Strdup(s: *const i8) -> *mut i8 {
+pub unsafe extern "C" fn RedisModule_Strdup(s: *const c_char) -> *mut c_char {
     if s.is_null() {
         std::ptr::null_mut()
     } else {
@@ -82,7 +82,7 @@ pub unsafe extern "C" fn RedisModule_Strdup(s: *const i8) -> *mut i8 {
         // Need an extra byte for null terminator
         let len = c_str.count_bytes() + 1;
         // Allocate memory using the mock allocator
-        let out = crate::allocator::alloc_shim(len) as *mut i8;
+        let out = crate::allocator::alloc_shim(len) as *mut c_char;
         assert!(!out.is_null());
 
         // Safety:
