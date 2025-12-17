@@ -357,7 +357,7 @@ size_t RLookup_GetLength(const struct RLookup *lookup,
                          size_t skip_field_index_len,
                          uint32_t required_flags,
                          uint32_t excluded_flags,
-                         SchemaRule *rule);
+                         const SchemaRule *rule);
 
 /**
  * Initialize the lookup. If cache is provided, then it will be used as an

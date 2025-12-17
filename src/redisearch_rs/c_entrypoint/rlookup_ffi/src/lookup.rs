@@ -8,9 +8,8 @@
 */
 
 use crate::row::RLookupRow;
-use ffi::SchemaRule;
 use libc::size_t;
-use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags, SchemaRuleWrapper};
+use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags, SchemaRule};
 use std::{
     ffi::{CStr, c_char},
     ptr::NonNull,
@@ -299,7 +298,7 @@ pub unsafe extern "C" fn RLookup_GetLength(
     skip_field_index_len: size_t,
     required_flags: u32,
     excluded_flags: u32,
-    rule: Option<NonNull<SchemaRule>>,
+    rule: *const ffi::SchemaRule,
 ) -> size_t {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.as_ref().unwrap() };
@@ -316,8 +315,11 @@ pub unsafe extern "C" fn RLookup_GetLength(
     let excluded_flags = RLookupKeyFlags::from_bits(excluded_flags).unwrap();
 
     // Safety: ensured by caller (4.)
-    let rule = rule.map(|ptr| unsafe { SchemaRuleWrapper::from_non_null(ptr) });
-    let rule = rule.as_ref();
+    let rule = if rule.is_null() {
+        None
+    } else {
+        Some(unsafe { SchemaRule::from_raw(rule) })
+    };
 
     row.get_length_no_alloc(
         lookup,
