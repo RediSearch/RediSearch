@@ -120,4 +120,4 @@ jobs:
       coverage: ${{ matrix.job-type == 'coverage' }}
       san: ${{ matrix.job-type == 'sanitize' && 'address' || '' }}
       fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
-      self-hosted: ${{ matrix.self-hosted }}
+      self-hosted: ${{ matrix.self-hosted || false }}
