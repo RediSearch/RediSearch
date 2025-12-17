@@ -602,12 +602,16 @@ WARN_ERR_SECTION = f'{SEARCH_PREFIX}warnings_and_errors'
 SEARCH_SHARD_PREFIX = 'search_shard_'
 SYNTAX_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_syntax"
 ARGS_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_arguments"
+TIMEOUT_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_timeout"
+TIMEOUT_WARNING_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_timeout"
 
 COORD_WARN_ERR_SECTION = WARN_ERR_SECTION.replace(SEARCH_PREFIX, 'search_coordinator_')
 
 SEARCH_COORD_PREFIX = 'search_coord_'
 SYNTAX_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_syntax"
 ARGS_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_arguments"
+TIMEOUT_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_timeout"
+TIMEOUT_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_timeout"
 
 # Expect env and conn so we can assert
 def _verify_metrics_not_changed(env, conn, prev_info_dict: dict, ignored_metrics : list):
@@ -638,44 +642,85 @@ class testWarningsAndErrorsStandalone:
     self.prev_info_dict = info_modules_to_dict(self.env)
 
   def test_syntax_errors_SA(self):
-    # Standalone shards are considered as shards in the info metrics
+    # Standalone shards are considered as coordinator in the info metrics
 
     # Test syntax errors
     self.env.expect('FT.SEARCH', 'idx', 'hello world:').error().contains('Syntax error at offset')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
-    syntax_error_count = info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC]
+    syntax_error_count = info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC]
     self.env.assertEqual(syntax_error_count, '1')
     # Test syntax errors in aggregate
     self.env.expect('FT.AGGREGATE', 'idx', 'hello world:').error().contains('Syntax error at offset')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
-    syntax_error_count = info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC]
+    syntax_error_count = info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC]
     self.env.assertEqual(syntax_error_count, '2')
 
     # Test other metrics not changed
-    tested_in_this_test = [SYNTAX_ERROR_SHARD_METRIC]
+    tested_in_this_test = [SYNTAX_ERROR_COORD_METRIC]
     _verify_metrics_not_changed(self.env, self.env, self.prev_info_dict, tested_in_this_test)
 
   def test_args_errors_SA(self):
-    # Standalone shards are considered as shards in the info metrics
+    # Standalone shards are considered as coordinator in the info metrics
 
     # Test args errors
     self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
-    args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
+    args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
     self.env.assertEqual(args_error_count, '1')
     # Test args errors in aggregate
     self.env.expect('FT.AGGREGATE', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
-    args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
+    args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
     self.env.assertEqual(args_error_count, '2')
 
     # Test other metrics not changed
-    tested_in_this_test = [ARGS_ERROR_SHARD_METRIC]
+    tested_in_this_test = [ARGS_ERROR_COORD_METRIC]
     _verify_metrics_not_changed(self.env, self.env, self.prev_info_dict, tested_in_this_test)
+
+  def test_timeout_SA(self):
+    # Standalone shards are considered as coordinator in the info metrics
+
+    # ---------- Timeout Errors ----------
+    self.env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
+    before_info_dict_err = info_modules_to_dict(self.env)
+    base_err = int(before_info_dict_err[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+
+    # Test timeout error in FT.SEARCH
+    self.env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*',
+                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('Timeout limit was reached')
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err + 1))
+
+    # Test timeout error in FT.AGGREGATE
+    self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
+                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('Timeout limit was reached')
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err + 2))
+
+    # ---------- Timeout Warnings ----------
+    self.env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+    before_info_dict = info_modules_to_dict(self.env)
+    base_warn = int(before_info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+    # Test timeout warning in FT.SEARCH
+    self.env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*',
+                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).noError()
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC], str(base_warn + 1))
+
+    # Test timeout warning in FT.AGGREGATE
+    self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
+                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).noError()
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC], str(base_warn + 2))
+
+    # Test other metrics not changed
+    tested_in_this_test = [TIMEOUT_WARNING_COORD_METRIC, TIMEOUT_ERROR_COORD_METRIC]
+    _verify_metrics_not_changed(self.env, self.env, before_info_dict, tested_in_this_test)
 
   def test_no_error_queries_SA(self):
     # Standalone shards are considered as coordinator in the info metrics
@@ -698,10 +743,13 @@ class testWarningsAndErrorsStandalone:
 def _common_warnings_errors_cluster_test_scenario(env):
   """Common setup for warnings and errors cluster tests"""
   # Create index
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+  env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc:', 'SCHEMA', 'text', 'TEXT').ok()
   # Create doc
   conn = getConnectionByEnv(env)
-  conn.execute_command('HSET', 'doc:1', 'text', 'hello world')
+  # Insert enough docs s.t each shard will timeout
+  docs_per_shard = 3
+  for i in range(docs_per_shard * env.shardsCount):
+    conn.execute_command('HSET', f'doc:{i}', 'text', f'hello world {i}')
 
 class testWarningsAndErrorsCluster:
   """Test class for warnings and errors metrics in cluster mode with RESP2"""
@@ -737,7 +785,8 @@ class testWarningsAndErrorsCluster:
       shard_conn = self.env.getConnection(shardId)
       info_dict = info_modules_to_dict(shard_conn)
       syntax_error_count = info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC]
-      self.env.assertEqual(syntax_error_count, '1', message=f"Shard {shardId} has wrong syntax error count")
+      self.env.assertEqual(syntax_error_count, '1',
+                           message=f"Shard {shardId} has wrong syntax error count")
     # Check coord metric unchanged
     # Syntax error in FT.SEARCH are not checked on the coordinator
     info_dict = info_modules_to_dict(self.env)
@@ -751,7 +800,8 @@ class testWarningsAndErrorsCluster:
       shard_conn = self.env.getConnection(shardId)
       info_dict = info_modules_to_dict(shard_conn)
       syntax_error_count = info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC]
-      self.env.assertEqual(syntax_error_count, '2', message=f"Shard {shardId} has wrong syntax error count")
+      self.env.assertEqual(syntax_error_count, '2',
+                           message=f"Shard {shardId} has wrong syntax error count")
     # Check coord metric unchanged
     # Syntax error in FT.AGGREGATE are not checked on the coordinator
     info_dict = info_modules_to_dict(self.env)
@@ -769,9 +819,11 @@ class testWarningsAndErrorsCluster:
       shard_conn = self.env.getConnection(shardId)
       info_dict = info_modules_to_dict(shard_conn)
       args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
-      self.env.assertEqual(args_error_count, '0', message=f"Shard {shardId} has wrong initial args error count")
+      self.env.assertEqual(args_error_count, '0',
+                           message=f"Shard {shardId} has wrong initial args error count")
       args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
-      self.env.assertEqual(args_error_count, '0', message=f"Shard {shardId} has wrong initial args error count")
+      self.env.assertEqual(args_error_count, '0',
+                           message=f"Shard {shardId} has wrong initial args error count")
 
     # Test args errors that are counted in the shards
     self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 0, 10, 'MEOW').error().contains('Unknown argument')
@@ -780,7 +832,8 @@ class testWarningsAndErrorsCluster:
       shard_conn = self.env.getConnection(shardId)
       info_dict = info_modules_to_dict(shard_conn)
       args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
-      self.env.assertEqual(args_error_count, '1', message=f"Shard {shardId} has wrong args error count")
+      self.env.assertEqual(args_error_count, '1',
+                           message=f"Shard {shardId} has wrong args error count")
     # Check coord metric unchanged
     info_dict = info_modules_to_dict(self.env)
     coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
@@ -795,7 +848,8 @@ class testWarningsAndErrorsCluster:
       shard_conn = self.env.getConnection(shardId)
       info_dict = info_modules_to_dict(shard_conn)
       args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
-      self.env.assertEqual(args_error_count, '2', message=f"Shard {shardId} has wrong args error count")
+      self.env.assertEqual(args_error_count, '2',
+                           message=f"Shard {shardId} has wrong args error count")
     # Check coord metric unchanged
     info_dict = info_modules_to_dict(self.env)
     coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
@@ -808,7 +862,8 @@ class testWarningsAndErrorsCluster:
       shard_conn = self.env.getConnection(shardId)
       info_dict = info_modules_to_dict(shard_conn)
       args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
-      self.env.assertEqual(args_error_count, '2', message=f"Shard {shardId} has wrong args error count")
+      self.env.assertEqual(args_error_count, '2',
+                           message=f"Shard {shardId} has wrong args error count")
     # Check coord metric (should change)
     info_dict = info_modules_to_dict(self.env)
     coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
@@ -822,7 +877,8 @@ class testWarningsAndErrorsCluster:
       shard_conn = self.env.getConnection(shardId)
       info_dict = info_modules_to_dict(shard_conn)
       args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
-      self.env.assertEqual(args_error_count, '2', message=f"Shard {shardId} has wrong args error count")
+      self.env.assertEqual(args_error_count, '2',
+                           message=f"Shard {shardId} has wrong args error count")
     # Check coord metric
     info_dict = info_modules_to_dict(self.env)
     coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
@@ -845,10 +901,12 @@ class testWarningsAndErrorsCluster:
       after_info_dict = info_modules_to_dict(shard_conn)
       before_warn_err = before_info_dicts[shardId - 1][WARN_ERR_SECTION]
       after_warn_err = after_info_dict[WARN_ERR_SECTION]
-      self.env.assertEqual(before_warn_err, after_warn_err, message=f"Shard {shardId} has wrong warnings/errors section after no-error query")
+      self.env.assertEqual(before_warn_err, after_warn_err,
+                           message=f"Shard {shardId} has wrong warnings/errors section after no-error query")
       before_coord_warn_err = before_info_dicts[shardId - 1][COORD_WARN_ERR_SECTION]
       after_coord_warn_err = after_info_dict[COORD_WARN_ERR_SECTION]
-      self.env.assertEqual(before_coord_warn_err, after_coord_warn_err, message=f"Shard {shardId} has wrong coordinator warnings/errors section after no-error query")
+      self.env.assertEqual(before_coord_warn_err, after_coord_warn_err,
+                           message=f"Shard {shardId} has wrong coordinator warnings/errors section after no-error query")
 
     # Test no error queries in aggregate
     self.env.expect('FT.AGGREGATE', 'idx', 'hello world').noError()
@@ -857,10 +915,12 @@ class testWarningsAndErrorsCluster:
       after_info_dict = info_modules_to_dict(shard_conn)
       before_warn_err = before_info_dicts[shardId - 1][WARN_ERR_SECTION]
       after_warn_err = after_info_dict[WARN_ERR_SECTION]
-      self.env.assertEqual(before_warn_err, after_warn_err, message=f"Shard {shardId} has wrong warnings/errors section after no-error aggregate query")
+      self.env.assertEqual(before_warn_err, after_warn_err,
+                           message=f"Shard {shardId} has wrong warnings/errors section after no-error aggregate query")
       before_coord_warn_err = before_info_dicts[shardId - 1][COORD_WARN_ERR_SECTION]
       after_coord_warn_err = after_info_dict[COORD_WARN_ERR_SECTION]
-      self.env.assertEqual(before_coord_warn_err, after_coord_warn_err, message=f"Shard {shardId} has wrong coordinator warnings/errors section after no-error aggregate query")
+      self.env.assertEqual(before_coord_warn_err, after_coord_warn_err,
+                           message=f"Shard {shardId} has wrong coordinator warnings/errors section after no-error aggregate query")
 
 def test_errors_and_warnings_init(env):
   # Verify fields in metric are initialized properly
