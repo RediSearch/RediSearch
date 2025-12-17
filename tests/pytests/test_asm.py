@@ -284,7 +284,7 @@ def wait_for_migration_complete(env, dest_shard, source_shard, timeout=300, quer
                 break  # Exit outer loop when migration completes successfully
             except TaskIDFailed as e:
                 env.debugPrint(f"Task failed: {e}")
-                task_id = import_middle_slot_range(dest_shard, source_shard)
+                time.sleep(0.1)
 
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
