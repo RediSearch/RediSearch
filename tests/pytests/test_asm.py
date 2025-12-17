@@ -658,3 +658,41 @@ def test_ft_cursors_trimmed():
 def test_ft_cursors_trimmed_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     _test_ft_cursors_trimmed(env)
+
+@skip(cluster=False)
+def test_migrate_no_indexes():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+
+    # Set trim delay to prevent trimming during test
+    for shard in env.getOSSMasterNodesConnectionList():
+        shard.execute_command('CONFIG', 'SET', 'search-_max-trim-delay-ms', 10000000)
+        shard.execute_command('CONFIG', 'SET', 'search-_min-trim-delay-ms', 1000000)
+
+    # Add documents without creating any index
+    n_docs = 5 * 2**14
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(n_docs):
+            con.execute_command('HSET', f'doc-{i}:{{{i % 2**14}}}',
+                              'n', i,
+                              'text', f'document {i} content data',
+                              'tag', 'even' if i % 2 == 0 else 'odd')
+
+    shard1, shard2 = env.getConnection(1), env.getConnection(2)
+
+    # Measure migration time
+    start_time = time.time()
+    task_id = import_middle_slot_range(shard1, shard2)
+    # Wait for trim completion
+    with TimeLimit(300):
+        while True:
+            try:
+                while not is_migration_complete(shard1, task_id) or not is_migration_complete(shard2, task_id):
+                    time.sleep(0.1)
+                break  # Exit outer loop when migration completes successfully
+            except TaskIDFailed as e:
+                env.debugPrint(f"Task failed: {e}")
+                task_id = import_middle_slot_range(shard1, shard2)
+
+    migration_time = time.time() - start_time
+    env.debugPrint(f"Migration time: {migration_time}")
+    env.assertLess(migration_time, 300.0)
