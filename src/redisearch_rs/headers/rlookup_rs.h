@@ -346,7 +346,7 @@ struct RLookupKey *RLookup_GetKey_LoadEx(struct RLookup *lookup,
  *
  * 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
  * 2. `row` must be a [valid], non-null pointer to a [`RLookupRow`]
- * 3. `skip_field_index` must be [valid] for reads and writes of `skip_field_index_len` boolean values
+ * 3. `skip_field_index` must be a [valid] non-null pointer for reads and writes of `skip_field_index_len` boolean values
  * 4. `rule` must be a [valid], non-null pointer to a [`SchemaRule`] or a null pointer
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
