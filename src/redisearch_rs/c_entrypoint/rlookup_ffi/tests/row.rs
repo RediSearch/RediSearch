@@ -71,7 +71,7 @@ fn rlookuprow_writebyname() {
             Some(NonNull::from(&mut lookup)),
             name.as_ptr(),
             len,
-            Some(NonNull::from(&row)),
+            Some(NonNull::from(&mut row)),
             NonNull::new(value.as_ptr()),
         );
     }
