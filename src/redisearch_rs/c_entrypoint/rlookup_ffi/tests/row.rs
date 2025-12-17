@@ -100,6 +100,8 @@ fn rlookuprow_writebynameowned() {
     }
 
     assert_eq!(value.refcount(), Some(1));
+    
+    mem::forget(value);
 }
 
 /// Mock implementation of `RSValue_IncrRef` for testing purposes
