@@ -252,6 +252,40 @@ def create_and_populate_index(env: Env, index_name: str, n_docs: int):
                               'timestamp', int(time.time() * 1000),
                               'extra_data', f'initial_{i}')
 
+def wait_for_migration_complete(env, dest_shard, source_shard, timeout=300, query_during_migration=None):
+    """Helper to wait for slot migration to complete with retry on failure
+
+    Args:
+        env: Test environment
+        dest_shard: Destination shard connection
+        source_shard: Source shard connection
+        timeout: Timeout in seconds
+        query_during_migration: Optional dict with keys 'query', 'shards', 'expected', 'query_type'
+                               to run queries during migration
+    """
+    task_id = import_middle_slot_range(dest_shard, source_shard)
+    with TimeLimit(timeout):
+        while True:
+            try:
+                if query_during_migration:
+                    # Pattern with queries during migration
+                    while not is_migration_complete(dest_shard, task_id):
+                        env.debugPrint("Querying shards while migration is in progress")
+                        query_shards(env, query_during_migration['query'],
+                                   query_during_migration['shards'],
+                                   query_during_migration['expected'],
+                                   query_during_migration['query_type'])
+                        env.debugPrint("Query passed")
+                        time.sleep(0.001)
+                else:
+                    # Original pattern checking both shards
+                    while not is_migration_complete(dest_shard, task_id) or not is_migration_complete(source_shard, task_id):
+                        time.sleep(0.1)
+                break  # Exit outer loop when migration completes successfully
+            except TaskIDFailed as e:
+                env.debugPrint(f"Task failed: {e}")
+                task_id = import_middle_slot_range(dest_shard, source_shard)
+
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
 def import_slot_range_sanity_test(env: Env, query_type: str = 'FT.SEARCH'):
@@ -281,16 +315,7 @@ def import_slot_range_sanity_test(env: Env, query_type: str = 'FT.SEARCH'):
     query_shards(env, query, shards, expected, query_type)
 
     # Import slots from shard 2 to shard 1, and wait for it to complete
-    task_id = import_middle_slot_range(shard1, shard2)
-    with TimeLimit(300):
-        while True:
-            try:
-                while not is_migration_complete(shard1, task_id) or not is_migration_complete(shard2, task_id):
-                    time.sleep(0.1)
-                break  # Exit outer loop when migration completes successfully
-            except TaskIDFailed as e:
-                env.debugPrint(f"Task failed: {e}")
-                task_id = import_middle_slot_range(shard1, shard2)
+    wait_for_migration_complete(env, shard1, shard2)
     query_shards(env, query, shards, expected, query_type)
 
 def parallel_update_worker(env, n_docs, stop_event):
@@ -362,20 +387,7 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH', parallel_upd
         time.sleep(0.5)
 
     # Test searching while importing slots from shard 2 to shard 1
-    task_id = import_middle_slot_range(shard1, shard2)
-    with TimeLimit(300):
-        while True:
-            try:
-                while not is_migration_complete(shard1, task_id):
-                    env.debugPrint("Querying shards while migration is in progress")
-                    query_shards(env, query, shards, expected, query_type)
-                    env.debugPrint("Query passed")
-                    time.sleep(0.001)
-                break  # Exit outer loop when migration completes successfully
-            except TaskIDFailed as e:
-                env.debugPrint(f"Task failed: {e}")
-                task_id = import_middle_slot_range(shard1, shard2)
-
+    wait_for_migration_complete(env, shard1, shard2, query_during_migration={'query': query, 'shards': shards, 'expected': expected, 'query_type': query_type})
     env.debugPrint("Querying shards after migration")
     query_shards(env, query, shards, expected, query_type)
     env.debugPrint("Query after migration passed")
@@ -418,12 +430,14 @@ def test_ft_aggregate_withcursor_import_slot_range_BG():
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
 #TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
 @skip
 def test_ft_hybrid_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.HYBRID')
 
 #TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
 @skip
 def test_ft_hybrid_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
@@ -461,12 +475,14 @@ def test_ft_aggregate_withcursor_import_slot_range_parallel_updates_BG():
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR', parallel_updates=True)
 
 #TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
 @skip
 def test_ft_hybrid_import_slot_range_parallel_updates():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.HYBRID', parallel_updates=True)
 
 #TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
 @skip
 def test_ft_hybrid_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
@@ -503,12 +519,14 @@ def test_ft_aggregate_withcursor_import_slot_range_sanity_BG():
     import_slot_range_sanity_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
 #TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
 @skip
 def test_ft_hybrid_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_sanity_test(env, 'FT.HYBRID')
 
 #TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
 @skip
 def test_ft_hybrid_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
@@ -546,19 +564,7 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
     env.addShardToClusterIfExists()
     new_shard = env.getConnection(shardId=initial_shards_count+1)
     # ...and migrate slots from shard 1 to the new shard
-    task_id = import_middle_slot_range(new_shard, shard1)
-    with TimeLimit(300):
-        while True:
-            try:
-                while not is_migration_complete(new_shard, task_id):
-                    env.debugPrint("Querying shards while migration is in progress")
-                    query_shards(env, query, shards, expected, query_type)
-                    env.debugPrint("Query passed")
-                    time.sleep(0.001)
-                break  # Exit outer loop when migration completes successfully
-            except TaskIDFailed as e:
-                env.debugPrint(f"Task failed: {e}")
-                task_id = import_middle_slot_range(new_shard, shard1)
+    wait_for_migration_complete(env, new_shard, shard1, query_during_migration={'query': query, 'shards': shards, 'expected': expected, 'query_type': query_type})
 
     # Expect new shard to have the index schema
     env.assertEqual(new_shard.execute_command('FT._LIST'), ['idx'])
@@ -598,12 +604,14 @@ def test_add_shard_and_migrate_aggregate_withcursor_BG():
     add_shard_and_migrate_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
 #TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
 @skip
 def test_add_shard_and_migrate_hybrid():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.HYBRID')
 
 #TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
 @skip
 def test_add_shard_and_migrate_hybrid_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
@@ -630,16 +638,7 @@ def _test_ft_cursors_trimmed(env: Env):
     expected = get_expected(env, query, 'FT.AGGREGATE.WITHCURSOR')
 
     _, cursor_id = env.cmd(*query)
-    task_id = import_middle_slot_range(shard1, shard2)
-    with TimeLimit(300):
-        while True:
-            try:
-                while not is_migration_complete(shard1, task_id) or not is_migration_complete(shard2, task_id):
-                    time.sleep(0.1)
-                break  # Exit outer loop when migration completes successfully
-            except TaskIDFailed as e:
-                env.debugPrint(f"Task failed: {e}")
-                task_id = import_middle_slot_range(shard1, shard2)
+    wait_for_migration_complete(env, shard1, shard2)
     total_results = []
     while cursor_id != 0:
         res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
@@ -681,18 +680,7 @@ def test_migrate_no_indexes():
 
     # Measure migration time
     start_time = time.time()
-    task_id = import_middle_slot_range(shard1, shard2)
-    # Wait for trim completion
-    with TimeLimit(300):
-        while True:
-            try:
-                while not is_migration_complete(shard1, task_id) or not is_migration_complete(shard2, task_id):
-                    time.sleep(0.1)
-                break  # Exit outer loop when migration completes successfully
-            except TaskIDFailed as e:
-                env.debugPrint(f"Task failed: {e}")
-                task_id = import_middle_slot_range(shard1, shard2)
-
+    wait_for_migration_complete(env, shard1, shard2)
     migration_time = time.time() - start_time
     env.debugPrint(f"Migration time: {migration_time}")
     env.assertLess(migration_time, 300.0)
