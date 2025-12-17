@@ -942,6 +942,14 @@ def allShards_set_unlimited_maxmemory_for_oom(env):
     for shardId in range(1, env.shardsCount + 1):
         shard_set_unlimited_maxmemory_for_oom(env, shardId)
 
+def shard_change_timeout_policy(env, shardId, policy):
+    res = env.getConnection(shardId).execute_command(config_cmd(), 'SET', 'ON_TIMEOUT', policy)
+    env.assertEqual(res, 'OK')
+
+def allShards_change_timeout_policy(env, policy):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_change_timeout_policy(env, shardId, policy)
+
 def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
     for k in d1:
         if k in d2:
