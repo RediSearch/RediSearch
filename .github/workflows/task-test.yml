@@ -51,6 +51,10 @@ on:
         type: boolean
         default: false
         description: "If true, the workflow will terminate as soon as one test step fails."
+      self-hosted:
+        type: boolean
+        default: false
+        description: "If true, the workflow will provision a self-hosted EC2 runner."
 
 env:
   REJSON: ${{ inputs.rejson && 1 || 0 }} # convert the boolean input to numeric
@@ -85,6 +89,46 @@ jobs:
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
+
+  # Start EC2 runner for self-hosted platforms
+  start-runner:
+    name: Start self-hosted EC2 runner
+    if: ${{ inputs.self-hosted }}
+    runs-on: ubuntu-latest
+    env:
+      AWS_IMAGE_ID: ami-09fabd03bb09b3704
+      AWS_INSTANCE_TYPE: c7i.xlarge
+      TAGS: | # Make sure there is no trailing comma!
+        [
+        {"Key": "Name",         "Value": "redisearch-ci-runner"},
+        {"Key": "Environment",  "Value": "CI"},
+        {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
+        {"Key": "PR",           "Value": "${{ github.event.number }}"},
+        {"Key": "Owner",        "Value": "${{ github.actor }}"},
+        {"Key": "Project",      "Value": "${{ github.repository }}"}
+        ]
+    outputs:
+      label: ${{ steps.start-ec2-runner.outputs.label }}
+      ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
+          aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
+      - name: Start EC2 runner
+        id: start-ec2-runner
+        uses: machulav/ec2-github-runner@v2
+        with:
+          mode: start
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          ec2-image-id: ${{ env.AWS_IMAGE_ID }}
+          ec2-instance-type: ${{ env.AWS_INSTANCE_TYPE }}
+          subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
+          security-group-id: ${{ secrets.AWS_EC2_SG_ID_BENCHMARK }}
+          aws-resource-tags: ${{ env.TAGS }}
+
   build-image:
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
@@ -152,14 +196,14 @@ jobs:
           echo "succeeded=true" >> $GITHUB_OUTPUT
 
   common-flow:
-    needs: [get-config, build-image]
+    needs: [get-config, build-image, start-runner]
     name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
     # Run if get-config succeeded and at least one test type is enabled
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
       (inputs.standalone || inputs.coordinator || inputs.unit-tests)
-    runs-on: ${{ inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.self-hosted && needs.start-runner.outputs.label || inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container: ${{
       needs.get-config.outputs.container
         && fromJSON(
@@ -546,3 +590,24 @@ jobs:
           flags: unit
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  # Stop EC2 runner for self-hosted platforms (always runs to ensure cleanup)
+  stop-runner:
+    name: Stop self-hosted EC2 runner
+    needs: [start-runner, common-flow]
+    if: ${{ always() && needs.start-runner.outputs.ec2-instance-id != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
+          aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
+      - name: Stop EC2 runner
+        uses: machulav/ec2-github-runner@v2
+        with:
+          mode: stop
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          label: ${{ needs.start-runner.outputs.label }}
+          ec2-instance-id: ${{ needs.start-runner.outputs.ec2-instance-id }}

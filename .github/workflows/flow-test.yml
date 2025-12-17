@@ -24,8 +24,8 @@ on:
         description: 'Branch to use when building RedisJSON for tests'
       options:
         type: string
-        default: coordinator,standalone,unit-tests,rejson,fail-fast,intel
-        description: 'Comma-separated list of options: coordinator, standalone, unit-tests, rejson, fail-fast, coverage, sanitize, intel'
+        default: coordinator,standalone,unit-tests,rejson,fail-fast
+        description: 'Comma-separated list of options: coordinator, standalone, unit-tests, rejson, fail-fast, coverage, sanitize'
 
   workflow_dispatch:
     inputs:
@@ -87,10 +87,6 @@ on:
         description: 'Fail fast on test failures'
         type: boolean
         default: true
-      intel:
-        description: 'Run Intel tests on self-hosted EC2 runner'
-        type: boolean
-        default: true
 
 jobs:
   generate-matrix:
@@ -101,7 +97,7 @@ jobs:
       include-coverage: ${{ contains(inputs.options, 'coverage') }}
       include-sanitize: ${{ contains(inputs.options, 'sanitize') }}
 
-  # Unified test matrix - includes Linux and macOS platforms, plus optional coverage and sanitize
+  # Unified test matrix - includes Linux and macOS platforms, plus optional coverage, sanitize, and intel
   test-matrix:
     name: ${{ matrix.job-type == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', matrix.job-type, matrix.architecture) }}
     needs: [generate-matrix]
@@ -124,11 +120,4 @@ jobs:
       coverage: ${{ matrix.job-type == 'coverage' }}
       san: ${{ matrix.job-type == 'sanitize' && 'address' || '' }}
       fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
-
-  # Intel tests on self-hosted EC2 runner
-  run-on-intel:
-    if: ${{ contains(inputs.options, 'intel') || inputs.intel == true }}
-    uses: ./.github/workflows/flow-intel.yml
-    secrets: inherit
-    with:
-      get-redis: ${{ inputs.redis-ref }}
+      self-hosted: ${{ matrix.self-hosted }}
