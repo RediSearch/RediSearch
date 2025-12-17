@@ -9,7 +9,7 @@
 
 #[cfg(debug_assertions)]
 use crate::rlookup_id::RLookupId;
-use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRuleWrapper};
+use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule};
 use sorting_vector::RSSortingVector;
 use std::{borrow::Cow, ffi::CStr};
 use value::RSValueTrait;
@@ -81,7 +81,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         lookup: &RLookup,
         required_flags: RLookupKeyFlags,
         excluded_flags: RLookupKeyFlags,
-        rule: Option<&SchemaRuleWrapper>,
+        rule: Option<&SchemaRule>,
     ) -> (usize, Vec<bool>) {
         // Ensure that the length of skip_field_indices is lookup.get_row_len(), to avoid a panic in get_length_no_alloc().
         let mut skip_field_indices = vec![false; lookup.get_row_len() as usize];
@@ -110,7 +110,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         lookup: &RLookup,
         required_flags: RLookupKeyFlags,
         excluded_flags: RLookupKeyFlags,
-        rule: Option<&SchemaRuleWrapper>,
+        rule: Option<&SchemaRule>,
         out_flags: &mut [bool],
     ) -> usize {
         debug_assert!(
@@ -131,6 +131,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
             let key_matches_flag_requirements =
                 key.flags.contains(required_flags) && !key.flags.intersects(excluded_flags);
             let key_has_associated_value = self.get(key).is_some();
+            // Is this key a "special key" according to the schema? If so, we skip it
             let key_allowed_by_rule = !rule.is_some_and(|rule| rule.is_special_key(key));
 
             let will_count = will_increment_idx
@@ -337,54 +338,39 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
 
 #[cfg(test)]
 mod tests {
+    use std::ptr;
+
     use enumflags2::make_bitflags;
     use value::RSValueMock;
 
     use super::*;
 
-    /// Helper to create a SchemaRuleWrapper for testing, that is owned by Rust.
-    struct TestSchemaRuleWrapper(SchemaRuleWrapper);
+    fn test_schema_rule(
+        lang_field: Option<&std::ffi::CStr>,
+        score_field: Option<&std::ffi::CStr>,
+        payload_field: Option<&std::ffi::CStr>,
+    ) -> Box<ffi::SchemaRule> {
+        let lang_ptr = lang_field.map_or(std::ptr::null_mut(), |cstr| cstr.as_ptr().cast_mut());
+        let score_ptr = score_field.map_or(std::ptr::null_mut(), |cstr| cstr.as_ptr().cast_mut());
+        let payload_ptr =
+            payload_field.map_or(std::ptr::null_mut(), |cstr| cstr.as_ptr().cast_mut());
 
-    impl TestSchemaRuleWrapper {
-        fn new(
-            lang_field: Option<&std::ffi::CStr>,
-            score_field: Option<&std::ffi::CStr>,
-            payload_field: Option<&std::ffi::CStr>,
-        ) -> TestSchemaRuleWrapper {
-            use std::ptr::NonNull;
+        let schema_rule = ffi::SchemaRule {
+            lang_field: lang_ptr,
+            score_field: score_ptr,
+            payload_field: payload_ptr,
+            type_: 0,
+            prefixes: std::ptr::null_mut(),
+            filter_exp_str: std::ptr::null_mut(),
+            filter_exp: std::ptr::null_mut(),
+            filter_fields: std::ptr::null_mut(),
+            filter_fields_index: std::ptr::null_mut(),
+            score_default: 0.0,
+            lang_default: 0,
+            index_all: false,
+        };
 
-            let lang_ptr = lang_field.map_or(std::ptr::null_mut(), |cstr| cstr.as_ptr().cast_mut());
-            let score_ptr =
-                score_field.map_or(std::ptr::null_mut(), |cstr| cstr.as_ptr().cast_mut());
-            let payload_ptr =
-                payload_field.map_or(std::ptr::null_mut(), |cstr| cstr.as_ptr().cast_mut());
-
-            let schema_rule = ffi::SchemaRule {
-                lang_field: lang_ptr,
-                score_field: score_ptr,
-                payload_field: payload_ptr,
-                type_: 0,
-                prefixes: std::ptr::null_mut(),
-                filter_exp_str: std::ptr::null_mut(),
-                filter_exp: std::ptr::null_mut(),
-                filter_fields: std::ptr::null_mut(),
-                filter_fields_index: std::ptr::null_mut(),
-                score_default: 0.0,
-                lang_default: 0,
-                index_all: false,
-            };
-
-            let boxed_rule = Box::new(schema_rule);
-            let non_null_ptr = NonNull::new(Box::into_raw(boxed_rule)).unwrap();
-
-            unsafe { TestSchemaRuleWrapper(SchemaRuleWrapper::from_non_null(non_null_ptr)) }
-        }
-    }
-
-    impl Drop for TestSchemaRuleWrapper {
-        fn drop(&mut self) {
-            drop(unsafe { Box::from_raw(self.0.inner().as_ptr()) });
-        }
+        Box::new(schema_rule)
     }
 
     #[test]
@@ -395,12 +381,12 @@ mod tests {
         row.write_key_by_name(&mut rlookup, c"b", RSValueMock::create_num(12.));
         row.write_key_by_name(&mut rlookup, c"c", RSValueMock::create_num(36.));
 
-        let tsrw = TestSchemaRuleWrapper::new(None, None, None);
+        let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
             &rlookup,
             RLookupKeyFlags::empty(),
             RLookupKeyFlags::empty(),
-            Some(&tsrw.0),
+            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
         );
         assert_eq!(len, 3);
         assert_eq!(flags, vec![true, true, true]);
@@ -411,12 +397,12 @@ mod tests {
         let rlookup = RLookup::new();
         let row = RLookupRow::<RSValueMock>::new(&rlookup);
 
-        let tsrw = TestSchemaRuleWrapper::new(None, None, None);
+        let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
             &rlookup,
             RLookupKeyFlags::empty(),
             RLookupKeyFlags::empty(),
-            Some(&tsrw.0),
+            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
         );
         assert_eq!(len, 0);
         assert_eq!(flags, vec![]);
@@ -433,12 +419,12 @@ mod tests {
         row.write_key_by_name(&mut rlookup, c"b", RSValueMock::create_num(12.));
         row.write_key_by_name(&mut rlookup, c"c", RSValueMock::create_num(36.));
 
-        let tsrw = TestSchemaRuleWrapper::new(None, None, None);
+        let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
             &rlookup,
             make_bitflags!(RLookupKeyFlag::ExplicitReturn),
             RLookupKeyFlags::empty(),
-            Some(&tsrw.0),
+            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
         );
         assert_eq!(len, 1);
         assert_eq!(flags, vec![true, false, false]);
@@ -455,12 +441,12 @@ mod tests {
         row.write_key_by_name(&mut rlookup, c"b", RSValueMock::create_num(12.));
         row.write_key_by_name(&mut rlookup, c"c", RSValueMock::create_num(36.));
 
-        let tsrw = TestSchemaRuleWrapper::new(None, None, None);
+        let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
             &rlookup,
             RLookupKeyFlags::empty(),
             make_bitflags!(RLookupKeyFlag::ExplicitReturn),
-            Some(&tsrw.0),
+            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
         );
         assert_eq!(len, 2);
         assert_eq!(flags, vec![false, true, true]);
@@ -478,12 +464,12 @@ mod tests {
         row.write_key_by_name(&mut rlookup, c"b", RSValueMock::create_num(12.));
         row.write_key_by_name(&mut rlookup, c"c", RSValueMock::create_num(36.));
 
-        let tsrw = TestSchemaRuleWrapper::new(None, None, None);
+        let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
             &rlookup,
             make_bitflags!(RLookupKeyFlag::ExplicitReturn),
             make_bitflags!(RLookupKeyFlag::ExplicitReturn),
-            Some(&tsrw.0),
+            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
         );
         assert_eq!(len, 0);
         assert_eq!(flags, vec![false, false, false]);
@@ -518,12 +504,12 @@ mod tests {
         row.write_key_by_name(&mut rlookup, c"b", RSValueMock::create_num(12.));
         row.write_key_by_name(&mut rlookup, c"score", RSValueMock::create_num(100.));
 
-        let tsrw = TestSchemaRuleWrapper::new(None, Some(c"score"), None);
+        let tsrw = test_schema_rule(None, Some(c"score"), None);
         let (len, flags) = row.get_length(
             &rlookup,
             RLookupKeyFlags::empty(),
             RLookupKeyFlags::empty(),
-            Some(&tsrw.0),
+            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
         );
 
         assert_eq!(len, 2);
@@ -538,12 +524,12 @@ mod tests {
         row.write_key_by_name(&mut rlookup, c"c", RSValueMock::create_num(42.));
         row.write_key_by_name(&mut rlookup, c"payload", RSValueMock::create_num(815.0));
 
-        let tsrw = TestSchemaRuleWrapper::new(Some(c"lang"), Some(c"score"), Some(c"payload"));
+        let tsrw = test_schema_rule(Some(c"lang"), Some(c"score"), Some(c"payload"));
         let (len, flags) = row.get_length(
             &rlookup,
             RLookupKeyFlags::empty(),
             RLookupKeyFlags::empty(),
-            Some(&tsrw.0),
+            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
         );
 
         assert_eq!(len, 3);
