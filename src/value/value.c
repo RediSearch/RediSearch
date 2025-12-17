@@ -405,6 +405,7 @@ void RSValue_DecrRef(RSValue* v) {
 
 void RSValue_IntoNull(RSValue *v) {
   RS_ASSERT(v);
+  RSValue_Clear(v);
   v->_t = RSValueType_Null;
 }
 
