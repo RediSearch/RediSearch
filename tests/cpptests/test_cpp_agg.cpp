@@ -152,7 +152,8 @@ TEST_F(AggTest, testGroupBy) {
     }
     SearchResult_SetDocId(res, ++p->counter);
 
-    RSValue *sval = RSValue_NewConstCString((char *)p->values[p->counter % p->numvals]);
+    const char *str = p->values[p->counter % p->numvals];
+    RSValue *sval = RSValue_NewConstString(str, strlen(str));
     RSValue *scoreval = RSValue_NewNumber(p->counter);
     RLookup_WriteOwnKey(p->rkvalue, SearchResult_GetRowDataMut(res), sval);
     RLookup_WriteOwnKey(p->rkscore, SearchResult_GetRowDataMut(res), scoreval);
