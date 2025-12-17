@@ -256,10 +256,9 @@ RSValue *RSValue_NewTrio(RSValue *val, RSValue *otherval, RSValue *other2val);
 RSValue *RSValue_NewReference(RSValue *src);
 
 ///////////////////////////////////////////////////////////////
-// Getters and Setters (grouped by field)
+// Type Getters
 ///////////////////////////////////////////////////////////////
 
-// Type getters
 /**
  * Get the type of an RSValue.
  * @param v The value to inspect
@@ -317,6 +316,11 @@ static inline int RSValue_IsAnyString(const RSValue *value) {
 /* Return 1 if the value is NULL, RSValueType_Null or a reference to RSValue_NullStatic */
 int RSValue_IsNull(const RSValue *value);
 
+
+///////////////////////////////////////////////////////////////
+// Getters and Setters (grouped by field)
+///////////////////////////////////////////////////////////////
+
 // Number getters/setters
 void RSValue_SetNumber(RSValue *v, double n);
 
@@ -350,14 +354,6 @@ void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 char *RSValue_String_Get(const RSValue *v, uint32_t *lenp);
 
 /**
- * Get the string pointer from an RSValue without length.
- * The value must be of type RSValueType_String.
- * @param v The value to extract the string from
- * @return Pointer to the string data
- */
-char *RSValue_String_GetPtr(const RSValue *v);
-
-/**
  * Get the RedisModuleString from an RSValue.
  * The value must be of type RSValueType_RedisString.
  * @param v The value to extract the Redis string from
@@ -369,9 +365,6 @@ RedisModuleString *RSValue_RedisString_Get(const RSValue *v);
  * Gets the string pointer and length from the value,
  * dereferencing in case `value` is a (chain of) RSValue
  * references. Works for all RSValue string types.
- *
- * If `value` if of type `RSValueType_String`, does the same as
- * `RSValue_String_GetPtr()`
  */
 const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp);
 
