@@ -353,7 +353,10 @@ fn revalidate_child_moved_after_skip_to_with_child_ahead() {
     let mut it = Not::new(child, 20, 1.0);
 
     // Skip to 3 - child will be at 8, NOT at 3
-    let outcome = it.skip_to(3).expect("skip_to() failed").expect("expected outcome");
+    let outcome = it
+        .skip_to(3)
+        .expect("skip_to() failed")
+        .expect("expected outcome");
     match outcome {
         SkipToOutcome::Found(doc) => assert_eq!(doc.doc_id, 3),
         _ => panic!("Expected Found outcome"),
@@ -376,7 +379,10 @@ fn revalidate_child_moved_after_skip_to_with_child_ahead() {
 
     // After revalidate, child moved from 8 to 15, so only 15 is excluded now
     // NOT at 3 should yield [4,5,6,7,8,9,10,11,12,13,14,16,17,18,19,20] (8 is now included!)
-    assert_eq!(seen, vec![3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20]);
+    assert_eq!(
+        seen,
+        vec![3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20]
+    );
 }
 
 // Timeout propagation: child timeout during read() should propagate to NOT iterator.

@@ -38,7 +38,9 @@ where
         Self {
             child: MaybeEmpty::new(child),
             max_doc_id,
-            result: RSIndexResult::virt().weight(weight).field_mask(RS_FIELDMASK_ALL),
+            result: RSIndexResult::virt()
+                .weight(weight)
+                .field_mask(RS_FIELDMASK_ALL),
         }
     }
 }
@@ -108,7 +110,8 @@ where
         // Case 1: Child is ahead or at EOF - docId is not in child
         // When child is at EOF, only accept doc_id if it's past the child's last document
         if self.child.last_doc_id() > doc_id
-            || (self.child.at_eof() && doc_id > self.child.last_doc_id()) {
+            || (self.child.at_eof() && doc_id > self.child.last_doc_id())
+        {
             self.result.doc_id = doc_id;
             return Ok(Some(SkipToOutcome::Found(&mut self.result)));
         }
@@ -171,8 +174,8 @@ where
                 // Special case: both at initial state (doc_id = 0) is also valid.
                 debug_assert!(
                     self.child.at_eof()
-                    || self.child.last_doc_id() > self.last_doc_id()
-                    || (self.child.last_doc_id() == 0 && self.last_doc_id() == 0)
+                        || self.child.last_doc_id() > self.last_doc_id()
+                        || (self.child.last_doc_id() == 0 && self.last_doc_id() == 0)
                 );
                 Ok(RQEValidateStatus::Ok)
             }
