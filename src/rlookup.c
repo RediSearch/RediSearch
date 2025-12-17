@@ -403,7 +403,7 @@ RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
     return RSValue_NewNumber(dd);
   } else {
     RedisModule_RetainString(RSDummyContext, src);
-    return RSValue_NewStolenRedisString((RedisModuleString *)src);
+    return RSValue_NewRedisString((RedisModuleString *)src);
   }
 }
 
@@ -434,7 +434,7 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
     case JSONType_Array:
     case JSONType_Object:
       japi->getJSON(json, ctx, &rstr);
-      return RSValue_NewStolenRedisString(rstr);
+      return RSValue_NewRedisString(rstr);
     case JSONType_Null:
       return RSValue_NullStatic();
     case JSONType__EOF:
@@ -464,7 +464,7 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       RSValueMap map = RSValueMap_AllocUninit(len);
       for (; (japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK); ++i) {
         value = *value_ptr;
-        RSValueMap_SetEntry(&map, i, RSValue_NewStolenRedisString(keyName),
+        RSValueMap_SetEntry(&map, i, RSValue_NewRedisString(keyName),
           jsonValToValueExpanded(ctx, value));
       }
       japi->freeJson(value_ptr);
@@ -568,7 +568,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 
     if (json) {
       RSValue *val = jsonValToValue(ctx, json);
-      RSValue *otherval = RSValue_NewStolenRedisString(serialized);
+      RSValue *otherval = RSValue_NewRedisString(serialized);
       RSValue *expand = jsonIterToValueExpanded(ctx, iter);
       *rsv = RSValue_NewTrio(val, otherval, expand);
       res = REDISMODULE_OK;
