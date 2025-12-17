@@ -77,7 +77,7 @@ impl TermBaseTest {
 
 #[test]
 /// test reading from Term iterator
-fn term_full_read() {
+fn term_read() {
     let test = TermBaseTest::new(100);
     let reader = test.test.ii.reader();
     let mut it = Term::new_simple(reader);
@@ -86,7 +86,7 @@ fn term_full_read() {
 
 #[test]
 /// test skipping from Term iterator
-fn term_full_skip_to() {
+fn term_skip_to() {
     let test = TermBaseTest::new(100);
     let reader = test.test.ii.reader();
     let mut it = Term::new_simple(reader);
@@ -293,7 +293,7 @@ mod not_miri {
     }
 
     #[test]
-    fn term_full_revalidate_basic() {
+    fn term_revalidate_basic() {
         let test = TermRevalidateTest::new(10);
         let reader = unsafe { (*test.test.ii.get()).reader() };
         let mut it = Term::new_simple(reader);
@@ -301,7 +301,7 @@ mod not_miri {
     }
 
     #[test]
-    fn term_full_revalidate_at_eof() {
+    fn term_revalidate_at_eof() {
         let test = TermRevalidateTest::new(10);
         let reader = unsafe { (*test.test.ii.get()).reader() };
         let mut it = Term::new_simple(reader);
@@ -309,7 +309,7 @@ mod not_miri {
     }
 
     #[test]
-    fn term_full_revalidate_after_index_disappears() {
+    fn term_revalidate_after_index_disappears() {
         let test = TermRevalidateTest::new(10);
         let reader = unsafe { (*test.test.ii.get()).reader() };
         let mut it = Term::new_simple(reader);
@@ -329,7 +329,7 @@ mod not_miri {
     }
 
     #[test]
-    fn term_full_revalidate_after_document_deleted() {
+    fn term_revalidate_after_document_deleted() {
         let test = TermRevalidateTest::new(10);
         let reader = unsafe { (*test.test.ii.get()).reader() };
         let mut it = Term::new_simple(reader);
