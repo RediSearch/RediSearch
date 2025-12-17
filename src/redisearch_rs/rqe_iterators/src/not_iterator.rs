@@ -9,7 +9,7 @@
 
 //! Supporting types for [`Not`].
 
-use ffi::t_docId;
+use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 
 use crate::{
@@ -34,11 +34,11 @@ impl<'index, I> Not<'index, I>
 where
     I: RQEIterator<'index>,
 {
-    pub const fn new(child: I, max_doc_id: t_docId) -> Self {
+    pub const fn new(child: I, max_doc_id: t_docId, weight: f64) -> Self {
         Self {
             child: MaybeEmpty::new(child),
             max_doc_id,
-            result: RSIndexResult::virt(),
+            result: RSIndexResult::virt().weight(weight).field_mask(RS_FIELDMASK_ALL),
         }
     }
 }
