@@ -192,7 +192,8 @@ pub unsafe extern "C" fn RLookupRow_WriteByName(
 
     // In order to increase the refcount, we first clone `value` (which increases the refcount)
     // and move the clone into the function.
-    // We then make sure the original `value` is not dropped (which would decrease the refcount again) by giving it to `members::forget`.
+    // We then make sure the original `value` is not dropped (which would decrease the refcount again)
+    // by giving it to `mem::forget()`.
     row.write_key_by_name(lookup, name, value.clone());
     mem::forget(value);
 }
