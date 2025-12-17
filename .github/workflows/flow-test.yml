@@ -24,8 +24,8 @@ on:
         description: 'Branch to use when building RedisJSON for tests'
       options:
         type: string
-        default: coordinator,standalone,unit-tests,rejson,fail-fast
-        description: 'Comma-separated list of options: coordinator, standalone, unit-tests, rejson, fail-fast, coverage, sanitize'
+        default: coordinator,standalone,unit-tests,rejson,fail-fast,intel
+        description: 'Comma-separated list of options: coordinator, standalone, unit-tests, rejson, fail-fast, coverage, sanitize, intel'
 
   workflow_dispatch:
     inputs:
@@ -87,6 +87,10 @@ on:
         description: 'Fail fast on test failures'
         type: boolean
         default: true
+      intel:
+        description: 'Run Intel tests on self-hosted EC2 runner'
+        type: boolean
+        default: true
 
 jobs:
   generate-matrix:
@@ -120,3 +124,11 @@ jobs:
       coverage: ${{ matrix.job-type == 'coverage' }}
       san: ${{ matrix.job-type == 'sanitize' && 'address' || '' }}
       fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
+
+  # Intel tests on self-hosted EC2 runner
+  run-on-intel:
+    if: ${{ contains(inputs.options, 'intel') || inputs.intel == true }}
+    uses: ./.github/workflows/flow-intel.yml
+    secrets: inherit
+    with:
+      get-redis: ${{ inputs.redis-ref }}
