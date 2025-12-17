@@ -28,6 +28,10 @@ typedef struct {
     int numShards;                    // Total number of expected shards
 } processCursorMappingCallbackContext;
 
+void CursorMapping_Release(CursorMapping *mapping) {
+  rm_free(mapping->targetShard);
+}
+
 static void processHybridError(processCursorMappingCallbackContext *ctx, MRReply *rep) {
     const char *errorMessage = MRReply_String(rep, NULL);
     QueryErrorCode errCode = QueryError_GetCodeFromMessage(errorMessage);
@@ -45,8 +49,9 @@ static void processHybridUnknownReplyType(processCursorMappingCallbackContext *c
 // Process cursor mappings for RESP2 protocol
 static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply *rep, MRCommand *cmd) {
     for (size_t i = 0; i < INTERNAL_HYBRID_RESP2_LENGTH; i += 2) {
-        CursorMapping mapping = {0};
-        mapping.targetShard = cmd->targetShard;
+        CursorMapping mapping;
+        mapping.targetShard = NULL;
+        mapping.cursorId = 0;
 
         MRReply *key_reply = MRReply_ArrayElement(rep, i);
         MRReply *value_reply = MRReply_ArrayElement(rep, i + 1);
@@ -76,7 +81,8 @@ static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply
                 CursorMappings *vsim = StrongRef_Get(ctx->vsimMappings);
                 CursorMappings *search = StrongRef_Get(ctx->searchMappings);
                 while (array_len(vsim->mappings) > array_len(search->mappings)) {
-                    array_pop(vsim->mappings);
+                    CursorMapping cur = array_pop(vsim->mappings);
+                    CursorMapping_Release(&cur);
                 }
                 continue;
             }
@@ -90,6 +96,13 @@ static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply
         }
 
         RS_ASSERT(vsimOrSearch);
+        if (i == INTERNAL_HYBRID_RESP2_LENGTH - 2) {
+            //Transferring ownership at the tail to avoid potential leak of cmd->targetShard on early bailout
+            mapping.targetShard = cmd->targetShard;
+            cmd->targetShard = NULL; // transfer ownership
+        } else {
+            mapping.targetShard = rm_strdup(cmd->targetShard);
+        }
         vsimOrSearch->mappings = array_ensure_append_1(vsimOrSearch->mappings, mapping);
     }
 }
@@ -103,9 +116,9 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
     for (int i = 0; i < 2; i++) {
         MRReply *cursorId = MRReply_MapElement(rep, keys[i]);
         RS_ASSERT(cursorId);
-
-        CursorMapping mapping = {0};
-        mapping.targetShard = cmd->targetShard;
+        CursorMapping mapping;
+        mapping.targetShard = NULL;
+        mapping.cursorId = 0;
         long long cid;
         MRReply_ToInteger(cursorId, &cid);
         // Check for early bailout (Cursor ID 0 means no cursor was opened)
@@ -113,13 +126,21 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
             // Pop all mappings from previous subqueries
             for (int j = 0; j < i; j++) {
                 CursorMappings *vsimOrSearch = StrongRef_Get(*mappings[j]);
-                array_pop(vsimOrSearch->mappings);
+                CursorMapping cur = array_pop(vsimOrSearch->mappings);
+                CursorMapping_Release(&cur);
             }
             break;
         }
         mapping.cursorId = cid;
         CursorMappings *vsimOrSearch = StrongRef_Get(*mappings[i]);
         RS_ASSERT(vsimOrSearch);
+        if (i == 1) {
+            //Transferring ownership at the tail to avoid potential leak of cmd->targetShard on early bailout
+            mapping.targetShard = cmd->targetShard;
+            cmd->targetShard = NULL; // transfer ownership
+        } else {
+            mapping.targetShard = rm_strdup(cmd->targetShard);
+        }
         vsimOrSearch->mappings = array_ensure_append_1(vsimOrSearch->mappings, mapping);
     }
     // Handle warnings
