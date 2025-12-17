@@ -2650,7 +2650,6 @@ checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
 name = "workspace_hack"
 version = "0.1.0"
 dependencies = [
- "bindgen 0.66.1",
  "bindgen 0.72.1",
  "bitflags 2.10.0",
  "clang-sys",
@@ -2668,7 +2667,6 @@ dependencies = [
  "quote 1.0.42",
  "rand",
  "rand_chacha",
- "redis-module",
  "regex",
  "regex-automata",
  "regex-syntax",
