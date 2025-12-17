@@ -448,7 +448,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
 
       // Check if number of indices is 0. If so, we can start trimming immediately.
       if (Indexes_Count() == 0) {
-        RedisModule_Log(ctx, "notice", "No indices found, enabling trimming immediately.");
+        RedisModule_Log(ctx, "notice", "No indices found, allowing trimming immediately.");
         break;
       }
 

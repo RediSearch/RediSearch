@@ -174,6 +174,35 @@ static void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_key_spa
   pthread_mutex_unlock(&query_version_tracker_mutex);
 }
 
+/* Make sure that we clean up old versions when we decrease the query count. All the versions that have hit 0 and are smaller than current version can be removed. */
+static void ASM_KeySpaceVersionTracker_CleanupOldVersions_Unsafe() {
+
+  uint32_t current_version = __atomic_load_n(&key_space_version, __ATOMIC_RELAXED);
+
+  // Collect keys to delete (can't delete while iterating)
+  uint32_t keys_to_delete[kh_size(query_key_space_version_map)];
+  size_t delete_count = 0;
+
+  for (khiter_t k = kh_begin(query_key_space_version_map); k != kh_end(query_key_space_version_map); ++k) {
+    if (kh_exist(query_key_space_version_map, k)) {
+      uint32_t version = kh_key(query_key_space_version_map, k);
+      uint32_t count = kh_value(query_key_space_version_map, k);
+
+      if (count == 0 && version < current_version) {
+        keys_to_delete[delete_count++] = version;
+      }
+    }
+  }
+
+  // Delete collected keys
+  for (size_t i = 0; i < delete_count; i++) {
+    khiter_t k = kh_get(query_key_space_version_tracker, query_key_space_version_map, keys_to_delete[i]);
+    if (k != kh_end(query_key_space_version_map)) {
+      kh_del(query_key_space_version_tracker, query_key_space_version_map, k);
+    }
+  }
+}
+
 static void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_key_space_version) {
   pthread_mutex_lock(&query_version_tracker_mutex);
 
@@ -186,10 +215,7 @@ static void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_key_spa
   }
 
   if (*count == 0) {
-    uint32_t current_version = __atomic_load_n(&key_space_version, __ATOMIC_RELAXED);
-    if (query_key_space_version < current_version) {
-      kh_del(query_key_space_version_tracker, query_key_space_version_map, k);
-    }
+    ASM_KeySpaceVersionTracker_CleanupOldVersions_Unsafe();
   }
 
 #if ASM_SANITIZER_ENABLED
