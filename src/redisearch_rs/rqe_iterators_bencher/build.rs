@@ -27,6 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut headers = [
         "iterator_api.h",
         "inverted_index_iterator.h",
+        "not_iterator.h",
         "optional_iterator.h",
         "intersection_iterator.h",
     ]

@@ -53,6 +53,11 @@ fn benchmark_optional(c: &mut Criterion) {
     bencher.bench(c);
 }
 
+fn benchmark_not_iterator(c: &mut Criterion) {
+    let bencher = benchers::not_iterator::Bencher::default();
+    bencher.bench(c);
+}
+
 /*
 fn benchmark_inverted_index_numeric_full(c: &mut Criterion) {
     let bencher = benchers::inverted_index::NumericFullBencher::default();
@@ -141,6 +146,7 @@ criterion_group!(
     benchmark_empty,
     benchmark_id_list,
     benchmark_metric,
+    benchmark_not_iterator,
     benchmark_wildcard,
     benchmark_intersection,
     benchmark_optional,

@@ -12,5 +12,6 @@ pub mod id_list;
 pub mod intersection;
 //pub mod inverted_index;
 pub mod metric;
+pub mod not_iterator;
 pub mod optional;
 pub mod wildcard;
