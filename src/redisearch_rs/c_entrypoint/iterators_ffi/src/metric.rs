@@ -82,13 +82,13 @@ unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
         let slice = unsafe { std::slice::from_raw_parts(ids, num) };
         vec_ids.extend_from_slice(slice);
         // SAFETY: Safe thanks to 4.
-        unsafe { free_fn(ids as *mut std::os::raw::c_void) };
+        unsafe { free_fn(ids as *mut std::ffi::c_void) };
 
         // SAFETY: Safe thanks to 2 + 3.
         let slice = unsafe { std::slice::from_raw_parts(metric_list, num) };
         vec_metrics.extend_from_slice(slice);
         // SAFETY: Safe thanks to 4.
-        unsafe { free_fn(metric_list as *mut std::os::raw::c_void) };
+        unsafe { free_fn(metric_list as *mut std::ffi::c_void) };
     } else {
         debug_assert_eq!(
             num, 0,

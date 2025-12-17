@@ -67,7 +67,7 @@ jobs:
       GITHUB_REPOSITORY: ${{ github.repository }}
       SETUP_RETRY_LOOP: |
         SUCCESS=0
-        for i in {{1..5}}; do
+        for i in 1 2 3 4 5; do
           echo "Attempt $i of 5"
           if {0}; then
             echo "Setup succeeded"
@@ -82,6 +82,10 @@ jobs:
         [ $SUCCESS -eq 1 ] || exit 1
     steps:
       # Setup
+      - name: Install bash
+        if: needs.get-config.outputs.container == 'alpine:3.22'
+        shell: sh -l -eo pipefail {0}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
       - name: Setup Dependencies
         if: needs.get-config.outputs.setup_script
         run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}

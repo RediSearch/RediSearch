@@ -8,8 +8,8 @@
 */
 
 use super::{TrieMap, tm_len_t};
-use libc::c_char;
 use low_memory_thin_vec::LowMemoryThinVec;
+use std::ffi::c_char;
 use std::ffi::c_void;
 
 /// Find nodes that have a given prefix. Results are placed in an array.

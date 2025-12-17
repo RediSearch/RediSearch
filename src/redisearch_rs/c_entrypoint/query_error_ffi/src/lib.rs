@@ -8,7 +8,7 @@
 */
 
 use std::ffi::CStr;
-use std::os::raw::c_char;
+use std::ffi::c_char;
 
 use c_ffi_utils::opaque::IntoOpaque;
 use query_error::{QueryError, opaque::OpaqueQueryError};

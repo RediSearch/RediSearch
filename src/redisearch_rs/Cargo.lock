@@ -1501,6 +1501,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "redis-module",
+ "tracing",
  "value",
  "workspace_hack",
 ]
@@ -1672,7 +1673,9 @@ dependencies = [
  "field",
  "inverted_index",
  "inverted_index_ffi",
+ "iterators_ffi",
  "itertools 0.14.0",
+ "rand",
  "redis_mock",
  "rqe_iterators",
  "triemap_ffi",
@@ -2672,6 +2675,7 @@ dependencies = [
  "syn 1.0.109",
  "syn 2.0.111",
  "thiserror",
+ "tracing-core",
  "zerocopy",
 ]
 

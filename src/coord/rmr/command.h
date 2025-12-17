@@ -21,8 +21,6 @@ extern "C" {
 
 typedef enum { C_READ = 0, C_DEL = 1, C_AGG = 2, C_PROFILE = 3 } MRRootCommand;
 
-#define INVALID_SHARD -1
-
 /* A redis command is represented with all its arguments and its flags as MRCommand */
 typedef struct {
   /* The command args starting from the command itself */
@@ -35,8 +33,13 @@ typedef struct {
   /* Slots info offset - 0 if not set (first argument is always the command) */
   uint32_t slotsInfoArgIndex;
 
-  /* if not -1, this value indicate to which shard the command should be sent */
-  int16_t targetShard;
+  /* if not NULL, this value indicate to which shard the command should be sent.*/
+  char *targetShard;
+
+  /* Index of the target shard in the cluster's shards array when command is created. Useful to keep track of responses.
+  Can't be used to know where to send the command, since the cluster's shards array can change. In case of new shards added, ASM should control not to trim
+  the slots from the old shard until all cursors are terminated (expected time limit for this). */
+  uint16_t targetShardIdx;
 
   /* 0 (undetermined), 2, or 3 */
   unsigned char protocol;

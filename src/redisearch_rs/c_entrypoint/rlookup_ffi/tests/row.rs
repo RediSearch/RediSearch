@@ -15,12 +15,12 @@ use std::sync::atomic::AtomicU16;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
-use libc::c_char;
-use libc::c_int;
 use rlookup::RLookup;
 use rlookup::RLookupKeyFlags;
 use rlookup::RLookupRow;
 use rlookup_ffi::row::RLookupRow_MoveFieldsFrom;
+use std::ffi::c_char;
+use std::ffi::c_int;
 use value::RSValueFFI;
 use value::RSValueTrait;
 

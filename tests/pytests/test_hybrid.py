@@ -118,6 +118,7 @@ class testHybridSearch:
         if CLUSTER:
             # Create prefixed index to avoid tied scores
             self._create_index('prefixed_idx', self.dim, prefix="both_")
+            waitForIndex(self.env, 'prefixed_idx')
             index_name = 'prefixed_idx'
         info = {'info before': {'ft.info': self.env.cmd('ft.info', index_name), 'info search': self.env.cmd('info', 'search')}}
         logs = []

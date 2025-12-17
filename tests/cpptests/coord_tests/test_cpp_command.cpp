@@ -176,7 +176,8 @@ TEST_F(MRCommandTest, testBasicCommandCreation) {
 
     EXPECT_EQ(cmd.num, 3);
     EXPECT_TRUE(verifyCommandArgs(&cmd, {"FT.SEARCH", "test_index", "hello"}));
-    EXPECT_EQ(cmd.targetShard, INVALID_SHARD);
+    EXPECT_EQ(cmd.targetShard, nullptr);
+    EXPECT_EQ(cmd.targetShardIdx, 0);
     EXPECT_FALSE(cmd.forCursor);
     EXPECT_FALSE(cmd.forProfiling);
     EXPECT_FALSE(cmd.depleted);
@@ -198,7 +199,8 @@ TEST_F(MRCommandTest, testCommandCreationFromArgv) {
 // Test command copying
 TEST_F(MRCommandTest, testCommandCopy) {
     MRCommand original = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
-    original.targetShard = 5;
+    original.targetShard = rm_strdup("shard_1");
+    original.targetShardIdx = 1;
     original.forCursor = true;
     original.protocol = 3;
 
@@ -206,7 +208,8 @@ TEST_F(MRCommandTest, testCommandCopy) {
 
     EXPECT_EQ(copy.num, original.num);
     EXPECT_TRUE(verifyCommandArgs(&copy, {"FT.SEARCH", "test_index", "hello"}));
-    EXPECT_EQ(copy.targetShard, original.targetShard);
+    EXPECT_STREQ(copy.targetShard, original.targetShard);
+    EXPECT_EQ(copy.targetShardIdx, original.targetShardIdx);
     EXPECT_EQ(copy.forCursor, original.forCursor);
     EXPECT_EQ(copy.protocol, original.protocol);
 
