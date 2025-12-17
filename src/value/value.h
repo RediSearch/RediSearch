@@ -163,14 +163,6 @@ RSValue *RSValue_NewString(char *str, uint32_t len);
 RSValue *RSValue_NewConstString(const char *str, uint32_t len);
 
 /**
- * Creates a heap-allocated RSValue which increments and owns a reference to the Redis string.
- * The RSValue will decrement the refcount when freed.
- * @param str The RedisModuleString to wrap (refcount is incremented)
- * @return A pointer to a heap-allocated RSValue
- */
-RSValue *RSValue_NewOwnedRedisString(RedisModuleString *str);
-
-/**
  * Creates a heap-allocated RSValue which steals a reference to the Redis string.
  * The caller's reference is transferred to the RSValue.
  * @param s The RedisModuleString to wrap (ownership is transferred)

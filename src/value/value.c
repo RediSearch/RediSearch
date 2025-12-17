@@ -153,13 +153,6 @@ RSValue *RSValue_NewConstString(const char *str, uint32_t len) {
   return v;
 }
 
-RSValue *RSValue_NewOwnedRedisString(RedisModuleString *str) {
-  RedisModule_RetainString(RSDummyContext, str);
-  RSValue *v = RSValue_NewWithType(RSValueType_RedisString);
-  v->_rstrval = str;
-  return v;
-}
-
 // TODO : NORMALLY
 RSValue *RSValue_NewStolenRedisString(RedisModuleString *str) {
   RSValue *v = RSValue_NewWithType(RSValueType_RedisString);

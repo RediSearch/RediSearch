@@ -268,7 +268,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipF
                          size_t skipFieldIndex_len, uint32_t requiredFlags, uint32_t excludeFlags,
                          SchemaRule *rule) {
   RS_LOG_ASSERT(skipFieldIndex_len >= lookup->rowlen, "'skipFieldIndex_len' should be at least equal to lookup len");
-  
+
   int i = 0;
   size_t nfields = 0;
   for (const RLookupKey *kk = lookup->head; kk; kk = kk->next, ++i) {
@@ -402,7 +402,8 @@ RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
     RedisModule_StringToDouble(src, &dd);
     return RSValue_NewNumber(dd);
   } else {
-    return RSValue_NewOwnedRedisString((RedisModuleString *)src);
+    RedisModule_RetainString(RSDummyContext, src);
+    return RSValue_NewStolenRedisString((RedisModuleString *)src);
   }
 }
 
