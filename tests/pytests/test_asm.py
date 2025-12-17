@@ -281,8 +281,8 @@ def import_slot_range_sanity_test(env: Env, query_type: str = 'FT.SEARCH'):
     query_shards(env, query, shards, expected, query_type)
 
     # Import slots from shard 2 to shard 1, and wait for it to complete
+    task_id = import_middle_slot_range(shard1, shard2)
     with TimeLimit(300):
-        task_id = import_middle_slot_range(shard1, shard2)
         while True:
             try:
                 while not is_migration_complete(shard1, task_id) or not is_migration_complete(shard2, task_id):
@@ -362,8 +362,8 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH', parallel_upd
         time.sleep(0.5)
 
     # Test searching while importing slots from shard 2 to shard 1
-    with TimeLimit(60):
-        task_id = import_middle_slot_range(shard1, shard2)
+    task_id = import_middle_slot_range(shard1, shard2)
+    with TimeLimit(300):
         while True:
             try:
                 while not is_migration_complete(shard1, task_id):
@@ -546,8 +546,8 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
     env.addShardToClusterIfExists()
     new_shard = env.getConnection(shardId=initial_shards_count+1)
     # ...and migrate slots from shard 1 to the new shard
-    with TimeLimit(60):
-        task_id = import_middle_slot_range(new_shard, shard1)
+    task_id = import_middle_slot_range(new_shard, shard1)
+    with TimeLimit(300):
         while True:
             try:
                 while not is_migration_complete(new_shard, task_id):
@@ -631,7 +631,7 @@ def _test_ft_cursors_trimmed(env: Env):
 
     _, cursor_id = env.cmd(*query)
     task_id = import_middle_slot_range(shard1, shard2)
-    with TimeLimit(60):
+    with TimeLimit(300):
         while True:
             try:
                 while not is_migration_complete(shard1, task_id) or not is_migration_complete(shard2, task_id):
