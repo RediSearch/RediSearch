@@ -477,13 +477,6 @@ static inline void RSValue_Replace(RSValue **destpp, RSValue *src) {
 }
 
 /**
- * Convert an RSValue to undefined type in-place.
- * This clears the existing value and sets it to RSValueType_Undef.
- * @param v The value to modify
- */
-void RSValue_IntoUndefined(RSValue *v);
-
-/**
  * Convert an RSValue to null type in-place.
  * This clears the existing value and sets its to RSValueType_Null.
  * @param v The value to modify
