@@ -486,9 +486,9 @@ class testHybridSearch:
         hybrid_cmd = (
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:($MYTEXT) @number:[4 5]',
-            'VSIM', '@vector', self.vector_blob, 'FILTER', '@number:[3 3]',
+            'VSIM', '@vector', '$BLOB', 'FILTER', '@number:[3 3]',
             'COMBINE', 'RRF', '2', 'CONSTANT', '1',
-            'PARAMS', '2', 'MYTEXT', 'both'
+            'PARAMS', '4', 'MYTEXT', 'both', 'BLOB', self.vector_blob
         )
         res = self.env.executeCommand(*hybrid_cmd)
         self.env.assertEqual(res, expected_result)
@@ -497,10 +497,10 @@ class testHybridSearch:
         hybrid_cmd = (
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:(both) @number:[4 5]',
-            'VSIM', '@vector', self.vector_blob,
+            'VSIM', '@vector', '$BLOB',
             'FILTER', '@number:[$MYNUMBER 3]',
             'COMBINE', 'RRF', '2', 'CONSTANT', '1',
-            'PARAMS', '2', 'MYNUMBER', '3'
+            'PARAMS', '4', 'MYNUMBER', '3', 'BLOB', self.vector_blob
         )
         res = self.env.executeCommand(*hybrid_cmd)
         self.env.assertEqual(res, expected_result)
@@ -524,10 +524,11 @@ class testHybridSearch:
         hybrid_cmd = [
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:(both) @number:[1 3]',
-            'VSIM', '@vector', self.vector_blob,
+            'VSIM', '@vector', '$BLOB',
             'FILTER', '@text:(both) @number:[1 3]',
             'COMBINE', 'RRF', '2', 'CONSTANT', '3',
             'LOAD', '2', '@__key', '@__score',
+            'PARAMS', '2', 'BLOB', self.vector_blob,
         ]
         unfiltered_res = self.env.executeCommand(*hybrid_cmd)
         unfiltered_dict = to_dict(unfiltered_res)

@@ -286,7 +286,7 @@ def expire_ft_hybrid_test(protocol):
     time.sleep(0.01)
 
     # Test FT.HYBRID requesting 1000 results but expecting only 10 (non-expired documents)
-    hybrid_query = ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', query_vector, 'LIMIT', '0', '1000', 'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'LOAD', '4', '@__key', '@__score', '@t', '@n']
+    hybrid_query = ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB' , 'LIMIT', '0', '1000', 'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'LOAD', '4', '@__key', '@__score', '@t', '@n', 'PARAMS', '2', 'BLOB', query_vector]
 
     # Execute query using cluster-aware command to get expected results
     actual_res = env.cmd(*hybrid_query)
