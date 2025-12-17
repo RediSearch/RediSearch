@@ -217,6 +217,11 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+      - name: Fail if we in ubuntu 24
+        if: ${{ needs.get-config.outputs.container == 'ubuntu:noble' }}
+        run: |
+          echo "Ubuntu 24 is not supported yet"
+          exit 1
       - name: Free up disk space (container)
         # For container jobs - delete mounted host directories
         if: ${{ needs.get-config.outputs.container }}
