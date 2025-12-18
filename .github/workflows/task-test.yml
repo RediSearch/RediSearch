@@ -209,6 +209,11 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+      - name: Install bash
+        if: needs.get-config.outputs.container == 'alpine:3.22'
+        shell: sh -l -eo pipefail {0}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
+
       - name: Free up disk space (container)
         # For container jobs - delete mounted host directories
         if: ${{ needs.get-config.outputs.container }}
