@@ -28,12 +28,6 @@ pub unsafe extern "C" fn IndexError_GlobalInit(ctx: *mut redis_module::raw::Redi
     unsafe { index_error::index_error_init(ctx) };
 }
 
-/// Returns the default [`IndexError`].
-#[unsafe(no_mangle)]
-pub extern "C" fn IndexError_Default() -> OpaqueIndexError {
-    IndexError::default().into_opaque()
-}
-
 /// Returns the number of errors in the IndexError.
 ///
 /// # Safety

@@ -47,11 +47,6 @@ extern "C" {
 void IndexError_GlobalInit(RedisModuleCtx *ctx);
 
 /**
- * Returns the default [`IndexError`].
- */
-struct IndexError IndexError_Default(void);
-
-/**
  * Returns the number of errors in the IndexError.
  *
  * # Safety
