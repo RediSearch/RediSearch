@@ -3998,6 +3998,7 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   size_t conn_pool_size = CEIL_DIV(num_connections_per_shard, num_io_threads);
 
   MR_Init(num_io_threads, conn_pool_size, clusterConfig.timeoutMS);
+  MR_InitLocalNodeId();
 
   return REDISMODULE_OK;
 }

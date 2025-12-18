@@ -21,10 +21,10 @@
 struct MRCtx;
 struct RedisModuleCtx;
 
-// Reference-counted wrapper for the local node ID string
+// r/w lock protected wrapper for the local node ID string
 typedef struct {
   char *node_id;
-  int refcount;
+  pthread_rwlock_t lock;
 } NodeIdRef;
 
 void iterStartCb(void *p);
@@ -47,20 +47,26 @@ void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS);
  */
 void MR_UpdateTopology(MRClusterTopology *newTopology, const RedisModuleSlotRangeArray *localSlots);
 
-/* @brief Set the local node ID for this shard.
+/* @brief Initialize the local node ID structure. */
+void MR_InitLocalNodeId();
+
+/* @brief Set the local node ID for this shard while holding the write lock.
  * @param node_id The node ID string to set. Will be duplicated internally.
  */
 void MR_SetLocalNodeId(const char *node_id);
 
-/* @brief Get the local node ID reference for this shard.
- * The caller must call MR_ReleaseLocalNodeIdRef() when done using the returned string.
+/* @brief Get the local node ID for this shard.
+ * The caller must call MR_ReleaseLocalNodeId() when done using the returned string.
  */
-NodeIdRef *MR_GetLocalNodeIdRef(void);
+const char* MR_GetLocalNodeId(void);
 
-/* @brief Release the local node ID obtained from MR_GetLocalNodeIdRef().
- * Must be called after MR_GetLocalNodeIdRef() to decrement the reference count.
+/* @brief Release the local node ID handle obtained from MR_GetLocalNodeId().
+ * Must be called after MR_GetLocalNodeId() to release the read lock.
  */
-void MR_ReleaseLocalNodeIdRef(NodeIdRef *ref);
+void MR_ReleaseLocalNodeIdReadLock();
+
+/* @brief Free the local node ID structure. */
+void MR_FreeLocalNodeId();
 
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
 

@@ -271,44 +271,45 @@ void MR_UpdateTopology(MRClusterTopology *newTopo, const RedisModuleSlotRangeArr
   }
 }
 
-void MR_ReleaseLocalNodeIdRef(NodeIdRef *node_id_ref) {
-  if (node_id_ref == NULL) {
-    return;
-  }
-  // If ref count is now zero, release the old local node ID.
-  int ret = __atomic_sub_fetch(&node_id_ref->refcount, 1, __ATOMIC_RELAXED);
-  RS_ASSERT(ret >= 0);
-  if (ret == 0) {
-    if (node_id_ref->node_id != NULL) {
-      rm_free(node_id_ref->node_id);
-    }
-    rm_free(node_id_ref);
-  }
+void MR_InitLocalNodeId() {
+  RS_ASSERT(local_node_id_g == NULL);
+  local_node_id_g = rm_calloc(1, sizeof(NodeIdRef));
+  pthread_rwlock_init(&local_node_id_g->lock, NULL);
 }
 
+void MR_ReleaseLocalNodeIdReadLock() {
+  RS_ASSERT(local_node_id_g != NULL);
+  pthread_rwlock_unlock(&local_node_id_g->lock);
+}
 
 /* Set the local node ID for this shard */
 void MR_SetLocalNodeId(const char *node_id) {
-  NodeIdRef *new_node_id_ref = rm_malloc(sizeof(NodeIdRef));
-  new_node_id_ref->node_id = node_id != NULL ? rm_strdup(node_id) : NULL;
-  new_node_id_ref->refcount = 1;
-
-  // Get the current local node ID.
-  NodeIdRef *old_node_id_ref = local_node_id_g;
-  // Set the new local node ID atomically.
-  __atomic_store_n(&local_node_id_g, new_node_id_ref, __ATOMIC_RELAXED);
-  MR_ReleaseLocalNodeIdRef(old_node_id_ref);
+  // Replace the old local node ID.
+  pthread_rwlock_wrlock(&local_node_id_g->lock);
+  if (local_node_id_g->node_id != NULL) {
+    rm_free(local_node_id_g->node_id);
+  }
+  local_node_id_g->node_id = node_id ? rm_strdup(node_id) : NULL;
+  pthread_rwlock_unlock(&local_node_id_g->lock);
 }
 
 /* Get the local node ID for this shard. Returns NULL if not set or in standalone mode. */
-NodeIdRef *MR_GetLocalNodeIdRef(void) {
-  NodeIdRef *node_id_ref = __atomic_load_n(&local_node_id_g, __ATOMIC_RELAXED);
-  if (node_id_ref == NULL) {
-    return NULL;
+const char* MR_GetLocalNodeId(void) {
+  RS_ASSERT(local_node_id_g != NULL);
+  pthread_rwlock_rdlock(&local_node_id_g->lock);
+  return local_node_id_g->node_id;
+}
+
+void MR_FreeLocalNodeId() {
+  RS_ASSERT(local_node_id_g != NULL);
+  pthread_rwlock_wrlock(&local_node_id_g->lock);
+  if (local_node_id_g->node_id != NULL) {
+    rm_free(local_node_id_g->node_id);
   }
-  int ret = __atomic_fetch_add(&node_id_ref->refcount, 1, __ATOMIC_RELAXED);
-  RS_ASSERT(ret > 0);
-  return node_id_ref;
+  pthread_rwlock_unlock(&local_node_id_g->lock);
+  pthread_rwlock_destroy(&local_node_id_g->lock);
+  rm_free(local_node_id_g);
+  local_node_id_g = NULL;
 }
 
 struct UpdateConnPoolSizeCtx {
@@ -890,6 +891,7 @@ void MR_FreeCluster() {
   RedisModule_ThreadSafeContextUnlock(RSDummyContext);
   MRCluster_Free(cluster_g);
   cluster_g = NULL;
+  MR_FreeLocalNodeId();
   RedisModule_ThreadSafeContextLock(RSDummyContext);
 }
 
