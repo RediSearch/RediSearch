@@ -8,34 +8,16 @@
 */
 
 use std::ffi::CString;
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 pub use redis_module::raw::{RedisModuleCtx, RedisModuleString};
 
-/// Wrapper for RedisModuleString pointer to allow storage in static OnceLock
-///
-/// # Safety
-/// This wrapper implements Send + Sync to match the C code's behavior where NA_rstr
-/// is a plain global variable. The safety relies on:
-/// 1. The NA string is initialized once and never freed during normal operation
-/// 2. All Redis module API calls (HoldString, FreeString) must be protected by
-///    the global Redis lock, which the C code assumes
-/// 3. The reference counting in RedisModuleString is NOT thread-safe on its own,
-///    so callers MUST hold the appropriate Redis locks when calling HoldString/FreeString
-///
-/// This matches the C implementation which uses a plain `RedisModuleString* NA_rstr`
-/// global without any explicit synchronization.
-#[derive(Debug, Clone, Copy)]
-struct SyncRedisModuleString(*mut RedisModuleString);
-
-// SAFETY: Matches C code behavior. See struct documentation for safety requirements.
-unsafe impl Send for SyncRedisModuleString {}
-// SAFETY: Matches C code behavior. See struct documentation for safety requirements.
-unsafe impl Sync for SyncRedisModuleString {}
-
 /// Global NA RedisModuleString, equivalent to C's NA_rstr
-static NA_RSTR: OnceLock<SyncRedisModuleString> = OnceLock::new();
+///
+/// Uses AtomicPtr instead of OnceLock to allow resetting to null after cleanup,
+/// matching the C implementation's behavior where NA_rstr can be set to NULL
+/// and re-initialized on subsequent calls to IndexError_Init().
+static NA_RSTR: AtomicPtr<RedisModuleString> = AtomicPtr::new(std::ptr::null_mut());
 
 /// Get current time from monotonic clock
 ///
@@ -73,47 +55,62 @@ const fn timespec_ge(a: &libc::timespec, b: &libc::timespec) -> bool {
 
 /// Initialize the IndexError module globals
 ///
+/// Matches C implementation's initDefaultKey() which checks if (!NA_rstr) before initializing.
+/// This allows safe re-initialization after cleanup.
+///
 /// # Safety
 /// - `ctx` must be a valid RedisModuleCtx pointer
-/// - Should only be called once during module initialization
 pub unsafe fn index_error_init(ctx: *mut RedisModuleCtx) {
-    NA_RSTR.get_or_init(|| {
-        let na_cstr = c"N/A";
-        // SAFETY: RedisModule_CreateString is initialized at module startup
-        let create_string = unsafe { redis_module::raw::RedisModule_CreateString.unwrap() };
-        // SAFETY: ctx is valid (caller requirement), na_cstr is a valid C string, length is correct
-        let na_str = unsafe { create_string(ctx, na_cstr.as_ptr(), 3) };
+    // Check if already initialized (matches C's if (!NA_rstr) check)
+    if !NA_RSTR.load(Ordering::Acquire).is_null() {
+        return;
+    }
 
-        // SAFETY: RedisModule_TrimStringAllocation is initialized at module startup
-        let trim_allocation =
-            unsafe { redis_module::raw::RedisModule_TrimStringAllocation.unwrap() };
-        // SAFETY: na_str is a valid RedisModuleString just created
-        unsafe { trim_allocation(na_str) };
+    let na_cstr = c"N/A";
+    // SAFETY: RedisModule_CreateString is initialized at module startup
+    let create_string = unsafe { redis_module::raw::RedisModule_CreateString.unwrap() };
+    // SAFETY: ctx is valid (caller requirement), na_cstr is a valid C string, length is correct
+    let na_str = unsafe { create_string(ctx, na_cstr.as_ptr(), 3) };
 
-        SyncRedisModuleString(na_str)
-    });
+    // SAFETY: RedisModule_TrimStringAllocation is initialized at module startup
+    let trim_allocation =
+        unsafe { redis_module::raw::RedisModule_TrimStringAllocation.unwrap() };
+    // SAFETY: na_str is a valid RedisModuleString just created
+    unsafe { trim_allocation(na_str) };
+
+    // Store the pointer (matches C's NA_rstr = ...)
+    NA_RSTR.store(na_str, Ordering::Release);
 }
 
 /// Get the global NA RedisModuleString
 ///
-/// Returns None if not initialized
+/// Returns None if not initialized (matches C's NA_rstr being NULL)
 pub fn get_na_rstr() -> Option<*mut RedisModuleString> {
-    NA_RSTR.get().map(|s| s.0)
+    let ptr = NA_RSTR.load(Ordering::Acquire);
+    if ptr.is_null() {
+        None
+    } else {
+        Some(ptr)
+    }
 }
 
 /// Cleanup the IndexError module globals
+///
+/// Matches C implementation which frees NA_rstr and sets it to NULL,
+/// allowing safe re-initialization on subsequent IndexError_Init() calls.
 ///
 /// # Safety
 /// - `ctx` must be a valid RedisModuleCtx pointer
 /// - Should only be called during module shutdown
 pub unsafe fn index_error_cleanup(ctx: *mut RedisModuleCtx) {
-    if let Some(na_str) = NA_RSTR.get()
-        && !na_str.0.is_null()
-    {
+    // Swap out the pointer, setting it to null (matches C's NA_rstr = NULL)
+    let na_str = NA_RSTR.swap(std::ptr::null_mut(), Ordering::AcqRel);
+
+    if !na_str.is_null() {
         // SAFETY: RedisModule_FreeString is initialized at module startup
         let free_string = unsafe { redis_module::raw::RedisModule_FreeString.unwrap() };
-        // SAFETY: ctx is valid (caller requirement), na_str.0 is a valid RedisModuleString
-        unsafe { free_string(ctx, na_str.0) };
+        // SAFETY: ctx is valid (caller requirement), na_str is a valid RedisModuleString
+        unsafe { free_string(ctx, na_str) };
     }
 }
 

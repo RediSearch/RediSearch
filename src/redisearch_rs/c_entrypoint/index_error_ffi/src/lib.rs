@@ -53,10 +53,11 @@ pub unsafe extern "C" fn IndexError_ErrorCount(error: *const OpaqueIndexError) -
 pub unsafe extern "C" fn IndexError_LastError(error: *const OpaqueIndexError) -> *const c_char {
     // SAFETY: error is valid (caller requirement)
     let error = unsafe { IndexError::from_opaque_ptr(error) }.expect("error is null");
+    // If no error message is set, return "N/A"
     error
         .last_error_with_user_data()
         .map(|s| s.as_ptr())
-        .unwrap_or(std::ptr::null())
+        .unwrap_or(c"N/A".as_ptr())
 }
 
 /// Returns the last error message in the IndexError, obfuscated.
@@ -69,10 +70,11 @@ pub unsafe extern "C" fn IndexError_LastErrorObfuscated(
 ) -> *const c_char {
     // SAFETY: error is valid (caller requirement)
     let error = unsafe { IndexError::from_opaque_ptr(error) }.expect("error is null");
+    // If no error message is set, return "N/A"
     error
         .last_error_without_user_data()
         .map(|s| s.as_ptr())
-        .unwrap_or(std::ptr::null())
+        .unwrap_or(c"N/A".as_ptr())
 }
 
 /// Returns the time of the last error.
