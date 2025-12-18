@@ -89,6 +89,9 @@ void IndexError_RaiseBackgroundIndexFailureFlag(struct IndexError *error);
 /**
  * Initializes an IndexError. The error_count is set to 0 and the last_error is set to NA.
  * Mirrors C function: `IndexError IndexError_Init()`
+ *
+ * # Safety
+ * - This function uses RSDummyContext internally, which must be initialized
  */
 struct IndexError IndexError_Init(void);
 

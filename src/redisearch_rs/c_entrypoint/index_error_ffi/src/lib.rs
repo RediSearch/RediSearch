@@ -96,9 +96,16 @@ pub extern "C" fn IndexError_RaiseBackgroundIndexFailureFlag(error: *mut OpaqueI
 
 /// Initializes an IndexError. The error_count is set to 0 and the last_error is set to NA.
 /// Mirrors C function: `IndexError IndexError_Init()`
+///
+/// # Safety
+/// - This function uses RSDummyContext internally, which must be initialized
 #[unsafe(no_mangle)]
-pub extern "C" fn IndexError_Init() -> OpaqueIndexError {
-    IndexError::default().into_opaque()
+pub unsafe extern "C" fn IndexError_Init() -> OpaqueIndexError {
+    // Use RSDummyContext to properly hold the NA string, matching C behavior
+    // Safety: RSDummyContext is initialized at module startup and remains valid
+    let ctx = unsafe { ffi::context::redisearch_module_context().cast() };
+    // Safety: ctx is a valid RedisModuleCtx from RSDummyContext
+    unsafe { IndexError::new_with_na(ctx) }.into_opaque()
 }
 
 /// Adds an error message to the IndexError. The error_count is incremented and the last_error is set to the error_message.

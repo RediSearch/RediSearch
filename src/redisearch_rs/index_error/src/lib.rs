@@ -62,7 +62,12 @@ pub unsafe fn index_error_cleanup(ctx: *mut RedisModuleCtx) {
     }
 }
 
-#[derive(Clone, Debug)]
+// Note: Clone is intentionally NOT derived for IndexError because the `key` field
+// is a reference-counted pointer to RedisModuleString. Cloning would require calling
+// RedisModule_HoldString to increment the reference count, which requires a RedisModuleCtx
+// parameter that the Clone trait doesn't provide. Attempting to clone without proper
+// reference counting would result in double-free bugs when both instances call clear().
+#[derive(Debug)]
 pub struct IndexError {
     error_count: usize,
     last_error_with_user_data: Option<CString>,
@@ -78,8 +83,9 @@ impl Default for IndexError {
             error_count: 0,
             last_error_with_user_data: None,
             last_error_without_user_data: None,
-            // Use NA_rstr if available, otherwise null
-            key: get_na_rstr().unwrap_or(std::ptr::null_mut()),
+            // Use null pointer for default - proper initialization should use new_with_na()
+            // which properly increments the reference count of the NA string.
+            key: std::ptr::null_mut(),
             last_error_time: Duration::default(),
             background_indexing_oom_failure: false,
         }
@@ -239,12 +245,11 @@ impl IndexError {
             self.last_error_without_user_data = other.last_error_without_user_data.clone();
             self.last_error_with_user_data = other.last_error_with_user_data.clone();
 
-            // Hold the other's key
-            if !other.key.is_null() {
-                self.key = unsafe {
-                    redis_module::raw::RedisModule_HoldString.unwrap()(ctx, other.key)
-                };
-            }
+            // Hold the other's key (RedisModule_HoldString handles null gracefully)
+            // This prevents a dangling pointer when self.key was non-null but other.key is null
+            self.key = unsafe {
+                redis_module::raw::RedisModule_HoldString.unwrap()(ctx, other.key)
+            };
 
             // Copy timestamp
             self.last_error_time = other.last_error_time;

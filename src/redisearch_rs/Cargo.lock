@@ -813,6 +813,7 @@ dependencies = [
  "build_utils",
  "c_ffi_utils",
  "cbindgen",
+ "ffi",
  "index_error",
  "redis-module",
  "workspace_hack",
