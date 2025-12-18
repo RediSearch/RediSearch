@@ -1,0 +1,15 @@
+version: 0.2
+name: "json_set_fulldoc_pass_100_json"
+description: "JSON.SET pass-100 $ {pass-100.json size: 380 B} || https://oss.redislabs.com/redisjson/performance/"
+
+clientconfig:
+  - tool: redis-benchmark
+  - min-tool-version: "6.2.0"
+  - parameters:
+    - clients: 16
+    - requests: 5000000
+    - threads: 2
+    - pipeline: 1
+    - keyspacelen: 100000
+    - command: "JSON.SET __rand_int__ $"
+    - x: "./datasets/pass-100.json"

@@ -1,0 +1,302 @@
+name: Nightly Memory Report
+
+on:
+  workflow_call:
+    inputs:
+      redis-ref:
+        description: 'Redis ref to checkout'
+        type: string
+        default: 'unstable'
+      beta-version:
+        description: 'Beta version for reporting'
+        type: string
+        required: false
+
+jobs:
+  memory-report:
+    runs-on: ubuntu-latest
+    env:
+      PIP_BREAK_SYSTEM_PACKAGES: 1
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      
+      - name: Get Redis
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: ${{ inputs.redis-ref }}
+          path: redis
+          submodules: 'recursive'
+      
+      - name: Build Redis
+        run: |
+          cd redis
+          make -j$(nproc)
+          sudo make install
+      
+      - name: Get version info
+        id: version
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "short_commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+      
+      - name: Setup Rust
+        run: |
+          if [ -f "$HOME/.cargo/env" ]; then
+            . "$HOME/.cargo/env"
+          fi
+          rustc --version
+          cargo --version
+      
+      - name: Build RedisJSON
+        run: |
+          . "$HOME/.cargo/env"
+          cargo build --release
+          # Copy librejson.so to rejson.so (expected by tests)
+          cp target/release/librejson.so target/release/rejson.so
+      
+      - name: Setup Python
+        run: |
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install redis
+          if [ -f tests/pytest/requirements.txt ]; then
+            pip install -r tests/pytest/requirements.txt
+          fi
+      
+      - name: Run Memory Report
+        id: report
+        continue-on-error: true
+        env:
+          REDISJSON_VERSION: ${{ inputs.beta-version || steps.version.outputs.version }}
+          GIT_COMMIT: ${{ steps.version.outputs.commit }}
+          GIT_BRANCH: ${{ steps.version.outputs.branch }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          OUTPUT_FILE: memory_report_${{ steps.version.outputs.short_commit }}.json
+        run: |
+          source venv/bin/activate
+          cd tests/pytest
+          
+          set -x  # Enable debug mode to see all commands
+          
+          echo "=== STEP 1: Environment Check ==="
+          echo "Working directory: $(pwd)"
+          echo "Python: $(which python3)"
+          echo "Module path: ../../target/release/rejson.so"
+          ls -la ../../target/release/rejson.so 2>&1 || echo "⚠️ Module file not found!"
+          echo "Test file exists: $(ls -la test_memory_nightly_report.py 2>&1)"
+          
+          # Run nightly memory report (PARALLEL=0 to avoid conflicts with output capture)
+          # Use unbuffered Python output to ensure all print statements are captured
+          export PYTHONUNBUFFERED=1
+          
+          # Clear any existing report file
+          rm -f ../../memory_report.txt ../../test_output.log
+          
+          echo ""
+          echo "=== STEP 2: Running Test ==="
+          # Don't fail immediately - we want to capture output even if test fails
+          set +e
+          PARALLEL=0 TEST=test_memory_nightly_report.py:test_nightly_memory_report \
+            bash tests.sh ../../target/release/rejson.so > ../../test_output.log 2>&1
+          
+          TEST_EXIT=$?
+          set -e
+          echo "Test command completed with exit code: $TEST_EXIT"
+          
+          echo ""
+          echo "=== STEP 3: Capturing Test Output ==="
+          cd ../..
+          
+          if [ -f test_output.log ]; then
+            LINES=$(wc -l < test_output.log)
+            BYTES=$(wc -c < test_output.log)
+            echo "✅ test_output.log exists: $LINES lines, $BYTES bytes"
+            echo ""
+            echo "--- First 50 lines of output ---"
+            head -50 test_output.log
+            echo ""
+            echo "--- Last 100 lines of output (errors usually here) ---"
+            tail -100 test_output.log
+            echo ""
+            echo "--- Searching for METRIC lines ---"
+            grep "METRIC:" test_output.log | head -10 || echo "❌ No METRIC lines found!"
+            echo ""
+            
+            # Copy output to report file
+            cp test_output.log memory_report.txt
+            echo "✅ Copied test_output.log to memory_report.txt"
+          else
+            echo "❌ test_output.log does not exist!"
+            echo "This means the test command failed before producing any output"
+            echo "Creating minimal report file"
+            echo "Test failed: test_output.log was not created" > memory_report.txt
+          fi
+          
+          echo ""
+          echo "=== STEP 4: Final Status ==="
+          if [ $TEST_EXIT -ne 0 ]; then
+            echo "⚠️ WARNING: Test failed with exit code $TEST_EXIT"
+          else
+            echo "✅ Test completed successfully"
+          fi
+          
+          echo ""
+          echo "Final memory_report.txt size: $(wc -c < memory_report.txt) bytes"
+          echo "First 20 lines of memory_report.txt:"
+          head -20 memory_report.txt || echo "(file is empty or unreadable)"
+      
+      - name: Extract Key Metrics
+        id: metrics
+        run: |
+          # Extract overall overhead (trim whitespace and take first line only)
+          OVERHEAD=$(grep "METRIC:overall_overhead_ratio:" memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]')
+          SMALL=$(grep "METRIC:small_doc_overhead:" memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]')
+          LARGE=$(grep "METRIC:large_doc_overhead:" memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]')
+          
+          # Extract homogeneous array metrics
+          HOMO_U8_SM=$(grep "METRIC:homogeneous_u8_small_overhead_ratio:" memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+          HOMO_U8_LG=$(grep "METRIC:homogeneous_u8_large_overhead_ratio:" memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+          HOMO_FLT=$(grep "METRIC:homogeneous_float_large_overhead_ratio:" memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+          HOMO_INT=$(grep "METRIC:homogeneous_int_large_overhead_ratio:" memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+          
+          # Validate that we got values
+          if [ -z "$OVERHEAD" ] || [ -z "$SMALL" ] || [ -z "$LARGE" ]; then
+            echo "⚠️ Warning: Could not extract all metrics"
+            echo "OVERHEAD='$OVERHEAD'"
+            echo "SMALL='$SMALL'"
+            echo "LARGE='$LARGE'"
+            # Set default values to avoid empty outputs
+            OVERHEAD="${OVERHEAD:-0}"
+            SMALL="${SMALL:-0}"
+            LARGE="${LARGE:-0}"
+          fi
+          
+          echo "overhead=$OVERHEAD" >> $GITHUB_OUTPUT
+          echo "small=$SMALL" >> $GITHUB_OUTPUT
+          echo "large=$LARGE" >> $GITHUB_OUTPUT
+          
+          # Add to job summary
+          echo "### 📊 Memory Overhead Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Overall Overhead:** ${OVERHEAD}x" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Document Size | Overhead |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------------|----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Small | ${SMALL}x |" >> $GITHUB_STEP_SUMMARY
+          echo "| Large | ${LARGE}x |" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$HOMO_U8_SM" ]; then
+            echo "| Homo u8[100] | ${HOMO_U8_SM}x |" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -n "$HOMO_U8_LG" ]; then
+            echo "| Homo u8[10K] | ${HOMO_U8_LG}x |" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -n "$HOMO_FLT" ]; then
+            echo "| Homo float[10K] | ${HOMO_FLT}x |" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -n "$HOMO_INT" ]; then
+            echo "| Homo int[10K] | ${HOMO_INT}x |" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_RedisJSON uses ${OVERHEAD}x more memory than regular Redis strings_" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📁 [View full report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Download Baseline from Main Branch
+        id: download-baseline
+        uses: dawidd6/action-download-artifact@v3
+        continue-on-error: true
+        with:
+          workflow: event-nightly.yml
+          branch: master
+          name: memory-report-baseline
+          path: baseline/
+          if_no_artifact_found: ignore
+      
+      - name: Compare with Baseline
+        id: compare
+        run: |
+          CURRENT=$(grep "METRIC:overall_overhead_ratio:" memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]')
+          CURRENT_SMALL=$(grep "METRIC:small_doc_overhead:" memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]')
+          CURRENT_LARGE=$(grep "METRIC:large_doc_overhead:" memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]')
+          
+          echo "### 📊 Current Memory Overhead" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Overall | ${CURRENT}x |" >> $GITHUB_STEP_SUMMARY
+          echo "| Small docs | ${CURRENT_SMALL}x |" >> $GITHUB_STEP_SUMMARY
+          echo "| Large docs | ${CURRENT_LARGE}x |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "baseline/memory_report.txt" ]; then
+            BASELINE=$(grep "METRIC:overall_overhead_ratio:" baseline/memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]')
+            BASELINE_SMALL=$(grep "METRIC:small_doc_overhead:" baseline/memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]')
+            BASELINE_LARGE=$(grep "METRIC:large_doc_overhead:" baseline/memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]')
+            
+            DIFF=$(echo "$CURRENT - $BASELINE" | bc -l)
+            PERCENT=$(echo "scale=2; ($DIFF / $BASELINE) * 100" | bc -l)
+            
+            echo "### 📈 Comparison vs Main Branch Baseline" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Metric | Baseline | Current | Change |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|----------|---------|--------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Overall | ${BASELINE}x | ${CURRENT}x | ${PERCENT}% |" >> $GITHUB_STEP_SUMMARY
+            
+            DIFF_SMALL=$(echo "$CURRENT_SMALL - $BASELINE_SMALL" | bc -l)
+            PERCENT_SMALL=$(echo "scale=2; ($DIFF_SMALL / $BASELINE_SMALL) * 100" | bc -l)
+            echo "| Small docs | ${BASELINE_SMALL}x | ${CURRENT_SMALL}x | ${PERCENT_SMALL}% |" >> $GITHUB_STEP_SUMMARY
+            
+            DIFF_LARGE=$(echo "$CURRENT_LARGE - $BASELINE_LARGE" | bc -l)
+            PERCENT_LARGE=$(echo "scale=2; ($DIFF_LARGE / $BASELINE_LARGE) * 100" | bc -l)
+            echo "| Large docs | ${BASELINE_LARGE}x | ${CURRENT_LARGE}x | ${PERCENT_LARGE}% |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Check if increased by more than 5%
+            if [ $(echo "$PERCENT > 5" | bc -l) -eq 1 ]; then
+              echo "⚠️ **Memory overhead increased by ${PERCENT}%**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**Action:** Review changes since last main branch merge" >> $GITHUB_STEP_SUMMARY
+              echo "regression=true" >> $GITHUB_OUTPUT
+            elif [ $(echo "$PERCENT < -5" | bc -l) -eq 1 ]; then
+              echo "✅ **Memory overhead improved by ${PERCENT}%**" >> $GITHUB_STEP_SUMMARY
+              echo "regression=false" >> $GITHUB_OUTPUT
+            else
+              echo "✅ **Memory overhead stable (${PERCENT}% change)**" >> $GITHUB_STEP_SUMMARY
+              echo "regression=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "ℹ️ **No baseline found** - First run on main branch" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "This report will become the baseline for future comparisons." >> $GITHUB_STEP_SUMMARY
+            echo "regression=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Upload Memory Report as Baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-report-baseline
+          path: memory_report.txt
+          retention-days: 90
+      
+      - name: Upload Detailed Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-report-${{ steps.version.outputs.short_commit }}
+          path: |
+            memory_report.txt
+            tests/pytest/memory_report_*.json
+          retention-days: 90
+    
+    outputs:
+      overhead: ${{ steps.metrics.outputs.overhead }}
+      small_overhead: ${{ steps.metrics.outputs.small }}
+      large_overhead: ${{ steps.metrics.outputs.large }}

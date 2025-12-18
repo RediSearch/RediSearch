@@ -1,0 +1,30 @@
+version: 0.2
+
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5d
+ - spot_instance: oss-redisearch-m5-spot-instances
+
+exporter:
+  redistimeseries:
+    break_by:
+      - version
+      - commit
+    timemetric: "$.StartTime"
+    metrics:
+      - "$.Tests.Overall.rps"
+      - "$.Tests.Overall.avg_latency_ms"
+      - "$.Tests.Overall.p50_latency_ms"
+      - "$.Tests.Overall.p95_latency_ms"
+      - "$.Tests.Overall.p99_latency_ms"
+      - "$.Tests.Overall.max_latency_ms"
+      - "$.Tests.Overall.min_latency_ms"
+      - '$."ALL STATS".*."Ops/sec"'
+      - '$."ALL STATS".*."Latency"'
+  comparison:
+    metrics:
+      - "Ops/sec"
+      - "$.Tests.Overall.rps"
+      - "$.OverallRates.overallOpsRate"
+    mode: higher-better
+    baseline-branch: master

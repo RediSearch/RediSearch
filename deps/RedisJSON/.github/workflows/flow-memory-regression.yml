@@ -1,0 +1,329 @@
+name: Memory Regression Tests
+
+on:
+  workflow_call:
+    inputs:
+      redis-ref:
+        description: 'Redis ref to checkout'
+        type: string
+        default: 'unstable'
+      os:
+        description: 'OS to run on (ubuntu-latest, macos-latest)'
+        type: string
+        default: 'ubuntu-latest'
+
+jobs:
+  memory-regression:
+    runs-on: ${{ inputs.os }}
+    env:
+      PIP_BREAK_SYSTEM_PACKAGES: 1
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      
+      - name: Get Redis
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: ${{ inputs.redis-ref }}
+          path: redis
+          submodules: 'recursive'
+      
+      - name: Build Redis
+        run: |
+          cd redis
+          make -j$(nproc)
+          sudo make install
+      
+      - name: Setup Rust
+        run: |
+          if [ -f "$HOME/.cargo/env" ]; then
+            . "$HOME/.cargo/env"
+          fi
+          rustc --version
+          cargo --version
+      
+      - name: Build RedisJSON
+        run: |
+          . "$HOME/.cargo/env"
+          cargo build --release
+          # Copy librejson.so to rejson.so (expected by tests)
+          cp target/release/librejson.so target/release/rejson.so
+      
+      - name: Setup Python
+        run: |
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip setuptools
+          pip install redis
+          if [ -f tests/pytest/requirements.txt ]; then
+            pip install -r tests/pytest/requirements.txt
+          fi
+      
+      - name: Run Memory Regression Tests
+        id: memory-test
+        run: |
+          source venv/bin/activate
+          cd tests/pytest
+          
+          # Run regression tests with budgets (QUICK=1 to only run general variant, PARALLEL=0 to avoid conflicts with output capture)
+          QUICK=1 PARALLEL=0 TEST=test_memory_regression.py bash tests.sh ../../target/release/rejson.so || exit 1
+          
+          echo "✅ Memory regression tests passed - within budgets"
+      
+      - name: Download Nightly Baseline from Main Branch
+        id: download-baseline
+        uses: dawidd6/action-download-artifact@v3
+        continue-on-error: true
+        with:
+          workflow: event-nightly.yml
+          branch: master
+          name: memory-report-baseline
+          path: baseline/
+          if_no_artifact_found: ignore
+      
+      - name: Run Quick Memory Report
+        run: |
+          source venv/bin/activate
+          cd tests/pytest
+          
+          echo "=== Running memory report test ==="
+          # Generate quick report for comparison (PARALLEL=0 to avoid conflicts with output capture)
+          set +e  # Don't fail immediately
+          QUICK=1 PARALLEL=0 TEST=test_memory_nightly_report.py:test_nightly_memory_report_summary_only \
+            bash tests.sh ../../target/release/rejson.so > ../../pr_memory_report.txt 2>&1
+          TEST_EXIT=$?
+          set -e
+          
+          echo "Test exit code: $TEST_EXIT"
+          echo "Report file size: $(wc -c < ../../pr_memory_report.txt) bytes"
+          echo ""
+          echo "=== First 30 lines of report ==="
+          head -30 ../../pr_memory_report.txt || true
+          echo ""
+          echo "=== Searching for METRIC lines ==="
+          grep "METRIC:" ../../pr_memory_report.txt || echo "No METRIC lines found!"
+      
+      - name: Compare with Nightly Baseline
+        id: compare
+        run: |
+          echo "=== Baseline Comparison Debug ==="
+          echo "Checking for pr_memory_report.txt..."
+          
+          if [ ! -f "pr_memory_report.txt" ]; then
+            echo "⚠️ Could not generate memory report" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ File pr_memory_report.txt does not exist"
+            exit 0
+          fi
+          
+          echo "✅ File exists, size: $(wc -c < pr_memory_report.txt) bytes"
+          echo "Extracting CURRENT metrics..."
+          
+          CURRENT=$(grep "METRIC:overall_overhead_ratio:" pr_memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+          echo "CURRENT='$CURRENT'"
+          
+          if [ -z "$CURRENT" ]; then
+            echo "⚠️ Could not extract current memory metrics" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Debug: pr_memory_report.txt contents (last 50 lines):**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -50 pr_memory_report.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "❌ Failed to extract CURRENT metric"
+            exit 0
+          fi
+          
+          echo "✅ Successfully extracted CURRENT=$CURRENT"
+          
+          echo "### 📊 Memory Regression Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Comparison vs Nightly Baseline" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | This PR | Baseline | Change | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|---------|----------|--------|--------|" >> $GITHUB_STEP_SUMMARY
+          
+          # Extract small and large metrics too
+          CURRENT_SMALL=$(grep "METRIC:small_doc_overhead:" pr_memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+          CURRENT_LARGE=$(grep "METRIC:large_doc_overhead:" pr_memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+          
+          # Extract homogeneous array metrics
+          CURRENT_HOMO_U8_SM=$(grep "METRIC:homogeneous_u8_small_overhead_ratio:" pr_memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+          CURRENT_HOMO_U8_LG=$(grep "METRIC:homogeneous_u8_large_overhead_ratio:" pr_memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+          CURRENT_HOMO_FLT=$(grep "METRIC:homogeneous_float_large_overhead_ratio:" pr_memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+          CURRENT_HOMO_INT=$(grep "METRIC:homogeneous_int_large_overhead_ratio:" pr_memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+          
+          if [ -f "baseline/memory_report.txt" ]; then
+            echo "✅ Baseline file found, performing comparison..."
+            # Overall metric
+            BASELINE=$(grep "METRIC:overall_overhead_ratio:" baseline/memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+            if [ -n "$BASELINE" ] && [ -n "$CURRENT" ]; then
+              DIFF=$(echo "$CURRENT - $BASELINE" | bc -l)
+              PERCENT=$(echo "scale=2; ($DIFF / $BASELINE) * 100" | bc -l)
+              if [ $(echo "$PERCENT > 5" | bc -l) -eq 1 ]; then
+                STATUS="⚠️ +${PERCENT}%"
+              elif [ $(echo "$PERCENT < -5" | bc -l) -eq 1 ]; then
+                STATUS="✅ ${PERCENT}%"
+              else
+                STATUS="✅ Stable"
+              fi
+              echo "| **Overall Ratio** | ${CURRENT}x | ${BASELINE}x | ${DIFF}x (${PERCENT}%) | ${STATUS} |" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # Small doc metric
+            BASELINE_SMALL=$(grep "METRIC:small_doc_overhead:" baseline/memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+            if [ -n "$BASELINE_SMALL" ] && [ -n "$CURRENT_SMALL" ]; then
+              DIFF_SMALL=$(echo "$CURRENT_SMALL - $BASELINE_SMALL" | bc -l)
+              PERCENT_SMALL=$(echo "scale=2; ($DIFF_SMALL / $BASELINE_SMALL) * 100" | bc -l)
+              if [ $(echo "$PERCENT_SMALL > 5" | bc -l) -eq 1 ]; then
+                STATUS_SMALL="⚠️ +${PERCENT_SMALL}%"
+              elif [ $(echo "$PERCENT_SMALL < -5" | bc -l) -eq 1 ]; then
+                STATUS_SMALL="✅ ${PERCENT_SMALL}%"
+              else
+                STATUS_SMALL="✅ Stable"
+              fi
+              echo "| Small docs | ${CURRENT_SMALL}x | ${BASELINE_SMALL}x | ${DIFF_SMALL}x (${PERCENT_SMALL}%) | ${STATUS_SMALL} |" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # Large doc metric
+            BASELINE_LARGE=$(grep "METRIC:large_doc_overhead:" baseline/memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+            if [ -n "$BASELINE_LARGE" ] && [ -n "$CURRENT_LARGE" ]; then
+              DIFF_LARGE=$(echo "$CURRENT_LARGE - $BASELINE_LARGE" | bc -l)
+              PERCENT_LARGE=$(echo "scale=2; ($DIFF_LARGE / $BASELINE_LARGE) * 100" | bc -l)
+              if [ $(echo "$PERCENT_LARGE > 5" | bc -l) -eq 1 ]; then
+                STATUS_LARGE="⚠️ +${PERCENT_LARGE}%"
+              elif [ $(echo "$PERCENT_LARGE < -5" | bc -l) -eq 1 ]; then
+                STATUS_LARGE="✅ ${PERCENT_LARGE}%"
+              else
+                STATUS_LARGE="✅ Stable"
+              fi
+              echo "| Large docs | ${CURRENT_LARGE}x | ${BASELINE_LARGE}x | ${DIFF_LARGE}x (${PERCENT_LARGE}%) | ${STATUS_LARGE} |" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # Homogeneous u8 small array
+            BASELINE_HOMO_U8_SM=$(grep "METRIC:homogeneous_u8_small_overhead_ratio:" baseline/memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+            if [ -n "$BASELINE_HOMO_U8_SM" ] && [ -n "$CURRENT_HOMO_U8_SM" ]; then
+              DIFF_HOMO=$(echo "$CURRENT_HOMO_U8_SM - $BASELINE_HOMO_U8_SM" | bc -l)
+              PERCENT_HOMO=$(echo "scale=2; ($DIFF_HOMO / $BASELINE_HOMO_U8_SM) * 100" | bc -l)
+              if [ $(echo "$PERCENT_HOMO > 5" | bc -l) -eq 1 ]; then
+                STATUS_HOMO="⚠️ +${PERCENT_HOMO}%"
+              elif [ $(echo "$PERCENT_HOMO < -5" | bc -l) -eq 1 ]; then
+                STATUS_HOMO="✅ ${PERCENT_HOMO}%"
+              else
+                STATUS_HOMO="✅ Stable"
+              fi
+              echo "| Homo u8[100] | ${CURRENT_HOMO_U8_SM}x | ${BASELINE_HOMO_U8_SM}x | ${DIFF_HOMO}x (${PERCENT_HOMO}%) | ${STATUS_HOMO} |" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # Homogeneous u8 large array
+            BASELINE_HOMO_U8_LG=$(grep "METRIC:homogeneous_u8_large_overhead_ratio:" baseline/memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+            if [ -n "$BASELINE_HOMO_U8_LG" ] && [ -n "$CURRENT_HOMO_U8_LG" ]; then
+              DIFF_HOMO=$(echo "$CURRENT_HOMO_U8_LG - $BASELINE_HOMO_U8_LG" | bc -l)
+              PERCENT_HOMO=$(echo "scale=2; ($DIFF_HOMO / $BASELINE_HOMO_U8_LG) * 100" | bc -l)
+              if [ $(echo "$PERCENT_HOMO > 5" | bc -l) -eq 1 ]; then
+                STATUS_HOMO="⚠️ +${PERCENT_HOMO}%"
+              elif [ $(echo "$PERCENT_HOMO < -5" | bc -l) -eq 1 ]; then
+                STATUS_HOMO="✅ ${PERCENT_HOMO}%"
+              else
+                STATUS_HOMO="✅ Stable"
+              fi
+              echo "| Homo u8[10K] | ${CURRENT_HOMO_U8_LG}x | ${BASELINE_HOMO_U8_LG}x | ${DIFF_HOMO}x (${PERCENT_HOMO}%) | ${STATUS_HOMO} |" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # Homogeneous float large
+            BASELINE_HOMO_FLT=$(grep "METRIC:homogeneous_float_large_overhead_ratio:" baseline/memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+            if [ -n "$BASELINE_HOMO_FLT" ] && [ -n "$CURRENT_HOMO_FLT" ]; then
+              DIFF_HOMO=$(echo "$CURRENT_HOMO_FLT - $BASELINE_HOMO_FLT" | bc -l)
+              PERCENT_HOMO=$(echo "scale=2; ($DIFF_HOMO / $BASELINE_HOMO_FLT) * 100" | bc -l)
+              if [ $(echo "$PERCENT_HOMO > 5" | bc -l) -eq 1 ]; then
+                STATUS_HOMO="⚠️ +${PERCENT_HOMO}%"
+              elif [ $(echo "$PERCENT_HOMO < -5" | bc -l) -eq 1 ]; then
+                STATUS_HOMO="✅ ${PERCENT_HOMO}%"
+              else
+                STATUS_HOMO="✅ Stable"
+              fi
+              echo "| Homo float[10K] | ${CURRENT_HOMO_FLT}x | ${BASELINE_HOMO_FLT}x | ${DIFF_HOMO}x (${PERCENT_HOMO}%) | ${STATUS_HOMO} |" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # Homogeneous int large
+            BASELINE_HOMO_INT=$(grep "METRIC:homogeneous_int_large_overhead_ratio:" baseline/memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+            if [ -n "$BASELINE_HOMO_INT" ] && [ -n "$CURRENT_HOMO_INT" ]; then
+              DIFF_HOMO=$(echo "$CURRENT_HOMO_INT - $BASELINE_HOMO_INT" | bc -l)
+              PERCENT_HOMO=$(echo "scale=2; ($DIFF_HOMO / $BASELINE_HOMO_INT) * 100" | bc -l)
+              if [ $(echo "$PERCENT_HOMO > 5" | bc -l) -eq 1 ]; then
+                STATUS_HOMO="⚠️ +${PERCENT_HOMO}%"
+              elif [ $(echo "$PERCENT_HOMO < -5" | bc -l) -eq 1 ]; then
+                STATUS_HOMO="✅ ${PERCENT_HOMO}%"
+              else
+                STATUS_HOMO="✅ Stable"
+              fi
+              echo "| Homo int[10K] | ${CURRENT_HOMO_INT}x | ${BASELINE_HOMO_INT}x | ${DIFF_HOMO}x (${PERCENT_HOMO}%) | ${STATUS_HOMO} |" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "_Comparison against nightly baseline from main branch_" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ No baseline file found, showing current values only..."
+            # Show current values without comparison
+            echo "| **Overall Ratio** | ${CURRENT}x | N/A | N/A | ℹ️ No baseline |" >> $GITHUB_STEP_SUMMARY
+            if [ -n "$CURRENT_SMALL" ]; then
+              echo "| Small docs | ${CURRENT_SMALL}x | N/A | N/A | ℹ️ No baseline |" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ -n "$CURRENT_LARGE" ]; then
+              echo "| Large docs | ${CURRENT_LARGE}x | N/A | N/A | ℹ️ No baseline |" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ -n "$CURRENT_HOMO_U8_SM" ]; then
+              echo "| Homo u8[100] | ${CURRENT_HOMO_U8_SM}x | N/A | N/A | ℹ️ No baseline |" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ -n "$CURRENT_HOMO_U8_LG" ]; then
+              echo "| Homo u8[10K] | ${CURRENT_HOMO_U8_LG}x | N/A | N/A | ℹ️ No baseline |" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ -n "$CURRENT_HOMO_FLT" ]; then
+              echo "| Homo float[10K] | ${CURRENT_HOMO_FLT}x | N/A | N/A | ℹ️ No baseline |" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ -n "$CURRENT_HOMO_INT" ]; then
+              echo "| Homo int[10K] | ${CURRENT_HOMO_INT}x | N/A | N/A | ℹ️ No baseline |" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "ℹ️ No nightly baseline found. This PR will create the first baseline after merging to main." >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: Show Summary
+        run: |
+          echo "✅ Memory regression test completed successfully!"
+          echo ""
+          echo "📊 Memory Comparison Results:"
+          echo ""
+          
+          if [ -f "pr_memory_report.txt" ]; then
+            CURRENT=$(grep "METRIC:overall_overhead_ratio:" pr_memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+            if [ -n "$CURRENT" ]; then
+              echo "**Current Overall Overhead:** ${CURRENT}x"
+              echo ""
+            fi
+            
+            if [ -f "baseline/memory_report.txt" ]; then
+              BASELINE=$(grep "METRIC:overall_overhead_ratio:" baseline/memory_report.txt | head -1 | cut -d: -f3 | tr -d '[:space:]' || echo "")
+              if [ -n "$BASELINE" ] && [ -n "$CURRENT" ]; then
+                DIFF=$(echo "$CURRENT - $BASELINE" | bc -l)
+                PERCENT=$(echo "scale=2; ($DIFF / $BASELINE) * 100" | bc -l)
+                echo "**Baseline:** ${BASELINE}x"
+                echo "**Change:** ${DIFF}x (${PERCENT}%)"
+              fi
+            else
+              echo "ℹ️ No baseline available. This PR will create the first baseline."
+            fi
+          fi
+      
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-regression-logs-${{ inputs.os }}-${{ github.sha }}
+          path: tests/pytest/logs/*.log*
+          if-no-files-found: ignore
+          retention-days: 7
+
+

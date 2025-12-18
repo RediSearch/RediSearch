@@ -1,0 +1,28 @@
+display_name: RedisJSON
+capability_name: JSON
+author: Redis Labs
+email: redismodules@redislabs.com
+description: Native JSON Data Type for Redis
+homepage: http://redisjson.io
+license: Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1) or the GNU Affero General Public License version 3 (AGPLv3)
+command_line_args: ""
+compatible_redis_version: "99.99"
+min_redis_version: "7.4"
+min_redis_pack_version: "7.6.0"
+bigstore_version_2_support: true
+capabilities:
+    - types
+    - no_multi_key
+    - replica_of
+    - eviction_expiry
+    - failover_migrate
+    - flash
+    - backup_restore
+    - reshard_rebalance
+    - persistence_aof
+    - persistence_rdb
+    - hash_policy
+    - clustering
+    - intershard_tls
+    - intershard_tls_pass
+    - ipv6

@@ -1,0 +1,23 @@
+{
+"sclr" : 0,
+"str" : "b",
+"sub_doc" : {
+	"sclr" : 10,
+	"str" : "c",
+	"arr" : [1,2,3,{"sclr" : 20, "str":"d"}]
+},
+"array_of_docs" : [
+    -1,
+    {	       
+        "sclr" : 11,
+        "str" : "e",
+        "arr" : [4,5,6,{"sclr" : 21, "str" : "f"}]
+    },
+    {
+    	   "sclr" : 12,
+        "str" : "g",
+        "arr" : [7,8,9,{"sclr" : 22, "str" : "h"}]
+        },
+    -2
+    ]
+}

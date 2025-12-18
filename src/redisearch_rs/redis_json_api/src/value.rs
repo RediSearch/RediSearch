@@ -284,7 +284,7 @@ impl<'a> JsonValue<'a> {
             .expect("RedisJSON API function `freeJson` not available");
 
         let ptr = unsafe { alloc() };
-        debug_assert!(!ptr.is_null());
+        assert!(!ptr.is_null());
 
         Self { ptr, free, api }
     }

@@ -1,0 +1,14 @@
+version: 0.2
+name: "json_set_fulldoc_yahoo2"
+
+clientconfig:
+  - tool: redis-benchmark
+  - min-tool-version: "6.2.0"
+  - parameters:
+    - clients: 16
+    - requests: 1000000
+    - threads: 2
+    - pipeline: 1
+    - keyspacelen: 10000
+    - command: "JSON.SET __rand_int__ $"
+    - x: "./datasets/pass-jsonsl-yahoo2.json"

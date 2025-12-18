@@ -99,7 +99,7 @@ impl<'a> ResultsIter<'a> {
     /// Returns the next value in the iterator.
     ///
     /// Returns `None` when all values have been consumed.
-    pub fn next(&self) -> Option<JsonValueRef<'_>> {
+    pub fn next(&mut self) -> Option<JsonValueRef<'_>> {
         let raw = unsafe { (self.next)(self.ptr.as_ptr()) };
 
         if raw.is_null() {

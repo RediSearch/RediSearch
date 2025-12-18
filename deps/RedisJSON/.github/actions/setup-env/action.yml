@@ -1,0 +1,74 @@
+name: Setup environment
+description: |
+  setup environment for the build and output the branch and tag information
+
+inputs:
+  github-ref:
+    description: GitHub ref
+    required: true
+  redis-ref:
+    description: Redis ref
+    required: false
+  beta-version:
+    description: 'Beta version for S3 uploads'
+    required: false
+
+outputs:
+  TAGGED:
+    description: 'Is this a tagged build, actual value is 1 or 0'
+    value: ${{ steps.set-tagged.outputs.TAGGED }}
+  TAG:
+    description: 'The tag name'
+    value: ${{ steps.set-git-info.outputs.TAG }}
+  BRANCH:
+    description: 'The branch name'
+    value: ${{ steps.set-git-info.outputs.BRANCH }}
+  TAG_OR_BRANCH:
+    description: 'The tag or branch name'
+    value: ${{ steps.set-git-info.outputs.TAG }}${{ steps.set-git-info.outputs.BRANCH }}
+  redis-ref:
+    description: 'The redis ref'
+    value: ${{ steps.set-redis-ref.outputs.REDIS_REF }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set the branch and tag outputs
+      shell: bash
+      id: set-git-info
+      run: |
+        if [[ "${{github.event_name}}" != "pull_request" ]]; then
+          REF="${{ github.ref }}"
+          TAG_PATTERN="^refs/tags/(.*)$"
+          if [[ $REF =~ $TAG_PATTERN ]]; then
+            TAG=${BASH_REMATCH[1]}
+          fi
+        fi
+
+        if [[ -z $TAG ]]; then
+          BRANCH=${{ github.head_ref || github.ref_name }}
+        fi
+        echo "TAG=${TAG}" >> $GITHUB_OUTPUT
+        echo "BRANCH=${BRANCH}" >> $GITHUB_OUTPUT
+        echo "TAG=${TAG}, BRANCH=${BRANCH}"
+    - name: Set the tagged flag
+      shell: bash
+      id: set-tagged
+      run: |
+        # If this is a version tag, then set to false, meaning this
+        # is not a production build.
+        export REF="${{ inputs.github-ref }}"
+        export PATTERN="refs/tags/v[0-9]+.*"
+        if [[ $REF =~ $PATTERN ]]; then
+          echo "This is a tagged build"
+          echo "TAGGED=1" >> $GITHUB_OUTPUT
+        else
+          echo "This is not a tagged build"
+          echo "TAGGED=0" >> $GITHUB_OUTPUT
+        fi
+    - name: Set redis ref
+      shell: bash
+      id: set-redis-ref
+      run: |
+        export REDIS_REF="${{ inputs.redis-ref || '7.4'}}"
+        echo "REDIS_REF=${REDIS_REF}" >> $GITHUB_OUTPUT

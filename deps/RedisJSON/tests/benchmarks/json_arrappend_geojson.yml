@@ -1,0 +1,15 @@
+version: 0.2
+name: "json_arrappend_geojson"
+description: "JSON.ARRAPPEND path:sonde:foo $.properties.coordinateProperties || https://github.com/RedisJSON/RedisJSON/issues/295"
+
+dbconfig:
+  - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisjson/performance.docs/redisjson-gh295-dump.rdb"
+clientconfig:
+  - tool: redis-benchmark
+  - min-tool-version: "6.2.0"
+  - parameters:
+    - clients: 16
+    - requests: 1000000
+    - threads: 2
+    - pipeline: 1
+    - command: 'JSON.ARRAPPEND path:sonde:foo $.properties.coordinateProperties "{\"type\": \"Feature\", \"geometry\": {\"type\": \"Point\", \"coordinates\": [26.2153, 60.34085, 417.0]}, \"properties\": {\"temp\": 3.6, \"serial\": \"S0730589\", \"humidity\": 64.6, \"vel_h\": 16.0, \"uploader_callsign\": \"Lahti 24h raspberry\", \"time\": 1617220020, \"uploader\": {\"callsign\": \"Lahti 24h raspberry\"}}}"'

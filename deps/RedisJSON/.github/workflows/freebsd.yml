@@ -1,0 +1,26 @@
+name: freebsd
+
+on: []
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: build
+      uses: vmactions/freebsd-vm@v1
+      with:
+        usesh: true
+        sync: rsync
+        copyback: false
+        prepare: pkg install -y bash curl lang/rust devel/llvm-devel
+        run: |
+          cargo build --all --all-targets --verbose 
+          curl https://sh.rustup.rs -sSf > rustup.sh
+          sh rustup.sh -y
+          . $HOME/.cargo/env
+          rustup target add i686-unknown-freebsd
+          cargo build --all --all-targets --verbose --target i686-unknown-freebsd
+          cargo test --all --all-targets --verbose

@@ -1,0 +1,227 @@
+name: Build and Test Linux ARM instances
+
+on:
+  workflow_dispatch: # Allows you to run this workflow manually from the Actions tab
+    inputs:
+      redis-ref:
+        description: 'Redis ref to checkout'
+        required: true
+        default: 'unstable'
+      run-test:
+        type: boolean
+        default: true
+      beta-version:
+        description: 'Beta version for S3 uploads'
+        type: string
+        required: false
+  workflow_call: # Allows to run this workflow from another workflow
+    inputs:
+      redis-ref:
+        description: 'Redis ref to checkout'
+        type: string
+        required: true
+      run-test:
+        type: boolean
+        default: true
+      beta-version:
+        description: 'Beta version for S3 uploads'
+        type: string
+        required: false
+
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: read  # This is required for actions/checkout
+
+
+jobs:
+  setup-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      TAGGED: ${{ steps.set-env.outputs.TAGGED }}
+      TAG: ${{ steps.set-env.outputs.TAG }}
+      BRANCH: ${{ steps.set-env.outputs.BRANCH }}
+      TAG_OR_BRANCH: ${{ steps.set-env.outputs.TAG }}${{ steps.set-env.outputs.BRANCH }}
+      redis-ref: ${{ steps.set-env.outputs.redis-ref }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: set env
+        id: set-env
+        uses: ./.github/actions/setup-env
+        with:
+          github-ref: ${{ github.ref }}
+          redis-ref: ${{ inputs.redis-ref }}
+          beta-version: ${{ inputs.beta-version }}
+
+  linux-arm64:
+    runs-on: ubuntu24-arm64-4-16 # ubuntu24-arm64-2-8
+    needs: setup-environment
+    strategy:
+      fail-fast: false
+      matrix:
+        docker:
+          - image: "ubuntu:bionic"
+            nick: "bionic"
+            install_git: |
+              apt-get update && apt-get install -y software-properties-common
+              add-apt-repository ppa:git-core/ppa && apt-get update && apt-get install -y git
+            install_deps: |
+              apt update -qq
+              apt upgrade -yqq
+              apt dist-upgrade -yqq
+              apt install -yqq software-properties-common unzip rsync
+              add-apt-repository ppa:ubuntu-toolchain-r/test -y
+              apt update
+              apt install -yqq build-essential wget curl make gcc-10 g++-10 openssl libssl-dev cargo binfmt-support \
+                lsb-core awscli libclang-dev clang curl
+              update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 60 --slave /usr/bin/g++ g++ /usr/bin/g++-10
+              apt -y install python3.8 python3.8-venv python3.8-dev python3-venv python3-dev python3-pip
+              update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 2
+          - image: "ubuntu:focal"
+            nick: focal
+            install_git: | 
+              apt-get update && apt-get install -y software-properties-common
+              add-apt-repository ppa:git-core/ppa && apt-get update && apt-get install -y git
+            install_deps: |
+              apt update -qq
+              apt upgrade -yqq
+              apt install -yqq wget make clang-format gcc python3 python3-venv python3-pip lcov git openssl libssl-dev \
+                  unzip rsync build-essential gcc-10 g++-10 cargo libclang-dev clang curl
+              update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 60 --slave /usr/bin/g++ g++ /usr/bin/g++-10
+          - image: "ubuntu:jammy"
+            nick: "jammy"
+            install_git: |
+              apt-get update && apt-get install -y git
+            install_deps: |
+              apt update -qq
+              apt upgrade -yqq
+              apt install -yqq git wget build-essential lcov openssl libssl-dev \
+                python3 python3-pip python3-venv python3-dev unzip rsync libclang-dev clang curl
+          - image: "rockylinux:9"
+            nick: "rocky9"
+            install_git: |
+              dnf install -y git
+            install_deps: |
+              dnf -y update
+              dnf install -y --allowerasing \
+                git \
+                wget \
+                gcc \
+                gcc-c++ \
+                clang \
+                clang-devel \
+                llvm-devel \
+                make \
+                cmake \
+                libffi-devel \
+                openssl-devel \
+                zlib-devel \
+                bzip2-devel \
+                python3-devel \
+                which \
+                unzip \
+                ca-certificates \
+                python3-pip \
+                curl \
+                rsync \
+                diffutils
+    defaults:
+      run:
+        shell: bash
+    env:
+      TAGGED: ${{ needs.setup-environment.outputs.TAGGED }}
+      VERSION: ${{ needs.setup-environment.outputs.TAG }}
+      BRANCH: ${{ needs.setup-environment.outputs.BRANCH }}
+      TAG_OR_BRANCH: ${{ needs.setup-environment.outputs.TAG_OR_BRANCH}}
+    container:
+      image: ${{ matrix.docker.image }}
+    steps:
+      - name: Install git
+        run: |
+          ${{ matrix.docker.install_git }}
+      - name: git checkout
+        if: matrix.docker.image == 'ubuntu:bionic'
+        run: |
+          # Perform checkout
+          REPO_URL="https://github.com/${{ github.repository }}.git"
+          # Clone the repository to the current directory
+          git config --global --add safe.directory /__w/${{ github.repository }}
+          git clone --recurse-submodules --depth=1 $REPO_URL .
+          REF=${{github.sha}}
+          git fetch origin ${REF}
+          git checkout ${REF}
+          git submodule update --init --recursive
+      - name: Checkout the module
+        if: matrix.docker.image != 'ubuntu:bionic'
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - name: Install dependencies
+        run: |
+          ${{ matrix.docker.install_deps }}
+        env:
+          DEBIAN_FRONTEND: noninteractive
+      - name: Checkout Redis
+        if: matrix.docker.image != 'ubuntu:bionic'
+        uses: actions/checkout@v4
+        with:
+          repository: 'redis/redis'
+          ref: ${{ needs.setup-environment.outputs.redis-ref }}
+          path: 'redis'
+      - name: Get Redis
+        if: matrix.docker.image == 'ubuntu:bionic'
+        run: |
+          # Perform checkout
+          REPO_URL="https://github.com/redis/redis.git"
+          # Clone the repository to the current directory
+          git clone --recurse-submodules $REPO_URL redis
+          cd redis
+          git fetch origin ${{ needs.setup-environment.outputs.redis-ref }}
+          git checkout ${{ needs.setup-environment.outputs.redis-ref }}
+          git submodule update --init --recursive
+      - name: Get Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source "$HOME/.cargo/env"
+          rustup update
+          rustup update nightly
+          rustup component add rust-src --toolchain nightly
+      - name: Install python dependencies
+        run: |
+          echo ::group::activate venv
+            python3 -m venv venv
+            echo "source $PWD/venv/bin/activate" >> ~/.bash_profile
+            source venv/bin/activate
+          echo ::endgroup::
+          echo ::group::install requirements
+            pip install -q --upgrade setuptools
+            # Upgrade pip to latest version to ensure ARM64 wheel support
+            pip install -q --upgrade "pip>=21.0"
+            # Install compatible Cython version as fallback for source builds
+            pip install -q "Cython<3.0"
+            # Prefer binary wheels to avoid compilation issues on ARM64
+            pip install -q --prefer-binary -r tests/pytest/requirements.txt
+            pip install -q --prefer-binary -r .install/build_package_requirements.txt
+          echo ::endgroup::
+        env:
+          PIP_BREAK_SYSTEM_PACKAGES: 1
+      - name: build
+        uses: ./.github/actions/build-json-module-and-redis-with-cargo
+      - name: Test
+        if: ${{inputs.run-test}}
+        run: |
+          source venv/bin/activate
+          MODULE=$(realpath ./target/release/rejson.so) RLTEST_ARGS='--no-progress' ./tests/pytest/tests.sh
+      - name: Pack module
+        uses: ./.github/actions/pack-module
+        with:
+          beta-version: ${{ inputs.beta-version }}
+      - name: Upload artifacts to S3
+        uses: ./.github/actions/upload-artifacts-to-s3-without-make
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          github-ref: ${{ github.ref }}
+          beta-version: ${{ inputs.beta-version }}

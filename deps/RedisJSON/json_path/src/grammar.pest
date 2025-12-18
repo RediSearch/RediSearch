@@ -1,0 +1,74 @@
+literal = @{('a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | "-" | "_" | "`" | "~" | "+" | "#" | "%" | "$" | "^" | "/" | ":")+}
+
+string = _{("'" ~ (string_value) ~ "'") | ("\"" ~ (string_value) ~ "\"") | ("\"" ~ (string_value_escape_1) ~ "\"") | ("'" ~ (string_value_escape_2) ~ "'")}
+    string_escape = @{"\\"}
+    string_value = @{((!("\""|"\\"|"'") ~ ANY)+)*}
+    string_value_escape_1 = @{((!("\""|"\\") ~ ANY)+ | string_escape ~ ("\"" | "\\"))*}
+    string_value_escape_2 = @{((!("'"|"\\") ~ ANY)+ | string_escape ~ ("'" | "\\"))*}
+
+string_list = {string ~ ("," ~ string)*}
+
+pos_number = @{ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*}
+number = @{"-"? ~ ASCII_NONZERO_DIGIT ~ ASCII_DIGIT* | "-"? ~ ASCII_DIGIT}
+
+decimal = @{number ~ ("." ~ ASCII_DIGIT+)?}
+
+numbers_list = {number ~ ("," ~ number)*}
+
+numbers_range = {(full_range | right_range | all_range | left_range)}
+    right_range = {":" ~ number ~ ((":" ~ pos_number) | ":")?}
+    all_range = {":" ~ ((":" ~ pos_number) | ":")?}
+    left_range = {number ~ ":"  ~ ((":" ~ pos_number) | ":")?}
+    full_range = {number ~ ":" ~ number  ~ ((":" ~ pos_number) | ":")?}
+
+from_current = {"@" ~ root?}
+from_root    = {"$" ~ root?}
+
+select_term = _{from_current | from_root}
+
+op = _{ge | gt | le | lt | eq | ne | re}
+    ge = @{">="}
+    gt = @{">"}
+    le = @{"<="}
+    lt = @{"<"}
+    eq = @{"=="}
+    ne = @{"!="}
+    re = @{"=~"}
+
+boolean = _{boolean_true | boolean_false}
+    boolean_true = @{"true"}
+    boolean_false = @{"false"}
+
+null = @{"null"}
+
+term = _{select_term | decimal | string | boolean | null}
+
+single_filter = {term ~ op ~ term | term}
+
+filter_relation = _{and | or}
+    and = {"&&"}
+    or  = {"||"}
+
+inner_filter = _{single_filter | "(" ~ filter ~ ")"}
+
+filter = {inner_filter ~ (filter_relation ~ inner_filter)*}
+
+all = {"*"}
+
+full_scan = {".."}
+
+bracket = _{numbers_range | numbers_list | string_list | all | "?" ~ filter}
+
+element = _{"." ~ literal | full_scan ~ (literal | all | "[" ~ bracket ~ "]") | "." ~ all | ("."? ~ "[" ~ bracket ~ "]")}
+
+first_element = _{literal | all}
+
+root = {(element|first_element) ~ (element)*}
+
+simple_root = {"." ~ literal}
+
+query = _{SOI ~ "$" ~ root? ~ EOI}
+
+simple_query = _{SOI ~ "$" ~ simple_root ~ EOI}
+
+WHITESPACE = _{ " " }

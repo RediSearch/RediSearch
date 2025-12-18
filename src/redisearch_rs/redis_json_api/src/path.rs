@@ -32,7 +32,7 @@ impl<'a> JsonPath<'a> {
         path: &CStr,
         ctx: *mut ffi::RedisModuleCtx,
         api: &'a RedisJsonApi,
-    ) -> Result<Self, RedisString> {
+    ) -> Result<Self, Option<RedisString>> {
         let vtable = api.vtable();
         let path_parse = vtable
             .pathParse
@@ -53,10 +53,16 @@ impl<'a> JsonPath<'a> {
                 api,
             })
         } else {
-            Err(RedisString::from_redis_module_string(
-                ctx.cast(),
-                err_msg.cast(),
-            ))
+            let err_msg = if err_msg.is_null() {
+                None
+            } else {
+                Some(RedisString::from_redis_module_string(
+                    ctx.cast(),
+                    err_msg.cast(),
+                ))
+            };
+
+            Err(err_msg)
         }
     }
 

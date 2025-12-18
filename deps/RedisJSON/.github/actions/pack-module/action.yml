@@ -1,0 +1,26 @@
+name: Run pack module script
+
+inputs:
+  beta-version:
+    description: 'Beta version for S3 uploads'
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - name: Pack module
+      shell: bash
+      run: |
+        if command -v scl_source &> /dev/null
+        then
+            . scl_source enable devtoolset-11 || true
+        fi
+        . venv/bin/activate
+        git config --global --add safe.directory $GITHUB_WORKSPACE
+        export PATH="$GITHUB_WORKSPACE/redis/src:$PATH"
+        if [[ -n "${{ inputs.beta-version }}" ]]; then
+          # For nightly builds: skip release artifacts, only create snapshots
+          RELEASE=0 SNAPSHOT=1 BRANCH=$TAG_OR_BRANCH SHOW=1 OSNICK=${{ matrix.docker.nick }} ./sbin/pack.sh $(realpath ./target/release/rejson.so)
+        else
+          BRANCH=$TAG_OR_BRANCH SHOW=1 OSNICK=${{ matrix.docker.nick }} ./sbin/pack.sh $(realpath ./target/release/rejson.so)
+        fi

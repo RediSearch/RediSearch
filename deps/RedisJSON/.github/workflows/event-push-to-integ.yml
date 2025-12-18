@@ -1,0 +1,13 @@
+name: Push to Version, Feature or Master Branch
+
+on:
+  push:
+    branches:
+      - master
+      - 'feature-*'
+      - '[0-9]+.[0-9]+'
+
+jobs:
+  benchmark:
+    uses: ./.github/workflows/benchmark-runner.yml
+    secrets: inherit

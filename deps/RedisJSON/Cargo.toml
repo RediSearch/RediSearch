@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "json_path",
+    "redis_json"
+]
+
+[workspace.dependencies]
+ijson = { git="https://github.com/RedisJSON/ijson", rev="5676f5929863113c2d0e38c8dc27632624217231", default-features=false}
+serde_json = { version="1", features = ["unbounded_depth"]}
+serde = { version = "1", features = ["derive"] }
+serde_derive = "1"
+bson = "2.11"
+# Pin home crate to 0.5.11 for Alpine Linux Rust 1.87 compatibility
+# home@0.5.12+ requires Rust 1.88
+home = "=0.5.11"
+
+[workspace.package]
+edition = "2021"
+repository = "https://github.com/RedisJSON/RedisJSON"
+license = "Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1) or the GNU Affero General Public License version 3 (AGPLv3)"
+
+[profile.release]
+debug = 1

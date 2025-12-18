@@ -1,0 +1,60 @@
+{
+  "_id": "5741cfe6bf9f447a509a269e",
+  "index": 0,
+  "guid": "642f0c2a-3d87-43ac-8f82-25f004e0c96a",
+  "isActive": false,
+  "balance": "$3,666.68",
+  "picture": "http://placehold.it/32x32",
+  "age": 39,
+  "eyeColor": "blue",
+  "name": "Leonor Herman",
+  "gender": "female",
+  "company": "RODEOMAD",
+  "email": "leonorherman@rodeomad.com",
+  "phone": "+1 (848) 456-2962",
+  "address": "450 Seeley Street, Iberia, North Dakota, 7859",
+  "about": "Reprehenderit in anim laboris labore sint occaecat labore proident ipsum exercitation. Ut ea aliqua duis occaecat consectetur aliqua anim id. Dolor ea fugiat excepteur reprehenderit eiusmod enim non sit nisi. Mollit consequat anim mollit et excepteur qui laborum qui eiusmod. Qui ea amet incididunt cillum quis occaecat excepteur qui duis nisi. Dolore labore eu sunt consequat magna.\r\n",
+  "registered": "2015-03-06T02:49:06 -02:00",
+  "latitude": -29.402032,
+  "longitude": 151.088135,
+  "tags": [
+    "Lorem",
+    "voluptate",
+    "aute",
+    "ullamco",
+    "elit",
+    "esse",
+    "culpa"
+  ],
+  "school": {
+    "friends": [
+      {
+        "id": 0,
+        "name": "Millicent Norman"
+      },
+      {
+        "id": 1,
+        "name": "Vincent Cannon"
+      },
+      {
+        "id": 2,
+        "name": "Gray Berry"
+      }
+    ]
+  },
+  "friends": [
+    {
+      "id": 0
+    },
+    {
+      "id": 1,
+      "name": "Vincent Cannon"
+    },
+    {
+      "id": 2,
+      "name": "Gray Berry"
+    }
+  ],
+  "greeting": "Hello, Leonor Herman! You have 4 unread messages.",
+  "favoriteFruit": "apple"
+}

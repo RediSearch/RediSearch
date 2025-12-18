@@ -1,0 +1,70 @@
+
+#----------------------------------------------------------------------------------------------
+FROM {{OS}} AS builder
+
+RUN if [ -f /root/.profile ]; then sed -ie 's/mesg n/tty -s \&\& mesg -n/g' /root/.profile; fi
+SHELL ["/bin/bash", "-l", "-c"]
+
+RUN echo "Building for {{OSNICK}} ({{OS}}) for {{ARCH}} [with Redis {{REDIS_VERSION}}]"
+
+WORKDIR /build
+
+ADD . /build
+
+RUN ./deps/readies/bin/getupdates
+RUN VERBOSE=1 ./sbin/setup
+RUN ./deps/readies/bin/getredis -v {{REDIS_VERSION}}
+RUN make info
+
+RUN make build SHOW=1
+
+{% if PACK == "1" %}
+RUN mkdir -p bin/artifacts
+RUN make pack
+RUN set -e ;\
+    echo "Artifacts:" ;\
+    du -ah --apparent-size /build/bin/artifacts
+{% endif %}
+
+{% if TEST == "1" %}
+RUN TEST='' make test
+RUN set -e ;\
+	cd /build/tests/pytest/logs ;\
+    rm -f *.aof *.rdb ;\
+    tar -czf /build/bin/artifacts/pytest-logs-{{ARCH}}-{{OSNICK}}.tgz .
+{% endif %}
+
+# RUN BRANCH={{REDISEARCH_VERSION}} ./sbin/get-redisearch
+# RUN cp /build/bin/linux-{{OSNICK}}-{{ARCH}}/RediSearch/redisearch.so /build/bin/
+
+#----------------------------------------------------------------------------------------------
+{% if NO_SEARCH != "1" %}
+FROM redisfab/redisearch:{{REDISEARCH_VERSION}}-{{ARCH}}-{{OSNICK}} AS search
+{% endif %}
+FROM redisfab/redis:{{REDIS_VERSION}}-{{ARCH}}-{{OSNICK}}
+
+WORKDIR /data
+
+RUN mkdir -p "{{MODULES_DIR}}"
+
+COPY --from=builder /build/bin/linux-{{ARCH}}-release/rejson.so* "{{MODULES_DIR}}/"
+{% if NO_SEARCH != "1" %}
+RUN true
+COPY --from=search  {{MODULES_DIR}}/redisearch.so* "{{MODULES_DIR}}/"
+{% endif %}
+# COPY --from=builder /build/bin/redisearch.so {{MODULES_DIR}}/redisearch.so
+RUN true
+
+{% if ARTIFACTS == "1" %}
+RUN mkdir -p /var/opt/redislabs/artifacts
+RUN chown -R redis:redis /var/opt/redislabs
+COPY --from=builder /build/bin/artifacts/ /var/opt/redislabs/artifacts/
+{% endif %}
+
+RUN chown -R redis:redis {{MODULES_DIR}}
+
+{% if NO_SEARCH != "1" %}
+CMD ["redis-server", "--loadmodule", "{{MODULES_DIR}}/rejson.so", "--loadmodule", "{{MODULES_DIR}}/redisearch.so"]
+{% else %}
+CMD ["redis-server", "--loadmodule", "{{MODULES_DIR}}/rejson.so"]
+{% endif %}

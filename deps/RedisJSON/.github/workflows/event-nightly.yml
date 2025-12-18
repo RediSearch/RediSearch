@@ -1,0 +1,113 @@
+name: Event Nightly
+
+permissions:
+  id-token: write
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+'
+  schedule:
+    - cron: '20 20 * * *' # 20:20 UTC every day
+  workflow_dispatch:
+    inputs:
+      redis-ref:
+        description: 'Redis ref to checkout'
+        type: string
+        required: true
+        default: 'unstable'
+jobs:
+  prepare-values:
+    runs-on: ubuntu-latest
+    outputs:
+      redis-ref: ${{ steps.set-env.outputs.redis-ref }}
+      beta-timestamp: ${{ steps.set-env.outputs.beta-timestamp }}
+      beta-version: ${{ steps.set-env.outputs.beta-version }}
+    steps:
+      - name: set env
+        id: set-env
+        run: |
+          echo "redis-ref=${{ inputs.redis-ref || 'unstable' }}" >> $GITHUB_OUTPUT
+          
+          # Generate timestamp at workflow start for consistent beta versioning
+          TIMESTAMP=$(date -u +"%Y%m%d.%H%M%S")
+          WORKFLOW_NUM=${{ github.run_number }}
+          BETA_VERSION="99.99.99.${TIMESTAMP}.${WORKFLOW_NUM}"
+          
+          echo "beta-timestamp=${TIMESTAMP}" >> $GITHUB_OUTPUT
+          echo "beta-version=${BETA_VERSION}" >> $GITHUB_OUTPUT
+          echo "Generated beta version: ${BETA_VERSION}"
+  linux:
+    uses: ./.github/workflows/flow-linux-x86.yml
+    needs: [prepare-values]
+    with:
+      os: bionic focal jammy rocky8 rocky9 bullseye amazonlinux2 mariner2 azurelinux3
+      redis-ref: ${{needs.prepare-values.outputs.redis-ref}}
+      beta-version: ${{needs.prepare-values.outputs.beta-version}}
+    secrets: inherit
+  ubuntu-arm64:
+    uses: ./.github/workflows/flow-linux-arm.yml
+    needs: [prepare-values]
+    with:
+      redis-ref: ${{needs.prepare-values.outputs.redis-ref}}
+      beta-version: ${{needs.prepare-values.outputs.beta-version}}
+    secrets: inherit
+  azurelinux3-arm64:
+    uses: ./.github/workflows/flow-azurelinux3-arm.yml
+    needs: [prepare-values]
+    with:
+      redis-ref: ${{needs.prepare-values.outputs.redis-ref}}
+      beta-version: ${{needs.prepare-values.outputs.beta-version}}
+    secrets: inherit
+  alpine:
+    uses: ./.github/workflows/flow-alpine.yml
+    needs: [prepare-values]
+    with:
+      redis-ref: ${{needs.prepare-values.outputs.redis-ref}}
+      beta-version: ${{needs.prepare-values.outputs.beta-version}}
+    secrets: inherit
+  macos:
+    uses: ./.github/workflows/flow-macos.yml
+    needs: [prepare-values]
+    with:
+      redis-ref: ${{needs.prepare-values.outputs.redis-ref}}
+      beta-version: ${{needs.prepare-values.outputs.beta-version}}
+    secrets: inherit
+  linux-valgrind:
+    uses: ./.github/workflows/flow-linux-x86.yml
+    needs: [prepare-values]
+    with:
+      os: jammy
+      redis-ref: ${{needs.prepare-values.outputs.redis-ref}}
+      run_valgrind: true
+      beta-version: ${{needs.prepare-values.outputs.beta-version}}
+    secrets: inherit
+  linux-sanitizer:
+    uses: ./.github/workflows/flow-sanitizer.yml
+    needs: [prepare-values]
+    with:
+      container: ubuntu:jammy
+      redis-ref: ${{needs.prepare-values.outputs.redis-ref}}
+      beta-version: ${{needs.prepare-values.outputs.beta-version}}
+    secrets: inherit
+  linux-coverage:
+    uses: ./.github/workflows/flow-coverage.yml
+    needs: [prepare-values]
+    secrets: inherit
+  spellcheck:
+    uses: ./.github/workflows/flow-spellcheck.yml
+    secrets: inherit
+  linter:
+    uses: ./.github/workflows/flow-linter.yml
+    secrets: inherit
+  memory-nightly-report:
+    needs: [prepare-values]
+    uses: ./.github/workflows/flow-memory-nightly.yml
+    with:
+      redis-ref: ${{needs.prepare-values.outputs.redis-ref}}
+      beta-version: ${{needs.prepare-values.outputs.beta-version}}
+    secrets: inherit

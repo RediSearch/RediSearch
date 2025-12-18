@@ -1,0 +1,22 @@
+name: Flow linter
+on:
+  workflow_call: # Allows to run this workflow from another workflow
+
+jobs:
+  linter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+      - name: Install Rust
+        working-directory: .install
+        run: |
+          ./install_script.sh sudo
+          ./getrust.sh sudo
+      - name: Linter
+        run: |
+          source "$HOME/.cargo/env"
+          make lint

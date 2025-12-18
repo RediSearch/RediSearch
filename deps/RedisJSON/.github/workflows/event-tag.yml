@@ -1,0 +1,64 @@
+name: Event TAG
+
+permissions:
+  id-token: write
+  contents: read
+  
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      redis-ref:
+        description: 'Redis ref to checkout'
+        required: true
+        default: 'unstable'
+
+jobs:
+  prepare-values:
+    runs-on: ubuntu-latest
+    outputs:
+      redis-ref: ${{ steps.set-env.outputs.redis-ref }}
+    steps:
+      - name: set env
+        id: set-env
+        run: |
+          echo "redis-ref=unstable" >> $GITHUB_OUTPUT  # todo change per version/tag
+  linux:
+    uses: ./.github/workflows/flow-linux-x86.yml
+    needs: [prepare-values]
+    with:
+      os: bionic focal jammy rocky8 rocky9 bullseye amazonlinux2 mariner2 azurelinux3
+      redis-ref: ${{needs.prepare-values.outputs.redis-ref}}
+    secrets: inherit
+  ubuntu-arm64:
+    uses: ./.github/workflows/flow-linux-arm.yml
+    needs: [prepare-values]
+    with:
+      redis-ref: ${{needs.prepare-values.outputs.redis-ref}}
+    secrets: inherit
+  azurelinux3-arm64:
+    uses: ./.github/workflows/flow-azurelinux3-arm.yml
+    needs: [prepare-values]
+    with:
+      redis-ref: ${{needs.prepare-values.outputs.redis-ref}}
+    secrets: inherit
+  alpine:
+    uses: ./.github/workflows/flow-alpine.yml
+    needs: [prepare-values]
+    with:
+      redis-ref: ${{needs.prepare-values.outputs.redis-ref}}
+    secrets: inherit
+  macos:
+    uses: ./.github/workflows/flow-macos.yml
+    needs: [prepare-values]
+    with:
+      redis-ref: ${{needs.prepare-values.outputs.redis-ref}}
+    secrets: inherit
+  spellcheck:
+    uses: ./.github/workflows/flow-spellcheck.yml
+    secrets: inherit
+  linter:
+    uses: ./.github/workflows/flow-linter.yml
+    secrets: inherit
