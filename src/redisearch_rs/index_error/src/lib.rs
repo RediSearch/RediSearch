@@ -4,14 +4,23 @@ use std::time::Duration;
 
 pub use redis_module::raw::{RedisModuleCtx, RedisModuleString};
 
-/// Wrapper for RedisModuleString pointer that can be safely shared across threads
+/// Wrapper for RedisModuleString pointer to allow storage in static OnceLock
 ///
 /// # Safety
-/// This is safe because Redis module operations are single-threaded
+/// This wrapper implements Send + Sync to match the C code's behavior where NA_rstr
+/// is a plain global variable. The safety relies on:
+/// 1. The NA string is initialized once and never freed during normal operation
+/// 2. All Redis module API calls (HoldString, FreeString) must be protected by
+///    the global Redis lock, which the C code assumes
+/// 3. The reference counting in RedisModuleString is NOT thread-safe on its own,
+///    so callers MUST hold the appropriate Redis locks when calling HoldString/FreeString
+///
+/// This matches the C implementation which uses a plain `RedisModuleString* NA_rstr`
+/// global without any explicit synchronization.
 #[derive(Debug, Clone, Copy)]
 struct SyncRedisModuleString(*mut RedisModuleString);
 
-// SAFETY: Redis module context is single-threaded, so this is safe
+// SAFETY: Matches C code behavior. See struct documentation for safety requirements.
 unsafe impl Send for SyncRedisModuleString {}
 unsafe impl Sync for SyncRedisModuleString {}
 
