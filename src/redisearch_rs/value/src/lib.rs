@@ -14,7 +14,11 @@ pub use test_utils::RSValueMock;
 
 use std::fmt::{self, Debug};
 
-use crate::{map::RsValueMap, shared::SharedRsValue, trio::RsValueTrio};
+use crate::{
+    collection::{RsValueArray, RsValueMap},
+    shared::SharedRsValue,
+    trio::RsValueTrio,
+};
 
 #[cfg(feature = "c_ffi_impl")]
 /// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
@@ -23,7 +27,7 @@ mod rs_value_ffi;
 #[cfg(feature = "c_ffi_impl")]
 pub use rs_value_ffi::*;
 
-pub mod map;
+pub mod collection;
 pub mod shared;
 pub mod trio;
 
@@ -39,13 +43,14 @@ pub enum RsValueInternal {
     Null,
     /// Numeric value
     Number(f64),
+    /// Array value
+    Array(RsValueArray),
     /// Reference value
     Ref(SharedRsValue),
     /// Trio value
     Trio(RsValueTrio),
     /// Map value
     Map(RsValueMap),
-    // TODO add array variant, possibly based on LowMemoryThinVec
     // TODO add string variants
 }
 
@@ -125,6 +130,11 @@ pub trait Value: Sized {
         Self::from_internal(RsValueInternal::Trio(RsValueTrio::new(left, middle, right)))
     }
 
+    /// Create a new array value
+    fn array(arr: RsValueArray) -> Self {
+        Self::from_internal(RsValueInternal::Array(arr))
+    }
+
     /// Create a new map value
     fn map(map: RsValueMap) -> Self {
         Self::from_internal(RsValueInternal::Map(map))
@@ -155,7 +165,7 @@ pub mod opaque {
     /// non-FFI-safe [`RsValue`] to be passed to C
     /// and even allow C land to place it on the stack.
     #[repr(C, align(8))]
-    pub struct OpaqueRsValue(Size<24>);
+    pub struct OpaqueRsValue(Size<16>);
 
     // Safety: `OpaqueRsValue` is defined as a `MaybeUninit` slice of
     // bytes with the same size and alignment as `RsValue`, so any valid

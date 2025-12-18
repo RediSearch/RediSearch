@@ -29,15 +29,13 @@ use crate::RLookupKey;
 pub struct SchemaRuleWrapper(NonNull<ffi::SchemaRule>);
 
 impl SchemaRuleWrapper {
-    /// Create a SchemaRuleWrapper from a raw pointer.
-    ///
-    /// Returns None if the pointer is null.
+    /// Create a SchemaRuleWrapper from a non-null pointer.
     ///
     /// # Safety
     ///
     /// The caller must ensure that the given pointer upholds the safety invariants described on the type documentation.
-    pub unsafe fn from_raw(ptr: *mut ffi::SchemaRule) -> Option<Self> {
-        NonNull::new(ptr).map(SchemaRuleWrapper)
+    pub const unsafe fn from_non_null(ptr: NonNull<ffi::SchemaRule>) -> Self {
+        SchemaRuleWrapper(ptr)
     }
 
     /// Access the underlying SchemaRule pointer.
@@ -63,7 +61,7 @@ impl SchemaRuleWrapper {
     ///
     /// 1. The caller must ensure that if the is associated with `self`, as the returned reference's lifetime is tied to `self`.
     /// 2. The type invariants described on the type documentation is uphold if an external caller complies to the safety requirements of `from_raw`.
-    const unsafe fn field_as_cstr(&self, ffi_field: *mut ::std::os::raw::c_char) -> Option<&CStr> {
+    const unsafe fn field_as_cstr(&self, ffi_field: *mut ::std::ffi::c_char) -> Option<&CStr> {
         if ffi_field.is_null() {
             None
         } else {

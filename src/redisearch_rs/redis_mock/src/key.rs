@@ -37,7 +37,7 @@ impl UserKey {
 pub unsafe extern "C" fn RedisModule_OpenKey(
     ctx: *mut redis_module::raw::RedisModuleCtx,
     keyname: *mut redis_module::raw::RedisModuleString,
-    _mode: ::std::os::raw::c_int,
+    _mode: ::std::ffi::c_int,
 ) -> *mut redis_module::raw::RedisModuleKey {
     // Safety: Caller has to ensure 2
     let keyname_user_string = unsafe { &*(keyname.cast::<UserString>()) };

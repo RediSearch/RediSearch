@@ -13,9 +13,6 @@ on:
         description: 'Architecture (x86_64, aarch64)'
         type: string
         required: true
-      custom-env:
-        description: 'Environment/runner to use (overrides env from task-get-config)'
-        type: string
       san:
         type: string
       coverage:
@@ -61,6 +58,21 @@ env:
   # Fail on warnings
   RUSTFLAGS: "-Dwarnings"
   BUILD_INTEL_SVS_OPT: "yes"
+  SETUP_RETRY_LOOP: |
+    SUCCESS=0
+    for i in 1 2 3 4 5; do
+      echo "Attempt $i of 5"
+      if {0}; then
+        echo "Setup succeeded"
+        SUCCESS=1
+        break
+      fi
+      if [ $i -lt 5 ]; then
+        echo "Setup failed, retrying in 30 seconds..."
+        sleep 30
+      fi
+    done
+    [ $SUCCESS -eq 1 ] || exit 1
 
 jobs:
   # Get configuration for this specific platform and architecture
@@ -70,6 +82,45 @@ jobs:
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
+
+  # Start EC2 runner for self-hosted platforms (runs only if ec2_image_id is set in config)
+  start-runner:
+    needs: get-config
+    name: Start self-hosted EC2 runner
+    if: ${{ needs.get-config.outputs.ec2_image_id }}
+    runs-on: ubuntu-latest
+    env:
+      TAGS: | # Make sure there is no trailing comma!
+        [
+          {"Key": "Name",         "Value": "redisearch-ci-runner"},
+          {"Key": "Environment",  "Value": "CI"},
+          {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
+          {"Key": "PR",           "Value": "${{ github.event.number }}"},
+          {"Key": "Owner",        "Value": "${{ github.actor }}"},
+          {"Key": "Project",      "Value": "${{ github.repository }}"}
+        ]
+    outputs:
+      label: ${{ steps.start-ec2-runner.outputs.label }}
+      ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
+          aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
+      - name: Start EC2 runner
+        id: start-ec2-runner
+        uses: machulav/ec2-github-runner@v2
+        with:
+          mode: start
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          ec2-image-id: ${{ needs.get-config.outputs.ec2_image_id }}
+          ec2-instance-type: ${{ needs.get-config.outputs.ec2_instance_type }}
+          subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
+          security-group-id: ${{ secrets.AWS_EC2_SG_ID_BENCHMARK }}
+          aws-resource-tags: ${{ env.TAGS }}
+
   build-image:
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
@@ -137,20 +188,22 @@ jobs:
           echo "succeeded=true" >> $GITHUB_OUTPUT
 
   common-flow:
-    needs: [get-config, build-image]
+    needs: [get-config, build-image, start-runner]
     name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
     # Run if get-config succeeded and at least one test type is enabled
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
       (inputs.standalone || inputs.coordinator || inputs.unit-tests)
-    runs-on: ${{ inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
-    container: ${{ needs.get-config.outputs.container
-       && fromJSON(
-              format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache"}}',
-                     needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container)
-          )
-       || null }}
+    runs-on: ${{ needs.get-config.outputs.ec2_image_id && needs.start-runner.outputs.label || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container: ${{
+      needs.get-config.outputs.container
+        && fromJSON(
+          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+            needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
+            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared' || '')
+        )
+      || null }}
 
     defaults:
       run:
@@ -199,43 +252,11 @@ jobs:
           echo "USER: $USER"
           echo "id: $(id)"
           echo "HOME=$h" >> $GITHUB_ENV
-      # Setup
-      # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
-      - name: Setup Dependencies (Alpine)
-        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3.22'
-        shell: sh -l -eo pipefail {0}
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ${{ needs.get-config.outputs.setup_script }}; then
-              echo "Setup Dependencies succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup Dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          [ $SUCCESS -eq 1 ] || exit 1
-      - name: Setup Dependencies (Non-Alpine)
-        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3.22'
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ${{ needs.get-config.outputs.setup_script }}; then
-              echo "Setup Dependencies succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup Dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          [ $SUCCESS -eq 1 ] || exit 1
+
+      - name: Setup Dependencies
+        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
+        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
+
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
@@ -248,7 +269,7 @@ jobs:
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
           CONTAINER="${{ needs.get-config.outputs.container }}"
-          for platform in amazonlinux:2 alpine:3.22; do
+          for platform in amazonlinux:2; do
             if [[ "$CONTAINER" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
@@ -278,7 +299,7 @@ jobs:
           CONTAINER="${{ needs.get-config.outputs.container }}"
           echo "Detected platform: $CONTAINER"
           case "$CONTAINER" in
-            amazonlinux:2 | alpine:3.22)
+            amazonlinux:2)
 
               # Configure the safe directory
               git config --global --add safe.directory "/__w/$GITHUB_REPO"
@@ -330,24 +351,10 @@ jobs:
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ./install_script.sh ${{ steps.mode.outputs.mode }}; then
-              echo "Setup succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          if [ $SUCCESS -eq 0 ]; then
-            echo "Setup failed after 5 attempts"
-            exit 1
-          fi
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, './install_script.sh $MODE') }}
+
       # Cache Rust packages
       - uses: Swatinem/rust-cache@v2
         if: steps.node20.outputs.supported == 'true'
@@ -365,51 +372,23 @@ jobs:
         run: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
 
       - name: Setup Python test dependencies
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if .install/test_deps/install_python_deps.sh ${{ steps.mode.outputs.mode }}; then
-              echo "Setup tests dependencies succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup tests dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          if [ $SUCCESS -eq 0 ]; then
-            echo "Setup tests dependencies failed after 5 attempts"
-            exit 1
-          fi
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, '.install/test_deps/install_python_deps.sh $MODE') }}
       - name: Install LLVM for sanitizer
         if: inputs.san == 'address'
         working-directory: .install
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
         run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ./install_llvm.sh ${{ steps.mode.outputs.mode }}; then
-              echo "Install LLVM for sanitizer succeeded"
-              CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
-              CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
-              echo "Using LLVM version: $CLANG_VERSION"
-              echo "CC=$CLANG_BIN" >> $GITHUB_ENV
-              echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
-              echo "LD=$CLANG_BIN" >> $GITHUB_ENV
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Install LLVM for sanitizer failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          if [ $SUCCESS -eq 0 ]; then
-            echo "Install LLVM for sanitizer failed after 5 attempts"
-            exit 1
-          fi
+          ${{ format(env.SETUP_RETRY_LOOP, './install_llvm.sh $MODE') }}
+          echo "Install LLVM for sanitizer succeeded"
+          CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
+          CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
+          echo "Using LLVM version: $CLANG_VERSION"
+          echo "CC=$CLANG_BIN" >> $GITHUB_ENV
+          echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
+          echo "LD=$CLANG_BIN" >> $GITHUB_ENV
       - name: Get Redis (node20)
         if: ${{ steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
@@ -603,3 +582,24 @@ jobs:
           flags: unit
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  # Stop EC2 runner for self-hosted platforms (always runs if `start-runner` succeeds, to ensure cleanup)
+  stop-runner:
+    name: Stop self-hosted EC2 runner
+    needs: [start-runner, common-flow]
+    if: ${{ always() && needs.start-runner.outputs.ec2-instance-id != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
+          aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
+      - name: Stop EC2 runner
+        uses: machulav/ec2-github-runner@v2
+        with:
+          mode: stop
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          label: ${{ needs.start-runner.outputs.label }}
+          ec2-instance-id: ${{ needs.start-runner.outputs.ec2-instance-id }}

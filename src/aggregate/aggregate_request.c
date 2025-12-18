@@ -24,6 +24,8 @@
 #include "obfuscation/hidden.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
+#include "slots_tracker.h"
+#include "asm_state_machine.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -402,9 +404,17 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize "SLOTS_STR" data");
       return ARG_ERROR;
     }
-    // TODO ASM: check if the requested slots are available
+    OptionSlotTrackerVersion version = slots_tracker_check_availability(slot_array);
+    if (!version.is_some) {
+      rm_free((void *)slot_array);
+      QueryError_SetError(status, QUERY_ERROR_CODE_UNAVAILABLE_SLOTS, "Query requires unavailable slots");
+      return ARG_ERROR;
+    }
+    *papCtx->keySpaceVersion = version.version;
+    if (*papCtx->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(*papCtx->keySpaceVersion);
+    }
     *papCtx->querySlots = slot_array;
-    *papCtx->slotsVersion = 0;
   } else {
     return ARG_UNKNOWN;
   }
@@ -649,7 +659,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .maxSearchResults = &req->maxSearchResults,
         .maxAggregateResults = &req->maxAggregateResults,
         .querySlots = &req->querySlots,
-        .slotsVersion = &req->slotsVersion,
+        .keySpaceVersion = &req->keySpaceVersion,
       };
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
@@ -1011,6 +1021,8 @@ AREQ *AREQ_New(void) {
   req->profile = Profile_PrintDefault;
   req->prefixesOffset = 0;
   req->has_timedout = false;
+  req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
+  req->querySlots = NULL;
   return req;
 }
 
@@ -1105,7 +1117,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .maxSearchResults = &req->maxSearchResults,
     .maxAggregateResults = &req->maxAggregateResults,
     .querySlots = &req->querySlots,
-    .slotsVersion = &req->slotsVersion,
+    .keySpaceVersion = &req->keySpaceVersion,
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
     goto error;
@@ -1341,8 +1353,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     StopWordList_Ref(sctx->spec->stopwords);
   }
 
-  req->slotRanges = Slots_GetLocalSlots();
-
   SetSearchCtx(sctx, req);
   QueryAST *ast = &req->ast;
 
@@ -1394,12 +1404,12 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
+
 void AREQ_Free(AREQ *req) {
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.
   bool rootiterNeedsFreeing = (req->rootiter != NULL && req->pipeline.qctx.rootProc == NULL);
-
   // First, free the pipeline
   Pipeline_Clean(&req->pipeline);
 
@@ -1421,7 +1431,9 @@ void AREQ_Free(AREQ *req) {
     StopWordList_Unref((StopWordList *)req->searchopts.stopwords);
   }
 
-  Slots_FreeLocalSlots(req->slotRanges);
+  if (req->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+    ASM_KeySpaceVersionTracker_DecreaseQueryCount(req->keySpaceVersion);
+  }
   rm_free((void *)req->querySlots);
 
   // Finally, free the context. If we are a cursor or have multi workers threads,
@@ -1488,12 +1500,13 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       },
       .ast = &req->ast,
       .rootiter = req->rootiter,
-      .slotRanges = req->slotRanges,
+      .querySlots = req->querySlots,
       .scorerName = req->searchopts.scorerName,
       .reqConfig = &req->reqConfig,
+      .keySpaceVersion = req->keySpaceVersion,
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
-    req->slotRanges = NULL; // Ownership of the slot ranges is now with the params.
+    req->querySlots = NULL; // Ownership of the slot ranges is now with the params.
     Pipeline_BuildQueryPart(&req->pipeline, &params);
     if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;

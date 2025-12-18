@@ -442,7 +442,11 @@ where
     /// Filtering the results can be achieved by wrapping the reader with
     /// a [`NumericReader`] such as [`inverted_index::FilterNumericReader`]
     /// or [`inverted_index::FilterGeoReader`].
-    pub fn new(reader: R) -> Self {
+    ///
+    /// This constructor should only used in tests, production code should use
+    /// [`Numeric::new`] instead.
+    #[doc(hidden)]
+    pub fn new_simple(reader: R) -> Self {
         let result = RSIndexResult::numeric(0.0);
         Self {
             it: InvIndIterator::new(reader, result, None),
@@ -463,7 +467,7 @@ where
     /// 1. `context` is a valid pointer to a `RedisSearchCtx`.
     /// 2. `context.spec` is a valid pointer to an `IndexSpec`.
     /// 3. 1 and 2 must stay valid during the iterator's lifetime.
-    pub fn with_context(
+    pub fn new(
         reader: R,
         context: NonNull<RedisSearchCtx>,
         index: t_fieldIndex,
@@ -553,7 +557,11 @@ where
     ///
     /// Filtering the results can be achieved by wrapping the reader with
     /// a [`inverted_index::FilterMaskReader`].
-    pub fn new(reader: R) -> Self {
+    ///
+    /// This constructor should only used in tests, production code should use
+    /// [`Term::new`] instead.
+    #[doc(hidden)]
+    pub fn new_simple(reader: R) -> Self {
         let result = RSIndexResult::term();
         Self {
             it: InvIndIterator::new(reader, result, None),
@@ -573,7 +581,7 @@ where
     /// 1. `context` is a valid pointer to a `RedisSearchCtx`.
     /// 2. `context.spec` is a valid pointer to an `IndexSpec`.
     /// 3. 1 and 2 must stay valid during the iterator's lifetime.
-    pub fn with_context(
+    pub fn new(
         reader: R,
         context: NonNull<RedisSearchCtx>,
         mask: t_fieldMask,
