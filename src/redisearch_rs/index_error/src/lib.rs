@@ -1,6 +1,15 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 use std::ffi::CString;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub use redis_module::raw::{RedisModuleCtx, RedisModuleString};
 
@@ -44,7 +53,10 @@ fn timespec_monotonic_now() -> libc::timespec {
         // SAFETY: ts was initialized by clock_gettime
         unsafe { ts.assume_init() }
     } else {
-        panic!("Failed to get monotonic time: clock_gettime returned {}", ret)
+        panic!(
+            "Failed to get monotonic time: clock_gettime returned {}",
+            ret
+        )
     }
 }
 
@@ -73,7 +85,8 @@ pub unsafe fn index_error_init(ctx: *mut RedisModuleCtx) {
         let na_str = unsafe { create_string(ctx, na_cstr.as_ptr(), 3) };
 
         // SAFETY: RedisModule_TrimStringAllocation is initialized at module startup
-        let trim_allocation = unsafe { redis_module::raw::RedisModule_TrimStringAllocation.unwrap() };
+        let trim_allocation =
+            unsafe { redis_module::raw::RedisModule_TrimStringAllocation.unwrap() };
         // SAFETY: na_str is a valid RedisModuleString just created
         unsafe { trim_allocation(na_str) };
 
@@ -267,7 +280,8 @@ impl IndexError {
         let held_key = unsafe { hold_string(ctx, key) };
 
         // SAFETY: RedisModule_TrimStringAllocation is initialized at module startup
-        let trim_allocation = unsafe { redis_module::raw::RedisModule_TrimStringAllocation.unwrap() };
+        let trim_allocation =
+            unsafe { redis_module::raw::RedisModule_TrimStringAllocation.unwrap() };
         // SAFETY: held_key is a valid RedisModuleString just created
         unsafe { trim_allocation(held_key) };
 
