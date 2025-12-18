@@ -324,6 +324,8 @@ void initializeAREQ(AREQ *req);
  * query will be parsed (and matched according to the schema), and the reducers
  * will be loaded and analyzed.
  *
+ * Can be called from the main thread or from a background thread. (Note: access RSGlobalConfig which is not thread safe)
+ *
  * This consumes a refcount of the context used.
  *
  * Note that this function consumes a refcount even if it fails!
