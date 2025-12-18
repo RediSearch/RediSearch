@@ -314,10 +314,10 @@ pub unsafe extern "C" fn RLookup_GetLength(
     let required_flags = RLookupKeyFlags::from_bits(required_flags).unwrap();
     let excluded_flags = RLookupKeyFlags::from_bits(excluded_flags).unwrap();
 
-    // Safety: ensured by caller (4.)
     let rule = if rule.is_null() {
         None
     } else {
+        // Safety: ensured by caller (4.)
         Some(unsafe { SchemaRule::from_raw(rule) })
     };
 
