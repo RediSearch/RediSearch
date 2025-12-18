@@ -1,0 +1,126 @@
+name: Common Flow for Tests
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+inputs:
+  env:
+    default: "ubuntu-22.04"
+    type: string
+  container:
+    type: string
+  sanitizer:
+    type: string
+  test-config:
+    description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
+    required: true
+    type: string
+  redis-ref:
+    description: 'Redis ref to checkout'
+    type: string
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Get Installation Mode
+      shell: bash
+      id: mode
+      run: |
+        [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
+    - name: Check if node20 is Supported
+      id: node20
+      uses: ./.github/actions/node20-supported
+      with:
+        container: ${{ inputs.container }}
+    - name: Install git
+      shell: bash
+      run: |
+        # TODO: must be changed to run a script based on the input env
+        echo ::group::Install git
+          ${{ steps.mode.outputs.mode }} apt-get update && apt-get install -y git
+        echo ::endgroup::
+    - name: Setup specific
+      shell: bash
+      working-directory: .install
+      run: |
+        echo ::group::OS-Specific Setup
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+        echo ::endgroup::
+        echo ::group::Get Rust
+          ./getrust.sh ${{ steps.mode.outputs.mode }}
+        echo ::endgroup::
+
+    - name: Full checkout (node20 supported)
+      if: steps.node20.outputs.supported == 'true'
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Full checkout (node20 unsupported)
+      if: steps.node20.outputs.supported == 'false'
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Get Redis
+      uses: actions/checkout@v4
+      with:
+        repository: redis/redis
+        ref: ${{ inputs.redis-ref }}
+        path: redis
+        submodules: 'recursive'
+    - name: Build
+      uses: ./.github/actions/build-json-module-and-redis
+      with:
+        sanitizer: ${{ inputs.san }}
+
+    - name: Set Artifact Names
+      shell: bash
+      # Artifact names have to be unique, so we base them on the environment.
+      # We also remove invalid characters from the name.
+      id: artifact-names
+      run: |
+        # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
+        echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.redis-ref }}" | \
+                      sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
+
+    - name: Run tests
+      shell: bash
+      id: test
+      run: |
+        echo ::group::Activate virtual environment
+          python3 -m venv venv
+          echo "source $PWD/venv/bin/activate" >> ~/.bash_profile
+          source venv/bin/activate
+        echo ::endgroup::
+        echo ::group::Install python dependencies
+          ./.install/common_installations.sh
+        echo ::endgroup::
+        echo ::group::Unit tests
+          . "$HOME/.cargo/env"
+          make cargo_test LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+        echo ::endgroup::
+        echo ::group::Flow tests
+          make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+        echo ::endgroup::
+      env:
+        PIP_BREAK_SYSTEM_PACKAGES: 1
+
+    - name: Upload test artifacts (node20 supported)
+      if: steps.node20.outputs.supported == 'true' && steps.test.outcome == 'failure'
+      uses: actions/upload-artifact@v4
+      with:
+        name: Test logs ${{ steps.artifact-names.outputs.name }}
+        path: tests/**/logs/*.log*
+        if-no-files-found: ignore
+    - name: Upload test artifacts (node20 unsupported)
+      if: steps.node20.outputs.supported == 'false' && steps.test.outcome == 'failure'
+      uses: actions/upload-artifact@v4
+      with:
+        name: Test logs ${{ steps.artifact-names.outputs.name }}
+        path: tests/**/logs/*.log*
+        if-no-files-found: ignore
+
+    - name: Fail flow if tests failed
+      shell: bash
+      if: steps.test.outcome == 'failure'
+      run: exit 1

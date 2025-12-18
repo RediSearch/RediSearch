@@ -1,0 +1,29 @@
+name: Run module tests
+
+inputs:
+  run_valgrind:
+    description: 'Run valgrind on the tests'
+    type: string
+    default: 0
+
+runs:
+  using: composite
+  steps:
+    - name: Run tests
+      shell: bash
+      run: |
+        echo ::group::Activate virtual environment
+          python3 -m venv venv
+          echo "source $PWD/venv/bin/activate" >> ~/.bash_profile
+          . venv/bin/activate
+        echo ::endgroup::
+        echo ::group::Install python dependencies
+          ./.install/common_installations.sh
+        echo ::endgroup::
+        echo ::group::Unit tests
+          . $HOME/.cargo/env
+          cargo test
+        echo ::endgroup::
+        echo ::group::Flow tests
+          MODULE=$(realpath ./target/release/rejson.so) RLTEST_ARGS='--no-progress' ./tests/pytest/tests.sh VG=${{inputs.run_valgrind}}
+        echo ::endgroup::

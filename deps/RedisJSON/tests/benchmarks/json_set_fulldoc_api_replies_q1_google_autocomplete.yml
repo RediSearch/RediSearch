@@ -1,0 +1,15 @@
+version: 0.2
+name: "json_set_fulldoc_api_replies_q1_google_autocomplete"
+description: "JSON.SET of full docs using as data the API replies of common services on the internet"
+
+clientconfig:
+  - tool: redis-benchmark
+  - min-tool-version: "6.2.0"
+  - parameters:
+    - clients: 16
+    - requests: 10000000
+    - threads: 2
+    - pipeline: 1
+    - keyspacelen: 100000
+    - command: "JSON.SET __rand_int__ $"
+    - x: "./datasets/api_replies_q1_google_autocomplete.json"

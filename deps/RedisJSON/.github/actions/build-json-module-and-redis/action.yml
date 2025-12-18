@@ -1,0 +1,27 @@
+name: Build JSON module and Redis Server
+description: |
+  Build JSON module and Redis Server
+
+inputs:
+  sanitizer:
+    type: string
+
+runs:
+  using: composite
+  steps:
+    - name: Build Redis
+      shell: bash
+      working-directory: redis
+      run: |
+        echo ::group::Build Redis
+          make install -j `nproc`
+        echo ::endgroup::
+    - name: Build module
+      shell: bash
+      run: |
+        echo ::group::Build RedisJSON
+          if [[ -f "$HOME/.cargo/env" ]]; then
+            . "$HOME/.cargo/env"
+          fi
+          make build SAN=${{ inputs.sanitizer }} -j `nproc`
+        echo ::endgroup::

@@ -1,0 +1,10 @@
+version: 0.2
+name: "json_recursive_descent_with_filter_uid_issue674"
+description: "JSON.GET test '$..[?(@.uid==1198)].MD5ModelUID' || {issue674.json size: 618 KB} https://oss.redislabs.com/redisjson/performance/"
+
+dbconfig:
+  - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisjson/performance.docs/performance.doc_674.rdb"
+clientconfig:
+  benchmark_type: "read-only"
+  tool: memtier_benchmark
+  arguments: "--test-time 180 -c 1 -t 1 --hide-histogram --command 'JSON.GET test \"$..[?(@.uid==1198)].MD5ModelUID\"'"

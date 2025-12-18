@@ -1,0 +1,14 @@
+version: 0.2
+name: "json_vs_hashes_json.set_key_simple"
+description: 'JSON.SET key_json $ {"field1":"value1","field2":"value2"} || Use-case to compare against HSET key_hash field1 value1 field2 value2'
+
+clientconfig:
+  - tool: redis-benchmark
+  - min-tool-version: "6.2.0"
+  - parameters:
+    - clients: 16
+    - requests: 10000000
+    - threads: 2
+    - pipeline: 1
+    - keyspacelen: 500000
+    - command: 'JSON.SET __rand_int__ $ "{\"field1\":\"value1\",\"field2\":\"value2\"}"'

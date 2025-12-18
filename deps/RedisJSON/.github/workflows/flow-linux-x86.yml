@@ -1,0 +1,203 @@
+name: Build all supported linux platforms
+
+on:
+  workflow_dispatch: # Allows to run this workflow from another workflow
+    inputs:
+      redis-ref:
+        description: 'Redis ref to checkout'  # todo change per version/tag
+        type: string
+        required: true
+      run-test:
+        type: boolean
+        default: true
+      os:
+        description: 'OS to build on, bash array style'
+        type: string
+        required: true
+      run_valgrind:
+        description: 'Run valgrind on the tests'
+        type: boolean
+        default: false
+      beta-version:
+        description: 'Beta version for S3 uploads'
+        type: string
+        required: false
+  workflow_call: # Allows to run this workflow from another workflow
+    inputs:
+      redis-ref:
+        description: 'Redis ref to checkout'  # todo change per version/tag
+        type: string
+        required: true
+      run-test:
+        type: boolean
+        default: true
+      os:
+        description: 'OS to build on, bash array style'
+        type: string
+        required: true
+      run_valgrind:
+        description: 'Run valgrind on the tests'
+        type: boolean
+        default: false
+      beta-version:
+        description: 'Beta version for S3 uploads'
+        type: string
+        required: false
+      
+jobs:
+  setup-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      redis-ref: ${{ steps.set-env.outputs.redis-ref }}
+      TAGGED: ${{ steps.set-env.outputs.TAGGED }}
+      TAG: ${{ steps.set-env.outputs.TAG }}
+      BRANCH: ${{ steps.set-env.outputs.BRANCH }}
+      TAG_OR_BRANCH: ${{ steps.set-env.outputs.TAG }}${{ steps.set-env.outputs.BRANCH }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: set env
+        id: set-env
+        uses: ./.github/actions/setup-env
+        with:
+          github-ref: ${{ github.ref }}
+          redis-ref: ${{ inputs.redis-ref }}
+          beta-version: ${{ inputs.beta-version }}
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          OS="${{ inputs.os }}"
+          if [ -z "${OS}" ]; then
+            OS="bionic focal jammy rocky8 rocky9 bullseye amazonlinux2 mariner2 azurelinux3"
+          fi
+          MATRIX="["
+          for os in $OS; do
+            case $os in
+              bionic)
+                MATRIX="${MATRIX}{\"image\": \"ubuntu:bionic\", \"pre_req_install_cmd\": \"apt-get update && apt-get install -y software-properties-common && add-apt-repository ppa:git-core/ppa && apt-get update && apt-get install -y git\"},"
+                ;;
+              focal)
+                MATRIX="${MATRIX}{\"image\": \"ubuntu:focal\", \"pre_req_install_cmd\": \"apt-get update && apt-get install -y software-properties-common && add-apt-repository ppa:git-core/ppa && apt-get update && apt-get install -y git\"},"
+                ;;
+              jammy)
+                MATRIX="${MATRIX}{\"image\": \"ubuntu:jammy\", \"pre_req_install_cmd\": \"apt-get update && apt-get install -y git\"},"
+                ;;
+              rocky8)
+                MATRIX="${MATRIX}{\"image\": \"rockylinux:8\", \"pre_req_install_cmd\": \"dnf install -y git\"},"
+                ;;
+              rocky9)
+                MATRIX="${MATRIX}{\"image\": \"rockylinux:9\", \"pre_req_install_cmd\": \"dnf install -y git\"},"
+                ;;
+              bullseye)
+                MATRIX="${MATRIX}{\"image\": \"debian:bullseye\", \"pre_req_install_cmd\": \"apt-get update && apt-get install -y git\"},"
+                ;;
+              amazonlinux2)
+                MATRIX="${MATRIX}{\"image\": \"amazonlinux:2\", \"pre_req_install_cmd\": \"yum update -y && yum install -y git\"},"
+                ;;
+              mariner2)
+                MATRIX="${MATRIX}{\"image\": \"mcr.microsoft.com/cbl-mariner/base/core:2.0\", \"pre_req_install_cmd\": \"tdnf install --noplugins --skipsignature -y ca-certificates git\"},"
+                ;;
+              azurelinux3)
+                MATRIX="${MATRIX}{\"image\": \"mcr.microsoft.com/azurelinux/base/core:3.0\", \"pre_req_install_cmd\": \"tdnf install --noplugins --skipsignature -y ca-certificates git\"},"
+                ;;
+              *)
+                echo "Unknown OS: $os"
+                exit 1
+                ;;
+            esac
+          done
+          MATRIX="${MATRIX%?}]"
+          echo "${MATRIX}"
+          echo "matrix=${MATRIX}" >> $GITHUB_OUTPUT
+
+  build-linux-matrix:
+    name: ${{matrix.docker_image.image}}, ${{needs.setup-environment.outputs.redis-ref}}
+    runs-on: ubuntu-latest
+    needs: setup-environment
+    strategy:
+      fail-fast: false
+      matrix: 
+        docker_image: ${{fromJson(needs.setup-environment.outputs.matrix)}}
+    env:
+      TAGGED: ${{ needs.setup-environment.outputs.TAGGED }}
+      VERSION: ${{ needs.setup-environment.outputs.TAG }}
+      BRANCH: ${{ needs.setup-environment.outputs.BRANCH }}
+      TAG_OR_BRANCH: ${{ needs.setup-environment.outputs.TAG_OR_BRANCH}}
+      PIP_BREAK_SYSTEM_PACKAGES: 1
+    container:
+      image: ${{ matrix.docker_image.image }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - name: Install git
+        run: ${{ matrix.docker_image.pre_req_install_cmd }}
+      - name: Checkout
+        if: matrix.docker_image.image != 'amazonlinux:2' && matrix.docker_image.image != 'ubuntu:bionic'
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - name: Checkout Redis
+        if: matrix.docker_image.image != 'amazonlinux:2' && matrix.docker_image.image != 'ubuntu:bionic'
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: ${{needs.setup-environment.outputs.redis-ref}}
+          path: redis
+          submodules: 'recursive'
+      - name: git checkout
+        if: matrix.docker_image.image == 'amazonlinux:2' || matrix.docker_image.image == 'ubuntu:bionic'
+        run: |
+         # Perform checkout
+          REPO_URL="https://github.com/${{ github.repository }}.git"
+          # Clone the repository to the current directory
+          git config --global --add safe.directory /__w/${{ github.repository }}
+          git clone --recurse-submodules --depth=1 $REPO_URL .
+          REF=${{github.sha}}
+          git fetch origin ${REF}
+          git checkout ${REF}
+          git submodule update --init --recursive
+
+          # Perform checkout
+          REPO_URL="https://github.com/redis/redis.git"
+          # Clone the repository to the current directory
+          git clone --recurse-submodules $REPO_URL redis
+          cd redis
+          git fetch origin ${{needs.setup-environment.outputs.redis-ref}}
+          git checkout ${{needs.setup-environment.outputs.redis-ref}}
+          git submodule update --init --recursive
+      - name: Setup
+        working-directory: .install
+        run: |
+          echo ::group::Install dependencies
+            ./install_script.sh 
+          echo ::endgroup::
+          echo ::group::Install rust
+            ./getrust.sh
+          echo ::endgroup::
+      - name: build
+        uses: ./.github/actions/build-json-module-and-redis-with-cargo
+      - name: Run tests
+        if: ${{inputs.run-test}}
+        uses: ./.github/actions/run-tests
+        with: 
+          run_valgrind: ${{inputs.run_valgrind && '1' || '0'}}
+      - name: Upload test artifacts
+        if: failure()
+        uses: ./.github/actions/upload-artifacts
+        with: 
+          image: ${{ matrix.docker_image.image }}
+      - name: Pack module
+        if: ${{!inputs.run_valgrind}}
+        uses: ./.github/actions/pack-module
+        with:
+          beta-version: ${{ inputs.beta-version }}
+      - name: Upload artifacts to S3
+        if: ${{!inputs.run_valgrind}}
+        uses: ./.github/actions/upload-artifacts-to-s3-without-make
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          github-ref: ${{ github.ref }}
+          beta-version: ${{ inputs.beta-version }}

@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+
+import sys
+import os
+import argparse
+from addict import Dict 
+from functools import reduce
+import toml            
+
+HERE = os.path.dirname(__file__)
+ROOT = os.path.abspath(os.path.join(HERE, ".."))
+READIES = os.path.join(ROOT, "deps/readies")
+sys.path.insert(0, READIES)
+import paella
+
+parser = argparse.ArgumentParser(description='Print RedisJSON module version')
+parser.add_argument('-n', '--numeric', action="store_true", default=False, help='Show numeric version')
+args = parser.parse_args()
+
+t = Dict(toml.load(os.path.join(ROOT, 'redis_json/Cargo.toml')))
+ver = t.package.version
+
+if args.numeric:
+	print(foldl(lambda s, x: s * 100 + int(x), 0, ver.split('.')))
+else:
+	print(ver)
+exit(0)

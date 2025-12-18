@@ -1,0 +1,39 @@
+name: Run RedisJSON Benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      extended:
+        type: boolean
+        description: 'Run extended benchmarks'
+        default: false
+  workflow_call:
+    inputs:
+      extended:
+        type: boolean
+        default: false
+
+jobs:
+  benchmark-json-oss-standalone:
+    strategy:
+      matrix:
+        member_id: [1, 2, 3]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+
+  benchmark-json-oss-standalone-profiler:
+    strategy:
+      matrix:
+        member_id: [1, 2, 3]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      profile_env: 1
+      # TODO: change to "github-actions.profilers" when ready on grafana
+      triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+

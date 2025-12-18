@@ -1,0 +1,25 @@
+name: Build JSON module and Redis Server
+description: |
+  Build JSON module and Redis Server
+
+inputs:
+  redis-ref:
+    description: 'Redis version to build'
+    required: true
+    default: '7.4'
+
+runs:
+  using: composite
+  steps:
+    - name: Build Redis
+      shell: bash
+      working-directory: redis
+      run: |
+        make install -j `nproc`
+    - name: Build module
+      shell: bash
+      run: |
+        . $HOME/.cargo/env
+        echo "source $HOME/.cargo/env" >> $HOME/.bash_profile
+        cargo build --release
+        cp $(realpath ./target/release)/librejson.so $(realpath ./target/release)/rejson.so

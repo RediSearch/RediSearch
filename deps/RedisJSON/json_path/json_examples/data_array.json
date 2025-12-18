@@ -1,0 +1,93 @@
+[
+  {
+    "_id": "5741cfe6bf9f447a509a269e",
+    "index": 0,
+    "guid": "642f0c2a-3d87-43ac-8f82-25f004e0c96a",
+    "isActive": false,
+    "balance": "$3,666.68",
+    "picture": "http://placehold.it/32x32",
+    "age": 39,
+    "eyeColor": "blue",
+    "name": "Leonor Herman",
+    "gender": "female",
+    "company": "RODEOMAD",
+    "email": "leonorherman@rodeomad.com",
+    "phone": "+1 (848) 456-2962",
+    "address": "450 Seeley Street, Iberia, North Dakota, 7859",
+    "about": "Reprehenderit in anim laboris labore sint occaecat labore proident ipsum exercitation. Ut ea aliqua duis occaecat consectetur aliqua anim id. Dolor ea fugiat excepteur reprehenderit eiusmod enim non sit nisi. Mollit consequat anim mollit et excepteur qui laborum qui eiusmod. Qui ea amet incididunt cillum quis occaecat excepteur qui duis nisi. Dolore labore eu sunt consequat magna.\r\n",
+    "registered": "2015-03-06T02:49:06 -02:00",
+    "latitude": -29.402032,
+    "longitude": 151.088135,
+    "tags": [
+      "Lorem",
+      "voluptate",
+      "aute",
+      "ullamco",
+      "elit",
+      "esse",
+      "culpa"
+    ],
+    "friends": [
+      {
+        "id": 0,
+        "name": "Millicent Norman"
+      },
+      {
+        "id": 1,
+        "name": "Vincent Cannon"
+      },
+      {
+        "id": 2,
+        "name": "Gray Berry"
+      }
+    ],
+    "greeting": "Hello, Leonor Herman! You have 4 unread messages.",
+    "favoriteFruit": "apple"
+  },
+  {
+    "_id": "5741cfe69424f42d4493caa2",
+    "index": 1,
+    "guid": "40ec6b43-e6e6-44e1-92a8-dc80cd5d7179",
+    "isActive": true,
+    "balance": "$2,923.78",
+    "picture": "http://placehold.it/32x32",
+    "age": 36,
+    "eyeColor": "blue",
+    "name": "Barton Barnes",
+    "gender": "male",
+    "company": "BRAINQUIL",
+    "email": "bartonbarnes@brainquil.com",
+    "phone": "+1 (907) 553-3739",
+    "address": "644 Falmouth Street, Sedley, Michigan, 5602",
+    "about": "Et nulla laboris consectetur laborum labore. Officia dolor sint do amet excepteur dolore eiusmod. Occaecat pariatur sunt velit sunt ullamco labore commodo mollit sint dolore occaecat.\r\n",
+    "registered": "2014-08-28T01:07:22 -03:00",
+    "latitude": 14.056553,
+    "longitude": -61.911624,
+    "tags": [
+      "laboris",
+      "sunt",
+      "esse",
+      "tempor",
+      "pariatur",
+      "occaecat",
+      "et"
+    ],
+    "friends": [
+      {
+        "id": 0,
+        "name": "Tillman Mckay"
+      },
+      {
+        "id": 1,
+        "name": "Rivera Berg"
+      },
+      {
+        "id": 2,
+        "name": "Rosetta Erickson"
+      }
+    ],
+    "greeting": "Hello, Barton Barnes! You have 2 unread messages.",
+    "favoriteFruit": "banana"
+  }
+]
+

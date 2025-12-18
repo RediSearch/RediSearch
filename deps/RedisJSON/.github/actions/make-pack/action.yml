@@ -1,0 +1,19 @@
+name: Run make pack module script
+
+inputs:
+  beta-version:
+    description: 'Beta version for S3 uploads'
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - name: Pack module
+      shell: bash
+      run: |
+        if [[ -n "${{ inputs.beta-version }}" ]]; then
+          # For nightly builds: skip release artifacts, only create snapshots
+          RELEASE=0 SNAPSHOT=1 BRANCH=$TAG_OR_BRANCH make pack
+        else
+          BRANCH=$TAG_OR_BRANCH make pack
+        fi

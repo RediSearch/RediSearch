@@ -1,0 +1,190 @@
+name: Build for macos
+
+on:
+  workflow_dispatch: # Allows you to run this workflow manually from the Actions tab
+    inputs:
+      redis-ref:
+        description: 'Redis ref to checkout'
+        required: true
+        default: 'unstable'
+      run-test:
+        type: boolean
+        default: true
+      beta-version:
+        description: 'Beta version for S3 uploads'
+        type: string
+        required: false
+  workflow_call: # Allows you to run this workflow manually from the Actions tab
+    inputs:
+      redis-ref:
+        description: 'Redis ref to checkout'
+        type: string
+        default: 'unstable'
+      run-test:
+        type: boolean
+        default: true
+      beta-version:
+        description: 'Beta version for S3 uploads'
+        type: string
+        required: false
+
+jobs:
+  setup-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      redis-ref: ${{ steps.set-env.outputs.redis-ref }}
+      TAGGED: ${{ steps.set-env.outputs.TAGGED }}
+      TAG: ${{ steps.set-env.outputs.TAG }}
+      BRANCH: ${{ steps.set-env.outputs.BRANCH }}
+      TAG_OR_BRANCH: ${{ steps.set-env.outputs.TAG }}${{ steps.set-env.outputs.BRANCH }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: set env
+        id: set-env
+        uses: ./.github/actions/setup-env
+        with:
+          github-ref: ${{ github.ref }}
+          beta-version: ${{ inputs.beta-version }}
+          redis-ref: ${{ inputs.redis-ref }}
+  build-macos-x64:
+    runs-on: macos-13
+    needs: setup-environment
+    env:
+      TAGGED: ${{ needs.setup-environment.outputs.TAGGED }}
+      VERSION: ${{ needs.setup-environment.outputs.TAG }}
+      BRANCH: ${{ needs.setup-environment.outputs.BRANCH }}
+      TAG_OR_BRANCH: ${{ needs.setup-environment.outputs.TAG_OR_BRANCH}}
+      PIP_BREAK_SYSTEM_PACKAGES: 1
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - name: Deps checkout
+        uses: actions/checkout@v4
+        with:
+          path: setup
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .install
+            tests/pytest/requirements.*
+      - name: Setup specific
+        working-directory: .install
+        run: ./install_script.sh
+      - name: Full checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup common
+        run: .install/common_installations.sh
+      - name: Get Redis
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: ${{ needs.setup-environment.outputs.redis-ref }}
+          path: redis
+      - name: Build Redis
+        working-directory: redis
+        run: make install
+      - name: Build module
+        run: |
+          make build
+      - name: Test
+        if: ${{inputs.run-test}}
+        run: |
+          make test
+      - name: Pack module
+        run: |
+          if [[ -n "${{ inputs.beta-version }}" ]]; then
+            # For nightly builds: skip release artifacts, only create snapshots
+            RELEASE=0 SNAPSHOT=1 BRANCH=$TAG_OR_BRANCH make pack
+          else
+            make pack BRANCH=$TAG_OR_BRANCH
+          fi
+      - name: Upload artifacts to S3
+        uses: ./.github/actions/upload-artifacts-to-s3-without-make
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          github-ref: ${{ github.ref }}
+          beta-version: ${{ inputs.beta-version }}
+          
+    
+  build-macos-m1:
+    runs-on: macos-latest-xlarge
+    needs: setup-environment
+    env:
+      TAGGED: ${{ needs.setup-environment.outputs.TAGGED }}
+      VERSION: ${{ needs.setup-environment.outputs.TAG }}
+      BRANCH: ${{ needs.setup-environment.outputs.BRANCH }}
+      TAG_OR_BRANCH: ${{ needs.setup-environment.outputs.TAG_OR_BRANCH}}
+      PIP_BREAK_SYSTEM_PACKAGES: 1
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - name: Deps checkout
+        uses: actions/checkout@v4
+        with:
+          path: setup
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .install
+            tests/pytest/requirements.*
+      - name: Setup specific
+        working-directory: setup/.install
+        run: ./install_script.sh
+      - name: Full checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup common
+        run: |
+          echo ::group::Activate virtual environment
+            python3 -m venv venv
+            echo "source venv/bin/activate" >> ~/.bashrc
+            echo "source venv/bin/activate" >> ~/.zshrc
+            . venv/bin/activate
+          echo ::endgroup::
+          echo ::group::Install python dependencies
+            ./.install/common_installations.sh
+          echo ::endgroup::
+      - name: Get Redis
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: ${{ needs.setup-environment.outputs.redis-ref }}
+          path: redis
+      - name: Build Redis
+        working-directory: redis
+        run: make install
+      - name: Build module
+        run: |
+          make build
+      - name: Test
+        if: ${{inputs.run-test}}
+        run: |
+          make test
+      - name: Pack module
+        run: |
+          if [[ -n "${{ inputs.beta-version }}" ]]; then
+            # For nightly builds: skip release artifacts, only create snapshots
+            RELEASE=0 SNAPSHOT=1 BRANCH=$TAG_OR_BRANCH make pack
+          else
+            make pack BRANCH=$TAG_OR_BRANCH
+          fi
+      - name: Upload artifacts to S3
+        uses: ./.github/actions/upload-artifacts-to-s3-without-make
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          github-ref: ${{ github.ref }}
+          beta-version: ${{ inputs.beta-version }}

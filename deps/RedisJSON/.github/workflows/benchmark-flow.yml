@@ -1,0 +1,118 @@
+name: Run a Benchmark Flow
+
+on:
+  workflow_call:
+    inputs:
+      container:
+        type: string
+        default: redisfab/rmbuilder:6.2.7-x64-focal
+      module_path:
+        type: string
+        default: bin/linux-x64-release/rejson.so
+      profile_env:
+        type: number # for default of 0
+      cluster_env:
+        type: string # for default of ""
+      benchmark_glob:
+        type: string
+        default: "*.yml"
+      triggering_env:
+        type: string
+        default: "circleci" # TODO: change to "github-actions" when ready on grafana
+      allowed_envs:
+        type: string
+        default: "oss-standalone"
+      allowed_setups:
+        type: string
+      benchmark_runner_group_member_id:
+        type: number
+        default: 1
+      benchmark_runner_group_total:
+        type: number
+        default: 1
+
+jobs:
+  benchmark-steps:
+    runs-on: ubuntu-latest
+    container: ${{ inputs.container }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - run: |
+          git init
+          git config --global --add safe.directory '*'
+          git submodule update --init --recursive
+
+      - name: System setup
+        run: ./sbin/system-setup.py
+
+      - name: Get Redis
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: '7.2'
+          path: redis
+
+      - name: Build Redis
+        working-directory: redis
+        run: make install
+
+      - name: Build RedisJSON
+        run: |
+          . $HOME/.cargo/env
+          make build
+
+      - name: Prepare automation
+        run: |
+          ./deps/readies/bin/getpy3
+          python3 -m pip install -r tests/benchmarks/requirements.txt
+          VERSION=0.14.8 ./deps/readies/bin/getterraform
+
+      - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
+        timeout-minutes: 240 # timeout for the step
+        working-directory: tests/benchmarks
+        continue-on-error: true
+        env:
+          # Hard-coded
+          PERF_CALLGRAPH_MODE: dwarf
+          MAX_PROFILERS: 1
+          # Secrets
+          AWS_ACCESS_KEY_ID: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.PERFORMANCE_EC2_REGION }}
+          EC2_PRIVATE_PEM: ${{ secrets.PERFORMANCE_EC2_PRIVATE_PEM }}
+          # Inputs
+          PROFILE: ${{ inputs.profile_env }}
+          BENCHMARK_GLOB: ${{ inputs.benchmark_glob }}
+          BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
+          BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
+        run: redisbench-admin run-remote
+              --module_path ../../${{ inputs.module_path }}
+              --github_actor ${{ github.triggering_actor }}
+              --github_repo ${{ github.event.repository.name }}
+              --github_org ${{ github.repository_owner }}
+              --required-module ReJSON
+              --github_sha ${{ github.sha }}
+              --github_branch ${{ github.head_ref || github.ref_name }}
+              --upload_results_s3
+              --triggering_env ${{ inputs.triggering_env }}
+              --allowed-envs ${{ inputs.allowed_envs }}
+              --allowed-setups ${{ inputs.allowed_setups }}
+              --push_results_redistimeseries
+              --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
+              --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
+              --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+
+      - name: Generate Pull Request Performance info
+        if: github.event.number
+        env:
+          PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
+          PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
+        run: redisbench-admin compare
+              --defaults_filename ./tests/benchmarks/defaults.yml
+              --comparison-branch ${{ github.head_ref || github.ref_name }}
+              --auto-approve
+              --pull-request ${{ github.event.number }}
+              --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
+              --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
+              --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'

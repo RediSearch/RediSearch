@@ -1,0 +1,48 @@
+[package]
+name = "json_path"
+version = "0.1.0"
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+pest = "2.1"
+pest_derive = "2.1"
+bson.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+ijson.workspace = true
+log = "0.4"
+regex = "1"
+itertools = "0.13"
+
+[dev-dependencies]
+env_logger = "0.10" # do not change this version without running a full ci cycle
+
+[[bin]]
+name = "jsonpath"
+path = "src/main.rs"
+
+[[test]]
+name = "array_filter"
+path = "tests/array_filter.rs"
+
+[[test]]
+name = "filter"
+path = "tests/filter.rs"
+
+[[test]]
+name = "jsonpath_examples"
+path = "tests/jsonpath_examples.rs"
+
+[[test]]
+name = "op"
+path = "tests/op.rs"
+
+[[test]]
+name = "paths"
+path = "tests/paths.rs"
+
+[[test]]
+name = "return_type"
+path = "tests/return_type.rs"

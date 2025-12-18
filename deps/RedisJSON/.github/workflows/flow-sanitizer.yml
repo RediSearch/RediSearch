@@ -1,0 +1,39 @@
+name: Clang Sanitizer
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  workflow_call:
+    inputs:
+      container:
+        default: "ubuntu:jammy"
+        type: string
+        required: true
+      redis-ref:
+        description: 'Redis ref to checkout'
+        type: string
+        required: true
+      beta-version:
+        description: 'Beta version for S3 uploads'
+        type: string
+        required: false
+
+jobs:
+  clang-sanitizer:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    container:
+      image: ${{ inputs.container }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/san-run-tests
+        with:
+          container: ${{ inputs.container }}
+          test-config: QUICK=1
+          sanitizer: addr
+          redis-ref: ${{inputs.redis-ref}}

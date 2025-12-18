@@ -1,0 +1,9 @@
+addict
+click
+jinja2
+requests
+six
+toml
+setuptools==20.7.0
+virtualenv==16.2.0
+dataclasses
