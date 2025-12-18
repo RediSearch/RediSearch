@@ -12,6 +12,7 @@ members = [
     "thin_vec",
     "qint",
     "query_error",
+    "redis_json_api",
     "redis_mock",
     "result_processor",
     "rlookup",
@@ -77,6 +78,7 @@ fnv = { path = "./fnv" }
 inverted_index = { path = "./inverted_index" }
 qint = { path = "./qint" }
 query_error = { path = "./query_error" }
+redis_json_api = { path = "./redis_json_api" }
 redis_mock = { path = "./redis_mock" }
 redisearch_rs = { path = "./c_entrypoint/redisearch_rs" }
 result_processor = { path = "./result_processor" }
