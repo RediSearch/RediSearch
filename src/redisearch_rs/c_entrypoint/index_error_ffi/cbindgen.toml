@@ -23,9 +23,6 @@ aligned_n = "ALIGNED"
 parse_deps = true
 include = ["c_ffi_utils", "index_error"]
 
-[export]
-exclude = ["TimeSpec"]
-
 [export.rename]
 "OpaqueIndexError" = "IndexError"
 

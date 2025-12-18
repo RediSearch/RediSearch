@@ -7,14 +7,6 @@ use index_error::{IndexError, opaque::OpaqueIndexError};
 
 pub use index_error::RedisModuleString;
 
-/// C-compatible timespec structure for FFI boundary
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct TimeSpec {
-    pub tv_sec: i64,
-    pub tv_nsec: i64,
-}
-
 /// Initialize the IndexError module globals.
 /// This should be called once during module initialization.
 ///
