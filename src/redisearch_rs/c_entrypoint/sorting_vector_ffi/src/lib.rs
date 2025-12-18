@@ -224,7 +224,7 @@ pub unsafe extern "C" fn RSSortingVector_PutNull(
 ///
 /// Panics if `len` is greater than [`RS_SORTABLES_MAX`].
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_New(len: size_t) -> *mut RSSortingVector {
+pub extern "C" fn RSSortingVector_New(len: size_t) -> *mut RSSortingVector {
     assert!(
         len <= RS_SORTABLES_MAX,
         "RSSortingVector_New called with length greater than RS_SORTABLES_MAX ({RS_SORTABLES_MAX})"

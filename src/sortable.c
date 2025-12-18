@@ -81,21 +81,3 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb) {
   }
   return vec;
 }
-
-size_t RSSortingVector_GetMemorySize(RSSortingVector *v) {
-    if (!v) return 0;
-
-    size_t sum = v->len * sizeof(RSValue *);
-    for (int i = 0; i < v->len; i++) {
-        if (!v->values[i] || v->values[i] == RSValue_NullStatic()) continue;
-        sum += RSValueSize;
-
-        RSValue *val = RSValue_Dereference(v->values[i]);
-        if (RSValue_IsString(val)) {
-        size_t sz;
-        RSValue_StringPtrLen(val, &sz);
-        sum += sz;
-        }
-    }
-    return sum;
-}
