@@ -33,18 +33,10 @@ jobs:
       options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,fail-fast,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,fail-fast,sanitize' }}
       rejson-branch: '8.2'
 
-  run-on-intel:
-    needs: get-latest-redis-tag
-    secrets: inherit
-    uses: ./.github/workflows/flow-intel.yml
-    with:
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-
   pr-validation:
     needs:
       - get-latest-redis-tag
       - test-matrix
-      - run-on-intel
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ !cancelled() }}
     steps:

@@ -7,7 +7,7 @@ on:
   workflow_call:
     inputs:
       platform:
-        description: 'Platform filter (e.g., "ubuntu:noble" or "all")'
+        description: 'Platform filter, comma-separated list. Use "all" for all platforms, "!platform" to exclude (e.g., "all,!intel")'
         type: string
         default: all
       architecture:
@@ -70,7 +70,8 @@ jobs:
               ('alpine:3.22', 'x86_64'),
               ('alpine:3.22', 'aarch64'),
               ('macos', 'x86_64'),
-              ('macos', 'aarch64')
+              ('macos', 'aarch64'),
+              ('intel', 'x86_64'),  # Self-hosted EC2 runner
           ]
 
           platform_filter = "${{ inputs.platform }}"
@@ -78,11 +79,16 @@ jobs:
           include_coverage = "${{ inputs.include-coverage }}" == "true"
           include_sanitize = "${{ inputs.include-sanitize }}" == "true"
 
+          # Parse comma-separated filters
+          platform_list = [p.strip() for p in platform_filter.split(',')]
+          exclude_list = [p[1:] for p in platform_list if p.startswith('!')]
+
           # Filter combinations based on inputs
           matrix_items = [
               {'platform': platform, 'architecture': architecture, 'job-type': 'test'}
               for platform, architecture in all_combinations
-              if (platform == platform_filter or platform_filter == 'all') and
+              if (platform in platform_list or 'all' in platform_list) and
+                 (platform not in exclude_list) and
                  (architecture == architecture_filter or architecture_filter == 'all')
           ]
 
