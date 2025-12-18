@@ -12,6 +12,7 @@ members = [
     "low_memory_thin_vec",
     "qint",
     "query_error",
+    "redis_json_api",
     "redis_mock",
     "result_processor",
     "rlookup",
@@ -75,6 +76,7 @@ inverted_index = { path = "./inverted_index" }
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 qint = { path = "./qint" }
 query_error = { path = "./query_error" }
+redis_json_api = { path = "./redis_json_api" }
 redis_mock = { path = "./redis_mock" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
