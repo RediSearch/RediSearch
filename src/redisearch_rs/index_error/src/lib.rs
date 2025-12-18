@@ -22,6 +22,7 @@ struct SyncRedisModuleString(*mut RedisModuleString);
 
 // SAFETY: Matches C code behavior. See struct documentation for safety requirements.
 unsafe impl Send for SyncRedisModuleString {}
+// SAFETY: Matches C code behavior. See struct documentation for safety requirements.
 unsafe impl Sync for SyncRedisModuleString {}
 
 /// Global NA RedisModuleString, equivalent to C's NA_rstr
@@ -50,7 +51,7 @@ fn timespec_monotonic_now() -> libc::timespec {
 /// Compare two timespec values (greater than or equal)
 ///
 /// Matches the C implementation of rs_timer_ge from src/util/timeout.h
-fn timespec_ge(a: &libc::timespec, b: &libc::timespec) -> bool {
+const fn timespec_ge(a: &libc::timespec, b: &libc::timespec) -> bool {
     if a.tv_sec == b.tv_sec {
         a.tv_nsec >= b.tv_nsec
     } else {
@@ -65,17 +66,17 @@ fn timespec_ge(a: &libc::timespec, b: &libc::timespec) -> bool {
 /// - Should only be called once during module initialization
 pub unsafe fn index_error_init(ctx: *mut RedisModuleCtx) {
     NA_RSTR.get_or_init(|| {
-        let na_cstr = std::ffi::CStr::from_bytes_with_nul(b"N/A\0").unwrap();
-        let na_str = unsafe {
-            redis_module::raw::RedisModule_CreateString.unwrap()(
-                ctx,
-                na_cstr.as_ptr(),
-                3,
-            )
-        };
-        unsafe {
-            redis_module::raw::RedisModule_TrimStringAllocation.unwrap()(na_str);
-        }
+        let na_cstr = c"N/A";
+        // SAFETY: RedisModule_CreateString is initialized at module startup
+        let create_string = unsafe { redis_module::raw::RedisModule_CreateString.unwrap() };
+        // SAFETY: ctx is valid (caller requirement), na_cstr is a valid C string, length is correct
+        let na_str = unsafe { create_string(ctx, na_cstr.as_ptr(), 3) };
+
+        // SAFETY: RedisModule_TrimStringAllocation is initialized at module startup
+        let trim_allocation = unsafe { redis_module::raw::RedisModule_TrimStringAllocation.unwrap() };
+        // SAFETY: na_str is a valid RedisModuleString just created
+        unsafe { trim_allocation(na_str) };
+
         SyncRedisModuleString(na_str)
     });
 }
@@ -93,12 +94,13 @@ pub fn get_na_rstr() -> Option<*mut RedisModuleString> {
 /// - `ctx` must be a valid RedisModuleCtx pointer
 /// - Should only be called during module shutdown
 pub unsafe fn index_error_cleanup(ctx: *mut RedisModuleCtx) {
-    if let Some(na_str) = NA_RSTR.get() {
-        if !na_str.0.is_null() {
-            unsafe {
-                redis_module::raw::RedisModule_FreeString.unwrap()(ctx, na_str.0);
-            }
-        }
+    if let Some(na_str) = NA_RSTR.get()
+        && !na_str.0.is_null()
+    {
+        // SAFETY: RedisModule_FreeString is initialized at module startup
+        let free_string = unsafe { redis_module::raw::RedisModule_FreeString.unwrap() };
+        // SAFETY: ctx is valid (caller requirement), na_str.0 is a valid RedisModuleString
+        unsafe { free_string(ctx, na_str.0) };
     }
 }
 
@@ -147,15 +149,15 @@ impl IndexError {
     /// - NA_rstr must be initialized via `index_error_init`
     pub unsafe fn new_with_na(ctx: *mut RedisModuleCtx) -> Self {
         let na_key = get_na_rstr().unwrap_or_else(|| {
-            // If NA_rstr is not initialized, create it now
+            // SAFETY: ctx is valid (caller requirement)
             unsafe { index_error_init(ctx) };
             get_na_rstr().expect("NA_rstr should be initialized")
         });
 
-        // Hold the NA key to increment its refcount
-        let held_key = unsafe {
-            redis_module::raw::RedisModule_HoldString.unwrap()(ctx, na_key)
-        };
+        // SAFETY: RedisModule_HoldString is initialized at module startup
+        let hold_string = unsafe { redis_module::raw::RedisModule_HoldString.unwrap() };
+        // SAFETY: ctx is valid (caller requirement), na_key is a valid RedisModuleString
+        let held_key = unsafe { hold_string(ctx, na_key) };
 
         Self {
             error_count: AtomicUsize::new(0),
@@ -176,11 +178,11 @@ impl IndexError {
         self.error_count.load(Ordering::Relaxed)
     }
 
-    pub fn last_error_with_user_data(&self) -> Option<&CString> {
+    pub const fn last_error_with_user_data(&self) -> Option<&CString> {
         self.last_error_with_user_data.as_ref()
     }
 
-    pub fn last_error_without_user_data(&self) -> Option<&CString> {
+    pub const fn last_error_without_user_data(&self) -> Option<&CString> {
         self.last_error_without_user_data.as_ref()
     }
 
@@ -201,8 +203,10 @@ impl IndexError {
     /// # Safety
     /// - `ctx` must be a valid RedisModuleCtx pointer
     pub unsafe fn last_error_key_held(&self, ctx: *mut RedisModuleCtx) -> *mut RedisModuleString {
-        // Safety: Caller ensures ctx is valid
-        unsafe { redis_module::raw::RedisModule_HoldString.unwrap()(ctx, self.key) }
+        // SAFETY: RedisModule_HoldString is initialized at module startup
+        let hold_string = unsafe { redis_module::raw::RedisModule_HoldString.unwrap() };
+        // SAFETY: ctx is valid (caller requirement), self.key is a valid RedisModuleString
+        unsafe { hold_string(ctx, self.key) }
     }
 
     pub const fn last_error_time(&self) -> libc::timespec {
@@ -213,7 +217,7 @@ impl IndexError {
         self.background_indexing_oom_failure
     }
 
-    pub fn raise_background_indexing_oom_failure(&mut self) {
+    pub const fn raise_background_indexing_oom_failure(&mut self) {
         self.background_indexing_oom_failure = true;
     }
 
@@ -237,28 +241,37 @@ impl IndexError {
 
         // Free the old key if it exists
         if !self.key.is_null() {
-            unsafe {
-                redis_module::raw::RedisModule_FreeString.unwrap()(ctx, self.key);
-            }
+            // SAFETY: RedisModule_FreeString is initialized at module startup
+            let free_string = unsafe { redis_module::raw::RedisModule_FreeString.unwrap() };
+            // SAFETY: ctx is valid (caller requirement), self.key is a valid RedisModuleString
+            unsafe { free_string(ctx, self.key) };
         }
 
         // Set new error messages (duplicate the C strings if not null)
         if !without_user_data.is_null() {
+            // SAFETY: without_user_data is a valid C string (caller requirement)
             let s = unsafe { std::ffi::CStr::from_ptr(without_user_data) }.to_owned();
             self.last_error_without_user_data = Some(s);
         }
 
         if !with_user_data.is_null() {
+            // SAFETY: with_user_data is a valid C string (caller requirement)
             let s = unsafe { std::ffi::CStr::from_ptr(with_user_data) }.to_owned();
             self.last_error_with_user_data = Some(s);
         }
 
         // Hold the key (increment refcount) and trim allocation
-        self.key = unsafe {
-            let held_key = redis_module::raw::RedisModule_HoldString.unwrap()(ctx, key);
-            redis_module::raw::RedisModule_TrimStringAllocation.unwrap()(held_key);
-            held_key
-        };
+        // SAFETY: RedisModule_HoldString is initialized at module startup
+        let hold_string = unsafe { redis_module::raw::RedisModule_HoldString.unwrap() };
+        // SAFETY: ctx is valid (caller requirement), key is a valid RedisModuleString (caller requirement)
+        let held_key = unsafe { hold_string(ctx, key) };
+
+        // SAFETY: RedisModule_TrimStringAllocation is initialized at module startup
+        let trim_allocation = unsafe { redis_module::raw::RedisModule_TrimStringAllocation.unwrap() };
+        // SAFETY: held_key is a valid RedisModuleString just created
+        unsafe { trim_allocation(held_key) };
+
+        self.key = held_key;
 
         // Atomically increment error count by 1
         // Uses Relaxed ordering to match C's __ATOMIC_RELAXED
@@ -282,9 +295,10 @@ impl IndexError {
 
         // Free the key
         if !self.key.is_null() {
-            unsafe {
-                redis_module::raw::RedisModule_FreeString.unwrap()(ctx, self.key);
-            }
+            // SAFETY: RedisModule_FreeString is initialized at module startup
+            let free_string = unsafe { redis_module::raw::RedisModule_FreeString.unwrap() };
+            // SAFETY: ctx is valid (caller requirement), self.key is a valid RedisModuleString
+            unsafe { free_string(ctx, self.key) };
             self.key = std::ptr::null_mut();
         }
     }
@@ -305,9 +319,10 @@ impl IndexError {
 
             // Free the old key
             if !self.key.is_null() {
-                unsafe {
-                    redis_module::raw::RedisModule_FreeString.unwrap()(ctx, self.key);
-                }
+                // SAFETY: RedisModule_FreeString is initialized at module startup
+                let free_string = unsafe { redis_module::raw::RedisModule_FreeString.unwrap() };
+                // SAFETY: ctx is valid (caller requirement), self.key is a valid RedisModuleString
+                unsafe { free_string(ctx, self.key) };
             }
 
             // Copy error messages from other
@@ -316,9 +331,10 @@ impl IndexError {
 
             // Hold the other's key (RedisModule_HoldString handles null gracefully)
             // This prevents a dangling pointer when self.key was non-null but other.key is null
-            self.key = unsafe {
-                redis_module::raw::RedisModule_HoldString.unwrap()(ctx, other.key)
-            };
+            // SAFETY: RedisModule_HoldString is initialized at module startup
+            let hold_string = unsafe { redis_module::raw::RedisModule_HoldString.unwrap() };
+            // SAFETY: ctx is valid (caller requirement), other.key is a valid RedisModuleString
+            self.key = unsafe { hold_string(ctx, other.key) };
 
             // Copy timestamp
             self.last_error_time = other.last_error_time;
@@ -344,6 +360,8 @@ pub mod opaque {
     #[repr(C, align(8))]
     pub struct OpaqueIndexError(Size<72>);
 
+    // SAFETY: OpaqueIndexError has the same size and alignment as IndexError
+    // This is verified by the c_ffi_utils::opaque! macro below
     unsafe impl Transmute<IndexError> for OpaqueIndexError {}
 
     c_ffi_utils::opaque!(IndexError, OpaqueIndexError);

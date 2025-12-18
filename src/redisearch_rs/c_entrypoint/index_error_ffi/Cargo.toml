@@ -9,6 +9,7 @@ publish.workspace = true
 c_ffi_utils.workspace = true
 ffi.workspace = true
 index_error.workspace = true
+libc.workspace = true
 redis-module.workspace = true
 workspace_hack.workspace = true
 

@@ -14,9 +14,8 @@ pub use index_error::RedisModuleString;
 /// - `ctx` must be a valid RedisModuleCtx pointer
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexError_GlobalInit(ctx: *mut redis_module::raw::RedisModuleCtx) {
-    unsafe {
-        index_error::index_error_init(ctx);
-    }
+    // SAFETY: ctx is valid (caller requirement)
+    unsafe { index_error::index_error_init(ctx) };
 }
 
 /// Returns the default [`IndexError`].
@@ -26,15 +25,23 @@ pub extern "C" fn IndexError_Default() -> OpaqueIndexError {
 }
 
 /// Returns the number of errors in the IndexError.
+///
+/// # Safety
+/// - `error` must be a valid pointer to an OpaqueIndexError
 #[unsafe(no_mangle)]
-pub extern "C" fn IndexError_ErrorCount(error: *const OpaqueIndexError) -> usize {
+pub unsafe extern "C" fn IndexError_ErrorCount(error: *const OpaqueIndexError) -> usize {
+    // SAFETY: error is valid (caller requirement)
     let error = unsafe { IndexError::from_opaque_ptr(error) }.expect("error is null");
     error.error_count()
 }
 
 /// Returns the last error message in the IndexError.
+///
+/// # Safety
+/// - `error` must be a valid pointer to an OpaqueIndexError
 #[unsafe(no_mangle)]
-pub extern "C" fn IndexError_LastError(error: *const OpaqueIndexError) -> *const c_char {
+pub unsafe extern "C" fn IndexError_LastError(error: *const OpaqueIndexError) -> *const c_char {
+    // SAFETY: error is valid (caller requirement)
     let error = unsafe { IndexError::from_opaque_ptr(error) }.expect("error is null");
     error
         .last_error_with_user_data()
@@ -43,8 +50,12 @@ pub extern "C" fn IndexError_LastError(error: *const OpaqueIndexError) -> *const
 }
 
 /// Returns the last error message in the IndexError, obfuscated.
+///
+/// # Safety
+/// - `error` must be a valid pointer to an OpaqueIndexError
 #[unsafe(no_mangle)]
-pub extern "C" fn IndexError_LastErrorObfuscated(error: *const OpaqueIndexError) -> *const c_char {
+pub unsafe extern "C" fn IndexError_LastErrorObfuscated(error: *const OpaqueIndexError) -> *const c_char {
+    // SAFETY: error is valid (caller requirement)
     let error = unsafe { IndexError::from_opaque_ptr(error) }.expect("error is null");
     error
         .last_error_without_user_data()
@@ -54,27 +65,34 @@ pub extern "C" fn IndexError_LastErrorObfuscated(error: *const OpaqueIndexError)
 
 /// Returns the time of the last error.
 ///
-/// # Parameters
-/// - `error`: Pointer to the IndexError
-/// - `tv_sec`: Output pointer for seconds component (can be null)
-/// - `tv_nsec`: Output pointer for nanoseconds component (can be null)
+/// # Safety
+/// - `error` must be a valid pointer to an OpaqueIndexError
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexError_LastErrorTime(
     error: *const OpaqueIndexError) -> libc::timespec {
+    // SAFETY: error is valid (caller requirement)
     let error = unsafe { IndexError::from_opaque_ptr(error) }.expect("error is null");
     error.last_error_time()
 }
 
 /// Get the background_indexing_OOM_failure flag.
+///
+/// # Safety
+/// - `error` must be a valid pointer to an OpaqueIndexError
 #[unsafe(no_mangle)]
-pub extern "C" fn IndexError_HasBackgroundIndexingOOMFailure(error: *const OpaqueIndexError) -> bool {
+pub unsafe extern "C" fn IndexError_HasBackgroundIndexingOOMFailure(error: *const OpaqueIndexError) -> bool {
+    // SAFETY: error is valid (caller requirement)
     let error = unsafe { IndexError::from_opaque_ptr(error) }.expect("error is null");
     error.has_background_indexing_oom_failure()
 }
 
 /// Change the background_indexing_OOM_failure flag to true.
+///
+/// # Safety
+/// - `error` must be a valid pointer to an OpaqueIndexError
 #[unsafe(no_mangle)]
-pub extern "C" fn IndexError_RaiseBackgroundIndexFailureFlag(error: *mut OpaqueIndexError) {
+pub unsafe extern "C" fn IndexError_RaiseBackgroundIndexFailureFlag(error: *mut OpaqueIndexError) {
+    // SAFETY: error is valid (caller requirement)
     let error = unsafe { IndexError::from_opaque_mut_ptr(error) }.expect("error is null");
     error.raise_background_indexing_oom_failure();
 }
@@ -86,52 +104,61 @@ pub extern "C" fn IndexError_RaiseBackgroundIndexFailureFlag(error: *mut OpaqueI
 /// - This function uses RSDummyContext internally, which must be initialized
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexError_Init() -> OpaqueIndexError {
-    // Use RSDummyContext to properly hold the NA string, matching C behavior
-    // Safety: RSDummyContext is initialized at module startup and remains valid
+    // SAFETY: RSDummyContext is initialized at module startup and remains valid
     let ctx = unsafe { ffi::context::redisearch_module_context().cast() };
-    // Safety: ctx is a valid RedisModuleCtx from RSDummyContext
+    // SAFETY: ctx is a valid RedisModuleCtx from RSDummyContext
     unsafe { IndexError::new_with_na(ctx) }.into_opaque()
 }
 
 /// Adds an error message to the IndexError. The error_count is incremented and the last_error is set to the error_message.
 /// Mirrors C function: `void IndexError_AddError(IndexError *error, ConstErrorMessage withoutUserData, ConstErrorMessage withUserData, RedisModuleString *key)`
+///
+/// # Safety
+/// - `ctx` must be a valid RedisModuleCtx pointer
+/// - `error` must be a valid pointer to an OpaqueIndexError
+/// - `without_user_data` and `with_user_data` must be valid C strings or null
+/// - `key` must be a valid RedisModuleString pointer
 #[unsafe(no_mangle)]
-pub extern "C" fn IndexError_AddError(
+pub unsafe extern "C" fn IndexError_AddError(
     ctx: *mut redis_module::raw::RedisModuleCtx,
     error: *mut OpaqueIndexError,
     without_user_data: *const c_char,
     with_user_data: *const c_char,
     key: *mut RedisModuleString,
 ) {
+    // SAFETY: error is valid (caller requirement)
     let error = unsafe { IndexError::from_opaque_mut_ptr(error) }.expect("error is null");
-    unsafe {
-        error.add_error(ctx, without_user_data, with_user_data, key);
-    }
+    // SAFETY: All pointers are valid (caller requirement)
+    unsafe { error.add_error(ctx, without_user_data, with_user_data, key) };
 }
 
 /// Returns the key of the document that caused the error.
 /// Mirrors C function: `RedisModuleString *IndexError_LastErrorKey(const IndexError *error)`
 ///
 /// # Safety
-/// Returns a held reference (incremented refcount) so the caller can always call FreeString.
-/// This matches the C implementation.
+/// - `error` must be a valid pointer to an OpaqueIndexError
+/// - Returns a held reference (incremented refcount) so the caller can always call FreeString
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexError_LastErrorKey(error: *const OpaqueIndexError) -> *mut RedisModuleString {
+    // SAFETY: error is valid (caller requirement)
     let error = unsafe { IndexError::from_opaque_ptr(error) }.expect("error is null");
-    // Use RSDummyContext to hold the string, matching C behavior
-    // Safety: RSDummyContext is initialized at module startup
+    // SAFETY: RSDummyContext is initialized at module startup
     let ctx = unsafe { ffi::context::redisearch_module_context().cast() };
+    // SAFETY: ctx is valid, error is valid
     unsafe { error.last_error_key_held(ctx) }
 }
 
 /// Clears an IndexError. If the last_error is not NA, it is freed.
 /// Mirrors C function: `void IndexError_Clear(IndexError error)`
+///
+/// # Safety
+/// - `ctx` must be a valid RedisModuleCtx pointer
 #[unsafe(no_mangle)]
-pub extern "C" fn IndexError_Clear(ctx: *mut redis_module::raw::RedisModuleCtx, error: OpaqueIndexError) {
+pub unsafe extern "C" fn IndexError_Clear(ctx: *mut redis_module::raw::RedisModuleCtx, error: OpaqueIndexError) {
+    // SAFETY: error is a valid OpaqueIndexError passed by value
     let mut error = unsafe { IndexError::from_opaque(error) };
-    unsafe {
-        error.clear(ctx);
-    }
+    // SAFETY: ctx is valid (caller requirement)
+    unsafe { error.clear(ctx) };
     // error is dropped here, freeing all resources
 }
 
@@ -143,24 +170,29 @@ pub extern "C" fn IndexError_Clear(ctx: *mut redis_module::raw::RedisModuleCtx, 
 /// - `ctx` must be a valid RedisModuleCtx pointer
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexError_GlobalCleanup(ctx: *mut redis_module::raw::RedisModuleCtx) {
-    unsafe {
-        index_error::index_error_cleanup(ctx);
-    }
+    // SAFETY: ctx is valid (caller requirement)
+    unsafe { index_error::index_error_cleanup(ctx) };
 }
 
 /// Adds the error message of the other IndexError to the IndexError. The error_count is incremented and the last_error is set to the error_message.
 /// This is used when merging errors from different shards in a cluster.
 /// Mirrors C function: `void IndexError_Combine(IndexError *error, const IndexError *other)`
+///
+/// # Safety
+/// - `ctx` must be a valid RedisModuleCtx pointer
+/// - `error` must be a valid pointer to an OpaqueIndexError
+/// - `other` must be a valid pointer to an OpaqueIndexError
 #[unsafe(no_mangle)]
-pub extern "C" fn IndexError_Combine(
+pub unsafe extern "C" fn IndexError_Combine(
     ctx: *mut redis_module::raw::RedisModuleCtx,
     error: *mut OpaqueIndexError,
     other: *const OpaqueIndexError,
 ) {
+    // SAFETY: error is valid (caller requirement)
     let error = unsafe { IndexError::from_opaque_mut_ptr(error) }.expect("error is null");
+    // SAFETY: other is valid (caller requirement)
     let other = unsafe { IndexError::from_opaque_ptr(other) }.expect("other is null");
-    unsafe {
-        error.combine(ctx, other);
-    }
+    // SAFETY: ctx is valid (caller requirement), error and other are valid
+    unsafe { error.combine(ctx, other) };
 }
 

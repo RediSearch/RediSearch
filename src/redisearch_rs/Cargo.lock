@@ -816,6 +816,7 @@ dependencies = [
  "cbindgen",
  "ffi",
  "index_error",
+ "libc",
  "redis-module",
  "workspace_hack",
 ]

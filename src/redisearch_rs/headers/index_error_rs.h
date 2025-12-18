@@ -53,36 +53,49 @@ struct IndexError IndexError_Default(void);
 
 /**
  * Returns the number of errors in the IndexError.
+ *
+ * # Safety
+ * - `error` must be a valid pointer to an OpaqueIndexError
  */
 uintptr_t IndexError_ErrorCount(const struct IndexError *error);
 
 /**
  * Returns the last error message in the IndexError.
+ *
+ * # Safety
+ * - `error` must be a valid pointer to an OpaqueIndexError
  */
 const char *IndexError_LastError(const struct IndexError *error);
 
 /**
  * Returns the last error message in the IndexError, obfuscated.
+ *
+ * # Safety
+ * - `error` must be a valid pointer to an OpaqueIndexError
  */
 const char *IndexError_LastErrorObfuscated(const struct IndexError *error);
 
 /**
  * Returns the time of the last error.
  *
- * # Parameters
- * - `error`: Pointer to the IndexError
- * - `tv_sec`: Output pointer for seconds component (can be null)
- * - `tv_nsec`: Output pointer for nanoseconds component (can be null)
+ * # Safety
+ * - `error` must be a valid pointer to an OpaqueIndexError
  */
 timespec IndexError_LastErrorTime(const struct IndexError *error);
 
 /**
  * Get the background_indexing_OOM_failure flag.
+ *
+ * # Safety
+ * - `error` must be a valid pointer to an OpaqueIndexError
  */
 bool IndexError_HasBackgroundIndexingOOMFailure(const struct IndexError *error);
 
 /**
  * Change the background_indexing_OOM_failure flag to true.
+ *
+ * # Safety
+ * - `error` must be a valid pointer to an OpaqueIndexError
  */
 void IndexError_RaiseBackgroundIndexFailureFlag(struct IndexError *error);
 
@@ -98,6 +111,12 @@ struct IndexError IndexError_Init(void);
 /**
  * Adds an error message to the IndexError. The error_count is incremented and the last_error is set to the error_message.
  * Mirrors C function: `void IndexError_AddError(IndexError *error, ConstErrorMessage withoutUserData, ConstErrorMessage withUserData, RedisModuleString *key)`
+ *
+ * # Safety
+ * - `ctx` must be a valid RedisModuleCtx pointer
+ * - `error` must be a valid pointer to an OpaqueIndexError
+ * - `without_user_data` and `with_user_data` must be valid C strings or null
+ * - `key` must be a valid RedisModuleString pointer
  */
 void IndexError_AddError(RedisModuleCtx *ctx,
                          struct IndexError *error,
@@ -110,14 +129,17 @@ void IndexError_AddError(RedisModuleCtx *ctx,
  * Mirrors C function: `RedisModuleString *IndexError_LastErrorKey(const IndexError *error)`
  *
  * # Safety
- * Returns a held reference (incremented refcount) so the caller can always call FreeString.
- * This matches the C implementation.
+ * - `error` must be a valid pointer to an OpaqueIndexError
+ * - Returns a held reference (incremented refcount) so the caller can always call FreeString
  */
 RedisModuleString *IndexError_LastErrorKey(const struct IndexError *error);
 
 /**
  * Clears an IndexError. If the last_error is not NA, it is freed.
  * Mirrors C function: `void IndexError_Clear(IndexError error)`
+ *
+ * # Safety
+ * - `ctx` must be a valid RedisModuleCtx pointer
  */
 void IndexError_Clear(RedisModuleCtx *ctx, struct IndexError error);
 
@@ -135,6 +157,11 @@ void IndexError_GlobalCleanup(RedisModuleCtx *ctx);
  * Adds the error message of the other IndexError to the IndexError. The error_count is incremented and the last_error is set to the error_message.
  * This is used when merging errors from different shards in a cluster.
  * Mirrors C function: `void IndexError_Combine(IndexError *error, const IndexError *other)`
+ *
+ * # Safety
+ * - `ctx` must be a valid RedisModuleCtx pointer
+ * - `error` must be a valid pointer to an OpaqueIndexError
+ * - `other` must be a valid pointer to an OpaqueIndexError
  */
 void IndexError_Combine(RedisModuleCtx *ctx,
                         struct IndexError *error,
