@@ -46,6 +46,7 @@ on:
           - azurelinux:3
           - alpine:3.22
           - macos
+          - intel
         description: 'Platform to test on. Use "all" to test on all platforms'
         default: all
       architecture:
@@ -97,7 +98,7 @@ jobs:
       include-coverage: ${{ contains(inputs.options, 'coverage') }}
       include-sanitize: ${{ contains(inputs.options, 'sanitize') }}
 
-  # Unified test matrix - includes Linux and macOS platforms, plus optional coverage and sanitize
+  # Unified test matrix - includes Linux and macOS platforms, plus optional coverage, sanitize, and intel
   test-matrix:
     name: ${{ matrix.job-type == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', matrix.job-type, matrix.architecture) }}
     needs: [generate-matrix]
