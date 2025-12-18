@@ -143,8 +143,25 @@ impl IndexError {
         self.last_error_without_user_data.as_ref()
     }
 
+    /// Get the raw key pointer without incrementing reference count
+    ///
+    /// # Safety
+    /// The caller must ensure the key is not freed while in use.
+    /// For FFI functions that return keys to C callers, use `last_error_key_held` instead.
     pub const fn key(&self) -> *mut RedisModuleString {
         self.key
+    }
+
+    /// Get the key with incremented reference count
+    ///
+    /// This matches the C implementation of IndexError_LastErrorKey which calls
+    /// RedisModule_HoldString so the caller can always call FreeString.
+    ///
+    /// # Safety
+    /// - `ctx` must be a valid RedisModuleCtx pointer
+    pub unsafe fn last_error_key_held(&self, ctx: *mut RedisModuleCtx) -> *mut RedisModuleString {
+        // Safety: Caller ensures ctx is valid
+        unsafe { redis_module::raw::RedisModule_HoldString.unwrap()(ctx, self.key) }
     }
 
     pub const fn last_error_time(&self) -> Duration {

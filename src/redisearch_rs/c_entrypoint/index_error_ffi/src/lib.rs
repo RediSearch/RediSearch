@@ -126,19 +126,17 @@ pub extern "C" fn IndexError_AddError(
 
 /// Returns the key of the document that caused the error.
 /// Mirrors C function: `RedisModuleString *IndexError_LastErrorKey(const IndexError *error)`
+///
+/// # Safety
+/// Returns a held reference (incremented refcount) so the caller can always call FreeString.
+/// This matches the C implementation.
 #[unsafe(no_mangle)]
-pub extern "C" fn IndexError_LastErrorKey(error: *const OpaqueIndexError) -> *mut RedisModuleString {
+pub unsafe extern "C" fn IndexError_LastErrorKey(error: *const OpaqueIndexError) -> *mut RedisModuleString {
     let error = unsafe { IndexError::from_opaque_ptr(error) }.expect("error is null");
-    error.key()
-}
-
-/// Returns the key of the document that caused the error, obfuscated.
-/// Mirrors C function: `RedisModuleString *IndexError_LastErrorKeyObfuscated(const IndexError *error)`
-#[unsafe(no_mangle)]
-pub extern "C" fn IndexError_LastErrorKeyObfuscated(error: *const OpaqueIndexError) -> *mut RedisModuleString {
-    let error = unsafe { IndexError::from_opaque_ptr(error) }.expect("error is null");
-    // TODO: Implement obfuscation logic
-    error.key()
+    // Use RSDummyContext to hold the string, matching C behavior
+    // Safety: RSDummyContext is initialized at module startup
+    let ctx = unsafe { ffi::context::redisearch_module_context().cast() };
+    unsafe { error.last_error_key_held(ctx) }
 }
 
 /// Clears an IndexError. If the last_error is not NA, it is freed.

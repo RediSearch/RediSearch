@@ -108,14 +108,12 @@ void IndexError_AddError(RedisModuleCtx *ctx,
 /**
  * Returns the key of the document that caused the error.
  * Mirrors C function: `RedisModuleString *IndexError_LastErrorKey(const IndexError *error)`
+ *
+ * # Safety
+ * Returns a held reference (incremented refcount) so the caller can always call FreeString.
+ * This matches the C implementation.
  */
 RedisModuleString *IndexError_LastErrorKey(const struct IndexError *error);
-
-/**
- * Returns the key of the document that caused the error, obfuscated.
- * Mirrors C function: `RedisModuleString *IndexError_LastErrorKeyObfuscated(const IndexError *error)`
- */
-RedisModuleString *IndexError_LastErrorKeyObfuscated(const struct IndexError *error);
 
 /**
  * Clears an IndexError. If the last_error is not NA, it is freed.
