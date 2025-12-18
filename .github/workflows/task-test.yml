@@ -196,11 +196,9 @@ jobs:
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
-      needs.start-runner.result == 'success' &&
+      (!needs.get-config.outputs.ec2_image_id || needs.start-runner.result == 'success') &&
       (inputs.standalone || inputs.coordinator || inputs.unit-tests)
-    runs-on: ${{
-      (!needs.get-config.outputs.ec2_image_id && (needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest')) ||
-      needs.start-runner.outputs.label }}
+    runs-on: ${{ needs.start-runner.outputs.label || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container: ${{
       needs.get-config.outputs.container
         && fromJSON(
