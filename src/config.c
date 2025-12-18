@@ -1115,7 +1115,7 @@ CONFIG_SETTER(setMinTrimDelay) {
 
   // Validate that minTrimDelay is less than maxTrimDelayMS
   if (minTrimDelayMS >= config->maxTrimDelayMS) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "_MIN_TRIM_DELAY_MS (%u) must be less than _MAX_TRIM_DELAY_MS (%u)",
+    QueryError_SetWithoutUserDataFmt(status, QUERY__TRIM_DELAY_CONFIG_INVALID, "_MIN_TRIM_DELAY_MS (%u) must be less than _MAX_TRIM_DELAY_MS (%u)",
       minTrimDelayMS, config->maxTrimDelayMS);
     return REDISMODULE_ERR;
   }
@@ -1137,7 +1137,7 @@ CONFIG_SETTER(setMaxTrimDelay) {
 
   // Validate that maxTrimDelay is greater than minTrimDelay
   if (maxTrimDelayMS <= config->minTrimDelayMS) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "_MAX_TRIM_DELAY_MS (%u) must be greater than _MIN_TRIM_DELAY_MS (%u)",
+    QueryError_SetWithoutUserDataFmt(status, QUERY__TRIM_DELAY_CONFIG_INVALID, "_MAX_TRIM_DELAY_MS (%u) must be greater than _MIN_TRIM_DELAY_MS (%u)",
                                      maxTrimDelayMS, config->minTrimDelayMS);
     return REDISMODULE_ERR;
   }

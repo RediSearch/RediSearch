@@ -377,7 +377,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     OptionSlotTrackerVersion version = slots_tracker_check_availability(slot_array);
     if (!version.is_some) {
       rm_free((void *)slot_array);
-      QueryError_SetError(status, QUERY_ERROR_CODE_UNAVAILABLE_SLOTS, "Query requires unavailable slots");
+      QueryError_SetError(status, QUERY_EUNAVAILABLE_SLOTS, "Query requires unavailable slots");
       return ARG_ERROR;
     }
     *papCtx->keySpaceVersion = version.version;
