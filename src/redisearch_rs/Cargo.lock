@@ -762,9 +762,9 @@ dependencies = [
 
 [[package]]
 name = "icu_properties"
-version = "2.1.1"
+version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e93fcd3157766c0c8da2f8cff6ce651a31f0810eaa1c51ec363ef790bbb5fb99"
+checksum = "020bfc02fe870ec3a66d93e677ccca0562506e5872c650f893269e08615d74ec"
 dependencies = [
  "icu_collections",
  "icu_locale_core",
@@ -776,9 +776,9 @@ dependencies = [
 
 [[package]]
 name = "icu_properties_data"
-version = "2.1.1"
+version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02845b3647bb045f1100ecd6480ff52f34c35f82d9880e029d329c21d1054899"
+checksum = "616c294cf8d725c6afcd8f55abc17c56464ef6211f9ed59cccffe534129c77af"
 
 [[package]]
 name = "icu_provider"
@@ -1518,6 +1518,7 @@ dependencies = [
  "redis-module",
  "result_processor_ffi",
  "slots_tracker_ffi",
+ "sorting_vector_ffi",
  "tracing_redismodule_ffi",
  "triemap_ffi",
  "types_ffi",
@@ -1916,7 +1917,6 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "icu_casemap",
- "thiserror",
  "value",
  "workspace_hack",
 ]
@@ -2371,6 +2371,7 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "ffi",
+ "redis-module",
  "workspace_hack",
 ]
 
@@ -2648,7 +2649,6 @@ checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
 name = "workspace_hack"
 version = "0.1.0"
 dependencies = [
- "bindgen 0.66.1",
  "bindgen 0.72.1",
  "bitflags 2.10.0",
  "clang-sys",
@@ -2666,7 +2666,6 @@ dependencies = [
  "quote 1.0.42",
  "rand",
  "rand_chacha",
- "redis-module",
  "regex",
  "regex-automata",
  "regex-syntax",
