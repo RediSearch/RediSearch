@@ -57,16 +57,10 @@ impl SchemaRule {
 
     /// Tests if the given [`crate::lookup::RLookupKey`] is a special key (lang, score, or payload field) in respect to this schema rule.
     pub fn is_special_key(&self, key: &RLookupKey) -> bool {
-        // check if the key is one of the special fields
-        let key_is_lang_field = self.lang_field().is_some_and(|lf| lf == key.name_as_cstr());
-        let key_is_score_field = self
-            .score_field()
-            .is_some_and(|sf| sf == key.name_as_cstr());
-        let key_is_payload_field = self
-            .payload_field()
-            .is_some_and(|p| p == key.name_as_cstr());
-
-        key_is_lang_field || key_is_score_field || key_is_payload_field
+        // Check if the key is one of the special fields
+        [self.lang_field(), self.score_field(), self.payload_field()]
+            .into_iter()
+            .any(|f| f == Some(key.name_as_cstr()))
     }
 }
 
