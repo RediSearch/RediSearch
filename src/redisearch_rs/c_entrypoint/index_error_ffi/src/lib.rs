@@ -4,6 +4,7 @@ use std::os::raw::c_char;
 
 use c_ffi_utils::opaque::IntoOpaque;
 use index_error::{IndexError, opaque::OpaqueIndexError};
+use libc::timespec;
 
 pub use index_error::RedisModuleString;
 
@@ -69,7 +70,7 @@ pub unsafe extern "C" fn IndexError_LastErrorObfuscated(error: *const OpaqueInde
 /// - `error` must be a valid pointer to an OpaqueIndexError
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexError_LastErrorTime(
-    error: *const OpaqueIndexError) -> libc::timespec {
+    error: *const OpaqueIndexError) -> timespec {
     // SAFETY: error is valid (caller requirement)
     let error = unsafe { IndexError::from_opaque_ptr(error) }.expect("error is null");
     error.last_error_time()
