@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::CStr;
+use std::ffi::{CStr, c_char};
 
 use crate::RLookupKey;
 
@@ -76,9 +76,7 @@ impl SchemaRule {
 ///
 /// 1. The caller must ensure that if the is associated with `self`, as the returned reference's lifetime is tied to `self`.
 /// 2. The type invariants described on the type documentation is uphold if an external caller complies to the safety requirements of `from_raw`.
-const unsafe fn maybe_cstr_from_ptr<'a>(
-    ffi_field: *mut ::std::os::raw::c_char,
-) -> Option<&'a CStr> {
+const unsafe fn maybe_cstr_from_ptr<'a>(ffi_field: *mut c_char) -> Option<&'a CStr> {
     if ffi_field.is_null() {
         None
     } else {
