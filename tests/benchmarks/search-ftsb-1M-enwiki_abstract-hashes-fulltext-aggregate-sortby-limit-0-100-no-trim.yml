@@ -26,7 +26,7 @@ dbconfig:
   - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
   - init_commands:
     - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
-    - '"CONFIG" "SET" "DEBUG_DISABLE_TRIMMING" "yes"'
+    - '"DEBUG" "ASM-TRIM-METHOD" "none"'
   - asm_cluster_state:
     - shards:
       - - start: 0
@@ -39,7 +39,7 @@ dbconfig:
           end: 16000
       - - start: 2501
           end: 4999
-        - start: 5001
+        - start: 7501
           end: 9999
         - start: 12501
           end: 14999

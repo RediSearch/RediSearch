@@ -1,4 +1,4 @@
-name: "search-ftsb-1M-enwiki_abstract-hashes-fulltext-aggregate-sortby-limit-0-100-sparse-hashlots"
+name: "search-ftsb-1M-enwiki_abstract-hashes-fulltext-aggregate-sortby-limit-0-100-sparse-hashslots"
 description: "
              - name: enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md),
                      from English-language Wikipedia:Database page abstracts.
