@@ -6,7 +6,11 @@
  * The various document types supported by RediSearch.
  *
  */
-typedef enum DocumentType {
+enum DocumentType
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
   /**
    * Hash document type
    */
@@ -19,4 +23,7 @@ typedef enum DocumentType {
    * Unsupported document type
    */
   DocumentType_Unsupported = 2,
-} DocumentType;
+};
+#ifndef __cplusplus
+typedef uint32_t DocumentType;
+#endif // __cplusplus

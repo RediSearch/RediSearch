@@ -9,6 +9,7 @@ publish.workspace = true
 search_result.workspace = true
 inverted_index.workspace = true
 ffi.workspace = true
+document.workspace = true
 
 unsafe-tools.workspace = true
 workspace_hack.workspace = true

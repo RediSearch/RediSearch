@@ -7,8 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use document::DocumentMetadata;
 use inverted_index::RSIndexResult;
-use search_result::{SearchResultFlags, bindings::DocumentMetadata};
+use search_result::SearchResultFlags;
 use std::{
     mem,
     ptr::{self, NonNull},

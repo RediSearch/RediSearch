@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod _load_documents;
 mod bindings;
 mod load_document;
 mod lookup;
