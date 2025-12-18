@@ -60,24 +60,9 @@ pub extern "C" fn IndexError_LastErrorObfuscated(error: *const OpaqueIndexError)
 /// - `tv_nsec`: Output pointer for nanoseconds component (can be null)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexError_LastErrorTime(
-    error: *const OpaqueIndexError,
-    tv_sec: *mut i64,
-    tv_nsec: *mut i64,
-) {
+    error: *const OpaqueIndexError) -> libc::timespec {
     let error = unsafe { IndexError::from_opaque_ptr(error) }.expect("error is null");
-    let duration = error.last_error_time();
-
-    if !tv_sec.is_null() {
-        unsafe {
-            *tv_sec = duration.as_secs() as i64;
-        }
-    }
-
-    if !tv_nsec.is_null() {
-        unsafe {
-            *tv_nsec = duration.subsec_nanos() as i64;
-        }
-    }
+    error.last_error_time()
 }
 
 /// Get the background_indexing_OOM_failure flag.

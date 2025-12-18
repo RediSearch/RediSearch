@@ -802,6 +802,7 @@ name = "index_error"
 version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
+ "libc",
  "redis-module",
  "workspace_hack",
 ]

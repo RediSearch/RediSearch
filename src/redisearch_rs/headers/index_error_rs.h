@@ -74,7 +74,7 @@ const char *IndexError_LastErrorObfuscated(const struct IndexError *error);
  * - `tv_sec`: Output pointer for seconds component (can be null)
  * - `tv_nsec`: Output pointer for nanoseconds component (can be null)
  */
-void IndexError_LastErrorTime(const struct IndexError *error, int64_t *tv_sec, int64_t *tv_nsec);
+timespec IndexError_LastErrorTime(const struct IndexError *error);
 
 /**
  * Get the background_indexing_OOM_failure flag.

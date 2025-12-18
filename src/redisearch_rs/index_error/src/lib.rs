@@ -1,6 +1,6 @@
 use std::ffi::CString;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
-use std::time::Duration;
 
 pub use redis_module::raw::{RedisModuleCtx, RedisModuleString};
 
@@ -26,6 +26,37 @@ unsafe impl Sync for SyncRedisModuleString {}
 
 /// Global NA RedisModuleString, equivalent to C's NA_rstr
 static NA_RSTR: OnceLock<SyncRedisModuleString> = OnceLock::new();
+
+/// Get current time from monotonic clock
+///
+/// Uses CLOCK_MONOTONIC_RAW to match the C implementation's use of
+/// clock_gettime(CLOCK_MONOTONIC_RAW, ...). This is critical because
+/// IndexError_Combine compares timestamps to determine which error is newer.
+///
+/// Using a monotonic clock ensures timestamps are not affected by NTP
+/// adjustments or system time changes, making them suitable for comparison.
+fn timespec_monotonic_now() -> libc::timespec {
+    let mut ts = std::mem::MaybeUninit::uninit();
+    // SAFETY: We have exclusive access to a pointer of the correct type
+    let ret = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, ts.as_mut_ptr()) };
+    if ret == 0 {
+        // SAFETY: ts was initialized by clock_gettime
+        unsafe { ts.assume_init() }
+    } else {
+        panic!("Failed to get monotonic time: clock_gettime returned {}", ret)
+    }
+}
+
+/// Compare two timespec values (greater than or equal)
+///
+/// Matches the C implementation of rs_timer_ge from src/util/timeout.h
+fn timespec_ge(a: &libc::timespec, b: &libc::timespec) -> bool {
+    if a.tv_sec == b.tv_sec {
+        a.tv_nsec >= b.tv_nsec
+    } else {
+        a.tv_sec >= b.tv_sec
+    }
+}
 
 /// Initialize the IndexError module globals
 ///
@@ -78,24 +109,31 @@ pub unsafe fn index_error_cleanup(ctx: *mut RedisModuleCtx) {
 // reference counting would result in double-free bugs when both instances call clear().
 #[derive(Debug)]
 pub struct IndexError {
-    error_count: usize,
+    // Use AtomicUsize to match C's __atomic_add_fetch behavior
+    // The C code explicitly uses atomics "since this might be called when spec is unlocked"
+    error_count: AtomicUsize,
     last_error_with_user_data: Option<CString>,
     last_error_without_user_data: Option<CString>,
     key: *mut RedisModuleString,
-    last_error_time: Duration,
+    // Use libc::timespec to match C's struct timespec
+    // Must use CLOCK_MONOTONIC_RAW for compatibility with C code
+    last_error_time: libc::timespec,
     background_indexing_oom_failure: bool,
 }
 
 impl Default for IndexError {
     fn default() -> Self {
         Self {
-            error_count: 0,
+            error_count: AtomicUsize::new(0),
             last_error_with_user_data: None,
             last_error_without_user_data: None,
             // Use null pointer for default - proper initialization should use new_with_na()
             // which properly increments the reference count of the NA string.
             key: std::ptr::null_mut(),
-            last_error_time: Duration::default(),
+            last_error_time: libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
             background_indexing_oom_failure: false,
         }
     }
@@ -120,19 +158,22 @@ impl IndexError {
         };
 
         Self {
-            error_count: 0,
+            error_count: AtomicUsize::new(0),
             last_error_with_user_data: None,
             last_error_without_user_data: None,
             key: held_key,
-            last_error_time: Duration::default(),
+            last_error_time: libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
             background_indexing_oom_failure: false,
         }
     }
 }
 
 impl IndexError {
-    pub const fn error_count(&self) -> usize {
-        self.error_count
+    pub fn error_count(&self) -> usize {
+        self.error_count.load(Ordering::Relaxed)
     }
 
     pub fn last_error_with_user_data(&self) -> Option<&CString> {
@@ -164,7 +205,7 @@ impl IndexError {
         unsafe { redis_module::raw::RedisModule_HoldString.unwrap()(ctx, self.key) }
     }
 
-    pub const fn last_error_time(&self) -> Duration {
+    pub const fn last_error_time(&self) -> libc::timespec {
         self.last_error_time
     }
 
@@ -219,14 +260,15 @@ impl IndexError {
             held_key
         };
 
-        // Atomically increment error count
-        self.error_count = self.error_count.wrapping_add(1);
+        // Atomically increment error count by 1
+        // Uses Relaxed ordering to match C's __ATOMIC_RELAXED
+        // This is safe because error_count updates don't need to synchronize with other operations
+        self.error_count.fetch_add(1, Ordering::Relaxed);
 
-        // Set the current time as duration since UNIX_EPOCH
-        // This matches the C code's use of clock_gettime
-        self.last_error_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default();
+        // Set the current time using CLOCK_MONOTONIC_RAW to match C code
+        // The C code uses: clock_gettime(CLOCK_MONOTONIC_RAW, &error->last_error_time)
+        // This is critical for IndexError_Combine which compares timestamps
+        self.last_error_time = timespec_monotonic_now();
     }
 
     /// Clear the IndexError and free resources.
@@ -255,7 +297,8 @@ impl IndexError {
     /// - `other` must be a valid IndexError reference
     pub unsafe fn combine(&mut self, ctx: *mut RedisModuleCtx, other: &IndexError) {
         // If other error is newer (has a later timestamp), prefer it
-        if self.last_error_time < other.last_error_time {
+        // Matches C code: if (!rs_timer_ge(&error->last_error_time, &other->last_error_time))
+        if !timespec_ge(&self.last_error_time, &other.last_error_time) {
             // Clear current error messages
             self.last_error_without_user_data = None;
             self.last_error_with_user_data = None;
@@ -281,8 +324,9 @@ impl IndexError {
             self.last_error_time = other.last_error_time;
         }
 
-        // Add error counts
-        self.error_count += other.error_count;
+        // Add error counts atomically
+        self.error_count
+            .fetch_add(other.error_count.load(Ordering::Relaxed), Ordering::Relaxed);
 
         // Combine OOM failure flags
         self.background_indexing_oom_failure |= other.background_indexing_oom_failure;
