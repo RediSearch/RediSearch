@@ -618,6 +618,7 @@ void iterStartCb(void *p) {
     it->cbxs[targetShardIdx].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
     it->cbxs[targetShardIdx].cmd.targetShard = rm_strdup(shards[targetShardIdx].node.id);
+    it->cbxs[targetShardIdx].cmd.targetShardIdx = targetShardIdx;
     MRCommand_SetSlotInfo(&it->cbxs[targetShardIdx].cmd, shards[targetShardIdx].slotRanges);
 
     it->cbxs[targetShardIdx].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
@@ -625,6 +626,7 @@ void iterStartCb(void *p) {
 
   // Set the first command to target the first shard (while not having copied it)
   cmd->targetShard = rm_strdup(shards[0].node.id);
+  cmd->targetShardIdx = 0;
   MRCommand_SetSlotInfo(cmd, shards[0].slotRanges);
 
   // This implies that every connection to each shard will work inside a single IO thread
