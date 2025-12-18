@@ -798,6 +798,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "index_error"
+version = "0.0.1"
+dependencies = [
+ "c_ffi_utils",
+ "redis-module",
+ "workspace_hack",
+]
+
+[[package]]
+name = "index_error_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "c_ffi_utils",
+ "cbindgen",
+ "index_error",
+ "redis-module",
+ "workspace_hack",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
