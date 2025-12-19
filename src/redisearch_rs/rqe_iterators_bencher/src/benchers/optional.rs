@@ -294,14 +294,14 @@ impl Bencher {
         (out, n as u64)
     }
 
-    fn make_c_optional_with_id_list<'index>(child_ratio: f64) -> ffi::QueryIterator {
+    fn make_c_optional_with_id_list(child_ratio: f64) -> ffi::QueryIterator {
         let (child_doc_ids_array, ids_len) = unsafe { Self::make_c_child_doc_ids(child_ratio) };
 
         // SAFETY: our wrapper ensures to free the child doc ids array
         let child = unsafe {
             iterators_ffi::id_list::NewSortedIdListIterator(
                 child_doc_ids_array,
-                ids_len as u64,
+                ids_len,
                 Self::WEIGHT,
             ) as *mut ffi::QueryIterator
         };
