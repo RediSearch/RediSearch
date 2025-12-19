@@ -105,7 +105,7 @@ fn test_seek_and_overwrite() {
         let mut cursor = ControlledCursor::new(&mut buffer);
 
         // Write initial data
-        cursor.write(b"XXXXXXXXXX").expect("Write failed");
+        let _ = cursor.write(b"XXXXXXXXXX").expect("Write failed");
     }
     assert_eq!(&buffer[..], b"XXXXXXXXXX");
 
@@ -116,7 +116,7 @@ fn test_seek_and_overwrite() {
         cursor.seek(SeekFrom::Start(2)).expect("Seek failed");
 
         // Overwrite with new data
-        cursor.write(b"test").expect("Write failed");
+        let _ = cursor.write(b"test").expect("Write failed");
     }
 
     // Verify the overwrite

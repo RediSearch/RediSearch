@@ -20,7 +20,7 @@ fn initial_state() {
 
     assert_eq!(profile.counters().read, 0);
     assert_eq!(profile.counters().skip_to, 0);
-    assert_eq!(profile.counters().eof, false);
+    assert!(!profile.counters().eof);
     assert_eq!(profile.wall_time_ns(), 0);
 }
 
