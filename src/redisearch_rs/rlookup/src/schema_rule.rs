@@ -28,7 +28,7 @@ use crate::RLookupKey;
 pub struct SchemaRule(ffi::SchemaRule);
 
 impl SchemaRule {
-    /// Create a SchemaRuleWrapper from a non-null pointer.
+    /// Create a SchemaRule from a non-null pointer.
     ///
     /// # Safety
     ///
