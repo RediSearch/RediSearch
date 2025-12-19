@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/param.h>
+#include <stddef.h>
 
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
@@ -47,6 +48,10 @@ static MRCluster *cluster_g = NULL;
 
 // Number of shards in the cluster (main-thread variable)
 extern size_t NumShards;
+
+// Local node ID (set from main-thread when topology is updated, and may be accessed from worker
+// thread upon replying to a query - hence it is synchronized reference counting)
+static NodeIdRef *local_node_id_g = NULL;
 
 /* Coordination request timeout */
 long long timeout_g = 5000; // unused value. will be set in MR_Init
@@ -264,6 +269,47 @@ void MR_UpdateTopology(MRClusterTopology *newTopo, const RedisModuleSlotRangeArr
   for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
     IORuntimeCtx_Schedule_Topology(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, newTopo, i == lastIdx);
   }
+}
+
+void MR_InitLocalNodeId() {
+  RS_ASSERT(local_node_id_g == NULL);
+  local_node_id_g = rm_calloc(1, sizeof(NodeIdRef));
+  pthread_rwlock_init(&local_node_id_g->lock, NULL);
+}
+
+void MR_ReleaseLocalNodeIdReadLock() {
+  RS_ASSERT(local_node_id_g != NULL);
+  pthread_rwlock_unlock(&local_node_id_g->lock);
+}
+
+/* Set the local node ID for this shard */
+void MR_SetLocalNodeId(const char *node_id) {
+  // Replace the old local node ID.
+  pthread_rwlock_wrlock(&local_node_id_g->lock);
+  if (local_node_id_g->node_id != NULL) {
+    rm_free(local_node_id_g->node_id);
+  }
+  local_node_id_g->node_id = node_id ? rm_strdup(node_id) : NULL;
+  pthread_rwlock_unlock(&local_node_id_g->lock);
+}
+
+/* Get the local node ID for this shard. Returns NULL if not set or in standalone mode. */
+const char* MR_GetLocalNodeId(void) {
+  RS_ASSERT(local_node_id_g != NULL);
+  pthread_rwlock_rdlock(&local_node_id_g->lock);
+  return local_node_id_g->node_id;
+}
+
+void MR_FreeLocalNodeId() {
+  RS_ASSERT(local_node_id_g != NULL);
+  pthread_rwlock_wrlock(&local_node_id_g->lock);
+  if (local_node_id_g->node_id != NULL) {
+    rm_free(local_node_id_g->node_id);
+  }
+  pthread_rwlock_unlock(&local_node_id_g->lock);
+  pthread_rwlock_destroy(&local_node_id_g->lock);
+  rm_free(local_node_id_g);
+  local_node_id_g = NULL;
 }
 
 struct UpdateConnPoolSizeCtx {
@@ -845,6 +891,7 @@ void MR_FreeCluster() {
   RedisModule_ThreadSafeContextUnlock(RSDummyContext);
   MRCluster_Free(cluster_g);
   cluster_g = NULL;
+  MR_FreeLocalNodeId();
   RedisModule_ThreadSafeContextLock(RSDummyContext);
 }
 

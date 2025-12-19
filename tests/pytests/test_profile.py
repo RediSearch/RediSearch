@@ -937,3 +937,93 @@ def testProfileVectorSearchMode():
   # High estimated results → starts BATCHES, but 0 actual results → switches to ADHOC_BF
   verify_search_mode('SEARCH', '(@t:hello other)=>[KNN 3 @v $vec BATCH_SIZE 100]', ['vec', '????????'], 'HYBRID_BATCHES_TO_ADHOC_BF')
   verify_search_mode('AGGREGATE', '(@t:hello other)=>[KNN 3 @v $vec BATCH_SIZE 100]', ['vec', '????????'], 'HYBRID_BATCHES_TO_ADHOC_BF')
+
+
+def ShardIdInProfile(env):
+  """Tests that 'shard_id' field appears in shard profiles."""
+
+  # Run FT.PROFILE SEARCH
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
+
+  shards_profile = get_shards_profile(env, res)
+  env.assertEqual(len(shards_profile), env.shardsCount, message=f"unexpected number of shards. full reply output: {res}")
+
+  # Each shard should have a shard_id field
+  for shard_profile in shards_profile:
+    env.assertContains('Shard ID', shard_profile, message=f"shard_id not found in profile. full reply output: {res}")
+    # Verify shard_id is a non-empty string
+    env.assertTrue(isinstance(shard_profile['Shard ID'], (str, bytes)), message=f"shard_id is not a string. full reply output: {res}")
+    env.assertTrue(len(shard_profile['Shard ID']) > 0, message=f"shard_id is empty. full reply output: {res}")
+
+  # Run FT.PROFILE AGGREGATE
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
+
+  shards_profile = get_shards_profile(env, res)
+  env.assertEqual(len(shards_profile), env.shardsCount, message=f"unexpected number of shards. full reply output: {res}")
+
+  # Each shard should have a shard_id field
+  for shard_profile in shards_profile:
+    env.assertContains('Shard ID', shard_profile, message=f"shard_id not found in profile. full reply output: {res}")
+    # Verify shard_id is a non-empty string
+    env.assertTrue(isinstance(shard_profile['Shard ID'], (str, bytes)), message=f"shard_id is not a string. full reply output: {res}")
+    env.assertTrue(len(shard_profile['Shard ID']) > 0, message=f"shard_id is empty. full reply output: {res}")
+
+@skip(cluster=False)
+def testShardIdInProfileResp3():
+    env = Env(protocol=3)
+    conn = getConnectionByEnv(env)
+    run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Insert some docs
+    num_docs = 10
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+
+    ShardIdInProfile(env)
+
+@skip(cluster=False)
+def testShardIdInProfileResp2():
+    env = Env(protocol=2)
+    conn = getConnectionByEnv(env)
+    run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Insert some docs
+    num_docs = 10
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+
+    ShardIdInProfile(env)
+
+
+# Run testShardIdInProfileResp3 for a few seconds to ensure that we update the node ID in search.clusterset (expected
+# every 1 sec) in parallel to running profile (and synchronously)
+@skip(cluster=False)
+def testConcurrentSetClusterAndProfile():
+    env = Env(protocol=3)
+    conn = getConnectionByEnv(env)
+    run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Insert some docs
+    num_docs = 10
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+    # Run ShardIdInProfile from parallel 3 threads, where each running the call repeatedly for 3 seconds
+    def run_shard_id_in_profile_in_loop():
+        now = time.time()
+        while time.time() - now < 3:
+            ShardIdInProfile(env)
+
+    threads = []
+    for _ in range(3):
+        thread = threading.Thread(target=run_shard_id_in_profile_in_loop)
+        threads.append(thread)
+        thread.start()
+
+    for thread in threads:
+        thread.join()
