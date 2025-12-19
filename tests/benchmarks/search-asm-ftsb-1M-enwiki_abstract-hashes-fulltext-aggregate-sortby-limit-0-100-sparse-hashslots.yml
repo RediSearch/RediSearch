@@ -1,17 +1,19 @@
-name: "search-ftsb-1M-enwiki_abstract-hashes-fulltext-search-sortby-limit-0-100-sparse-hashslots"
+name: "search-asm-ftsb-1M-enwiki_abstract-hashes-fulltext-aggregate-sortby-limit-0-100-sparse-hashslots"
 description: "
              - name: enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md),
                      from English-language Wikipedia:Database page abstracts.
                      This use case generates 3 TEXT fields per document, and focusses on full text queries performance.
                      Specifically for this testcase:
                       - Type (read/write/mixed): read
-                      - Query type: Simple 1 Word Query
-                      - Query sample: Abraham
+                      - Query type: FT.AGGREGATE with SORTBY and LIMIT
+                      - Query sample: FT.AGGREGATE with sorting by abstract field
              - total docs: 5.9 million
              - fields per doc: 3 TEXT sortable fields
              - average doc size: 227 bytes
+             - FT.AGGREGATE variation of the FT.SEARCH fulltext-sortby benchmark
 
             This use case aims to test how much the _SLOTS_INFO serialization/deserialization affects performance when the hash slot info is of max length (ranges of one slot (odd and even hash slots in different shards))
+
              "
 
 metadata:
@@ -34,4 +36,4 @@ dbconfig:
 clientconfig:
   benchmark_type: "read-only"
   tool: memtier_benchmark
-  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH enwiki_abstract * SORTBY abstract ASC LIMIT 0 100'"
+  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.AGGREGATE enwiki_abstract * SORTBY 2 @abstract ASC LOAD * LIMIT 0 100'"

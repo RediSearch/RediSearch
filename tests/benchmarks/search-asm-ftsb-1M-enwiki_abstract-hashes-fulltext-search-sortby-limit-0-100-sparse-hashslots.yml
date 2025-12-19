@@ -1,4 +1,4 @@
-name: "search-ftsb-1M-enwiki_abstract-hashes-fulltext-search-sortby-limit-0-100-no-trim"
+name: "search-asm-ftsb-1M-enwiki_abstract-hashes-fulltext-search-sortby-limit-0-100-sparse-hashslots"
 description: "
              - name: enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md),
                      from English-language Wikipedia:Database page abstracts.
@@ -11,8 +11,7 @@ description: "
              - fields per doc: 3 TEXT sortable fields
              - average doc size: 227 bytes
 
-            This use case aims to test how the slots filtering in the result processor while a shard has unowned slots affects performance in this transitional state.
-
+            This use case aims to test how much the _SLOTS_INFO serialization/deserialization affects performance when the hash slot info is of max length (ranges of one slot (odd and even hash slots in different shards))
              "
 
 metadata:
@@ -20,29 +19,13 @@ metadata:
 setups:
   - oss-cluster-02-primaries
   - oss-cluster-04-primaries
-  - oss-cluster-04-primaries-threads-6
 
 dbconfig:
   - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
   - init_commands:
     - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
-    - '"DEBUG" "ASM-TRIM-METHOD" "none"'
   - asm_cluster_state:
-    - shards:
-      - - start: 0
-          end: 2500
-        - start: 5000
-          end: 7500
-        - start: 10000
-          end: 12500
-        - start: 15000
-          end: 16000
-      - - start: 2501
-          end: 4999
-        - start: 7501
-          end: 9999
-        - start: 12501
-          end: 14999
+    - 'SPARSE'
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64
