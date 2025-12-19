@@ -71,7 +71,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// * `lookup` - The RLookup instance containing the keys and their flags.
     /// * `required_flags` - Flags that must be present on a key for it to be counted.
     /// * `excluded_flags` - Flags that must not be present on a key for it to be counted.
-    /// * `rule` - An optional [`SchemaRuleWrapper`] to exclude key names used for special purposes, e.g. score, lang or payload.
+    /// * `rule` - An optional [`SchemaRule`] to exclude key names used for special purposes, e.g. score, lang or payload.
     ///   If set to `None`, no such exclusions are applied (this is the case on the coordinator).
     ///
     /// The returned `Vec<bool>` indicates which fields were counted (true) or skipped (false) and the `usize` is the count of fields that
