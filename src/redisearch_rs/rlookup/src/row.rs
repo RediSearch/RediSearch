@@ -338,6 +338,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
 #[cfg(test)]
 mod tests {
     use enumflags2::make_bitflags;
+    use ffi::DocumentType;
     use value::RSValueMock;
 
     use super::*;
@@ -363,7 +364,7 @@ mod tests {
                 lang_field: lang_ptr,
                 score_field: score_ptr,
                 payload_field: payload_ptr,
-                type_: 0,
+                type_: DocumentType::Hash,
                 prefixes: std::ptr::null_mut(),
                 filter_exp_str: std::ptr::null_mut(),
                 filter_exp: std::ptr::null_mut(),

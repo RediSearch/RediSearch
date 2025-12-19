@@ -572,6 +572,7 @@ dependencies = [
  "bindgen 0.72.1",
  "build_utils",
  "cc",
+ "document",
  "enumflags2",
  "workspace_hack",
 ]
