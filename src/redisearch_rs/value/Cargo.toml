@@ -8,7 +8,6 @@ publish.workspace = true
 [dependencies]
 c_ffi_utils = { workspace = true }
 ffi = { workspace = true, optional = true }
-workspace_hack.workspace = true
 
 [lints]
 workspace = true

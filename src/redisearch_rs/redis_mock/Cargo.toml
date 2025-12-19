@@ -15,7 +15,6 @@ ffi.workspace = true
 redis-module.workspace = true
 tracing.workspace = true
 value.workspace = true
-workspace_hack.workspace = true
 
 [lints]
 workspace = true
