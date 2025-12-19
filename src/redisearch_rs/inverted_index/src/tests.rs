@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 use core::panic;
 use std::{
     io::{Cursor, Read},
@@ -1348,7 +1350,7 @@ fn index_block_repair_delete() {
         .repair(
             cb,
             None::<fn(&RSIndexResult, &IndexBlock)>,
-            PhantomData::<Dummy>::default(),
+            PhantomData::<Dummy>,
         )
         .unwrap();
 
@@ -1378,7 +1380,7 @@ fn index_block_repair_unchanged() {
         .repair(
             cb,
             None::<fn(&RSIndexResult, &IndexBlock)>,
-            PhantomData::<Dummy>::default(),
+            PhantomData::<Dummy>,
         )
         .unwrap();
 
@@ -1403,7 +1405,7 @@ fn index_block_repair_some_deletions() {
         .repair(
             cb,
             None::<fn(&RSIndexResult, &IndexBlock)>,
-            PhantomData::<Dummy>::default(),
+            PhantomData::<Dummy>,
         )
         .unwrap();
 
@@ -1512,7 +1514,7 @@ fn index_block_repair_delta_too_big() {
         .repair(
             cb,
             None::<fn(&RSIndexResult, &IndexBlock)>,
-            PhantomData::<SmallDeltaDummy>::default(),
+            PhantomData::<SmallDeltaDummy>,
         )
         .unwrap();
 

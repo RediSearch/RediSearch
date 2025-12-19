@@ -140,7 +140,7 @@ fn test_encode_full_wide() {
             vec![1, 255, 255, 1, 3, 1, 1, 2, 3],
         ),
         (
-            u32::MAX as u32,
+            u32::MAX,
             1,
             1,
             vec![1, 2, 3],
@@ -149,7 +149,7 @@ fn test_encode_full_wide() {
         // field mask larger than 32 bits
         #[cfg(target_pointer_width = "64")]
         (
-            u32::MAX as u32,
+            u32::MAX,
             u32::MAX,
             u32::MAX as t_fieldMask,
             vec![1; 100],
@@ -163,7 +163,7 @@ fn test_encode_full_wide() {
         ),
         #[cfg(target_pointer_width = "64")]
         (
-            u32::MAX as u32,
+            u32::MAX,
             u32::MAX,
             u128::MAX,
             vec![1; 100],
@@ -224,12 +224,12 @@ fn test_encode_full_output_too_small() {
     let record = TestTermRecord::new(10, 1, 1, vec![1]);
 
     let res = Full::encode(&mut cursor, 0, &record.record);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 
     let res = FullWide::encode(&mut cursor, 0, &record.record);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 }
@@ -241,12 +241,12 @@ fn test_decode_full_input_too_small() {
     let mut cursor = Cursor::new(buf.as_ref());
 
     let res = Full::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
     let res = FullWide::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
@@ -258,12 +258,12 @@ fn test_decode_full_empty_input() {
     let mut cursor = Cursor::new(buf.as_ref());
 
     let res = Full::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
     let res = FullWide::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
@@ -275,12 +275,12 @@ fn test_offsets_too_short() {
     let mut cursor = Cursor::new(buf.as_ref());
 
     let res = Full::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
     let res = FullWide::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }

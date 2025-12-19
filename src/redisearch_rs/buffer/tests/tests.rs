@@ -7,6 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(
+    clippy::undocumented_unsafe_blocks,
+    clippy::multiple_unsafe_ops_per_block
+)]
+
 use buffer::{Buffer, BufferReader, BufferWriter};
 use std::alloc::{Layout, alloc};
 use std::ffi::c_char;
@@ -324,7 +329,7 @@ fn buffer_from_array<const N: usize>(a: [u8; N]) -> Buffer {
 /// Mock implementation of Buffer_Grow for tests
 #[allow(non_snake_case)]
 #[unsafe(no_mangle)]
-pub extern "C" fn Buffer_Grow(buffer: *mut ffi::Buffer, extra_len: usize) -> usize {
+pub unsafe extern "C" fn Buffer_Grow(buffer: *mut ffi::Buffer, extra_len: usize) -> usize {
     // Safety: buffer is a valid pointer to a Buffer.
     let buffer = unsafe { &mut *buffer };
     let old_capacity = buffer.cap;
@@ -344,7 +349,7 @@ pub extern "C" fn Buffer_Grow(buffer: *mut ffi::Buffer, extra_len: usize) -> usi
 /// Mock implementation of BufferFree for tests
 #[allow(non_snake_case)]
 #[unsafe(no_mangle)]
-pub extern "C" fn Buffer_Free(buffer: *mut ffi::Buffer) -> usize {
+pub unsafe extern "C" fn Buffer_Free(buffer: *mut ffi::Buffer) -> usize {
     if buffer.is_null() {
         return 0;
     }

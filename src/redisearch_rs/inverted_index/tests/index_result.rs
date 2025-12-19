@@ -7,6 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(
+    clippy::missing_safety_doc,
+    clippy::undocumented_unsafe_blocks,
+    clippy::missing_const_for_fn
+)]
+
 use ffi::RS_FIELDMASK_ALL;
 use inverted_index::{
     RSAggregateResult, RSIndexResult, RSOffsetVector, RSResultKind, RSResultKindMask,
@@ -16,7 +22,7 @@ use inverted_index::{
 // some of them. Therefore we are redefining the following function here:
 // - Term_Free
 #[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Free(result: *mut RSIndexResult) {
+pub unsafe extern "C" fn ResultMetrics_Free(result: *mut RSIndexResult) {
     if result.is_null() {
         panic!("did not expect `RSIndexResult` to be null");
     }
