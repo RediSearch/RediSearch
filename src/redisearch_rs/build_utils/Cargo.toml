@@ -8,7 +8,6 @@ publish.workspace = true
 [dependencies]
 cbindgen.workspace = true
 bindgen.workspace = true
-workspace_hack.workspace = true
 
 [lints]
 workspace = true
