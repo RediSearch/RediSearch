@@ -1,0 +1,6 @@
+disallowed-types = [
+    { path = "std::os::raw::c_char", replacement = "std::ffi::c_char" },
+    { path = "std::os::raw::c_int",  replacement = "std::ffi::c_int" },
+    { path = "std::os::raw::c_uint", replacement = "std::ffi::c_uint" },
+    { path = "std::os::raw::c_void", replacement = "std::ffi::c_void" },
+]
