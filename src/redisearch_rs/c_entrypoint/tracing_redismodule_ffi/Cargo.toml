@@ -8,7 +8,6 @@ publish.workspace = true
 [dependencies]
 tracing_redismodule.workspace = true
 ffi.workspace = true
-workspace_hack.workspace = true
 
 [build-dependencies]
 cbindgen.workspace = true
