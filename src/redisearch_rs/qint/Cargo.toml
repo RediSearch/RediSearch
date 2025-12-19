@@ -21,6 +21,3 @@ rand.workspace = true
 
 [lints]
 workspace = true
-
-[dependencies]
-workspace_hack.workspace = true
