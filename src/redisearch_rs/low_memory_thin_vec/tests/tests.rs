@@ -1,3 +1,5 @@
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 use core::mem::size_of;
 use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
 use std::format;

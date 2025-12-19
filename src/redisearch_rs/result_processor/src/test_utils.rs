@@ -7,6 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::undocumented_unsafe_blocks
+)]
+
 use crate::{Context, Error, ResultProcessor, ResultProcessorWrapper};
 use std::{
     pin::Pin,

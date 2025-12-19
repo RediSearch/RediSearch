@@ -337,6 +337,11 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::undocumented_unsafe_blocks,
+        clippy::multiple_unsafe_ops_per_block
+    )]
+
     use enumflags2::make_bitflags;
     use ffi::DocumentType;
     use value::RSValueMock;

@@ -17,6 +17,8 @@
 //! mod c_mocks;
 //! ```
 
+#![allow(clippy::undocumented_unsafe_blocks, clippy::missing_const_for_fn)]
+
 use ffi::{RSQueryTerm, RSYieldableMetric};
 
 #[unsafe(no_mangle)]

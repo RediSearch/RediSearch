@@ -74,7 +74,7 @@ fn test_encode_raw_doc_ids_only_output_too_small() {
     let record = inverted_index::RSIndexResult::virt();
 
     let res = RawDocIdsOnly::encode(&mut cursor, 0, &record);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 }
@@ -86,7 +86,7 @@ fn test_decode_raw_doc_ids_only_input_too_small() {
     let mut cursor = Cursor::new(buf.as_ref());
 
     let res = RawDocIdsOnly::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
@@ -98,7 +98,7 @@ fn test_decode_raw_doc_ids_only_empty_input() {
     let mut cursor = Cursor::new(buf.as_ref());
 
     let res = RawDocIdsOnly::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }

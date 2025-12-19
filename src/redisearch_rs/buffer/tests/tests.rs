@@ -9,6 +9,7 @@
 
 #![allow(
     clippy::undocumented_unsafe_blocks,
+    clippy::missing_safety_doc,
     clippy::multiple_unsafe_ops_per_block
 )]
 
