@@ -274,14 +274,20 @@ unsafe extern "C" fn RLookupRow_WriteFieldsFrom(
     dst_row: Option<NonNull<RLookupRow>>,
     dst_lookup: *const RLookup,
 ) {
-    // Safety: ensured by caller (1.)
-    let src_row = unsafe { src_row.as_ref().unwrap() };
-
     // Safety: ensured by caller (2.)
     let src_lookup = unsafe { src_lookup.as_ref().unwrap() };
 
     // Safety: ensured by caller (3.)
     let dst_row = unsafe { dst_row.unwrap().as_mut() };
+
+    // We're doing the assert here in the middle to avoid extra type conversions.
+    assert_ne!(
+        src_row, dst_row,
+        "`src_row` and `dst_row` must not be the same"
+    );
+
+    // Safety: ensured by caller (1.)
+    let src_row = unsafe { src_row.as_ref().unwrap() };
 
     // Safety: ensured by caller (4.)
     let dst_lookup = unsafe { dst_lookup.as_ref().unwrap() };
