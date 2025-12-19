@@ -49,7 +49,7 @@ static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
 /**
  * Format redis key for a term.
  */
-RedisModuleString *fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
+RedisModuleString *Legacy_fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
   char buf_s[1024] = {"ft:"};
   size_t offset = 3;
   size_t nameLen = 0;
@@ -72,12 +72,15 @@ RedisModuleString *fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, 
   return ret;
 }
 
-RedisModuleString *fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
+#define SKIPINDEX_KEY_FORMAT "si:%s/%.*s"
+#define SCOREINDEX_KEY_FORMAT "ss:%s/%.*s"
+
+RedisModuleString *Legacy_fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, HiddenString_GetUnsafe(ctx->spec->specName, NULL),
                                         (int)len, term);
 }
 
-RedisModuleString *fmtRedisScoreIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
+RedisModuleString *Legacy_fmtRedisScoreIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, HiddenString_GetUnsafe(ctx->spec->specName, NULL),
                                         (int)len, term);
 }
@@ -215,10 +218,10 @@ err:
   return NULL;
 }
 
-int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
+int Redis_LegacyDropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
   // extract the term from the key
   RedisSearchCtx *sctx = opaque;
-  RedisModuleString *pf = fmtRedisTermKey(sctx, "", 0);
+  RedisModuleString *pf = Legacy_fmtRedisTermKey(sctx, "", 0);
   size_t pflen, len;
   RedisModule_StringPtrLen(pf, &pflen);
   RedisModule_FreeString(sctx->redisCtx, pf);
@@ -227,8 +230,8 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
   k += pflen;
   // char *term = rm_strndup(k, len - pflen);
 
-  RedisModuleString *sck = fmtRedisScoreIndexKey(sctx, k, len - pflen);
-  RedisModuleString *sik = fmtRedisSkipIndexKey(sctx, k, len - pflen);
+  RedisModuleString *sck = Legacy_fmtRedisScoreIndexKey(sctx, k, len - pflen);
+  RedisModuleString *sik = Legacy_fmtRedisSkipIndexKey(sctx, k, len - pflen);
 
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "sss", kn, sck, sik);
   if (rep) {

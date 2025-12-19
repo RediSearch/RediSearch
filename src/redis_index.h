@@ -31,32 +31,21 @@ InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *te
  */
 const char *Redis_SelectRandomTerm(const RedisSearchCtx *ctx, size_t *tlen);
 
-#define TERM_KEY_FORMAT "ft:%s/%.*s"
-#define TERM_KEY_PREFIX "ft:"
-#define SKIPINDEX_KEY_FORMAT "si:%s/%.*s"
-#define SCOREINDEX_KEY_FORMAT "ss:%s/%.*s"
-
 #define DONT_CREATE_INDEX false
 #define CREATE_INDEX true
 
 typedef int (*ScanFunc)(RedisModuleCtx *ctx, RedisModuleString *keyName, void *opaque);
 
-/* Optimize the buffers of a speicif term hit */
-int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);
-
 int Redis_LegacyDeleteKey(RedisModuleCtx *ctx, RedisModuleString *s);
 int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr);
 
 /* Drop all the index's internal keys using this scan handler */
-int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);
+int Redis_LegacyDropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);
 
-/* Collect memory stas on the index */
-int Redis_StatsScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);
 /**
  * Format redis key for a term.
  * TODO: Add index name to it
  */
-RedisModuleString *fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, size_t len);
-RedisModuleString *fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len);
+RedisModuleString *Legacy_fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, size_t len);
 
 #endif

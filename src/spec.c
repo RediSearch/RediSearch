@@ -2877,8 +2877,8 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   TrieIterator *it = Trie_Iterate(ctx.spec->terms, "", 0, 0, 1);
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
-    RedisModuleString *keyName = fmtRedisTermKey(&ctx, res, strlen(res));
-    Redis_DropScanHandler(ctx.redisCtx, keyName, &ctx);
+    RedisModuleString *keyName = Legacy_fmtRedisTermKey(&ctx, res, strlen(res));
+    Redis_LegacyDropScanHandler(ctx.redisCtx, keyName, &ctx);
     RedisModule_FreeString(ctx.redisCtx, keyName);
     rm_free(res);
   }
