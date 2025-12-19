@@ -98,7 +98,7 @@ mod tests {
     extern "C" fn vec_writer(ctx: *mut c_void, buf: *const c_void, len: c_size_t) {
         unsafe {
             let v = &mut *(ctx as *mut Vec<u8>);
-            let src = core::slice::from_raw_parts(buf as *const u8, len as usize);
+            let src = core::slice::from_raw_parts(buf as *const u8, len);
             v.extend_from_slice(src);
         }
     }

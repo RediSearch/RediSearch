@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(undocumented_unsafe_blocks)]
+
 use ffi::{NewQueryTerm, RSQueryTerm, RSToken};
 
 /// A builder for creating `QueryTerm` instances.

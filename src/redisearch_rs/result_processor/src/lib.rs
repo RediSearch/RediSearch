@@ -426,6 +426,11 @@ where
 
 #[cfg(test)]
 pub(crate) mod test {
+    #![allow(
+        clippy::undocumented_unsafe_blocks,
+        clippy::multiple_unsafe_ops_per_block
+    )]
+
     use super::*;
     use crate::test_utils::{Chain, ResultRP, default_search_result};
 

@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(clippy::missing_const_for_fn)]
+
 use qint::{qint_decode, qint_encode};
 use std::io::{Cursor, Read, Seek};
 
@@ -238,7 +240,7 @@ mod property_based {
     //! do in the tests [test_encoding_with_too_small_buffer] and [test_decoding_with_too_small_buffer].
 
     use ::qint::{qint_decode, qint_encode};
-    use proptest::prop_assert_eq;
+    use proptest::{prop_assert, prop_assert_eq};
     use std::io::{Cursor, Seek as _};
 
     use proptest::{
@@ -399,7 +401,7 @@ mod property_based {
                 $(
                     PropEncoding::$variant((v, _)) => {
                         let res = qint_encode(&mut $cursor, v);
-                        prop_assert_eq!(res.is_err(), true);
+                        prop_assert!(res.is_err());
                         let kind = res.unwrap_err().kind();
                         prop_assert_eq!(kind, std::io::ErrorKind::WriteZero);
                     }
@@ -427,7 +429,7 @@ mod property_based {
                 $(
                     PropEncoding::$variant(_) => {
                         let res = qint_decode::<$number, _>(&mut $cursor);
-                        prop_assert_eq!(res.is_err(), true);
+                        prop_assert!(res.is_err());
                         let kind = res.unwrap_err().kind();
                         prop_assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
                     }

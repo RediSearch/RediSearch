@@ -7,6 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(clippy::undocumented_unsafe_blocks)]
+
+use std::cmp;
 use std::mem::{self, offset_of};
 use std::ptr;
 use std::ptr::NonNull;
@@ -53,7 +56,7 @@ fn rlookuprow_move() {
     let key = lookup
         .get_key_read(c"foo", RLookupKeyFlags::empty())
         .unwrap();
-    assert!(dst.get(&key).is_some());
+    assert!(dst.get(key).is_some());
 }
 
 #[test]

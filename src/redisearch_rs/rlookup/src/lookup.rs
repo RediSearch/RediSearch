@@ -1257,6 +1257,11 @@ impl<'a> RLookup<'a> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::undocumented_unsafe_blocks,
+        clippy::multiple_unsafe_ops_per_block
+    )]
+
     use super::*;
 
     use std::ffi::CString;
