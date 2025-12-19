@@ -189,6 +189,8 @@ fn eof_after_filtering() {
 
 #[cfg(not(miri))]
 mod not_miri {
+    #![allow(clippy::undocumented_unsafe_blocks)]
+
     use super::*;
     use crate::inverted_index::utils::{ExpirationTest, RevalidateIndexType, RevalidateTest};
     use ffi::t_fieldIndex;
