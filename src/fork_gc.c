@@ -628,7 +628,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
   size_t fieldNameLen;
   char *fieldName = NULL;
   const FieldSpec *fs = NULL;
-  RedisModuleString *keyName = NULL;
   uint64_t rtUniqueId;
   NumericRangeTree *rt = NULL;
   FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &rtUniqueId);
@@ -732,7 +731,6 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
   while (status == FGC_COLLECTED) {
     InvertedIndexGcDelta *delta = NULL;
     II_GCScanStats info = {0};
-    RedisModuleString *keyName = NULL;
     TagIndex *tagIdx = NULL;
     char *tagVal = NULL;
     size_t tagValLen;
