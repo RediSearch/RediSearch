@@ -8,14 +8,13 @@
 */
 
 #![allow(non_camel_case_types, non_snake_case)]
-#![allow(unused)] // TODO removedd
 
 use std::{
     ffi::{c_char, c_double},
     ptr::NonNull,
 };
 
-use c_ffi_utils::opaque::IntoOpaque;
+use c_ffi_utils::{expect_unchecked, opaque::IntoOpaque};
 use value::{RsValue, Value, opaque::OpaqueRsValue};
 
 use crate::value_type::{AsRsValueType, RsValueType};
@@ -44,21 +43,29 @@ pub extern "C" fn RsValue_Number(n: c_double) -> OpaqueRsValue {
 /// The returned value itself is not heap-allocated, but does take ownership of the string.
 ///
 /// # Safety
-/// - The passed string pointer must point to a valid C string that
-///   was allocated using `rm_malloc`
-/// - The passed length must match the length to the string.
+/// - (1) `str` must be non-null;
+/// - (2) `str` must point to a valid C string that was allocated using `rm_malloc`;
+/// - (3) The passed length must match the length to the string;
+/// - (4) `str` must not be aliased;
+/// - (5) `RedisModule_Alloc` must not be mutated for the lifetime of the
+///   `OpaqueRsValue`.
 ///
 /// @param str The malloc'd string to wrap (ownership is transferred)
 /// @param len The length of the string
 /// @return A stack-allocated `RsValue` of type `RsValueType_String` with `RSString_Malloc` subtype
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RsValue_String(str: Option<NonNull<c_char>>, len: u32) -> OpaqueRsValue {
-    todo!()
+    // Safety: caller must ensure (1)
+    let str = unsafe { expect_unchecked!(str) };
+    // Safety: caller must ensure (2), (3), (4), and (5)
+    let v = unsafe { RsValue::take_rm_alloc_string(str, len) };
+    v.into_opaque()
 }
 
 /// Returns a pointer to a statically allocated NULL `RsValue`.
 /// This is a singleton - the same pointer is always returned.
 /// DO NOT free or modify this value.
+///
 /// @return A pointer to a static `RsValue` of type `RsValueType_Null`
 #[unsafe(no_mangle)]
 pub extern "C" fn RsValue_NullStatic() -> *const OpaqueRsValue {
