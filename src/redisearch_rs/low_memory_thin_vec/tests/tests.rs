@@ -1,5 +1,4 @@
 use core::mem::size_of;
-use core::usize;
 use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
 use std::format;
 use std::vec;
@@ -612,6 +611,7 @@ fn test_slice_out_of_bounds_2() {
 #[should_panic]
 fn test_slice_out_of_bounds_3() {
     let x = low_memory_thin_vec![1, 2, 3, 4, 5];
+    #[allow(clippy::reversed_empty_ranges)]
     let _ = &x[!0..4];
 }
 
@@ -626,6 +626,7 @@ fn test_slice_out_of_bounds_4() {
 #[should_panic]
 fn test_slice_out_of_bounds_5() {
     let x = low_memory_thin_vec![1, 2, 3, 4, 5];
+    #[allow(clippy::reversed_empty_ranges)]
     let _ = &x[3..2];
 }
 
