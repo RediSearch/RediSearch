@@ -2040,13 +2040,13 @@ mod tests {
     #[test]
     fn test_data_ptr_alignment() {
         let v = LowMemoryThinVec::<u16>::new();
-        assert!(v.data_raw() as usize % 2 == 0);
+        assert!((v.data_raw() as usize).is_multiple_of(2));
 
         let v = LowMemoryThinVec::<u32>::new();
-        assert!(v.data_raw() as usize % 4 == 0);
+        assert!((v.data_raw() as usize).is_multiple_of(4));
 
         let v = LowMemoryThinVec::<u64>::new();
-        assert!(v.data_raw() as usize % 8 == 0);
+        assert!((v.data_raw() as usize).is_multiple_of(8));
     }
 
     #[test]
@@ -2108,7 +2108,7 @@ mod tests {
         struct Align16(#[allow(dead_code)] u8);
 
         let v = LowMemoryThinVec::<Align16>::new();
-        assert!(v.data_raw() as usize % 16 == 0);
+        assert!((v.data_raw() as usize).is_multiple_of(16));
     }
 
     #[test]

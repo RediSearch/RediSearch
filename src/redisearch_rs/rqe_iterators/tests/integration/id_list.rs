@@ -71,7 +71,7 @@ fn duplicate_initialization() {
 
 #[test]
 fn read() {
-    for (i, case) in CASES.into_iter().copied().enumerate() {
+    for (i, case) in CASES.iter().copied().enumerate() {
         let mut it = SortedIdList::new(case.to_vec());
 
         assert_eq!(
@@ -81,7 +81,7 @@ fn read() {
         );
         assert!(!it.at_eof(), "Case {i} is at EOF before reading");
 
-        for expected_id in case.into_iter().copied() {
+        for &expected_id in case {
             assert!(!it.at_eof(), "Case {i}");
             let res = it.read();
             assert!(res.is_ok(), "Case {i}, expected {expected_id}");
