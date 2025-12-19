@@ -2160,8 +2160,6 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   return fs;
 }
 
-static dictType invidxDictType = {0};
-
 static void valFreeCb(void *unused, void *p) {
   KeysDictValue *kdv = p;
   if (kdv->dtor) {
@@ -2177,6 +2175,44 @@ static void valIIFreeCb(void *unused, void *p) {
   }
 }
 
+uint64_t CharBuf_HashFunction(const void *key) {
+  const CharBuf *cb = key;
+  return RS_dictGenHashFunction(cb->buf, cb->len);
+}
+
+void *CharBuf_KeyDup(void *privdata, const void *key) {
+  const CharBuf *cb = key;
+  CharBuf *newcb = rm_malloc(sizeof(*newcb));
+  newcb->len = cb->len;
+  newcb->buf = rm_malloc(cb->len);
+  memcpy(newcb->buf, cb->buf, cb->len);
+  return newcb;
+}
+
+int CharBuf_KeyCompare(void *privdata, const void *key1, const void *key2) {
+  const CharBuf *cb1 = key1;
+  const CharBuf *cb2 = key2;
+  if (cb1->len != cb2->len) {
+    return 0;
+  }
+  return (memcmp(cb1->buf, cb2->buf, cb1->len) == 0);
+}
+
+void CharBuf_KeyDestructor(void *privdata, void *key) {
+  CharBuf *cb = key;
+  rm_free(cb->buf);
+  rm_free(cb);
+}
+
+static dictType invIdxDictType = {
+  .hashFunction = CharBuf_HashFunction,
+  .keyDup = CharBuf_KeyDup,
+  .valDup = NULL,
+  .keyCompare = CharBuf_KeyCompare,
+  .keyDestructor = CharBuf_KeyDestructor,
+  .valDestructor = valFreeCb,
+};
+
 static dictType missingFieldDictType = {
         .hashFunction = hiddenNameHashFunction,
         .keyDup = hiddenNameKeyDup,
@@ -2188,12 +2224,7 @@ static dictType missingFieldDictType = {
 
 // Only used on new specs so it's thread safe
 void IndexSpec_MakeKeyless(IndexSpec *sp) {
-  // Initialize only once:
-  if (!invidxDictType.valDestructor) {
-    invidxDictType = dictTypeHeapRedisStrings;
-    invidxDictType.valDestructor = valFreeCb;
-  }
-  sp->keysDict = dictCreate(&invidxDictType, NULL);
+  sp->keysDict = dictCreate(&invIdxDictType, NULL);
   sp->missingFieldDict = dictCreate(&missingFieldDictType, NULL);
 }
 

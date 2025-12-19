@@ -149,7 +149,7 @@ void SearchCtx_Free(RedisSearchCtx *sctx) {
   rm_free(sctx);
 }
 
-static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, RedisModuleString *termKey,
+static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, CharBuf *termKey,
                                         int write, bool *outIsNew) {
   KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, termKey);
   if (kdv) {
@@ -175,20 +175,21 @@ static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, RedisModuleSt
 }
 
 InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len, int write, bool *outIsNew) {
-  RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
-  InvertedIndex *idx = openIndexKeysDict(ctx, termKey, write, outIsNew);
-  RedisModule_FreeString(ctx->redisCtx, termKey);
+  CharBuf termKeyBuf = {
+      .buf = (char *)term,
+      .len = len,
+  };
+  InvertedIndex *idx = openIndexKeysDict(ctx, &termKeyBuf, write, outIsNew);
   return idx;
 }
 
-QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
+QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok_id, DocTable *dt,
                                 t_fieldMask fieldMask, double weight) {
 
-  RedisModuleString *termKey = fmtRedisTermKey(ctx, term->str, term->len);
   InvertedIndex *idx = NULL;
-  RedisModuleKey *k = NULL;
+  CharBuf termKey = {.buf = tok->str, .len = tok->len};
 
-  idx = openIndexKeysDict(ctx, termKey, 0, NULL);
+  idx = openIndexKeysDict(ctx, &termKey, 0, NULL);
   if (!idx) {
     goto err;
   }
@@ -201,20 +202,11 @@ QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, Do
   }
 
   FieldMaskOrIndex fieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask};
+  RSQueryTerm *term = NewQueryTerm(tok, tok_id);
   QueryIterator *it = NewInvIndIterator_TermQuery(idx, ctx, fieldMaskOrIndex, term, weight);
-  RedisModule_FreeString(ctx->redisCtx, termKey);
   return it;
 
 err:
-  if (k) {
-    RedisModule_CloseKey(k);
-  }
-  if (termKey) {
-    RedisModule_FreeString(ctx->redisCtx, termKey);
-  }
-  if (term) {
-    Term_Free(term);
-  }
   return NULL;
 }
 

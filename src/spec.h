@@ -283,6 +283,11 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 typedef struct InvertedIndex InvertedIndex;
 typedef const void* RedisSearchDiskIndexSpec;
 
+typedef struct CharBuf {
+  char *buf;
+  size_t len;
+} CharBuf;
+
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
