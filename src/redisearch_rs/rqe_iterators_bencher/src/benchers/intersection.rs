@@ -66,9 +66,7 @@ fn varying_size_ids() -> Vec<Vec<u64>> {
 
 /// Convert ID vectors to Rust SortedIdList iterators.
 fn ids_to_rust_children(ids: Vec<Vec<u64>>) -> Vec<SortedIdList<'static>> {
-    ids.into_iter()
-        .map(|id_vec| SortedIdList::new(id_vec))
-        .collect()
+    ids.into_iter().map(SortedIdList::new).collect()
 }
 
 impl Bencher {
