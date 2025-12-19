@@ -29,12 +29,11 @@ use std::{
 /// - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
 /// - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
 ///
-/// `src` and `dest` must not point to the same [`RLookup`].
-///
 /// # Safety
 ///
 /// 1. `src` must be a [valid], non-null pointer to an [`RLookup`]
 /// 2. `dest` must be a [valid], non-null pointer to an [`RLookup`]
+/// 3. `src` and `dest` must not point to the same [`RLookup`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
