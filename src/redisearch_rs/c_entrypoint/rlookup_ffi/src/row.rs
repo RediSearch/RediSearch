@@ -264,6 +264,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned(
 /// 2. `src_lookup` must be a [valid], non-null pointer to an [`RLookup`].
 /// 3. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 4. `dst_lookup` must be a [valid], non-null pointer to an [`RLookup`].
+/// 5. `src_row` and `dst_row` must not point to the same [`RLookupRow`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
