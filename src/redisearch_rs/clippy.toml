@@ -1,0 +1,23 @@
+disallowed-types = [
+    { path = "std::os::raw::c_char", replacement = "std::ffi::c_char" },
+    { path = "std::os::raw::c_int", replacement = "std::ffi::c_int" },
+    { path = "std::os::raw::c_uint", replacement = "std::ffi::c_uint" },
+    { path = "std::os::raw::c_void", replacement = "std::ffi::c_void" },
+]
+# disallowed-types = [
+#     # Can use a string as the path of the disallowed type.
+#     "std::collections::BTreeMap",
+#     # Can also use an inline table with a `path` key.
+#     { path = "std::net::TcpListener" },
+#     # When using an inline table, can add a `reason` for why the type
+#     # is disallowed.
+#     { path = "std::net::Ipv4Addr", reason = "no IPv4 allowed" },
+#     # Can also add a `replacement` that will be offered as a suggestion.
+#     { path = "std::sync::Mutex", reason = "prefer faster & simpler non-poisonable mutex", replacement = "parking_lot::Mutex" },
+#     # This would normally error if the path is incorrect, but with `allow-invalid` = `true`,
+#     # it will be silently ignored
+#     { path = "std::invalid::Type", reason = "use alternative instead", allow-invalid = true }
+# ]
+# ignore-paths = [
+#     "target/debug/build/**/bindings.rs",
+# ]

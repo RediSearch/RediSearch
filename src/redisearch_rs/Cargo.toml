@@ -57,6 +57,8 @@ undocumented_unsafe_blocks = "warn"
 multiple_unsafe_ops_per_block = "warn"
 # Ensure const usage to allow for more compile-time optimizations.
 missing_const_for_fn = "warn"
+# These types are specified in clippy.toml.
+disallowed_types = "warn"
 
 [workspace.package]
 version = "0.0.1"
