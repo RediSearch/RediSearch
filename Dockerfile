@@ -21,9 +21,9 @@ RUN if ! command -v bash >/dev/null 2>&1; then \
 COPY . .
 
 WORKDIR /project/.install
-RUN bash -l -eo pipefail install_script.sh
+RUN bash retry.sh bash -l -eo pipefail install_script.sh
 WORKDIR /project
-RUN bash -l -eo pipefail .install/test_deps/install_rust_deps.sh
+RUN bash .install/retry.sh bash -l -eo pipefail .install/test_deps/install_rust_deps.sh
 # Expose newly-installed Rust and Python tools via PATH
 ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
 
