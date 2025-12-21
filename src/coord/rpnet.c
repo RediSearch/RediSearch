@@ -131,19 +131,19 @@ void shardResponseBarrier_Init(void *ptr, MRIterator *it) {
 
 // Callback invoked by IO thread for each shard reply to accumulate totals
 // This function implements the ReplyNotifyCallback signature
-void shardResponseBarrier_Notify(int16_t shardId, long long totalResults, bool isError, void *privateData) {
+void shardResponseBarrier_Notify(uint16_t shardIndex, long long totalResults, bool isError, void *privateData) {
   ShardResponseBarrier *barrier = (ShardResponseBarrier *)privateData;
 
   // Validate shardId bounds
   size_t numShards = atomic_load(&barrier->numShards);
-  if (shardId < 0 || shardId >= (int16_t)numShards) {
+  if (shardIndex >= numShards) {
     return;
   }
 
   // Check if this is the first response from this shard
   // No atomic needed - only one IO thread accesses shardResponded for this barrier
-  if (!barrier->shardResponded[shardId]) {
-    barrier->shardResponded[shardId] = true;
+  if (!barrier->shardResponded[shardIndex]) {
+    barrier->shardResponded[shardIndex] = true;
     if (!isError) {
       atomic_fetch_add(&barrier->accumulatedTotal, totalResults);
     } else {
@@ -529,6 +529,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(nc->current.root, NULL));
       // TODO - use should_return_error after it is changed to support RequestConfig ptr
       if (errCode == QUERY_ERROR_CODE_GENERIC ||
+          errCode == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
           ((errCode == QUERY_ERROR_CODE_TIMED_OUT) && nc -> areq -> reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
           ((errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) && nc -> areq -> reqConfig.oomPolicy == OomPolicy_Fail)) {
         // We need to pass the reply string as the error message, since the error code might be generic

@@ -17,15 +17,20 @@
 
 pub mod allocator;
 pub mod call;
+pub mod context;
 pub mod globals;
 pub mod key;
+pub mod log;
 pub mod scan_key_cursor;
 pub mod string;
 
 use std::ffi::CString;
 
 use call::*;
+use context::*;
+pub use ffi;
 use key::*;
+use log::*;
 use redis_module::KeyType;
 use scan_key_cursor::*;
 use string::*;
@@ -111,6 +116,24 @@ pub fn init_redis_module_mock() {
     unsafe { redis_module::raw::RedisModule_CreateString = Some(RedisModule_CreateString) };
     unsafe { redis_module::raw::RedisModule_StringPtrLen = Some(RedisModule_StringPtrLen) };
     unsafe { redis_module::raw::RedisModule_FreeString = Some(RedisModule_FreeString) };
+    unsafe { redis_module::raw::RedisModule_Strdup = Some(RedisModule_Strdup) };
+    unsafe {
+        redis_module::raw::RedisModule_TrimStringAllocation = Some(RedisModule_TrimStringAllocation)
+    };
+    unsafe { redis_module::raw::RedisModule_HoldString = Some(RedisModule_HoldString) };
+    // We have to use the same type of transmute as for RedisModule_CallHgetAll because of the variadic arguments.
+    let raw_ptr = RedisModule_CreateStringPrintf as *const ();
+    let create_string_printf = unsafe {
+        std::mem::transmute::<
+            *const (),
+            unsafe extern "C" fn(
+                *mut redis_module::RedisModuleCtx,
+                *const ::std::os::raw::c_char,
+                ...
+            ) -> *mut redis_module::RedisModuleString,
+        >(raw_ptr)
+    };
+    unsafe { redis_module::raw::RedisModule_CreateStringPrintf = Some(create_string_printf) };
 
     // register key methods
     unsafe { redis_module::raw::RedisModule_OpenKey = Some(RedisModule_OpenKey) };
@@ -150,8 +173,8 @@ pub fn init_redis_module_mock() {
             *const (),
             unsafe extern "C" fn(
                 *mut redis_module::RedisModuleCtx,
-                *const ::std::os::raw::c_char,
-                *const ::std::os::raw::c_char,
+                *const ::std::ffi::c_char,
+                *const ::std::ffi::c_char,
                 ...
             ) -> *mut redis_module::RedisModuleCallReply,
         >(raw_ptr)
@@ -163,6 +186,35 @@ pub fn init_redis_module_mock() {
     // In that case a call function that dispatches to different implementations based on the cmdname
     // would be more appropriate.
     unsafe { redis_module::raw::RedisModule_Call = Some(new_ftor) }
+
+    // Register log function.
+    // We have to use the same type of transmute as above because of the variadic arguments.
+    let raw_ptr = RedisModule_Log as *const ();
+    let new_log = unsafe {
+        std::mem::transmute::<
+            *const (),
+            unsafe extern "C" fn(
+                *mut redis_module::RedisModuleCtx,
+                *const ::std::os::raw::c_char,
+                *const ::std::os::raw::c_char,
+                ...
+            ),
+        >(raw_ptr)
+    };
+    unsafe { redis_module::raw::RedisModule_Log = Some(new_log) };
+
+    // Register RedisModuleCtx functions.
+    unsafe {
+        redis_module::raw::RedisModule_GetThreadSafeContext = Some(RedisModule_GetThreadSafeContext)
+    };
+    unsafe {
+        redis_module::raw::RedisModule_FreeThreadSafeContext =
+            Some(RedisModule_FreeThreadSafeContext)
+    };
+    unsafe {
+        redis_module::raw::RedisModule_SubscribeToServerEvent =
+            Some(RedisModule_SubscribeToServerEvent)
+    }
 }
 
 #[macro_export]
@@ -172,45 +224,55 @@ pub fn init_redis_module_mock() {
 macro_rules! bind_redis_alloc_symbols_to_mock_impl {
     () => {
         #[unsafe(no_mangle)]
-        unsafe extern "C" fn rm_alloc_impl(size: usize) -> *mut c_void {
+        unsafe extern "C" fn rm_alloc_impl(size: usize) -> *mut std::ffi::c_void {
             // $crate::__libc::malloc(size)
             redis_mock::allocator::alloc_shim(size)
         }
 
         #[unsafe(no_mangle)]
-        unsafe extern "C" fn rm_calloc_impl(nmemb: usize, size: usize) -> *mut c_void {
+        unsafe extern "C" fn rm_calloc_impl(nmemb: usize, size: usize) -> *mut std::ffi::c_void {
             redis_mock::allocator::calloc_shim(nmemb, size)
         }
 
         #[unsafe(no_mangle)]
-        unsafe extern "C" fn rm_realloc_impl(ptr: *mut c_void, size: usize) -> *mut c_void {
+        unsafe extern "C" fn rm_realloc_impl(
+            ptr: *mut std::ffi::c_void,
+            size: usize,
+        ) -> *mut std::ffi::c_void {
             redis_mock::allocator::realloc_shim(ptr, size)
         }
 
         #[unsafe(no_mangle)]
-        unsafe extern "C" fn rm_free_impl(ptr: *mut c_void) {
+        unsafe extern "C" fn rm_free_impl(ptr: *mut std::ffi::c_void) {
             redis_mock::allocator::free_shim(ptr)
         }
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Alloc: unsafe extern "C" fn(usize) -> *mut c_void =
+        pub static mut RedisModule_Alloc: unsafe extern "C" fn(usize) -> *mut std::ffi::c_void =
             rm_alloc_impl;
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Calloc: unsafe extern "C" fn(usize, usize) -> *mut c_void =
-            rm_calloc_impl;
+        pub static mut RedisModule_Calloc: unsafe extern "C" fn(
+            usize,
+            usize,
+        ) -> *mut std::ffi::c_void = rm_calloc_impl;
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
         pub static mut RedisModule_Realloc: unsafe extern "C" fn(
-            *mut c_void,
+            *mut std::ffi::c_void,
             usize,
-        ) -> *mut c_void = rm_realloc_impl;
+        ) -> *mut std::ffi::c_void = rm_realloc_impl;
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Free: unsafe extern "C" fn(*mut c_void) = rm_free_impl;
+        pub static mut RedisModule_Free: unsafe extern "C" fn(*mut std::ffi::c_void) = rm_free_impl;
+
+        #[unsafe(no_mangle)]
+        #[allow(non_upper_case_globals)]
+        pub static mut RSDummyContext: *mut $crate::ffi::RedisModuleCtx =
+            $crate::globals::redis_module_ctx();
     };
 }

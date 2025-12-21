@@ -154,7 +154,7 @@ typedef struct {
   size_t *maxSearchResults;         // Maximum search results
   size_t *maxAggregateResults;      // Maximum aggregate results
   const RedisModuleSlotRangeArray **querySlots; // Slots requested (referenced from AREQ)
-  uint32_t *slotsVersion;                       // Version given by the slots tracker
+  uint32_t *keySpaceVersion;                       // Version given by the slots tracker
 } ParseAggPlanContext;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
@@ -222,9 +222,8 @@ typedef struct AREQ {
   RedisSearchCtx *sctx;
 
   /** Local slots info for this request */
-  const SharedSlotRangeArray *slotRanges;
   const RedisModuleSlotRangeArray *querySlots;
-  uint32_t slotsVersion;
+  uint32_t keySpaceVersion;
 
   /** Context for iterating over the queries themselves */
   QueryProcessingCtx qiter;
@@ -341,6 +340,8 @@ void initializeAREQ(AREQ *req);
  * This stage will apply the context to the request. During this phase, the
  * query will be parsed (and matched according to the schema), and the reducers
  * will be loaded and analyzed.
+ *
+ * Can be called from the main thread or from a background thread. (Note: access RSGlobalConfig which is not thread safe)
  *
  * This consumes a refcount of the context used.
  *

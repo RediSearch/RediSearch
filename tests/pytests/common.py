@@ -43,6 +43,7 @@ class TimeLimit(object):
         self.message = message
 
     def __enter__(self):
+        self.time_start = time.time()
         signal.signal(signal.SIGALRM, self.handler)
         signal.setitimer(signal.ITIMER_REAL, self.timeout, 0)
 
@@ -51,7 +52,7 @@ class TimeLimit(object):
         signal.signal(signal.SIGALRM, signal.SIG_DFL)
 
     def handler(self, signum, frame):
-        raise Exception(f'Timeout: {self.message}')
+        raise Exception(f'Timeout: {self.message} + after {time.time() - self.time_start}s')
 
 def wait_for_condition(check_fn, message, timeout=120):
     """
@@ -441,6 +442,8 @@ def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None
 def to_dict(res):
     if type(res) == dict:
         return res
+    if len(res) % 2 != 0:
+        raise ValueError(f"to_dict expects even-length array (key-value pairs), got {len(res)} elements")
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
 
@@ -1122,13 +1125,13 @@ def call_and_store(fn, args, out_list):
 def launch_cmds_in_bg_with_exception_check(env, command, num_triggers, exception_timeout=1):
     """
     Launch the same Redis command multiple times in background threads with exception monitoring.
-    
+
     Args:
         env: Redis test environment for executing commands.
         command: A list containing the Redis command to execute (e.g., ['FT.SEARCH', 'idx', 'query']).
         num_triggers: Number of background threads to spawn, each executing the same command.
         exception_timeout: Seconds to wait for exception detection (default: 1).
-    
+
     Returns:
         list[Thread]: Started thread objects if no exceptions occur, None if any thread fails.
     """

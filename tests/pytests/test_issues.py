@@ -1757,6 +1757,7 @@ def test_mod_11658_avoid_deadlock_while_reducing_num_workers():
     env.assertTrue(final_search[0] > 0, message="Search should return results at end of test")
 
     check_threads(env, 0, 0)
+
 @skip(cluster=False)
 def test_mod_12493(env:Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -1798,3 +1799,47 @@ def test_mod_12493(env:Env):
   for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
     stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR|DEL']
     env.assertEqual(stats['calls'], 1, message=f'Expected 1 call on shard {i}, got {stats["calls"]}')
+
+def test_mod_13010(env):
+    """Test coherence between aggregate queries with and without groupby"""
+    conn = getConnectionByEnv(env)
+
+    # Create index with schema matching the query requirements
+    env.expect(
+        'FT.CREATE', 'idx', 'SCHEMA', 'Source', 'TAG', 'Version', 'TAG').ok()
+
+    messages = [
+    "AB\x00B",  # hex: 41420042
+    "AB\x00F",  # hex: 41420046
+    ]
+
+    for i in range(len(messages)):
+        conn.execute_command(
+            'HSET', f'doc{i}', 'Source', 'SourceA', 'Message', messages[i],
+            'Version', 'v1.0')
+
+    # Query 1: Basic aggregate with load
+    query1 = ['FT.AGGREGATE', 'idx', '@Source:{SourceA|SourceB}',
+              'LOAD', '1', 'Message']
+    res1 = env.cmd(*query1)
+
+    # Query 2: Same query with groupby and reduce tolist
+    query2 = ['FT.AGGREGATE', 'idx', '@Source:{SourceA|SourceB}',
+              'LOAD', '1', 'Message',
+              'GROUPBY', '1', '@Version',
+              'REDUCE', 'TOLIST', '1', '@Message', 'AS', 'v']
+    res2 = env.cmd(*query2)
+
+    # extract messages from res1
+    # [1, ['Message', 'AB\x00B'], ['Message', 'AB\x00F']]
+    list1 = [item[1] for item in res1[1:]]
+
+    # extract messages from res2
+    # [1, ['Version', 'v1.0', 'v', ['AB\x00B', 'AB\x00F']]]
+    list2 = res2[1][-1]
+
+    length1 = len(list1)
+    length2 = len(list2)
+    env.assertEqual(
+        length1, length2,
+        message=f"Different number of messages: {length1} vs {length2}")

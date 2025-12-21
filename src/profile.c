@@ -18,6 +18,7 @@
 #include "iterators_rs.h"
 #include "reply_macros.h"
 #include "util/units.h"
+#include "coord/rmr/rmr.h"
 
 typedef struct {
     IteratorsConfig *iteratorsConfig;
@@ -146,6 +147,13 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   RedisModule_Reply_Map(reply);
   int profile_verbose = req->reqConfig.printProfileClock;
 
+  // Get and add the Shard ID string to the profile reply (guarded by a ref count).
+  const char *node_id = MR_GetLocalNodeId();
+  if (node_id) {
+    RedisModule_ReplyKV_SimpleString(reply, "Shard ID", node_id);
+  }
+  MR_ReleaseLocalNodeIdReadLock();
+
   // Print total time
   if (profile_verbose) {
     RedisModule_ReplyKV_Double(reply, "Total profile time",
@@ -169,11 +177,6 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
     if (AREQ_RequestFlags(req) & QEXEC_F_RUN_IN_BACKGROUND) {
       RedisModule_ReplyKV_Double(reply, "Total GIL time",
                                  rs_wall_clock_convert_ns_to_ms_d(qctx->queryGILTime));
-    } else {
-      // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
-      rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&qctx->initTime) + 1;
-      RedisModule_ReplyKV_Double(reply, "Total GIL time",
-                                 rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
     }
   }
 

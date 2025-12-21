@@ -240,3 +240,79 @@ TEST_F(SlotRangesTest, testRedisClusterSlotRanges) {
     freeSlotRangeArray(original);
     freeSlotRangeArray(deserialized);
 }
+
+// Test Slots_CanAccessKeysInSlot function
+TEST_F(SlotRangesTest, testSlotsCanAccessKeysInSlot) {
+    // Test with single range
+    auto* singleRange = createSlotRangeArray({{100, 200}});
+
+    // Test slots within range
+    EXPECT_TRUE(SlotRangeArray_ContainsSlot(singleRange, 100));  // Start boundary
+    EXPECT_TRUE(SlotRangeArray_ContainsSlot(singleRange, 150));  // Middle
+    EXPECT_TRUE(SlotRangeArray_ContainsSlot(singleRange, 200));  // End boundary
+
+    // Test slots outside range
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(singleRange, 99));   // Just before start
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(singleRange, 201));  // Just after end
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(singleRange, 0));    // Far before
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(singleRange, 65535)); // Far after
+
+    freeSlotRangeArray(singleRange);
+
+    // Test with multiple ranges
+    auto* multipleRanges = createSlotRangeArray({
+        {0, 100},      // Range 1: 0-100
+        {500, 600},    // Range 2: 500-600
+        {1000, 1500}   // Range 3: 1000-1500
+    });
+
+    // Test slots within each range
+    EXPECT_TRUE(SlotRangeArray_ContainsSlot(multipleRanges, 0));     // Range 1 start
+    EXPECT_TRUE(SlotRangeArray_ContainsSlot(multipleRanges, 50));    // Range 1 middle
+    EXPECT_TRUE(SlotRangeArray_ContainsSlot(multipleRanges, 100));   // Range 1 end
+    EXPECT_TRUE(SlotRangeArray_ContainsSlot(multipleRanges, 500));   // Range 2 start
+    EXPECT_TRUE(SlotRangeArray_ContainsSlot(multipleRanges, 550));   // Range 2 middle
+    EXPECT_TRUE(SlotRangeArray_ContainsSlot(multipleRanges, 600));   // Range 2 end
+    EXPECT_TRUE(SlotRangeArray_ContainsSlot(multipleRanges, 1000));  // Range 3 start
+    EXPECT_TRUE(SlotRangeArray_ContainsSlot(multipleRanges, 1250));  // Range 3 middle
+    EXPECT_TRUE(SlotRangeArray_ContainsSlot(multipleRanges, 1500));  // Range 3 end
+
+    // Test slots in gaps between ranges
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(multipleRanges, 101));  // Between range 1 and 2
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(multipleRanges, 300));  // Between range 1 and 2
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(multipleRanges, 499));  // Between range 1 and 2
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(multipleRanges, 601));  // Between range 2 and 3
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(multipleRanges, 800));  // Between range 2 and 3
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(multipleRanges, 999));  // Between range 2 and 3
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(multipleRanges, 1501)); // After range 3
+
+    freeSlotRangeArray(multipleRanges);
+
+    // Test with single slot ranges
+    auto* singleSlotRanges = createSlotRangeArray({
+        {42, 42},      // Single slot 42
+        {100, 100},    // Single slot 100
+        {65535, 65535} // Single slot at max value
+    });
+
+    EXPECT_TRUE(SlotRangeArray_ContainsSlot(singleSlotRanges, 42));
+    EXPECT_TRUE(SlotRangeArray_ContainsSlot(singleSlotRanges, 100));
+    EXPECT_TRUE(SlotRangeArray_ContainsSlot(singleSlotRanges, 65535));
+
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(singleSlotRanges, 41));
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(singleSlotRanges, 43));
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(singleSlotRanges, 99));
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(singleSlotRanges, 101));
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(singleSlotRanges, 65534));
+
+    freeSlotRangeArray(singleSlotRanges);
+
+    // Test with empty ranges array
+    auto* emptyRanges = createSlotRangeArray({});
+
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(emptyRanges, 0));
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(emptyRanges, 100));
+    EXPECT_FALSE(SlotRangeArray_ContainsSlot(emptyRanges, 65535));
+
+    freeSlotRangeArray(emptyRanges);
+}

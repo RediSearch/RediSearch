@@ -27,12 +27,14 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/param.h>
+#include <stddef.h>
 
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
 #include "io_runtime_ctx.h"
 
 #include "coord/hybrid/hybrid_cursor_mappings.h"
+#include "asm_state_machine.h"
 
 #define REFCOUNT_INCR_MSG(caller, refcount) \
   RS_DEBUG_LOG_FMT("%s: increased refCount to == %d", caller, refcount);
@@ -46,6 +48,10 @@ static MRCluster *cluster_g = NULL;
 
 // Number of shards in the cluster (main-thread variable)
 extern size_t NumShards;
+
+// Local node ID (set from main-thread when topology is updated, and may be accessed from worker
+// thread upon replying to a query - hence it is synchronized reference counting)
+static NodeIdRef *local_node_id_g = NULL;
 
 /* Coordination request timeout */
 long long timeout_g = 5000; // unused value. will be set in MR_Init
@@ -257,13 +263,53 @@ void MR_UpdateTopology(MRClusterTopology *newTopo, const RedisModuleSlotRangeArr
 
   // Refresh local slots info before propagating the topology, so that
   // the tracker is up to date before any I/O thread.
-  // TODO ASM: enable
-  // slots_tracker_set_local_slots(localSlots);
+  ASM_StateMachine_SetLocalSlots(localSlots);
 
   size_t lastIdx = cluster_g->num_io_threads - 1;
   for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
     IORuntimeCtx_Schedule_Topology(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, newTopo, i == lastIdx);
   }
+}
+
+void MR_InitLocalNodeId() {
+  RS_ASSERT(local_node_id_g == NULL);
+  local_node_id_g = rm_calloc(1, sizeof(NodeIdRef));
+  pthread_rwlock_init(&local_node_id_g->lock, NULL);
+}
+
+void MR_ReleaseLocalNodeIdReadLock() {
+  RS_ASSERT(local_node_id_g != NULL);
+  pthread_rwlock_unlock(&local_node_id_g->lock);
+}
+
+/* Set the local node ID for this shard */
+void MR_SetLocalNodeId(const char *node_id) {
+  // Replace the old local node ID.
+  pthread_rwlock_wrlock(&local_node_id_g->lock);
+  if (local_node_id_g->node_id != NULL) {
+    rm_free(local_node_id_g->node_id);
+  }
+  local_node_id_g->node_id = node_id ? rm_strdup(node_id) : NULL;
+  pthread_rwlock_unlock(&local_node_id_g->lock);
+}
+
+/* Get the local node ID for this shard. Returns NULL if not set or in standalone mode. */
+const char* MR_GetLocalNodeId(void) {
+  RS_ASSERT(local_node_id_g != NULL);
+  pthread_rwlock_rdlock(&local_node_id_g->lock);
+  return local_node_id_g->node_id;
+}
+
+void MR_FreeLocalNodeId() {
+  RS_ASSERT(local_node_id_g != NULL);
+  pthread_rwlock_wrlock(&local_node_id_g->lock);
+  if (local_node_id_g->node_id != NULL) {
+    rm_free(local_node_id_g->node_id);
+  }
+  pthread_rwlock_unlock(&local_node_id_g->lock);
+  pthread_rwlock_destroy(&local_node_id_g->lock);
+  rm_free(local_node_id_g);
+  local_node_id_g = NULL;
 }
 
 struct UpdateConnPoolSizeCtx {
@@ -532,9 +578,9 @@ void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   // Mark the command of the context as depleted (so we won't send another command to the shard)
   RS_DEBUG_LOG_FMT(
       "depleted(should be false): %d, Pending: (%d), inProcess: %d, itRefCount: %d, channel size: "
-      "%zu, target_idx: %d",
+      "%zu, target_shard_idx: %hu, target_shard: %s",
       ctx->cmd.depleted, ctx->it->ctx.pending, ctx->it->ctx.inProcess, ctx->it->ctx.itRefCount,
-      MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetShard);
+      MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetShardIdx, ctx->cmd.targetShard);
   ctx->cmd.depleted = true;
   short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
   RS_ASSERT(pending >= 0);
@@ -577,21 +623,21 @@ void iterStartCb(void *p) {
 
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
-  size_t targetShard;
-  for (targetShard = 1; targetShard < numShards; targetShard++) {
-    it->cbxs[targetShard].it = it;
-    it->cbxs[targetShard].cmd = MRCommand_Copy(cmd);
+  for (size_t targetShardIdx = 1; targetShardIdx < numShards; targetShardIdx++) {
+    it->cbxs[targetShardIdx].it = it;
+    it->cbxs[targetShardIdx].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
-    it->cbxs[targetShard].cmd.targetShard = targetShard;
-    MRCommand_SetSlotInfo(&it->cbxs[targetShard].cmd, shards[targetShard].slotRanges);
+    it->cbxs[targetShardIdx].cmd.targetShard = rm_strdup(shards[targetShardIdx].node.id);
+    it->cbxs[targetShardIdx].cmd.targetShardIdx = targetShardIdx;
+    MRCommand_SetSlotInfo(&it->cbxs[targetShardIdx].cmd, shards[targetShardIdx].slotRanges);
 
-    it->cbxs[targetShard].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+    it->cbxs[targetShardIdx].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
   }
 
-// Set the first command to target the first shard (while not having copied it)
-  targetShard = 0;
-  cmd->targetShard = targetShard;
-  MRCommand_SetSlotInfo(cmd, shards[targetShard].slotRanges);
+  // Set the first command to target the first shard (while not having copied it)
+  cmd->targetShard = rm_strdup(shards[0].node.id);
+  cmd->targetShardIdx = 0;
+  MRCommand_SetSlotInfo(cmd, shards[0].slotRanges);
 
   // This implies that every connection to each shard will work inside a single IO thread
   for (size_t i = 0; i < it->len; i++) {
@@ -629,14 +675,12 @@ void iterCursorMappingCb(void *p) {
   it->ctx.pending = numShardsWithMapping;
   it->ctx.inProcess = numShardsWithMapping; // Initially all commands are in process
 
-
   it->cbxs = rm_realloc(it->cbxs, numShardsWithMapping * sizeof(*it->cbxs));
+  // Command should already not own a target shard
   MRCommand *cmd = &it->cbxs->cmd;
-  cmd->targetShard = vsimOrSearch->mappings[0].targetShard;
   char buf[128];
   sprintf(buf, "%lld", vsimOrSearch->mappings[0].cursorId);
   MRCommand_Append(cmd, buf, strlen(buf));
-
 
   // Create FT.CURSOR READ commands for each mapping
   for (size_t i = 1; i < numShardsWithMapping; i++) {
@@ -646,11 +690,17 @@ void iterCursorMappingCb(void *p) {
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
 
     it->cbxs[i].cmd.targetShard = vsimOrSearch->mappings[i].targetShard;
+    vsimOrSearch->mappings[i].targetShard = NULL; // transfer ownership
+    it->cbxs[i].cmd.targetShardIdx = vsimOrSearch->mappings[i].targetShardIdx;
     it->cbxs[i].cmd.num = 4;
     char buf[128];
     sprintf(buf, "%lld", vsimOrSearch->mappings[i].cursorId);
     MRCommand_ReplaceArg(&it->cbxs[i].cmd, 3, buf, strlen(buf));
   }
+  // Set the first command to target the shard of the first mapping (while not having copied it)
+  cmd->targetShard = vsimOrSearch->mappings[0].targetShard;
+  cmd->targetShardIdx = vsimOrSearch->mappings[0].targetShardIdx;
+  vsimOrSearch->mappings[0].targetShard = NULL; // transfer ownership
 
   // Send commands to all shards
   for (size_t i = 0; i < it->len; i++) {
@@ -811,7 +861,7 @@ void MRIterator_Release(MRIterator *it) {
     for (size_t i = 0; i < it->len; i++) {
       MRCommand *cmd = &it->cbxs[i].cmd;
       if (!cmd->depleted) {
-        RS_DEBUG_LOG_FMT("changing command from %s to DEL for shard: %d", cmd->strs[1], cmd->targetShard);
+        RS_DEBUG_LOG_FMT("changing command from %s to DEL for shard: %s", cmd->strs[1], cmd->targetShard);
         RS_LOG_ASSERT_FMT(cmd->rootCommand != C_DEL, "DEL command should be sent only once to a shard. pending = %d", it->ctx.pending);
         cmd->rootCommand = C_DEL;
         MRCommand_ReplaceArg(cmd, 1, "DEL", 3);
@@ -841,6 +891,7 @@ void MR_FreeCluster() {
   RedisModule_ThreadSafeContextUnlock(RSDummyContext);
   MRCluster_Free(cluster_g);
   cluster_g = NULL;
+  MR_FreeLocalNodeId();
   RedisModule_ThreadSafeContextLock(RSDummyContext);
 }
 

@@ -572,6 +572,7 @@ dependencies = [
  "bindgen 0.72.1",
  "build_utils",
  "cc",
+ "document",
  "enumflags2",
  "workspace_hack",
 ]
@@ -1501,6 +1502,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "redis-module",
+ "tracing",
  "value",
  "workspace_hack",
 ]
@@ -1672,7 +1674,9 @@ dependencies = [
  "field",
  "inverted_index",
  "inverted_index_ffi",
+ "iterators_ffi",
  "itertools 0.14.0",
+ "rand",
  "redis_mock",
  "rqe_iterators",
  "triemap_ffi",
@@ -2368,6 +2372,8 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "ffi",
+ "redis_mock",
+ "thiserror",
  "workspace_hack",
 ]
 
@@ -2378,8 +2384,8 @@ dependencies = [
  "build_utils",
  "c_ffi_utils",
  "cbindgen",
+ "ffi",
  "libc",
- "redis-module",
  "value",
  "workspace_hack",
 ]
@@ -2645,7 +2651,6 @@ checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
 name = "workspace_hack"
 version = "0.1.0"
 dependencies = [
- "bindgen 0.66.1",
  "bindgen 0.72.1",
  "bitflags 2.10.0",
  "clang-sys",
@@ -2663,7 +2668,6 @@ dependencies = [
  "quote 1.0.42",
  "rand",
  "rand_chacha",
- "redis-module",
  "regex",
  "regex-automata",
  "regex-syntax",
@@ -2672,6 +2676,7 @@ dependencies = [
  "syn 1.0.109",
  "syn 2.0.111",
  "thiserror",
+ "tracing-core",
  "zerocopy",
 ]
 

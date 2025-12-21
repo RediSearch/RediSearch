@@ -1,3 +1,5 @@
+import copy
+
 from common import *
 
 READ_SEARCH_COMMANDS = ['FT.SEARCH', 'FT.AGGREGATE', 'FT.CURSOR',
@@ -74,7 +76,7 @@ def test_acl_non_default_user(env):
         # `test` should not be able to run `search` commands that are not `read`,
         # like `FT.CREATE`
         try:
-            conn.execute_command('FT.CREATE', 'idx', '*')
+            conn.execute_command('FT.CREATE', 'idx', '*', "hello")
             env.assertTrue(False)
         except Exception as e:
             env.assertContains("User test has no permissions to run the 'FT.CREATE' command", str(e))
@@ -173,9 +175,11 @@ def test_internal_commands(env):
 
     # Promote the connection to internal
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
-    env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', generate_slots()).equal([0])
+    slots = generate_slots(range(0, int((2**14)/env.shardsCount)))
+    env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', slots).equal([0])
 
-@skip(redis_less_than="7.9.227")
+
+@skip(redis_less_than="8.0")
 def test_acl_key_permissions_validation(env):
     """Tests that the key permission validation works properly"""
 

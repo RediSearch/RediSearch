@@ -125,9 +125,10 @@ def test_simple_query():
     cmd = [
         'FT.HYBRID', 'idx',
         'SEARCH', 'red',
-        'VSIM' ,'@embedding', np.array([1.2, 0.2]).astype(np.float32).tobytes(),
+        'VSIM' ,'@embedding', '$BLOB',
         'LOAD', 3, '@__key', '@__score', '@description',
-        'SORTBY', 2, '@description', 'ASC'
+        'SORTBY', 2, '@description', 'ASC',
+        'PARAMS', '2', 'BLOB', np.array([1.2, 0.2]).astype(np.float32).tobytes()
     ]
     resp3_expected = {
         'total_results': 4,
@@ -146,10 +147,11 @@ def test_query_with_groupby():
     cmd = [
         'FT.HYBRID', 'idx',
         'SEARCH', '*',
-        'VSIM' ,'@embedding', np.array([1.2, 0.2]).astype(np.float32).tobytes(),
+        'VSIM' ,'@embedding', '$BLOB',
         'LOAD', 2, '@__key', '@category',
         'GROUPBY', 1, '@category', 'REDUCE', 'COUNT', 0, 'AS', 'count',
-        'SORTBY', 2, '@category', 'ASC'
+        'SORTBY', 2, '@category', 'ASC',
+        'PARAMS', '2', 'BLOB', np.array([1.2, 0.2]).astype(np.float32).tobytes()
     ]
     resp3_expected = {
         'total_results': 2,
@@ -166,10 +168,11 @@ def test_query_with_apply():
     cmd = [
         'FT.HYBRID', 'idx',
         'SEARCH', '*',
-        'VSIM' ,'@embedding', np.array([1.2, 0.2]).astype(np.float32).tobytes(),
+        'VSIM' ,'@embedding', '$BLOB',
         'LOAD', 2,'@category', '@description',
         'APPLY', 'strlen(@category) + strlen(@description)', 'AS', 'length',
-        'SORTBY', 2, '@length', 'ASC'
+        'SORTBY', 2, '@length', 'ASC',
+        'PARAMS', '2', 'BLOB', np.array([1.2, 0.2]).astype(np.float32).tobytes()
     ]
     resp3_expected = {
         'total_results': 4,
@@ -188,10 +191,11 @@ def test_query_with_yield_score_as():
     cmd = [
         'FT.HYBRID', 'idx',
         'SEARCH', '*',
-        'VSIM' ,'@embedding', np.array([1.2, 0.2]).astype(np.float32).tobytes(),
+        'VSIM' ,'@embedding', "$BLOB",
             'KNN', '2', 'K', '10',
             'YIELD_SCORE_AS', 'vector_score',
-        'SORTBY', 2, '@description', 'ASC'
+        'SORTBY', 2, '@description', 'ASC',
+        'PARAMS', '2', 'BLOB', np.array([1.2, 0.2]).astype(np.float32).tobytes()
     ]
     resp3_expected = {
         'total_results': 4,
