@@ -37,4 +37,3 @@ source install_rust.sh
 source install_python.sh
 
 git config --global --add safe.directory '*'
-exit 1
