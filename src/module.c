@@ -3816,6 +3816,9 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RS_ASSERT(my_shard_idx < topo->numShards);
   const RedisModuleSlotRangeArray *my_slots = topo->shards[my_shard_idx].slotRanges;
 
+  // Store the local shard id
+  MR_SetLocalNodeId(topo->shards[my_shard_idx].node.id);
+
   // send the topology to the cluster
   MR_UpdateTopology(topo, my_slots);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -3850,6 +3853,7 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   size_t conn_pool_size = CEIL_DIV(num_connections_per_shard, num_io_threads);
 
   MR_Init(num_io_threads, conn_pool_size, clusterConfig.timeoutMS);
+  MR_InitLocalNodeId();
 
   return REDISMODULE_OK;
 }
