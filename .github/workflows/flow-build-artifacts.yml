@@ -54,6 +54,7 @@ jobs:
       sha: ${{ steps.set-sha.outputs.sha }}
       redis-ref: ${{ steps.get-redis.outputs.tag }}
       beta-version: ${{ steps.beta-version.outputs.BETA_VERSION }}
+      version-suffix: ${{ steps.beta-version.outputs.VERSION_SUFFIX }}
     steps:
       - uses: actions/checkout@v4
       - id: set-sha
@@ -72,13 +73,15 @@ jobs:
           FORCE_BETA="${{ inputs.force_beta }}"
           echo "Building from branch: $BRANCH_NAME"
           echo "Force beta enabled: $FORCE_BETA"
-
+          # Generate timestamp at workflow start for consistent beta versioning across all builds
+          TIMESTAMP=$(date -u +"%Y%m%d.%H%M%S")
+          # Add workflow number to ensure the version is unique (if multiple workflows started at the same time)
+          WORKFLOW_NUM=${{ github.run_number }}
+          VERSION_SUFFIX="${TIMESTAMP}.${WORKFLOW_NUM}"
+          echo VERSION_SUFFIX=$VERSION_SUFFIX >> $GITHUB_OUTPUT
           if [[ "$BRANCH_NAME" == "master" ]] || [[ "$FORCE_BETA" == "true" ]]; then
-            # Generate timestamp at workflow start for consistent beta versioning across all builds
-            TIMESTAMP=$(date -u +"%Y%m%d.%H%M%S")
-            # Add workflow number to ensure the version is unique (if multiple workflows started at the same time)
-            WORKFLOW_NUM=${{ github.run_number }}
-            BETA_VERSION="99.99.99.${TIMESTAMP}.${WORKFLOW_NUM}"
+            
+            BETA_VERSION="99.99.99.${VERSION_SUFFIX}"
             echo "BETA_VERSION=$BETA_VERSION" >> $GITHUB_OUTPUT
             if [[ "$BRANCH_NAME" == "master" ]]; then
               echo "Master branch detected, generating beta version: $BETA_VERSION"
@@ -120,3 +123,4 @@ jobs:
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
       beta-version: ${{ needs.setup.outputs.beta-version }}
+      version-suffix: ${{ needs.setup.outputs.version-suffix }}
