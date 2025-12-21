@@ -28,12 +28,18 @@ typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 typedef struct BasicDiskAPI {
   RedisSearchDisk *(*open)(RedisModuleCtx *ctx, const char *path);
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type);
-  void (*deleteIndexSpec)(RedisSearchDiskIndexSpec *index);
   void (*closeIndexSpec)(RedisSearchDiskIndexSpec *index);
   void (*close)(RedisSearchDisk *disk);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
+  /**
+   * @brief Request the index to be deleted, once closeIndexSpec is called the index will be deleted from the disk.
+   *
+   * @param index Pointer to the index
+   */
+  void (*markToBeDeleted)(RedisSearchDiskIndexSpec *index);
+
   /**
    * @brief Indexes a document in the disk database
    *

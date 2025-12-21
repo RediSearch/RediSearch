@@ -650,10 +650,8 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   CurrentThread_SetIndexSpec(global_ref);
 
-  // Delete the disk index before removing from globals
   if (sp->diskSpec) {
-    SearchDisk_DeleteIndex(sp->diskSpec);
-    sp->diskSpec = NULL;
+    SearchDisk_MarkIndexForDeletion(sp->diskSpec);
   }
 
   if((delDocs || sp->flags & Index_Temporary)) {
