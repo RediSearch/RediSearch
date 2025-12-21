@@ -182,7 +182,7 @@ s3_upload() {
             # Remove .master. from beta version filename and add BETA_VERSION
             local new_name="${base_name/.master./.${BETA_VERSION}.}"
             # Create temp file with new name
-            local temp_file="./${new_name}"
+            local temp_file="./${new_name%.zip}.${VERSION_SUFFIX}.zip"
             cp "$file" "$temp_file"
             s3_upload_file "$temp_file" "$upload_dir"
             rm -f "$temp_file"

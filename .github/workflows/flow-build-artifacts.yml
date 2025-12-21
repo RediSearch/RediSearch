@@ -80,8 +80,7 @@ jobs:
           VERSION_SUFFIX="${TIMESTAMP}.${WORKFLOW_NUM}"
           echo VERSION_SUFFIX=$VERSION_SUFFIX >> $GITHUB_OUTPUT
           if [[ "$BRANCH_NAME" == "master" ]] || [[ "$FORCE_BETA" == "true" ]]; then
-            
-            BETA_VERSION="99.99.99.${VERSION_SUFFIX}"
+            BETA_VERSION="99.99.99"
             echo "BETA_VERSION=$BETA_VERSION" >> $GITHUB_OUTPUT
             if [[ "$BRANCH_NAME" == "master" ]]; then
               echo "Master branch detected, generating beta version: $BETA_VERSION"
