@@ -77,7 +77,7 @@ jobs:
           TIMESTAMP=$(date -u +"%Y%m%d.%H%M%S")
           # Add workflow number to ensure the version is unique (if multiple workflows started at the same time)
           WORKFLOW_NUM=${{ github.run_number }}
-          VERSION_SUFFIX="$.{TIMESTAMP}.${WORKFLOW_NUM}"
+          VERSION_SUFFIX=".${TIMESTAMP}.${WORKFLOW_NUM}"
           echo VERSION_SUFFIX=$VERSION_SUFFIX >> $GITHUB_OUTPUT
           if [[ "$BRANCH_NAME" == "master" ]] || [[ "$FORCE_BETA" == "true" ]]; then
             BETA_VERSION="99.99.99"
