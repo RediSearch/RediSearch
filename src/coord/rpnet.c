@@ -224,6 +224,38 @@ static bool shardResponseBarrier_HandleError(RPNet *nc) {
   return false;  // No error
 }
 
+static int setWarnings(RPNet *nc, bool is_resp3) {
+  bool timed_out = false;
+  // Check for a warning (resp3 only)
+  if (is_resp3) {
+    RS_ASSERT(nc->current.meta);
+    MRReply *warning = MRReply_MapElement(nc->current.meta, "warning");
+    if (MRReply_Length(warning) > 0) {
+      const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, 0), NULL);
+      // Set an error to be later picked up and sent as a warning
+      if (!strcmp(warning_str, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
+        timed_out = true;
+      } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
+        QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
+      } else if (!strcmp(warning_str, QUERY_WOOM_SHARD)) {
+        QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
+      }
+      if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
+        AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
+      }
+    }
+  }
+
+  MRReply_Free(nc->current.root);
+  RPNet_resetCurrent(nc);
+
+  if (timed_out) {
+    return RS_RESULT_TIMEDOUT;
+  }
+
+  return RS_RESULT_OK;
+}
+
 int getNextReply(RPNet *nc) {
   // Wait for all shards' first responses before returning any results
   // This ensures accurate total_results from the start
@@ -355,7 +387,13 @@ int getNextReply(RPNet *nc) {
   RS_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY);
   if (MRReply_Length(rows) <= empty_rows_len) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
+    int ret = setWarnings(nc, nc->cmd.protocol == 3);
     MRReply_Free(root);
+    RPNet_resetCurrent(nc);
+
+    if (ret == RS_RESULT_TIMEDOUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
     root = NULL;
     rows = NULL;
     meta = NULL;
@@ -462,42 +500,20 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // RESP2: [ num_results, [ field, value, ... ], ... ]
   // RESP3: [ { field: value, ... }, ... ]
 
-  // can also get an empty row:
+  // can also get an empty row: // is it?
   // RESP2: [] or [ 0 ]
   // RESP3: {}
 
   if (rows) {
-      size_t len = MRReply_Length(rows);
+    size_t len = MRReply_Length(rows);
 
-      if (nc->curIdx == len) {
-        bool timed_out = false;
-        // Check for a warning (resp3 only)
-        if (resp3) {
-          MRReply *warning = MRReply_MapElement(nc->current.meta, "warning");
-          if (MRReply_Length(warning) > 0) {
-            const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, 0), NULL);
-            // Set an error to be later picked up and sent as a warning
-            if (!strcmp(warning_str, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
-              timed_out = true;
-            } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
-              QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
-            } else if (!strcmp(warning_str, QUERY_WOOM_SHARD)) {
-              QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
-            }
-            if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
-              AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
-            }
-          }
-        }
-
-        MRReply_Free(root);
-        root = rows = NULL;
-        RPNet_resetCurrent(nc);
-
-        if (timed_out) {
-          return RS_RESULT_TIMEDOUT;
-        }
+    if (nc->curIdx == len) {
+      if (setWarnings(nc, resp3) == RS_RESULT_TIMEDOUT) {
+        return RS_RESULT_TIMEDOUT;
       }
+
+    root = rows = NULL;
+    }
   }
 
   bool new_reply = !root;
