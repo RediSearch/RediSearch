@@ -650,18 +650,18 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Parse subqueries count - support only 2 subqueries for now
   // FT.HYBRID <index> <subqueries_count> <search_query> <vsim_query>
   // We still support the old format: FT.HYBRID <index> <search_query> <vsim_query> for backward compatibility
-  unsigned long long subqueries_count = 0;
+  unsigned int subqueriesCount = 0;
   if (AC_IsAtEnd(ac)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing subqueries count for HYBRID");
     goto error;
   }
-  bool countRet = AC_GetUnsignedLongLong(ac, &subqueries_count, AC_F_GE1) == AC_OK;
-  if (countRet && subqueries_count != HYBRID_REQUEST_NUM_SUBQUERIES) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "HYBRID supports only 2 subqueries");
+  bool hasSubqueryCount = AC_GetUnsigned(ac, &subqueriesCount, AC_F_GE1) == AC_OK;
+  if (hasSubqueryCount && subqueriesCount != HYBRID_REQUEST_NUM_SUBQUERIES) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.HYBRID currently supports only two subqueries");
     goto error;
   }
   if (!AC_AdvanceIfMatch(ac, "SEARCH")) {
-    if (countRet) {
+    if (hasSubqueryCount) {
       QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
     } else {
       // Wrong syntax for both old and new format, error massage according to the new format

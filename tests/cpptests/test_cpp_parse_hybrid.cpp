@@ -1313,12 +1313,12 @@ TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalid) {
 
 TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalidThree) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "3" ,"SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "2");
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "HYBRID supports only 2 subqueries");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "FT.HYBRID currently supports only two subqueries");
 }
 
 TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalidOne) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "1" ,"SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "2");
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "HYBRID supports only 2 subqueries");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "FT.HYBRID currently supports only two subqueries");
 }
 
 TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalidRange) {
