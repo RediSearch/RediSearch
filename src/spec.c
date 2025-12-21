@@ -1978,8 +1978,7 @@ void Indexes_Free(dict *d, bool deleteDiskData) {
     // Delete disk index before removing from globals
     IndexSpec *spec = StrongRef_Get(specs[i]);
     if (spec && spec->diskSpec && deleteDiskData) {
-      SearchDisk_DeleteIndex(spec->diskSpec);
-      spec->diskSpec = NULL;
+      SearchDisk_MarkIndexForDeletion(spec->diskSpec);
     }
     IndexSpec_RemoveFromGlobals(specs[i], false);
   }

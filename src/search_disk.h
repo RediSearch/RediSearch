@@ -39,11 +39,10 @@ void SearchDisk_Close();
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, size_t indexNameLen, DocumentType type);
 
 /**
- * @brief Delete and closes an index
+ * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
  *
- * @param index Pointer to the index to delete
- */
-void SearchDisk_DeleteIndex(RedisSearchDiskIndexSpec *index);
+*/
+void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Close an index, **Important** must be called once and only once for every index
