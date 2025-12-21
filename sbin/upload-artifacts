@@ -163,7 +163,7 @@ s3_upload() {
     echo "Uploading to snapshots directory: $upload_dir"
     VERSION_SUFFIX="${VERSION_SUFFIX:-}"
     for file in "${files[@]}"; do
-        local temp_file="${file%.zip}.${VERSION_SUFFIX}.zip"
+        local temp_file="${file%.zip}${VERSION_SUFFIX}.zip"
         cp "$file" "$temp_file"
         s3_upload_file "$temp_file" "$upload_dir"
         rm -f "$temp_file"
