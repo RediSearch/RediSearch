@@ -150,7 +150,7 @@ impl QueryErrorCode {
             Self::WeightNotAllowed => c"SEARCH_WEIGHT_NOT_ALLOWED: Weight attributes are not allowed",
             Self::VectorNotAllowed => c"SEARCH_VECTOR_NOT_ALLOWED: Vector queries are not allowed",
             Self::OutOfMemory => c"SEARCH_OOM: Not enough memory available to execute the query",
-            Self::UnavailableSlots => c"SEARCH_UNAVAILABLE_SLOTS: Query requires unavailable slots",
+            Self::UnavailableSlots => c"SEARCH_SLOTS_UNAVAIL: Query requires unavailable slots",
         }
     }
 }
