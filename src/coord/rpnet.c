@@ -224,7 +224,10 @@ static bool shardResponseBarrier_HandleError(RPNet *nc) {
   return false;  // No error
 }
 
-static int setWarnings(RPNet *nc, bool is_resp3) {
+// Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
+// Warning handling requires nc->current.meta to be set. Cleanup is done regardless of protocol.
+// Returns RS_RESULT_TIMEDOUT if timeout warning found, RS_RESULT_OK otherwise.
+static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   bool timed_out = false;
   // Check for a warning (resp3 only)
   if (is_resp3) {
@@ -241,6 +244,7 @@ static int setWarnings(RPNet *nc, bool is_resp3) {
         QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
       }
       if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
+        RS_ASSERT(nc->areq);
         AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
       }
     }
@@ -391,7 +395,7 @@ int getNextReply(RPNet *nc) {
   RS_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY);
   if (MRReply_Length(rows) <= empty_rows_len) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
-    int ret = setWarnings(nc, nc->cmd.protocol == 3);
+    int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3);
 
     if (ret == RS_RESULT_TIMEDOUT) {
       return RS_RESULT_TIMEDOUT;
@@ -504,7 +508,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     size_t len = MRReply_Length(rows);
 
     if (nc->curIdx == len) {
-      if (setWarnings(nc, resp3) == RS_RESULT_TIMEDOUT) {
+      if (processWarningsAndCleanup(nc, resp3) == RS_RESULT_TIMEDOUT) {
         return RS_RESULT_TIMEDOUT;
       }
 
