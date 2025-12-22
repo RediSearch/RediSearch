@@ -97,9 +97,9 @@ impl QueryErrorCode {
     pub const fn to_c_str(self) -> &'static CStr {
         match self {
             Self::Ok => c"Success (not an error)",
-            Self::Generic => c"Generic error evaluating the query",
-            Self::Syntax => c"Parsing/Syntax error for query string",
-            Self::ParseArgs => c"Error parsing query/aggregation arguments",
+            Self::Generic => c"SEARCH_GENERIC_ERR: Generic error evaluating the query",
+            Self::Syntax => c"SEARCH_SYNTAX_ERR: Parsing/Syntax error for query string",
+            Self::ParseArgs => c"SEARCH_ARG_PARSE_ERR: Error parsing query/aggregation arguments",
             Self::AddArgs => c"Error parsing document indexing arguments",
             Self::Expr => c"Parsing/Evaluating dynamic expression failed",
             Self::Keyword => c"Could not handle query keyword",
@@ -124,7 +124,7 @@ impl QueryErrorCode {
             Self::BadOption => c"Option not supported for current mode",
             Self::BadOrderOption => c"Path with undefined ordering does not support slop/inorder",
             Self::Limit => c"Limit exceeded",
-            Self::NoIndex => c"Index not found",
+            Self::NoIndex => c"SEARCH_INDEX_NOT_FOUND: Index not found",
             Self::DocExists => c"Document already exists",
             Self::DocNotAdded => c"Document was not added because condition was unmet",
             Self::DupField => c"Field was specified twice",
@@ -132,10 +132,10 @@ impl QueryErrorCode {
             Self::NoDistribute => c"Could not distribute the operation",
             Self::UnsuppType => c"Unsupported index type",
             Self::NotNumeric => c"Could not convert value to a number",
-            Self::TimedOut => c"Timeout limit was reached",
-            Self::NoParam => c"Parameter not found",
-            Self::DupParam => c"Parameter was specified twice",
-            Self::BadVal => c"Invalid value was given",
+            Self::TimedOut => c"SEARCH_TIMEOUT: Timeout limit was reached",
+            Self::NoParam => c"SEARCH_PARAM_NOT_FOUND: Parameter not found",
+            Self::DupParam => c"SEARCH_PARAM_DUPLICATE: Parameter was specified twice",
+            Self::BadVal => c"SEARCH_VALUE_BAD: Invalid value was given",
             Self::NonHybrid => c"hybrid query attributes were sent for a non-hybrid query",
             Self::HybridNonExist => c"invalid hybrid policy was given",
             Self::AdhocWithBatchSize => c"'batch size' is irrelevant for the selected policy",
@@ -143,10 +143,10 @@ impl QueryErrorCode {
             Self::NonRange => c"range query attributes were sent for a non-range query",
             Self::Missing => c"'ismissing' requires field to be defined with 'INDEXMISSING'",
             Self::Mismatch => c"Index mismatch: Shard index is different than queried index",
-            Self::UnknownIndex => c"Unknown index name",
-            Self::DroppedBackground => c"The index was dropped before the query could be executed",
-            Self::AliasConflict => c"Alias conflicts with an existing index name",
-            Self::IndexBgOOMFail => c"Index background scan did not complete due to OOM",
+            Self::UnknownIndex => c"SEARCH_INDEX_NOT_FOUND: Index not found",
+            Self::DroppedBackground => c"SEARCH_INDEX_DROPPED_BACKGROUND: The index was dropped before the query could be executed",
+            Self::AliasConflict => c"SEARCH_ALIAS_CONFLICT: Alias conflicts with an existing index name",
+            Self::IndexBgOOMFail => c"SEARCH_INDEX_BG_OOM_FAIL: Index background scan did not complete due to OOM",
             Self::WeightNotAllowed => c"Weight attributes are not allowed",
             Self::VectorNotAllowed => c"Vector queries are not allowed",
             Self::OutOfMemory => c"Not enough memory available to execute the query",
@@ -247,13 +247,13 @@ impl QueryWarningCode {
     pub const fn to_c_str(self) -> &'static CStr {
         match self {
             Self::Ok => c"Success (not a warning)",
-            Self::TimedOut => c"Timeout limit was reached",
-            Self::ReachedMaxPrefixExpansions => c"Max prefix expansions limit was reached",
+            Self::TimedOut => c"SEARCH_TIMEOUT: Timeout limit was reached",
+            Self::ReachedMaxPrefixExpansions => c"SEARCH_PREFIX_EXPANSIONS_LIMIT: Max prefix expansions limit was reached",
             Self::OutOfMemoryShard => {
-                c"Shard failed to execute the query due to insufficient memory"
+                c"SEARCH_OOM_SHARD: Shard failed to execute the query due to insufficient memory"
             }
             Self::OutOfMemoryCoord => {
-                c"One or more shards failed to execute the query due to insufficient memory"
+                c"SEARCH_OOM_COORD: One or more shards failed to execute the query due to insufficient memory"
             }
         }
     }
