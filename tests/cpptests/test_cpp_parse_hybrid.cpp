@@ -750,7 +750,7 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterVectorField) {
 TEST_F(ParseHybridTest, testMissingSearchArgument) {
   // Missing SEARCH argument: FT.HYBRID <index> VSIM @vector_field
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid subqueries count: expected an unsigned integer");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Invalid subqueries count: expected an unsigned integer");
 }
 
 TEST_F(ParseHybridTest, testMissingQueryStringAfterSearch) {
@@ -1303,12 +1303,12 @@ TEST_F(ParseHybridTest, testSortbyNotEnoughArguments) {
 
 TEST_F(ParseHybridTest, testHybridSubqueriesCountMissing) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str());
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Missing subqueries count for HYBRID");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Missing subqueries count for FT.HYBRID");
 }
 
 TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalid) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "INVALID_COUNT", "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "2");
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid subqueries count: expected an unsigned integer");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Invalid subqueries count: expected an unsigned integer");
 }
 
 TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalidThree) {
@@ -1323,10 +1323,10 @@ TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalidOne) {
 
 TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalidRange) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "0" ,"SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "2");
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid subqueries count: expected an unsigned integer");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Invalid subqueries count: expected an unsigned integer");
 }
 
 TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalidKeyword) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "2", "INVALID_KEYWORD", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "2");
-  testErrorCode(args,  QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
+  testErrorCode(args,  QUERY_ERROR_CODE_SYNTAX, "SEARCH keyword is required");
 }
