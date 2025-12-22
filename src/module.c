@@ -574,7 +574,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   QueryError status = QueryError_Default();
 
   if ((isFlex || RSGlobalConfig.simulateInFlex) && Indexes_Count() >= FLEX_MAX_INDEX_COUNT) {
-    QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_INVALID_FLEX, "Max number of indexes reached for Flex indexes: %zu", FLEX_MAX_INDEX_COUNT);
+    QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_INVALID_FLEX, "Max number of indexes reached for Flex indexes: %d", FLEX_MAX_INDEX_COUNT);
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
     return REDISMODULE_OK;
