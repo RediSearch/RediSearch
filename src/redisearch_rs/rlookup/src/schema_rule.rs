@@ -24,7 +24,6 @@ use crate::RLookupKey;
 /// 2. If `score_field` is non-null, it points to a valid C string.
 /// 3. If `payload_field` is non-null, it points to a valid C string.
 #[repr(transparent)]
-#[derive(Clone, Copy)]
 pub struct SchemaRule(ffi::SchemaRule);
 
 impl SchemaRule {
