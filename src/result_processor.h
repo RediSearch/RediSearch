@@ -60,6 +60,7 @@ typedef enum {
   RP_METRICS,
   RP_KEY_NAME_LOADER,
   RP_MAX_SCORE_NORMALIZER,
+  RP_DEPLETER,
   RP_MAX, // Marks the last non-debug RP type
   // Debug only result processors
   RP_TIMEOUT,
@@ -333,6 +334,15 @@ ResultProcessor *RPPauseAfterCount_New(size_t count);
 
 // Adds a pause processor after N results, before/after a specific RP type
 bool PipelineAddPauseRPcount(struct AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type, QueryError *status);
+
+/*******************************************************************************
+* Depleter Result Processor
+*
+*******************************************************************************/
+/**
+* Constructs a new depleter processor that runs in the current thread.
+*/
+ResultProcessor *RPDepleter_New();
 
 #ifdef __cplusplus
 }

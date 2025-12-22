@@ -156,6 +156,13 @@ PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, const char *dis
   return newStp;
 }
 
+PLN_ArrangeStep *NewArrangeStep() {
+  PLN_ArrangeStep *newStp = rm_calloc(1, sizeof(*newStp));
+  newStp->base.type = PLN_T_ARRANGE;
+  newStp->base.dtor = arrangeDtor;
+  return newStp;
+}
+
 PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
   PLN_ArrangeStep *ret = AGPLN_GetArrangeStep(pln);
   if (ret) {
@@ -260,7 +267,7 @@ static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
     append_uint(arr, 0);
     append_uint(arr, astp->offset + astp->limit);
   }
-  if (astp->sortKeys) {
+  if (array_len(astp->sortKeys)) {
     size_t numsort = array_len(astp->sortKeys);
     append_string(arr, "SORTBY");
     append_uint(arr, numsort * 2);
