@@ -371,17 +371,26 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
     unsafe { lookup.unwrap().drop_in_place() };
 }
 
-use ffi::{IndexSpec, RedisModuleCtx};
-
 #[allow(clippy::missing_const_for_fn)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_LoadRuleFields(
-    ctx: *mut RedisModuleCtx,
-    lookup: *mut RLookup<'_>,
-    dst_row: *mut RLookupRow,
-    spec: *mut IndexSpec,
-    keyptr: *const c_char,
+    ctx: Option<NonNull<ffi::RedisModuleCtx>>,
+    lookup: Option<NonNull<RLookup<'_>>>,
+    dst_row: Option<NonNull<RLookupRow>>,
+    spec: Option<NonNull<ffi::IndexSpec>>,
+    key: *const c_char,
 ) -> i32 {
     // returvärdet är t ex REDISMODULE_OK=0 eller REDISMODULE_ERR=1
-    0
+
+    let ctx = unsafe { ctx.unwrap().as_mut() };
+
+    let lookup = unsafe { lookup.unwrap().as_mut() };
+
+    let dst_row = unsafe { dst_row.unwrap().as_mut() };
+
+    let spec = unsafe { spec.unwrap().as_mut() };
+
+    let key = unsafe { CStr::from_ptr(key) };
+
+    lookup.load_rule_fields(ctx, lookup, dst_row, spec, key)
 }

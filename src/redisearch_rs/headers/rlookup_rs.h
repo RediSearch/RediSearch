@@ -391,7 +391,7 @@ int32_t RLookup_LoadRuleFields(RedisModuleCtx *ctx,
                                struct RLookup *lookup,
                                RLookupRow *dst_row,
                                IndexSpec *spec,
-                               const char *keyptr);
+                               const char *key);
 
 /**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
