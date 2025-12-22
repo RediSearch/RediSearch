@@ -6,11 +6,12 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-use crate::bindings::{
-    FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache,
-};
 #[cfg(debug_assertions)]
 use crate::rlookup_id::RLookupId;
+use crate::{
+    RLookupRow,
+    bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache},
+};
 use enumflags2::{BitFlags, bitflags, make_bitflags};
 use pin_project::pin_project;
 use std::{
@@ -1246,6 +1247,23 @@ impl<'a> RLookup<'a> {
     /// The row len of the [`RLookup`] is the number of keys in its key list not counting the overridden keys.
     pub(crate) const fn get_row_len(&self) -> u32 {
         self.header.keys.rowlen
+    }
+
+    #[allow(clippy::missing_const_for_fn, unused)]
+    pub fn load_rule_fields(
+        &self,
+        ctx: &ffi::RedisModuleCtx,
+        lookup: &RLookup<'_>,
+        dst_row: &RLookupRow<value::RSValueFFI>,
+        spec: &ffi::IndexSpec,
+        key: &CStr,
+    ) -> i32 {
+        unsafe {
+            let rule = spec.rule;
+            let nkeys = (*rule).filter_fields;
+        }
+
+        0
     }
 }
 
