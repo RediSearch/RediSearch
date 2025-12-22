@@ -1,10 +1,7 @@
-use ffi::{DocumentType, t_docId};
+use document::DocumentType;
+use ffi::t_docId;
 use std::path::Path;
 use std::{fmt::Display, sync::Arc};
-
-#[cfg(test)]
-#[cfg(not(miri))]
-use tempfile::TempDir;
 
 use speedb::{
     BlockBasedOptions, Cache, DBWithThreadMode, Error as SpeedbError, MultiThreaded,
@@ -121,8 +118,8 @@ impl SearchDisk {
     /// Creates a new temporary speedb database.
     #[cfg(test)]
     #[cfg(not(miri))]
-    fn new_temp() -> (TempDir, Self) {
-        let tempdir = TempDir::new().unwrap();
+    fn new_temp() -> (tempfile::TempDir, Self) {
+        let tempdir = tempfile::TempDir::new().unwrap();
         let search_disk = SearchDisk::new(tempdir.path()).unwrap();
 
         (tempdir, search_disk)
@@ -215,12 +212,6 @@ impl SearchDisk {
         doc_type: DocumentType,
         column_family: &'static str,
     ) -> String {
-        let doc_type = match doc_type {
-            ffi::DocumentType_DocumentType_Hash => "hash",
-            ffi::DocumentType_DocumentType_Json => "json",
-            _ => "unknown",
-        };
-
         format!("{index_name}:{doc_type}:{column_family}")
     }
 
@@ -243,7 +234,7 @@ fn strip_after_last_delimiter(src: &[u8]) -> &[u8] {
         .rposition(|byte| *byte == SearchDisk::KEY_DELIMITER)
         .expect("slice doesn't contain KEY_DELIMITER");
 
-    src.split_at(last_key_delimiter_idx + 1).0
+    &src[..last_key_delimiter_idx + 1]
 }
 
 /// Returns whether `src` contains a [`SearchDisk::KEY_DELIMITER`].
@@ -261,11 +252,7 @@ mod tests {
         let (_tempdir, search_disk) = SearchDisk::new_temp();
 
         search_disk
-            .create_column_families_for_index(
-                "foo",
-                ffi::DocumentType_DocumentType_Hash,
-                DeletedIdsStore::new(),
-            )
+            .create_column_families_for_index("foo", DocumentType::Hash, DeletedIdsStore::new())
             .unwrap();
 
         let db_path = search_disk.database.path();

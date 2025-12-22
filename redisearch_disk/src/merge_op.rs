@@ -4,10 +4,7 @@ use crate::{
     debug,
     index_spec::{
         deleted_ids::DeletedIdsStore,
-        inverted_index::{
-            FullTermDocument, FullTermMetadata, PostingsListBlock,
-            full_term_block::ArchivedFullTermBlock,
-        },
+        inverted_index::{PostingsListBlock, full_term_block::ArchivedFullTermBlock},
     },
 };
 
@@ -71,11 +68,7 @@ impl DeletedIdsMergeOperator {
                 if deleted_ids.is_deleted(doc_id) {
                     continue;
                 };
-                let metadata = FullTermMetadata {
-                    field_mask: archived_doc.field_mask(),
-                    frequency: archived_doc.frequency(),
-                };
-                block.push(FullTermDocument { doc_id, metadata });
+                block.push(archived_doc.into());
             }
         }
 

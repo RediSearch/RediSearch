@@ -6,6 +6,7 @@ pub mod search_disk;
 use crate::index_spec::IndexSpec;
 use crate::index_spec::deleted_ids::DeletedIdsStore;
 use crate::search_disk::SearchDisk;
+use document::DocumentType;
 use ffi::{
     AllocateKeyCallback, BasicDiskAPI, DocTableDiskAPI, IndexDiskAPI,
     IteratorType_INV_IDX_ITERATOR, QueryIterator, RSDocumentMetadata, RedisModuleCtx,
@@ -99,7 +100,7 @@ extern "C" fn index_spec_open(
     disk: *mut RedisSearchDisk,
     index_name: *const c_char,
     index_name_len: usize,
-    document_type: ffi::DocumentType,
+    document_type: DocumentType,
 ) -> *mut RedisSearchDiskIndexSpec {
     // Handle null pointer case (when open failed)
     // Safety: See safety point 2 above.
@@ -114,8 +115,11 @@ extern "C" fn index_spec_open(
         let slice = std::slice::from_raw_parts(index_name.cast::<u8>(), index_name_len);
         match std::str::from_utf8(slice) {
             Ok(s) => s.to_string(),
-            Err(e) => {
-                debug!("index_name is not valid UTF-8: {e}");
+            Err(error) => {
+                error!(
+                    error = &error as &dyn std::error::Error,
+                    "index_name is not valid UTF-8"
+                );
                 return std::ptr::null_mut();
             }
         }
@@ -135,10 +139,10 @@ extern "C" fn index_spec_open(
         }
     };
 
-    debug!(index_name, document_type, "opening index spec");
+    debug!(index_name, %document_type, "opening index spec");
     IndexSpec::new(
         index_name,
-        document_type.into(),
+        document_type,
         search_disk.database(),
         doc_table_cf_name,
         inverted_index_cf_name,
@@ -182,15 +186,18 @@ extern "C" fn index_spec_index_doc(
         let slice = std::slice::from_raw_parts(term.cast::<u8>(), term_len);
         match std::str::from_utf8(slice) {
             Ok(s) => s.to_string(),
-            Err(e) => {
-                debug!("term is not valid UTF-8: {e}");
+            Err(error) => {
+                error!(
+                    error = &error as &dyn std::error::Error,
+                    "term is not valid UTF-8"
+                );
                 return false;
             }
         }
     };
     // Safety: see safety point 1 above.
     let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
-        debug!("index pointer is null");
+        error!("index pointer is null");
         return false;
     };
 
@@ -228,15 +235,18 @@ extern "C" fn index_spec_put_doc(
 
     // Safety: see safety point 1 above.
     let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
-        debug!("index pointer is null");
+        error!("index pointer is null");
         return INVALID_DOC_ID;
     };
 
     index
         .doc_table()
         .insert_document(key, score, flags, max_freq)
-        .unwrap_or_else(|err| {
-            debug!("failed to insert document: {err}");
+        .unwrap_or_else(|error| {
+            error!(
+                error = &error as &dyn std::error::Error,
+                "failed to insert document"
+            );
             INVALID_DOC_ID
         })
 }
@@ -258,8 +268,11 @@ extern "C" fn index_spec_new_term_iterator(
         let slice = std::slice::from_raw_parts(term.cast::<u8>(), term_len);
         match std::str::from_utf8(slice) {
             Ok(s) => s,
-            Err(e) => {
-                debug!("term is not valid UTF-8: {e}");
+            Err(error) => {
+                error!(
+                    error = &error as &dyn std::error::Error,
+                    "term is not valid UTF-8"
+                );
                 return std::ptr::null_mut();
             }
         }
@@ -269,7 +282,7 @@ extern "C" fn index_spec_new_term_iterator(
 
     // Safety: see safety point 1 above.
     let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
-        debug!("index pointer is null");
+        error!("index pointer is null");
         return std::ptr::null_mut();
     };
 
@@ -300,7 +313,7 @@ extern "C" fn index_spec_new_wildcard_iterator(
 
     // Safety: see safety point 1 above.
     let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
-        debug!("index pointer is null");
+        error!("index pointer is null");
         return std::ptr::null_mut();
     };
 
@@ -328,7 +341,7 @@ extern "C" fn index_spec_is_doc_id_deleted(
 
     // Safety: see safety point 1 above.
     let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
-        debug!("index pointer is null");
+        error!("index pointer is null");
         return false;
     };
 
@@ -357,12 +370,12 @@ extern "C" fn index_spec_get_document_metadata(
     // Safety: see safety point 2 above.
     let dmd = unsafe { &mut *dmd };
     let Some(allocate_key) = allocate_key else {
-        debug!("allocate_key callback is None");
+        error!("allocate_key callback is None");
         return false;
     };
     // Safety: see safety point 1 above.
     let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
-        debug!("index pointer is null");
+        error!("index pointer is null");
         return false;
     };
 
@@ -383,7 +396,7 @@ extern "C" fn index_spec_get_document_metadata(
     dmd.score = doc_table_dmd.score;
     dmd.set_maxFreq(doc_table_dmd.max_freq);
     dmd.set_flags(doc_table_dmd.flags);
-    dmd.set_type(doc_table.document_type() as ffi::DocumentType);
+    dmd.set_type(doc_table.document_type());
 
     true
 }

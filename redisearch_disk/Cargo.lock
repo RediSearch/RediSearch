@@ -485,6 +485,7 @@ dependencies = [
  "bindgen 0.72.1",
  "build_utils",
  "cc",
+ "document",
  "workspace_hack",
 ]
 
