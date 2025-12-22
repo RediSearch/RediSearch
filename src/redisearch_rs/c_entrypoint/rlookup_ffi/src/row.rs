@@ -153,9 +153,9 @@ pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
 /// # Safety
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
-/// 2. The memory pointed to by `name` must contain a valid nul terminator at the
+/// 2. The memory pointed to by `name` must contain a valid null terminator at the
 ///    end of the string.
-/// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
+/// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
 ///    This means in particular:
 ///     1. `name_len` must be same as `strlen(name)`
 ///     2. The entire memory range of this cstr must be contained within a single allocation!
@@ -207,9 +207,9 @@ pub unsafe extern "C" fn RLookupRow_WriteByName(
 /// # Safety
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
-/// 2. The memory pointed to by `name` must contain a valid nul terminator at the
+/// 2. The memory pointed to by `name` must contain a valid null terminator at the
 ///    end of the string.
-/// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
+/// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
 ///    This means in particular:
 ///     1. `name_len` must be same as `strlen(name)`
 ///     2. The entire memory range of this cstr must be contained within a single allocation!
