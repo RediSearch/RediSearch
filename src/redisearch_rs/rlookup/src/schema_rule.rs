@@ -11,7 +11,7 @@ use std::ffi::{CStr, c_char};
 
 use crate::RLookupKey;
 
-/// A safe wrapper around a pointer to a `SchemaRule`, the underlying pointer is [NonNull].
+/// A safe wrapper around a pointer to a `SchemaRule`, the underlying pointer is non-null.
 ///
 /// # Safety
 ///
