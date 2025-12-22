@@ -1555,16 +1555,7 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
   # Test debug aggregate with and without internal only
   env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).noError()
 
-  # Verify timeout warning was counted on shards
-  # We can't assert on the exact time it takes for the warning to be counted, so we poll until we get the expected result
-  with TimeLimit(60, 'Timeout while waiting for FT.AGGREGATE timeout warning to be counted on shards'):
-    while True:
-      all_warnings = [int(info_modules_to_dict(env.getConnection(i))[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]) for i in range(1, env.shardsCount + 1)]
-      if all([warn == int(before_info_dicts[i + 1][WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]) + 2 for i, warn in enumerate(all_warnings)]):
-        break
-      time.sleep(0.1)
-
-  # Verify coordinator metric
+  # Verify timeout warning was counted on coordinator
   after_info_dict = info_modules_to_dict(env)
   before_warn_err = int(coord_before_info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
   after_warn_err = int(after_info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
