@@ -383,25 +383,21 @@ int getNextReply(RPNet *nc) {
     rows = MRReply_ArrayElement(root, 0);
   }
 
+  nc->current.root = root;
+  nc->current.rows = rows;
+  nc->current.meta = meta;
+
   const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
   RS_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY);
   if (MRReply_Length(rows) <= empty_rows_len) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
     int ret = setWarnings(nc, nc->cmd.protocol == 3);
-    MRReply_Free(root);
-    RPNet_resetCurrent(nc);
 
     if (ret == RS_RESULT_TIMEDOUT) {
       return RS_RESULT_TIMEDOUT;
     }
-    root = NULL;
-    rows = NULL;
-    meta = NULL;
   }
 
-  nc->current.root = root;
-  nc->current.rows = rows;
-  nc->current.meta = meta;
   return RS_RESULT_OK;
 }
 
@@ -512,7 +508,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
         return RS_RESULT_TIMEDOUT;
       }
 
-    root = rows = NULL;
+      root = rows = NULL;
     }
   }
 
