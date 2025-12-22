@@ -71,6 +71,7 @@ pub enum QueryErrorCode {
     WeightNotAllowed,
     VectorNotAllowed,
     OutOfMemory,
+    UnavailableSlots,
 }
 
 impl Debug for QueryErrorCode {
@@ -149,6 +150,7 @@ impl QueryErrorCode {
             Self::WeightNotAllowed => c"SEARCH_WEIGHT_NOT_ALLOWED: Weight attributes are not allowed",
             Self::VectorNotAllowed => c"SEARCH_VECTOR_NOT_ALLOWED: Vector queries are not allowed",
             Self::OutOfMemory => c"SEARCH_OOM: Not enough memory available to execute the query",
+            Self::UnavailableSlots => c"SEARCH_UNAVAILABLE_SLOTS: Query requires unavailable slots",
         }
     }
 }
@@ -214,7 +216,45 @@ impl QueryError {
     }
 
     pub fn clear(&mut self) {
-        *self = Self::default();
+        self.code = QueryErrorCode::default();
+        self.private_message = None;
+        self.public_message = None;
+    }
+}
+
+// Enum for query warnings
+// Unlike QueryErrorCode, this enum is not tied to any API or string mapping.
+// Its current purpose is only to serve as a lightweight identifier that can
+// be passed to functions and easily handled via switch/case logic.
+/// cbindgen:prefix-with-name
+/// cbindgen:rename-all=ScreamingSnakeCase
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum QueryWarningCode {
+    #[default]
+    Ok = 0,
+    TimedOut,
+    ReachedMaxPrefixExpansions,
+    OutOfMemoryShard,
+    OutOfMemoryCoord,
+}
+
+impl QueryWarningCode {
+    pub const fn is_ok(self) -> bool {
+        matches!(self, Self::Ok)
+    }
+    pub const fn to_c_str(self) -> &'static CStr {
+        match self {
+            Self::Ok => c"Success (not a warning)",
+            Self::TimedOut => c"SEARCH_TIMEOUT: Timeout limit was reached",
+            Self::ReachedMaxPrefixExpansions => c"SEARCH_PREFIX_EXPANSIONS_LIMIT: Max prefix expansions limit was reached",
+            Self::OutOfMemoryShard => {
+                c"SEARCH_OOM_SHARD: Shard failed to execute the query due to insufficient memory"
+            }
+            Self::OutOfMemoryCoord => {
+                c"SEARCH_OOM_COORD: One or more shards failed to execute the query due to insufficient memory"
+            }
+        }
     }
 }
 
