@@ -335,7 +335,7 @@ def translate_hybrid_query(hybrid_query, vector_blob, index_name):
     Returns:
         list: Command parts for redis_client.execute_command
     """
-    cmd = f'FT.HYBRID {index_name} {hybrid_query}'
+    cmd = f'FT.HYBRID {index_name} 2 {hybrid_query}'
     # Split into command parts, keeping single quoted strings together
     command_parts = [p for p in re.split(r" (?=(?:[^']*'[^']*')*[^']*$)", cmd) if p]
     # Remove single quotes from command parts
