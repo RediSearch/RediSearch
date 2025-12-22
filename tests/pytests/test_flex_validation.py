@@ -19,3 +19,17 @@ def test_flex_max_index_limit(env):
     # Try to create the 11th index - this should fail
     env.expect('FT.CREATE', 'idx10', 'ON', 'HASH', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Max number of indexes reached for Flex indexes: 10')
+
+
+def test_invalid_field_type(env):
+    """Test that creating an index with an invalid field type fails when search-_simulate-in-flex is true"""
+    # Set the simulate-in-flex configuration to true
+    env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'field', 'TAG') \
+        .error().contains('TAG fields are not supported in Flex indexes')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'field', 'GEO') \
+        .error().contains('GEO fields are not supported in Flex indexes')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'field', 'GEOSHAPE') \
+        .error().contains('GEOSHAPE fields are not supported in Flex indexes')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'field', 'VECTOR') \
+        .error().contains('VECTOR fields are not supported in Flex indexes')
