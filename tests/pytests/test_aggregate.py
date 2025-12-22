@@ -1522,3 +1522,63 @@ def testeAggregateBadApplyFunction(env):
 
 #         env.assertNotEqual(res_withoutcount[0], res_withcount[0])
 #         env.assertEqual(res_withoutcount[1:], res_withcount[1:])
+
+
+class TestEmptyReplyWarnings:
+    """
+    Tests for MOD-12640: Coordinator should propagate warnings from empty shard replies.
+
+    Before the fix, when shards returned empty results with a timeout warning,
+    the coordinator ignored the warning. After the fix, processWarningsAndCleanup()
+    is called for empty replies, returning RS_RESULT_TIMEDOUT, which propagates
+    the timeout to the coordinator.
+    """
+
+    def __init__(self):
+        # Cluster mode, RESP3
+        self.env = Env(protocol=3)
+        skipTest(cluster=False)
+        # Create simple index
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+        # Add docs so shards have data (but TIMEOUT_AFTER_N 0 will return empty)
+        conn = getConnectionByEnv(self.env)
+        for i in range(20):
+            conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+
+    def testEmptyReplyTimeoutWarningAggregate(self):
+        """
+        Test 1: Empty reply with timeout warning - FT.AGGREGATE
+
+        TIMEOUT_AFTER_N 0 INTERNAL_ONLY causes shards to return empty + timeout warning.
+        Verify the warning is propagated to the response.
+        """
+        query = ['FT.AGGREGATE', 'idx', '*', 'TIMEOUT', 0]
+        res = runDebugQueryCommandTimeoutAfterN(self.env, query, 0, internal_only=True)
+
+        # Should have 0 results
+        self.env.assertEqual(len(res['results']), 0,
+                             message="Expected 0 results with TIMEOUT_AFTER_N 0")
+        # Should have timeout warning (propagated from shards via the fix)
+        VerifyTimeoutWarningResp3(self.env, res,
+                                  message="Empty reply should propagate timeout warning")
+
+    def testEmptyReplyTimeoutWarningProfileAggregate(self):
+        """
+        Test 2: Empty reply with timeout warning - FT.PROFILE AGGREGATE
+
+        Verify coordinator gets timeout from shard's empty reply.
+        Before MOD-12640 fix: Coordinator wouldn't get timeout from empty shard replies.
+        After MOD-12640 fix: processWarningsAndCleanup returns RS_RESULT_TIMEDOUT,
+        which sets req->has_timedout, so coordinator profile shows timeout.
+        """
+        query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT', 0]
+        res = runDebugQueryCommandTimeoutAfterN(self.env, query, 0, internal_only=True)
+
+        # Results should have timeout warning
+        VerifyTimeoutWarningResp3(self.env, res['Results'],
+                                  message=f"Results should have timeout warning, res: {res}")
+
+        # Coordinator SHOULD have timeout warning (propagated via RS_RESULT_TIMEDOUT)
+        coord_warning = res['Profile']['Coordinator']['Warning']
+        self.env.assertContains('Timeout', coord_warning,
+                                message=f"Coordinator should have timeout warning from shard's empty reply, res: {res}")
