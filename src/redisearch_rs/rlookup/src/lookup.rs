@@ -1259,11 +1259,69 @@ impl<'a> RLookup<'a> {
         key: &CStr,
     ) -> i32 {
         unsafe {
-            let rule = spec.rule;
-            let nkeys = (*rule).filter_fields;
+            //         let rule = spec.rule;
+            //         let nkeys = 10; //(*rule).filter_fields;
+
+            //         let keys = (0..nkeys)
+            //             .map(|i| {
+            //                     let idx = rule.filter_fields_index[i];
+
+            //                         let new_key = if (idx == -1) {
+            //     createNewKey(it, rule.filter_fields[i], strlen(rule.filter_fields[i]), RLOOKUP_F_NOFLAGS);
+
+            // } else {
+            // let fs = spec.fields + idx;
+            // let mut length = 0;
+            // let name = ffi::HiddenString_GetUnsafe(fs.fieldName, &length);
+
+            // let new_new_key= createNewKey(it, name, length, RLOOKUP_F_NOFLAGS);
+            // new_new_key.path = ffi::HiddenString_GetUnsafe(fs.fieldPath, NULL);
+            // new_new_key
+
+            // }
+
+            //             })
+            //             .collect::<Vec<_>>();
         }
 
         0
+    }
+}
+
+#[allow(
+    clippy::missing_safety_doc,
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::undocumented_unsafe_blocks
+)]
+fn createNewKey<'a>(
+    lookup: &mut RLookup<'a>,
+    name: &'a CStr,
+    flags: RLookupKeyFlags,
+) -> Option<NonNull<RLookupKey<'a>>> {
+    unsafe {
+        let mut key = RLookupKey::new(lookup, name, flags);
+        //   ret->dstidx = lookup->rowlen;
+        key.dstidx = lookup
+            .header
+            .keys
+            .rowlen
+            .try_into()
+            .expect("rowlen must not exceed u16");
+        let wrapped_key = Some((&key).into());
+
+        let keys = &mut lookup.header.keys;
+        if keys.head.is_none() {
+            keys.head = wrapped_key;
+            keys.tail = wrapped_key;
+        } else {
+            keys.tail.unwrap().as_mut().next = wrapped_key.into();
+            keys.tail = wrapped_key;
+        }
+
+        // Increase the RLookup table row length. (all rows have the same length).
+        keys.rowlen += 1;
+
+        wrapped_key
     }
 }
 
