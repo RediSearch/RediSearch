@@ -93,6 +93,7 @@
   } while(0);
 
 #define CEIL_DIV(a, b) ((a + b - 1) / b)
+#define FLEX_MAX_INDEX_COUNT 10
 
 extern RSConfig RSGlobalConfig;
 
@@ -571,6 +572,13 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return RedisModule_ReplyWithError(ctx, "Cannot create index on db != 0");
   }
   QueryError status = QueryError_Default();
+
+  if (isFlex && Indexes_Count() >= FLEX_MAX_INDEX_COUNT) {
+    QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_INVALID_FLEX, "Max number of indexes reached for Flex indexes: %zu", FLEX_MAX_INDEX_COUNT);
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+    QueryError_ClearError(&status);
+    return REDISMODULE_OK;
+  }
 
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
   if (sp == NULL) {
