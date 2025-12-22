@@ -500,7 +500,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // RESP2: [ num_results, [ field, value, ... ], ... ]
   // RESP3: [ { field: value, ... }, ... ]
 
-  // can also get an empty row: // is it?
+  // can also get an empty row:
   // RESP2: [] or [ 0 ]
   // RESP3: {}
 
