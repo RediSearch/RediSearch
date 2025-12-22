@@ -173,7 +173,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByName(
     value: Option<NonNull<ffi::RSValue>>,
 ) {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { lookup.expect("lookup must not be null").as_mut() };
 
     // Safety: ensured by caller (2., 3.)
     let name = unsafe {
@@ -181,14 +181,14 @@ pub unsafe extern "C" fn RLookupRow_WriteByName(
         // include the null terminator (that is why we do `name_len + 1` below)
         let bytes = { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) };
 
-        CStr::from_bytes_with_nul(bytes).unwrap()
+        CStr::from_bytes_with_nul(bytes).expect("unable to create cstr from name")
     };
 
     // Safety: ensured by caller (4.)
-    let row = unsafe { row.unwrap().as_mut() };
+    let row = unsafe { row.expect("row must not be null").as_mut() };
 
     // Safety: ensured by caller (5.)
-    let value = unsafe { RSValueFFI::from_raw(value.unwrap()) };
+    let value = unsafe { RSValueFFI::from_raw(value.expect("value must not be null")) };
 
     // In order to increase the refcount, we first clone `value` (which increases the refcount)
     // and move the clone into the function.
@@ -227,7 +227,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned(
     value: Option<NonNull<ffi::RSValue>>,
 ) {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { lookup.expect("lookup must not be null").as_mut() };
 
     // Safety: ensured by caller (2., 3.)
     let name = unsafe {
@@ -235,14 +235,14 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned(
         // include the null terminator (that is why we do `name_len + 1` below)
         let bytes = { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) };
 
-        CStr::from_bytes_with_nul(bytes).unwrap()
+        CStr::from_bytes_with_nul(bytes).expect("unable to create cstr from name")
     };
 
     // Safety: ensured by caller (4.)
-    let row = unsafe { row.unwrap().as_mut() };
+    let row = unsafe { row.expect("row must not be null").as_mut() };
 
     // Safety: ensured by caller (5.)
-    let value = unsafe { RSValueFFI::from_raw(value.unwrap()) };
+    let value = unsafe { RSValueFFI::from_raw(value.expect("value must not be null")) };
 
     // 'value' is moved directly into the function without affecting its refcount.
     row.write_key_by_name(lookup, name, value);
