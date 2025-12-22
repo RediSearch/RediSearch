@@ -732,7 +732,7 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterVectorField) {
 TEST_F(ParseHybridTest, testMissingSearchArgument) {
   // Missing SEARCH argument: FT.HYBRID <index> VSIM @vector_field
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ESYNTAX, "SEARCH argument is required");
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid subqueries count: expected an unsigned integer");
 }
 
 TEST_F(ParseHybridTest, testMissingQueryStringAfterSearch) {
@@ -1277,3 +1277,39 @@ TEST_F(ParseHybridTest, testSortbyNotEnoughArguments) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "SORTBY", "2", "title");
   testErrorCode(args, QUERY_EPARSEARGS, "SORTBY: Not enough arguments were provided based on argument count");
 }
+
+// ============================================================================
+// HYBRID SUBQUERIES COUNT ERROR TESTS
+// ============================================================================
+
+TEST_F(ParseHybridTest, testHybridSubqueriesCountMissing) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str());
+  testErrorCode(args, QUERY_EPARSEARGS, "Missing subqueries count for FT.HYBRID");
+}
+
+TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalid) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "INVALID_COUNT", "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "2");
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid subqueries count: expected an unsigned integer");
+}
+
+TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalidThree) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "3" ,"SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "2");
+  testErrorCode(args, QUERY_EPARSEARGS, "FT.HYBRID currently supports only two subqueries");
+}
+
+TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalidOne) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "1" ,"SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "2");
+  testErrorCode(args, QUERY_EPARSEARGS, "FT.HYBRID currently supports only two subqueries");
+}
+
+TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalidRange) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "0" ,"SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "2");
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid subqueries count: expected an unsigned integer");
+}
+
+TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalidKeyword) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "2", "INVALID_KEYWORD", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "2");
+  testErrorCode(args,  QUERY_ESYNTAX, "SEARCH keyword is required");
+}
+
+
