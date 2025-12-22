@@ -190,7 +190,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     if (spec->diskSpec) {
       size_t len;
       const char *key = RedisModule_StringPtrLen(cur->doc->docKey, &len);
-      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len, cur->doc->score, cur->docFlags, cur->fwIdx->maxFreq);
+      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len, cur->doc->score, cur->docFlags, cur->fwIdx->maxFreq, cur->fwIdx->totalFreq);
       if (docId) {
         cur->doc->docId = docId;
       } else {

@@ -81,9 +81,10 @@ typedef struct DocTableDiskAPI {
    * @param score Document score (for ranking)
    * @param flags Document flags
    * @param maxFreq Maximum term frequency in the document
+   * @param totalFreq
    * @return New document ID, or 0 on error/duplicate
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxFreq);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxFreq, uint32_t totalFreq);
 
   /**
    * @brief Returns whether the docId is in the deleted set
