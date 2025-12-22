@@ -79,7 +79,7 @@ class TestEmptyReplyWarnings:
 @skip(cluster=False)
 def testEmptyReplyTimeoutResp2():
     """
-    RESP2 empty reply with timeout - verify handeled correctly.
+    RESP2 empty reply with timeout - verify handled correctly.
     """
     env = Env(protocol=2)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
