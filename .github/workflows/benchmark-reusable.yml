@@ -1,0 +1,188 @@
+name: Reusable Benchmark Workflow
+
+on:
+  workflow_call:
+    inputs:
+      checkout-ref:
+        description: 'Git ref to checkout (branch, tag, or commit)'
+        required: false
+        type: string
+        default: ''
+      baseline-name:
+        description: 'Baseline name to save the baseline as'
+        required: false
+        type: string
+        default: 'current'
+      candidate-name:
+        description: 'Candidate name to compare against (empty to skip)'
+        required: false
+        type: string
+        default: 'rust'
+      fail-on-regression:
+        description: 'Whether to fail on regression'
+        required: false
+        type: boolean
+        default: true
+      save-baseline:
+        description: 'Whether to save the baseline to cache'
+        required: false
+        type: boolean
+        default: false
+      comparison-title:
+        description: 'Title for the comparison summary'
+        required: false
+        type: string
+        default: 'Benchmark Comparison'
+      skip-secrets-check:
+        description: 'Skip checking for secrets (for nightly runs)'
+        required: false
+        type: boolean
+        default: false
+      cache-date:
+        description: 'Date to use for cache key (YYYY-MM-DD format, for nightly runs)'
+        required: false
+        type: string
+        default: ''
+    outputs:
+      regression-detected:
+        description: 'Whether a performance regression was detected'
+        value: ${{ jobs.run-benchmarks.outputs.regression }}
+
+jobs:
+  run-benchmarks:
+    name: Run Benchmarks
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    outputs:
+      regression: ${{ steps.run-bench.outputs.regression-detected }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    permissions:
+      contents: read
+      actions: write  # Required for cache operations
+    steps:
+      # Check if secrets are available (skip for nightly)
+      - name: Check if secrets are available
+        if: inputs.skip-secrets-check == false
+        id: check-secrets
+        env:
+          GH_CI_PRIVATE_KEY: ${{ secrets.GH_CI_PRIVATE_KEY }}
+        run: |
+          if [ -z "$GH_CI_PRIVATE_KEY" ]; then
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Secrets not available (likely a fork PR). Skipping benchmarks." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "available=true" >> $GITHUB_OUTPUT
+          fi
+
+      # Set secrets-ok flag
+      - name: Set secrets status
+        id: secrets-status
+        env:
+          SKIP_SECRETS_CHECK: ${{ inputs.skip-secrets-check }}
+          SECRETS_AVAILABLE: ${{ steps.check-secrets.outputs.available }}
+        run: |
+          if [ "$SKIP_SECRETS_CHECK" == "true" ]; then
+            echo "ok=true" >> $GITHUB_OUTPUT
+          else
+            echo "ok=$SECRETS_AVAILABLE" >> $GITHUB_OUTPUT
+          fi
+
+      # Generate repo App token
+      - name: Generate GitHub App token
+        if: steps.secrets-status.outputs.ok == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.GH_CI_APP_ID }}
+          private-key: ${{ secrets.GH_CI_PRIVATE_KEY }}
+          owner: redislabsdev
+          repositories: |
+            Redis
+            RediSearchDisk
+            rust-speedb
+            speedb-ent
+
+      # Checkout repository
+      - name: Checkout repository (with submodules)
+        if: steps.secrets-status.outputs.ok == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout-ref }}
+          submodules: recursive
+          token: ${{ steps.app-token.outputs.token }}
+
+      # Setup Rust toolchain
+      - name: Setup Rust toolchain
+        if: steps.secrets-status.outputs.ok == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      # Install critcmp
+      - name: Install critcmp
+        if: steps.secrets-status.outputs.ok == 'true'
+        run: cargo install critcmp
+
+      # Restore cached baseline
+      # For nightly runs: tries to restore exact date match first
+      # For PR runs: no exact match (cache-date is empty), uses restore-keys to find most recent
+      # The restore-keys pattern ensures we always get the most recent baseline
+      - name: Restore benchmark baseline from cache
+        if: steps.secrets-status.outputs.ok == 'true' && inputs.baseline-name != ''
+        id: cache-baseline
+        uses: actions/cache/restore@v4
+        with:
+          path: redisearch_disk/target/criterion
+          key: benchmark-baseline-${{ inputs.baseline-name }}-${{ inputs.cache-date }}
+          restore-keys: |
+            benchmark-baseline-${{ inputs.baseline-name }}-
+
+      # Run benchmarks and compare
+      - name: Run benchmarks
+        if: steps.secrets-status.outputs.ok == 'true'
+        id: run-bench
+        uses: ./.github/actions/run-benchmarks
+        with:
+          candidate-name: ${{ inputs.candidate-name }}
+          baseline-name: ${{ inputs.baseline-name }}
+          fail-on-regression: ${{ inputs.fail-on-regression }}
+          comparison-title: ${{ inputs.comparison-title }}
+
+      # Rename baseline if saving
+      - name: Rename baseline for caching
+        if: steps.secrets-status.outputs.ok == 'true' && inputs.save-baseline
+        working-directory: redisearch_disk
+        env:
+          CANDIDATE_NAME: ${{ inputs.candidate-name }}
+          BASELINE_NAME: ${{ inputs.baseline-name }}
+        run: |
+          # Only rename if baseline-name and candidate-name are different
+          if [ "$BASELINE_NAME" != "$CANDIDATE_NAME" ]; then
+            # Remove old baseline if it exists
+            rm -rf "target/criterion/$BASELINE_NAME"
+            # Rename the current baseline
+            mv "target/criterion/$CANDIDATE_NAME" "target/criterion/$BASELINE_NAME"
+          else
+            echo "Baseline name and compare-against are the same ($BASELINE_NAME), skipping rename"
+          fi
+
+      # Save baseline to cache
+      # Only nightly runs save baselines with date-based keys (e.g., benchmark-baseline-rust-2025-12-16)
+      # PR runs never save (save-baseline: false), they only restore and compare
+      - name: Save benchmark baseline to cache
+        if: steps.secrets-status.outputs.ok == 'true' && inputs.save-baseline
+        uses: actions/cache/save@v4
+        with:
+          path: redisearch_disk/target/criterion
+          key: benchmark-baseline-${{ inputs.baseline-name }}-${{ inputs.cache-date }}
+
+      # Upload benchmark results as artifacts
+      - name: Upload benchmark results
+        if: steps.secrets-status.outputs.ok == 'true' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: redisearch_disk/target/criterion/
+          retention-days: 30
+
+
+

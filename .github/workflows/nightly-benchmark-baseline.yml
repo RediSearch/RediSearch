@@ -1,0 +1,85 @@
+name: Nightly Benchmark Baseline
+
+on:
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  # Generate date for cache key
+  set-date:
+    runs-on: ubuntu-latest
+    outputs:
+      date: ${{ steps.set-date.outputs.date }}
+    steps:
+      - name: Set cache date
+        id: set-date
+        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+  generate-baseline:
+    needs: set-date
+    uses: ./.github/workflows/benchmark-reusable.yml
+    with:
+      checkout-ref: 'rust'
+      candidate-name: 'rust-nightly'
+      baseline-name: 'rust'
+      fail-on-regression: false
+      save-baseline: true
+      comparison-title: 'Nightly Benchmark Comparison'
+      skip-secrets-check: true
+      cache-date: ${{ needs.set-date.outputs.date }}
+    secrets: inherit
+
+  # Notify Slack if regression detected
+  notify-regression:
+    needs: generate-baseline
+    if: needs.generate-baseline.outputs.regression-detected == 'true'
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    steps:
+      - name: Notify Slack about regression
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "⚠️ Nightly Benchmark Regression Detected",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "⚠️ Nightly Benchmark Regression Detected"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Repository:* ${{ github.repository }}\n*Branch:* ${{ github.ref_name }}\n*Commit:* <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "One or more benchmarks are >10% slower than the previous nightly baseline."
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Workflow Run"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_NIGHTLY_FAILED }}
+

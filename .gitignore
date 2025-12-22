@@ -23,11 +23,6 @@
 VSCODE.DB*
 callgrind.out.*
 **/.ipynb_checkpoints/
-/tests/logs/
-/tests/pytests/logs/
-/deps/RedisJSON/
-/1/
-/.install/boost*
 
 # CMake generated files
 cmake_install.cmake
@@ -49,9 +44,5 @@ CMakeFiles/
 **/Makefile
 !**/CMakeLists.txt
 
-# Dependency directories that might be generated
-deps/readies/
-hiredis/
-
-# Manual benchmark results
-tests/benchmarks/manual/
+# Added by cargo
+target/

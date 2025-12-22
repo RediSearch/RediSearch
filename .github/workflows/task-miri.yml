@@ -1,0 +1,57 @@
+name: Miri
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  miri:
+    name: Test with Miri (Undefined Behavior Detection)
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    permissions:
+      contents: read
+
+    steps:
+      # Generate repo App token for private submodules
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.GH_CI_APP_ID }}
+          private-key: ${{ secrets.GH_CI_PRIVATE_KEY }}
+          owner: redislabsdev
+          repositories: |
+            Redis
+            RediSearchDisk
+            rust-speedb
+            speedb-ent
+
+      # Checkout repository with submodules (needed for Cargo.toml dependencies)
+      - name: Checkout repository (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ steps.app-token.outputs.token }}
+
+      # Install Rust nightly toolchain with Miri
+      - name: Install Rust nightly with Miri
+        run: |
+          rustup toolchain install nightly --component miri
+          rustup default nightly
+
+      # Build the module to get the static libraries needed for the tests
+      - name: Build
+        run: ./build.sh build
+
+      # Run Miri tests
+      # Note: Most tests will be skipped because they use FFI (RocksDB, Redis module API)
+      # Miri only tests pure Rust code for undefined behavior
+      - name: Test with Miri (no FFI)
+        run: ./build.sh test-miri
+        env:
+          MIRIFLAGS: "-Zmiri-disable-isolation -Zmiri-backtrace=full"
+

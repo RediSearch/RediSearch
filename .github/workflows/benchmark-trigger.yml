@@ -1,0 +1,26 @@
+# Entry point for benchmark workflows - triggers benchmarks when PRs are labeled with 'action:run-benchmark'
+# or when PRs with that label are updated. Acts as a gatekeeper to control when expensive benchmarks run.
+name: Benchmark
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  pull_request:
+   types: [opened, reopened, synchronize, labeled] # Default ([opened, reopened, synchronize]) + labeled
+
+jobs:
+  perf-ci:
+    name: Trigger Benchmarks
+    if: >
+      (
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'action:run-benchmark'
+      ) || (
+        contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action) &&
+        contains(github.event.pull_request.labels.*.name, 'action:run-benchmark')
+      )
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.number }}-benchmark
+      cancel-in-progress: true
+    uses: ./.github/workflows/benchmark-runner.yml
+    secrets: inherit

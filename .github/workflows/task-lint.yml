@@ -1,0 +1,46 @@
+name: Lint
+
+on:
+  workflow_call:
+
+jobs:
+  ci:
+    name: Lint on Ubuntu
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    permissions:
+      contents: read
+    steps:
+      # Generate repo App token
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.GH_CI_APP_ID }}
+          private-key: ${{ secrets.GH_CI_PRIVATE_KEY }}
+          owner: redislabsdev
+          repositories: |
+            Redis
+            RediSearchDisk
+            rust-speedb
+            speedb-ent
+
+      # Full checkout, with the above token for private repos (and current)
+      - name: Checkout repository (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Install Clippy and Rustfmt
+        run: rustup component add clippy rustfmt
+
+      # Lint the module
+      - name: Lint
+        env:
+          # NOTE(enricozb): a hack so colors are actually shown in CI
+          # see: https://github.com/rust-lang/rustfmt/issues/3385
+          TERM: xterm-256color
+        run: ./build.sh lint

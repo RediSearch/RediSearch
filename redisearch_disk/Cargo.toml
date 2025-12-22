@@ -1,0 +1,67 @@
+[package]
+name = "redisearch_disk"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+# feature enabled when building tests so they can link on the C code in build.rs
+# see https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
+unittest = []
+
+[dependencies]
+document = { path = "../deps/RediSearch/src/redisearch_rs/document" }
+ffi = { path = "../deps/RediSearch/src/redisearch_rs/ffi" }
+inverted_index = { path = "../deps/RediSearch/src/redisearch_rs/inverted_index" }
+roaring = "0.10"
+rqe_iterators = { path = "../deps/RediSearch/src/redisearch_rs/rqe_iterators" }
+rqe_iterators_interop = { path = "../deps/RediSearch/src/redisearch_rs/rqe_iterators_interop" }
+speedb = { path = "../deps/rust-speedb" }
+tracing = "0.1.42"
+
+[dev-dependencies]
+redis_mock = { path = "../deps/RediSearch/src/redisearch_rs/redis_mock" }
+tempfile = "3.23.0"
+criterion = "0.5"
+
+[[bench]]
+name = "document_id_key"
+harness = false
+
+[[bench]]
+name = "document_metadata"
+harness = false
+
+[[bench]]
+name = "inverted_index"
+harness = false
+
+[build-dependencies]
+build_utils = { path = "../deps/RediSearch/src/redisearch_rs/build_utils" }
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+# Disable running benchmarks on the library itself - we only want to run
+# the benchmark binaries in benches/ directory
+bench = false
+
+[lints.clippy]
+# `unsafe` pushes on you, the developer, the responsibility
+# to uphold invariants that the compiler cannot verify via static analysis.
+# We therefore require documentation in two locations:
+# - When defining `unsafe` functions, we must document what preconditions
+#   must be met to use the function safely (i.e. without causing undefined behavior)
+#   This is caught by the `clippy::missing_safety_doc` lint, which is `warn`
+#   by default.
+# - When invoking `unsafe` functions, we must document why the preconditions
+#   are met. This is caught by the `clippy::undocumented_unsafe_blocks` lint,
+#   which is `allow` by default and we're raising to `warn` here.
+# Without this documentation it is significantly harder to reason about the
+# safety of the code.
+undocumented_unsafe_blocks = "warn"
+# Each unsafe operation has different preconditions and postconditions.
+# By wrapping each unsafe operation in its own block, we can ensure that
+# each operation is used safely and that the preconditions and postconditions
+# are met.
+# We can also more easily track the amount of unsafe operations throughout
+# the codebase.
+multiple_unsafe_ops_per_block = "warn"

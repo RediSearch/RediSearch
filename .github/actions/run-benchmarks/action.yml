@@ -1,0 +1,142 @@
+name: 'Run Benchmarks'
+description: 'Run micro benchmarks and optionally compare against baseline'
+
+inputs:
+  candidate-name:
+    description: 'Name to save the benchmark as (e.g., "current", "rust")'
+    required: true
+  baseline-name:
+    description: 'Baseline to compare against (empty to skip comparison)'
+    required: false
+    default: ''
+  fail-on-regression:
+    description: 'Whether to fail the workflow on regression'
+    required: false
+    default: 'true'
+  comparison-title:
+    description: 'Title for the comparison summary'
+    required: false
+    default: 'Benchmark Comparison'
+
+outputs:
+  regression-detected:
+    description: 'Whether a performance regression was detected'
+    value: ${{ steps.compare.outputs.regression }}
+  baseline-found:
+    description: 'Whether a baseline was found for comparison'
+    value: ${{ steps.compare.outputs.baseline-found }}
+
+runs:
+  using: 'composite'
+  steps:
+    # Run benchmarks
+    - name: Run micro benchmarks
+      shell: bash
+      working-directory: redisearch_disk
+      env:
+        CANDIDATE_NAME: ${{ inputs.candidate-name }}
+      run: |
+        cargo bench --benches -- --save-baseline "$CANDIDATE_NAME"
+
+    # Compare results if baseline specified
+    - name: Compare benchmark results
+      id: compare
+      if: inputs.baseline-name != ''
+      shell: bash
+      working-directory: redisearch_disk
+      env:
+        BASELINE_NAME: ${{ inputs.baseline-name }}
+        CANDIDATE_NAME: ${{ inputs.candidate-name }}
+        COMPARISON_TITLE: ${{ inputs.comparison-title }}
+        FAIL_ON_REGRESSION: ${{ inputs.fail-on-regression }}
+      run: |
+        echo "## $COMPARISON_TITLE" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        # Check if baseline exists
+        if [ ! -d "target/criterion/$BASELINE_NAME" ]; then
+          echo "⚠️ No baseline found at target/criterion/$BASELINE_NAME" >> $GITHUB_STEP_SUMMARY
+          echo "baseline-found=false" >> $GITHUB_OUTPUT
+          echo "regression=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        echo "baseline-found=true" >> $GITHUB_OUTPUT
+        echo "Comparing against baseline: $BASELINE_NAME..." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        # Run critcmp and capture both output and exit status
+        set +e
+        critcmp "$BASELINE_NAME" "$CANDIDATE_NAME" > comparison.txt 2>&1
+        CRITCMP_EXIT=$?
+        set -e
+
+        # Check if critcmp succeeded
+        if [ $CRITCMP_EXIT -ne 0 ]; then
+          echo "❌ **critcmp failed to compare benchmarks**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat comparison.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "regression=false" >> $GITHUB_OUTPUT
+          if [ "$FAIL_ON_REGRESSION" == "true" ]; then
+            exit 1
+          else
+            exit 0
+          fi
+        fi
+
+        # Verify comparison.txt is not empty
+        if [ ! -s comparison.txt ]; then
+          echo "⚠️ **critcmp produced no output**" >> $GITHUB_STEP_SUMMARY
+          echo "regression=false" >> $GITHUB_OUTPUT
+          if [ "$FAIL_ON_REGRESSION" == "true" ]; then
+            exit 1
+          else
+            exit 0
+          fi
+        fi
+
+        # Display comparison results
+        cat comparison.txt >> $GITHUB_STEP_SUMMARY
+
+        # Check for regressions (>10% slower)
+        # Pattern matches:
+        # - +10.X% where X contains at least one non-zero digit (10.01%, 10.1%, 10.99%, etc.)
+        # - +11% through +19% (with or without decimals)
+        # - +20% through +99% (with or without decimals)
+        # - +100%+ (with or without decimals)
+        if grep -E '\+10\.0*[1-9][0-9]*%|\+1[1-9](\.[0-9]+)?%|\+[2-9][0-9](\.[0-9]+)?%|\+[1-9][0-9]{2,}(\.[0-9]+)?%' comparison.txt; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "❌ **Performance regression detected!**" >> $GITHUB_STEP_SUMMARY
+          echo "One or more benchmarks are >10% slower than the baseline." >> $GITHUB_STEP_SUMMARY
+          echo "regression=true" >> $GITHUB_OUTPUT
+          if [ "$FAIL_ON_REGRESSION" == "true" ]; then
+            exit 1
+          fi
+        else
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **No significant performance regressions detected.**" >> $GITHUB_STEP_SUMMARY
+          echo "regression=false" >> $GITHUB_OUTPUT
+        fi
+
+    # Show results if no comparison was done
+    - name: Show benchmark results (no comparison)
+      if: inputs.baseline-name == '' || steps.compare.outputs.baseline-found == 'false'
+      shell: bash
+      working-directory: redisearch_disk
+      env:
+        BASELINE_NAME: ${{ inputs.baseline-name }}
+        CANDIDATE_NAME: ${{ inputs.candidate-name }}
+      run: |
+        echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ "$BASELINE_NAME" == "" ]; then
+          echo "ℹ️ No baseline specified for comparison." >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ No baseline found. Skipping comparison." >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Current benchmark results:" >> $GITHUB_STEP_SUMMARY
+        critcmp "$CANDIDATE_NAME" >> $GITHUB_STEP_SUMMARY || true
+

@@ -1,16 +1,12 @@
-name: Task Tests
+name: Test
 
 on:
   workflow_call:
-  # Temporary - to be replaced with shared actions/workflows or something of
-  # that sort, since the organization secrets are not passed to the called workflow.
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
   ci:
     name: Test on Ubuntu with Redis-Flex
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -27,8 +23,9 @@ jobs:
           owner: redislabsdev
           repositories: |
             Redis
-            speedb-ent
             RediSearchDisk
+            rust-speedb
+            speedb-ent
 
       # Full checkout, with the above token for private repos (and current)
       - name: Checkout repository (with submodules)
@@ -58,28 +55,114 @@ jobs:
         run: |
           ${{ steps.mode.outputs.mode }} apt install -y liburing-dev
 
-      # Checkout private fork big redis branch
+      # Install Python test dependencies early
+      - name: Install Python test dependencies
+        working-directory: flow-tests
+        run: |
+          python3 -m pip install --break-system-packages -e .
+
+      # Free up disk space for the build
+      - name: Free Disk Space
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          # Remove unnecessary packages and files
+          ${{ steps.mode.outputs.mode }} apt-get clean
+          ${{ steps.mode.outputs.mode }} rm -rf /usr/share/dotnet
+          ${{ steps.mode.outputs.mode }} rm -rf /usr/local/lib/android
+          ${{ steps.mode.outputs.mode }} rm -rf /opt/ghc
+          ${{ steps.mode.outputs.mode }} rm -rf /opt/hostedtoolcache/CodeQL
+          ${{ steps.mode.outputs.mode }} docker system prune -af || true
+          echo "Disk space after cleanup:"
+          df -h
+
+      # Setup sccache for Rust compilation caching
+      # This action automatically handles GitHub Actions cache for sccache
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.8
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: "sccache"
+
+      # Checkout private fork big redis branch to get SHA for cache key
       - name: Checkout Redis with the app token
+        id: checkout-redis
         uses: actions/checkout@v4
         with:
           repository: redislabsdev/Redis
           path: Redis
           token: ${{ steps.app-token.outputs.token }}
-          fetch-depth: 0
-          ref: rl_big2_8.0
+          fetch-depth: 1
+          ref: rl_big2_8.4
+          submodules: recursive
 
-      # Build and install Redis
+      # Cache Redis compilation and bs_speedb.so library
+      # Cache to a temporary location since GitHub Actions can't restore directly to /usr/local
+      - name: Restore Cached Redis Installation
+        id: cache-redis
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/redis-cache
+          key: Redis-${{ runner.os }}-${{ steps.checkout-redis.outputs.commit }}
+
+      # Install cached Redis binaries (only if cache hit)
+      - name: Install cached Redis binaries
+        if: steps.cache-redis.outputs.cache-hit == 'true'
+        run: |
+          ${{ steps.mode.outputs.mode }} cp ~/redis-cache/redis-server /usr/local/bin/
+          ${{ steps.mode.outputs.mode }} cp ~/redis-cache/redis-cli /usr/local/bin/
+          ${{ steps.mode.outputs.mode }} cp ~/redis-cache/bs_speedb.so /usr/local/lib/
+          ${{ steps.mode.outputs.mode }} chmod +x /usr/local/bin/redis-server /usr/local/bin/redis-cli
+
+      # Build and install Redis (only if cache miss)
       - name: Build Redis (install)
+        if: steps.cache-redis.outputs.cache-hit != 'true'
         working-directory: Redis
         run: |
-          ${{ steps.mode.outputs.mode }} make install \
+          # Build Redis with speedb support
+          ${{ steps.mode.outputs.mode }} make install -j$(nproc) \
             BUILD_TLS=yes \
             SANITIZER=${{ env.SAN }}
+          # Copy bs_speedb.so to /usr/local/lib for runtime use
+          ${{ steps.mode.outputs.mode }} cp src/bs_speedb.so /usr/local/lib/
+          # Copy binaries to cache directory for saving
+          mkdir -p ~/redis-cache
+          cp /usr/local/bin/redis-server ~/redis-cache/
+          cp /usr/local/bin/redis-cli ~/redis-cache/
+          cp /usr/local/lib/bs_speedb.so ~/redis-cache/
 
-      # Build this module's tests
+      # Save Redis to cache (only if cache miss)
+      - name: Cache Redis (save)
+        if: steps.cache-redis.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.cache-redis.outputs.cache-primary-key }}
+          path: ~/redis-cache
+
+      # Build the module
       - name: Build
-        run: ./build.sh tests
+        run: PROFILE=Debug ./build.sh build
 
-      # Run unit-tests
-      - name: Run unit-tests
-        run: ./build.sh run_unit_tests -v
+      # Run Rust unit tests
+      - name: Test (Rust unit tests)
+        run: PROFILE=Debug ./build.sh test
+
+      # Run integration tests with RLTest
+      - name: Test (Integration tests with RLTest)
+        working-directory: flow-tests
+        run: |
+          python3 runtests.py --module ../build/redisearch.so --redis-lib-path /usr/local/lib --parallel
+
+      # Show sccache statistics
+      - name: Show sccache stats
+        if: always()
+        run: sccache --show-stats
+
+      # Upload test logs if tests fail
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: flow-tests/logs/
+          retention-days: 7

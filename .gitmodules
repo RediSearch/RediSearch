@@ -1,9 +1,9 @@
 [submodule "deps/RediSearch"]
 	path = deps/RediSearch
-	url = https://github.com/RediSearch/RediSearch.git
+	url = git@github.com:RediSearch/RediSearch.git
+[submodule "deps/rust-speedb"]
+	path = deps/rust-speedb
+	url = git@github.com:redislabsdev/rust-speedb.git
 [submodule "deps/speedb-ent"]
 	path = deps/speedb-ent
-	url = https://github.com/redislabsdev/speedb-ent.git
-[submodule "deps/CRoaring"]
-	path = deps/CRoaring
-	url = https://github.com/RoaringBitmap/CRoaring.git
+	url = git@github.com:redislabsdev/speedb-ent.git

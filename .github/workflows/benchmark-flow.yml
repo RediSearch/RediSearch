@@ -1,3 +1,6 @@
+# Executes the actual benchmark work - builds RediSearchDisk module, sets up Redis infrastructure,
+# runs redisbench-admin on AWS, and generates performance comparison reports for PRs. This is the
+# reusable workflow that does the heavy lifting for each benchmark configuration.
 name: Run a Benchmark Flow (RediSearchDisk)
 
 on:
@@ -54,8 +57,9 @@ jobs:
           owner: redislabsdev
           repositories: |
             Redis
-            speedb-ent
             RediSearchDisk
+            rust-speedb
+            speedb-ent
 
       # Full checkout (submodules) similar to RS
       - name: Checkout repository (with submodules)
@@ -69,15 +73,15 @@ jobs:
         run: ./install_script.sh sudo
 
       - name: Setup tests dependencies
-        working-directory: deps/RediSearch/.install
-        run: ./test_deps/common_installations.sh sudo
+        working-directory: deps/RediSearch/
+        run: .install/test_deps/common_installations.sh sudo
 
-      - name: Install Boost
-        working-directory: deps/RediSearch/.install
-        run: ./install_boost.sh
+      - name: Install speedb related packages (for async API enablement)
+        run: |
+          sudo apt install -y liburing-dev
 
       - name: Build RediSearchDisk module
-        run: ./build.sh
+        run: PROFILE=Release ./build.sh build
 
       - name: Install Python dependencies
         run: |
@@ -91,14 +95,15 @@ jobs:
           repository: redislabsdev/Redis
           path: redis
           token: ${{ steps.app-token.outputs.token }}
-          fetch-depth: 0
-          ref: rl_big2_8.0
+          fetch-depth: 1
+          ref: rl_big2_8.4
+          submodules: recursive
 
       # Build and install Redis
       - name: Build Redis (install)
         working-directory: redis
         run: |
-          ${{ steps.mode.outputs.mode }} make install \
+          sudo make install \
             BUILD_TLS=yes \
             SANITIZER=${{ env.SAN }}
 
@@ -113,7 +118,7 @@ jobs:
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         timeout-minutes: 240
-        working-directory: deps/RediSearch/tests/benchmarks
+        working-directory: benchmarks
         env:
           PERF_CALLGRAPH_MODE: dwarf
           MAX_PROFILERS: 3
@@ -127,12 +132,12 @@ jobs:
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
         run: |
           redisbench-admin run-remote \
-            --module_path ../../../../${{ inputs.module_path }} \
+            --module_path ../${{ inputs.module_path }} \
             --required-module search \
             --github_actor ${{ github.triggering_actor }} \
             --github_repo ${{ github.event.repository.name }} \
             --github_org ${{ github.repository_owner }} \
-            --module_path ../../../../${{ inputs.rejson_module_path }} \
+            --module_path ../${{ inputs.rejson_module_path }} \
             --required-module ReJSON \
             --github_sha ${{ github.sha }} \
             --github_branch ${{ github.head_ref || github.ref_name }} \
@@ -152,7 +157,7 @@ jobs:
           PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
         run: |
           redisbench-admin compare \
-            --defaults_filename ./deps/RediSearch/tests/benchmarks/defaults.yml \
+            --defaults_filename ./benchmarks/defaults.yml \
             --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }} \
             --baseline-branch ${{ github.event.pull_request.base.ref }} \
             --auto-approve \
@@ -160,4 +165,3 @@ jobs:
             --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }} \
             --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }} \
             --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
-

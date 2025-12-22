@@ -1,0 +1,40 @@
+name: Pull Request
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  test:
+    name: Run Tests
+    uses: ./.github/workflows/task-test.yml
+    secrets: inherit
+
+  lint:
+    name: Run Linting
+    uses: ./.github/workflows/task-lint.yml
+    secrets: inherit
+
+  miri:
+    name: Run Miri
+    uses: ./.github/workflows/task-miri.yml
+    secrets: inherit
+
+  microbench:
+    name: Run Micro Benchmarks
+    if: contains(github.event.pull_request.labels.*.name, 'action:run-microbenchmark')
+    uses: ./.github/workflows/task-microbench.yml
+    secrets: inherit
+
+  pr-validation:
+    needs:
+      - lint
+      - test
+      - miri
+      - microbench
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    if: ${{ !cancelled() }}
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+

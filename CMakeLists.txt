@@ -9,19 +9,35 @@ set(CMAKE_C_STANDARD 17)
 set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Detect and configure compiler cache (sccache or ccache)
+# This speeds up rebuilds by caching compilation results
+find_program(SCCACHE_PROGRAM sccache)
+find_program(CCACHE_PROGRAM ccache)
+
+if(SCCACHE_PROGRAM)
+    message(STATUS "Found sccache: ${SCCACHE_PROGRAM}")
+    set(CMAKE_C_COMPILER_LAUNCHER "${SCCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${SCCACHE_PROGRAM}")
+elseif(CCACHE_PROGRAM)
+    message(STATUS "Found ccache: ${CCACHE_PROGRAM}")
+    set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+else()
+    message(STATUS "No compiler cache found (sccache or ccache). Consider installing one for faster rebuilds.")
+endif()
+
 # Basic compiler flags - conditional optimization based on debug mode
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(CMAKE_C_FLAGS "-fPIC -g -pthread -O0")
     set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -O0")
+    set(RUST_PROFILE "dev")
     message(STATUS "Debug build: Using -O0 optimization")
 else()
     set(CMAKE_C_FLAGS "-fPIC -g -pthread -O3")
     set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -O3")
+    set(RUST_PROFILE "release")
     message(STATUS "Release build: Using -O3 optimization")
 endif()
-
-# Option to build C++ tests in this repository
-option(BUILD_DISK_TESTS "Build C++ tests under tests/cpptests" OFF)
 
 # Platform-specific linker flags for shared library
 if(APPLE)
@@ -36,9 +52,10 @@ endif()
 
 # Set variables needed by RediSearch
 set(MODULE_NAME "search")
-set(COORD_TYPE "rlec")
+set(COORD_TYPE "oss")
 
-# Configure RediSearch to build as static library when included as subdirectory
+# Configure RediSearch to build as static library when included as subdirectory. We need this
+# for redisearch to register its commands correctly.
 set(REDISEARCH_BUILD_SHARED OFF)
 
 # Include RediSearch - this creates a static library named 'redisearch'
@@ -48,22 +65,15 @@ add_subdirectory(deps/RediSearch)
 # 2. Build disk code as static library
 #----------------------------------------------------------------------------------------------
 
-add_subdirectory(disk)
+add_subdirectory(redisearch_disk)
 
 #----------------------------------------------------------------------------------------------
 # 3. Create final shared library linking both static libraries
 #----------------------------------------------------------------------------------------------
 
-# Create the final Redis module
-add_library(redisearch-module SHARED redisearch_module.c)
-
-#----------------------------------------------------------------------------------------------
-# 4. Tests
-#----------------------------------------------------------------------------------------------
-if(BUILD_DISK_TESTS)
-    enable_testing()
-    add_subdirectory(tests/cpptests)
-endif()
+# Create the final Redis module using an empty file
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/empty.c "")
+add_library(redisearch-module SHARED empty.c)
 
 # Set output name to redisearch.so
 set_target_properties(redisearch-module PROPERTIES
@@ -73,12 +83,6 @@ set_target_properties(redisearch-module PROPERTIES
     LINK_FLAGS "${SHARED_LINKER_FLAGS}"
 )
 
-# Find liburing if available
-find_package(uring)
-
-# Ensure external dependencies are built before linking
-add_dependencies(redisearch-module speedb croaring)
-
 # Link the static libraries with selective whole-archive
 # Also link liburing (via imported target if found, else fall back to -luring)
 target_link_libraries(redisearch-module
@@ -86,12 +90,6 @@ target_link_libraries(redisearch-module
     redisearch          # RediSearch static library (contains RedisModule_OnLoad and all its dependencies)
     redisearch-disk     # Disk code static library
     -Wl,--no-whole-archive
-    ${CMAKE_BINARY_DIR}/speedb-build/libspeedb.a      # Speedb static library (without whole-archive)
-    ${CMAKE_BINARY_DIR}/croaring-build/src/libroaring.a  # CRoaring static library
-    stdc++              # C++ standard library for Speedb
-    pthread             # Threading library
-    dl                  # Dynamic loading library
-    $<IF:$<BOOL:${uring_FOUND}>,uring::uring,uring>
 )
 
 # Ensure dependencies are built first
