@@ -908,6 +908,8 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
 }
 
 int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *spec, const char *keyptr) {
+  return 0;
+
   SchemaRule *rule = spec->rule;
 
   // create rlookupkeys
