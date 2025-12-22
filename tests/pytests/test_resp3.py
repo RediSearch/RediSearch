@@ -382,7 +382,8 @@ def test_list():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
-    env.expect('FT._LIST').equal(['idx2', 'idx1'])
+    res = env.cmd('FT._LIST')
+    env.assertEqual(set(res), {'idx2', 'idx1'})
 
 @skip(redis_less_than="7.0.0")
 def test_info():

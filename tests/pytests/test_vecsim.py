@@ -627,7 +627,7 @@ def test_index_errors():
         error_count += 1
         cur_index_errors = index_errors(env)
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
-        env.assertContains('Could not add vector with blob size 4 (expected size 8)', cur_index_errors['last indexing error'])
+        env.assertContains('SEARCH_VECTOR_BLOB_SIZE_MISMATCH: Could not add vector with blob size 4 (expected size 8)', cur_index_errors['last indexing error'])
         env.assertEqual(cur_index_errors['last indexing error key'], str(i))
         assertEqual_dicts_on_intersection(env, cur_index_errors, field_errors(env))
 
@@ -635,7 +635,7 @@ def test_index_errors():
         error_count += 1
         cur_index_errors = index_errors(env)
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
-        env.assertContains(cur_index_errors['last indexing error'], 'Could not add vector with blob size 12 (expected size 8)')
+        env.assertContains(cur_index_errors['last indexing error'], 'SEARCH_VECTOR_BLOB_SIZE_MISMATCH: Could not add vector with blob size 12 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i + 1))
         assertEqual_dicts_on_intersection(env, cur_index_errors, field_errors(env))
 
