@@ -608,7 +608,7 @@ static void handleLoadStepForHybridPipelines(AGGPlan *tailPlan, AGGPlan *searchP
  */
 static bool parseSubqueriesCount(ArgsCursor *ac, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing subqueries count for FT.HYBRID");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing subqueries count for FT.HYBRID");
     return false;
   }
 
@@ -617,15 +617,15 @@ static bool parseSubqueriesCount(ArgsCursor *ac, QueryError *status) {
 
   if (hasSubqueryCount) {
     if (subqueriesCount != HYBRID_REQUEST_NUM_SUBQUERIES) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.HYBRID currently supports only two subqueries");
+      QueryError_SetError(status, QUERY_EPARSEARGS, "FT.HYBRID currently supports only two subqueries");
       return false;
     } else if (!AC_AdvanceIfMatch(ac, "SEARCH")) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH keyword is required");
+      QueryError_SetError(status, QUERY_ESYNTAX, "SEARCH keyword is required");
       return false;
     }
   } else if (!AC_AdvanceIfMatch(ac, "SEARCH")) { // Old format: FT.HYBRID <index> <search_query> <vsim_query>
     // error according to the new format
-    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid subqueries count: expected an unsigned integer");
+    QueryError_SetError(status, QUERY_ESYNTAX, "Invalid subqueries count: expected an unsigned integer");
     return false;
   }
 
