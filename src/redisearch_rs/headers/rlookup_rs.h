@@ -340,6 +340,26 @@ struct RLookupKey *RLookup_GetKey_LoadEx(struct RLookup *lookup,
                                          uint32_t flags);
 
 /**
+ * Returns the number of visible fields in this RLookupRow.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
+ * 2. `row` must be a [valid], non-null pointer to a [`RLookupRow`]
+ * 3. `skip_field_index` must be a [valid] non-null pointer for reads and writes of `skip_field_index_len` boolean values
+ * 4. `rule` must be a [valid], non-null pointer to a [`SchemaRule`] or a null pointer
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+size_t RLookup_GetLength(const struct RLookup *lookup,
+                         const RLookupRow *row,
+                         bool *skip_field_index,
+                         size_t skip_field_index_len,
+                         uint32_t required_flags,
+                         uint32_t excluded_flags,
+                         SchemaRule *rule);
+
+/**
  * Initialize the lookup. If cache is provided, then it will be used as an
  * alternate source for lookups whose fields are absent.
  *
@@ -434,6 +454,62 @@ void RLookupRow_Reset(RLookupRow *row);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup, RLookupRow *src, RLookupRow *dst);
+
+/**
+ * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+ * for which it is not necessary to use the boilerplate of getting an explicit
+ * key.
+ *
+ * Like [`RLookupRow_WriteByNameOwned`], but increases the refcount.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ * 2. The memory pointed to by `name` must contain a valid null terminator at the
+ *    end of the string.
+ * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
+ *    This means in particular:
+ *     1. `name_len` must be same as `strlen(name)`
+ *     2. The entire memory range of this cstr must be contained within a single allocation!
+ *     3. `name` must be non-null even for a zero-length cstr.
+ * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 5. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_WriteByName(struct RLookup *lookup,
+                            const char *name,
+                            size_t name_len,
+                            RLookupRow *row,
+                            RSValue *value);
+
+/**
+ * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+ * for which it is not necessary to use the boilerplate of getting an explicit
+ * key.
+ *
+ * Like [`RLookupRow_WriteByName`], but does not affect the refcount.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ * 2. The memory pointed to by `name` must contain a valid null terminator at the
+ *    end of the string.
+ * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
+ *    This means in particular:
+ *     1. `name_len` must be same as `strlen(name)`
+ *     2. The entire memory range of this cstr must be contained within a single allocation!
+ *     3. `name` must be non-null even for a zero-length cstr.
+ * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 5. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
+                                 const char *name,
+                                 size_t name_len,
+                                 RLookupRow *row,
+                                 RSValue *value);
 
 #ifdef __cplusplus
 }  // extern "C"

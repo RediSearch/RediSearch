@@ -83,17 +83,15 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         excluded_flags: RLookupKeyFlags,
         rule: Option<&SchemaRuleWrapper>,
     ) -> (usize, Vec<bool>) {
+        // Ensure that the length of skip_field_indices is lookup.get_row_len(), to avoid a panic in get_length_no_alloc().
         let mut skip_field_indices = vec![false; lookup.get_row_len() as usize];
-        // Safety: We ensure that the length of skip_field_indices is lookup.get_row_len(), as required by the safety contract of get_length_no_alloc.
-        let num_fields = unsafe {
-            self.get_length_no_alloc(
-                lookup,
-                required_flags,
-                excluded_flags,
-                rule,
-                skip_field_indices.as_mut_slice(),
-            )
-        };
+        let num_fields = self.get_length_no_alloc(
+            lookup,
+            required_flags,
+            excluded_flags,
+            rule,
+            skip_field_indices.as_mut_slice(),
+        );
         (num_fields, skip_field_indices)
     }
 
@@ -105,9 +103,9 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     ///
     /// See [`RLookupRow::get_length`] for argument details.
     ///
-    /// # Safety
-    /// 1. Caller must ensure that `out_flags` has a length at least equal to `lookup.get_row_len()`.
-    pub unsafe fn get_length_no_alloc(
+    /// # Panics
+    /// This function will panic if `out_flags` length is less than `lookup.get_row_len()`.
+    pub fn get_length_no_alloc(
         &self,
         lookup: &RLookup,
         required_flags: RLookupKeyFlags,
@@ -340,6 +338,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
 #[cfg(test)]
 mod tests {
     use enumflags2::make_bitflags;
+    use ffi::DocumentType;
     use value::RSValueMock;
 
     use super::*;
@@ -365,7 +364,7 @@ mod tests {
                 lang_field: lang_ptr,
                 score_field: score_ptr,
                 payload_field: payload_ptr,
-                type_: 0,
+                type_: DocumentType::Hash,
                 prefixes: std::ptr::null_mut(),
                 filter_exp_str: std::ptr::null_mut(),
                 filter_exp: std::ptr::null_mut(),
@@ -379,9 +378,7 @@ mod tests {
             let boxed_rule = Box::new(schema_rule);
             let non_null_ptr = NonNull::new(Box::into_raw(boxed_rule)).unwrap();
 
-            unsafe {
-                TestSchemaRuleWrapper(SchemaRuleWrapper::from_raw(non_null_ptr.as_ptr()).unwrap())
-            }
+            unsafe { TestSchemaRuleWrapper(SchemaRuleWrapper::from_non_null(non_null_ptr)) }
         }
     }
 

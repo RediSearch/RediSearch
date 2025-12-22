@@ -17,6 +17,7 @@ mod bindings {
     #![allow(clippy::ptr_offset_with_cast)]
     #![allow(clippy::useless_transmute)]
     #![allow(clippy::missing_const_for_fn)]
+    #![allow(clippy::upper_case_acronyms)]
 
     use ffi::{NumericFilter, t_fieldIndex, t_fieldMask};
     use field::{FieldFilterContext, FieldMaskOrIndex};
@@ -76,7 +77,7 @@ impl QueryIterator {
                 flt,
                 ptr::null(),
                 0.0,
-                std::f64::MAX,
+                f64::MAX,
             )
         })
     }
@@ -107,6 +108,55 @@ impl QueryIterator {
         let child = std::ptr::null_mut();
         let query_eval_ctx = new_redis_search_ctx(max_id);
         let it = unsafe { bindings::NewOptionalIterator(child, query_eval_ctx, weight) };
+        free_redis_search_ctx(query_eval_ctx);
+        Self(it)
+    }
+
+    /// Create an empty iterator (returns no results).
+    #[inline(always)]
+    pub fn new_empty() -> Self {
+        Self(iterators_ffi::empty::NewEmptyIterator() as *mut bindings::QueryIterator)
+    }
+
+    /// Create an ID list iterator from a vector of sorted document IDs.
+    #[inline(always)]
+    pub fn new_id_list(ids: Vec<u64>) -> Self {
+        let num = ids.len() as u64;
+        let ids_ptr = if num > 0 {
+            let ptr = unsafe {
+                RedisModule_Alloc.unwrap()(num as usize * std::mem::size_of::<u64>()) as *mut u64
+            };
+            unsafe {
+                std::ptr::copy_nonoverlapping(ids.as_ptr(), ptr, num as usize);
+            }
+            ptr
+        } else {
+            ptr::null_mut()
+        };
+
+        Self(
+            unsafe { iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, num, 1.0) }
+                as *mut bindings::QueryIterator,
+        )
+    }
+
+    /// Create a non-optimized NOT iterator with the given child and max_doc_id.
+    /// This creates a minimal QueryEvalCtx to ensure the C code creates a non-optimized version.
+    #[inline(always)]
+    pub fn new_not_non_optimized(child: Self, max_doc_id: u64, weight: f64) -> Self {
+        // Create a minimal QueryEvalCtx that will NOT trigger optimization
+        // The C code checks: optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all
+        // By zeroing everything, we ensure spec->rule is NULL, so optimized = false
+        let query_eval_ctx = new_redis_search_ctx(max_doc_id);
+        let timeout = bindings::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+
+        let it = unsafe {
+            bindings::NewNotIterator(child.0, max_doc_id, weight, timeout, query_eval_ctx)
+        };
+
         free_redis_search_ctx(query_eval_ctx);
         Self(it)
     }

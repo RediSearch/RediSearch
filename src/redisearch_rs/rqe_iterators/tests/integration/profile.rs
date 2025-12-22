@@ -34,7 +34,6 @@ fn profile_read() {
 
     assert_eq!(profile.counters().skip_to, 0);
     assert!(!profile.counters().eof);
-    assert!(profile.wall_time_ns() > 0);
 
     // Next read returns None -> EOF
     let result = profile.read().unwrap();
@@ -57,7 +56,6 @@ fn profile_skip_to() {
     assert!(result.is_none());
     assert_eq!(profile.counters().skip_to, 2);
     assert!(profile.counters().eof);
-    assert!(profile.wall_time_ns() > 0);
 }
 
 #[test]

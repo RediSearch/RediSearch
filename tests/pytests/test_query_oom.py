@@ -367,6 +367,6 @@ def test_oom_verbosity_cluster_return():
     # Aggregate Profile
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
     # TODO - Check coordinator warning when empty results are handled correctly
-    shards_warning_lst = [shard_res[7] for shard_res in res[1][1]]
+    shards_warning_lst = [shard_res[9] for shard_res in res[1][1]]
     # Since we don't know the order of responses, we need to count 2 errors
     env.assertEqual(shards_warning_lst.count(SHARD_OOM_WARNING), 2)
