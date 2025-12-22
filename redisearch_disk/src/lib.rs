@@ -196,10 +196,7 @@ extern "C" fn index_spec_index_doc(
 
     debug!(term, doc_id, field_mask, "index_spec_index_doc");
 
-    match index
-        .inverted_index_mut()
-        .insert(term, doc_id, field_mask, 0)
-    {
+    match index.inverted_index().insert(term, doc_id, field_mask, 0) {
         Ok(()) => true,
         Err(error) => {
             error!(
@@ -236,7 +233,7 @@ extern "C" fn index_spec_put_doc(
     };
 
     index
-        .doc_table_mut()
+        .doc_table()
         .insert_document(key, score, flags, max_freq)
         .unwrap_or_else(|err| {
             debug!("failed to insert document: {err}");

@@ -29,7 +29,7 @@ fn get_temp_inverted_index() -> (TempDir, InvertedIndex) {
 
 #[test]
 fn basic() {
-    let (_temp_dir, mut ii) = get_temp_inverted_index();
+    let (_temp_dir, ii) = get_temp_inverted_index();
 
     // Add a term with some documents
     ii.insert("term1".to_string(), 1, 0b1, 5).unwrap();
@@ -122,7 +122,7 @@ unsafe fn drain_iterator<'index>(mut it: impl RQEIterator<'index>) -> Vec<t_docI
 #[test]
 #[allow(clippy::undocumented_unsafe_blocks)]
 fn field_mask() {
-    let (_temp_dir, mut ii) = get_temp_inverted_index();
+    let (_temp_dir, ii) = get_temp_inverted_index();
 
     // Add a term with some documents, each in a separate field.
     ii.insert("term1".to_string(), 1, 0b00000001, 0).unwrap();
@@ -155,7 +155,7 @@ fn field_mask() {
 
 #[test]
 fn empty_iterator() {
-    let (_temp_dir, mut ii) = get_temp_inverted_index();
+    let (_temp_dir, ii) = get_temp_inverted_index();
 
     {
         // Get the iterator when there are no terms
@@ -180,7 +180,7 @@ fn empty_iterator() {
 // Make sure an iterator does not start reading into a next term's data
 #[test]
 fn iterator_stays_with_term() {
-    let (_temp_dir, mut ii) = get_temp_inverted_index();
+    let (_temp_dir, ii) = get_temp_inverted_index();
 
     // Add a term with some documents
     ii.insert("term1".to_string(), 1, 0b1, 5).unwrap();
@@ -201,7 +201,7 @@ fn iterator_stays_with_term() {
 // Make sure the iterator does not spill into terms with similar prefixes
 #[test]
 fn iterator_term_with_underscore() {
-    let (_temp_dir, mut ii) = get_temp_inverted_index();
+    let (_temp_dir, ii) = get_temp_inverted_index();
 
     // Add a term with some documents
     ii.insert("term".to_string(), 1, 0b1, 5).unwrap();

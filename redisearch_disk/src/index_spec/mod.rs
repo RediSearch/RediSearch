@@ -20,6 +20,14 @@ use self::inverted_index::InvertedIndex;
 /// be a composite of the Redis key and a path within the document.
 pub type Key = Vec<u8>;
 
+/// Asserts that IndexSpec is Send + Sync. This is important because IndexSpec may be shared
+/// across multiple threads in a multithreaded environment.
+const _: () = {
+    const fn assert_thread_safe<T: Send + Sync>() {}
+
+    assert_thread_safe::<IndexSpec>();
+};
+
 /// The IndexSpec struct represents the specification of an index, including its name and document
 /// type. It contains an inverted index mapping terms to postings lists and a document table
 /// mapping document IDs to document metadata.
@@ -64,18 +72,8 @@ impl IndexSpec {
         &self.inverted_index
     }
 
-    /// Returns a mutable reference to the inverted index for this index.
-    pub fn inverted_index_mut(&mut self) -> &mut InvertedIndex {
-        &mut self.inverted_index
-    }
-
     /// Returns a reference to the document table for this index.
     pub fn doc_table(&self) -> &DocTable {
         &self.doc_table
-    }
-
-    /// Returns a mutable reference to the document table for this index.
-    pub fn doc_table_mut(&mut self) -> &mut DocTable {
-        &mut self.doc_table
     }
 }

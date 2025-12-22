@@ -213,7 +213,7 @@ impl InvertedIndex {
     /// Inserts a document ID into the postings list for the given term and for
     /// which fields the term appears in.
     pub fn insert(
-        &mut self,
+        &self,
         term: String,
         doc_id: t_docId,
         field_mask: t_fieldMask,
