@@ -360,7 +360,7 @@ mod tests {
             lang_field: lang_ptr,
             score_field: score_ptr,
             payload_field: payload_ptr,
-            type_: 0,
+            type_: DocumentType::Hash,
             prefixes: std::ptr::null_mut(),
             filter_exp_str: std::ptr::null_mut(),
             filter_exp: std::ptr::null_mut(),
