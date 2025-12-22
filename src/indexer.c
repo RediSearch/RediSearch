@@ -137,8 +137,8 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       // Update stats of the index only if the document was there
       RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
       --spec->stats.numDocuments;
-      RS_LOG_ASSERT(spec->stats.totalDocsLen >= dmd->len, "totalDocsLen is smaller than dmd->len");
-      spec->stats.totalDocsLen -= dmd->len;
+      RS_LOG_ASSERT(spec->stats.totalDocsLen >= dmd->docLen, "totalDocsLen is smaller than dmd->docLen");
+      spec->stats.totalDocsLen -= dmd->docLen;
       if (spec->gc) {
         GCContext_OnDelete(spec->gc);
       }
@@ -190,7 +190,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     if (spec->diskSpec) {
       size_t len;
       const char *key = RedisModule_StringPtrLen(cur->doc->docKey, &len);
-      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len, cur->doc->score, cur->docFlags, cur->fwIdx->maxFreq, cur->fwIdx->totalFreq);
+      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len, cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq, cur->fwIdx->totalFreq);
       if (docId) {
         cur->doc->docId = docId;
       } else {
@@ -207,9 +207,9 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       continue;
     }
 
-    md->maxFreq = cur->fwIdx->maxFreq;
-    md->len = cur->fwIdx->totalFreq;
-    spec->stats.totalDocsLen += md->len;
+    md->maxTermFreq = cur->fwIdx->maxTermFreq;
+    md->docLen = cur->fwIdx->totalFreq;
+    spec->stats.totalDocsLen += md->docLen;
 
     if (cur->sv) {
       DocTable_SetSortingVector(&spec->docs, md, cur->sv);

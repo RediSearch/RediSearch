@@ -96,11 +96,11 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
  * @param keyLen Length of the document key
  * @param score Document score (for ranking)
  * @param flags Document flags
- * @param maxFreq Maximum term frequency in the document
+ * @param maxTermFreq Maximum frequency of any single term in the document
  * @param totalFreq Total frequency of the document
  * @return New document ID, or 0 on error/duplicate
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxFreq, uint32_t totalFreq);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq);
 
 /**
  * @brief Get document metadata by document ID
