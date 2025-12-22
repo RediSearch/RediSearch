@@ -724,7 +724,7 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 void Indexes_Init(RedisModuleCtx *ctx);
 /*
  * Free all indexes.
- * @param deleteDiskData - should we delete the disk data as well
+ * @param deleteDiskData - delete the disk data
 */ 
 void Indexes_Free(dict *d, bool deleteDiskData);
 size_t Indexes_Count();
