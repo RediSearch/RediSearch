@@ -454,7 +454,7 @@ static QueryIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, Numeri
   }
 
   if (fs) {
-      rt = openNumericKeysDict(fs, DONT_CREATE_INDEX);
+      rt = openNumericKeysDict(sctx->spec, (FieldSpec *)fs, DONT_CREATE_INDEX);
       RS_ASSERT(rt);
   }
 
@@ -504,11 +504,12 @@ QueryIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTre
   return NewUnionIterator(its, n, true, 1.0, type, NULL, config);
 }
 
-NumericRangeTree *openNumericKeysDict(FieldSpec* spec, bool create_if_missing) {
-  if (!spec->tree && create_if_missing) {
-    spec->tree = NewNumericRangeTree();
+NumericRangeTree *openNumericKeysDict(IndexSpec* spec, FieldSpec* fs, bool create_if_missing) {
+  if (!fs->tree && create_if_missing) {
+    fs->tree = NewNumericRangeTree();
+    spec->stats.invertedSize += fs->tree->root->range->invertedIndexSize;
   }
-  return spec->tree;
+  return fs->tree;
 }
 
 QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
@@ -516,7 +517,7 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const Numeric
                                         const FieldFilterContext* filterCtx) {
   const FieldSpec *fs = flt->fieldSpec;
 
-  NumericRangeTree *t = openNumericKeysDict((FieldSpec *)fs, DONT_CREATE_INDEX);
+  NumericRangeTree *t = openNumericKeysDict(ctx->spec, (FieldSpec *)fs, DONT_CREATE_INDEX);
   if (!t) {
     return NULL;
   }

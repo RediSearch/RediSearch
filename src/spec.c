@@ -440,7 +440,7 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp) {
   for (size_t i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_NUMERIC) || FIELD_IS(fs, INDEXFLD_T_GEO)) {
-      NumericRangeTree *rt = openNumericKeysDict(fs, DONT_CREATE_INDEX);
+      NumericRangeTree *rt = openNumericKeysDict(sp, fs, DONT_CREATE_INDEX);
       // Numeric index was not initialized yet
       if (!rt) {
         continue;

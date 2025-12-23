@@ -1380,30 +1380,33 @@ TEST_F(LLApiTest, testInfoSize) {
   // additional memory so from now on it will be easier to track the expected memory.
   size_t additional_overhead = sizeof(NumericRangeTree) + doc_table_size;
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 295 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 343 + additional_overhead);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 589 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 637 + additional_overhead);
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 447 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 495 + additional_overhead);
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
-  EXPECT_EQ(RediSearch_MemUsage(index), 296 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 344 + additional_overhead);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 202 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 250 + additional_overhead);
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
   // we always keep the numeric index root.
+  // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
+  // The base inverted index is 40 bytes + 8 bytes for the entries count of numeric records
+  additional_overhead += 48;
   EXPECT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.
@@ -1438,32 +1441,33 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   // additional memory so from now on it will be easier to track the expected memory.
   size_t additional_overhead = sizeof(NumericRangeTree) + doc_table_size;
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 384 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 432 + additional_overhead);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 679 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 727 + additional_overhead);
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 537 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 585 + additional_overhead);
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
-  EXPECT_EQ(RediSearch_MemUsage(index), 385 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 433 + additional_overhead);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 291 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 339 + additional_overhead);
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
   // we always keep the numeric index root.
   // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
   // The base inverted index is 40 bytes + 8 bytes for the entries count of numeric records
+  additional_overhead += 48;
   EXPECT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.

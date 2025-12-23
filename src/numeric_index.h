@@ -112,7 +112,7 @@ void NumericRangeTree_Free(NumericRangeTree *t);
 /* Return the estimated cardinality of the numeric range */
 size_t NumericRange_GetCardinality(const NumericRange *nr);
 
-NumericRangeTree *openNumericKeysDict(FieldSpec* spec, bool create_if_missing);
+NumericRangeTree *openNumericKeysDict(IndexSpec* spec, FieldSpec* fs, bool create_if_missing);
 
 unsigned long NumericIndexType_MemUsage(const NumericRangeTree *tree);
 

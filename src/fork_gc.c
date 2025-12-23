@@ -271,7 +271,7 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   arrayof(FieldSpec*) numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
 
   for (int i = 0; i < array_len(numericFields); ++i) {
-    NumericRangeTree *rt = openNumericKeysDict(numericFields[i], DONT_CREATE_INDEX);
+    NumericRangeTree *rt = openNumericKeysDict(sctx->spec, numericFields[i], DONT_CREATE_INDEX);
 
     // No entries were added to the numeric field, hence the tree was not initialized
     if (!rt) {
@@ -668,7 +668,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
     if (!initialized) {
       fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
-      rt = openNumericKeysDict(fs, DONT_CREATE_INDEX);
+      rt = openNumericKeysDict(sctx->spec, fs, DONT_CREATE_INDEX);
       initialized = true;
     }
 

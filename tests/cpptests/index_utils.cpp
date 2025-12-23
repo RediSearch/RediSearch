@@ -92,7 +92,7 @@ void freeSpec(RefManager *ism) {
 NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field) {
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, field, strlen(field));
 
-  return openNumericKeysDict(const_cast<FieldSpec *>(fs), DONT_CREATE_INDEX);
+  return openNumericKeysDict(spec, const_cast<FieldSpec *>(fs), DONT_CREATE_INDEX);
 }
 
 size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNode **failed_range) {

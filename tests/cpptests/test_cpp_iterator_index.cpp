@@ -582,7 +582,7 @@ private:
         ASSERT_TRUE(fs != nullptr);
 
         // Create the numeric range tree through the proper API
-        numericRangeTree = openNumericKeysDict(const_cast<FieldSpec *>(fs), CREATE_INDEX);
+        numericRangeTree = openNumericKeysDict(spec, const_cast<FieldSpec *>(fs), CREATE_INDEX);
         ASSERT_TRUE(numericRangeTree != nullptr);
 
         // Add numeric data to the range tree
@@ -618,7 +618,7 @@ private:
         FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
         const NumericRangeTree *rt = NULL;
         if (fs) {
-              rt = openNumericKeysDict(const_cast<FieldSpec *>(fs), DONT_CREATE_INDEX);
+              rt = openNumericKeysDict(spec, const_cast<FieldSpec *>(fs), DONT_CREATE_INDEX);
               RS_ASSERT(rt);
           }
         iterator = NewInvIndIterator_NumericQuery(numericIdx, sctx, &fieldCtx, numericFilter, rt, -INFINITY, INFINITY);
