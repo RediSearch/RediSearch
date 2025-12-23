@@ -36,6 +36,7 @@
 #define QUERY_WOOM_COORD "Coordinator failed to execute the query due to insufficient memory"
 #define QUERY_ASM_INACCURATE_RESULTS "Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete or have duplications due to Atomic Slot Migration."
 
+
 enum QueryErrorCode
 #ifdef __cplusplus
   : uint8_t
