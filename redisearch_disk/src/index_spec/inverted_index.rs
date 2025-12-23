@@ -1,4 +1,4 @@
-pub mod full_term_block;
+pub mod term;
 
 use std::{mem::size_of, sync::Arc};
 
@@ -12,7 +12,6 @@ use crate::{
     document_id_key::DocumentIdKey,
     search_disk::{AsKeyExt, FromKeyExt, Speedb, SpeedbMultithreadedDatabase},
 };
-use full_term_block::ArchivedFullTermBlock;
 
 /// Delimiter used in inverted index keys between term and last document ID
 const KEY_DELIMETER: u8 = b'_';
@@ -47,14 +46,14 @@ impl<'term> AsKeyExt for InvertedIndexKey<'term> {
     }
 }
 
-/// We use a block-based postings list to store document IDs and metadata for each term. This allows
+/// We use a block-based postings list to store document IDs of all documents containing the term and metadata for each document in the term context. This allows
 /// us to quickly jump over large sections of the postings list when searching.
 #[derive(Clone, Default)]
 pub struct PostingsListBlock {
     /// Document IDs in this postings list block
     doc_ids: Vec<u8>,
 
-    /// The metadata for each term in this postings list block
+    /// The metadata for each document in this postings list block
     metadata: Vec<u8>,
 }
 
@@ -66,8 +65,8 @@ impl PostingsListBlock {
     const VERSION_SIZE: usize = size_of_val(&Self::LATEST_VERSION);
     const HEADER_SIZE: usize = Self::VERSION_SIZE + Self::LENGTH_SIZE;
 
-    /// Amount of bytes needed to store a term in the block
-    const TERM_SIZE: usize = Self::DOC_ID_SIZE + FullTermMetadata::SIZE;
+    /// Amount of bytes needed to store a document in the block
+    const DOCUMENT_SIZE: usize = Self::DOC_ID_SIZE + term::Metadata::SIZE;
     /// Amount of bytes needed to store a doc id in the block
     const DOC_ID_SIZE: usize = size_of::<t_docId>();
 
@@ -80,12 +79,12 @@ impl PostingsListBlock {
     pub fn with_capacity(cap: usize) -> Self {
         Self {
             doc_ids: Vec::with_capacity(cap * PostingsListBlock::DOC_ID_SIZE),
-            metadata: Vec::with_capacity(cap * FullTermMetadata::SIZE),
+            metadata: Vec::with_capacity(cap * term::Metadata::SIZE),
         }
     }
 
-    /// Add a full term document to the block
-    pub fn push(&mut self, term: FullTermDocument) {
+    /// Add a full document to the block
+    pub fn push(&mut self, term: term::Document) {
         self.doc_ids.extend_from_slice(&term.doc_id.to_le_bytes());
 
         self.metadata
@@ -97,7 +96,7 @@ impl PostingsListBlock {
     /// Check if this block is empty
     pub fn is_empty(&self) -> bool {
         debug_assert!(
-            self.doc_ids.len() / Self::DOC_ID_SIZE == self.metadata.len() / FullTermMetadata::SIZE,
+            self.doc_ids.len() / Self::DOC_ID_SIZE == self.metadata.len() / term::Metadata::SIZE,
             "Document IDs and metadata buffers must have the same number of entries"
         );
 
@@ -107,7 +106,7 @@ impl PostingsListBlock {
     /// Serialize a postings list block into bytes for storage.
     ///
     /// # Layout
-    /// A block holding two terms is laid out as follows:
+    /// A block holding two documents is laid out as follows:
     ///
     /// ```txt
     /// | 0    | 1   | [2,9]    | [10,17]  | [18,33]      | [34,51] | [52,67]      | [68,75] |
@@ -115,7 +114,7 @@ impl PostingsListBlock {
     /// | VERS | LEN | doc_id_1 | doc_id_2 | field_mask_1 | freq_1  | field_mask_2 | freq_2  |
     /// ```
     /// I.e. first comes the header containing the version (1 byte) and the length (1 byte),
-    /// then the document IDs, (8 bytes each), then the metadata for each term
+    /// then the document IDs, (8 bytes each), then the metadata for each document
     /// which each consist of a field mask (16 bytes each) and a frequency (8 bytes each).
     ///
     /// The output is deterministic: given the same input, the same byte vector will be produced.
@@ -126,16 +125,16 @@ impl PostingsListBlock {
         // Assert that the lengths of the data buffers are correct:
         // 1. They must be a multiple of the length of the items they contain
         debug_assert!(doc_ids.len().is_multiple_of(Self::DOC_ID_SIZE));
-        debug_assert!(metadata.len().is_multiple_of(FullTermMetadata::SIZE));
+        debug_assert!(metadata.len().is_multiple_of(term::Metadata::SIZE));
         // 2. They must contain an equal number of items
         debug_assert_eq!(
             doc_ids.len() / Self::DOC_ID_SIZE,
-            metadata.len() / FullTermMetadata::SIZE
+            metadata.len() / term::Metadata::SIZE
         );
 
-        let num_terms = doc_ids.len() / Self::DOC_ID_SIZE;
+        let num_docs = doc_ids.len() / Self::DOC_ID_SIZE;
 
-        let data_size = num_terms * Self::TERM_SIZE + Self::HEADER_SIZE;
+        let data_size = num_docs * Self::DOCUMENT_SIZE + Self::HEADER_SIZE;
 
         // 3. The lengths of the buffer must equal the total size
         //    minus the reserved space for the version and length
@@ -147,8 +146,8 @@ impl PostingsListBlock {
         let mut data = Vec::with_capacity(data_size);
 
         data.push(Self::LATEST_VERSION);
-        data.push(num_terms.try_into().expect(
-            "PostingsListBlock can only serialize up to 255 terms; increase length size if needed",
+        data.push(num_docs.try_into().expect(
+            "PostingsListBlock can only serialize up to 255 docs; increase length size if needed",
         ));
         data.extend(doc_ids);
         data.extend(metadata);
@@ -157,36 +156,16 @@ impl PostingsListBlock {
     }
 }
 
-/// A document in a postings list, including its ID and associated metadata.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FullTermDocument {
-    pub doc_id: t_docId,
-    pub metadata: FullTermMetadata,
-}
+impl From<term::Document> for PostingsListBlock {
+    fn from(doc: term::Document) -> Self {
+        let doc_ids = doc.doc_id.to_le_bytes().to_vec();
+        let mut metadata = Vec::with_capacity(term::Metadata::SIZE);
 
-impl From<FullTermDocument> for PostingsListBlock {
-    fn from(full_term: FullTermDocument) -> Self {
-        let doc_ids = full_term.doc_id.to_le_bytes().to_vec();
-        let mut metadata = Vec::with_capacity(FullTermMetadata::SIZE);
-
-        metadata.extend_from_slice(&full_term.metadata.field_mask.to_le_bytes());
-        metadata.extend_from_slice(&full_term.metadata.frequency.to_le_bytes());
+        metadata.extend_from_slice(&doc.metadata.field_mask.to_le_bytes());
+        metadata.extend_from_slice(&doc.metadata.frequency.to_le_bytes());
 
         Self { doc_ids, metadata }
     }
-}
-
-/// Metadata associated with a term in a document, including the fields it appears in and its frequency.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FullTermMetadata {
-    pub field_mask: u128,
-    pub frequency: u64,
-}
-
-impl FullTermMetadata {
-    pub const SIZE: usize = Self::FIELD_MASK_SIZE + Self::FREQUENCY_SIZE;
-    pub const FIELD_MASK_SIZE: usize = size_of::<u128>();
-    pub const FREQUENCY_SIZE: usize = size_of::<u64>();
 }
 
 impl InvertedIndex {
@@ -220,9 +199,9 @@ impl InvertedIndex {
         frequency: u64,
     ) -> Result<(), speedb::Error> {
         let key = Self::term_and_doc_key(&term, Some(doc_id));
-        let block: PostingsListBlock = FullTermDocument {
+        let block: PostingsListBlock = term::Document {
             doc_id,
-            metadata: FullTermMetadata {
+            metadata: term::Metadata {
                 field_mask,
                 frequency,
             },
@@ -260,13 +239,13 @@ impl InvertedIndex {
 }
 
 /// An index reader for a postings list stored in blocks. This reader allows for efficient
-/// seeking and iteration over term documents in an index.
+/// seeking and iteration over documents in an index.
 pub struct PostingsListReader<'iterator, DBAccess: speedb::DBAccess> {
     /// The underlying Speedb iterator for reading the postings list blocks.
     iterator: DBIteratorWithThreadMode<'iterator, DBAccess>,
 
     /// The current block being read.
-    current_block: Option<ArchivedFullTermBlock>,
+    current_block: Option<term::block::ArchivedBlock>,
 
     /// The key of the current block being read.
     current_block_key: Option<Box<[u8]>>,
@@ -354,7 +333,7 @@ impl<'iterator, DBAccess: speedb::DBAccess> PostingsListReader<'iterator, DBAcce
             }
         };
 
-        let block = ArchivedFullTermBlock::from_bytes(value);
+        let block = term::block::ArchivedBlock::from_bytes(value);
 
         self.current_block = Some(block);
         self.current_block_key = Some(key);
@@ -391,7 +370,7 @@ impl<'iterator, DBAccess: speedb::DBAccess> PostingsListReader<'iterator, DBAcce
         }
 
         // Get the first document ID in the first block
-        let block = ArchivedFullTermBlock::from_bytes(value);
+        let block = term::block::ArchivedBlock::from_bytes(value);
         let first_id = block.get_unchecked(0).doc_id();
 
         // Now seek to the end to find the last document ID. This ID is stored as a suffix on the
@@ -431,13 +410,13 @@ impl<'index, 'iterator, DBAccess: speedb::DBAccess> IndexReader<'index>
         // It is safe t unwrap here because `Self::next_block` ensures we have a block.
         let block = self.current_block.as_ref().unwrap();
 
-        let term = block.get_unchecked(self.block_index);
-        result.doc_id = term.doc_id();
-        result.field_mask = term.field_mask();
+        let document = block.get_unchecked(self.block_index);
+        result.doc_id = document.doc_id();
+        result.field_mask = document.field_mask();
 
         self.block_index += 1;
 
-        if self.block_index >= block.num_terms() {
+        if self.block_index >= block.num_docs() {
             self.next_block();
         }
 
@@ -464,7 +443,7 @@ impl<'index, 'iterator, DBAccess: speedb::DBAccess> IndexReader<'index>
         };
 
         let Some(entry) = block.get(self.block_index) else {
-            self.block_index = block.num_terms() - 1;
+            self.block_index = block.num_docs() - 1;
             return Ok(false);
         };
 
@@ -473,7 +452,7 @@ impl<'index, 'iterator, DBAccess: speedb::DBAccess> IndexReader<'index>
 
         self.block_index += 1;
 
-        if self.block_index >= block.num_terms() {
+        if self.block_index >= block.num_docs() {
             self.next_block();
         }
 
@@ -485,7 +464,7 @@ impl<'index, 'iterator, DBAccess: speedb::DBAccess> IndexReader<'index>
         if let Some(last_entry) = self
             .current_block
             .as_ref()
-            .and_then(ArchivedFullTermBlock::last)
+            .and_then(term::block::ArchivedBlock::last)
             && last_entry.doc_id() >= doc_id
         {
             return true;
@@ -538,29 +517,29 @@ mod tests {
     fn postings_list_block_roundtrip() {
         let mut block = PostingsListBlock::default();
 
-        let term1 = FullTermDocument {
+        let doc1 = term::Document {
             doc_id: 1,
-            metadata: FullTermMetadata {
+            metadata: term::Metadata {
                 field_mask: 0xDEADBEEF,
                 frequency: 42,
             },
         };
 
-        let term2 = FullTermDocument {
+        let doc2 = term::Document {
             doc_id: 2,
-            metadata: FullTermMetadata {
+            metadata: term::Metadata {
                 field_mask: 0xCAFEBABE,
                 frequency: 84,
             },
         };
 
-        block.push(term1.clone());
-        block.push(term2.clone());
+        block.push(doc1.clone());
+        block.push(doc2.clone());
 
-        let block = ArchivedFullTermBlock::from_bytes(block.serialize().into());
+        let block = term::block::ArchivedBlock::from_bytes(block.serialize().into());
 
-        assert_eq!(FullTermDocument::from(block.get(0).unwrap()), term1);
-        assert_eq!(FullTermDocument::from(block.get(1).unwrap()), term2);
+        assert_eq!(term::Document::from(block.get(0).unwrap()), doc1);
+        assert_eq!(term::Document::from(block.get(1).unwrap()), doc2);
         assert!(block.get(2).is_none());
     }
 }

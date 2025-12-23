@@ -1,16 +1,13 @@
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
-use redisearch_disk::index_spec::inverted_index::full_term_block::ArchivedFullTermBlock;
-use redisearch_disk::index_spec::inverted_index::{
-    FullTermDocument, FullTermMetadata, PostingsListBlock,
-};
+use redisearch_disk::index_spec::inverted_index::{PostingsListBlock, term};
 
-fn get_single_element_test_cases() -> Vec<(&'static str, FullTermDocument)> {
+fn get_single_element_test_cases() -> Vec<(&'static str, term::Document)> {
     vec![
         (
             "small_values",
-            FullTermDocument {
+            term::Document {
                 doc_id: 1,
-                metadata: FullTermMetadata {
+                metadata: term::Metadata {
                     field_mask: 0x1,
                     frequency: 1,
                 },
@@ -18,9 +15,9 @@ fn get_single_element_test_cases() -> Vec<(&'static str, FullTermDocument)> {
         ),
         (
             "medium_values",
-            FullTermDocument {
+            term::Document {
                 doc_id: 1_000_000,
-                metadata: FullTermMetadata {
+                metadata: term::Metadata {
                     field_mask: 0xDEADBEEFCAFEBABE,
                     frequency: 100,
                 },
@@ -28,9 +25,9 @@ fn get_single_element_test_cases() -> Vec<(&'static str, FullTermDocument)> {
         ),
         (
             "large_values",
-            FullTermDocument {
+            term::Document {
                 doc_id: u64::MAX / 2,
-                metadata: FullTermMetadata {
+                metadata: term::Metadata {
                     field_mask: u128::MAX / 2,
                     frequency: 10_000,
                 },
@@ -38,9 +35,9 @@ fn get_single_element_test_cases() -> Vec<(&'static str, FullTermDocument)> {
         ),
         (
             "max_values",
-            FullTermDocument {
+            term::Document {
                 doc_id: u64::MAX,
-                metadata: FullTermMetadata {
+                metadata: term::Metadata {
                     field_mask: u128::MAX,
                     frequency: u64::MAX,
                 },
@@ -60,11 +57,11 @@ fn get_block_size_test_cases() -> Vec<(&'static str, usize)> {
     ]
 }
 
-fn create_test_documents(size: usize) -> Vec<FullTermDocument> {
+fn create_test_documents(size: usize) -> Vec<term::Document> {
     (0..size)
-        .map(|i| FullTermDocument {
+        .map(|i| term::Document {
             doc_id: i as u64,
-            metadata: FullTermMetadata {
+            metadata: term::Metadata {
                 field_mask: (i as u128) << 64 | i as u128,
                 frequency: i as u64 * 10,
             },
@@ -100,8 +97,9 @@ fn benchmark_single_element_deserialize(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::from_parameter(name), &data, |b, bytes| {
             b.iter(|| {
-                let archived = ArchivedFullTermBlock::from_bytes(bytes.clone().into_boxed_slice());
-                black_box(FullTermDocument::from(archived.get(0).unwrap()))
+                let archived =
+                    term::block::ArchivedBlock::from_bytes(bytes.clone().into_boxed_slice());
+                black_box(term::Document::from(archived.get(0).unwrap()))
             });
         });
     }
@@ -143,11 +141,12 @@ fn benchmark_block_deserialize(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::from_parameter(name), &data, |b, bytes| {
             b.iter(|| {
-                let archived = ArchivedFullTermBlock::from_bytes(bytes.clone().into_boxed_slice());
-                let num_terms = archived.num_terms();
-                let mut results = Vec::with_capacity(num_terms as usize);
-                for i in 0..num_terms {
-                    results.push(FullTermDocument::from(archived.get(i).unwrap()));
+                let archived =
+                    term::block::ArchivedBlock::from_bytes(bytes.clone().into_boxed_slice());
+                let num_docs = archived.num_docs();
+                let mut results = Vec::with_capacity(num_docs as usize);
+                for i in 0..num_docs {
+                    results.push(term::Document::from(archived.get(i).unwrap()));
                 }
                 black_box(results)
             });
@@ -173,11 +172,11 @@ fn benchmark_block_roundtrip(c: &mut Criterion) {
                 let data = block.serialize();
 
                 // Deserialize
-                let archived = ArchivedFullTermBlock::from_bytes(data.into_boxed_slice());
-                let num_terms = archived.num_terms();
-                let mut results = Vec::with_capacity(num_terms as usize);
-                for i in 0..num_terms {
-                    results.push(FullTermDocument::from(archived.get(i).unwrap()));
+                let archived = term::block::ArchivedBlock::from_bytes(data.into_boxed_slice());
+                let num_docs = archived.num_docs();
+                let mut results = Vec::with_capacity(num_docs as usize);
+                for i in 0..num_docs {
+                    results.push(term::Document::from(archived.get(i).unwrap()));
                 }
                 black_box(results)
             });

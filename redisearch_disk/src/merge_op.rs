@@ -4,7 +4,7 @@ use crate::{
     debug,
     index_spec::{
         deleted_ids::DeletedIdsStore,
-        inverted_index::{PostingsListBlock, full_term_block::ArchivedFullTermBlock},
+        inverted_index::{PostingsListBlock, term},
     },
 };
 
@@ -61,7 +61,7 @@ impl DeletedIdsMergeOperator {
         fn push_from_archived_block(
             block: &mut PostingsListBlock,
             deleted_ids: &DeletedIdsStore,
-            archived_block: &ArchivedFullTermBlock,
+            archived_block: &term::block::ArchivedBlock,
         ) {
             for archived_doc in archived_block.iter() {
                 let doc_id = archived_doc.doc_id();
@@ -85,7 +85,7 @@ impl DeletedIdsMergeOperator {
 
             let mut max_doc_id = None;
             for operand in operand_list {
-                let op_archived_block = ArchivedFullTermBlock::from_bytes(operand.into());
+                let op_archived_block = term::block::ArchivedBlock::from_bytes(operand.into());
                 let Some(last_doc_id) = op_archived_block.last().map(|d| d.doc_id()) else {
                     continue; // Block empty, no need to push
                 };
@@ -103,7 +103,7 @@ impl DeletedIdsMergeOperator {
 
             if let Some(existing_value) = existing_value {
                 let existing_archived_block =
-                    ArchivedFullTermBlock::from_bytes(existing_value.into());
+                    term::block::ArchivedBlock::from_bytes(existing_value.into());
                 if let Some(last_doc_id) = existing_archived_block.last().map(|d| d.doc_id()) {
                     if let Some(max_doc_id) = max_doc_id
                         && last_doc_id <= max_doc_id
@@ -135,10 +135,7 @@ mod tests {
     use crate::{
         index_spec::{
             deleted_ids::{DeletedIds, DeletedIdsStore},
-            inverted_index::{
-                FullTermDocument, FullTermMetadata, PostingsListBlock,
-                full_term_block::ArchivedFullTermBlock,
-            },
+            inverted_index::{PostingsListBlock, term},
         },
         merge_op::DeletedIdsMergeOperator,
     };
@@ -150,7 +147,7 @@ mod tests {
         expected_id_and_masks: impl IntoIterator<Item = (t_docId, t_fieldMask)>,
         merged_result: Vec<u8>,
     ) {
-        let archived_block = ArchivedFullTermBlock::from_bytes(merged_result.into());
+        let archived_block = term::block::ArchivedBlock::from_bytes(merged_result.into());
 
         let mut i = 0;
         for (expected_id, expected_mask) in expected_id_and_masks {
@@ -162,15 +159,15 @@ mod tests {
             i += 1;
         }
 
-        assert_eq!(i, archived_block.num_terms());
+        assert_eq!(i, archived_block.num_docs());
     }
 
     /// Create a block given the document IDs and field masks
     fn create_block(docs: impl IntoIterator<Item = (t_docId, t_fieldMask)>) -> Vec<u8> {
         docs.into_iter()
-            .map(|(doc_id, field_mask)| FullTermDocument {
+            .map(|(doc_id, field_mask)| term::Document {
                 doc_id,
-                metadata: FullTermMetadata {
+                metadata: term::Metadata {
                     field_mask,
                     frequency: 123,
                 },
