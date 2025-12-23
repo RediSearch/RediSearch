@@ -16,14 +16,17 @@ RANDOM_WORDS = [
     "opal", "paradise", "quasar", "rhapsody", "symphony", "twilight", "universe", "velvet", "whisper", "xenon"
 ]
 
-def get_expected(env, query, query_type: str = 'FT.SEARCH'):
+def get_expected(env, query, query_type: str = 'FT.SEARCH', protocol=2):
     if query_type == 'FT.AGGREGATE.WITHCURSOR':
         expected = []
         cursor_result = env.cmd(*query)
         cursor_id = cursor_result[1]
         while cursor_id != 0:
             res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
-            expected.extend(res)
+            if protocol == 2:
+              expected.extend(res)  # Skip the count
+            else:
+              expected.append(res)
         return expected
     else:
         return env.cmd(*query)
@@ -687,42 +690,85 @@ def test_slots_info_errors(env: Env):
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', 'invalid_slots_data').error().contains('Failed to deserialize _SLOTS_INFO data')
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', generate_slots(range(0, 0)), '_SLOTS_INFO', generate_slots(range(0, 0))).error().contains('_SLOTS_INFO already specified')
 
-def _test_ft_cursors_trimmed(env: Env):
+def _test_ft_cursors_trimmed(env: Env, protocol: int):
     for shard in env.getOSSMasterNodesConnectionList():
         shard.execute_command('CONFIG', 'SET', 'search-_max-trim-delay-ms', 2500)
     n_docs = 2**14
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
-    query = ('FT.AGGREGATE', 'idx', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR')
+    query = ('FT.AGGREGATE', 'idx', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR', 'DIALECT', 3)
 
-    expected = get_expected(env, query, 'FT.AGGREGATE.WITHCURSOR')
+    expected = get_expected(env, query, 'FT.AGGREGATE.WITHCURSOR', protocol)
 
     _, cursor_id = env.cmd(*query)
     wait_for_migration_complete(env, shard1, shard2)
     time.sleep(5)
     total_results = []
+    num_warnings = 0
     while cursor_id != 0:
-        res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
-        total_results.extend(res)
-    results_set = {item[1] for item in total_results if isinstance(item, list) and len(item) == 2 and item[0] == 'n'}
-    expected_set = {item[1] for item in expected if isinstance(item, list) and len(item) == 2 and item[0] == 'n'}
-    env.assertNotEqual(results_set, expected_set)
-    env.assertGreater(len(expected_set), len(results_set))
+        res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10, 'DIALECT', 3)
+        if protocol == 2:
+          total_results.extend(res)
+        else:
+          total_results.append(res)
+        if protocol == 3:
+          if 'warning' in res and len(res['warning']) > 0:
+            num_warnings += 1
+            env.assertContains('Results may be incomplete or have duplications due to Atomic Slot Migration', res['warning'][0])
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
-def test_ft_cursors_trimmed():
-    env = Env(clusterNodeTimeout=cluster_node_timeout)
-    _test_ft_cursors_trimmed(env)
+    if protocol == 2:
+      results_set = {item[1] for item in total_results if isinstance(item, list) and len(item) == 2 and item[0] == 'n'}
+      expected_set = {item[1] for item in expected if isinstance(item, list) and len(item) == 2 and item[0] == 'n'}
+      env.assertNotEqual(results_set, expected_set)
+      env.assertGreater(len(expected_set), len(results_set))
+    else:
+      env.assertGreaterEqual(num_warnings, 1)
+      # For protocol 3 with RESP3 format, results are in dict format
+      results_set = set()
+      expected_set = set()
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
-def test_ft_cursors_trimmed_BG():
-    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
-    _test_ft_cursors_trimmed(env)
+      # Extract from total_results - each item in the list is a cursor response
+      for res in total_results:
+          if isinstance(res, dict) and 'results' in res:
+              for result in res['results']:
+                  if 'extra_attributes' in result and 'n' in result['extra_attributes']:
+                      results_set.add(result['extra_attributes']['n'])
+
+      # Extract from expected (dict format)
+      for res in expected:
+          if isinstance(res, dict) and 'results' in res:
+              for result in res['results']:
+                if 'extra_attributes' in result and 'n' in result['extra_attributes']:
+                    expected_set.add(result['extra_attributes']['n'])
+
+      env.assertNotEqual(results_set, expected_set)
+      env.assertGreater(len(expected_set), len(results_set))
+
+
+@skip(cluster=False, min_shards=2)
+def test_ft_cursors_trimmed_protocol_2():
+    protocol = 2
+    env = Env(clusterNodeTimeout=cluster_node_timeout, protocol=protocol)
+    _test_ft_cursors_trimmed(env, protocol)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_cursors_trimmed_protocol_3():
+    protocol = 3
+    env = Env(clusterNodeTimeout=cluster_node_timeout, protocol=protocol)
+    _test_ft_cursors_trimmed(env, protocol)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_cursors_trimmed_BG_protocol_2():
+    protocol = 2
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2', protocol=protocol)
+    _test_ft_cursors_trimmed(env, protocol)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_cursors_trimmed_BG_protocol_3():
+    protocol = 3
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2', protocol=protocol)
+    _test_ft_cursors_trimmed(env, protocol)
 
 #TODO: Enable once RED-180514 is fixed
 #@skip(cluster=False, min_shards=2)

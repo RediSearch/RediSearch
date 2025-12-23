@@ -487,6 +487,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
             if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
               AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
             }
+            if (!strcmp(warning_str, QUERY_ASM_INACCURATE_RESULTS)) {
+              nc->areq->asm_potential_inaccuracy = true;
+            }
           }
         }
 
