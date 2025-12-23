@@ -205,7 +205,9 @@ static uint64_t CursorList_GenerateId(CursorList *curlist) {
 }
 
 static void cursorMarkASMInaccuracyCb(CursorList *cl, Cursor *cur, void *arg) {
-  cur->execState->asm_potential_inaccuracy = true;
+  if (cur->execState) {
+    cur->execState->asm_potential_inaccuracy = true;
+  }
 }
 
 void CursorList_MarkASMInaccuracy() {
