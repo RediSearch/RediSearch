@@ -265,7 +265,7 @@ DEBUG_COMMAND(NumericIndexSummary) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  FieldSpec *fs = getFieldKeyName(sctx->spec, argv[3], INDEXFLD_T_NUMERIC);
+  FieldSpec *fs = getFieldKeyName(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
@@ -306,7 +306,7 @@ DEBUG_COMMAND(DumpNumericIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  FieldSpec *fs = getFieldKeyName(sctx->spec, argv[3], INDEXFLD_T_NUMERIC);
+  FieldSpec *fs = getFieldKeyName(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
