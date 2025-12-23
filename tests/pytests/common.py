@@ -751,7 +751,12 @@ def cmd_assert(env, cmd, res, message=None):
 def getInvertedIndexInitialSize(env, fields, depth=0):
     total_size = 0
     for field in fields:
-        env.assertTrue(field in ['TEXT', 'TAG', 'GEOMETRY', 'VECTOR', 'GEO', 'NUMERIC'], message=f"type {field} is not supported", depth=depth+1)
+        if field in ['GEO', 'NUMERIC']:
+            inverted_index_size = 40
+            inverted_index_meta_data = 8
+            total_size += inverted_index_size + inverted_index_meta_data
+            continue
+        env.assertTrue(field in ['TEXT', 'TAG', 'GEOMETRY', 'VECTOR'], message=f"type {field} is not supported", depth=depth+1)
 
     return total_size
 
