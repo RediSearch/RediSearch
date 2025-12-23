@@ -5,19 +5,7 @@ from includes import *
 import numpy as np
 
 @skip(cluster=True)
-def test_dialect_config_get_set_from_default(env):
-    # skip when default MODARGS for pytest is DEFAULT_DIALECT 2. RediSearch>=2.4 is loading with dialect v1 as default.
-    skipOnDialect(env, 2)
-    MAX_DIALECT = set_max_dialect(env)
-    env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
-    env.expect(config_cmd() + " SET DEFAULT_DIALECT 2").ok()
-    env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
-    env.expect(config_cmd() + " SET DEFAULT_DIALECT 0").error()
-    env.expect(config_cmd() + " SET DEFAULT_DIALECT -1").error()
-    env.expect(config_cmd() + f" SET DEFAULT_DIALECT {MAX_DIALECT + 1}").error()
-
-@skip(cluster=True)
-def test_dialect_config_get_set_from_config(env):
+def test_dialect_config_get_set(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     MAX_DIALECT = set_max_dialect(env)
     env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )

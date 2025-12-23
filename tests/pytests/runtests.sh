@@ -32,7 +32,6 @@ help() {
 		SA=1|0                Alias for REDIS_STANDALONE
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1|~1|0          Perform only common test variant (~1: all but common)
-		CONFIG=cfg            Perform one of: raw_docid, dialect_2,
 
 		TEST=name             Run specific test (e.g. test.py:test_name)
 		TESTFILE=file         Run tests listed in `file`
@@ -528,15 +527,9 @@ fi
 echo "Running tests in parallel using $parallel Python processes"
 
 if [[ $REDIS_STANDALONE == 1 ]]; then
-	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
-		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
-	fi
-
-	if [[ $QUICK != 1 ]]; then
-		if [[ -z $CONFIG || $CONFIG == dialect_2 ]]; then
-			{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" \
-				run_tests "with Dialect v2"); (( E |= $? )); } || true
-		fi
+	if [[ $QUICK != "~1" ]]; then
+		{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" \
+			run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi
 
 elif [[ $REDIS_STANDALONE == 0 ]]; then
