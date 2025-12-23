@@ -224,6 +224,46 @@ static bool shardResponseBarrier_HandleError(RPNet *nc) {
   return false;  // No error
 }
 
+// Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
+// Warning handling requires nc->current.meta to be set. Cleanup is done regardless of protocol.
+// Returns RS_RESULT_TIMEDOUT if timeout warning found, RS_RESULT_OK otherwise.
+static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
+  bool timed_out = false;
+  // Check for a warning (resp3 only)
+  if (is_resp3) {
+    RS_ASSERT(nc->current.meta);
+    MRReply *warning = MRReply_MapElement(nc->current.meta, "warning");
+    if (MRReply_Length(warning) > 0) {
+      const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, 0), NULL);
+      // Set an error to be later picked up and sent as a warning
+      if (!strcmp(warning_str, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
+        timed_out = true;
+      } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
+        QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
+      } else if (!strcmp(warning_str, QUERY_WOOM_SHARD)) {
+        QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
+      }
+      if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
+        RS_ASSERT(nc->areq);
+        AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
+      }
+      if (!strcmp(warning_str, QUERY_ASM_INACCURATE_RESULTS)) {
+        RS_ASSERT(nc->areq);
+        nc->areq->asm_potential_inaccuracy = true;
+      }
+    }
+  }
+
+  MRReply_Free(nc->current.root);
+  RPNet_resetCurrent(nc);
+
+  if (timed_out) {
+    return RS_RESULT_TIMEDOUT;
+  }
+
+  return RS_RESULT_OK;
+}
+
 int getNextReply(RPNet *nc) {
   // Wait for all shards' first responses before returning any results
   // This ensures accurate total_results from the start
@@ -351,19 +391,21 @@ int getNextReply(RPNet *nc) {
     rows = MRReply_ArrayElement(root, 0);
   }
 
+  nc->current.root = root;
+  nc->current.rows = rows;
+  nc->current.meta = meta;
+
   const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
   RS_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY);
   if (MRReply_Length(rows) <= empty_rows_len) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
-    MRReply_Free(root);
-    root = NULL;
-    rows = NULL;
-    meta = NULL;
+    int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3);
+
+    if (ret == RS_RESULT_TIMEDOUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
   }
 
-  nc->current.root = root;
-  nc->current.rows = rows;
-  nc->current.meta = meta;
   return RS_RESULT_OK;
 }
 
@@ -467,40 +509,15 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // RESP3: {}
 
   if (rows) {
-      size_t len = MRReply_Length(rows);
+    size_t len = MRReply_Length(rows);
 
-      if (nc->curIdx == len) {
-        bool timed_out = false;
-        // Check for a warning (resp3 only)
-        if (resp3) {
-          MRReply *warning = MRReply_MapElement(nc->current.meta, "warning");
-          if (MRReply_Length(warning) > 0) {
-            const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, 0), NULL);
-            // Set an error to be later picked up and sent as a warning
-            if (!strcmp(warning_str, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
-              timed_out = true;
-            } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
-              QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
-            } else if (!strcmp(warning_str, QUERY_WOOM_SHARD)) {
-              QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
-            }
-            if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
-              AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
-            }
-            if (!strcmp(warning_str, QUERY_ASM_INACCURATE_RESULTS)) {
-              nc->areq->asm_potential_inaccuracy = true;
-            }
-          }
-        }
-
-        MRReply_Free(root);
-        root = rows = NULL;
-        RPNet_resetCurrent(nc);
-
-        if (timed_out) {
-          return RS_RESULT_TIMEDOUT;
-        }
+    if (nc->curIdx == len) {
+      if (processWarningsAndCleanup(nc, resp3) == RS_RESULT_TIMEDOUT) {
+        return RS_RESULT_TIMEDOUT;
       }
+
+      root = rows = NULL;
+    }
   }
 
   bool new_reply = !root;

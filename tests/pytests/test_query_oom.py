@@ -345,7 +345,9 @@ def test_oom_verbosity_cluster_return():
     res = env.cmd('FT.SEARCH', 'idx', '*')
     env.assertEqual(res['warning'][0], SHARD_OOM_WARNING)
 
-    # TODO - Check warnings in FT.AGGREGATE when empty results are handled correctly
+    # FT.AGGREGATE (MOD-12640: warnings propagated from empty shard replies)
+    res = env.cmd('FT.AGGREGATE', 'idx', '*')
+    env.assertEqual(res['warning'][0], COORD_OOM_WARNING)
 
     # Search Profile
     res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
@@ -354,9 +356,10 @@ def test_oom_verbosity_cluster_return():
     # Since we don't know the order of responses, we need to count 2 errors
     env.assertEqual(shards_warning_lst.count(SHARD_OOM_WARNING), 2)
 
-    # Aggregate Profile
+    # Aggregate Profile (MOD-12640: warnings propagated from empty shard replies)
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
-    # TODO - Check 'Results' and 'Coordinator' warning when empty results are handled correctly
+    env.assertEqual(res['Results']['warning'][0], COORD_OOM_WARNING)
+    env.assertEqual(res['Profile']['Coordinator']['Warning'], SHARD_OOM_WARNING)
     shards_warning_lst = [shard_profile['Warning'] for shard_profile in res['Profile']['Shards']]
     # Since we don't know the order of responses, we need to count 2 errors
     env.assertEqual(shards_warning_lst.count(SHARD_OOM_WARNING), 2)
@@ -365,8 +368,8 @@ def test_oom_verbosity_cluster_return():
     env.cmd('HELLO', 2)
 
     # Aggregate Profile
+    # In resp 2 the shard warnings are not detected by the coordinator
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
-    # TODO - Check coordinator warning when empty results are handled correctly
     shards_warning_lst = [shard_res[9] for shard_res in res[1][1]]
     # Since we don't know the order of responses, we need to count 2 errors
     env.assertEqual(shards_warning_lst.count(SHARD_OOM_WARNING), 2)
