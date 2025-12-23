@@ -160,7 +160,7 @@ s3_upload() {
     local subdir="snapshots"
     local upload_dir="${S3_URL}/${product_name}/${subdir}"
     echo "Uploading to snapshots directory: $upload_dir"
-    VERSION_SUFFIX="${VERSION_SUFFIX:-}"
+    VERSION_SUFFIX="${VERSION_SUFFIX:-.999}"
     for file in "${files[@]}"; do
         local temp_file="${file%.zip}${VERSION_SUFFIX}.zip"
         cp "$file" "$temp_file"
