@@ -378,7 +378,7 @@ def wait_for_migration_complete(env, dest_shard, source_shard, timeout=300, quer
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
 def import_slot_range_sanity_test(env: Env, query_type: str = 'FT.SEARCH'):
-    n_docs = 2**14
+    n_docs = 20 * 2**14
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
@@ -438,7 +438,7 @@ def parallel_update_worker(env, n_docs, stop_event):
             time.sleep(0.1)
 
 def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH', parallel_updates: bool = False):
-    n_docs = 5 * 2**14
+    n_docs = 20 * 2**14
     create_and_populate_index(env, 'idx', n_docs)
 
     if query_type == 'FT.SEARCH':
@@ -633,7 +633,7 @@ def test_ft_hybrid_import_slot_range_sanity_BG():
 
 def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
     initial_shards_count = env.shardsCount
-    n_docs = 5 * 2**14
+    n_docs = 20 * 2**14
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1 = env.getConnection(1)
