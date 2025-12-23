@@ -34,7 +34,7 @@
 #define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
 #define QUERY_WOOM_SHARD "One or more shards failed to execute the query due to insufficient memory"
 #define QUERY_WOOM_COORD "Coordinator failed to execute the query due to insufficient memory"
-
+#define QUERY_ASM_INACCURATE_RESULTS "Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete or have duplications due to Atomic Slot Migration."
 
 enum QueryErrorCode
 #ifdef __cplusplus
@@ -111,6 +111,8 @@ enum QueryWarningCode
   QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS,
   QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD,
   QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD,
+  QUERY_WARNING_CODE_UNAVAILABLE_SLOTS,
+  QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS,
 };
 #ifndef __cplusplus
 typedef uint8_t QueryWarningCode;
