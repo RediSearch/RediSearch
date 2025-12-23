@@ -255,7 +255,7 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
   dmd->keyPtr = keyPtr;
   dmd->score = score;
   dmd->flags = flags;
-  dmd->maxFreq = 1;
+  dmd->maxTermFreq = 1;
   dmd->id = docId;
   dmd->sortVector = NULL;
   dmd->type = type;
@@ -445,16 +445,16 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     RedisModule_Free(tmpPtr);
 
     dmd->flags = RedisModule_LoadUnsigned(rdb);
-    dmd->maxFreq = 1;
-    dmd->len = 1;
+    dmd->maxTermFreq = 1;
+    dmd->docLen = 1;
     if (encver > 1) {
-      dmd->maxFreq = RedisModule_LoadUnsigned(rdb);
+      dmd->maxTermFreq = RedisModule_LoadUnsigned(rdb);
     }
     if (encver >= INDEX_MIN_DOCLEN_VERSION) {
-      dmd->len = RedisModule_LoadUnsigned(rdb);
+      dmd->docLen = RedisModule_LoadUnsigned(rdb);
     } else {
-      // In older versions, default the len to max freq to avoid division by zero.
-      dmd->len = dmd->maxFreq;
+      // In older versions, default the docLen to maxTermFreq to avoid division by zero.
+      dmd->docLen = dmd->maxTermFreq;
     }
 
     dmd->score = RedisModule_LoadFloat(rdb);

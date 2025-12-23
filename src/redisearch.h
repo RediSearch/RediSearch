@@ -112,14 +112,14 @@ typedef struct RSDocumentMetadata_s {
   /* The a-priory document score as given by the user on insertion */
   float score;
 
-  /* The maximum frequency of any term in the index, used to normalize frequencies */
-  uint32_t maxFreq : 24;
+  /* The maximum frequency of any single term in this document, used to normalize frequencies */
+  uint32_t maxTermFreq : 24;
 
   /* Document flags  */
   RSDocumentFlags flags : 8;
 
-  /* The total weighted number of tokens in the document, weighted by field weights */
-  uint32_t len : 24;
+  /* The sum of all of the frequencies of all of the terms in the document */
+  uint32_t docLen : 24;
 
   // Type of source document. Hash or JSON.
   DocumentType type : 8;
