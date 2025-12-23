@@ -2142,9 +2142,10 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   ++sp->numFields;
   fs->fieldName = NewHiddenString(name, strlen(name), true);
   fs->fieldPath = (path) ? NewHiddenString(path, strlen(path), true) : fs->fieldName;
-  fs->sortIdx = -1;
   fs->ftId = RS_INVALID_FIELD_ID;
   fs->ftWeight = 1.0;
+  fs->sortIdx = -1;
+  fs->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
   if (!(sp->flags & Index_FromLLAPI)) {
     RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
     switch (sp->rule->type) {
@@ -2239,23 +2240,16 @@ static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver
   f->fieldName = NewHiddenString(name, len, true);
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
-  double ftWeight;
-  t_fieldId ftId;
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
-    ftId = bit(LoadUnsigned_IOError(rdb, goto fail));
+    f->ftId = bit(LoadUnsigned_IOError(rdb, goto fail));
   } else {
     // the new version encodes just the power of 2 of the bit
-    ftId = LoadUnsigned_IOError(rdb, goto fail);
+    f->ftId = LoadUnsigned_IOError(rdb, goto fail);
   }
   f->types = LoadUnsigned_IOError(rdb, goto fail);
-  ftWeight = LoadDouble_IOError(rdb, goto fail);
-  if (FIELD_IS(f, INDEXFLD_T_FULLTEXT)) {
-    f->ftId = ftId;
-    f->ftWeight = ftWeight;
-  } else {
-    f->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-    f->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
-  }
+  f->ftWeight = LoadDouble_IOError(rdb, goto fail);
+  f->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
+  f->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
   if (encver >= 4) {
     f->options = LoadUnsigned_IOError(rdb, goto fail);
     f->sortIdx = LoadSigned_IOError(rdb, goto fail);
@@ -2303,6 +2297,7 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
 
 static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver) {
 
+  f->ftId = RS_INVALID_FIELD_ID;
   // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
     return FieldSpec_RdbLoadCompat8(rdb, f, encver);
@@ -3007,7 +3002,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load index field", " %d", i);
       goto cleanup;
     }
-    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && fs->ftId != RS_INVALID_FIELD_ID) {
+    if (fs->ftId != RS_INVALID_FIELD_ID) {
       // Prefer not to rely on the ordering of fields in the RDB file
       *array_ensure_at(&sp->fieldIdToIndex, fs->ftId, t_fieldIndex) = fs->index;
     }
