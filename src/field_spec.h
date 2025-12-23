@@ -111,6 +111,7 @@ typedef struct FieldSpec {
       // Flags for tag options
       TagFieldFlags tagFlags : 16;
       char tagSep;
+      struct TagIndex *tagIndex;
     } tagOpts;
     struct {
       // Vector similarity index parameters.
@@ -127,7 +128,6 @@ typedef struct FieldSpec {
   };
 
   // TODO: Move into union above when we stop supporting multi-type fields
-  struct TagIndex *tagIndex;
   struct NumericRangeTree *tree;
   // weight in frequency calculations
   double ftWeight;
