@@ -328,7 +328,7 @@ bool RSValue_IsTrio(const RSValue *v) {
 }
 
 int RSValue_IsNull(const RSValue *value) {
-  if (!value || value == RSValue_NullStatic()) return 1;
+  if (!value || value->_t == RSValueType_Null) return 1;
   if (value->_t == RSValueType_Reference) return RSValue_IsNull(value->_ref);
   return 0;
 }
