@@ -275,7 +275,7 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define Index_StoreFieldMask(spec) \
   ((spec)->flags & Index_StoreFieldFlags)
 
-#define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
+#define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->textOpts.ftId)
 
 typedef struct {
   RedisModuleString *types[INDEXFLD_NUM_TYPES];
@@ -321,8 +321,7 @@ typedef struct IndexSpec {
   bool monitorFieldExpiration;
   bool isDuplicate;               // Marks that this index is a duplicate of an existing one
 
-  // cached strings, corresponding to number of fields
-  IndexSpecFmtStrings *indexStrs;
+  // cached fields, corresponding to number of fields
   struct IndexSpecCache *spcache;
   // For index expiration
   long long timeout;
@@ -637,10 +636,6 @@ void IndexSpec_Free(IndexSpec *spec);
 //---------------------------------------------------------------------------------------------
 
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
-
-/** Returns a string suitable for indexes. This saves on string creation/destruction */
-RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
-RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s, FieldType forType);
 
 IndexSpec *NewIndexSpec(const HiddenString *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);

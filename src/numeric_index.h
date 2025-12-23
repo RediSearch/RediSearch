@@ -71,7 +71,7 @@ typedef struct {
 } NumericRangeTreeIterator;
 
 /* The root tree and its metadata */
-typedef struct {
+typedef struct NumericRangeTree {
   NumericRangeNode *root;
   size_t numRanges;
   size_t numLeaves;
@@ -112,7 +112,7 @@ void NumericRangeTree_Free(NumericRangeTree *t);
 /* Return the estimated cardinality of the numeric range */
 size_t NumericRange_GetCardinality(const NumericRange *nr);
 
-NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName, bool create_if_missing);
+NumericRangeTree *openNumericKeysDict(FieldSpec* spec, bool create_if_missing);
 
 unsigned long NumericIndexType_MemUsage(const NumericRangeTree *tree);
 

@@ -11,6 +11,9 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "vector_index.h"
+#include "geometry/geometry_api.h"
+#include "tag_index.h"
+#include "numeric_index.h"
 #include "info/global_stats.h"
 #include "obfuscation/obfuscation_api.h"
 
@@ -27,6 +30,28 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
 
   if (fs->types & INDEXFLD_T_VECTOR) {
     VecSimParams_Cleanup(&fs->vectorOpts.vecSimParams);
+    if (fs->vectorOpts.vecSimIndex) {
+      VecSimIndex_Free(fs->vectorOpts.vecSimIndex);
+      fs->vectorOpts.vecSimIndex = NULL;
+    }
+  }
+  if (fs->types & INDEXFLD_T_GEOMETRY) {
+    if (fs->geometryOpts.geometryIndex) {
+      GeometryApi_Get(fs->geometryOpts.geometryIndex)->freeIndex(fs->geometryOpts.geometryIndex);
+      fs->geometryOpts.geometryIndex = NULL;
+    }
+  }
+  if (fs->types & INDEXFLD_T_TAG) {
+    if (fs->tagOpts.tagIndex) {
+      TagIndex_Free(fs->tagOpts.tagIndex);
+      fs->tagOpts.tagIndex = NULL;
+    }
+  }
+  if (FIELD_IS(fs, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO)) {
+    if (fs->numericGeoOpts.tree) {
+      NumericRangeTree_Free(fs->numericGeoOpts.tree);
+      fs->numericGeoOpts.tree = NULL;
+    }
   }
 }
 

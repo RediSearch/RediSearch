@@ -271,8 +271,7 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   arrayof(FieldSpec*) numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
 
   for (int i = 0; i < array_len(numericFields); ++i) {
-    RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
-    NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
+    NumericRangeTree *rt = openNumericKeysDict(numericFields[i], DONT_CREATE_INDEX);
 
     // No entries were added to the numeric field, hence the tree was not initialized
     if (!rt) {
@@ -345,8 +344,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
   arrayof(FieldSpec*) tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
   if (array_len(tagFields) != 0) {
     for (int i = 0; i < array_len(tagFields); ++i) {
-      RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, tagFields[i], INDEXFLD_T_TAG);
-      TagIndex *tagIdx = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
+      TagIndex *tagIdx = TagIndex_Open(tagFields[i], DONT_CREATE_INDEX);
       if (!tagIdx) {
         continue;
       }
@@ -670,8 +668,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
     if (!initialized) {
       fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
-      keyName = IndexSpec_GetFormattedKey(sctx->spec, fs, fs->types);
-      rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
+      rt = openNumericKeysDict(fs, DONT_CREATE_INDEX);
       initialized = true;
     }
 
@@ -779,8 +776,8 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 
     RedisSearchCtx_LockSpecWrite(sctx);
 
-    keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_TAG);
-    tagIdx = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
+    FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
+    tagIdx = TagIndex_Open(fs, DONT_CREATE_INDEX);
 
     if (tagIdx->uniqueId != tagUniqueId) {
       status = FGC_CHILD_ERROR;

@@ -1062,7 +1062,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), body);
-  ASSERT_EQ(f->ftWeight, 2.0);
+  ASSERT_EQ(f->textOpts.ftWeight, 2.0);
   ASSERT_EQ(FIELD_BIT(f), 2);
   ASSERT_EQ(f->options, 0);
   ASSERT_EQ(f->sortIdx, -1);
@@ -1071,7 +1071,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), title);
-  ASSERT_TRUE(f->ftWeight == 0.1);
+  ASSERT_TRUE(f->textOpts.ftWeight == 0.1);
   ASSERT_TRUE(FIELD_BIT(f) == 1);
   ASSERT_TRUE(f->options == 0);
   ASSERT_TRUE(f->sortIdx == -1);
@@ -1080,7 +1080,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), foo);
-  ASSERT_TRUE(f->ftWeight == 1);
+  ASSERT_TRUE(f->textOpts.ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 4);
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 0);
@@ -1098,7 +1098,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), name);
-  ASSERT_TRUE(f->ftWeight == 1);
+  ASSERT_TRUE(f->textOpts.ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 8);
   ASSERT_TRUE(f->options == FieldSpec_NoStemming);
   ASSERT_TRUE(f->sortIdx == -1);

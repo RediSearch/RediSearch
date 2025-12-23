@@ -406,7 +406,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     ByteOffsetWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
     if (aCtx->byteOffsets) {
-      curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, aCtx->totalTokens + 1);
+      curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->textOpts.ftId, aCtx->totalTokens + 1);
       curOffsetWriter = &aCtx->offsetsWriter;
     }
 
@@ -432,7 +432,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       if (i) {
         c = DocumentField_GetArrayValueCStr(field, &fl, i);
       }
-      ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->ftId, fs->ftWeight);
+      ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->textOpts.ftId, fs->textOpts.ftWeight);
       aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
 
       Token tok = {0};
@@ -553,7 +553,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
-  GeometryIndex *rt = OpenGeometryIndex(ctx->spec, fs, CREATE_INDEX);
+  GeometryIndex *rt = OpenGeometryIndex(&ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open geoshape index for indexing");
     return -1;
@@ -580,8 +580,7 @@ FIELD_BULK_INDEXER(geometryIndexer) {
 
 FIELD_BULK_INDEXER(numericIndexer) {
 
-  RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
-  NumericRangeTree *rt = openNumericKeysDict(ctx->spec, keyName, CREATE_INDEX);
+  NumericRangeTree *rt = openNumericKeysDict(&ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open numeric index for indexing");
     return -1;
@@ -632,8 +631,7 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
 
 FIELD_BULK_INDEXER(vectorIndexer) {
   IndexSpec *sp = ctx->spec;
-  RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-  VecSimIndex *vecsim = openVectorIndex(sp, keyName, CREATE_INDEX);
+  VecSimIndex *vecsim = openVectorIndex(&sp->fields[fs->index], CREATE_INDEX);
   if (!vecsim) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open vector for indexing");
     return -1;
@@ -753,8 +751,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(tagIndexer) {
-  RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
-  TagIndex *tidx = TagIndex_Open(ctx->spec, kname, CREATE_INDEX);
+  TagIndex *tidx = TagIndex_Open(&ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!tidx) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open tag index for indexing");
     return -1;

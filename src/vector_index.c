@@ -43,38 +43,14 @@ bool isLVQSupported() {
   return false; // In which case we know that LVQ not supported.
 }
 
-VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index) {
-  KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
-  if (kdv) {
-    return kdv->p;
-  }
-  if (!create_if_index) {
-    return NULL;
-  }
+VecSimIndex *openVectorIndex(FieldSpec *spec, bool create_if_index) {
+  RS_ASSERT(FIELD_IS(spec, INDEXFLD_T_VECTOR));
 
-  size_t fieldLen;
-  const char *fieldStr = RedisModule_StringPtrLen(keyName, &fieldLen);
-  FieldSpec *fieldSpec = NULL;
-  for (int i = 0; i < spec->numFields; ++i) {
-    if (!HiddenString_CaseInsensitiveCompareC(spec->fields[i].fieldName, fieldStr, fieldLen)) {
-      fieldSpec = &spec->fields[i];
-      break;
-    }
+  if (!spec->vectorOpts.vecSimIndex && create_if_index) {
+    // create new vector index
+    spec->vectorOpts.vecSimIndex = VecSimIndex_New(&spec->vectorOpts.vecSimParams);
   }
-  if (fieldSpec == NULL) {
-    return NULL;
-  }
-
-  // create new vector data structure
-  VecSimIndex* temp = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
-  if (!temp) {
-    return NULL;
-  }
-  kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->p = temp;
-  kdv->dtor = (void (*)(void *))VecSimIndex_Free;
-  dictAdd(spec->keysDict, keyName, kdv);
-  return kdv->p;
+  return spec->vectorOpts.vecSimIndex;
 }
 
 QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, const bool yields_metric, const bool sorted_by_id) {
@@ -116,8 +92,7 @@ QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
 
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
-  RedisModuleString *key = IndexSpec_GetFormattedKey(ctx->spec, vq->field, INDEXFLD_T_VECTOR);
-  VecSimIndex *vecsim = openVectorIndex(ctx->spec, key, DONT_CREATE_INDEX);
+  VecSimIndex *vecsim = openVectorIndex(vq->field, DONT_CREATE_INDEX);
   if (!vecsim) {
     return NULL;
   }
@@ -694,8 +669,7 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
       if (sp->fields[ii].types & INDEXFLD_T_VECTOR &&
           sp->fields[ii].vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
         // Get the vector index
-        RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, sp->fields + ii, INDEXFLD_T_VECTOR);
-        VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
+        VecSimIndex *vecsim = openVectorIndex(sp->fields + ii, DONT_CREATE_INDEX);
         // Call the tiered index GC if the vector index is not empty
         if (vecsim) VecSimTieredIndex_GC(vecsim);
       }

@@ -133,7 +133,7 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
       RWLOCK_RELEASE();
       return RSFIELD_INVALID;
     }
-    fs->ftId = txtId;
+    fs->textOpts.ftId = txtId;
     fs->types |= INDEXFLD_T_FULLTEXT;
   }
 
@@ -206,7 +206,7 @@ void RediSearch_TextFieldSetWeight(RefManager* rm, RSFieldID id, double w) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
   FieldSpec* fs = sp->fields + id;
   RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_FULLTEXT), "types should be INDEXFLD_T_FULLTEXT");
-  fs->ftWeight = w;
+  fs->textOpts.ftWeight = w;
 }
 
 void RediSearch_TagFieldSetSeparator(RefManager* rm, RSFieldID id, char sep) {
@@ -821,7 +821,7 @@ void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
   HiddenString_Clone(specField->fieldPath, &infoField->path);
   if (specField->types & INDEXFLD_T_FULLTEXT) {
     infoField->types |= RSFLDTYPE_FULLTEXT;
-    infoField->textWeight = specField->ftWeight;
+    infoField->textWeight = specField->textOpts.ftWeight;
   }
   if (specField->types & INDEXFLD_T_NUMERIC) {
     infoField->types |= RSFLDTYPE_NUMERIC;

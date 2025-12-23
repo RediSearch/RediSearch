@@ -454,8 +454,7 @@ static QueryIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, Numeri
   }
 
   if (fs) {
-      RedisModuleString *numField = IndexSpec_GetFormattedKey(sctx->spec, fs, INDEXFLD_T_NUMERIC);
-      rt = openNumericKeysDict(sctx->spec, numField, DONT_CREATE_INDEX);
+      rt = openNumericKeysDict(fs, DONT_CREATE_INDEX);
       RS_ASSERT(rt);
   }
 
@@ -505,39 +504,19 @@ QueryIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTre
   return NewUnionIterator(its, n, true, 1.0, type, NULL, config);
 }
 
-#define NUMERICINDEX_KEY_FMT "nm:%s/%s"
-
-RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const HiddenString *field) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, HiddenString_GetUnsafe(ctx->spec->specName, NULL), HiddenString_GetUnsafe(field, NULL));
-}
-
-NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName,
-                                             bool create_if_missing) {
-  KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
-  if (kdv) {
-    return kdv->p;
+NumericRangeTree *openNumericKeysDict(FieldSpec* spec, bool create_if_missing) {
+  if (!spec->numericGeoOpts.tree && create_if_missing) {
+    spec->numericGeoOpts.tree = NewNumericRangeTree();
   }
-  if (!create_if_missing) {
-    return NULL;
-  }
-  kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->dtor = (void (*)(void *))NumericRangeTree_Free;
-  kdv->p = NewNumericRangeTree();
-  spec->stats.invertedSize += ((NumericRangeTree *)kdv->p)->root->range->invertedIndexSize;
-  dictAdd(spec->keysDict, keyName, kdv);
-  return kdv->p;
+  return spec->numericGeoOpts.tree;
 }
 
 QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
                                         FieldType forType, IteratorsConfig *config,
                                         const FieldFilterContext* filterCtx) {
   const FieldSpec *fs = flt->fieldSpec;
-  RedisModuleString *s = IndexSpec_GetFormattedKey(ctx->spec, fs, forType);
-  if (!s) {
-    return NULL;
-  }
 
-  NumericRangeTree *t = openNumericKeysDict(ctx->spec, s, DONT_CREATE_INDEX);
+  NumericRangeTree *t = openNumericKeysDict((FieldSpec *)fs, DONT_CREATE_INDEX);
   if (!t) {
     return NULL;
   }

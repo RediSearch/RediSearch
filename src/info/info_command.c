@@ -152,7 +152,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     }
 
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
-      REPLY_KVNUM(SPEC_WEIGHT_STR, fs->ftWeight);
+      REPLY_KVNUM(SPEC_WEIGHT_STR, fs->textOpts.ftWeight);
     }
 
     bool reply_SPEC_TAG_CASE_SENSITIVE_STR = false;
@@ -167,7 +167,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
     if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
       REPLY_KVSTR("coord_system", GeometryCoordsToName(fs->geometryOpts.geometryCoords));
-      const GeometryIndex *idx = OpenGeometryIndex(specForOpeningIndexes, fs, DONT_CREATE_INDEX);
+      const GeometryIndex *idx = OpenGeometryIndex(fs, DONT_CREATE_INDEX);
       if (idx) {
         const GeometryApi *api = GeometryApi_Get(idx);
         geom_idx_sz += api->report(idx);
@@ -324,8 +324,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   REPLY_KVARRAY("field statistics"); // Field statistics
   for (int i = 0; i < sp->numFields; i++) {
-    const FieldSpec *fs = &sp->fields[i];
-    FieldSpecInfo info = FieldSpec_GetInfo(fs, specForOpeningIndexes, obfuscate);
+    FieldSpec *fs = &sp->fields[i];
+    FieldSpecInfo info = FieldSpec_GetInfo(fs, obfuscate);
     FieldSpecInfo_Reply(&info, reply, withTimes, obfuscate);
     FieldSpecInfo_Clear(&info);
   }

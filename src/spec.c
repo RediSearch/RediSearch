@@ -440,8 +440,7 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp) {
   for (size_t i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_NUMERIC) || FIELD_IS(fs, INDEXFLD_T_GEO)) {
-      RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, fs->types);
-      NumericRangeTree *rt = openNumericKeysDict(sp, keyName, DONT_CREATE_INDEX);
+      NumericRangeTree *rt = openNumericKeysDict(fs, DONT_CREATE_INDEX);
       // Numeric index was not initialized yet
       if (!rt) {
         continue;
@@ -459,7 +458,7 @@ size_t IndexSpec_collect_tags_overhead(const IndexSpec *sp) {
   for (size_t i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
-      overhead += TagIndex_GetOverhead(sp, fs);
+      overhead += TagIndex_GetOverhead(fs);
     }
   }
   return overhead;
@@ -1038,6 +1037,8 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
 static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;
   fs->types |= INDEXFLD_T_FULLTEXT;
+  fs->textOpts.ftId = RS_INVALID_FIELD_ID;
+  fs->textOpts.ftWeight = 1.0;
 
   // this is a text field
   // init default weight and type
@@ -1052,7 +1053,7 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for weight: %s", AC_Strerror(rc));
         return 0;
       }
-      fs->ftWeight = d;
+      fs->textOpts.ftWeight = d;
       continue;
 
     } else if (AC_AdvanceIfMatch(ac, SPEC_PHONETIC_STR)) {
@@ -1094,6 +1095,7 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
 static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     int rc = 1;
     fs->types |= INDEXFLD_T_TAG;
+    fs->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
 
     while (!AC_IsAtEnd(ac)) {
       if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
@@ -1263,6 +1265,18 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
       sp->flags |= Index_HasNonEmpty;
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
+    if (!(sp->flags & Index_FromLLAPI)) {
+      RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
+      switch (sp->rule->type) {
+        case DocumentType_Hash:
+          fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
+        case DocumentType_Json:
+          fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
+        case DocumentType_Unsupported:
+          RS_ABORT("shouldn't get here");
+          break;
+      }
+    }
     if (!parseTagField(fs, ac, status)) goto error;
     if (!FieldSpec_IndexesEmpty(fs)) {
       sp->flags |= Index_HasNonEmpty;
@@ -1430,7 +1444,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
           goto reset;
         }
       }
-      fs->ftId = textId;
+      fs->textOpts.ftId = textId;
       if isSpecJson(sp) {
         if ((sp->flags & Index_HasFieldAlias) && (sp->flags & Index_StoreTermOffsets)) {
           RedisModuleString *err_msg;
@@ -1816,18 +1830,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   array_free(spec->fieldIdToIndex);
   spec->fieldIdToIndex = NULL;
 
-  // Free fields formatted names
-  if (spec->indexStrs) {
-    for (size_t ii = 0; ii < spec->numFields; ++ii) {
-      IndexSpecFmtStrings *fmts = spec->indexStrs + ii;
-      for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
-        if (fmts->types[jj]) {
-          RedisModule_FreeString(RSDummyContext, fmts->types[jj]);
-        }
-      }
-    }
-    rm_free(spec->indexStrs);
-  }
   // Free fields data
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
@@ -2031,52 +2033,39 @@ StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec) {
   return spec->own_ref;
 }
 
-// Assuming the spec is properly locked before calling this function.
-RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
-                                             FieldType forType) {
-  if (!sp->indexStrs) {
-    sp->indexStrs = rm_calloc(SPEC_MAX_FIELDS, sizeof(*sp->indexStrs));
-  }
-
-  size_t typeix = INDEXTYPE_TO_POS(forType);
-
-  RedisModuleString *ret = sp->indexStrs[fs->index].types[typeix];
-  if (!ret) {
-    RedisSearchCtx sctx = {.redisCtx = RSDummyContext, .spec = sp};
-    switch (forType) {
-      case INDEXFLD_T_NUMERIC:
-      case INDEXFLD_T_GEO:  // TODO?? change the name
-        ret = fmtRedisNumericIndexKey(&sctx, fs->fieldName);
-        break;
-      case INDEXFLD_T_TAG:
-        ret = TagIndex_FormatName(sctx.spec, fs->fieldName);
-        break;
-      case INDEXFLD_T_VECTOR:
-        ret = HiddenString_CreateRedisModuleString(fs->fieldName, sctx.redisCtx);
-        break;
-      case INDEXFLD_T_GEOMETRY:
-        ret = fmtRedisGeometryIndexKey(&sctx, fs->fieldName);
-        break;
-      case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
-      default:
-        ret = NULL;
-        abort();
-        break;
-    }
-    RS_LOG_ASSERT(ret, "Failed to create index string");
-    sp->indexStrs[fs->index].types[typeix] = ret;
-  }
-  return ret;
+static RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const HiddenString *field) {
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, "nm:%s/%s", HiddenString_GetUnsafe(ctx->spec->specName, NULL), HiddenString_GetUnsafe(field, NULL));
+}
+/* Format the key name for a tag index */
+static RedisModuleString *TagIndex_FormatName(const IndexSpec *spec, const HiddenString* field) {
+  return RedisModule_CreateStringPrintf(RSDummyContext, "tag:%s/%s", HiddenString_GetUnsafe(spec->specName, NULL), HiddenString_GetUnsafe(field, NULL));
 }
 
 // Assuming the spec is properly locked before calling this function.
-RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s,
-                                                   FieldType forType) {
-  const FieldSpec *fs = IndexSpec_GetFieldWithLength(sp, s, strlen(s));
-  if (!fs) {
-    return NULL;
+RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
+                                             FieldType forType) {
+
+  size_t typeix = INDEXTYPE_TO_POS(forType);
+
+  RedisModuleString *ret = NULL;
+
+  RedisSearchCtx sctx = {.redisCtx = RSDummyContext, .spec = sp};
+  switch (forType) {
+    case INDEXFLD_T_NUMERIC:
+    case INDEXFLD_T_GEO:
+      ret = fmtRedisNumericIndexKey(&sctx, fs->fieldName);
+      break;
+    case INDEXFLD_T_TAG:
+      ret = TagIndex_FormatName(sctx.spec, fs->fieldName);
+      break;
+    case INDEXFLD_T_VECTOR:    // Not in legacy
+    case INDEXFLD_T_GEOMETRY:  // Not in legacy
+    case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
+    default:
+      RS_ABORT_ALWAYS("Unsupported field type for legacy formatted key");
+      break;
   }
-  return IndexSpec_GetFormattedKey(sp, fs, forType);
+  return ret;
 }
 
 // Assuming the spec is properly locked before calling this function.
@@ -2167,22 +2156,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   ++sp->numFields;
   fs->fieldName = NewHiddenString(name, strlen(name), true);
   fs->fieldPath = (path) ? NewHiddenString(path, strlen(path), true) : fs->fieldName;
-  fs->ftId = RS_INVALID_FIELD_ID;
-  fs->ftWeight = 1.0;
   fs->sortIdx = -1;
-  fs->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  if (!(sp->flags & Index_FromLLAPI)) {
-    RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
-    switch (sp->rule->type) {
-      case DocumentType_Hash:
-        fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
-      case DocumentType_Json:
-        fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
-      case DocumentType_Unsupported:
-        RS_ABORT("shouldn't get here");
-        break;
-    }
-  }
   return fs;
 }
 
@@ -2265,16 +2239,23 @@ static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver
   f->fieldName = NewHiddenString(name, len, true);
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
+  double ftWeight;
+  t_fieldId ftId;
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
-    f->ftId = bit(LoadUnsigned_IOError(rdb, goto fail));
+    ftId = bit(LoadUnsigned_IOError(rdb, goto fail));
   } else {
     // the new version encodes just the power of 2 of the bit
-    f->ftId = LoadUnsigned_IOError(rdb, goto fail);
+    ftId = LoadUnsigned_IOError(rdb, goto fail);
   }
   f->types = LoadUnsigned_IOError(rdb, goto fail);
-  f->ftWeight = LoadDouble_IOError(rdb, goto fail);
-  f->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  f->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
+  ftWeight = LoadDouble_IOError(rdb, goto fail);
+  if (FIELD_IS(f, INDEXFLD_T_FULLTEXT)) {
+    f->textOpts.ftId = ftId;
+    f->textOpts.ftWeight = ftWeight;
+  } else {
+    f->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
+    f->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
+  }
   if (encver >= 4) {
     f->options = LoadUnsigned_IOError(rdb, goto fail);
     f->sortIdx = LoadSigned_IOError(rdb, goto fail);
@@ -2298,8 +2279,8 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveSigned(rdb, f->sortIdx);
   // Save text specific options
   if (FIELD_IS(f, INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
-    RedisModule_SaveUnsigned(rdb, f->ftId);
-    RedisModule_SaveDouble(rdb, f->ftWeight);
+    RedisModule_SaveUnsigned(rdb, f->textOpts.ftId);
+    RedisModule_SaveDouble(rdb, f->textOpts.ftWeight);
   }
   if (FIELD_IS(f, INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
     RedisModule_SaveUnsigned(rdb, f->tagOpts.tagFlags);
@@ -2322,7 +2303,6 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
 
 static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver) {
 
-  f->ftId = RS_INVALID_FIELD_ID;
   // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
     return FieldSpec_RdbLoadCompat8(rdb, f, encver);
@@ -2351,8 +2331,8 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
 
   // Load text specific options
   if (FIELD_IS(f, INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
-    f->ftId = LoadUnsigned_IOError(rdb, goto fail);
-    f->ftWeight = LoadDouble_IOError(rdb, goto fail);
+    f->textOpts.ftId = LoadUnsigned_IOError(rdb, goto fail);
+    f->textOpts.ftWeight = LoadDouble_IOError(rdb, goto fail);
   }
   // Load tag specific options
   if (FIELD_IS(f, INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
@@ -2814,7 +2794,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
       RedisModule_InfoAddFieldCString(ctx, "type", (char*)FieldSpec_GetTypeNames(INDEXTYPE_TO_POS(fs->types)));
 
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT))
-      RedisModule_InfoAddFieldDouble(ctx,  SPEC_WEIGHT_STR, fs->ftWeight);
+      RedisModule_InfoAddFieldDouble(ctx,  SPEC_WEIGHT_STR, fs->textOpts.ftWeight);
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
       char buf[4];
       sprintf(buf, "\"%c\"", fs->tagOpts.tagSep);
@@ -2914,16 +2894,19 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   for (size_t i = 0; i < ctx.spec->numFields; i++) {
     const FieldSpec *fs = ctx.spec->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
-      Redis_DeleteKey(ctx.redisCtx, IndexSpec_GetFormattedKey(ctx.spec, fs, INDEXFLD_T_NUMERIC));
+      RedisModuleString *key = IndexSpec_LegacyGetFormattedKey(ctx.spec, fs, INDEXFLD_T_NUMERIC);
+      Redis_LegacyDeleteKey(ctx.redisCtx, key);
     }
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
-      Redis_DeleteKey(ctx.redisCtx, IndexSpec_GetFormattedKey(ctx.spec, fs, INDEXFLD_T_TAG));
+      RedisModuleString *key = IndexSpec_LegacyGetFormattedKey(ctx.spec, fs, INDEXFLD_T_TAG);
+      Redis_LegacyDeleteKey(ctx.redisCtx, key);
     }
     if (FIELD_IS(fs, INDEXFLD_T_GEO)) {
-      Redis_DeleteKey(ctx.redisCtx, IndexSpec_GetFormattedKey(ctx.spec, fs, INDEXFLD_T_GEO));
+      RedisModuleString *key = IndexSpec_LegacyGetFormattedKey(ctx.spec, fs, INDEXFLD_T_GEO);
+      Redis_LegacyDeleteKey(ctx.redisCtx, key);
     }
   }
-  HiddenString_DropFromKeySpace(ctx.redisCtx, INDEX_SPEC_KEY_FMT, sp->specName);
+  HiddenString_LegacyDropFromKeySpace(ctx.redisCtx, INDEX_SPEC_KEY_FMT, sp->specName);
 }
 
 void Indexes_UpgradeLegacyIndexes() {
@@ -3024,9 +3007,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load index field", " %d", i);
       goto cleanup;
     }
-    if (fs->ftId != RS_INVALID_FIELD_ID) {
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && fs->textOpts.ftId != RS_INVALID_FIELD_ID) {
       // Prefer not to rely on the ordering of fields in the RDB file
-      *array_ensure_at(&sp->fieldIdToIndex, fs->ftId, t_fieldIndex) = fs->index;
+      *array_ensure_at(&sp->fieldIdToIndex, fs->textOpts.ftId, t_fieldIndex) = fs->index;
     }
     if (FieldSpec_IsSortable(fs)) {
       sp->numSortableFields++;
@@ -3500,8 +3483,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   if (spec->flags & Index_HasVecSim) {
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-        RedisModuleString *rmskey = IndexSpec_GetFormattedKey(spec, spec->fields + i, INDEXFLD_T_VECTOR);
-        VecSimIndex *vecsim = openVectorIndex(spec, rmskey, DONT_CREATE_INDEX);
+        VecSimIndex *vecsim = openVectorIndex(spec->fields + i, DONT_CREATE_INDEX);
         if(!vecsim)
           continue;
         VecSimIndex_DeleteVector(vecsim, id);
