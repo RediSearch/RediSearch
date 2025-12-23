@@ -488,6 +488,8 @@ struct MRIteratorCtx {
   // When it reaches 0, both readers and the writer agree that the iterator can be released
   int8_t itRefCount;
   IORuntimeCtx *ioRuntime;
+  void (*privateDataDestructor)(void *);  // Destructor for privateData, called in MRIterator_Free
+  void (*privateDataInit)(void *, MRIterator *);  // Init callback for privateData, called from iterStartCb
 };
 
 struct MRIteratorCallbackCtx {
@@ -603,6 +605,12 @@ void iterStartCb(void *p) {
   it->ctx.pending = numShards;
   it->ctx.inProcess = numShards; // Initially all commands are in process
 
+  // Call privateData init callback if set (e.g., to initialize ShardResponseBarrier)
+  void *privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+  if (privateData && it->ctx.privateDataInit) {
+    it->ctx.privateDataInit(privateData, it);
+  }
+
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
   for (size_t targetShardIdx = 1; targetShardIdx < numShards; targetShardIdx++) {
@@ -610,6 +618,7 @@ void iterStartCb(void *p) {
     it->cbxs[targetShardIdx].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
     it->cbxs[targetShardIdx].cmd.targetShard = rm_strdup(shards[targetShardIdx].node.id);
+    it->cbxs[targetShardIdx].cmd.targetShardIdx = targetShardIdx;
     MRCommand_SetSlotInfo(&it->cbxs[targetShardIdx].cmd, shards[targetShardIdx].slotRanges);
 
     it->cbxs[targetShardIdx].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
@@ -617,6 +626,7 @@ void iterStartCb(void *p) {
 
   // Set the first command to target the first shard (while not having copied it)
   cmd->targetShard = rm_strdup(shards[0].node.id);
+  cmd->targetShardIdx = 0;
   MRCommand_SetSlotInfo(cmd, shards[0].slotRanges);
 
   // This implies that every connection to each shard will work inside a single IO thread
@@ -739,10 +749,13 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
 }
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
-  return MR_IterateWithPrivateData(cmd, cb, NULL, iterStartCb, NULL);
+  return MR_IterateWithPrivateData(cmd, cb, NULL, NULL, NULL, iterStartCb, NULL);
 }
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData, void (*iterStartCb)(void *) ,StrongRef *iterStartCbPrivateData) {
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
+                                      void (*cbPrivateDataDestructor)(void *),
+                                      void (*cbPrivateDataInit)(void *, MRIterator *),
+                                      void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData) {
   MRIterator *ret = rm_new(MRIterator);
   // Initial initialization of the iterator.
   // The rest of the initialization is done in the iterator start callback.
@@ -761,6 +774,8 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
       .timedOut = false,
       .itRefCount = 2,
       .ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g)),
+      .privateDataDestructor = cbPrivateDataDestructor,
+      .privateDataInit = cbPrivateDataInit,
     },
     .cbxs = rm_new(MRIteratorCallbackCtx),
   };
@@ -790,6 +805,10 @@ MRReply *MRIterator_Next(MRIterator *it) {
   return MRChannel_Pop(it->ctx.chan);
 }
 
+MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime, bool *timedOut) {
+  return MRChannel_PopWithTimeout(it->ctx.chan, abstime, timedOut);
+}
+
 size_t MRIterator_GetChannelSize(const MRIterator *it) {
   return MRChannel_Size(it->ctx.chan);
 }
@@ -800,6 +819,10 @@ size_t MRIterator_GetNumShards(const MRIterator *it) {
 
 // Assumes no other thread is using the iterator, the channel, or any of the commands and contexts
 static void MRIterator_Free(MRIterator *it) {
+  // Free privateData using destructor if provided (e.g., ShardResponseBarrier)
+  if (it->ctx.privateDataDestructor && it->cbxs[0].privateData) {
+    it->ctx.privateDataDestructor(it->cbxs[0].privateData);
+  }
   for (size_t i = 0; i < it->len; i++) {
     MRCommand_Free(&it->cbxs[i].cmd);
   }
