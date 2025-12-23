@@ -71,7 +71,7 @@ class TestEmptyReplyWarnings:
         res = self.env.cmd('FT.AGGREGATE', 'idx', '@t:hell* @t:world')
         self.env.assertEqual(len(res['results']), 0,
                              message=f"Expected empty results, got: {res}")
-        self.env.assertGreaterEqual(len(res['warning']), 1,
+        self.env.assertEqual(len(res['warning']), 1,
                                     message=f"Expected max prefix expansion warning, got: {res}")
         self.env.assertContains('Max prefix expansions', res['warning'][0],
                                 message=f"Expected max prefix expansion warning, got: {res}")
@@ -93,7 +93,7 @@ class TestEmptyReplyWarnings:
         res = self.env.cmd('FT.AGGREGATE', 'idx', '@t:nonexistent_term_xyz')
         self.env.assertEqual(len(res['results']), 0,
                         message=f"Expected empty results, got: {res}")
-        self.env.assertGreaterEqual(len(res['warning']), 1,
+        self.env.assertEqual(len(res['warning']), 1,
                             message=f"Expected query OOM warning, got: {res}")
         self.env.assertContains('insufficient memory', res['warning'][0],
                         message=f"Expected query OOM warning, got: {res}")
@@ -156,7 +156,7 @@ def testEmptyReplyIndexingOomWarning():
     res = env.cmd('FT.AGGREGATE', 'idx', '@t:nonexistent_term_xyz')
     env.assertEqual(len(res['results']), 0,
                     message=f"Expected empty results, got: {res}")
-    env.assertGreaterEqual(len(res['warning']), 1,
+    env.assertEqual(len(res['warning']), 1,
                            message=f"Expected indexing OOM warning, got: {res}")
     env.assertEqual(res['warning'][0], partial_results_warning,
                     message=f"Expected indexing OOM warning, got: {res}")
