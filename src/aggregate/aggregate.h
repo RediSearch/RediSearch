@@ -286,6 +286,8 @@ typedef struct AREQ {
   // Number of cursor reads: 1 for the initial FT.AGGREGATE WITHCURSOR,
   // plus 1 for each subsequent FT.CURSOR READ call.
   size_t cursor_reads;
+
+  // warnings
 } AREQ;
 
 /**
