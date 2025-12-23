@@ -1037,8 +1037,6 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
 static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;
   fs->types |= INDEXFLD_T_FULLTEXT;
-  fs->textOpts.ftId = RS_INVALID_FIELD_ID;
-  fs->textOpts.ftWeight = 1.0;
 
   // this is a text field
   // init default weight and type
@@ -1053,7 +1051,7 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for weight: %s", AC_Strerror(rc));
         return 0;
       }
-      fs->textOpts.ftWeight = d;
+      fs->ftWeight = d;
       continue;
 
     } else if (AC_AdvanceIfMatch(ac, SPEC_PHONETIC_STR)) {
@@ -1265,18 +1263,6 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
       sp->flags |= Index_HasNonEmpty;
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    if (!(sp->flags & Index_FromLLAPI)) {
-      RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
-      switch (sp->rule->type) {
-        case DocumentType_Hash:
-          fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
-        case DocumentType_Json:
-          fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
-        case DocumentType_Unsupported:
-          RS_ABORT("shouldn't get here");
-          break;
-      }
-    }
     if (!parseTagField(fs, ac, status)) goto error;
     if (!FieldSpec_IndexesEmpty(fs)) {
       sp->flags |= Index_HasNonEmpty;
@@ -1444,7 +1430,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
           goto reset;
         }
       }
-      fs->textOpts.ftId = textId;
+      fs->ftId = textId;
       if isSpecJson(sp) {
         if ((sp->flags & Index_HasFieldAlias) && (sp->flags & Index_StoreTermOffsets)) {
           RedisModuleString *err_msg;
@@ -2157,6 +2143,20 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   fs->fieldName = NewHiddenString(name, strlen(name), true);
   fs->fieldPath = (path) ? NewHiddenString(path, strlen(path), true) : fs->fieldName;
   fs->sortIdx = -1;
+  fs->ftId = RS_INVALID_FIELD_ID;
+  fs->ftWeight = 1.0;
+  if (!(sp->flags & Index_FromLLAPI)) {
+    RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
+    switch (sp->rule->type) {
+      case DocumentType_Hash:
+        fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
+      case DocumentType_Json:
+        fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
+      case DocumentType_Unsupported:
+        RS_ABORT("shouldn't get here");
+        break;
+    }
+  }
   return fs;
 }
 
@@ -2250,8 +2250,8 @@ static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver
   f->types = LoadUnsigned_IOError(rdb, goto fail);
   ftWeight = LoadDouble_IOError(rdb, goto fail);
   if (FIELD_IS(f, INDEXFLD_T_FULLTEXT)) {
-    f->textOpts.ftId = ftId;
-    f->textOpts.ftWeight = ftWeight;
+    f->ftId = ftId;
+    f->ftWeight = ftWeight;
   } else {
     f->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
     f->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
@@ -2279,8 +2279,8 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveSigned(rdb, f->sortIdx);
   // Save text specific options
   if (FIELD_IS(f, INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
-    RedisModule_SaveUnsigned(rdb, f->textOpts.ftId);
-    RedisModule_SaveDouble(rdb, f->textOpts.ftWeight);
+    RedisModule_SaveUnsigned(rdb, f->ftId);
+    RedisModule_SaveDouble(rdb, f->ftWeight);
   }
   if (FIELD_IS(f, INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
     RedisModule_SaveUnsigned(rdb, f->tagOpts.tagFlags);
@@ -2331,8 +2331,8 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
 
   // Load text specific options
   if (FIELD_IS(f, INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
-    f->textOpts.ftId = LoadUnsigned_IOError(rdb, goto fail);
-    f->textOpts.ftWeight = LoadDouble_IOError(rdb, goto fail);
+    f->ftId = LoadUnsigned_IOError(rdb, goto fail);
+    f->ftWeight = LoadDouble_IOError(rdb, goto fail);
   }
   // Load tag specific options
   if (FIELD_IS(f, INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
@@ -2794,7 +2794,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
       RedisModule_InfoAddFieldCString(ctx, "type", (char*)FieldSpec_GetTypeNames(INDEXTYPE_TO_POS(fs->types)));
 
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT))
-      RedisModule_InfoAddFieldDouble(ctx,  SPEC_WEIGHT_STR, fs->textOpts.ftWeight);
+      RedisModule_InfoAddFieldDouble(ctx,  SPEC_WEIGHT_STR, fs->ftWeight);
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
       char buf[4];
       sprintf(buf, "\"%c\"", fs->tagOpts.tagSep);
@@ -3007,9 +3007,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load index field", " %d", i);
       goto cleanup;
     }
-    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && fs->textOpts.ftId != RS_INVALID_FIELD_ID) {
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && fs->ftId != RS_INVALID_FIELD_ID) {
       // Prefer not to rely on the ordering of fields in the RDB file
-      *array_ensure_at(&sp->fieldIdToIndex, fs->textOpts.ftId, t_fieldIndex) = fs->index;
+      *array_ensure_at(&sp->fieldIdToIndex, fs->ftId, t_fieldIndex) = fs->index;
     }
     if (FieldSpec_IsSortable(fs)) {
       sp->numSortableFields++;

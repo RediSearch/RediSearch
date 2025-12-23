@@ -60,7 +60,7 @@ static int fragmentizeOffsets(const RLookup *lookup, const char *fieldName, cons
   RSOffsetIterator offsIter = RSIndexResult_IterateOffsets(indexResult);
   FragmentTermIterator fragIter = {NULL};
   RSByteOffsetIterator bytesIter;
-  if (RSByteOffset_Iterate(byteOffsets, fs->textOpts.ftId, &bytesIter) != REDISMODULE_OK) {
+  if (RSByteOffset_Iterate(byteOffsets, fs->ftId, &bytesIter) != REDISMODULE_OK) {
     goto done;
   }
 

@@ -41,16 +41,16 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
       fs->geometryOpts.geometryIndex = NULL;
     }
   }
-  if (fs->types & INDEXFLD_T_TAG) {
-    if (fs->tagOpts.tagIndex) {
-      TagIndex_Free(fs->tagOpts.tagIndex);
-      fs->tagOpts.tagIndex = NULL;
+  if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+    if (fs->tagIndex) {
+      TagIndex_Free(fs->tagIndex);
+      fs->tagIndex = NULL;
     }
   }
   if (FIELD_IS(fs, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO)) {
-    if (fs->numericGeoOpts.tree) {
-      NumericRangeTree_Free(fs->numericGeoOpts.tree);
-      fs->numericGeoOpts.tree = NULL;
+    if (fs->tree) {
+      NumericRangeTree_Free(fs->tree);
+      fs->tree = NULL;
     }
   }
 }

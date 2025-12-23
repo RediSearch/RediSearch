@@ -111,7 +111,6 @@ typedef struct FieldSpec {
       // Flags for tag options
       TagFieldFlags tagFlags : 16;
       char tagSep;
-      struct TagIndex *tagIndex;
     } tagOpts;
     struct {
       // Vector similarity index parameters.
@@ -125,16 +124,15 @@ typedef struct FieldSpec {
       GEOMETRY_COORDS geometryCoords;
       GeometryIndex *geometryIndex;
     } geometryOpts;
-    struct {
-      struct NumericRangeTree *tree;
-    } numericGeoOpts;
-    struct {
-      // weight in frequency calculations
-      double ftWeight;
-      // ID used to identify the field within the field mask
-      t_fieldId ftId;
-    } textOpts;
   };
+
+  // TODO: Move into union above when we stop supporting multi-type fields
+  struct TagIndex *tagIndex;
+  struct NumericRangeTree *tree;
+  // weight in frequency calculations
+  double ftWeight;
+  // ID used to identify the field within the field mask
+  t_fieldId ftId;
 
   // The index error for this field
   IndexError indexError;

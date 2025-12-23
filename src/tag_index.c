@@ -248,10 +248,10 @@ QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
 /* Open the tag index */
 TagIndex *TagIndex_Open(FieldSpec *spec, bool create_if_missing) {
   RS_ASSERT(FIELD_IS(spec, INDEXFLD_T_TAG));
-  if (!spec->tagOpts.tagIndex && create_if_missing) {
-    spec->tagOpts.tagIndex = NewTagIndex();
+  if (!spec->tagIndex && create_if_missing) {
+    spec->tagIndex = NewTagIndex();
   }
-  return spec->tagOpts.tagIndex;
+  return spec->tagIndex;
 }
 
 /* Serialize all the tags in the index to the redis client */

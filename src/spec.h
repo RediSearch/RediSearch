@@ -275,7 +275,7 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define Index_StoreFieldMask(spec) \
   ((spec)->flags & Index_StoreFieldFlags)
 
-#define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->textOpts.ftId)
+#define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
 
 typedef struct {
   RedisModuleString *types[INDEXFLD_NUM_TYPES];

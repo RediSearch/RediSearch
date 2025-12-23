@@ -152,7 +152,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     }
 
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
-      REPLY_KVNUM(SPEC_WEIGHT_STR, fs->textOpts.ftWeight);
+      REPLY_KVNUM(SPEC_WEIGHT_STR, fs->ftWeight);
     }
 
     bool reply_SPEC_TAG_CASE_SENSITIVE_STR = false;

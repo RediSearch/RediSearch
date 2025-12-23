@@ -505,10 +505,10 @@ QueryIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTre
 }
 
 NumericRangeTree *openNumericKeysDict(FieldSpec* spec, bool create_if_missing) {
-  if (!spec->numericGeoOpts.tree && create_if_missing) {
-    spec->numericGeoOpts.tree = NewNumericRangeTree();
+  if (!spec->tree && create_if_missing) {
+    spec->tree = NewNumericRangeTree();
   }
-  return spec->numericGeoOpts.tree;
+  return spec->tree;
 }
 
 QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,

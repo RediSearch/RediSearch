@@ -406,7 +406,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     ByteOffsetWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
     if (aCtx->byteOffsets) {
-      curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->textOpts.ftId, aCtx->totalTokens + 1);
+      curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, aCtx->totalTokens + 1);
       curOffsetWriter = &aCtx->offsetsWriter;
     }
 
@@ -432,7 +432,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       if (i) {
         c = DocumentField_GetArrayValueCStr(field, &fl, i);
       }
-      ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->textOpts.ftId, fs->textOpts.ftWeight);
+      ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->ftId, fs->ftWeight);
       aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
 
       Token tok = {0};
