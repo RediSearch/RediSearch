@@ -259,7 +259,7 @@ impl QueryWarningCode {
             }
             Self::UnavailableSlots => c"Query requires unavailable slots",
             Self::AsmInaccurateResults => {
-                c"Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete or have duplications due to Atomic Slot Migration."
+                c"Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete due to Atomic Slot Migration."
             }
         }
     }

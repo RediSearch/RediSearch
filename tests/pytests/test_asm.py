@@ -771,7 +771,7 @@ def _test_ft_cursors_trimmed(env: Env, protocol: int):
         if protocol == 3:
           if 'warning' in res and len(res['warning']) > 0:
             num_warnings += 1
-            env.assertContains('Results may be incomplete or have duplications due to Atomic Slot Migration', res['warning'][0])
+            env.assertContains('Results may be incomplete due to Atomic Slot Migration', res['warning'][0])
 
     if protocol == 2:
       results_set = {item[1] for item in total_results if isinstance(item, list) and len(item) == 2 and item[0] == 'n'}
