@@ -3271,6 +3271,10 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
 
   size_t nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
   QueryError status = QueryError_Default();
+  if ((isFlex || RSGlobalConfig.simulateInFlex) && nIndexes > FLEX_MAX_INDEX_COUNT) {
+    RedisModule_LogIOError(rdb, "warning", "Too many indexes for flex. Having %zu indexes, but flex only supports %d.", nIndexes, FLEX_MAX_INDEX_COUNT);
+    return REDISMODULE_ERR;
+  }
   for (size_t i = 0; i < nIndexes; ++i) {
     if (IndexSpec_CreateFromRdb(rdb, encver, &status) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
