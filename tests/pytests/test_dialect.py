@@ -260,7 +260,7 @@ def test_v1_vs_v2(env):
     expected = ['-inf', '']
     env.assertEqual(res, expected)
 
-    # terms wich contain numbers are expanded
+    # terms which contain numbers are expanded
     expected = ['UNION {', '  cherry1', '  +cherry1(expanded)', '}', '']
     res = env.cmd('FT.EXPLAINCLI', 'idx', 'cherry1', 'DIALECT', 1)
     env.assertEqual(res, expected)
