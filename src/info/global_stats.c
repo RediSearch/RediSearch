@@ -102,6 +102,9 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   stats.coord_errors.timeout = READ(RSGlobalStats.totalStats.queries.coord_errors.timeout);
   stats.shard_errors.oom = READ(RSGlobalStats.totalStats.queries.shard_errors.oom);
   stats.coord_errors.oom = READ(RSGlobalStats.totalStats.queries.coord_errors.oom);
+  stats.shard_errors.unavailableSlots = READ(RSGlobalStats.totalStats.queries.shard_errors.unavailableSlots);
+  stats.coord_errors.unavailableSlots = READ(RSGlobalStats.totalStats.queries.coord_errors.unavailableSlots);
+
   // Warnings
   stats.shard_warnings.timeout = READ(RSGlobalStats.totalStats.queries.shard_warnings.timeout);
   stats.coord_warnings.timeout = READ(RSGlobalStats.totalStats.queries.coord_warnings.timeout);
@@ -109,6 +112,8 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   stats.coord_warnings.oom = READ(RSGlobalStats.totalStats.queries.coord_warnings.oom);
   stats.shard_warnings.maxPrefixExpansion = READ(RSGlobalStats.totalStats.queries.shard_warnings.maxPrefixExpansion);
   stats.coord_warnings.maxPrefixExpansion = READ(RSGlobalStats.totalStats.queries.coord_warnings.maxPrefixExpansion);
+  stats.shard_warnings.asm_inaccuracy = READ(RSGlobalStats.totalStats.queries.shard_warnings.asm_inaccuracy);
+  stats.coord_warnings.asm_inaccuracy = READ(RSGlobalStats.totalStats.queries.coord_warnings.asm_inaccuracy);
   return stats;
 }
 
@@ -167,6 +172,9 @@ void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bo
       break;
     case QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS:
       INCR_BY(queries_warnings->maxPrefixExpansion, toAdd);
+      break;
+    case QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS:
+      INCR_BY(queries_warnings->asm_inaccuracy, toAdd);
       break;
   }
 }

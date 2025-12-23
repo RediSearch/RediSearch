@@ -690,6 +690,20 @@ def test_slots_info_errors(env: Env):
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', 'invalid_slots_data').error().contains('Failed to deserialize _SLOTS_INFO data')
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', generate_slots(range(0, 0)), '_SLOTS_INFO', generate_slots(range(0, 0))).error().contains('_SLOTS_INFO already specified')
 
+def info_modules_to_dict(conn):
+    res = conn.execute_command('INFO MODULES')
+    info = dict()
+    section_name = ""
+    for line in res.splitlines():
+      if line:
+        if line.startswith('#'):
+          section_name = line[2:]
+          info[section_name] = dict()
+        else:
+          data = line.split(':', 1)
+          info[section_name][data[0]] = data[1]
+    return info
+
 def _test_ft_cursors_trimmed(env: Env, protocol: int):
     for shard in env.getOSSMasterNodesConnectionList():
         shard.execute_command('CONFIG', 'SET', 'search-_max-trim-delay-ms', 2500)
@@ -745,6 +759,17 @@ def _test_ft_cursors_trimmed(env: Env, protocol: int):
       env.assertNotEqual(results_set, expected_set)
       env.assertGreater(len(expected_set), len(results_set))
 
+      shard_num_warnings = 0
+      coord_num_warnings = 0
+      for shard in env.getOSSMasterNodesConnectionList():
+        info_dict = info_modules_to_dict(shard)
+        if 'search_warnings_and_errors' in info_dict and 'search_shard_total_query_warnings_asm_inaccurate_results' in info_dict['search_warnings_and_errors']:
+            shard_num_warnings += int(info_dict['search_warnings_and_errors']['search_shard_total_query_warnings_asm_inaccurate_results'])
+        if 'search_coordinator_warnings_and_errors' in info_dict and 'search_coord_total_query_warnings_asm_inaccurate_results' in info_dict['search_coordinator_warnings_and_errors']:
+            coord_num_warnings += int(info_dict['search_coordinator_warnings_and_errors']['search_coord_total_query_warnings_asm_inaccurate_results'])
+      env.assertGreater(shard_num_warnings + coord_num_warnings, 0)
+      if protocol == 3:
+        env.assertEqual(num_warnings, coord_num_warnings)
 
 @skip(cluster=False, min_shards=2)
 def test_ft_cursors_trimmed_protocol_2():
