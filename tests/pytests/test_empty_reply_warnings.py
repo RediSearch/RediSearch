@@ -116,10 +116,6 @@ def testEmptyReplyTimeoutResp2():
     res = runDebugQueryCommandTimeoutAfterN(env, query, 0, internal_only=True)
     env.assertEqual(res, [0], message=res)
 
-
-@skip(cluster=False)
-
-
 @skip(cluster=False)
 def testEmptyReplyIndexingOomWarning():
     """
