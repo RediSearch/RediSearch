@@ -1,6 +1,6 @@
 from common import *
 
-
+@skip(cluster=True)
 def test_flex_max_index_limit(env):
     """Test that creating more than 10 indices fails when search-_simulate-in-flex is true"""
 
