@@ -6,7 +6,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdatomic.h>
 #include "redismodule.h"
 
 /**
@@ -21,6 +20,10 @@ typedef struct OptionSlotTrackerVersion {
   bool is_some;
   uint32_t version;
 } OptionSlotTrackerVersion;
+
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
 
 /**
  * Sets the local slot ranges this shard is responsible for.
@@ -155,7 +158,9 @@ struct OptionSlotTrackerVersion slots_tracker_check_availability(const RedisModu
  * # Safety
  *
  * This function must be called from the main thread only.
- * This function is intended for testing use only and should not be called
- * in production code.
  */
-void slots_tracker_reset_for_testing(void);
+void slots_tracker_reset(void);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif  // __cplusplus

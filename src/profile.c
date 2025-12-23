@@ -18,6 +18,7 @@
 #include "iterators_rs.h"
 #include "reply_macros.h"
 #include "util/units.h"
+#include "coord/rmr/rmr.h"
 
 typedef struct {
     IteratorsConfig *iteratorsConfig;
@@ -145,6 +146,13 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
 
   RedisModule_Reply_Map(reply);
   int profile_verbose = req->reqConfig.printProfileClock;
+
+  // Get and add the Shard ID string to the profile reply (guarded by a ref count).
+  const char *node_id = MR_GetLocalNodeId();
+  if (node_id) {
+    RedisModule_ReplyKV_SimpleString(reply, "Shard ID", node_id);
+  }
+  MR_ReleaseLocalNodeIdReadLock();
 
   // Print total time
   if (profile_verbose) {

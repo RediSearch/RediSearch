@@ -31,6 +31,7 @@
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/parse/hybrid_optional_args.h"
+#include "asm_state_machine.h"
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "util/arg_parser.h"
 
@@ -592,10 +593,53 @@ static void handleLoadStepForHybridPipelines(AGGPlan *tailPlan, AGGPlan *searchP
 }
 
 /**
+ * Parse the subqueries count at the beginning of the FT.HYBRID command.
+ *
+ * Expected position in command:
+ *   FT.HYBRID <index> <subqueries_count> SEARCH ...
+ *                    ^
+ *
+ * Currently supports only 2 subqueries. We also support the old format without
+ * the subqueries count for backward compatibility:
+ *   FT.HYBRID <index> SEARCH <query> VSIM <vector_args>
+ *
+ * @param ac ArgsCursor for parsing - should be right after the index name
+ * @param status Output parameter for error reporting
+ * @return true if parsing succeeded, false if an error occurred (error is set in status)
+ */
+static bool parseSubqueriesCount(ArgsCursor *ac, QueryError *status) {
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing subqueries count for FT.HYBRID");
+    return false;
+  }
+
+  unsigned int subqueriesCount = 0;
+  bool hasSubqueryCount = AC_GetUnsigned(ac, &subqueriesCount, AC_F_GE1) == AC_OK; // Advances the cursor only if parsing succeeded
+
+  if (hasSubqueryCount) {
+    if (subqueriesCount != HYBRID_REQUEST_NUM_SUBQUERIES) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.HYBRID currently supports only two subqueries");
+      return false;
+    } else if (!AC_AdvanceIfMatch(ac, "SEARCH")) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH keyword is required");
+      return false;
+    }
+  } else if (!AC_AdvanceIfMatch(ac, "SEARCH")) { // Old format: FT.HYBRID <index> <search_query> <vsim_query>
+    // error according to the new format
+    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid subqueries count: expected an unsigned integer");
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Parse FT.HYBRID command arguments and build a complete HybridRequest structure.
  *
  * Expected format: FT.HYBRID <index> SEARCH <query> [SCORER <scorer>] VSIM <vector_args>
  *                  [COMBINE <method> [params]] [aggregation_options]
+ *
+ * Can be called from the main thread or from a background thread. (Note: access RSGlobalConfig which is not thread safe)
  *
  * @param ctx Redis module context
  * @param ac ArgsCursor for parsing command arguments - should start after the index name
@@ -642,10 +686,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Slot ranges info for distributed execution
   const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
-  uint32_t slotsVersion;
+  uint32_t keySpaceVersion = INVALID_KEYSPACE_VERSION;
 
-  if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
+  if (!parseSubqueriesCount(ac, status)) {
     goto error;
   }
 
@@ -670,7 +713,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .maxResults = &maxHybridResults,
       .prefixes = &prefixes,
       .querySlots = &requestSlotRanges,
-      .slotsVersion = &slotsVersion,
+      .keySpaceVersion = &keySpaceVersion,
   };
   // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
@@ -679,10 +722,17 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Set slots info in both subqueries
   if (internal) {
+    RS_ASSERT(requestSlotRanges != NULL);
     vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
-    vectorRequest->slotsVersion = slotsVersion;
+    vectorRequest->keySpaceVersion = keySpaceVersion;
+    if (vectorRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
+    }
     searchRequest->querySlots = requestSlotRanges;
-    searchRequest->slotsVersion = slotsVersion;
+    searchRequest->keySpaceVersion = keySpaceVersion;
+    if (searchRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
+    }
     requestSlotRanges = NULL; // ownership transferred
   }
 

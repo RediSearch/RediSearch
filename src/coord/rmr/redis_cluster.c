@@ -231,9 +231,12 @@ void UpdateTopology(RedisModuleCtx *ctx) {
   RS_AutoMemory(ctx);
   MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
   if (topo) { // if we didn't get a topology, do nothing. Log was already printed
+
+    // Store the local shard id
+    MR_SetLocalNodeId(RedisModule_GetMyClusterID());
+
     // Pass the local slots info directly from the RedisModule API, as we enabled auto memory
     MR_UpdateTopology(topo, RedisModule_ClusterGetLocalSlotRanges(ctx));
-    Slots_DropCachedLocalSlots(); // Local slots may have changed, drop the cache
   }
 }
 
@@ -244,6 +247,11 @@ static void UpdateTopology_Periodic(RedisModuleCtx *ctx, void *p) {
   REDISMODULE_NOT_USED(p);
   topologyRefreshTimer = RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
   UpdateTopology(ctx);
+}
+
+void RedisTopologyUpdater_StopAndRescheduleImmediately(RedisModuleCtx *ctx) {
+  RedisModule_StopTimer(ctx, topologyRefreshTimer, NULL);
+  topologyRefreshTimer = RedisModule_CreateTimer(ctx, 0, UpdateTopology_Periodic, NULL);
 }
 
 int InitRedisTopologyUpdater(RedisModuleCtx *ctx) {

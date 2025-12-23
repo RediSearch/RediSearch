@@ -23,10 +23,6 @@ pub use types_ffi;
 #[allow(non_upper_case_globals)]
 pub static mut RSGlobalConfig: *const c_void = std::ptr::null();
 
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut RSDummyContext: *const c_void = std::ptr::null();
-
 /// Define an empty stub function for each given symbols.
 /// This is used to define C functions the linker requires but which are not actually used by the tests.
 macro_rules! stub_c_fn {
@@ -101,6 +97,8 @@ stub_c_fn! {
     RedisModule_ClusterGetLocalSlotRanges,
     RedisModule_ClusterKeySlotC,
     RedisModule_ClusterPropagateForSlotMigration,
+    RedisModule_ClusterEnableTrim,
+    RedisModule_ClusterDisableTrim,
     RedisModule_ConfigGet,
     RedisModule_ConfigGetBool,
     RedisModule_ConfigGetEnum,

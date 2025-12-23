@@ -55,7 +55,7 @@ const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NUL
 
 RedisModuleType *IndexSpecType;
 
-dict *specDict_g;
+dict *specDict_g = NULL;
 IndexesScanner *global_spec_scanner = NULL;
 size_t pending_global_indexing_ops = 0;
 dict *legacySpecDict;
@@ -67,7 +67,6 @@ uint16_t pendingIndexDropCount_g = 0;
 Version redisVersion;
 Version rlecVersion;
 bool isCrdt;
-bool should_filter_slots = false;
 bool isTrimming = false;
 bool isFlex = false;
 
@@ -1959,6 +1958,7 @@ void Indexes_Free(dict *d) {
   // free the schema dictionary this way avoid iterating over it for each combination of
   // spec<-->prefix
   SchemaPrefixes_Free(SchemaPrefixes_g);
+  SchemaPrefixes_g = NULL;
   SchemaPrefixes_Create();
 
   CursorList_Empty(&g_CursorsListCoord);
@@ -3486,8 +3486,8 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   if (md) {
     RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
     spec->stats.numDocuments--;
-    RS_LOG_ASSERT(spec->stats.totalDocsLen >= md->len, "totalDocsLen is smaller than dmd->len");
-    spec->stats.totalDocsLen -= md->len;
+    RS_LOG_ASSERT(spec->stats.totalDocsLen >= md->docLen, "totalDocsLen is smaller than md->docLen");
+    spec->stats.totalDocsLen -= md->docLen;
     DMD_Return(md);
 
     // Increment the index's garbage collector's scanning frequency after document deletions
@@ -3542,13 +3542,18 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   if (subevent != REDISMODULE_SUBEVENT_FLUSHDB_START) {
     return;
   }
-  Indexes_Free(specDict_g);
+  if (specDict_g) {
+    Indexes_Free(specDict_g);
+    // specDict_g itself is not actually freed
+  }
   Dictionary_Clear();
   RSGlobalStats.totalStats.used_dialects = 0;
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {
-  specDict_g = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+  if (!specDict_g) {
+    specDict_g = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+  }
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
   SchemaPrefixes_Create();
 }

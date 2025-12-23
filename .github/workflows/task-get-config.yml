@@ -30,6 +30,12 @@ on:
       name:
         description: "Configuration name"
         value: ${{ jobs.get-config.outputs.name }}
+      ec2_image_id:
+        description: "EC2 AMI ID for self-hosted runners"
+        value: ${{ jobs.get-config.outputs.ec2_image_id }}
+      ec2_instance_type:
+        description: "EC2 instance type for self-hosted runners"
+        value: ${{ jobs.get-config.outputs.ec2_instance_type }}
 
 jobs:
   get-config:
@@ -40,6 +46,8 @@ jobs:
       setup_script: ${{ steps.get-config.outputs.setup_script }}
       post_setup_script: ${{ steps.get-config.outputs.post_setup_script }}
       name: ${{ steps.get-config.outputs.name }}
+      ec2_image_id: ${{ steps.get-config.outputs.ec2_image_id }}
+      ec2_instance_type: ${{ steps.get-config.outputs.ec2_instance_type }}
     steps:
       - name: Get configuration for platform and architecture
         id: get-config
@@ -70,7 +78,9 @@ jobs:
               'container': '',
               'setup_script': '',
               'post_setup_script': '',
-              'name': ''
+              'name': '',
+              'ec2_image_id': '',
+              'ec2_instance_type': ''
           }
 
           # Platform configurations
@@ -86,7 +96,9 @@ jobs:
                       'setup_script': 'echo "HOME=/home/ubuntu" >> $GITHUB_ENV',
                       'name': 'Intel x86_64',
                       'env': '',
-                      'container': ''
+                      'container': '',
+                      'ec2_image_id': 'ami-09fabd03bb09b3704',
+                      'ec2_instance_type': 'c7i.xlarge'
                   }
               },
               "ubuntu:default": {
@@ -267,3 +279,5 @@ jobs:
               f.write(f'setup_script={config["setup_script"]}\n')
               f.write(f'post_setup_script={config["post_setup_script"]}\n')
               f.write(f'name={config["name"]}\n')
+              f.write(f'ec2_image_id={config["ec2_image_id"]}\n')
+              f.write(f'ec2_instance_type={config["ec2_instance_type"]}\n')
