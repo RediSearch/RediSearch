@@ -1093,7 +1093,6 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
 static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     int rc = 1;
     fs->types |= INDEXFLD_T_TAG;
-    fs->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
 
     while (!AC_IsAtEnd(ac)) {
       if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
