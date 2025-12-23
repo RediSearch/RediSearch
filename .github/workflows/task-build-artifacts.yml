@@ -272,7 +272,7 @@ jobs:
             MINOR=$(grep '#define REDISEARCH_VERSION_MINOR' src/version.h | awk '{print $3}')
             PATCH=$(grep '#define REDISEARCH_VERSION_PATCH' src/version.h | awk '{print $3}')
             REGULAR_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-                        echo "No beta version provided, using regular version: $REGULAR_VERSION"
+            echo "No beta version provided, using regular version: $REGULAR_VERSION"
           fi
       - name: Upload Artifacts
         env:
