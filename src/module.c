@@ -93,7 +93,6 @@
   } while(0);
 
 #define CEIL_DIV(a, b) ((a + b - 1) / b)
-#define FLEX_MAX_INDEX_COUNT 10
 
 extern RSConfig RSGlobalConfig;
 
