@@ -650,6 +650,28 @@ def _verify_metrics_not_changed(env, conn, prev_info_dict: dict, ignored_metrics
         continue
       env.assertEqual(info_dict[section][metric], prev_info_dict[section][metric], message = f"Metric {metric} changed")
 
+def wait_for_info(env, metric_name, expected_values_dict, ge=False):
+  """Wait for shard info metrics to reach expected values (dict: shard_id -> expected_value).
+  If ge=True, waits for actual >= expected instead of actual == expected."""
+  with TimeLimit(60, f'Timeout waiting for {metric_name}'):
+    while True:
+      all_match = True
+      for shardId in range(1, env.shardsCount + 1):
+        info_dict = info_modules_to_dict(env.getConnection(shardId))
+        actual = int(info_dict[WARN_ERR_SECTION][metric_name])
+        expected = expected_values_dict[shardId]
+        if ge:
+          if actual < expected:
+            all_match = False
+            break
+        else:
+          if actual != expected:
+            all_match = False
+            break
+      if all_match:
+        break
+      time.sleep(0.1)
+
 def _common_warnings_errors_test_scenario(env):
   """Common setup for warnings and errors tests"""
   # Create index
@@ -930,7 +952,7 @@ class testWarningsAndErrorsCluster:
   """Test class for warnings and errors metrics in cluster mode with RESP2"""
 
   def __init__(self):
-    skipTest(cluster=False)
+    # skipTest(cluster=False)
     self.env = Env()
     _common_warnings_errors_cluster_test_scenario(self.env)
     self.shards_prev_info_dict = {}
@@ -1123,16 +1145,10 @@ class testWarningsAndErrorsCluster:
     self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
                     'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3).error().contains('Timeout limit was reached')
 
-    # We can't assert on the exact time it takes for the error to be counted, so we poll until we get the expected result
-    # The coordinatore might timeout before the shard or the coordinator can timeout because of a shard timeout,
-    # but a different shard might not timeout yet.
-    with TimeLimit(60, 'Timeout while waiting for FT.AGGREGATE INTERNAL_ONLY timeout error to be counted'):
-      # Shards: +2 each
-      while True:
-        all_errors = [int(info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC]) for i in range(1, self.env.shardsCount + 1)]
-        if all([err == base_err_shards[i + 1] + 2 for i, err in enumerate(all_errors)]):
-          break
-        time.sleep(0.1)
+    # Wait for shards info to be updated
+    # Shards: +2 each
+    expected_shard_errors = {i: base_err_shards[i] + 2 for i in range(1, self.env.shardsCount + 1)}
+    wait_for_info(self.env, TIMEOUT_ERROR_SHARD_METRIC, expected_shard_errors)
 
     # Coord: +2
     info_coord = info_modules_to_dict(self.env)
@@ -1143,16 +1159,10 @@ class testWarningsAndErrorsCluster:
     self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
                     'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('Timeout limit was reached')
 
-    # We can't assert on the exact time it takes for the error to be counted, so we poll until we get the expected result
-    # The coordinatore might timeout before the shard or the coordinator can timeout because of a shard timeout,
-    # but a different shard might not timeout yet.
-    with TimeLimit(60, 'Timeout while waiting for FT.AGGREGATE timeout error to be counted'):
-      # Shards: +3 each
-      while True:
-        all_errors = [int(info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC]) for i in range(1, self.env.shardsCount + 1)]
-        if all([err == base_err_shards[i + 1] + 3 for i, err in enumerate(all_errors)]):
-          break
-        time.sleep(0.1)
+    # Wait for shards info to be updated
+    # Shards: +3 each
+    expected_shard_errors = {i: base_err_shards[i] + 3 for i in range(1, self.env.shardsCount + 1)}
+    wait_for_info(self.env, TIMEOUT_ERROR_SHARD_METRIC, expected_shard_errors)
 
     # Coord: +3
     info_coord = info_modules_to_dict(self.env)
@@ -1271,7 +1281,7 @@ class testWarningsAndErrorsCluster:
       self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC], '0',
                            message=f"Shard {shardId} OOM warning should not change after FT.HYBRID")
 
-    self.env.expect('CONFIG', 'SET', 'maxmemory', '0').ok()
+    allShards_set_unlimited_maxmemory_for_oom(self.env)
 
     # Test other metrics not changed
     tested_in_this_test = [OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC]
@@ -1567,13 +1577,9 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
 
   # Since the cursor is not depleted after 1 read, the coord might sent another read to the shards
   # which might trigger more metric increments (until reaching EOF)
-  # We can't assert on the exact time it takes for the warning to be counted, so we poll until we get the expected result
-  with TimeLimit(60, 'Timeout while waiting for FT.AGGREGATE INTERNAL_ONLY timeout warning to be counted on shards'):
-    while True:
-      all_warnings = [int(info_modules_to_dict(env.getConnection(i))[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]) for i in range(1, env.shardsCount + 1)]
-      if all([warn >= int(before_info_dicts[i + 1][WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]) + 3 for i, warn in enumerate(all_warnings)]):
-        break
-      time.sleep(0.1)
+  # Wait for shards info to be updated
+  expected_shard_warnings = {i: int(before_info_dicts[i][WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]) + 3 for i in range(1, env.shardsCount + 1)}
+  wait_for_info(env, TIMEOUT_WARNING_SHARD_METRIC, expected_shard_warnings, ge=True)
 
   # So, we check just the coord's metric
   after_info_dict = info_modules_to_dict(env)
