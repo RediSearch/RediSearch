@@ -141,6 +141,9 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coo
     case QUERY_ERROR_CODE_OUT_OF_MEMORY:
       INCR_BY(queries_errors->oom, toAdd);
       break;
+    case QUERY_ERROR_CODE_UNAVAILABLE_SLOTS:
+      INCR_BY(queries_errors->unavailableSlots, toAdd);
+      break;
   }
 }
 

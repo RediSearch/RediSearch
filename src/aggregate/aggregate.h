@@ -286,6 +286,9 @@ typedef struct AREQ {
   // Number of cursor reads: 1 for the initial FT.AGGREGATE WITHCURSOR,
   // plus 1 for each subsequent FT.CURSOR READ call.
   size_t cursor_reads;
+
+  /** Flag indicating that the cursor might be return bad results because ASM trimming started while Cursor is alive */
+  bool asm_potential_inaccuracy;
 } AREQ;
 
 /**

@@ -238,7 +238,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       uint32_t excludeFlags = RLOOKUP_F_HIDDEN;
       uint32_t requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
       size_t skipFieldIndex_len = lk->rowlen;
-      bool skipFieldIndex[skipFieldIndex_len]; // After calling `RLookup_GetLength` will contain `false` for fields which we should skip below 
+      bool skipFieldIndex[skipFieldIndex_len]; // After calling `RLookup_GetLength` will contain `false` for fields which we should skip below
       memset(skipFieldIndex, 0, skipFieldIndex_len * sizeof(*skipFieldIndex));
       size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, skipFieldIndex_len, requiredFlags, excludeFlags, rule);
 
@@ -485,6 +485,9 @@ done_2:
     if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
     }
+    if (req->asm_potential_inaccuracy) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
+    }
 
     // Prepare profile printer context
     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
@@ -631,6 +634,10 @@ done_3:
     } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
+    }
+    if (req->asm_potential_inaccuracy) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
+      RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
