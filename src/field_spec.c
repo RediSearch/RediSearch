@@ -28,14 +28,14 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
     fs->fieldName = NULL;
   }
 
-  if (fs->types & INDEXFLD_T_VECTOR) {
+  if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
     VecSimParams_Cleanup(&fs->vectorOpts.vecSimParams);
     if (fs->vectorOpts.vecSimIndex) {
       VecSimIndex_Free(fs->vectorOpts.vecSimIndex);
       fs->vectorOpts.vecSimIndex = NULL;
     }
   }
-  if (fs->types & INDEXFLD_T_GEOMETRY) {
+  if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
     if (fs->geometryOpts.geometryIndex) {
       GeometryApi_Get(fs->geometryOpts.geometryIndex)->freeIndex(fs->geometryOpts.geometryIndex);
       fs->geometryOpts.geometryIndex = NULL;

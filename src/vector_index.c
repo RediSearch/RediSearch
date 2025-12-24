@@ -43,10 +43,10 @@ bool isLVQSupported() {
   return false; // In which case we know that LVQ not supported.
 }
 
-VecSimIndex *openVectorIndex(FieldSpec *spec, bool create_if_index) {
+VecSimIndex *openVectorIndex(FieldSpec *spec, bool create_if_missing) {
   RS_ASSERT(FIELD_IS(spec, INDEXFLD_T_VECTOR));
 
-  if (!spec->vectorOpts.vecSimIndex && create_if_index) {
+  if (!spec->vectorOpts.vecSimIndex && create_if_missing) {
     // create new vector index
     spec->vectorOpts.vecSimIndex = VecSimIndex_New(&spec->vectorOpts.vecSimParams);
   }

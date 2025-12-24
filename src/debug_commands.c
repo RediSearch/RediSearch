@@ -126,7 +126,7 @@ static FieldSpec *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameR
   size_t len;
   const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, &len);
   const FieldSpec *fieldSpec = IndexSpec_GetFieldWithLength(spec, fieldName, len);
-  if (!fieldSpec || !(fieldSpec->types & t)) {
+  if (!fieldSpec || !FIELD_IS(fieldSpec, t)) {
     return NULL;
   }
   return (FieldSpec *)fieldSpec;
