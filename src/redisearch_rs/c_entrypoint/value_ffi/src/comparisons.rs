@@ -145,7 +145,7 @@ fn compare_number_to_string(
     // else only if num_to_str_cmp_fallback is enabled, convert the number to a slice for comparison
     } else if num_to_str_cmp_fallback {
         let mut buf = [0; 32];
-        let n = value::util::num_to_str(number, &mut buf).unwrap();
+        let n = value::util::num_to_str(number, &mut buf);
         Ok(buf[0..n].cmp(slice))
     } else {
         Err(CompareError::NoNumberToStringFallback)

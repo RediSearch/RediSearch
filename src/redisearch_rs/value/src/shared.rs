@@ -11,6 +11,7 @@ use std::{mem::ManuallyDrop, sync::Arc};
 
 use crate::RsValue;
 
+/// A shared RedisSearch dynamic value, backed by an `Arc<RsValue>`.
 pub struct SharedRsValue {
     ptr: *const RsValue,
 }
@@ -99,10 +100,10 @@ impl SharedRsValue {
 
     /// Returns the reference count of this [`SharedRsValue`].
     pub fn refcount(this: &Self) -> usize {
-        if self.is_static() {
+        if this.is_static() {
             1
         } else {
-            let v = ManuallyDrop::new(unsafe { Arc::from_raw(self.ptr) });
+            let v = ManuallyDrop::new(unsafe { Arc::from_raw(this.ptr) });
             Arc::strong_count(&v)
         }
     }

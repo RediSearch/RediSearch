@@ -82,5 +82,5 @@ pub unsafe extern "C" fn RSValue_Replace(dstpp: *mut *mut RsValue, src: *const R
 pub unsafe extern "C" fn RSValue_Refcount(value: *const RsValue) -> u16 {
     let shared_value = unsafe { SharedRsValue::from_raw(value) };
     let shared_value = ManuallyDrop::new(shared_value);
-    shared_value.refcount() as u16
+    SharedRsValue::refcount(&shared_value) as u16
 }

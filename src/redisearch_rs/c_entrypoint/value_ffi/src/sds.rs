@@ -34,7 +34,7 @@ fn dump_sds(value: &RsValue, sds: &mut SdsWriter, obfuscate: bool) {
                 sds.write_bytes(obfuscate_number(*num));
             } else {
                 let mut buf = [0; 32];
-                let n = value::util::num_to_str(*num, &mut buf).unwrap();
+                let n = value::util::num_to_str(*num, &mut buf);
                 sds.write_bytes(&buf[0..n]);
             }
         }
