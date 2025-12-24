@@ -46,6 +46,7 @@
 #include "rs_wall_clock.h"
 #include "util/redis_mem_info.h"
 #include "search_disk.h"
+#include "search_disk_utils.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -1549,7 +1550,7 @@ bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
 }
 
 inline static bool isSpecOnDisk(const IndexSpec *sp) {
-  return isFlex;
+  return SearchDisk_IsEnabled();
 }
 
 
@@ -3210,7 +3211,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   QueryError status;
   sp->rule = SchemaRule_Create(rule_args, spec_ref, &status);
 
-  if (isFlex) {
+  if (SearchDisk_IsEnabled(NULL)) {
     // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
     // we add the `Index_StoreInRAM` flag to the rdb file.
     RS_ASSERT(disk_db);
@@ -3253,6 +3254,10 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
 
   size_t nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
   QueryError status = QueryError_Default();
+  if (!SearchDisk_CheckLimitNumberOfIndexes(nIndexes)) {
+    RedisModule_LogIOError(rdb, "warning", "Too many indexes for flex. Having %zu indexes, but flex only supports %d.", nIndexes, FLEX_MAX_INDEX_COUNT);
+    return REDISMODULE_ERR;
+  }
   for (size_t i = 0; i < nIndexes; ++i) {
     if (IndexSpec_CreateFromRdb(rdb, encver, &status) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));

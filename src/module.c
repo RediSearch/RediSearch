@@ -76,6 +76,7 @@
 #include "aggregate/reply_empty.h"
 #include "tracing_redismodule.h"
 #include "asm_state_machine.h"
+#include "search_disk_utils.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -569,6 +570,13 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return RedisModule_ReplyWithError(ctx, "Cannot create index on db != 0");
   }
   QueryError status = QueryError_Default();
+
+  if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
+    QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_FLEX_LIMIT_NUMBER_OF_INDEXES, "Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+    QueryError_ClearError(&status);
+    return REDISMODULE_OK;
+  }
 
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
   if (sp == NULL) {
@@ -1134,6 +1142,10 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "ERRBADVAL Invalid encoding version");
   }
 
+  if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
+    return RedisModule_ReplyWithErrorFormat(ctx, "ERRBADVAL Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
+  }
+
   int rc = IndexSpec_Deserialize(argv[3], encodeVersion);
 
   if (rc != REDISMODULE_OK) {
@@ -1209,7 +1221,7 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
     RedisModule_FreeCallReply(reply);
   }
 
-  isFlex = SearchDisk_IsEnabled(ctx);
+  isFlex = SearchDisk_CheckEnableConfiguration(ctx);
 }
 
 void GetFormattedRedisVersion(char *buf, size_t len) {
@@ -1542,7 +1554,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
-  if (isFlex) {
+  if (SearchDisk_IsEnabled()) {
     bool disk_initialized = SearchDisk_Initialize(ctx);
     if (!disk_initialized) {
       RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");

@@ -72,6 +72,7 @@ pub enum QueryErrorCode {
     VectorNotAllowed,
     OutOfMemory,
     UnavailableSlots,
+    FlexLimitNumberOfIndexes,
 }
 
 impl Debug for QueryErrorCode {
@@ -151,6 +152,7 @@ impl QueryErrorCode {
             Self::VectorNotAllowed => c"Vector queries are not allowed",
             Self::OutOfMemory => c"Not enough memory available to execute the query",
             Self::UnavailableSlots => c"Query requires unavailable slots",
+            Self::FlexLimitNumberOfIndexes => c"Flex index limit was reached",
         }
     }
 }
