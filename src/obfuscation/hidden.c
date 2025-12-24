@@ -111,12 +111,11 @@ void HiddenString_SaveToRdb(const HiddenString* value, RedisModuleIO* rdb) {
   RedisModule_SaveStringBuffer(rdb, text->user, text->length + 1);
 }
 
-void HiddenString_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, const HiddenString* value) {
+void HiddenString_LegacyDropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, const HiddenString* value) {
   const UserString* text = (const UserString*)value;
   RedisModuleString *str =
       RedisModule_CreateStringPrintf(redisCtx, fmt, text->user);
-  Redis_DeleteKey(redisCtx, str);
-  RedisModule_FreeString(redisCtx, str);
+  Redis_LegacyDeleteKey(redisCtx, str);
 }
 
 const char *HiddenString_GetUnsafe(const HiddenString* value, size_t* length) {
