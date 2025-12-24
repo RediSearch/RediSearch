@@ -11,7 +11,7 @@ use std::{
     alloc::{self, Layout},
     fmt,
     mem::MaybeUninit,
-    num::NonZeroUsize,
+    num::{NonZero, NonZeroUsize},
     os::raw::c_char,
     ptr::{NonNull, copy_nonoverlapping},
     slice,
@@ -404,6 +404,17 @@ impl RsValueStringData {
         Self { len, data: s_cpy }
     }
 
+    fn from_string(string: String) -> Self {
+        let boxed_str: Box<str> = string.into_boxed_str();
+        let len = boxed_str.len();
+        let ptr = Box::<str>::into_raw(boxed_str) as *mut u8;
+
+        Self {
+            len: NonZero::new(len).unwrap(),
+            data: ptr,
+        }
+    }
+
     /// Get the string's bytes as a slice of `u8`'s.
     pub const fn as_bytes(&self) -> &[u8] {
         // Safety: invariant (1) upholds
@@ -529,6 +540,10 @@ impl RsValueString {
         let data = unsafe { RsValueStringData::copy_from_c_chars_unchecked(s, len) };
 
         Ok(Self::from_data(data))
+    }
+
+    pub fn from_string(string: String) -> Self {
+        Self::from_data(RsValueStringData::from_string(string))
     }
 
     const fn from_data(data: RsValueStringData) -> Self {
