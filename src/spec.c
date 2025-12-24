@@ -46,6 +46,7 @@
 #include "rs_wall_clock.h"
 #include "util/redis_mem_info.h"
 #include "search_disk.h"
+#include "search_disk_utils.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -3271,7 +3272,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
 
   size_t nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
   QueryError status = QueryError_Default();
-  if ((isFlex || RSGlobalConfig.simulateInFlex) && nIndexes > FLEX_MAX_INDEX_COUNT) {
+  if (SearchDisk_CheckLimitNumberOfIndexes(nIndexes)) {
     RedisModule_LogIOError(rdb, "warning", "Too many indexes for flex. Having %zu indexes, but flex only supports %d.", nIndexes, FLEX_MAX_INDEX_COUNT);
     return REDISMODULE_ERR;
   }

@@ -76,6 +76,7 @@
 #include "aggregate/reply_empty.h"
 #include "tracing_redismodule.h"
 #include "asm_state_machine.h"
+#include "search_disk_utils.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -572,8 +573,8 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
   QueryError status = QueryError_Default();
 
-  if ((isFlex || RSGlobalConfig.simulateInFlex) && Indexes_Count() >= FLEX_MAX_INDEX_COUNT) {
-    QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_INVALID_FLEX, "Max number of indexes reached for Flex indexes: %d", FLEX_MAX_INDEX_COUNT);
+  if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count())) {
+    QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_INVALID_FLEX, "Max number of indexes reached for Flex indexes: %lu", Indexes_Count());
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
     return REDISMODULE_OK;
@@ -1137,6 +1138,10 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   long long encodeVersion;
   if (RedisModule_StringToLongLong(argv[2], &encodeVersion) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "ERRBADVAL Invalid encoding version");
+  }
+
+  if (SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count())) {
+    return RedisModule_ReplyWithErrorFormat(ctx, "ERRBADVAL Max number of indexes reached for Flex indexes: %lu", Indexes_Count());
   }
 
   int rc = IndexSpec_Deserialize(argv[3], encodeVersion);
