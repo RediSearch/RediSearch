@@ -320,9 +320,10 @@ def check_info_results(env, command, idx1_expect, idx2_expect, should_succeed):
                                           'dialect_4', idx2_expect[3]])
   check_info_module_results(env, [x or y for x, y in zip(idx1_expect, idx2_expect)])
 
-def test_dialect_info(env):
+def test_dialect_info():
+  # Restart with DEFAULT_DIALECT 1 to ensure clean dialect stats for this test
+  env = Env(moduleArgs='DEFAULT_DIALECT 1')
   conn = getConnectionByEnv(env)
-  env.expect(config_cmd() + " SET DEFAULT_DIALECT 1").ok()
 
   env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'business', 'TEXT')
   env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'country', 'TEXT')
