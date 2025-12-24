@@ -131,9 +131,26 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId do
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
 
 /**
+ * @brief Check if the search disk module is enabled from configuration
+ *
+ * @param ctx Redis module context
+ * @return true if enabled, false otherwise
+ */
+bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx);
+
+/**
  * @brief Check if the search disk module is enabled
  *
  * @param ctx Redis module context
  * @return true if enabled, false otherwise
  */
-bool SearchDisk_IsEnabled(RedisModuleCtx *ctx);
+bool SearchDisk_IsEnabled();
+
+/**
+ * @brief Check if the search disk module is enabled for validation.
+ * This is different because it allows to override a configuration to
+ * test some validations done only with SearchDisk
+ *
+ * @return true if enabled, false otherwise
+ */
+bool SearchDisk_IsEnabledForValidation();

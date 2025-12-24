@@ -11,7 +11,7 @@
 #include "search_disk.h"
 
 bool SearchDisk_CheckLimitNumberOfIndexes(size_t nIndexes) {
-  if (!SearchDisk_IsEnabled(NULL)) {
+  if (!SearchDisk_IsEnabledForValidation()) {
     return true;
   }
   return nIndexes < FLEX_MAX_INDEX_COUNT;
