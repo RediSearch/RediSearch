@@ -1551,7 +1551,7 @@ bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
 }
 
 inline static bool isSpecOnDisk(const IndexSpec *sp) {
-  return isFlex;
+  return SearchDisk_IsEnabled();
 }
 
 
@@ -3229,7 +3229,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   QueryError status;
   sp->rule = SchemaRule_Create(rule_args, spec_ref, &status);
 
-  if (isFlex) {
+  if (SearchDisk_IsEnabled(NULL)) {
     // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
     // we add the `Index_StoreInRAM` flag to the rdb file.
     RS_ASSERT(disk_db);
