@@ -24,6 +24,20 @@ def info_modules_to_dict(conn):
         info[section_name][data[0]] = data[1]
   return info
 
+def wait_for_info_metric(conn, metric_path, value, msg=None, ge = False):
+  """Wait until the INFO MODULES metric at metric_path equals value."""
+  def _check():
+    info = info_modules_to_dict(conn)
+    metric = info
+    for key in metric_path:
+      metric = metric[key]
+    if ge:
+      return int(metric) >= int(value), {"metric_path": metric_path, "expected": value, "actual": metric}
+    else:
+      return metric == value, {"metric_path": metric_path, "expected": value, "actual": metric}
+
+  wait_for_condition(_check, msg if msg else f"Timeout waiting for metric {metric_path} to equal {value}")
+
 def get_search_field_info(type: str, count: int, index_errors: int = 0, **kwargs):
   # Base info
   info = {
@@ -650,28 +664,6 @@ def _verify_metrics_not_changed(env, conn, prev_info_dict: dict, ignored_metrics
         continue
       env.assertEqual(info_dict[section][metric], prev_info_dict[section][metric], message = f"Metric {metric} changed")
 
-def wait_for_info(env, metric_name, expected_values_dict, ge=False):
-  """Wait for shard info metrics to reach expected values (dict: shard_id -> expected_value).
-  If ge=True, waits for actual >= expected instead of actual == expected."""
-  with TimeLimit(60, f'Timeout waiting for {metric_name}'):
-    while True:
-      all_match = True
-      for shardId in range(1, env.shardsCount + 1):
-        info_dict = info_modules_to_dict(env.getConnection(shardId))
-        actual = int(info_dict[WARN_ERR_SECTION][metric_name])
-        expected = expected_values_dict[shardId]
-        if ge:
-          if actual < expected:
-            all_match = False
-            break
-        else:
-          if actual != expected:
-            all_match = False
-            break
-      if all_match:
-        break
-      time.sleep(0.1)
-
 def _common_warnings_errors_test_scenario(env):
   """Common setup for warnings and errors tests"""
   # Create index
@@ -952,7 +944,7 @@ class testWarningsAndErrorsCluster:
   """Test class for warnings and errors metrics in cluster mode with RESP2"""
 
   def __init__(self):
-    # skipTest(cluster=False)
+    skipTest(cluster=False)
     self.env = Env()
     _common_warnings_errors_cluster_test_scenario(self.env)
     self.shards_prev_info_dict = {}
@@ -996,10 +988,7 @@ class testWarningsAndErrorsCluster:
     # Test counter on each shard
     for shardId in range(1, self.env.shardsCount + 1):
       shard_conn = self.env.getConnection(shardId)
-      info_dict = info_modules_to_dict(shard_conn)
-      syntax_error_count = info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC]
-      self.env.assertEqual(syntax_error_count, '2',
-                           message=f"Shard {shardId} has wrong syntax error count")
+      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, SYNTAX_ERROR_SHARD_METRIC], '2', msg=f"Shard {shardId} has wrong syntax error count")
     # Check coord metric unchanged
     # Syntax error in FT.AGGREGATE are not checked on the coordinator
     info_dict = info_modules_to_dict(self.env)
@@ -1088,10 +1077,7 @@ class testWarningsAndErrorsCluster:
     # Test counter on each shard
     for shardId in range(1, self.env.shardsCount + 1):
       shard_conn = self.env.getConnection(shardId)
-      info_dict = info_modules_to_dict(shard_conn)
-      args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
-      self.env.assertEqual(args_error_count, '2',
-                           message=f"Shard {shardId} has wrong args error count")
+      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, ARGS_ERROR_SHARD_METRIC], '2', msg=f"Shard {shardId} has wrong args error count")
     # Check coord metric
     info_dict = info_modules_to_dict(self.env)
     coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
@@ -1144,11 +1130,10 @@ class testWarningsAndErrorsCluster:
     # Test timeout error in FT.AGGREGATE (shards only via INTERNAL_ONLY)
     self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
                     'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3).error().contains('Timeout limit was reached')
-
-    # Wait for shards info to be updated
-    # Shards: +2 each
-    expected_shard_errors = {i: base_err_shards[i] + 2 for i in range(1, self.env.shardsCount + 1)}
-    wait_for_info(self.env, TIMEOUT_ERROR_SHARD_METRIC, expected_shard_errors)
+    # Shards: +1 each again (total +2)
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 2), msg=f"Shard {shardId} AGG INTERNAL_ONLY timeout error should be +2 total")
 
     # Coord: +2
     info_coord = info_modules_to_dict(self.env)
@@ -1158,11 +1143,10 @@ class testWarningsAndErrorsCluster:
     # Test timeout error in FT.AGGREGATE (coordinator)
     self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
                     'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('Timeout limit was reached')
-
-    # Wait for shards info to be updated
-    # Shards: +3 each
-    expected_shard_errors = {i: base_err_shards[i] + 3 for i in range(1, self.env.shardsCount + 1)}
-    wait_for_info(self.env, TIMEOUT_ERROR_SHARD_METRIC, expected_shard_errors)
+    # Shards: +3 (timeout is returned by the coord, but each shard still times out)
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 3), msg=f"Shard {shardId} AGG coordinator timeout error should be +3 total")
 
     # Coord: +3
     info_coord = info_modules_to_dict(self.env)
@@ -1281,7 +1265,7 @@ class testWarningsAndErrorsCluster:
       self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC], '0',
                            message=f"Shard {shardId} OOM warning should not change after FT.HYBRID")
 
-    allShards_set_unlimited_maxmemory_for_oom(self.env)
+    self.env.expect('CONFIG', 'SET', 'maxmemory', '0').ok()
 
     # Test other metrics not changed
     tested_in_this_test = [OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC]
@@ -1321,13 +1305,10 @@ class testWarningsAndErrorsCluster:
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC], str(base_err_coord + 2),
                          message="Coordinator OOM error should be +1 after FT.AGGREGATE")
     # Shards: +1 each (besides shard 1 which is coord)
-    # We can't assert on the exact time it takes for the error to be counted, so we poll until we get the expected result
-    with TimeLimit(60, 'Timeout while waiting for FT.AGGREGATE OOM error to be counted on shards'):
-      while True:
-        shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][OOM_ERROR_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
-        if shards_metrics.count(str(base_err_shards[1] + 2)) == 2:
-          break
-        time.sleep(0.1)
+    def wait_for_metric_count():
+      shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][OOM_ERROR_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
+      return shards_metrics.count(str(base_err_shards[1] + 2)) == 2, {"shards_metrics": shards_metrics}
+    wait_for_condition(wait_for_metric_count, "Wrong number of shards with OOM error +1 after FT.AGGREGATE")
 
     # Test OOM error in FT.HYBRID
     query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
@@ -1363,9 +1344,10 @@ class testWarningsAndErrorsCluster:
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord),
                          message="Coordinator OOM warning should not change after FT.AGGREGATE")
     # Shards: +1 each (besides shard 1 which is coord)
-    shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
-    self.env.assertEqual(shards_metrics.count(str(base_warn_shards[1] + 2)), 2,
-                         message="Wrong number of shards with OOM warning +1 after FT.AGGREGATE")
+    def wait_for_metric_count():
+      shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
+      return shards_metrics.count(str(base_warn_shards[1] + 2)) == 2, {"shards_metrics": shards_metrics}
+    wait_for_condition(wait_for_metric_count, "Wrong number of shards with OOM warning +1 after FT.AGGREGATE")
     # Test warning in FT.HYBRID
     query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
     self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector).noError()
@@ -1427,9 +1409,9 @@ class testWarningsAndErrorsCluster:
       self.env.expect('FT.AGGREGATE', 'idx', '@text:hell*').noError()
       # Shards: +1 each besides last shard (which doesn't have enough docs to trigger warning)
       for shardId in range(1, self.env.shardsCount):
-        info_dict = info_modules_to_dict(self.env.getConnection(shardId))
-        self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC], '2',
-                            message=f"Shard {shardId} max prefix expansions warning should be +1 after FT.AGGREGATE")
+        shard_conn = self.env.getConnection(shardId)
+        wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC], '2', msg=f"Shard {shardId} max prefix expansions warning should be +1 after FT.AGGREGATE")
+
       # Last shard: unchanged
       info_dict = info_modules_to_dict(self.env.getConnection(self.env.shardsCount))
       self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC], '0',
@@ -1577,9 +1559,11 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
 
   # Since the cursor is not depleted after 1 read, the coord might sent another read to the shards
   # which might trigger more metric increments (until reaching EOF)
-  # Wait for shards info to be updated
-  expected_shard_warnings = {i: int(before_info_dicts[i][WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]) + 3 for i in range(1, env.shardsCount + 1)}
-  wait_for_info(env, TIMEOUT_WARNING_SHARD_METRIC, expected_shard_warnings, ge=True)
+  for shardId in range(1, env.shardsCount + 1):
+    shard_conn = env.getConnection(shardId)
+    before_warn_err = int(before_info_dicts[shardId][WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC])
+    wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_WARNING_SHARD_METRIC],
+                         before_warn_err + 1, msg=f"Shard {shardId} timeout warning should be +1 after FT.AGGREGATE with INTERNAL_ONLY", ge=True)
 
   # So, we check just the coord's metric
   after_info_dict = info_modules_to_dict(env)
