@@ -1,0 +1,98 @@
+name: Rust Code Review on Comment
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  check-comment:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.issue.pull_request && (contains(github.event.comment.body, '/rust_review') || contains(github.event.comment.body, 'rust_review')) }}
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+      pr_number: ${{ github.event.issue.number }}
+    steps:
+      - name: Check user permissions
+        id: check-permissions
+        uses: actions/github-script@v7
+        with:
+          script: |
+            console.log('Validating user permissions...');
+
+            const username = context.payload.comment.user.login;
+            const { owner, repo } = context.repo;
+
+            try {
+              // Check if user has write access to the repository
+              const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner,
+                repo,
+                username
+              });
+
+              console.log('Permission check completed');
+
+              // Check if user has write, maintain, or admin access
+              const hasWriteAccess = ['write', 'maintain', 'admin'].includes(permission.permission);
+
+              if (hasWriteAccess) {
+                console.log('✅ User authorized to trigger Rust code review');
+                core.setOutput('has_write_access', 'true');
+              } else {
+                console.log('❌ User not authorized to trigger Rust code review');
+                core.setOutput('has_write_access', 'false');
+
+                // Post a comment explaining the permission requirement
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: context.payload.issue.number,
+                  body: '❌ **Permission Denied**: You do not have the required permissions to trigger the Rust code review bot using `/rust_review`. Only users with write access to this repository can use this command.'
+                });
+              }
+            } catch (error) {
+              console.log('❌ Failed to check user permissions');
+              console.log('Error details: Permission check failed');
+              core.setOutput('has_write_access', 'false');
+
+              // Post a comment for permission denied (don't expose error details)
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: context.payload.issue.number,
+                body: '❌ **Permission Denied**: You do not have the required permissions to trigger the Rust code review bot using `/rust_review`. Only users with write access to this repository can use this command.'
+              });
+            }
+
+      - name: Check if comment triggers review
+        id: check
+        if: steps.check-permissions.outputs.has_write_access == 'true'
+        run: |
+          # Normalize comment body (lowercase, trim whitespace)
+          NORMALIZED_BODY=$(echo "${{ github.event.comment.body }}" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+          # Check for various trigger patterns
+          if [[ "$NORMALIZED_BODY" == *"/rust_review"* ]] || \
+             [[ "$NORMALIZED_BODY" == "rust_review" ]] || \
+             [[ "$NORMALIZED_BODY" == "/rust_review" ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "✅ Rust code review triggered by comment"
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ Comment does not contain rust review trigger"
+          fi
+
+  run-rust-review:
+    needs: check-comment
+    if: ${{ needs.check-comment.outputs.should_run == 'true' }}
+    uses: ./.github/workflows/task-rust-code-review.yml
+    with:
+      pr_number: ${{ needs.check-comment.outputs.pr_number }}
+      repository: ${{ github.repository }}
+      comment_body: ${{ github.event.comment.body }}
+    secrets: inherit
