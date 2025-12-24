@@ -9,7 +9,6 @@
 
 //! Mock implementations or stubs of C symbol that aren't provided
 //! by the static C libraries we are linking against in build.rs.
-use std::ffi::c_void;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
@@ -21,7 +20,69 @@ pub use types_ffi;
 // symbols required by the C code we need to redefine
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
-pub static mut RSGlobalConfig: *const c_void = std::ptr::null();
+pub static mut RSGlobalConfig: ffi::RSConfig = ffi::RSConfig {
+    serverVersion: 0,
+    extLoad: std::ptr::null(),
+    frisoIni: std::ptr::null(),
+    defaultScorer: std::ptr::null(),
+    iteratorsConfigParams: ffi::IteratorsConfig {
+        maxPrefixExpansions: 0,
+        minTermPrefix: 0,
+        minStemLength: 0,
+        minUnionIterHeap: 0,
+    },
+    requestConfigParams: ffi::RequestConfig {
+        dialectVersion: 0,
+        queryTimeoutMS: 0,
+        timeoutPolicy: 0,
+        printProfileClock: false,
+        BM25STD_TanhFactor: 0,
+        oomPolicy: 0,
+    },
+    cursorReadSize: 0,
+    cursorMaxIdle: 0,
+    maxDocTableSize: 0,
+    maxSearchResults: 0,
+    maxAggregateResults: 0,
+    numWorkerThreads: 0,
+    minOperationWorkers: 0,
+    tieredVecSimIndexBufferLimit: 0,
+    highPriorityBiasNum: 0,
+    minPhoneticTermLen: 0,
+    gcConfigParams: ffi::GCConfig {
+        enableGC: false,
+        gcScanSize: 0,
+        gcPolicy: 0,
+        forkGc: ffi::forkGcConfig {
+            forkGcRunIntervalSec: 0,
+            forkGcCleanThreshold: 0,
+            forkGcRetryInterval: 0,
+            forkGcSleepBeforeExit: 0,
+            forkGCCleanNumericEmptyNodes: 0,
+        },
+    },
+    chainedConfig: std::ptr::null_mut(),
+    noMemPool: false,
+    filterCommands: false,
+    freeResourcesThread: false,
+    numericCompress: false,
+    numericTreeMaxDepthRange: 0,
+    invertedIndexRawDocidEncoding: false,
+    vssMaxResize: 0,
+    multiTextOffsetDelta: 0,
+    numBGIndexingIterationsBeforeSleep: 0,
+    prioritizeIntersectUnionChildren: false,
+    indexerYieldEveryOpsWhileLoading: 0,
+    indexCursorLimit: 0,
+    indexingMemoryLimit: 0,
+    enableUnstableFeatures: false,
+    hideUserDataFromLog: false,
+    bgIndexingOomPauseTimeBeforeRetry: 0,
+    minTrimDelayMS: 0,
+    maxTrimDelayMS: 0,
+    trimmingStateCheckDelayMS: 0,
+    simulateInFlex: false,
+};
 
 /// Define an empty stub function for each given symbols.
 /// This is used to define C functions the linker requires but which are not actually used by the tests.
