@@ -23,10 +23,31 @@ impl SharedRsValue {
         Arc::into_raw(self.inner)
     }
 
+    pub fn as_ptr(&self) -> *const RsValue {
+        Arc::as_ptr(&self.inner)
+    }
+
     pub unsafe fn from_raw(ptr: *const RsValue) -> Self {
         Self {
             inner: unsafe { Arc::from_raw(ptr) },
         }
+    }
+
+    pub fn refcount(&self) -> usize {
+        Arc::strong_count(&self.inner)
+    }
+
+    pub fn fully_dereferenced_value(&self) -> &RsValue {
+        match self.value() {
+            RsValue::Ref(ref_value) => ref_value.fully_dereferenced_value(),
+            val => val,
+        }
+    }
+
+    pub unsafe fn set_value(&mut self, new_value: RsValue) {
+        let value =
+            Arc::get_mut(&mut self.inner).expect("Failed to get mutable reference to inner value");
+        *value = new_value;
     }
 }
 

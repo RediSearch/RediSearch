@@ -10,7 +10,8 @@
 use std::{ffi::c_char, fmt::Debug, ptr::NonNull};
 
 use crate::{
-    collection::{RsValueArray, RsValueMap},
+    // collection::RsValueArray,
+    collection::RsValueMap,
     shared::SharedRsValue,
     strings::{ConstString, OwnedRedisString, OwnedRmAllocString, RedisStringRef, RsValueString},
     trio::RsValueTrio,
@@ -33,6 +34,7 @@ pub mod collection;
 pub mod shared;
 pub mod strings;
 pub mod trio;
+pub mod util;
 
 /// An actual [`RsValue`] object
 #[derive(Debug, Clone)]
@@ -53,8 +55,11 @@ pub enum RsValue {
     BorrowedRedisString(RedisStringRef),
     /// String value
     String(Box<RsValueString>),
+    /// Simpler string value
+    String2(String),
     /// Array value
-    Array(RsValueArray),
+    Array(Vec<SharedRsValue>),
+    // Array(RsValueArray),
     /// Reference value
     Ref(SharedRsValue),
     /// Trio value
@@ -62,7 +67,6 @@ pub enum RsValue {
     /// Map value
     Map(RsValueMap),
 }
-
 impl RsValue {
     pub const fn null_const() -> Self {
         RsValue::Null
@@ -201,9 +205,12 @@ pub trait Value: Sized {
     }
 
     /// Create a new array value
-    fn array(arr: RsValueArray) -> Self {
+    fn array(arr: Vec<SharedRsValue>) -> Self {
         Self::from_value(RsValue::Array(arr))
     }
+    // fn array(arr: RsValueArray) -> Self {
+    //     Self::from_value(RsValue::Array(arr))
+    // }
 
     /// Create a new map value
     fn map(map: RsValueMap) -> Self {

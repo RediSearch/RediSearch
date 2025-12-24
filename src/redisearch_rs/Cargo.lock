@@ -2373,6 +2373,7 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "ffi",
+ "libc",
  "redis_mock",
  "thiserror",
  "workspace_hack",

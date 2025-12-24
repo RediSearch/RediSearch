@@ -43,6 +43,7 @@ impl AsRsValueType for RsValue {
             RsValue::OwnedRedisString(_) => RedisString,
             RsValue::BorrowedRedisString(_) => RedisString,
             RsValue::String(_) => String,
+            RsValue::String2(_) => String,
             RsValue::Array(_) => Array,
             RsValue::Ref(_) => Reference,
             RsValue::Trio(_) => Trio,
