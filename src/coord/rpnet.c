@@ -241,6 +241,7 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
         timed_out = true;
       } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
         nc->areq->qiter.err->reachedMaxPrefixExpansions = true;
+      }
       if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
         nc->areq->qiter.bgScanOOM = true;
       }
