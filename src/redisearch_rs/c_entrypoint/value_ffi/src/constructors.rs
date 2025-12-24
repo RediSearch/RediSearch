@@ -1,5 +1,7 @@
 use ffi::RedisModuleString;
 use std::ffi::{c_char, c_double};
+use std::mem::ManuallyDrop;
+use std::ops::Deref;
 use std::sync::LazyLock;
 use value::{RsValue, Value, shared::SharedRsValue};
 
@@ -37,7 +39,10 @@ pub unsafe extern "C" fn RSValue_NewCopiedString(value: *const c_char, len: u32)
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewReference(src: *const RsValue) -> *mut RsValue {
-    unimplemented!("RSValue_NewReference")
+    let shared_src = unsafe { SharedRsValue::from_raw(src) };
+    let shared_src = ManuallyDrop::new(shared_src);
+    let ref_value = RsValue::Ref(shared_src.deref().clone());
+    SharedRsValue::from_value(ref_value).into_raw() as *mut _
 }
 
 #[unsafe(no_mangle)]

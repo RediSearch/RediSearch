@@ -37,11 +37,16 @@ impl SharedRsValue {
         Arc::strong_count(&self.inner)
     }
 
-    pub fn fully_dereferenced_value(&self) -> &RsValue {
-        match self.value() {
-            RsValue::Ref(ref_value) => ref_value.fully_dereferenced_value(),
-            val => val,
+    pub fn fully_dereferenced(&self) -> &Self {
+        if let RsValue::Ref(ref_value) = self.value() {
+            ref_value.fully_dereferenced()
+        } else {
+            self
         }
+    }
+
+    pub fn fully_dereferenced_value(&self) -> &RsValue {
+        self.fully_dereferenced().value()
     }
 
     pub unsafe fn set_value(&mut self, new_value: RsValue) {
