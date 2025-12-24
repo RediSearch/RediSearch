@@ -1249,14 +1249,6 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
   return 1;
 }
 
-static bool checkFlexFieldSupport(const char *fieldTypeStr, const FieldSpec *fs, QueryError *status) {
-  if (isFlex || RSGlobalConfig.simulateInFlex) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVALID_FLEX, "%s fields are not supported in Flex indexes", fieldTypeStr);
-    return false;
-  }
-  return true;
-}
-
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
 static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, QueryError *status) {
@@ -1271,27 +1263,27 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
       sp->flags |= Index_HasNonEmpty;
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    if (!checkFlexFieldSupport(SPEC_TAG_STR, fs, status)) goto error;
+    if (!SearchDisk_CheckFieldSupport(SPEC_TAG_STR, fs, status)) goto error;
     if (!parseTagField(fs, ac, status)) goto error;
     if (!FieldSpec_IndexesEmpty(fs)) {
       sp->flags |= Index_HasNonEmpty;
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
-    if (!checkFlexFieldSupport(SPEC_GEOMETRY_STR, fs, status)) goto error;
+    if (!SearchDisk_CheckFieldSupport(SPEC_GEOMETRY_STR, fs, status)) goto error;
     if (!parseGeometryField(sp, fs, ac, status)) goto error;
   } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
-    if (!checkFlexFieldSupport(SPEC_VECTOR_STR, fs, status)) goto error;
+    if (!SearchDisk_CheckFieldSupport(SPEC_VECTOR_STR, fs, status)) goto error;
     if (!parseVectorField(sp, sp_ref, fs, ac, status)) goto error;
     // Skip SORTABLE and NOINDEX options
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
-    if (!checkFlexFieldSupport(SPEC_NUMERIC_STR, fs, status)) goto error;
+    if (!SearchDisk_CheckFieldSupport(SPEC_NUMERIC_STR, fs, status)) goto error;
     fs->types |= INDEXFLD_T_NUMERIC;
     if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
       fs->options |= FieldSpec_IndexMissing;
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
-    if (!checkFlexFieldSupport(SPEC_GEO_STR, fs, status)) goto error;
+    if (!SearchDisk_CheckFieldSupport(SPEC_GEO_STR, fs, status)) goto error;
     fs->types |= INDEXFLD_T_GEO;
     if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
       fs->options |= FieldSpec_IndexMissing;
