@@ -159,7 +159,7 @@ static void sideThread(void *arg) {
   RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Event loop stopped", io_runtime_ctx->queue->id);
 
   // Process any remaining requests before closing handles
-  uv_run(&io_runtime_ctx->uv_runtime.loop, UV_RUN_ONCE);
+  uv_run(&io_runtime_ctx->uv_runtime.loop, UV_RUN_NOWAIT);
   // Go through all the connections and stop the timers
   MRConnManager_Stop(&io_runtime_ctx->conn_mgr);
   // After the loop stops, close all handles https://github.com/libuv/libuv/issues/709
