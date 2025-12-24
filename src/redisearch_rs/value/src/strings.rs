@@ -88,6 +88,14 @@ impl OwnedRmAllocString {
         Self { str: buf, len }
     }
 
+    pub fn len(&self) -> u32 {
+        self.len
+    }
+
+    pub fn as_ptr(&self) -> *const c_char {
+        self.str.as_ptr()
+    }
+
     /// Get the string's bytes as a slice of `u8`'s.
     pub const fn as_bytes(&self) -> &[u8] {
         if self.len == 0 {
@@ -175,6 +183,14 @@ impl ConstString {
         // Safety: invariants (1) and (2) uphold the safety requirements
         // of `slice::from_raw_parts`
         unsafe { slice::from_raw_parts(self.str as *const u8, self.len as usize) }
+    }
+
+    pub fn len(&self) -> u32 {
+        self.len
+    }
+
+    pub fn as_ptr(&self) -> *const c_char {
+        self.str
     }
 }
 

@@ -171,6 +171,16 @@ impl<T> RsValueCollection<T> {
         };
         layout
     }
+
+    pub fn len(&self) -> u32 {
+        self.cap
+    }
+
+    pub unsafe fn entry_at(&self, index: u32) -> *mut T {
+        // &self.entries[index as usize]
+        let mut ptr = unsafe { self.entries.add(index as usize) };
+        unsafe { ptr.as_mut() }
+    }
 }
 
 impl<T: Clone> Clone for RsValueCollection<T> {
@@ -277,6 +287,10 @@ impl RsValueArray {
     pub unsafe fn reserve_uninit(cap: u32) -> Self {
         // Safety: see [`RsValueCollection::reserve_uninit`]
         Self(unsafe { RsValueCollection::reserve_uninit(cap) })
+    }
+
+    pub fn from_collection(collection: RsValueCollection<SharedRsValue>) -> Self {
+        Self(collection)
     }
 
     pub const fn inner_mut(&mut self) -> &mut RsValueCollection<SharedRsValue> {
