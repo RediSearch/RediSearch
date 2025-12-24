@@ -68,8 +68,8 @@ if(NOT TARGET redisearch_rs_build)
         COMMAND ${CMAKE_COMMAND} -E env
             "RUSTFLAGS=${RUST_FLAGS}"
             "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
-            ${CARGO_EXECUTABLE} ${TOOLCHAIN_MODIFIER} build
-            ${CARGO_BUILD_FLAGS}
+            ${CARGO_EXECUTABLE} ${TOOLCHAIN_MODIFIER} ${CARGO_BUILD_FLAGS}
+            build
             --package redisearch_rs
             --profile=${RUST_PROFILE}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
