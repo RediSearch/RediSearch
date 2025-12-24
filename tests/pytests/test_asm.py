@@ -6,6 +6,9 @@ import re
 import numpy as np
 import threading
 import time
+import os
+import signal
+import psutil
 
 # Random words for generating more diverse text content
 RANDOM_WORDS = [
@@ -186,6 +189,76 @@ class ClusterNode:
         )
 
 
+def get_shard_pid(conn):
+    """Get the PID of a Redis shard connection"""
+    return conn.execute_command('info', 'server')['process_id']
+
+def get_all_shards_pids(env):
+    """Get PIDs from all environment shards"""
+    pids = []
+    for shard_conn in env.getOSSMasterNodesConnectionList():
+        pid = get_shard_pid(shard_conn)
+        pids.append(pid)
+    return pids
+
+def get_child_pids(parent_pid):
+    """Get all child PIDs of a given parent PID"""
+    try:
+        parent = psutil.Process(parent_pid)
+        children = parent.children(recursive=True)
+        return [child.pid for child in children]
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return []
+
+def send_sigabrt_to_children_and_parents(parent_pids):
+    """Send SIGABRT signal to all children of the given parent PIDs and to the parents themselves"""
+    if not parent_pids:
+        print("No parent PIDs provided, skipping SIGABRT")
+        return
+
+    total_children_killed = 0
+    total_parents_killed = 0
+
+    # First, send SIGABRT to all child processes
+    for parent_pid in parent_pids:
+        try:
+            child_pids = get_child_pids(parent_pid)
+            if not child_pids:
+                print(f"No child processes found for parent PID {parent_pid}")
+            else:
+                print(f"Found {len(child_pids)} child processes for parent PID {parent_pid}: {child_pids}")
+                for child_pid in child_pids:
+                    try:
+                        # Verify the process still exists before sending signal
+                        if psutil.pid_exists(child_pid):
+                            os.kill(child_pid, signal.SIGABRT)
+                            print(f"Sent SIGABRT to child process {child_pid} of parent {parent_pid}")
+                            total_children_killed += 1
+                        else:
+                            print(f"Child process {child_pid} no longer exists")
+                    except (OSError, ProcessLookupError) as e:
+                        print(f"Failed to send SIGABRT to child process {child_pid}: {e}")
+        except Exception as e:
+            print(f"Error processing children of parent PID {parent_pid}: {e}")
+
+    # Then, send SIGABRT to the parent processes themselves
+    for parent_pid in parent_pids:
+        try:
+            # Verify the parent process still exists before sending signal
+            if psutil.pid_exists(parent_pid):
+                os.kill(parent_pid, signal.SIGABRT)
+                print(f"Sent SIGABRT to parent process {parent_pid}")
+                total_parents_killed += 1
+            else:
+                print(f"Parent process {parent_pid} no longer exists")
+        except (OSError, ProcessLookupError) as e:
+            print(f"Failed to send SIGABRT to parent process {parent_pid}: {e}")
+        except Exception as e:
+            print(f"Error processing parent PID {parent_pid}: {e}")
+
+    print(f"Total child processes sent SIGABRT: {total_children_killed}")
+    print(f"Total parent processes sent SIGABRT: {total_parents_killed}")
+
 def import_middle_slot_range(dest: Redis, source: Redis) -> str:
 
     def cluster_node_of(conn) -> ClusterNode:
@@ -264,32 +337,48 @@ def wait_for_migration_complete(env, dest_shard, source_shard, timeout=300, quer
                                to run queries during migration
     """
     task_id = import_middle_slot_range(dest_shard, source_shard)
-    with TimeLimit(timeout):
-        while True:
-            try:
-                if query_during_migration:
-                    # Pattern with queries during migration
-                    while not is_migration_complete(dest_shard, task_id):
-                        env.debugPrint("Querying shards while migration is in progress")
-                        query_shards(env, query_during_migration['query'],
-                                   query_during_migration['shards'],
-                                   query_during_migration['expected'],
-                                   query_during_migration['query_type'])
-                        env.debugPrint("Query passed")
-                        time.sleep(0.001)
-                else:
-                    # Original pattern checking both shards
-                    while not is_migration_complete(dest_shard, task_id) or not is_migration_complete(source_shard, task_id):
-                        time.sleep(0.1)
-                break  # Exit outer loop when migration completes successfully
-            except TaskIDFailed as e:
-                env.debugPrint(f"Task failed: {e}")
-                time.sleep(0.1)
+
+    # Get all shard PIDs before starting the timeout
+    shard_pids = get_all_shards_pids(env)
+    env.debugPrint(f"Shard PIDs: {shard_pids}")
+
+    try:
+        with TimeLimit(timeout):
+            while True:
+                try:
+                    if query_during_migration:
+                        # Pattern with queries during migration
+                        while not is_migration_complete(dest_shard, task_id):
+                            env.debugPrint("Querying shards while migration is in progress")
+                            query_shards(env, query_during_migration['query'],
+                                       query_during_migration['shards'],
+                                       query_during_migration['expected'],
+                                       query_during_migration['query_type'])
+                            env.debugPrint("Query passed")
+                            time.sleep(0.001)
+                    else:
+                        # Original pattern checking both shards
+                        while not is_migration_complete(dest_shard, task_id) or not is_migration_complete(source_shard, task_id):
+                            time.sleep(0.1)
+                    break  # Exit outer loop when migration completes successfully
+                except TaskIDFailed as e:
+                    print(f"Task failed: {e}")
+                    time.sleep(0.1)
+    except Exception as e:
+        # Check if this is a timeout exception from TimeLimit
+        # TimeLimit raises Exception with message starting with 'Timeout:'
+        print(f"TimeLimit timeout occurred: {e}")
+        print(f"Detected timeout with shard PIDs: {shard_pids}")
+        print("Sending SIGABRT to child processes and parent processes of all shards")
+        send_sigabrt_to_children_and_parents(shard_pids)
+        print("SIGABRT signals sent to child and parent processes")
+        # Re-raise the exception to maintain original behavior
+        raise
 
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
 def import_slot_range_sanity_test(env: Env, query_type: str = 'FT.SEARCH'):
-    n_docs = 2**14
+    n_docs = 5 * 2**14
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
@@ -408,44 +497,33 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH', parallel_upd
         update_thread.join(timeout=30.0)  # Wait up to 30 seconds for the thread to stop
         env.debugPrint("Parallel update thread stopped")
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_search_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.SEARCH')
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_search_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.SEARCH')
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2)
 @skip
 def test_ft_aggregate_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.AGGREGATE')
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_aggregate_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE')
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_aggregate_withcursor_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_aggregate_withcursor_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR')
@@ -465,44 +543,32 @@ def test_ft_hybrid_import_slot_range_BG():
     import_slot_range_test(env, 'FT.HYBRID')
 
 # Tests with parallel updates enabled
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_search_import_slot_range_parallel_updates():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.SEARCH', parallel_updates=True)
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_search_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.SEARCH', parallel_updates=True)
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_aggregate_import_slot_range_parallel_updates():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.AGGREGATE', parallel_updates=True)
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_aggregate_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE', parallel_updates=True)
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_aggregate_withcursor_import_slot_range_parallel_updates():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR', parallel_updates=True)
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_aggregate_withcursor_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR', parallel_updates=True)
@@ -521,44 +587,32 @@ def test_ft_hybrid_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.HYBRID', parallel_updates=True)
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_search_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_sanity_test(env, 'FT.SEARCH')
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_search_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_sanity_test(env, 'FT.SEARCH')
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_aggregate_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_sanity_test(env, 'FT.AGGREGATE')
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_aggregate_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_sanity_test(env, 'FT.AGGREGATE')
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_aggregate_withcursor_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_sanity_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_aggregate_withcursor_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_sanity_test(env, 'FT.AGGREGATE.WITHCURSOR')
@@ -622,44 +676,32 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
         query_shards(env, query, shards, expected, query_type)
         time.sleep(0.1)
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.SEARCH')
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.SEARCH')
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_aggregate():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.AGGREGATE')
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_aggregate_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.AGGREGATE')
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_aggregate_withcursor():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_aggregate_withcursor_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.AGGREGATE.WITHCURSOR')
@@ -710,23 +752,17 @@ def _test_ft_cursors_trimmed(env: Env):
     env.assertNotEqual(results_set, expected_set)
     env.assertGreater(len(expected_set), len(results_set))
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_cursors_trimmed():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     _test_ft_cursors_trimmed(env)
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_cursors_trimmed_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     _test_ft_cursors_trimmed(env)
 
-#TODO: Enable once RED-180514 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_migrate_no_indexes():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
 
