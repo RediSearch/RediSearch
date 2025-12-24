@@ -1,5 +1,15 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "search_disk.h"
 #include "config.h"
+
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
@@ -65,9 +75,9 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
     return disk->index.newWildcardIterator(index, weight);
 }
 
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxFreq) {
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen) {
     RS_ASSERT(disk && handle);
-    return disk->docTable.putDocument(handle, key, keyLen, score, flags, maxFreq);
+    return disk->docTable.putDocument(handle, key, keyLen, score, flags, maxTermFreq, docLen);
 }
 
 bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd) {
@@ -81,11 +91,17 @@ bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
 }
 
 bool SearchDisk_IsEnabled(RedisModuleCtx *ctx) {
+  if (isFlex || RSGlobalConfig.simulateInFlex) {
+    return true;
+  }
+  if (!ctx) {
+    return false;
+  }
   bool isFlex = false;
   char *isFlexStr = getRedisConfigValue(ctx, "bigredis-enabled");
   if (isFlexStr && !strcasecmp(isFlexStr, "yes")) {
     isFlex = true;
   } // Default is false, so nothing to change in that case.
   rm_free(isFlexStr);
-  return isFlex;
+  return isFlex || RSGlobalConfig.simulateInFlex;
 }

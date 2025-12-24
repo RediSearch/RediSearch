@@ -46,6 +46,7 @@
 #include "rs_wall_clock.h"
 #include "util/redis_mem_info.h"
 #include "search_disk.h"
+#include "search_disk_utils.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -3283,7 +3284,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
 
   size_t nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
   QueryError status = QueryError_Default();
-  if ((isFlex || RSGlobalConfig.simulateInFlex) && nIndexes > FLEX_MAX_INDEX_COUNT) {
+  if (SearchDisk_CheckLimitNumberOfIndexes(nIndexes)) {
     RedisModule_LogIOError(rdb, "warning", "Too many indexes for flex. Having %zu indexes, but flex only supports %d.", nIndexes, FLEX_MAX_INDEX_COUNT);
     return REDISMODULE_ERR;
   }
@@ -3502,8 +3503,8 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   if (md) {
     RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
     spec->stats.numDocuments--;
-    RS_LOG_ASSERT(spec->stats.totalDocsLen >= md->len, "totalDocsLen is smaller than dmd->len");
-    spec->stats.totalDocsLen -= md->len;
+    RS_LOG_ASSERT(spec->stats.totalDocsLen >= md->docLen, "totalDocsLen is smaller than md->docLen");
+    spec->stats.totalDocsLen -= md->docLen;
     DMD_Return(md);
 
     // Increment the index's garbage collector's scanning frequency after document deletions

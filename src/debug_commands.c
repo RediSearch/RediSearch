@@ -1279,8 +1279,8 @@ DEBUG_COMMAND(DocInfo) {
     RedisModule_ReplyKV_LongLong(reply, "internal_id", dmd->id);
     replyDocFlags("flags", dmd, reply);
     RedisModule_ReplyKV_Double(reply, "score", dmd->score);
-    RedisModule_ReplyKV_LongLong(reply, "num_tokens", dmd->len);
-    RedisModule_ReplyKV_LongLong(reply, "max_freq", dmd->maxFreq);
+    RedisModule_ReplyKV_LongLong(reply, "num_tokens", dmd->docLen);
+    RedisModule_ReplyKV_LongLong(reply, "max_freq", dmd->maxTermFreq);
     RedisModule_ReplyKV_LongLong(reply, "refcount", dmd->ref_count - 1); // TODO: should include the refcount of the command call?
     if (dmd->sortVector) {
       replySortVector("sortables", dmd, sctx, obfuscate, reply);
