@@ -582,8 +582,7 @@ private:
         ASSERT_TRUE(fs != nullptr);
 
         // Create the numeric range tree through the proper API
-        RedisModuleString *numField = IndexSpec_GetFormattedKey(spec, fs, INDEXFLD_T_NUMERIC);
-        numericRangeTree = openNumericKeysDict(spec, numField, CREATE_INDEX);
+        numericRangeTree = openNumericOrGeoIndex(spec, const_cast<FieldSpec *>(fs), CREATE_INDEX);
         ASSERT_TRUE(numericRangeTree != nullptr);
 
         // Add numeric data to the range tree
@@ -619,14 +618,12 @@ private:
         FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
         const NumericRangeTree *rt = NULL;
         if (fs) {
-              RedisModuleString *numField = IndexSpec_GetFormattedKey(sctx->spec, fs, INDEXFLD_T_NUMERIC);
-              rt = openNumericKeysDict(sctx->spec, numField, DONT_CREATE_INDEX);
+              rt = openNumericOrGeoIndex(spec, const_cast<FieldSpec *>(fs), DONT_CREATE_INDEX);
               RS_ASSERT(rt);
           }
         iterator = NewInvIndIterator_NumericQuery(numericIdx, sctx, &fieldCtx, numericFilter, rt, -INFINITY, INFINITY);
 
         Vector_Free(ranges);
-        RedisModule_FreeString(ctx, numField);
         numericIdxNeedsFreeing = false; // Managed by IndexSpec
     }
 
@@ -691,13 +688,10 @@ private:
         ASSERT_TRUE(sctx != nullptr);
 
         // Get the tag index from the spec using TagIndex_Open
-        // This will create the index and add it to the spec's keysDict properly
         const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, "tag_field", strlen("tag_field"));
         ASSERT_TRUE(fs != nullptr);
-        RedisModuleString *tagKeyName = TagIndex_FormatName(spec, fs->fieldName);
-        tagIdx = TagIndex_Open(spec, tagKeyName, CREATE_INDEX);
+        tagIdx = TagIndex_Open(const_cast<FieldSpec *>(fs), CREATE_INDEX);
         ASSERT_TRUE(tagIdx != nullptr);
-        RedisModule_FreeString(ctx, tagKeyName);
 
         // Create tag inverted index for a specific tag value
         size_t sz;

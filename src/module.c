@@ -518,9 +518,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  RedisModuleString *rstr = TagIndex_FormatName(sctx->spec, fs->fieldName);
-  TagIndex *idx = TagIndex_Open(sctx->spec, rstr, DONT_CREATE_INDEX);
-  RedisModule_FreeString(ctx, rstr);
+  TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
   if (!idx) {
     RedisModule_ReplyWithSet(ctx, 0);
     goto cleanup;
@@ -657,6 +655,10 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   CurrentThread_SetIndexSpec(global_ref);
+
+  if (sp->diskSpec) {
+    SearchDisk_MarkIndexForDeletion(sp->diskSpec);
+  }
 
   if((delDocs || sp->flags & Index_Temporary)) {
     // We take a strong reference to the index, so it will not be freed
@@ -1665,7 +1667,7 @@ void RediSearch_CleanupModule(void) {
   invoked = 1;
 
   // First free all indexes
-  Indexes_Free(specDict_g);
+  Indexes_Free(specDict_g, false);
   dictRelease(specDict_g);
   specDict_g = NULL;
 

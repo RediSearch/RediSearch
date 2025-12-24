@@ -54,6 +54,11 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, size_t ind
     return disk->basic.openIndexSpec(disk_db, indexName, indexNameLen, type);
 }
 
+void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
+    RS_ASSERT(disk_db);
+    disk->index.markToBeDeleted(index);
+}
+
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
     RS_ASSERT(index);
     disk->basic.closeIndexSpec(index);
