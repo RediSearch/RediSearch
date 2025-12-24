@@ -672,7 +672,6 @@ private:
             iterator = NewInvIndIterator_NumericQuery(numericIdx, sctx, &fieldCtx, numericFilter, fs, -INFINITY, INFINITY);
 
             Vector_Free(ranges);
-            RedisModule_FreeString(ctx, numField);
             numericIdxNeedsFreeing = false; // Managed by IndexSpec
         } else {
             // Full version (simpler, no context needed)

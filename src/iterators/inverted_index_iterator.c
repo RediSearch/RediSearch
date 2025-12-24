@@ -475,8 +475,7 @@ static QueryIterator *NewInvIndIterator_NumericRange(const InvertedIndex *idx, R
   InitInvIndIterator(&it->base, idx, res, filterCtx, skipMulti, sctx, decoderCtx, NumericCheckAbort);
 
   if (fieldSpec) {
-    RedisModuleString *numField = IndexSpec_GetFormattedKey(sctx->spec, fieldSpec, INDEXFLD_T_NUMERIC);
-    NumericRangeTree *rt = openNumericKeysDict(sctx->spec, numField, DONT_CREATE_INDEX);
+    NumericRangeTree *rt = openNumericOrGeoIndex(sctx->spec, (FieldSpec*)fieldSpec, DONT_CREATE_INDEX);
     RS_ASSERT(rt);
     it->revisionId = rt->revisionId;
     it->rt = rt;
