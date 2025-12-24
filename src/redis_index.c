@@ -164,7 +164,7 @@ static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, CharBuf *term
   return idx;
 }
 
-InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len, int write, bool *outIsNew) {
+InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len, bool write, bool *outIsNew) {
   CharBuf termKeyBuf = {
       .buf = (char *)term,
       .len = len,
@@ -179,7 +179,7 @@ QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok
   InvertedIndex *idx = NULL;
   CharBuf termKey = {.buf = tok->str, .len = tok->len};
 
-  idx = openIndexKeysDict(ctx, &termKey, 0, NULL);
+  idx = openIndexKeysDict(ctx, &termKey, false, NULL);
   if (!idx) {
     goto err;
   }

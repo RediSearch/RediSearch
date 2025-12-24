@@ -23,7 +23,7 @@ QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok
                                  t_fieldMask fieldMask, double weight);
 
 InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len,
-                                         int write, bool *outIsNew);
+                                        bool write, bool *outIsNew);
 
 /*
  * Select a random term from the index that matches the index prefix and inveted key format.
