@@ -380,7 +380,6 @@ def testSpecIndexesInfo(env: Env):
 
     # Add a document
     env.expect('HSET', 'doc1', 'n', 1).equal(1)
-    expected_reply["inverted_indexes_dict_size"] = 1
 
     # adding the document will create a new index block (48 bytes) with 1 byte of buffer capacity
     expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC']) + 49
