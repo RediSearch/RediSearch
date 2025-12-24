@@ -440,6 +440,8 @@ void RSValue_Map_GetEntry(const struct RsValue *map,
                           struct RsValue **key,
                           struct RsValue **value);
 
+sds RSValue_DumpSds(const struct RsValue *value, sds s, bool obfuscate);
+
 /**
  * Converts an [`RsValue`] to a number type in-place.
  *
