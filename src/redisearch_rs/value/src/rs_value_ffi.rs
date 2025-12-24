@@ -205,8 +205,7 @@ impl RSValueFFI {
     }
 
     pub fn mem_size() -> usize {
-        // Safety: Simply reading out a constant
-        unsafe { ffi::RSValueSize }
+        ffi::RSValueSize as usize
     }
 
     pub fn refcount(&self) -> u16 {
