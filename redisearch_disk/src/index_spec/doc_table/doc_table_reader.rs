@@ -1,7 +1,9 @@
 use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
 use inverted_index::IndexReader;
 use speedb::{DBIteratorWithThreadMode, IteratorMode};
+use thiserror::Error;
 
+use crate::document_id_key::DocumentIdKeyFromKeyError;
 use crate::search_disk::{AsKeyExt, FromKeyExt};
 
 /// Lazy reader to get the document IDs from the document table
@@ -13,11 +15,21 @@ pub struct DocTableReader<'iterator, DBAccess: speedb::DBAccess> {
     estimate: u64,
 }
 
+#[derive(Debug, Error)]
+pub enum ReaderCreateError {
+    #[error("Failed to parse first key in document table")]
+    ParseFirstKey,
+    #[error("Failed to parse last key in document table")]
+    ParseLastKey,
+    #[error("Speedb error: {0}")]
+    SpeedbError(#[from] speedb::Error),
+}
+
 impl<'iterator, DBAccess: speedb::DBAccess> DocTableReader<'iterator, DBAccess> {
     /// Create a new DocTableReader from the given Speedb iterator
     pub fn new(
         mut iterator: DBIteratorWithThreadMode<'iterator, DBAccess>,
-    ) -> Result<Self, speedb::Error> {
+    ) -> Result<Self, ReaderCreateError> {
         let estimate = Self::get_estimate(&mut iterator)?;
 
         iterator.set_mode(IteratorMode::Start);
@@ -28,21 +40,32 @@ impl<'iterator, DBAccess: speedb::DBAccess> DocTableReader<'iterator, DBAccess> 
     /// Get an estimate of the number of unique documents in the iterator
     fn get_estimate(
         iterator: &mut DBIteratorWithThreadMode<'iterator, DBAccess>,
-    ) -> Result<u64, speedb::Error> {
+    ) -> Result<u64, ReaderCreateError> {
         let Some(next) = iterator.next() else {
             return Ok(0);
         };
 
         let (first_key, _first_value) = next?;
-        let first_key = t_docId::from_key(&first_key);
+        let first_key =
+            t_docId::from_key(&first_key).map_err(|_e| ReaderCreateError::ParseFirstKey)?;
 
         iterator.set_mode(IteratorMode::End);
         let Some(prev) = iterator.next() else {
+            debug_assert!(
+                false,
+                "Failed to get last document ID from key, even when there is a first key"
+            );
             return Ok(0);
         };
 
         let (last_key, _last_value) = prev?;
-        let last_key = t_docId::from_key(&last_key);
+        let last_key =
+            t_docId::from_key(&last_key).map_err(|_e| ReaderCreateError::ParseLastKey)?;
+
+        debug_assert!(
+            first_key <= last_key,
+            "first key should be less than or equal to last key"
+        );
 
         Ok(last_key - first_key + 1)
     }
@@ -61,7 +84,16 @@ impl<'index, 'iterator, DBAccess: speedb::DBAccess> IndexReader<'index>
             None => return Ok(false),
         };
 
-        let doc_id = t_docId::from_key(&key);
+        let doc_id = t_docId::from_key(&key).map_err(|e| match e {
+            DocumentIdKeyFromKeyError::InvalidUtf8(e) => std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Failed to parse document ID from key: Invalid UTF-8, {e}"),
+            ),
+            DocumentIdKeyFromKeyError::ParseInt(e) => std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Failed to parse document ID from key: {e}"),
+            ),
+        })?;
 
         result.doc_id = doc_id;
 
@@ -95,7 +127,7 @@ impl<'index, 'iterator, DBAccess: speedb::DBAccess> IndexReader<'index>
     }
 
     fn has_duplicates(&self) -> bool {
-        // We can't have duplicate keys
+        // We can't have duplicate doc IDs in the document table
         false
     }
 

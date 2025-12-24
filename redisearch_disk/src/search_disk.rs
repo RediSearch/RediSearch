@@ -8,7 +8,7 @@ use speedb::{
     Options as SpeedbDbOptions, SliceTransform,
 };
 
-use crate::document_id_key::DocumentIdKey;
+use crate::document_id_key::{DocumentIdKey, DocumentIdKeyFromKeyError};
 use crate::index_spec::deleted_ids::DeletedIdsStore;
 use crate::merge_op::DeletedIdsMergeOperator;
 
@@ -19,9 +19,12 @@ pub trait AsKeyExt {
 }
 
 /// Trait extension to convert various types from byte slices for use as keys.
-pub trait FromKeyExt {
+pub trait FromKeyExt: Sized {
+    /// The error type returned when parsing fails.
+    type Error;
+
     /// Construct this value from a Speedb key.
-    fn from_key(key: &[u8]) -> Self;
+    fn from_key(key: &[u8]) -> Result<Self, Self::Error>;
 }
 
 /// Trait extension to convert various types into/from byte slices for use as keys.
@@ -35,9 +38,11 @@ impl AsKeyExt for t_docId {
 }
 
 impl FromKeyExt for t_docId {
-    fn from_key(key: &[u8]) -> Self {
-        let doc_id_key = DocumentIdKey::from_key(key);
-        doc_id_key.as_num()
+    type Error = DocumentIdKeyFromKeyError;
+
+    fn from_key(key: &[u8]) -> Result<Self, Self::Error> {
+        let doc_id_key = DocumentIdKey::from_key(key)?;
+        Ok(doc_id_key.as_num())
     }
 }
 

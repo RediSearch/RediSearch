@@ -28,6 +28,7 @@ fn get_temp_doc_table() -> DocTable {
         "test_doc_table".to_string(),
         DeletedIdsStore::default(),
     )
+    .unwrap()
 }
 
 #[test]
@@ -271,7 +272,8 @@ fn last_document_id_recovery() {
             db,
             "test_doc_table".to_string(),
             DeletedIdsStore::default(),
-        );
+        )
+        .unwrap();
 
         // Insert a few documents
         let doc_id1 = doc_table.insert_document(b"doc1", 1.0, 0, 1).unwrap();
@@ -298,7 +300,8 @@ fn last_document_id_recovery() {
             db,
             "test_doc_table".to_string(),
             DeletedIdsStore::default(),
-        );
+        )
+        .unwrap();
 
         // Verify existing documents are still there
         assert_eq!(
@@ -353,7 +356,8 @@ fn last_document_id_recovery_with_deletions() {
             db,
             "test_doc_table".to_string(),
             DeletedIdsStore::default(),
-        );
+        )
+        .unwrap();
 
         // Insert documents
         let doc_id1 = doc_table.insert_document(b"doc1", 1.0, 0, 1).unwrap();
@@ -388,7 +392,8 @@ fn last_document_id_recovery_with_deletions() {
             db,
             "test_doc_table".to_string(),
             DeletedIdsStore::default(),
-        );
+        )
+        .unwrap();
 
         // Insert a new document - it should get ID 5 (highest remaining doc ID was 4, so next is 5)
         let new_doc_id = doc_table.insert_document(b"doc6", 6.0, 0, 6).unwrap();
@@ -459,7 +464,8 @@ fn last_document_id_recovery_empty_table() {
             db,
             "test_doc_table".to_string(),
             DeletedIdsStore::default(),
-        );
+        )
+        .unwrap();
 
         // Insert first document - should get ID 1
         let doc_id1 = doc_table.insert_document(b"doc1", 1.0, 0, 1).unwrap();

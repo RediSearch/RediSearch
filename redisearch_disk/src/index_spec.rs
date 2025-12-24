@@ -49,17 +49,19 @@ impl IndexSpec {
         doc_table_cf_name: String,
         inverted_index_cf_name: String,
         deleted_ids: DeletedIdsStore,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, speedb::Error> {
+        let doc_table = DocTable::new(
+            document_type,
+            database.clone(),
+            doc_table_cf_name,
+            deleted_ids,
+        )?;
+
+        Ok(Self {
             name,
-            doc_table: DocTable::new(
-                document_type,
-                database.clone(),
-                doc_table_cf_name,
-                deleted_ids,
-            ),
+            doc_table,
             inverted_index: InvertedIndex::new(database, inverted_index_cf_name),
-        }
+        })
     }
 
     /// Returns the name of the index.

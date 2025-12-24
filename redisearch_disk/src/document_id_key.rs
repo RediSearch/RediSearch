@@ -1,6 +1,7 @@
 use std::{fmt::Display, str::FromStr};
 
 use ffi::t_docId;
+use thiserror::Error;
 
 use crate::search_disk::{AsKeyExt, FromKeyExt, KeyExt};
 
@@ -45,10 +46,20 @@ impl AsKeyExt for DocumentIdKey {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum DocumentIdKeyFromKeyError {
+    #[error("Invalid UTF-8 in document ID key")]
+    InvalidUtf8(#[from] std::str::Utf8Error),
+    #[error("Failed to parse document ID")]
+    ParseInt(#[from] std::num::ParseIntError),
+}
+
 impl FromKeyExt for DocumentIdKey {
-    fn from_key(key: &[u8]) -> Self {
-        let s = std::str::from_utf8(key).expect("DocumentIdKey key is not valid UTF-8");
-        s.parse().expect("Failed to parse DocumentIdKey from key")
+    type Error = DocumentIdKeyFromKeyError;
+
+    fn from_key(key: &[u8]) -> Result<Self, Self::Error> {
+        let s = std::str::from_utf8(key)?;
+        Ok(s.parse()?)
     }
 }
 
@@ -147,9 +158,51 @@ mod tests {
     fn document_id_key_as_key_from_key_roundtrip() {
         for id in [0, 1, 42, 1000, 999999, u64::MAX] {
             let original = DocumentIdKey(id);
-            let parsed = DocumentIdKey::from_key(&original.as_key());
+            let parsed = DocumentIdKey::from_key(&original.as_key()).unwrap();
             assert_eq!(original, parsed, "for id: {id}");
             assert_eq!(original.as_num(), parsed.as_num(), "for id: {id}");
         }
+    }
+
+    #[test]
+    fn document_id_key_from_key_invalid_utf8() {
+        // Test with invalid UTF-8 bytes
+        let invalid_utf8 = vec![0xFF, 0xFE, 0xFD];
+        let result = DocumentIdKey::from_key(&invalid_utf8);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            DocumentIdKeyFromKeyError::InvalidUtf8(_)
+        ));
+    }
+
+    #[test]
+    fn document_id_key_from_key_parse_error() {
+        // Test with valid UTF-8 but invalid number
+        let invalid_number = b"not_a_number";
+        let result = DocumentIdKey::from_key(invalid_number);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            DocumentIdKeyFromKeyError::ParseInt(_)
+        ));
+
+        // Test with empty string
+        let empty = b"";
+        let result = DocumentIdKey::from_key(empty);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            DocumentIdKeyFromKeyError::ParseInt(_)
+        ));
+
+        // Test with overflow
+        let overflow = b"18446744073709551616";
+        let result = DocumentIdKey::from_key(overflow);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            DocumentIdKeyFromKeyError::ParseInt(_)
+        ));
     }
 }

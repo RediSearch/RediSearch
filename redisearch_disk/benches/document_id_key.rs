@@ -31,7 +31,7 @@ fn benchmark_document_id_key_from_key(c: &mut Criterion) {
         let doc_id: DocumentIdKey = value.into();
         let key = doc_id.as_key();
         group.bench_with_input(BenchmarkId::from_parameter(name), &key, |b, k| {
-            b.iter(|| black_box(DocumentIdKey::from_key(k)));
+            b.iter(|| black_box(DocumentIdKey::from_key(k).unwrap()));
         });
     }
 

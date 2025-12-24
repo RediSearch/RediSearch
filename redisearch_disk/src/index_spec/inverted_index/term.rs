@@ -1,7 +1,8 @@
-pub mod block;
-
 use ffi::t_docId;
 use std::mem::size_of;
+
+pub mod block;
+pub mod reader;
 
 /// A document in a postings list, including its ID and associated metadata.
 #[derive(Clone, Debug, Eq, PartialEq)]

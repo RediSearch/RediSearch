@@ -2,12 +2,12 @@ mod doc_table_reader;
 mod document_metadata;
 
 use doc_table_reader::DocTableReader;
+pub use doc_table_reader::ReaderCreateError as DocTableReaderCreateError;
 // Re-export public types
 pub use document_metadata::DocumentMetadata;
 use inverted_index::RSIndexResult;
 
 use crate::{
-    document_id_key::DocumentIdKey,
     index_spec::{Key, deleted_ids::DeletedIdsStore},
     search_disk::{AsKeyExt, FromKeyExt, Speedb, SpeedbMultithreadedDatabase},
 };
@@ -15,7 +15,10 @@ use document::DocumentType;
 use ffi::t_docId;
 use rqe_iterators::inverted_index::InvIndIterator;
 use speedb::{BoundColumnFamily, IteratorMode};
-use std::sync::{Arc, atomic::AtomicU64};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
 use document_metadata::ArchivedDocumentMetadata;
 
@@ -48,7 +51,7 @@ impl DocTable {
         database: SpeedbMultithreadedDatabase,
         cf_name: String,
         deleted_ids: DeletedIdsStore,
-    ) -> Self {
+    ) -> Result<Self, speedb::Error> {
         // Recover the last document ID by reading the last entry in the column family
         let last_document_id = {
             // Verify the column family exists and get a handle
@@ -59,22 +62,23 @@ impl DocTable {
             database
                 .iterator_cf(&cf_handle, IteratorMode::End)
                 .next()
-                .map(|result| {
-                    let (key, _value) = result.expect("Failed to read last entry from doc table");
-                    let doc_id_key = DocumentIdKey::from_key(&key);
+                .transpose()?
+                .map(|(key, _value)| {
                     // Start from the next ID after the last one
-                    doc_id_key.as_num() + 1
+                    t_docId::from_key(&key)
+                        .map(|id| id + 1)
+                        .expect("we control the key format, parsing the key should never fail")
                 })
                 .unwrap_or(1) // Start from 1 if the table is empty
         };
 
-        Self {
+        Ok(Self {
             last_document_id: AtomicU64::new(last_document_id),
             document_type,
             database,
             cf_name,
             deleted_ids,
-        }
+        })
     }
 
     /// Returns the Speedb column family handle for the document table.
@@ -85,6 +89,8 @@ impl DocTable {
 
     /// Inserts a new document to the document table to generate a new document ID.
     /// If a document with the same key already exists, its old document ID is marked as deleted.
+    /// We expect the caller to hold the redis global lock and for that reason two threads can't
+    /// call this function at the same time,(and of course the same key).
     pub fn insert_document(
         &self,
         key: impl Into<Key>,
@@ -98,9 +104,7 @@ impl DocTable {
             self.delete_document(old_doc_id)?;
         }
 
-        let new_doc_id = self
-            .last_document_id
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let new_doc_id = self.last_document_id.fetch_add(1, Ordering::Relaxed);
 
         let entry_key = new_doc_id.as_key();
         let dmd_bytes = DocumentMetadata {
@@ -111,6 +115,7 @@ impl DocTable {
         }
         .serialize();
 
+        // If this fails we would have a gap in the doc IDs, but it's not a big deal.
         self.database
             .put_cf(&self.cf_handle(), entry_key, dmd_bytes)?;
 
@@ -127,7 +132,10 @@ impl DocTable {
 
                 dmd.key() == *key
             })
-            .map(|(key_bytes, _)| t_docId::from_key(&key_bytes))
+            .map(|(key_bytes, _)| {
+                t_docId::from_key(&key_bytes)
+                    .expect("we control the key format, parsing the key should never fail")
+            })
     }
 
     /// Checks if the document table contains a document with the given document ID.
@@ -148,6 +156,7 @@ impl DocTable {
         Ok(dmd)
     }
 
+    /// Returns the type of documents that are indexed.
     pub fn document_type(&self) -> DocumentType {
         self.document_type
     }
@@ -177,7 +186,7 @@ impl DocTable {
     pub fn wildcard_iterator(
         &self,
         weight: f64,
-    ) -> Result<InvIndIterator<'_, DocTableReader<'_, Speedb>>, speedb::Error> {
+    ) -> Result<InvIndIterator<'_, DocTableReader<'_, Speedb>>, DocTableReaderCreateError> {
         let iterator = self
             .database
             .iterator_cf(&self.cf_handle(), IteratorMode::Start);

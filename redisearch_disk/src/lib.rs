@@ -140,15 +140,24 @@ extern "C" fn index_spec_open(
     };
 
     debug!(index_name, %document_type, "opening index spec");
-    IndexSpec::new(
-        index_name,
+    match IndexSpec::new(
+        index_name.clone(),
         document_type,
         search_disk.database(),
         doc_table_cf_name,
         inverted_index_cf_name,
         deleted_ids,
-    )
-    .into_ptr()
+    ) {
+        Ok(index_spec) => index_spec.into_ptr(),
+        Err(error) => {
+            error!(
+                index_name,
+                error = &error as &dyn std::error::Error,
+                "failed to create index spec"
+            );
+            std::ptr::null_mut()
+        }
+    }
 }
 
 /// Closes an index.
