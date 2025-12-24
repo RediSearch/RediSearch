@@ -204,9 +204,8 @@ impl RSValueFFI {
         RSValueFFIRef(ManuallyDrop::new(self_), PhantomData)
     }
 
-    pub fn mem_size() -> usize {
-        // Safety: Simply reading out a constant
-        unsafe { ffi::RSValueSize }
+    pub const fn mem_size() -> usize {
+        ffi::RSValueSize as usize
     }
 
     pub fn refcount(&self) -> u16 {
