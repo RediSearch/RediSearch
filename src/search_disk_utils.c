@@ -16,8 +16,5 @@
  * @return true if the number of indexes is within the limit, false otherwise
  */
 bool SearchDisk_CheckLimitNumberOfIndexes(size_t nIndexes) {
-  if (!SearchDisk_IsEnabled(NULL)) {
-    return true;
-  }
   return nIndexes < FLEX_MAX_INDEX_COUNT;
 }

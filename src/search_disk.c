@@ -91,17 +91,11 @@ bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
 }
 
 bool SearchDisk_IsEnabled(RedisModuleCtx *ctx) {
-  if (isFlex || RSGlobalConfig.simulateInFlex) {
-    return true;
-  }
-  if (!ctx) {
-    return false;
-  }
-  bool isFlex = false;
-  char *isFlexStr = getRedisConfigValue(ctx, "bigredis-enabled");
-  if (isFlexStr && !strcasecmp(isFlexStr, "yes")) {
-    isFlex = true;
+  bool isFlexConfigured = false;
+  char *isFlexEnabledStr = getRedisConfigValue(ctx, "bigredis-enabled");
+  if (isFlexEnabledStr && !strcasecmp(isFlexEnabledStr, "yes")) {
+    isFlexConfigured = true;
   } // Default is false, so nothing to change in that case.
-  rm_free(isFlexStr);
-  return isFlex || RSGlobalConfig.simulateInFlex;
+  rm_free(isFlexEnabledStr);
+  return isFlexConfigured || RSGlobalConfig.simulateInFlex;
 }
