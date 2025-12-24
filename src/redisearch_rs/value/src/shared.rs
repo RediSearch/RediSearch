@@ -48,7 +48,28 @@ impl SharedRsValue {
         }
     }
 
-    /// Get a reference to the inner [`RsValue`].
+    pub fn refcount(&self) -> usize {
+        Arc::strong_count(&self.inner)
+    }
+
+    pub fn fully_dereferenced(&self) -> &Self {
+        if let RsValue::Ref(ref_value) = self.value() {
+            ref_value.fully_dereferenced()
+        } else {
+            self
+        }
+    }
+
+    pub fn fully_dereferenced_value(&self) -> &RsValue {
+        self.fully_dereferenced().value()
+    }
+
+    pub fn from_value(value: RsValue) -> Self {
+        Self {
+            inner: Arc::new(value),
+        }
+    }
+
     pub fn value(&self) -> &RsValue {
         &self.inner
     }

@@ -1,4 +1,5 @@
 use std::ffi::c_char;
+use std::mem::ManuallyDrop;
 use std::ptr::copy_nonoverlapping;
 
 use ffi::{RedisModule_Alloc, RedisModuleString};
@@ -43,5 +44,28 @@ pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_String_Get(value: *const RsValue, lenp: *mut u32) -> *mut c_char {
-    unimplemented!("RSValue_String_Get")
+    let shared_value = unsafe { SharedRsValue::from_raw(value) };
+    let shared_value = ManuallyDrop::new(shared_value);
+    let value = shared_value.value();
+
+    let (ptr, len) = match value {
+        RsValue::RmAllocString(str) => str.as_ptr_len(),
+        RsValue::ConstString(str) => str.as_ptr_len(),
+        RsValue::String(str) => (str.as_ptr(), str.count_bytes() as u32),
+        _ => panic!("unsupported RSValue_String_Get type"),
+    };
+
+    // tracing::info!("RSValue_String_Get: ptr={ptr:?}, len={len}");
+    // if len > 0 {
+    //     let slice = unsafe { std::slice::from_raw_parts_mut(ptr as *mut u8, len as usize + 1) };
+    //     tracing::info!("RSValue_String_Get: {:?}", slice);
+    //     let string = String::from_utf8_lossy(slice).into_owned();
+    //     tracing::info!("RSValue_String_Get: {:?}", string);
+    // }
+
+    if let Some(lenp) = unsafe { lenp.as_mut() } {
+        *lenp = len;
+    }
+
+    ptr as *mut _
 }

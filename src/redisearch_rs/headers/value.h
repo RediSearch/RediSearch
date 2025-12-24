@@ -148,7 +148,7 @@ struct RSValue *RSValue_NewReference(const struct RSValue *src);
 
 struct RSValue *RSValue_NewParsedNumber(const char *value, uint32_t len);
 
-struct RSValue *RSValue_NewNumberFromInt64(int64_t ii);
+struct RSValue *RSValue_NewNumberFromInt64(int64_t number);
 
 /**
  * Gets the numeric value from an [`RsValue`].
@@ -300,22 +300,22 @@ uint16_t RSValue_Refcount(const struct RSValue *value);
 
 const RedisModuleString *RSValue_RedisString_Get(const struct RSValue *value);
 
-int RSValue_ToNumber(const struct RSValue *v, double *d);
+int RSValue_ToNumber(const struct RSValue *value, double *d);
 
-const char *RSValue_ConvertStringPtrLen(const struct RSValue *v,
-                                        size_t *lenp,
+const char *RSValue_ConvertStringPtrLen(const struct RSValue *value,
+                                        size_t *len_ptr,
                                         char *buf,
                                         size_t buflen);
 
-const char *RSValue_StringPtrLen(const struct RSValue *value, size_t *lenp);
+const char *RSValue_StringPtrLen(const struct RSValue *value, size_t *len_ptr);
 
 void RSValue_ToString(const struct RSValue *dst, const struct RSValue *value);
 
-size_t RSValue_NumToString(const struct RSValue *v, char *buf, size_t buflen);
+size_t RSValue_NumToString(const struct RSValue *value, char *buf, size_t buflen);
 
-void RSValue_SetString(const struct RSValue *v, char *str, size_t len);
+void RSValue_SetString(const struct RSValue *value, char *str, size_t len);
 
-void RSValue_SetConstString(const struct RSValue *v, const char *str, size_t len);
+void RSValue_SetConstString(const struct RSValue *value, const char *str, size_t len);
 
 sds RSValue_DumpSds(const struct RSValue *value, sds sds, bool obfuscate);
 

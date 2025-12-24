@@ -8,6 +8,7 @@
 */
 
 use std::ffi::CStr;
+use std::fmt::Debug;
 
 pub use crate::{
     collection::{Array, Map},
@@ -32,6 +33,7 @@ mod collection;
 pub mod shared;
 pub mod strings;
 pub mod trio;
+pub mod util;
 
 /// An actual [`RsValue`] object
 #[derive(Debug, Clone)]
