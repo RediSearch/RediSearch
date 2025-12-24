@@ -191,6 +191,8 @@ typedef enum {
   QEXEC_S_HAS_LOAD = 0x01,
   /* Received EOF from iterator */
   QEXEC_S_ITERDONE = 0x02,
+  /* ASM trimming delay timeout */
+  QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT = 0x04,
 } QEStateFlags;
 
 
@@ -287,8 +289,6 @@ typedef struct AREQ {
   // plus 1 for each subsequent FT.CURSOR READ call.
   size_t cursor_reads;
 
-  /** Flag indicating that the cursor might be return bad results because ASM trimming started while Cursor is alive */
-  bool asm_potential_inaccuracy;
 } AREQ;
 
 /**

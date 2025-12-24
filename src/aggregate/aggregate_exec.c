@@ -485,7 +485,7 @@ done_2:
     if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
     }
-    if (req->asm_potential_inaccuracy) {
+    if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
     }
 
@@ -635,7 +635,7 @@ done_3:
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
-    if (req->asm_potential_inaccuracy) {
+    if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
       RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
     }

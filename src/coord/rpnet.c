@@ -249,7 +249,7 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
       }
       if (!strcmp(warning_str, QUERY_ASM_INACCURATE_RESULTS)) {
         RS_ASSERT(nc->areq);
-        nc->areq->asm_potential_inaccuracy = true;
+        nc->areq->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
       }
     }
   }

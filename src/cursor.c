@@ -206,7 +206,7 @@ static uint64_t CursorList_GenerateId(CursorList *curlist) {
 
 static void cursorMarkASMInaccuracyCb(CursorList *cl, Cursor *cur, void *arg) {
   if (cur->execState) {
-    cur->execState->asm_potential_inaccuracy = true;
+    cur->execState->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
   }
 }
 
