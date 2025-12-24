@@ -49,10 +49,22 @@ jobs:
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      version-suffix: ${{ steps.set-version.outputs.VERSION_SUFFIX }}
     steps:
       - uses: actions/checkout@v4
       - id: set-sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+      - name: Generate Version Suffix
+        id: set-version
+        run: |
+          BRANCH_NAME="${{ github.ref_name }}"
+          echo "Building from branch: $BRANCH_NAME"
+          # Generate timestamp at workflow start for consistent versioning across all builds
+          TIMESTAMP=$(date -u +"%Y%m%d.%H%M%S")
+          # Add workflow number to ensure the version is unique (if multiple workflows started at the same time)
+          WORKFLOW_NUM=${{ github.run_number }}
+          VERSION_SUFFIX=".${TIMESTAMP}.${WORKFLOW_NUM}"
+          echo VERSION_SUFFIX=$VERSION_SUFFIX >> $GITHUB_OUTPUT
       - name: Validate Reference
         shell: python
         run: |
@@ -106,6 +118,7 @@ jobs:
       pre-steps-script: ${{ matrix.pre-deps }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      version-suffix: ${{ needs.setup.outputs.version-suffix }}
 
   build-linux-arm:
     needs: [decide-linux, setup]
@@ -123,6 +136,7 @@ jobs:
       pre-steps-script: ${{ matrix.pre-deps }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      version-suffix: ${{ needs.setup.outputs.version-suffix }}
 
   build-macos:
     needs: [decide-macos, setup]
@@ -137,3 +151,5 @@ jobs:
       env: ${{ matrix.OS }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      version-suffix: ${{ needs.setup.outputs.version-suffix }}
+
