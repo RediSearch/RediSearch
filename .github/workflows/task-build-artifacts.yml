@@ -24,6 +24,10 @@ on:
         description: 'Optional: SHA to checkout. If not provided, `ref` will be used'
       redis-ref:
         type: string
+      version-suffix:
+        type: string
+        description: 'Suffix to append to version for consistent versioning across builds'
+        required: true
 
 env:
   REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
@@ -209,5 +213,12 @@ jobs:
           aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
           aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
           aws configure set region "$AWS_REGION"
+      - name: Set Version identifier
+        id: set-versions
+        run: |
+          VERSION_SUFFIX="${{ inputs.version-suffix }}"
+          echo "VERSION_SUFFIX=$VERSION_SUFFIX" >> $GITHUB_OUTPUT
       - name: Upload Artifacts
+        env:
+          VERSION_SUFFIX: ${{ steps.set-versions.outputs.VERSION_SUFFIX }}
         run: make upload-artifacts
