@@ -44,7 +44,7 @@ typedef int (*ScanFunc)(RedisModuleCtx *ctx, RedisModuleString *keyName, void *o
 /* Optimize the buffers of a speicif term hit */
 int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);
 
-int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s);
+int Redis_LegacyDeleteKey(RedisModuleCtx *ctx, RedisModuleString *s);
 int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr);
 
 /* Drop all the index's internal keys using this scan handler */
@@ -58,6 +58,5 @@ int Redis_StatsScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opa
  */
 RedisModuleString *fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, size_t len);
 RedisModuleString *fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len);
-RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const HiddenString *field);
 
 #endif
