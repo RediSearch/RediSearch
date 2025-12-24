@@ -1941,7 +1941,7 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
   StrongRef_Release(spec_ref);
 }
 
-void Indexes_Free(dict *d) {
+void Indexes_Free(dict *d, bool deleteDiskData) {
   // free the schema dictionary this way avoid iterating over it for each combination of
   // spec<-->prefix
   SchemaPrefixes_Free(SchemaPrefixes_g);
@@ -1962,6 +1962,11 @@ void Indexes_Free(dict *d) {
   dictReleaseIterator(iter);
 
   for (size_t i = 0; i < array_len(specs); ++i) {
+    // Delete disk index before removing from globals
+    IndexSpec *spec = StrongRef_Get(specs[i]);
+    if (deleteDiskData && spec && spec->diskSpec ) {
+      SearchDisk_MarkIndexForDeletion(spec->diskSpec);
+    }
     IndexSpec_RemoveFromGlobals(specs[i], false);
   }
   array_free(specs);
@@ -3519,7 +3524,7 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
     return;
   }
   if (specDict_g) {
-    Indexes_Free(specDict_g);
+    Indexes_Free(specDict_g, true);
     // specDict_g itself is not actually freed
   }
   Dictionary_Clear();
@@ -3855,7 +3860,7 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
 }
 
 void Indexes_StartRDBLoadingEvent() {
-  Indexes_Free(specDict_g);
+  Indexes_Free(specDict_g, false);
   if (legacySpecDict) {
     dictEmpty(legacySpecDict, NULL);
   } else {

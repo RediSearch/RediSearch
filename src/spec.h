@@ -713,7 +713,11 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
-void Indexes_Free(dict *d);
+/*
+ * Free all indexes.
+ * @param deleteDiskData - delete the disk data
+*/ 
+void Indexes_Free(dict *d, bool deleteDiskData);
 size_t Indexes_Count();
 void Indexes_Propagate(RedisModuleCtx *ctx);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,

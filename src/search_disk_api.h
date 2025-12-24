@@ -34,6 +34,13 @@ typedef struct BasicDiskAPI {
 
 typedef struct IndexDiskAPI {
   /**
+   * @brief Request the index to be deleted, once closeIndexSpec is called the index will be deleted from the disk.
+   *
+   * @param index Pointer to the index
+   */
+  void (*markToBeDeleted)(RedisSearchDiskIndexSpec *index);
+
+  /**
    * @brief Indexes a document in the disk database
    *
    * Adds a document to the inverted index for the specified index name and term.

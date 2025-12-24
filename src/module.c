@@ -648,6 +648,10 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   CurrentThread_SetIndexSpec(global_ref);
 
+  if (sp->diskSpec) {
+    SearchDisk_MarkIndexForDeletion(sp->diskSpec);
+  }
+
   if((delDocs || sp->flags & Index_Temporary)) {
     // We take a strong reference to the index, so it will not be freed
     // and we can still use it's doc table to delete the keys.
@@ -1651,7 +1655,7 @@ void RediSearch_CleanupModule(void) {
   invoked = 1;
 
   // First free all indexes
-  Indexes_Free(specDict_g);
+  Indexes_Free(specDict_g, false);
   dictRelease(specDict_g);
   specDict_g = NULL;
 
