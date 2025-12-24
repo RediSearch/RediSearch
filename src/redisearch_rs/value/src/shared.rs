@@ -12,6 +12,7 @@ use std::sync::Arc;
 use crate::RsValue;
 
 /// A shared RedisSearch dynamic value, backed by an `Arc<RsValue>`.
+/// cbindgen:no-export
 #[derive(Clone)]
 pub struct SharedRsValue {
     inner: Arc<RsValue>,

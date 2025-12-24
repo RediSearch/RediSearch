@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::c_double;
+use std::ffi::{c_char, c_double};
 use value::trio::RsValueTrio;
 use value::{RsValue, shared::SharedRsValue};
 
@@ -69,4 +69,28 @@ pub unsafe extern "C" fn RSValue_NewTrio(
         shared_right,
     )))
     .into_raw() as *mut _
+}
+
+// use ffi::RedisModuleString;
+// use std::ffi::{c_char, c_double};
+// use value::RsValue;
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NullStatic() -> *mut RsValue {
+    unimplemented!("RSValue_NullStatic")
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewReference(src: *const RsValue) -> *mut RsValue {
+    unimplemented!("RSValue_NewReference")
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewParsedNumber(value: *const c_char, len: u32) -> *mut RsValue {
+    unimplemented!("RSValue_NewParsedNumber")
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewNumberFromInt64(ii: i64) -> *mut RsValue {
+    unimplemented!("RSValue_NewNumberFromInt64")
 }

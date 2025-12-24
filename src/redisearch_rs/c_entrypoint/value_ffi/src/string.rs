@@ -40,3 +40,8 @@ pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -
     let shared_value = SharedRsValue::new(value);
     shared_value.into_raw() as *mut _
 }
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_String_Get(value: *const RsValue, lenp: *mut u32) -> *mut c_char {
+    unimplemented!("RSValue_String_Get")
+}
