@@ -18,8 +18,8 @@ bool SearchDisk_CheckLimitNumberOfIndexes(size_t nIndexes) {
 }
 
 bool SearchDisk_CheckFieldSupport(const char *fieldTypeStr, const FieldSpec *fs, QueryError *status) {
-  if (SearchDisk_IsEnabled(NULL)) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVALID_FLEX, "%s fields are not supported in Flex indexes", fieldTypeStr);
+  if (SearchDisk_IsEnabledForValidation()) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_INVALID_FIELD, "%s fields are not supported in Flex indexes", fieldTypeStr);
     return false;
   }
   return true;
