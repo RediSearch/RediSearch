@@ -1,6 +1,8 @@
 use ffi::QueryError;
 use std::ffi::c_int;
-use value::RsValue;
+use std::mem::ManuallyDrop;
+use std::ops::Deref;
+use value::{RsValue, Value, shared::SharedRsValue};
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Cmp(
