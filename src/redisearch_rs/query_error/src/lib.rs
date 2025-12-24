@@ -152,7 +152,7 @@ impl QueryErrorCode {
             Self::VectorNotAllowed => c"Vector queries are not allowed",
             Self::OutOfMemory => c"Not enough memory available to execute the query",
             Self::UnavailableSlots => c"Query requires unavailable slots",
-            Self::FlexLimitNumberOfIndexes => c"Invalid Flex index operation",
+            Self::FlexLimitNumberOfIndexes => c"Flex index limit was reached",
         }
     }
 }
