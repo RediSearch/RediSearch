@@ -25,6 +25,7 @@
 #include "VecSim/query_results.h"
 #include "info/global_stats.h"
 #include "src/ext/default.h"
+#include "asm_state_machine.h"
 
 // Macro for BLOB data that all tests using $BLOB should use
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
@@ -37,9 +38,23 @@ class ParseHybridTest : public ::testing::Test {
   HybridRequest *hybridRequest;
   HybridPipelineParams hybridParams;
   ParseHybridCommandCtx result;
+  RedisModuleSlotRangeArray* local_slots;
+
+  // Helper function to create a RedisModuleSlotRangeArray for testing
+  RedisModuleSlotRangeArray* createSlotRangeArray(uint16_t start, uint16_t end) {
+    size_t array_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange);
+    RedisModuleSlotRangeArray* array = (RedisModuleSlotRangeArray*)rm_malloc(array_size);
+    array->num_ranges = 1;
+    array->ranges[0].start = start;
+    array->ranges[0].end = end;
+    return array;
+  }
 
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(NULL);
+    ASM_StateMachine_Init();
+    local_slots = createSlotRangeArray(0, 16383);
+    ASM_StateMachine_SetLocalSlots(local_slots);
     RMCK::flushdb(ctx);
 
     // Initialize pointers to NULL
@@ -82,6 +97,10 @@ class ParseHybridTest : public ::testing::Test {
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = NULL;
+    }
+    ASM_StateMachine_End();
+    if (local_slots) {
+      rm_free(local_slots);
     }
   }
 
@@ -316,7 +335,6 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithFloatConstant) {
   // Verify hasExplicitWindow flag is false (WINDOW was not specified)
   ASSERT_FALSE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 }
-
 
 TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   // Example of a complex command in a single line

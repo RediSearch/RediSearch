@@ -237,7 +237,6 @@ void UpdateTopology(RedisModuleCtx *ctx) {
 
     // Pass the local slots info directly from the RedisModule API, as we enabled auto memory
     MR_UpdateTopology(topo, RedisModule_ClusterGetLocalSlotRanges(ctx));
-    Slots_DropCachedLocalSlots(); // Local slots may have changed, drop the cache
   }
 }
 
@@ -248,6 +247,11 @@ static void UpdateTopology_Periodic(RedisModuleCtx *ctx, void *p) {
   REDISMODULE_NOT_USED(p);
   topologyRefreshTimer = RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
   UpdateTopology(ctx);
+}
+
+void RedisTopologyUpdater_StopAndRescheduleImmediately(RedisModuleCtx *ctx) {
+  RedisModule_StopTimer(ctx, topologyRefreshTimer, NULL);
+  topologyRefreshTimer = RedisModule_CreateTimer(ctx, 0, UpdateTopology_Periodic, NULL);
 }
 
 int InitRedisTopologyUpdater(RedisModuleCtx *ctx) {
