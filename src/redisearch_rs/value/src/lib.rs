@@ -30,6 +30,7 @@ pub use test_utils::RSValueMock;
 pub mod shared;
 pub mod strings;
 pub mod trio;
+pub mod util;
 
 /// An actual [`RsValue`] object
 #[derive(Debug, Clone)]
