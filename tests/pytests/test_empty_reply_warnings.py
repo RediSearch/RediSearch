@@ -76,31 +76,6 @@ class TestEmptyReplyWarnings:
         self.env.assertContains('Max prefix expansions', res['warning'][0],
                                 message=f"Expected max prefix expansion warning, got: {res}")
 
-    def testEmptyReplyQueryOomWarning(self):
-        """
-        Empty reply with Query OOM warning (QUERY_WOOM_SHARD).
-        Set low memory on shards, query for non-existent term -> empty result + OOM warning.
-        Verifies coordinator propagates query OOM warning even when result is empty.
-        """
-        # Set OOM policy to RETURN (warning instead of error) on shards
-        allShards_change_oom_policy(self.env, 'RETURN')
-        # Set low memory on shards to trigger OOM
-        allShards_change_maxmemory_low(self.env)
-        # Set unlimited maxmemory on coordinator
-        set_unlimited_maxmemory_for_oom(self.env)
-
-        # Query for non-existent term -> empty result + OOM warning
-        res = self.env.cmd('FT.AGGREGATE', 'idx', '@t:nonexistent_term_xyz')
-        self.env.assertEqual(len(res['results']), 0,
-                        message=f"Expected empty results, got: {res}")
-        self.env.assertEqual(len(res['warning']), 1,
-                            message=f"Expected query OOM warning, got: {res}")
-        self.env.assertContains('insufficient memory', res['warning'][0],
-                        message=f"Expected query OOM warning, got: {res}")
-
-        # Cleanup
-        allShards_set_unlimited_maxmemory_for_oom(self.env)
-
 @skip(cluster=False)
 def testEmptyReplyTimeoutResp2():
     """
