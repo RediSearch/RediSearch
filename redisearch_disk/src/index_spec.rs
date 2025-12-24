@@ -8,8 +8,13 @@ pub mod inverted_index;
 
 use crate::index_spec::deleted_ids::DeletedIdsStore;
 use document::DocumentType;
+use speedb::{
+    ColumnFamilyDescriptor, DEFAULT_COLUMN_FAMILY_NAME, Error as SpeedbError,
+    Options as SpeedbDbOptions,
+};
+use std::path::{Path, PathBuf};
 
-use crate::search_disk::SpeedbMultithreadedDatabase;
+use crate::database::SpeedbMultithreadedDatabase;
 
 use self::doc_table::DocTable;
 use self::inverted_index::InvertedIndex;
@@ -31,6 +36,8 @@ const _: () = {
 /// The IndexSpec struct represents the specification of an index, including its name and document
 /// type. It contains an inverted index mapping terms to postings lists and a document table
 /// mapping document IDs to document metadata.
+///
+/// Each IndexSpec owns its own Speedb database.
 pub struct IndexSpec {
     /// The name of the index
     name: String,
@@ -41,26 +48,56 @@ pub struct IndexSpec {
 }
 
 impl IndexSpec {
-    /// Creates a new IndexSpec with the given name.
+    const DB_WRITE_BUFFER_SIZE: usize = 5 * 1024 * 1024; // 5 MB;
+    const DOC_TABLE_CACHE_SIZE: usize = 30 * 1024 * 1024; // 30 MB;
+    const DOC_TABLE_BLOOM_FILTER_BITS_PER_KEY: f64 = 10.0;
+
+    /// Creates a new IndexSpec with the given name and document type.
+    ///
+    /// This will create or open a Speedb database at `{base_path}_{index_name}_{doc_type}/`
+    /// with two column families: "doc_table" and "fulltext".
     pub fn new(
         name: String,
         document_type: DocumentType,
-        database: SpeedbMultithreadedDatabase,
-        doc_table_cf_name: String,
-        inverted_index_cf_name: String,
+        base_path: impl AsRef<Path>,
         deleted_ids: DeletedIdsStore,
-    ) -> Result<Self, speedb::Error> {
-        let doc_table = DocTable::new(
-            document_type,
-            database.clone(),
-            doc_table_cf_name,
-            deleted_ids,
-        )?;
+    ) -> Result<Self, SpeedbError> {
+        // Create database path: {base_path}_{index_name}_{doc_type}
+        // We use PathBuf operations to preserve non-UTF-8 bytes on Unix systems.
+        // Converting to string with .display() would perform lossy UTF-8 conversion.
+        let db_path = PathBuf::from(base_path.as_ref());
+
+        // Append the suffix to the path using OsString to avoid UTF-8 conversion
+        let mut path_os = db_path.into_os_string();
+        path_os.push(format!("_{}_{}", name, &document_type));
+        let db_path = PathBuf::from(path_os);
+
+        // Configure database options
+        let mut db_options = SpeedbDbOptions::default();
+        db_options.create_if_missing(true);
+        db_options.create_missing_column_families(true);
+        db_options.set_write_buffer_size(Self::DB_WRITE_BUFFER_SIZE);
+
+        // Always use open_cf_descriptors with create_missing_column_families=true
+        // This handles both new databases and partially-created databases gracefully:
+        // - For new databases: creates all CFs
+        // - For existing complete databases: opens with correct options
+        // - For partially-created databases: creates missing CFs
+        let cf_descriptors = vec![
+            ColumnFamilyDescriptor::new(DEFAULT_COLUMN_FAMILY_NAME, SpeedbDbOptions::default()),
+            DocTable::cf_descriptor(
+                Self::DOC_TABLE_CACHE_SIZE,
+                Self::DOC_TABLE_BLOOM_FILTER_BITS_PER_KEY,
+            ),
+            InvertedIndex::cf_descriptor(deleted_ids.clone()),
+        ];
+        let database =
+            SpeedbMultithreadedDatabase::open_cf_descriptors(&db_options, db_path, cf_descriptors)?;
 
         Ok(Self {
             name,
-            doc_table,
-            inverted_index: InvertedIndex::new(database, inverted_index_cf_name),
+            doc_table: DocTable::new(document_type, database.clone(), deleted_ids)?,
+            inverted_index: InvertedIndex::new(database),
         })
     }
 

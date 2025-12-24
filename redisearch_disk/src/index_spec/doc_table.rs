@@ -7,9 +7,12 @@ pub use doc_table_reader::ReaderCreateError as DocTableReaderCreateError;
 pub use document_metadata::DocumentMetadata;
 use inverted_index::RSIndexResult;
 
+use speedb::{BlockBasedOptions, Cache, ColumnFamilyDescriptor, Options as SpeedbDbOptions};
+
 use crate::{
+    database::{Speedb, SpeedbMultithreadedDatabase},
     index_spec::{Key, deleted_ids::DeletedIdsStore},
-    search_disk::{AsKeyExt, FromKeyExt, Speedb, SpeedbMultithreadedDatabase},
+    key_traits::{AsKeyExt, FromKeyExt},
 };
 use document::DocumentType;
 use ffi::t_docId;
@@ -46,17 +49,18 @@ pub struct DocTable {
 }
 
 impl DocTable {
+    const COLUMN_FAMILY_NAME: &str = "doc_table";
+
     pub fn new(
         document_type: DocumentType,
         database: SpeedbMultithreadedDatabase,
-        cf_name: String,
         deleted_ids: DeletedIdsStore,
     ) -> Result<Self, speedb::Error> {
         // Recover the last document ID by reading the last entry in the column family
         let last_document_id = {
             // Verify the column family exists and get a handle
             let cf_handle = database
-                .cf_handle(&cf_name)
+                .cf_handle(Self::COLUMN_FAMILY_NAME)
                 .expect("Doc table column family should exist");
 
             database
@@ -76,9 +80,31 @@ impl DocTable {
             last_document_id: AtomicU64::new(last_document_id),
             document_type,
             database,
-            cf_name,
+            cf_name: Self::COLUMN_FAMILY_NAME.to_string(),
             deleted_ids,
         })
+    }
+
+    /// Returns the column family descriptor for the document table.
+    pub fn cf_descriptor(
+        cache_size: usize,
+        bloom_filter_bits_per_key: f64,
+    ) -> ColumnFamilyDescriptor {
+        let mut block_based_options = BlockBasedOptions::default();
+        let block_cache = Cache::new_lru_cache(cache_size);
+        block_based_options.set_block_cache(&block_cache);
+
+        // the second parameter is ignored
+        // see: https://github.com/facebook/rocksdb/blob/35148aca91cda84d6fa9b295eb5500d6d965dca6/include/rocksdb/filter_policy.h#L155
+        block_based_options.set_bloom_filter(bloom_filter_bits_per_key, false);
+        block_based_options.set_cache_index_and_filter_blocks(true);
+        // FIXME(enricozb): the c++ poc sets
+        //   blockBasedOptions.block_align = true;
+        // but this doesn't exist in the rust api.
+        let mut cf_options = SpeedbDbOptions::default();
+        cf_options.set_block_based_table_factory(&block_based_options);
+
+        ColumnFamilyDescriptor::new(Self::COLUMN_FAMILY_NAME, cf_options)
     }
 
     /// Returns the Speedb column family handle for the document table.

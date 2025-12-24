@@ -10,9 +10,17 @@ use inverted_index::{FilterMaskReader, RSIndexResult};
 use rqe_iterators::inverted_index::InvIndIterator;
 use speedb::BoundColumnFamily;
 
+use super::DeletedIdsStore;
+use crate::merge_op::DeletedIdsMergeOperator;
+
+use speedb::{
+    BlockBasedOptions, ColumnFamilyDescriptor, Options as SpeedbDbOptions, SliceTransform,
+};
+
 use crate::{
+    database::{Speedb, SpeedbMultithreadedDatabase},
     document_id_key::DocumentIdKey,
-    search_disk::{AsKeyExt, Speedb, SpeedbMultithreadedDatabase},
+    key_traits::AsKeyExt,
 };
 
 /// Delimiter used in inverted index keys between term and last document ID
@@ -172,14 +180,57 @@ impl From<term::Document> for PostingsListBlock {
 }
 
 impl InvertedIndex {
+    const KEY_DELIMITER: u8 = b'_';
+    const COLUMN_FAMILY_NAME: &str = "fulltext";
+    const PREFIX_EXTRACTOR_NAME: &str = "fulltext_prefix_extractor";
+    const MERGE_OPERATOR_NAME: &str = "fulltext_merge_operator";
+
     /// Creates a new inverted index with the given Speedb database.
-    pub fn new(database: SpeedbMultithreadedDatabase, cf_name: String) -> Self {
+    pub fn new(database: SpeedbMultithreadedDatabase) -> Self {
         // Verify the column family exists
         database
-            .cf_handle(&cf_name)
+            .cf_handle(Self::COLUMN_FAMILY_NAME)
             .expect("Inverted index column family should exist");
 
-        InvertedIndex { database, cf_name }
+        InvertedIndex {
+            database,
+            cf_name: Self::COLUMN_FAMILY_NAME.to_string(),
+        }
+    }
+
+    /// Strip everything after the last [`KEY_DELIMITER`], which is the key
+    /// without the last doc_id, but keeping the delimiter.
+    fn strip_after_last_delimiter(src: &[u8]) -> &[u8] {
+        let last_key_delimiter_idx = src
+            .iter()
+            .rposition(|byte| *byte == Self::KEY_DELIMITER)
+            .expect("slice doesn't contain KEY_DELIMITER");
+
+        src.split_at(last_key_delimiter_idx + 1).0
+    }
+
+    /// Returns whether `src` contains a [`KEY_DELIMITER`].
+    fn contains_key_delimiter(src: &[u8]) -> bool {
+        src.contains(&Self::KEY_DELIMITER)
+    }
+
+    pub fn cf_descriptor(deleted_ids: DeletedIdsStore) -> ColumnFamilyDescriptor {
+        let prefix_extractor = SliceTransform::create(
+            Self::PREFIX_EXTRACTOR_NAME,
+            Self::strip_after_last_delimiter,
+            Some(Self::contains_key_delimiter),
+        );
+
+        let mut cf_options = SpeedbDbOptions::default();
+        cf_options.set_merge_operator(
+            Self::MERGE_OPERATOR_NAME,
+            DeletedIdsMergeOperator::full_merge_fn(deleted_ids.clone()),
+            DeletedIdsMergeOperator::partial_merge_fn(deleted_ids),
+        );
+        cf_options.set_prefix_extractor(prefix_extractor);
+        cf_options.set_block_based_table_factory(&BlockBasedOptions::default());
+
+        ColumnFamilyDescriptor::new(Self::COLUMN_FAMILY_NAME, cf_options)
     }
 
     /// Returns the Speedb column family handle for the inverted index.
@@ -246,6 +297,26 @@ impl InvertedIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_strip_after_last_delimiter_basic() {
+        let key = b"foo_40";
+        let expected = b"foo_";
+        assert_eq!(InvertedIndex::strip_after_last_delimiter(key), expected);
+    }
+
+    #[test]
+    fn test_strip_after_last_delimiter_multiple_delimiters() {
+        let key = b"alpha_beta_gamma_123";
+        let expected = b"alpha_beta_gamma_";
+        assert_eq!(InvertedIndex::strip_after_last_delimiter(key), expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "slice doesn't contain KEY_DELIMITER")]
+    fn test_strip_after_last_delimiter_panics_without_delimiter() {
+        InvertedIndex::strip_after_last_delimiter(b"nodelimiterhere");
+    }
 
     #[test]
     fn postings_list_block_roundtrip() {

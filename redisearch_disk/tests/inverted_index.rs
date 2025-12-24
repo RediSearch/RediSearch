@@ -5,7 +5,7 @@ mod c_mocks;
 
 use ffi::{t_docId, t_fieldMask};
 use redisearch_disk::{
-    index_spec::inverted_index::InvertedIndex, search_disk::SpeedbMultithreadedDatabase,
+    database::SpeedbMultithreadedDatabase, index_spec::inverted_index::InvertedIndex,
 };
 use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
 use tempfile::TempDir;
@@ -19,12 +19,9 @@ fn get_temp_inverted_index() -> (TempDir, InvertedIndex) {
     opts.create_if_missing(true);
     opts.create_missing_column_families(true);
 
-    let db = SpeedbMultithreadedDatabase::open_cf(&opts, &path, ["test_inverted_index"]).unwrap();
+    let db = SpeedbMultithreadedDatabase::open_cf(&opts, &path, ["fulltext"]).unwrap();
 
-    (
-        path,
-        InvertedIndex::new(db, "test_inverted_index".to_string()),
-    )
+    (path, InvertedIndex::new(db))
 }
 
 #[test]

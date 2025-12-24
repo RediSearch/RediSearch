@@ -5,11 +5,11 @@ mod c_mocks;
 
 use document::DocumentType;
 use redisearch_disk::{
+    database::SpeedbMultithreadedDatabase,
     index_spec::{
         deleted_ids::DeletedIdsStore,
         doc_table::{DocTable, DocumentMetadata},
     },
-    search_disk::SpeedbMultithreadedDatabase,
 };
 use rqe_iterators::{RQEIterator, SkipToOutcome};
 use tempfile::TempDir;
@@ -20,15 +20,9 @@ fn get_temp_doc_table() -> DocTable {
     opts.create_if_missing(true);
     opts.create_missing_column_families(true);
 
-    let db = SpeedbMultithreadedDatabase::open_cf(&opts, path, ["test_doc_table"]).unwrap();
+    let db = SpeedbMultithreadedDatabase::open_cf(&opts, path, ["doc_table"]).unwrap();
 
-    DocTable::new(
-        DocumentType::Hash,
-        db,
-        "test_doc_table".to_string(),
-        DeletedIdsStore::default(),
-    )
-    .unwrap()
+    DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap()
 }
 
 #[test]
@@ -266,14 +260,8 @@ fn last_document_id_recovery() {
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
 
-        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["test_doc_table"]).unwrap();
-        let doc_table = DocTable::new(
-            DocumentType::Hash,
-            db,
-            "test_doc_table".to_string(),
-            DeletedIdsStore::default(),
-        )
-        .unwrap();
+        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table"]).unwrap();
+        let doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap();
 
         // Insert a few documents
         let doc_id1 = doc_table.insert_document(b"doc1", 1.0, 0, 1).unwrap();
@@ -294,14 +282,8 @@ fn last_document_id_recovery() {
         opts.create_if_missing(false);
         opts.create_missing_column_families(false);
 
-        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["test_doc_table"]).unwrap();
-        let doc_table = DocTable::new(
-            DocumentType::Hash,
-            db,
-            "test_doc_table".to_string(),
-            DeletedIdsStore::default(),
-        )
-        .unwrap();
+        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table"]).unwrap();
+        let doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap();
 
         // Verify existing documents are still there
         assert_eq!(
@@ -350,14 +332,8 @@ fn last_document_id_recovery_with_deletions() {
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
 
-        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["test_doc_table"]).unwrap();
-        let doc_table = DocTable::new(
-            DocumentType::Hash,
-            db,
-            "test_doc_table".to_string(),
-            DeletedIdsStore::default(),
-        )
-        .unwrap();
+        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table"]).unwrap();
+        let doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap();
 
         // Insert documents
         let doc_id1 = doc_table.insert_document(b"doc1", 1.0, 0, 1).unwrap();
@@ -386,14 +362,8 @@ fn last_document_id_recovery_with_deletions() {
         opts.create_if_missing(false);
         opts.create_missing_column_families(false);
 
-        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["test_doc_table"]).unwrap();
-        let doc_table = DocTable::new(
-            DocumentType::Hash,
-            db,
-            "test_doc_table".to_string(),
-            DeletedIdsStore::default(),
-        )
-        .unwrap();
+        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table"]).unwrap();
+        let doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap();
 
         // Insert a new document - it should get ID 5 (highest remaining doc ID was 4, so next is 5)
         let new_doc_id = doc_table.insert_document(b"doc6", 6.0, 0, 6).unwrap();
@@ -440,13 +410,8 @@ fn last_document_id_recovery_empty_table() {
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
 
-        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["test_doc_table"]).unwrap();
-        let _doc_table = DocTable::new(
-            DocumentType::Hash,
-            db,
-            "test_doc_table".to_string(),
-            DeletedIdsStore::default(),
-        );
+        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table"]).unwrap();
+        let _doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default());
 
         // Don't insert any documents
         // doc_table and db are dropped here
@@ -458,14 +423,8 @@ fn last_document_id_recovery_empty_table() {
         opts.create_if_missing(false);
         opts.create_missing_column_families(false);
 
-        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["test_doc_table"]).unwrap();
-        let doc_table = DocTable::new(
-            DocumentType::Hash,
-            db,
-            "test_doc_table".to_string(),
-            DeletedIdsStore::default(),
-        )
-        .unwrap();
+        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table"]).unwrap();
+        let doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap();
 
         // Insert first document - should get ID 1
         let doc_id1 = doc_table.insert_document(b"doc1", 1.0, 0, 1).unwrap();

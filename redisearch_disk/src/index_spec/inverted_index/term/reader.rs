@@ -6,7 +6,7 @@ use tracing::error;
 
 use crate::{
     document_id_key::DocumentIdKey,
-    search_disk::{AsKeyExt, FromKeyExt},
+    key_traits::{AsKeyExt, FromKeyExt},
 };
 
 use super::{super::InvertedIndexKey, block};

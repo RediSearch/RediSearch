@@ -3,7 +3,7 @@ use std::{fmt::Display, str::FromStr};
 use ffi::t_docId;
 use thiserror::Error;
 
-use crate::search_disk::{AsKeyExt, FromKeyExt, KeyExt};
+use crate::key_traits::{AsKeyExt, FromKeyExt, KeyExt};
 
 /// This newtype is used to represent a document ID as a key of a Speedb column entry
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]

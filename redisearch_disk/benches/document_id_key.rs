@@ -1,6 +1,6 @@
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use redisearch_disk::document_id_key::DocumentIdKey;
-use redisearch_disk::search_disk::{AsKeyExt, FromKeyExt};
+use redisearch_disk::key_traits::{AsKeyExt, FromKeyExt};
 
 fn get_test_cases() -> Vec<(&'static str, u64)> {
     vec![

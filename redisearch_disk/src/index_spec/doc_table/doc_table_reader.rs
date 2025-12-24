@@ -4,7 +4,7 @@ use speedb::{DBIteratorWithThreadMode, IteratorMode};
 use thiserror::Error;
 
 use crate::document_id_key::DocumentIdKeyFromKeyError;
-use crate::search_disk::{AsKeyExt, FromKeyExt};
+use crate::key_traits::{AsKeyExt, FromKeyExt};
 
 /// Lazy reader to get the document IDs from the document table
 pub struct DocTableReader<'iterator, DBAccess: speedb::DBAccess> {
