@@ -17,6 +17,7 @@ pub mod map;
 pub mod placeholders;
 pub mod sds;
 pub mod string;
+pub mod util;
 pub mod value_type;
 
 // TODO: This should export the size of const expr below instead
