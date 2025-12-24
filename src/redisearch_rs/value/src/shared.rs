@@ -11,6 +11,7 @@ use std::{mem::ManuallyDrop, sync::Arc};
 
 use crate::RsValue;
 
+/// A shared RedisSearch dynamic value, backed by an `Arc<RsValue>`.
 pub struct SharedRsValue {
     ptr: *const RsValue,
 }
