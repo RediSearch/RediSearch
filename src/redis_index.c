@@ -150,28 +150,18 @@ void SearchCtx_Free(RedisSearchCtx *sctx) {
 }
 
 static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, CharBuf *termKey,
-                                        int write, bool *outIsNew) {
-  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, termKey);
-  if (kdv) {
-    if (outIsNew) {
-      *outIsNew = false;
-    }
-    return kdv->p;
-  }
-  if (!write) {
-    return NULL;
-  }
-
+                                        bool write, bool *outIsNew) {
+  InvertedIndex *idx = dictFetchValue(ctx->spec->keysDict, termKey);
   if (outIsNew) {
-    *outIsNew = true;
+    *outIsNew = idx == NULL;
   }
-  kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->dtor = (void (*)(void *))InvertedIndex_Free;
-  size_t index_size;
-  kdv->p = NewInvertedIndex(ctx->spec->flags, &index_size);
-  ctx->spec->stats.invertedSize += index_size;
-  dictAdd(ctx->spec->keysDict, termKey, kdv);
-  return kdv->p;
+  if (write && !idx) {
+    size_t index_size;
+    idx = NewInvertedIndex(ctx->spec->flags, &index_size);
+    ctx->spec->stats.invertedSize += index_size;
+    dictAdd(ctx->spec->keysDict, termKey, idx);
+  }
+  return idx;
 }
 
 InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len, int write, bool *outIsNew) {

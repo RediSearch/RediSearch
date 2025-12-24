@@ -2160,14 +2160,6 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   return fs;
 }
 
-static void valFreeCb(void *unused, void *p) {
-  KeysDictValue *kdv = p;
-  if (kdv->dtor) {
-    kdv->dtor(kdv->p);
-  }
-  rm_free(kdv);
-}
-
 static void valIIFreeCb(void *unused, void *p) {
   InvertedIndex *ii = p;
   if(ii) {
@@ -2204,10 +2196,15 @@ void CharBuf_KeyDestructor(void *privdata, void *key) {
   rm_free(cb);
 }
 
+void valFreeCb(void *privdata, void *val) {
+  InvertedIndex *idx = val;
+  InvertedIndex_Free(idx);
+}
+
 static dictType invIdxDictType = {
   .hashFunction = CharBuf_HashFunction,
   .keyDup = CharBuf_KeyDup,
-  .valDup = NULL,
+  .valDup = NULL, // Taking and owning the InvertedIndex pointer
   .keyCompare = CharBuf_KeyCompare,
   .keyDestructor = CharBuf_KeyDestructor,
   .valDestructor = valFreeCb,
