@@ -454,7 +454,7 @@ static QueryIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, Numeri
   }
 
   if (fs) {
-      rt = openNumericKeysDict(sctx->spec, (FieldSpec *)fs, DONT_CREATE_INDEX);
+      rt = openNumericOrGeoIndex(sctx->spec, (FieldSpec *)fs, DONT_CREATE_INDEX);
       RS_ASSERT(rt);
   }
 
@@ -504,7 +504,8 @@ QueryIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTre
   return NewUnionIterator(its, n, true, 1.0, type, NULL, config);
 }
 
-NumericRangeTree *openNumericKeysDict(IndexSpec* spec, FieldSpec* fs, bool create_if_missing) {
+NumericRangeTree *openNumericOrGeoIndex(IndexSpec* spec, FieldSpec* fs, bool create_if_missing) {
+  RS_ASSERT(FIELD_IS(fs, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO));
   if (!fs->tree && create_if_missing) {
     fs->tree = NewNumericRangeTree();
     spec->stats.invertedSize += fs->tree->root->range->invertedIndexSize;
@@ -517,7 +518,7 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const Numeric
                                         const FieldFilterContext* filterCtx) {
   const FieldSpec *fs = flt->fieldSpec;
 
-  NumericRangeTree *t = openNumericKeysDict(ctx->spec, (FieldSpec *)fs, DONT_CREATE_INDEX);
+  NumericRangeTree *t = openNumericOrGeoIndex(ctx->spec, (FieldSpec *)fs, DONT_CREATE_INDEX);
   if (!t) {
     return NULL;
   }

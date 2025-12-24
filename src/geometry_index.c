@@ -20,6 +20,7 @@ void GeometryQuery_Free(GeometryQuery *geomq) {
 }
 
 GeometryIndex *OpenGeometryIndex(FieldSpec *fs, bool create_if_missing) {
+  RS_ASSERT(FIELD_IS(fs, INDEXFLD_T_GEOMETRY));
   if (create_if_missing && !fs->geometryOpts.geometryIndex) {
     fs->geometryOpts.geometryIndex = GeometryIndexFactory(fs->geometryOpts.geometryCoords);
   }

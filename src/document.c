@@ -580,7 +580,7 @@ FIELD_BULK_INDEXER(geometryIndexer) {
 
 FIELD_BULK_INDEXER(numericIndexer) {
 
-  NumericRangeTree *rt = openNumericKeysDict(ctx->spec, &ctx->spec->fields[fs->index], CREATE_INDEX);
+  NumericRangeTree *rt = openNumericOrGeoIndex(ctx->spec, &ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open numeric index for indexing");
     return -1;
