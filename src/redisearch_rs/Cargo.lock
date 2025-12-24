@@ -1534,6 +1534,7 @@ dependencies = [
  "slots_tracker_ffi",
  "triemap_ffi",
  "types_ffi",
+ "value_ffi",
  "varint_ffi",
  "workspace_hack",
 ]

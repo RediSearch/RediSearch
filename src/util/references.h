@@ -8,6 +8,9 @@
 */
 #pragma once
 
+#ifndef SRC_REFERENCES_H_
+#define SRC_REFERENCES_H_
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -93,4 +96,5 @@ static inline int StrongRef_Equals(StrongRef s_ref, StrongRef other) {
 
 #ifdef __cplusplus
 }
+#endif
 #endif
