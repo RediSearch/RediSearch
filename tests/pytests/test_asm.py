@@ -801,17 +801,30 @@ def _test_ft_cursors_trimmed(env: Env, protocol: int):
       env.assertNotEqual(results_set, expected_set)
       env.assertGreater(len(expected_set), len(results_set))
 
-      shard_num_warnings = 0
-      coord_num_warnings = 0
-      for shard in env.getOSSMasterNodesConnectionList():
+      shard_total_num_warnings = 0
+      coord_total_num_warnings = 0
+      for shard_id, shard in enumerate(env.getOSSMasterNodesConnectionList(), 1):
+        shard_num_warnings = 0
+        coord_num_warnings = 0
         info_dict = info_modules_to_dict(shard)
         if 'search_warnings_and_errors' in info_dict and 'search_shard_total_query_warnings_asm_inaccurate_results' in info_dict['search_warnings_and_errors']:
-            shard_num_warnings += int(info_dict['search_warnings_and_errors']['search_shard_total_query_warnings_asm_inaccurate_results'])
+            shard_num_warnings = int(info_dict['search_warnings_and_errors']['search_shard_total_query_warnings_asm_inaccurate_results'])
         if 'search_coordinator_warnings_and_errors' in info_dict and 'search_coord_total_query_warnings_asm_inaccurate_results' in info_dict['search_coordinator_warnings_and_errors']:
-            coord_num_warnings += int(info_dict['search_coordinator_warnings_and_errors']['search_coord_total_query_warnings_asm_inaccurate_results'])
-      env.assertGreater(shard_num_warnings + coord_num_warnings, 0)
-      if protocol == 3:
-        env.assertEqual(num_warnings, coord_num_warnings)
+            coord_num_warnings = int(info_dict['search_coordinator_warnings_and_errors']['search_coord_total_query_warnings_asm_inaccurate_results'])
+        if shard_id == 1:
+            env.assertEqual(shard_num_warnings, 0)
+            env.assertGreater(coord_num_warnings, 0)
+            if protocol == 3:
+              # ShardID 1 is the coordinator so it gets the warnings as nonInternal and are the ones seen in the replies
+              env.assertEqual(num_warnings, coord_num_warnings)
+        elif (shard_id == 2):
+            # ShardID 2 is the one where trimming happens (source shard), so it puts its warnings in the shard
+            env.assertGreater(shard_num_warnings, 0)
+            env.assertEqual(coord_num_warnings, 0)
+        else:
+            # Other shards don't have any warnings
+            env.assertEqual(shard_num_warnings, 0)
+            env.assertEqual(coord_num_warnings, 0)
 
 @skip(cluster=False, min_shards=2)
 def test_ft_cursors_trimmed_protocol_2():
