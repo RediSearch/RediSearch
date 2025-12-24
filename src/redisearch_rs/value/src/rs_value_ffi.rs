@@ -176,8 +176,7 @@ impl RSValueTrait for RSValueFFI {
     }
 
     fn mem_size() -> usize {
-        // Safety: Simply reading out a constant
-        unsafe { ffi::RSValueSize }
+        ffi::RSValueSize as usize
     }
 
     fn refcount(&self) -> usize {
