@@ -41,6 +41,15 @@ def test_v1_vs_v2(env):
     env.expect('FT.EXPLAIN', 'idx', '@title:(@num:[0 10])', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 10.000000}\n')
     env.expect('FT.EXPLAIN', 'idx', '@title:(@num:[0 10])', 'DIALECT', 2).error().contains('Syntax error')
 
+    # Test numeric range on non-existent field (covers QueryParam_Free cleanup path in v1 parser)
+    env.expect('FT.EXPLAIN', 'idx', '@nonexistent:[0 10]', 'DIALECT', 1).contains('<empty>')
+
+    # Test TAG query on non-existent field (covers QueryNode_Free cleanup path in v1 parser)
+    env.expect('FT.EXPLAIN', 'idx', '@nonexistent:{value}', 'DIALECT', 1).contains('<empty>')
+
+    # Test GEO query on non-existent field (covers QueryNode_Free cleanup path in v1 parser)
+    env.expect('FT.EXPLAIN', 'idx', '@nonexistent:[1.0 2.0 3.0 km]', 'DIALECT', 1).contains('<empty>')
+
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 0.1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 0.1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
 

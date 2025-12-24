@@ -527,10 +527,8 @@ fi
 echo "Running tests in parallel using $parallel Python processes"
 
 if [[ $REDIS_STANDALONE == 1 ]]; then
-	if [[ $QUICK != "~1" ]]; then
-		{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" \
-			run_tests "RediSearch tests"); (( E |= $? )); } || true
-	fi
+	{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" \
+		run_tests "RediSearch tests"); (( E |= $? )); } || true
 
 elif [[ $REDIS_STANDALONE == 0 ]]; then
 	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
@@ -539,13 +537,13 @@ elif [[ $REDIS_STANDALONE == 0 ]]; then
 	# passing PINGs between shards
   	oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 300000"
 
-	{ (MODARGS="${MODARGS}" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
+	{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
 	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
 fi
 
 if [[ $RLEC == 1 ]]; then
 	dhost=$(echo "$DOCKER_HOST" | awk -F[/:] '{print $4}')
-	{ (RLTEST_ARGS+="${RLTEST_ARGS} --env existing-env --existing-env-addr $dhost:$RLEC_PORT" \
+	{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" RLTEST_ARGS+="${RLTEST_ARGS} --env existing-env --existing-env-addr $dhost:$RLEC_PORT" \
 	   run_tests "tests on RLEC"); (( E |= $? )); } || true
 fi
 
