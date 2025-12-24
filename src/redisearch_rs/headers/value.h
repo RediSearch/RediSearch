@@ -10,6 +10,8 @@
 #include "redismodule.h"
 #include "query_error.h"
 
+#define RSValueSize 16
+
 /**
  * Enumeration of the types an [`RsValue`] can be of.
  *
