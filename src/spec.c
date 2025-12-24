@@ -2160,13 +2160,6 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   return fs;
 }
 
-static void valIIFreeCb(void *unused, void *p) {
-  InvertedIndex *ii = p;
-  if(ii) {
-    InvertedIndex_Free(ii);
-  }
-}
-
 uint64_t CharBuf_HashFunction(const void *key) {
   const CharBuf *cb = key;
   return RS_dictGenHashFunction(cb->buf, cb->len);
@@ -2196,7 +2189,7 @@ void CharBuf_KeyDestructor(void *privdata, void *key) {
   rm_free(cb);
 }
 
-void valFreeCb(void *privdata, void *val) {
+void InvIndFreeCb(void *privdata, void *val) {
   InvertedIndex *idx = val;
   InvertedIndex_Free(idx);
 }
@@ -2207,7 +2200,7 @@ static dictType invIdxDictType = {
   .valDup = NULL, // Taking and owning the InvertedIndex pointer
   .keyCompare = CharBuf_KeyCompare,
   .keyDestructor = CharBuf_KeyDestructor,
-  .valDestructor = valFreeCb,
+  .valDestructor = InvIndFreeCb,
 };
 
 static dictType missingFieldDictType = {
@@ -2216,7 +2209,7 @@ static dictType missingFieldDictType = {
         .valDup = NULL,
         .keyCompare = hiddenNameKeyCompare,
         .keyDestructor = hiddenNameKeyDestructor,
-        .valDestructor = valIIFreeCb,
+        .valDestructor = InvIndFreeCb,
 };
 
 // Only used on new specs so it's thread safe
