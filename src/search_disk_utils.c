@@ -14,7 +14,7 @@ bool SearchDisk_CheckLimitNumberOfIndexes(size_t nIndexes) {
   if (!SearchDisk_IsEnabledForValidation()) {
     return true;
   }
-  return nIndexes < FLEX_MAX_INDEX_COUNT;
+  return nIndexes <= FLEX_MAX_INDEX_COUNT;
 }
 
 bool SearchDisk_CheckFieldSupport(const char *fieldTypeStr, const FieldSpec *fs, QueryError *status) {
