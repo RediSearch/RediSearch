@@ -58,6 +58,7 @@ fn main() {
         root.join("deps")
             .join("RedisModulesSDK")
             .join("redismodule.h"),
+        root.join("deps").join("hiredis").join("sds.h"),
         src.join("buffer/buffer.h"),
         src.join("config.h"),
         src.join("doc_table.h"),
