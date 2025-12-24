@@ -1583,14 +1583,12 @@ def test_warnings_metric_count_oom_cluster_in_shards_resp3():
   env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], '1')
 
   # Test warning in FT.AGGREGATE
-  # FT.AGGREGATE doesn't return warning in cluster for empty results
   res = env.cmd('FT.AGGREGATE', 'idx', 'hello world')
-  # TODO - Check warning in FT.AGGREGATE when empty results are handled correctly
-  # The following asserts should fail when empty results are handled correctly
-  env.assertEqual(res['warning'], [])
+  env.assertGreaterEqual(len(res['warning']), 1)
+  env.assertEqual(res['warning'][0], 'Coordinator failed to execute the query due to insufficient memory')
   # Coord: +1
   info_coord = info_modules_to_dict(env)
-  env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], '1')
+  env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], '2')
 
 @skip(cluster=False)
 def test_warnings_metric_count_maxprefixexpansions_cluster_resp3():
