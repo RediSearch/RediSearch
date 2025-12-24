@@ -22,6 +22,7 @@
 #include "vector_index.h"
 #include "hybrid/vector_query_utils.h"
 #include "slot_ranges.h"
+#include "profile.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -279,15 +280,8 @@ typedef struct AREQ {
   // The offset of the prefixes in the command
   size_t prefixesOffset;
 
-  // Indicates whether the query has timed out.
-  // Useful for query with cursor and RETURN policy
-  bool has_timedout;
 
-  // Number of cursor reads: 1 for the initial FT.AGGREGATE WITHCURSOR,
-  // plus 1 for each subsequent FT.CURSOR READ call.
-  size_t cursor_reads;
-
-  // warnings
+  ProfilePrinterCtx profileCtx;
 } AREQ;
 
 /**
@@ -380,6 +374,10 @@ static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
 
 static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
   return &req->pipeline.qctx;
+}
+
+static inline ProfilePrinterCtx *AREQ_ProfilePrinterCtx(AREQ *req) {
+  return &req->profileCtx;
 }
 
 static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {

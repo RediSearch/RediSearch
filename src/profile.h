@@ -9,7 +9,6 @@
 #pragma once
 
 #include "value.h"
-#include "aggregate/aggregate.h"
 #include "util/timeout.h"
 #include "iterators/profile_iterator.h"
 
@@ -53,12 +52,24 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx);
 
 void Profile_PrepareMapForReply(RedisModule_Reply *reply);
 
+// A bitset of warnings
+typedef uint8_t ProfileWarnings;
+
+typedef enum {
+  PROFILE_WARNING_TYPE_TIMEOUT = 1 << 0,
+  PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS = 1 << 1,
+  PROFILE_WARNING_TYPE_QUERY_OOM = 1 << 2,
+  PROFILE_WARNING_TYPE_BG_SCAN_OOM = 1 << 3,
+} ProfileWarningType;
+
+void ProfileWarnings_Add(ProfileWarnings *profileWarnings, ProfileWarningType code);
+bool ProfileWarnings_Has(const ProfileWarnings *profileWarnings, ProfileWarningType code);
+
 typedef struct {
-  AREQ *req;
-  bool timedout;
-  bool reachedMaxPrefixExpansions;
-  bool bgScanOOM;
-  bool queryOOM;
+  ProfileWarnings warnings;
+  // Number of cursor reads: 1 for the initial FT.AGGREGATE WITHCURSOR,
+  // plus 1 for each subsequent FT.CURSOR READ call.
+  size_t cursor_reads;
 } ProfilePrinterCtx; // Context for the profile printing callback
 
 void Profile_PrintDefault(RedisModule_Reply *reply, void *ctx);

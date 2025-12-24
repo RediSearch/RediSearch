@@ -259,8 +259,9 @@ void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
 void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // profileRP replace netRP as end PR
-  ProfilePrinterCtx *cCtx = ctx;
-  RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(cCtx->req)->rootProc;
+  AREQ *req = ctx;
+  ProfilePrinterCtx *cCtx = AREQ_ProfilePrinterCtx(req);
+  RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(req)->rootProc;
   // Calling getNextReply alone is insufficient here, as we might have already encountered EOF from the shards,
   // which caused the call to getNextReply from RPNet to set cond->wait to true.
   // We can't also set cond->wait to false because we might still be waiting for shards' replies containing profile information.
