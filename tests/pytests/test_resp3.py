@@ -123,11 +123,10 @@ def test_search_timeout():
     for i in range(num_range):
         conn.execute_command('HSET', f'doc{i}', 't', f'aa{i}', 'geo', f"{i/10000},{i/1000}")
 
-    # TODO: Add these tests again once MOD-5965 is merged
-    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range)). \
-    #   contains('Timeout limit was reached')
-    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range), 'timeout', 1).\
-    #   contains('Timeout limit was reached')
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range)). \
+      contains('SEARCH_TIMEOUT: Timeout limit was reached')
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range), 'timeout', 1).\
+      contains('SEARCH_TIMEOUT: Timeout limit was reached')
 
     # (coverage) Later failure than the above tests - in pipeline execution
     # phase. For this, we need more documents in the index, such that we will
@@ -381,7 +380,7 @@ def test_list():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
-    env.expect('FT._LIST').equal(['idx2', 'idx1'])
+    env.expect('FT._LIST').equal({'idx2', 'idx1'})
 
 @skip(redis_less_than="7.0.0")
 def test_info():

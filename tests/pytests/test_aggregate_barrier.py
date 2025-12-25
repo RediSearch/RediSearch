@@ -300,7 +300,7 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
     # Verify we got a timeout warning in the response
     if isinstance(result, dict):
         env.assertEqual(result.get('warning', []),
-                        ['Timeout limit was reached'])
+                        ['SEARCH_TIMEOUT: Timeout limit was reached'])
 
 
 @skip() # Flaky test
@@ -565,7 +565,7 @@ def _test_barrier_shard_timeout_with_fail_policy(protocol):
         env.assertTrue(False, message="Expected timeout error, got valid result")
     except Exception as e:
         # Timeout error is expected with FAIL policy
-        env.assertContains(str(e), 'Timeout limit was reached')
+        env.assertContains(str(e), 'SEARCH_TIMEOUT: Timeout limit was reached')
 
 
 @skip(cluster=False)

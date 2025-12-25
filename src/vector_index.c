@@ -658,7 +658,7 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
     }
   }
   const char *error_msg = QueryError_Strerror(RSErrorCode);
-  QueryError_SetWithUserDataFmt(status, RSErrorCode, "Error parsing vector similarity parameters", ": %s", error_msg);
+  QueryError_SetWithUserDataFmt(status, RSErrorCode, error_msg, " (Error parsing vector similarity parameters)");
   return vecSimCode;
 }
 

@@ -113,7 +113,7 @@ TEST_F(QueryErrorTest, testQueryErrorWithUserDataFmt) {
   QueryError_SetWithUserDataFmt(&err, QUERY_ERROR_CODE_SYNTAX, "Syntax error", " at offset %d near %s", 10, "hello");
   ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);
   ASSERT_TRUE(QueryError_HasError(&err));
-  ASSERT_STREQ(QueryError_GetUserError(&err), "Syntax error at offset 10 near hello");
+  ASSERT_STREQ(QueryError_GetUserError(&err), "SEARCH_SYNTAX_ERR: Syntax error at offset 10 near hello");
 
   QueryError_ClearError(&err);
 }

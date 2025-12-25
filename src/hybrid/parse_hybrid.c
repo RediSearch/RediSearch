@@ -272,10 +272,10 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
   ArgsCursor argCursor= {0};
   int res = AC_GetSlice(ac, &argCursor, count);
   if (res == AC_ERR_NOARG) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Not enough arguments", " in %s, specified %llu but provided only %u", "FILTER", count, AC_NumRemaining(ac));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, QueryError_Strerror(QUERY_ERROR_CODE_SYNTAX), " in %s, specified %llu but provided only %u", "FILTER", count, AC_NumRemaining(ac));
     return REDISMODULE_ERR;
   } else if (res != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Bad arguments", " in %s: %s", "FILTER", AC_Strerror(res));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, QueryError_Strerror(QUERY_ERROR_CODE_SYNTAX), " in %s: %s", "FILTER", AC_Strerror(res));
     return REDISMODULE_ERR;
   }
 

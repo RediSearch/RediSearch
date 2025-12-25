@@ -195,7 +195,7 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
   } else if (!strcasecmp(format, "STRING")) {
     *flags &= ~QEXEC_FORMAT_EXPAND;
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "FORMAT", " %s is not supported", format);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, QueryError_Strerror(QUERY_ERROR_CODE_PARSE_ARGS), ": FORMAT %s is not supported", format);
     return REDISMODULE_ERR;
   }
   *flags &= ~QEXEC_FORMAT_DEFAULT;
@@ -500,7 +500,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
         SORTASCMAP_SETDESC(ascMap, array_len(keys) - 1);
       } else {
         // Unknown token - neither a property nor ASC/DESC
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "MISSING ASC or DESC after sort field", " (%s)", s);
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, QueryError_Strerror(QUERY_ERROR_CODE_PARSE_ARGS), ": MISSING ASC or DESC after sort field (%s)", s);
         goto err;
       }
     }
@@ -1239,7 +1239,7 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Unknown field", " `%s`", fieldName);
     return REDISMODULE_ERR;
   } else if (!FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Expected a " SPEC_VECTOR_STR " field", " `%s`", fieldName);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, QueryError_Strerror(QUERY_ERROR_CODE_SYNTAX), ": Expected a " SPEC_VECTOR_STR " field `%s`", fieldName);
     return REDISMODULE_ERR;
   }
   vq->field = vectorField;

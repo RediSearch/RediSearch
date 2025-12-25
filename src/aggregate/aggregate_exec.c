@@ -1397,17 +1397,17 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // Verify that the 4'th argument is `COUNT`.
     const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
     if (strcasecmp(count_str, "count") != 0) {
-      return RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
+      return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_UNKNOWN_ARG: Unknown argument `%s`", count_str);
     }
 
     if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
-      return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
+      return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_VALUE_BAD: Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
     }
   }
 
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
   if (cursor == NULL) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
+    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_CURSOR_NOT_FOUND: Cursor not found, id: %d", cid);
   }
 
   // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
@@ -1440,7 +1440,7 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   // Return profile
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
   if (cursor == NULL) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
+    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_CURSOR_NOT_FOUND: Cursor not found, id: %d", cid);
   }
 
   AREQ *req = cursor->execState;

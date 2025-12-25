@@ -221,7 +221,7 @@ def testIndexDropWhileIdle(env: Env):
     # drop the index while the cursor is idle/running in bg
     env.expect('FT.DROPINDEX', 'idx').ok()
 
-    env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('no such index')
+    env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('SEARCH_INDEX_NOT_FOUND: Index not found')
 
 def testIndexDropWhileIdleBG():
     env = Env(moduleArgs='WORKERS 1')
@@ -523,7 +523,7 @@ def testCursorDepletionStrictTimeoutPolicy():
     # out during pipeline execution)
     env.expect(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t', 'GROUPBY', '1', '@t', 'WITHCURSOR', 'COUNT', str(num_docs), 'TIMEOUT', '1'
-    ).error().contains('Timeout limit was reached')
+    ).error().contains('SEARCH_TIMEOUT: Timeout limit was reached')
 
 @skip(cluster=True)
 def test_cursor_profile(env: Env):
