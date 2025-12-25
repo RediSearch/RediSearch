@@ -686,7 +686,7 @@ def test_profile_child_itrerators_array():
             },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
-          'Warning': 'None',
+          'Warning': ['None'],
           'Result processors profile': [
             {'Results processed': 2, 'Time': ANY, 'Type': 'Index'},
             {'Results processed': 2, 'Time': ANY, 'Type': 'Scorer'},
