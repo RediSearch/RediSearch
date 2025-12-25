@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #pragma once
 
 #include "search_disk_api.h"
@@ -128,9 +137,26 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId do
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
 
 /**
+ * @brief Check if the search disk module is enabled from configuration
+ *
+ * @param ctx Redis module context
+ * @return true if enabled, false otherwise
+ */
+bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx);
+
+/**
  * @brief Check if the search disk module is enabled
  *
  * @param ctx Redis module context
  * @return true if enabled, false otherwise
  */
-bool SearchDisk_IsEnabled(RedisModuleCtx *ctx);
+bool SearchDisk_IsEnabled();
+
+/**
+ * @brief Check if the search disk module is enabled for validation.
+ * This is different because it allows to override a configuration to
+ * test some validations done only with SearchDisk
+ *
+ * @return true if enabled, false otherwise
+ */
+bool SearchDisk_IsEnabledForValidation();
