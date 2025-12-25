@@ -41,7 +41,7 @@ def wait_for_info_metric(conn, metric_path, value, msg=None, ge = False):
     else:
       return metric == value, {"metric_path": metric_path, "expected": value, "actual": metric}
 
-  wait_for_condition(_check, msg if msg else f"Timeout waiting for metric {metric_path} with value {metric} to be {'>=' if ge else '=='} to {value}")
+  wait_for_condition(_check, msg if msg else f"Timeout waiting for metric {metric_path} with to be {'>=' if ge else '=='} to {value}")
 
 def get_search_field_info(type: str, count: int, index_errors: int = 0, **kwargs):
   # Base info
