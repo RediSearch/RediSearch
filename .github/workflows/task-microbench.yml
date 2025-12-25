@@ -8,7 +8,7 @@ jobs:
     uses: ./.github/workflows/benchmark-reusable.yml
     with:
       candidate-name: 'current'
-      baseline-name: 'rust'
+      baseline-name: 'main'
       fail-on-regression: true
       save-baseline: false
       comparison-title: 'Benchmark Comparison'

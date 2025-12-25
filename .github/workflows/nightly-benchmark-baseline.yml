@@ -21,9 +21,9 @@ jobs:
     needs: set-date
     uses: ./.github/workflows/benchmark-reusable.yml
     with:
-      checkout-ref: 'rust'
-      candidate-name: 'rust-nightly'
-      baseline-name: 'rust'
+      checkout-ref: 'main'
+      candidate-name: 'main-nightly'
+      baseline-name: 'main'
       fail-on-regression: false
       save-baseline: true
       comparison-title: 'Nightly Benchmark Comparison'
