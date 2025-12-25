@@ -1323,7 +1323,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
-      Cursor_Free(cursor);
+      Cursor_Free(cursor); // Free the cursor since it is no longer valid
       RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
       return;
     }
