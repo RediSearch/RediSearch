@@ -726,9 +726,15 @@ def test_multiple_warnings():
   shards_profile = get_shards_profile(env, res)
   env.assertEqual(len(shards_profile), env.shardsCount, message=f"unexpected shard count: {res}")
   for shard_profile in shards_profile:
-    # Both warnings should be present in the warnings array
     env.assertContains('Timeout limit was reached', shard_profile['Warning'])
-    env.assertContains('Max prefix expansions limit was reached', shard_profile['Warning'])
+    if env.isCluster():
+        # MOD-12984: In cluster mode, warnings are not persisted across cursor reads,
+        # so only the timeout warning is present.
+        # Once MOD-12984 is fixed, remove this branch and keep only the assertContains below.
+        env.assertEqual(len(shard_profile['Warning']), 1, message=f"full reply output: {res}")
+    else:
+        # In standalone mode, both warnings should be present
+        env.assertContains('Max prefix expansions limit was reached', shard_profile['Warning'])
 
 # This test is currently skipped due to flaky behavior of some of the machines'
 # timers. MOD-6436
