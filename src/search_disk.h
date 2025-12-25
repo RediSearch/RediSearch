@@ -127,3 +127,25 @@ bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
  * @return true if enabled, false otherwise
  */
 bool SearchDisk_IsEnabled(RedisModuleCtx *ctx);
+
+// Vector API wrappers
+
+/**
+ * @brief Create a disk-based vector index
+ *
+ * Creates an HNSW index that stores vectors on disk. The returned handle
+ * is a VecSimIndex* that can be used with all standard VecSimIndex_*
+ * functions (AddVector, TopKQuery, etc.) due to polymorphism.
+ *
+ * @param index Pointer to the index spec
+ * @param params Vector index parameters
+ * @return VecSimIndex* handle, or NULL on error
+ */
+void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSimDiskParams *params);
+
+/**
+ * @brief Free a disk-based vector index
+ *
+ * @param vecIndex The vector index handle returned by SearchDisk_CreateVectorIndex
+ */
+void SearchDisk_FreeVectorIndex(void *vecIndex);

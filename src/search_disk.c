@@ -89,3 +89,19 @@ bool SearchDisk_IsEnabled(RedisModuleCtx *ctx) {
   rm_free(isFlexStr);
   return isFlex;
 }
+
+// Vector API wrappers
+void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSimDiskParams *params) {
+    RS_ASSERT(disk && index && params);
+    if (!disk->vector.createVectorIndex) {
+        return NULL;  // Vector disk API not implemented
+    }
+    return disk->vector.createVectorIndex(index, params);
+}
+
+void SearchDisk_FreeVectorIndex(void *vecIndex) {
+    RS_ASSERT(disk);
+    if (vecIndex && disk->vector.freeVectorIndex) {
+        disk->vector.freeVectorIndex(vecIndex);
+    }
+}
