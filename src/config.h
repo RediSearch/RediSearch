@@ -198,6 +198,8 @@ typedef struct {
   uint32_t maxTrimDelayMS;
   // Delay between trimming state checks (in milliseconds)
   uint32_t trimmingStateCheckDelayMS;
+  // Simulate working under Flex conditions. This is used for testing only.
+  bool simulateInFlex;
 } RSConfig;
 
 typedef enum {
@@ -379,6 +381,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .minTrimDelayMS = DEFAULT_MIN_TRIM_DELAY,                                    \
     .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                    \
     .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,            \
+    .simulateInFlex = false,           \
   }
 
 #define REDIS_ARRAY_LIMIT 7

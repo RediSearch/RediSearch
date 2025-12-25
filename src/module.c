@@ -76,6 +76,7 @@
 #include "aggregate/reply_empty.h"
 #include "tracing_redismodule.h"
 #include "asm_state_machine.h"
+#include "search_disk_utils.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -517,9 +518,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  RedisModuleString *rstr = TagIndex_FormatName(sctx->spec, fs->fieldName);
-  TagIndex *idx = TagIndex_Open(sctx->spec, rstr, DONT_CREATE_INDEX);
-  RedisModule_FreeString(ctx, rstr);
+  TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
   if (!idx) {
     RedisModule_ReplyWithSet(ctx, 0);
     goto cleanup;
@@ -571,6 +570,13 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return RedisModule_ReplyWithError(ctx, "Cannot create index on db != 0");
   }
   QueryError status = QueryError_Default();
+
+  if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
+    QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_FLEX_LIMIT_NUMBER_OF_INDEXES, "Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+    QueryError_ClearError(&status);
+    return REDISMODULE_OK;
+  }
 
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
   if (sp == NULL) {
@@ -649,6 +655,10 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   CurrentThread_SetIndexSpec(global_ref);
+
+  if (sp->diskSpec) {
+    SearchDisk_MarkIndexForDeletion(sp->diskSpec);
+  }
 
   if((delDocs || sp->flags & Index_Temporary)) {
     // We take a strong reference to the index, so it will not be freed
@@ -1132,6 +1142,10 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "ERRBADVAL Invalid encoding version");
   }
 
+  if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
+    return RedisModule_ReplyWithErrorFormat(ctx, "ERRBADVAL Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
+  }
+
   int rc = IndexSpec_Deserialize(argv[3], encodeVersion);
 
   if (rc != REDISMODULE_OK) {
@@ -1207,7 +1221,7 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
     RedisModule_FreeCallReply(reply);
   }
 
-  isFlex = SearchDisk_IsEnabled(ctx);
+  isFlex = SearchDisk_CheckEnableConfiguration(ctx);
 }
 
 void GetFormattedRedisVersion(char *buf, size_t len) {
@@ -1540,7 +1554,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
-  if (isFlex) {
+  if (SearchDisk_IsEnabled()) {
     bool disk_initialized = SearchDisk_Initialize(ctx);
     if (!disk_initialized) {
       RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
@@ -1653,7 +1667,7 @@ void RediSearch_CleanupModule(void) {
   invoked = 1;
 
   // First free all indexes
-  Indexes_Free(specDict_g);
+  Indexes_Free(specDict_g, false);
   dictRelease(specDict_g);
   specDict_g = NULL;
 

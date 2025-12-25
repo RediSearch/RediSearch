@@ -58,12 +58,14 @@ typedef struct {
   size_t arguments; // Number of parse arguments errors
   size_t timeout; // Number of timeout errors
   size_t oom; // Number of OOM errors
+  size_t unavailableSlots; // Number of ASM inaccuracy errors
 } QueryErrorsGlobalStats;
 
 typedef struct {
   size_t timeout;
   size_t oom;
   size_t maxPrefixExpansion;
+  size_t asm_inaccuracy;
 } QueryWarningGlobalStats;
 
 typedef struct {

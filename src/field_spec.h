@@ -16,6 +16,9 @@
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
 
+struct TagIndex;
+struct NumericRangeTree;
+
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \
   inline T operator|=(T a, int b) { \
@@ -108,19 +111,24 @@ typedef struct FieldSpec {
       // Flags for tag options
       TagFieldFlags tagFlags : 16;
       char tagSep;
+      struct TagIndex *tagIndex;
     } tagOpts;
     struct {
       // Vector similarity index parameters.
       VecSimParams vecSimParams;
       // expected size of vector blob.
       size_t expBlobSize;
+      VecSimIndex *vecSimIndex;
     } vectorOpts;
     struct {
       // Geometry index parameters
       GEOMETRY_COORDS geometryCoords;
+      GeometryIndex *geometryIndex;
     } geometryOpts;
   };
 
+  // TODO: Move into union above when we stop supporting multi-type fields
+  struct NumericRangeTree *tree;
   // weight in frequency calculations
   double ftWeight;
   // ID used to identify the field within the field mask

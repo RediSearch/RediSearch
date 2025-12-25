@@ -1021,6 +1021,8 @@ AREQ *AREQ_New(void) {
   req->profile = Profile_PrintDefault;
   req->prefixesOffset = 0;
   req->has_timedout = false;
+  req->cursor_reads = 0;
+  req->stateflags = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
   return req;

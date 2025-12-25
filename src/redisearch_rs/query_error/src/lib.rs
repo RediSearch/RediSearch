@@ -72,6 +72,7 @@ pub enum QueryErrorCode {
     VectorNotAllowed,
     OutOfMemory,
     UnavailableSlots,
+    FlexLimitNumberOfIndexes,
 }
 
 impl Debug for QueryErrorCode {
@@ -151,6 +152,7 @@ impl QueryErrorCode {
             Self::VectorNotAllowed => c"Vector queries are not allowed",
             Self::OutOfMemory => c"Not enough memory available to execute the query",
             Self::UnavailableSlots => c"Query requires unavailable slots",
+            Self::FlexLimitNumberOfIndexes => c"Flex index limit was reached",
         }
     }
 }
@@ -238,6 +240,8 @@ pub enum QueryWarningCode {
     ReachedMaxPrefixExpansions,
     OutOfMemoryShard,
     OutOfMemoryCoord,
+    UnavailableSlots,
+    AsmInaccurateResults,
 }
 
 impl QueryWarningCode {
@@ -254,6 +258,10 @@ impl QueryWarningCode {
             }
             Self::OutOfMemoryCoord => {
                 c"One or more shards failed to execute the query due to insufficient memory"
+            }
+            Self::UnavailableSlots => c"Query requires unavailable slots",
+            Self::AsmInaccurateResults => {
+                c"Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete due to Atomic Slot Migration."
             }
         }
     }

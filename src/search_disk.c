@@ -1,5 +1,15 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "search_disk.h"
 #include "config.h"
+
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
@@ -44,6 +54,11 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, size_t ind
     return disk->basic.openIndexSpec(disk_db, indexName, indexNameLen, type);
 }
 
+void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
+    RS_ASSERT(disk_db);
+    disk->index.markToBeDeleted(index);
+}
+
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
     RS_ASSERT(index);
     disk->basic.closeIndexSpec(index);
@@ -80,12 +95,20 @@ bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
     return disk->docTable.isDocIdDeleted(handle, docId);
 }
 
-bool SearchDisk_IsEnabled(RedisModuleCtx *ctx) {
-  bool isFlex = false;
-  char *isFlexStr = getRedisConfigValue(ctx, "bigredis-enabled");
-  if (isFlexStr && !strcasecmp(isFlexStr, "yes")) {
-    isFlex = true;
+bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx) {
+  bool isFlexConfigured = false;
+  char *isFlexEnabledStr = getRedisConfigValue(ctx, "bigredis-enabled");
+  if (isFlexEnabledStr && !strcasecmp(isFlexEnabledStr, "yes")) {
+    isFlexConfigured = true;
   } // Default is false, so nothing to change in that case.
-  rm_free(isFlexStr);
+  rm_free(isFlexEnabledStr);
+  return isFlexConfigured;
+}
+
+bool SearchDisk_IsEnabled() {
   return isFlex;
+}
+
+bool SearchDisk_IsEnabledForValidation() {
+  return isFlex || RSGlobalConfig.simulateInFlex;
 }
