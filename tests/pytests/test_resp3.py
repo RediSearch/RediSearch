@@ -209,7 +209,7 @@ def test_coord_profile():
       },
       'Profile': {
         'Shards': env.shardsCount * [
-                      {'Shard ID': ANY, 'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
+                      {'Shard ID': ANY, 'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': ['None'],
                         'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
                         'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Scorer', 'Time': ANY, 'Results processed': ANY},
@@ -240,7 +240,7 @@ def test_coord_profile():
           'Total profile time': ANY,
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
-          'Warning': 'None',
+          'Warning': ['None'],
           'Result processors profile': [{'Type': 'Network', 'Time': ANY, 'Results processed': 2}]
         }
       }
@@ -250,7 +250,7 @@ def test_coord_profile():
       'Total profile time': ANY,
       'Parsing time': ANY,
       'Pipeline creation time': ANY,
-      'Warning': 'None',
+      'Warning': ['None'],
       'Internal cursor reads': ANY,
       'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
       'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},]
@@ -1572,7 +1572,7 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['Results']['warning'], ['Max prefix expansions limit was reached'])
   n_warnings = 0
   for i, shard in enumerate(res['Profile']['Shards']):
-      if shard['Warning']== 'Max prefix expansions limit was reached':
+      if 'Max prefix expansions limit was reached' in shard['Warning']:
          n_warnings += 1
   env.assertEqual(n_warnings, 1)
 
@@ -1582,9 +1582,34 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['Results']['warning'], ['Max prefix expansions limit was reached'])
   n_warnings = 0
   for i, shard in enumerate(res['Profile']['Shards']):
-    if shard['Warning']== 'Max prefix expansions limit was reached':
+    if 'Max prefix expansions limit was reached' in shard['Warning']:
          n_warnings += 1
   env.assertEqual(n_warnings, 1)
+
+def test_multiple_warnings():
+  """
+  Tests that a query can return multiple warnings when more than one warning
+  condition is triggered during execution.
+  Triggers both timeout and max prefix expansions warnings, and verifies
+  that both are present in the response.
+  """
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+  conn = getConnectionByEnv(env)
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  for i in range(20):
+    conn.execute_command('HSET', f'doc{i}', 't', f'prefix{i}')
+  # Set very low max prefix expansions to trigger the warning
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '3')
+
+  # Query with wildcard that exceeds the limit and force timeout
+  query = ['FT.AGGREGATE', 'idx', 'prefix*']
+  timeout_after_n = 1
+  res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after_n, internal_only=True)
+
+  # Both warnings should be present in the response
+  env.assertContains('Timeout limit was reached', res['warning'])
+  env.assertContains('Max prefix expansions limit was reached', res['warning'])
 
 # TODO: `total_results` is currently not  on cluster - to be fixed in MOD-9094
 @skip(cluster=True)

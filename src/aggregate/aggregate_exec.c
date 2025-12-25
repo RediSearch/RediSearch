@@ -641,7 +641,6 @@ done_3:
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
-    // req->has_timedout |= has_timedout;
 
     if (IsProfile(req)) {
       if (has_timedout) {

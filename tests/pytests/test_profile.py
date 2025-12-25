@@ -562,10 +562,10 @@ def TimedOutWarningtestCoord(env):
   # Test that a timeout warning is returned for all shards
   if env.protocol == 2:
     for shard_profile in res[1][1]:
-      env.assertEqual(to_dict(shard_profile)['Warning'], 'Timeout limit was reached')
+      env.assertEqual(to_dict(shard_profile)['Warning'], ['Timeout limit was reached'])
   else:
     for shard_profile in res['Profile']['Shards']:
-      env.assertEquals(shard_profile['Warning'], 'Timeout limit was reached')
+      env.assertEquals(shard_profile['Warning'], ['Timeout limit was reached'])
 
   res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT', '1')
   coord_profile = None
@@ -577,7 +577,7 @@ def TimedOutWarningtestCoord(env):
     coord_profile = res['Profile']['Coordinator']
     shards_profile = res['Profile']['Shards']
 
-  env.assertEqual(coord_profile['Warning'], 'Timeout limit was reached')
+  env.assertEqual(coord_profile['Warning'], ['Timeout limit was reached'])
   env.assertEqual(len(shards_profile), env.shardsCount)
 
 @skip(asan=True, msan=True, cluster=False)
@@ -655,7 +655,7 @@ def testInternalCursorReadsWithTimeoutResp3():
     env.assertContains('Internal cursor reads', shard_profile, message=f"full reply output: {res}")
     # Coordinator stops after first timeout, so only 1 cursor read per shard
     env.assertEqual(shard_profile['Internal cursor reads'], 1, message=f"full reply output: {res}")
-    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached', message=f"full reply output: {res}")
+    env.assertEqual(shard_profile['Warning'], ['Timeout limit was reached'], message=f"full reply output: {res}")
 
 @skip(cluster=False)
 def testInternalCursorReadsWithTimeoutResp2():
@@ -695,11 +695,72 @@ def testInternalCursorReadsWithTimeoutResp2():
   # Verify each shard has warning
   for shard_profile in shards_profile:
     env.assertContains('Internal cursor reads', shard_profile, message=f"full reply output: {res}")
-    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached', message=f"full reply output: {res}")
+    env.assertEqual(shard_profile['Warning'], ['Timeout limit was reached'], message=f"full reply output: {res}")
 
   # Coordinator should NOT have timeout warning (it doesn't detect it in RESP2)
   coord_profile = to_dict(res[-1][-1])
-  env.assertEqual(coord_profile['Warning'], 'None', message=f"full reply output: {res}")
+  env.assertEqual(coord_profile['Warning'], ['None'], message=f"full reply output: {res}")
+
+# @skip(cluster=False)
+def test_multiple_warnings():
+  """
+  Tests that profile can return multiple warnings when more than one warning
+  condition is triggered during query execution.
+  Triggers both timeout and max prefix expansions warnings, and verifies
+  that both are present in the final profile response.
+  """
+  env = Env(protocol=3)
+  conn = getConnectionByEnv(env)
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  for i in range(20):
+    conn.execute_command('HSET', f'doc{i}', 't', f'prefix{i}')
+  # Set very low max prefix expansions to trigger the warning
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '3')
+
+  # Query with wildcard that exceeds the limit and force timeout
+  query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'prefix*']
+  timeout_after_n = 1
+  res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after_n, internal_only=True)
+
+  shards_profile = get_shards_profile(env, res)
+  env.assertEqual(len(shards_profile), env.shardsCount, message=f"unexpected shard count: {res}")
+  for shard_profile in shards_profile:
+    # Both warnings should be present in the warnings array
+    env.assertContains('Timeout limit was reached', shard_profile['Warning'])
+    env.assertContains('Max prefix expansions limit was reached', shard_profile['Warning'])
+
+@skip(cluster=True)
+def testPersistProfileWarning_MaxPrefixExpansions():
+  """Warning triggered on cursor read (not initial) should appear in profile."""
+  env = Env(protocol=3)
+  conn = getConnectionByEnv(env)
+
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  for i in range(100):
+    conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+
+  # First read should contain max prefix expansions warning
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '3')
+  env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
+  res, cursor_id = env.cmd('_FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hell*', '_SLOTS_INFO', generate_slots(), 'WITHCURSOR', 'COUNT', '1')
+  env.assertContains('Max prefix expansions limit was reached', res['Results']['warning'])
+
+  # run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '10')
+  res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id)
+  print(res)
+  print(cursor_id)
+  # This should not contain the warning
+  env.assertNotContains('Max prefix expansions limit was reached', res['Results']['warning'])
+  # call ft.cursor profile
+  res, cursor_id = env.cmd('_FT.CURSOR', 'PROFILE', 'idx', cursor_id)
+  print("profile: ", res)
+  print("cursor_id: ", cursor_id)
+  # The profile should contain the warning
+  env.assertContains('Max prefix expansions limit was reached', get_shards_profile(env, res)[0]['Warning'])
 
 # This test is currently skipped due to flaky behavior of some of the machines'
 # timers. MOD-6436
