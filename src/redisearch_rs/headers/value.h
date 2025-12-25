@@ -141,6 +141,80 @@ struct RsValue *RSValue_NewTrio(struct RsValue *left,
                                 struct RsValue *right);
 
 /**
+ * Creates and returns a new **owned** [`RsValue`] object of type string,
+ * taking ownership of the given `RedisModule_Alloc`-allocated buffer.
+ *
+ * The caller must make sure to pass the returned [`RsValue`] to one of the
+ * ownership taking `RSValue_` methods, directly or indirectly.
+ *
+ * # Safety
+ *
+ * 1. `str` must be a [valid], non-null pointer to a buffer allocated by `RedisModule_Alloc`.
+ * 2. `str` must be [valid] for reads of `len` bytes.
+ * 3. `str` **must not** be used or freed after this function is called, as this function
+ *    takes ownership of the allocation.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct RsValue *RSValue_NewString(char *str, uint32_t len);
+
+/**
+ * Creates and returns a new **owned** [`RsValue`] object of type string,
+ * borrowing the given string buffer without taking ownership.
+ *
+ * The caller must make sure to pass the returned [`RsValue`] to one of the
+ * ownership taking `RSValue_` methods, directly or indirectly.
+ *
+ * # Safety
+ *
+ * 1. `str` must be a [valid], non-null pointer to a string buffer.
+ * 2. `str` must be [valid] for reads of `len` bytes.
+ * 3. The memory pointed to by `str` must remain valid and not be mutated for the entire
+ *    lifetime of the returned [`RsValue`] and any clones of it.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct RsValue *RSValue_NewStringWithoutNulTerminator(char *str, uint32_t len);
+
+struct RsValue *RSValue_NewConstString(const char *str, uint32_t len);
+
+/**
+ * Creates and returns a new **owned** [`RsValue`] object of type string,
+ * taking ownership of the given [`RedisModuleString`].
+ *
+ * The caller must make sure to pass the returned [`RsValue`] to one of the
+ * ownership taking `RSValue_` methods, directly or indirectly.
+ *
+ * # Safety
+ *
+ * 1. `str` must be a [valid], non-null pointer to a [`RedisModuleString`].
+ * 2. `str` **must not** be used or freed after this function is called, as this function
+ *    takes ownership of the string.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct RsValue *RSValue_NewRedisString(RedisModuleString *str);
+
+/**
+ * Creates and returns a new **owned** [`RsValue`] object of type string,
+ * copying `len` bytes from the given string buffer into a new Rust-allocated [`Box<CStr>`].
+ *
+ * The caller retains ownership of `str`.
+ *
+ * The caller must make sure to pass the returned [`RsValue`] to one of the
+ * ownership taking `RSValue_` methods, directly or indirectly.
+ *
+ * # Safety
+ *
+ * 1. `str` must be a [valid], non-null pointer to a string buffer.
+ * 2. `str` must be [valid] for reads of `len` bytes.
+ * 3. The `len` bytes pointed to by `str` must not contain any null bytes.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct RsValue *RSValue_NewCopiedString(const char *str, uint32_t len);
+
+/**
  * Gets the numeric value from an [`RsValue`].
  *
  * # Safety
@@ -191,6 +265,79 @@ const struct RsValue *RSValue_Trio_GetMiddle(const struct RsValue *value);
  * Panics if the value is not a trio type.
  */
 const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
+
+/**
+ * Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
+ * length to `lenp`.
+ *
+ * The returned pointer borrows from the [`RsValue`] and must not outlive it.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ * 2. `lenp` must be either null or a [valid], non-null pointer to a `u32`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ *
+ * # Panic
+ *
+ * Panics if the value is not a `String` type.
+ * Panics if the string data might not be nul-terminated.
+ */
+char *RSValue_String_Get(const struct RsValue *value, uint32_t *lenp);
+
+/**
+ * Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
+ * length to `lenp`.
+ *
+ * The returned pointer borrows from the [`RsValue`] and must not outlive it.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ * 2. `lenp` must be either null or a [valid], non-null pointer to a `u32`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ *
+ * # Panic
+ *
+ * Panics if the value is not a `String` type.
+ */
+char *RSValue_String_GetTrusted(const struct RsValue *value, uint32_t *lenp);
+
+/**
+ * Returns a pointer to the underlying [`RedisModuleString`] of an [`RsValue`].
+ *
+ * The returned pointer borrows from the [`RsValue`] and must not outlive it.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ *
+ * # Panic
+ *
+ * Panics if the value is not a `RedisString` type.
+ */
+const RedisModuleString *RSValue_RedisString_Get(const struct RsValue *value);
+
+/**
+ * Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
+ * length to `len_ptr`.
+ *
+ * Unlike [`RSValue_String_Get`], this function handles all string variants (including
+ * `RedisString`) and automatically dereferences `Ref` values and follows through the left
+ * element of `Trio` values. Returns null for non-string variants.
+ *
+ * The returned pointer borrows from the [`RsValue`] and must not outlive it.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ * 2. `len_ptr` must be either null or a [valid], non-null pointer to a `size_t`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+const char *RSValue_StringPtrLen(const struct RsValue *value, size_t *len_ptr);
 
 /**
  * Allocates a new, uninitialized [`RSValueMapBuilder`] with space for `len` entries.
@@ -307,62 +454,54 @@ void RSValue_SetNumber(struct RsValue *value, double n);
 void RSValue_SetNull(struct RsValue *value);
 
 /**
- * Creates a heap-allocated `RsValue` wrapping a string.
- * Doesn't duplicate the string. Use strdup if the value needs to be detached.
+ * Converts an [`RsValue`] to a string type in-place, taking ownership of the given
+ * `RedisModule_Alloc`-allocated buffer.
+ *
+ * This clears the existing value and sets it to an [`RsString`] of kind `RmAlloc`
+ * with the given buffer.
  *
  * # Safety
- * - (1) `str` must not be NULL;
- * - (2) `len` must match the length of `str`;
- * - (3) `str` must point to a valid, C string with a length of at most `u32::MAX` bytes;
- * - (4) `str` must not be aliased.
- * - (5) `str` must point to a location allocated using `rm_alloc`
- * - (6) `RedisModule_Alloc` must not be mutated for the lifetime of the
- *   `OpaqueRsValue`.
  *
- * @param str The string to wrap (ownership is transferred)
- * @param len The length of the string
- * @return A pointer to a heap-allocated RsValue
+ * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
+ *    `RSValue_*` function returning an owned [`RsValue`] object.
+ * 2. `str` must be a [valid], non-null pointer to a buffer allocated by `RedisModule_Alloc`.
+ * 3. `str` must be [valid] for reads of `len` bytes.
+ * 4. `str` **must not** be used or freed after this function is called, as this function
+ *    takes ownership of the allocation.
+ * 5. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
  */
-const struct RsValue *SharedRsValue_NewString(char *str, uint32_t len);
+void RSValue_SetString(struct RsValue *value, char *str, size_t len);
 
 /**
- * Creates a heap-allocated `SharedRsValue` wrapping a const string.
+ * Converts an [`RsValue`] to a string type in-place, borrowing the given string buffer
+ * without taking ownership.
+ *
+ * This clears the existing value and sets it to an [`RsString`] of kind `Const`
+ * with the given buffer.
  *
  * # Safety
- * - (1) `str` must live as least as long as the returned [`SharedRsValue`].
- * - (2) `str` must point to a byte sequence that is valid for reads of `len` bytes.
  *
- * @param str The null-terminated string to wrap (ownership is transferred)
- * @return A pointer to a heap-allocated RsValue wrapping a constant C string
+ * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
+ *    `RSValue_*` function returning an owned [`RsValue`] object.
+ * 2. `str` must be a [valid], non-null pointer to a string buffer.
+ * 3. `str` must be [valid] for reads of `len` bytes.
+ * 4. The memory pointed to by `str` must remain valid and not be mutated for the entire
+ *    lifetime of the [`RsValue`] and any clones of it.
+ * 5. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
  */
-const struct RsValue *SharedRsValue_NewConstString(const char *str, uint32_t len);
-
-/**
- * Creates a heap-allocated `RsValue` which increments and owns a reference to the Redis string.
- * The RsValue will decrement the refcount when freed.
- *
- * # Safety
- * - (1) `str` must be non-null
- * - (2) `str` must point to a valid [`RedisModuleString`]
- *   with a reference count of at least 1.
- *
- * @param str The RedisModuleString to wrap (refcount is incremented)
- * @return A pointer to a heap-allocated RsValue
- */
-const struct RsValue *SharedRsValue_NewRedisString(RedisModuleString *str);
-
-/**
- * Creates a heap-allocated `RsValue` with a copied string.
- * The string is duplicated using `rm_malloc`.
- *
- * # Safety
- * - (1) `str` must be a valid pointer to a char sequence of `len` chars.
- *
- * @param s The string to copy
- * @param dst The length of the string to copy
- * @return A pointer to a heap-allocated `RsValue` owning the copied string
- */
-const struct RsValue *SharedRsValue_NewCopiedString(const char *str, uint32_t len);
+void RSValue_SetConstString(struct RsValue *value, const char *str, size_t len);
 
 /**
  * Creates a heap-allocated `RsValue` by parsing a string as a number.
