@@ -101,6 +101,12 @@ uint32_t RSValue_ArrayLen(const struct RsValue *value);
  */
 struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
 
+int RSValue_Cmp(const struct RsValue *v1, const struct RsValue *v2, QueryError *_status);
+
+int RSValue_Equal(const struct RsValue *v1, const struct RsValue *v2, QueryError *_status);
+
+int RSValue_BoolTest(const struct RsValue *value);
+
 /**
  * Creates and returns a new **owned** [`RsValue`] object of type undefined.
  *
