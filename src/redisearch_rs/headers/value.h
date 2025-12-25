@@ -49,7 +49,7 @@ int RSValue_Cmp(const struct RSValue *v1, const struct RSValue *v2, QueryError *
 
 int RSValue_Equal(const struct RSValue *v1, const struct RSValue *v2, QueryError *status);
 
-int RSValue_BoolTest(const struct RSValue *v);
+int RSValue_BoolTest(const struct RSValue *value);
 
 struct RSValue *RSValue_NewUndefined(void);
 
