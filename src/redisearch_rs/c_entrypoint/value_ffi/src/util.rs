@@ -64,3 +64,10 @@ pub fn rsvalue_str_to_float(input: &[u8]) -> Option<f64> {
 
 //     return 1;
 //   }
+
+pub fn rsvalue_num_to_str(number: f64) -> String {
+    let mut buf = [0u8; 128];
+    let len = value::util::num_to_string_cstyle(number, &mut buf);
+    let str_val = std::str::from_utf8(&buf[..(len as usize)]).unwrap();
+    str_val.to_owned()
+}
