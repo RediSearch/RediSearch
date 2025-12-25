@@ -11,6 +11,8 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include "field_spec.h"
+#include "query_error.h"
 
 #define FLEX_MAX_INDEX_COUNT 10
 
@@ -20,3 +22,13 @@
  * @return true if the number of indexes is within the limit, false otherwise
  */
 bool SearchDisk_CheckLimitNumberOfIndexes(size_t nIndexes);
+
+/**
+ * @brief Check if a field type is supported in Flex indexes
+ *
+ * @param fieldTypeStr Field type string
+ * @param fs Field specification
+ * @param status Query error status
+ * @return true if the field type is supported, false otherwise
+ */
+bool SearchDisk_CheckFieldSupport(const char *fieldTypeStr, const FieldSpec *fs, QueryError *status);
