@@ -26,6 +26,7 @@ capabilities:
     - intershard_tls
     - intershard_tls_pass
     - ipv6
+    - asm
 exclude_commands:
     - FT.CREATE
     - FT.DROP
