@@ -17,7 +17,7 @@ use pin_project::pin_project;
 use std::{
     borrow::Cow,
     cell::UnsafeCell,
-    ffi::{CStr, c_char},
+    ffi::{CStr, CString, c_char},
     mem,
     ops::{Deref, DerefMut},
     pin::Pin,
@@ -1253,35 +1253,37 @@ impl<'a> RLookup<'a> {
     pub fn load_rule_fields(
         &self,
         ctx: &ffi::RedisModuleCtx,
-        lookup: &RLookup<'_>,
+        lookup: &mut RLookup<'_>,
         dst_row: &RLookupRow<value::RSValueFFI>,
         spec: &ffi::IndexSpec,
         key: &CStr,
     ) -> i32 {
         unsafe {
-            //         let rule = spec.rule;
-            //         let nkeys = 10; //(*rule).filter_fields;
+            let rule = spec.rule;
+            let nkeys = 10; //(*rule).filter_fields;
 
-            //         let keys = (0..nkeys)
-            //             .map(|i| {
-            //                     let idx = rule.filter_fields_index[i];
+            let name = CString::new("Hello").unwrap();
+            let keys = (0..nkeys)
+                .map(|i| {
+                    // let idx = *(*rule).filter_fields_index[i];
+                    let idx = 0_i32;
 
-            //                         let new_key = if (idx == -1) {
-            //     createNewKey(it, rule.filter_fields[i], strlen(rule.filter_fields[i]), RLOOKUP_F_NOFLAGS);
+                    let new_key = if (idx == -1) {
+                        createNewKey(lookup, &'a name, RLookupKeyFlags::empty())
+                    } else {
+                        let fs = spec.fields.add(idx.try_into().unwrap());
 
-            // } else {
-            // let fs = spec.fields + idx;
-            // let mut length = 0;
-            // let name = ffi::HiddenString_GetUnsafe(fs.fieldName, &length);
+                        let mut length = 0;
+                        let new_new_key = createNewKey(lookup, &name, RLookupKeyFlags::empty());
 
-            // let new_new_key= createNewKey(it, name, length, RLOOKUP_F_NOFLAGS);
-            // new_new_key.path = ffi::HiddenString_GetUnsafe(fs.fieldPath, NULL);
-            // new_new_key
+                        new_new_key.unwrap().as_mut().path =
+                            ffi::HiddenString_GetUnsafe((*fs).fieldPath, ptr::null_mut());
 
-            // }
-
-            //             })
-            //             .collect::<Vec<_>>();
+                        new_new_key
+                    };
+                    new_key
+                })
+                .collect::<Vec<_>>();
         }
 
         0
