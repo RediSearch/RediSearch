@@ -5,8 +5,8 @@ from includes import *
 import numpy as np
 
 @skip(cluster=True)
-def test_dialect_config_get_set(env):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+def test_dialect_config_get_set():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
     MAX_DIALECT = set_max_dialect(env)
     env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
     env.expect(config_cmd() + " SET DEFAULT_DIALECT 1").ok()
@@ -43,12 +43,15 @@ def test_v1_vs_v2(env):
 
     # Test numeric range on non-existent field (covers QueryParam_Free cleanup path in v1 parser)
     env.expect('FT.EXPLAIN', 'idx', '@nonexistent:[0 10]', 'DIALECT', 1).contains('<empty>')
+    env.expect('FT.EXPLAIN', 'idx', '@nonexistent:[0 10]', 'DIALECT', 2).contains('<empty>')
 
     # Test TAG query on non-existent field (covers QueryNode_Free cleanup path in v1 parser)
     env.expect('FT.EXPLAIN', 'idx', '@nonexistent:{value}', 'DIALECT', 1).contains('<empty>')
+    env.expect('FT.EXPLAIN', 'idx', '@nonexistent:{value}', 'DIALECT', 2).contains('<empty>')
 
     # Test GEO query on non-existent field (covers QueryNode_Free cleanup path in v1 parser)
     env.expect('FT.EXPLAIN', 'idx', '@nonexistent:[1.0 2.0 3.0 km]', 'DIALECT', 1).contains('<empty>')
+    env.expect('FT.EXPLAIN', 'idx', '@nonexistent:[1.0 2.0 3.0 km]', 'DIALECT', 2).contains('<empty>')
 
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 0.1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 0.1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
@@ -321,7 +324,7 @@ def check_info_results(env, command, idx1_expect, idx2_expect, should_succeed):
   check_info_module_results(env, [x or y for x, y in zip(idx1_expect, idx2_expect)])
 
 def test_dialect_info():
-  # Restart with DEFAULT_DIALECT 1 to ensure clean dialect stats for this test
+  # Run with DEFAULT_DIALECT 1 to ensure clean dialect stats for this test
   env = Env(moduleArgs='DEFAULT_DIALECT 1')
   conn = getConnectionByEnv(env)
 

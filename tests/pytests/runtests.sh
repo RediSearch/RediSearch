@@ -519,6 +519,7 @@ fi
 E=0
 
 MODARGS="${MODARGS}; TIMEOUT 0;" # disable query timeout by default
+MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" # set default dialect to 2
 
 if [[ $GC == 0 ]]; then
 	MODARGS="${MODARGS}; NOGC;"
@@ -527,23 +528,21 @@ fi
 echo "Running tests in parallel using $parallel Python processes"
 
 if [[ $REDIS_STANDALONE == 1 ]]; then
-	{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" \
-		run_tests "RediSearch tests"); (( E |= $? )); } || true
-
+	test_name="RediSearch tests"
+	extra_rltest_args=""
 elif [[ $REDIS_STANDALONE == 0 ]]; then
-	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
-
+	test_name="OSS cluster tests"
 	# Increase timeout (to 5 min) for tests with coordinator to avoid cluster fail when it take more time for
 	# passing PINGs between shards
-  	oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 300000"
-
-	{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
-	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
+	extra_rltest_args="--env oss-cluster --shards-count $SHARDS --cluster_node_timeout 300000"
 fi
+
+{ (MODARGS="${MODARGS};" RLTEST_ARGS="$RLTEST_ARGS $extra_rltest_args" \
+	run_tests "$test_name"); (( E |= $? )); } || true
 
 if [[ $RLEC == 1 ]]; then
 	dhost=$(echo "$DOCKER_HOST" | awk -F[/:] '{print $4}')
-	{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" RLTEST_ARGS+="${RLTEST_ARGS} --env existing-env --existing-env-addr $dhost:$RLEC_PORT" \
+	{ (MODARGS="${MODARGS};" RLTEST_ARGS+="${RLTEST_ARGS} --env existing-env --existing-env-addr $dhost:$RLEC_PORT" \
 	   run_tests "tests on RLEC"); (( E |= $? )); } || true
 fi
 
