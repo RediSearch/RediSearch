@@ -628,8 +628,7 @@ done_3:
     } else if (rc == RS_RESULT_ERROR) {
       // Non-fatal error
       RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
-    }
-    if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
+    } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
