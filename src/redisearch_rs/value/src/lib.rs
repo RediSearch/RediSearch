@@ -7,10 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::fmt::Debug;
+
 pub use crate::{
     collection::{Array, Map},
+    redis_string::RedisString,
+    rs_string::RsString,
     shared::SharedRsValue,
-    strings::{ConstString, RedisString, RmAllocString, RsValueString},
     trio::RsValueTrio,
 };
 
@@ -26,13 +29,14 @@ mod test_utils;
 #[cfg(feature = "test_utils")]
 pub use test_utils::RSValueMock;
 
-mod collection;
+pub mod collection;
+pub mod redis_string;
+pub mod rs_string;
 pub mod shared;
-pub mod strings;
 pub mod trio;
 
 /// An actual [`RsValue`] object
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum RsValue {
     /// Undefined, not holding a value.
     Undefined,
@@ -40,14 +44,10 @@ pub enum RsValue {
     Null,
     /// Numeric value
     Number(f64),
-    /// String value backed by a rm_alloc'd string
-    RmAllocString(RmAllocString),
-    /// String value backed by a constant C string
-    ConstString(ConstString),
+    /// String
+    String(RsString),
     /// String value backed by a Redis string
     RedisString(RedisString),
-    /// String value
-    String(Box<RsValueString>),
     /// Array value
     Array(Array),
     /// Reference value
@@ -67,15 +67,13 @@ impl RsValue {
         }
     }
 
-    pub const fn variant_name(&self) -> &'static str {
+    pub fn variant_name(&self) -> &'static str {
         match self {
             RsValue::Undefined => "Undefined",
             RsValue::Null => "Null",
             RsValue::Number(_) => "Number",
-            RsValue::RmAllocString(_) => "RmAllocString",
-            RsValue::ConstString(_) => "ConstString",
-            RsValue::RedisString(_) => "RedisString",
             RsValue::String(_) => "String",
+            RsValue::RedisString(_) => "RedisString",
             RsValue::Array(_) => "Array",
             RsValue::Ref(_) => "Ref",
             RsValue::Trio(_) => "Trio",
