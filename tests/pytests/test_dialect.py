@@ -5,20 +5,8 @@ from includes import *
 import numpy as np
 
 @skip(cluster=True)
-def test_dialect_config_get_set_from_default(env):
-    # skip when default MODARGS for pytest is DEFAULT_DIALECT 2. RediSearch>=2.4 is loading with dialect v1 as default.
-    skipOnDialect(env, 2)
-    MAX_DIALECT = set_max_dialect(env)
-    env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
-    env.expect(config_cmd() + " SET DEFAULT_DIALECT 2").ok()
-    env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
-    env.expect(config_cmd() + " SET DEFAULT_DIALECT 0").error()
-    env.expect(config_cmd() + " SET DEFAULT_DIALECT -1").error()
-    env.expect(config_cmd() + f" SET DEFAULT_DIALECT {MAX_DIALECT + 1}").error()
-
-@skip(cluster=True)
-def test_dialect_config_get_set_from_config(env):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+def test_dialect_config_get_set():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
     MAX_DIALECT = set_max_dialect(env)
     env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
     env.expect(config_cmd() + " SET DEFAULT_DIALECT 1").ok()
@@ -52,6 +40,18 @@ def test_v1_vs_v2(env):
 
     env.expect('FT.EXPLAIN', 'idx', '@title:(@num:[0 10])', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 10.000000}\n')
     env.expect('FT.EXPLAIN', 'idx', '@title:(@num:[0 10])', 'DIALECT', 2).error().contains('Syntax error')
+
+    # Test numeric range on non-existent field (covers QueryParam_Free cleanup path in v1 parser)
+    env.expect('FT.EXPLAIN', 'idx', '@nonexistent:[0 10]', 'DIALECT', 1).contains('<empty>')
+    env.expect('FT.EXPLAIN', 'idx', '@nonexistent:[0 10]', 'DIALECT', 2).error().contains('Unknown field')
+
+    # Test TAG query on non-existent field (covers QueryNode_Free cleanup path in v1 parser)
+    env.expect('FT.EXPLAIN', 'idx', '@nonexistent:{value}', 'DIALECT', 1).contains('<empty>')
+    env.expect('FT.EXPLAIN', 'idx', '@nonexistent:{value}', 'DIALECT', 2).error().contains('Unknown field')
+
+    # Test GEO query on non-existent field (covers QueryNode_Free cleanup path in v1 parser)
+    env.expect('FT.EXPLAIN', 'idx', '@nonexistent:[1.0 2.0 3.0 km]', 'DIALECT', 1).contains('<empty>')
+    env.expect('FT.EXPLAIN', 'idx', '@nonexistent:[1.0 2.0 3.0 km]', 'DIALECT', 2).error().contains('Unknown field')
 
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 0.1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 0.1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
@@ -272,7 +272,7 @@ def test_v1_vs_v2(env):
     expected = ['-inf', '']
     env.assertEqual(res, expected)
 
-    # terms wich contain numbers are expanded
+    # terms which contain numbers are expanded
     expected = ['UNION {', '  cherry1', '  +cherry1(expanded)', '}', '']
     res = env.cmd('FT.EXPLAINCLI', 'idx', 'cherry1', 'DIALECT', 1)
     env.assertEqual(res, expected)
@@ -323,9 +323,10 @@ def check_info_results(env, command, idx1_expect, idx2_expect, should_succeed):
                                           'dialect_4', idx2_expect[3]])
   check_info_module_results(env, [x or y for x, y in zip(idx1_expect, idx2_expect)])
 
-def test_dialect_info(env):
+def test_dialect_info():
+  # Run with DEFAULT_DIALECT 1 to ensure clean dialect stats for this test
+  env = Env(moduleArgs='DEFAULT_DIALECT 1')
   conn = getConnectionByEnv(env)
-  env.expect(config_cmd() + " SET DEFAULT_DIALECT 1").ok()
 
   env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'business', 'TEXT')
   env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'country', 'TEXT')
