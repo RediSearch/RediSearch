@@ -701,34 +701,65 @@ def testInternalCursorReadsWithTimeoutResp2():
   coord_profile = to_dict(res[-1][-1])
   env.assertEqual(coord_profile['Warning'], 'None', message=f"full reply output: {res}")
 
-@skip(cluster=True)
+# @skip(cluster=True)
+# def testPersistProfileWarning_MaxPrefixExpansions():
+#   """Warning triggered on cursor read (not initial) should appear in profile."""
+#   env = Env(protocol=3)
+#   conn = getConnectionByEnv(env)
+
+#   env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+#   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+#   for i in range(100):
+#     conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+
+#   # First read should contain max prefix expansions warning
+#   run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '3')
+#   env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
+#   res, cursor_id = env.cmd('_FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hell*', '_SLOTS_INFO', generate_slots(), 'WITHCURSOR', 'COUNT', '1')
+#   env.assertContains('Max prefix expansions limit was reached', res['Results']['warning'])
+
+#   # run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '10')
+#   res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id)
+#   # This should not contain the warning
+#   env.assertNotContains('Max prefix expansions limit was reached', res['Results']['warning'])
+#   # call ft.cursor profile
+#   res, cursor_id = env.cmd('_FT.CURSOR', 'PROFILE', 'idx', cursor_id)
+#   print("profile: ", res)
+#   print("cursor_id: ", cursor_id)
+#   # The profile should contain the warning
+#   env.assertContains('Max prefix expansions limit was reached', get_shards_profile(env, res)[0]['Warning'])
+
+@skip(cluster=False)
 def testPersistProfileWarning_MaxPrefixExpansions():
-  """Warning triggered on cursor read (not initial) should appear in profile."""
+  """
+  Tests that max prefix expansion warning triggered on the first internal cursor read
+  is persisted and appears in the final profile output.
+
+  In cluster mode, FT.AGGREGATE uses internal cursors between coordinator and shards.
+  The warning is set during query parsing on the first read. This test verifies the
+  warning is preserved across multiple cursor reads and appears in the shard profile.
+  """
   env = Env(protocol=3)
   conn = getConnectionByEnv(env)
 
   env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
-  for i in range(100):
+  # Create 1100 docs per shard to exceed default cursorReadSize (1000), forcing multiple cursor reads
+  for i in range(1100 * env.shardsCount):
     conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
 
-  # First read should contain max prefix expansions warning
-  run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '3')
-  env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
-  res, cursor_id = env.cmd('_FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hell*', '_SLOTS_INFO', generate_slots(), 'WITHCURSOR', 'COUNT', '1')
-  env.assertContains('Max prefix expansions limit was reached', res['Results']['warning'])
+  # Set MAXPREFIXEXPANSIONS limit to exceed the cursorReadSize, but fewer than total docs.
+  # This ensures: (1) the warning is triggered, (2) results span multiple cursor reads
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1001')
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hell*')
 
-  # run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '10')
-  res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id)
-  # This should not contain the warning
-  env.assertNotContains('Max prefix expansions limit was reached', res['Results']['warning'])
-  # call ft.cursor profile
-  res, cursor_id = env.cmd('_FT.CURSOR', 'PROFILE', 'idx', cursor_id)
-  print("profile: ", res)
-  print("cursor_id: ", cursor_id)
-  # The profile should contain the warning
-  env.assertContains('Max prefix expansions limit was reached', get_shards_profile(env, res)[0]['Warning'])
+  # Verify warning appears in the top-level response
+  env.assertContains('Max prefix expansions limit was reached', res['Results']['warning'])
+  # Verify warning is persisted in each shard's profile (printed on last cursor read)
+  for shard_profile in get_shards_profile(env, res):
+    env.assertContains('Max prefix expansions limit was reached', shard_profile['Warning'])
 
 # This test is currently skipped due to flaky behavior of some of the machines'
 # timers. MOD-6436
