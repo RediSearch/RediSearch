@@ -757,6 +757,12 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
     RedisModule_Reply_ArrayEnd(reply);
 
+    // Add BG_SCAN_OOM warning to profile context if applicable
+    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+    if (sctx && sctx->spec && sctx->spec->scan_failed_OOM) {
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
+    }
+
     if (IsProfile(req)) {
       RedisModule_Reply_MapEnd(reply);  // >Results
       req->profile(reply, req);
@@ -790,6 +796,12 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     if (QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, !IsInternal(req));
       ProfileWarnings_Add(&AREQ_ProfilePrinterCtx(req)->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
+    }
+
+    // Add BG_SCAN_OOM warning to profile context if applicable
+    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+    if (sctx && sctx->spec && sctx->spec->scan_failed_OOM) {
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
     }
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
