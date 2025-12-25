@@ -1028,6 +1028,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "redis-module",
+ "tracing",
  "value",
  "workspace_hack",
 ]
@@ -1442,6 +1443,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a04e24fab5c89c6a36eb8558c9656f30d81de51dfa4d3b45f26b21d61fa0a6c"
 dependencies = [
  "once_cell",
+ "valuable",
 ]
 
 [[package]]
@@ -1474,11 +1476,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
+name = "valuable"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
+
+[[package]]
 name = "value"
 version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "ffi",
+ "thiserror",
  "workspace_hack",
 ]
 
@@ -1489,8 +1498,8 @@ dependencies = [
  "build_utils",
  "c_ffi_utils",
  "cbindgen",
+ "ffi",
  "libc",
- "redis-module",
  "value",
  "workspace_hack",
 ]
@@ -1622,7 +1631,6 @@ checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
 name = "workspace_hack"
 version = "0.1.0"
 dependencies = [
- "bindgen 0.66.1",
  "bindgen 0.72.1",
  "bitflags 2.10.0",
  "clang-sys",
@@ -1640,7 +1648,6 @@ dependencies = [
  "quote 1.0.42",
  "rand",
  "rand_chacha",
- "redis-module",
  "regex",
  "regex-automata",
  "regex-syntax",
@@ -1649,6 +1656,7 @@ dependencies = [
  "syn 1.0.109",
  "syn 2.0.111",
  "thiserror",
+ "tracing-core",
  "zerocopy",
 ]
 

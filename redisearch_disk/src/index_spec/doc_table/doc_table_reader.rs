@@ -139,4 +139,8 @@ impl<'index, 'iterator, DBAccess: speedb::DBAccess> IndexReader<'index>
         // We own the iterator so no revalidation is needed
         false
     }
+
+    fn refresh_buffer_pointers(&mut self) {
+        // We don't have any buffers to refresh
+    }
 }

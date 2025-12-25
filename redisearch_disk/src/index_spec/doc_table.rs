@@ -122,7 +122,8 @@ impl DocTable {
         key: impl Into<Key>,
         score: f32,
         flags: u32,
-        max_freq: u32,
+        max_term_freq: u32,
+        doc_len: u32,
     ) -> Result<t_docId, speedb::Error> {
         let key: Key = key.into();
 
@@ -137,7 +138,8 @@ impl DocTable {
             key,
             score,
             flags,
-            max_freq,
+            max_term_freq,
+            doc_len,
         }
         .serialize();
 

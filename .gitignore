@@ -13,10 +13,11 @@
 /bin/
 /build/
 /site/
-/venv*/
+/*venv*/
 /srcutil/lemon
 /src/query_parser/lemon
 /.vscode/
+/.devcontainer/
 /.idea/
 .project
 .cproject

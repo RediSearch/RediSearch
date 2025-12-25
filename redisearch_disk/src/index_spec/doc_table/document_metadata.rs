@@ -13,7 +13,9 @@ pub struct DocumentMetadata {
     /// The flags of the document
     pub flags: u32,
     /// The maximum frequency of any term in the document, used to normalize frequencies
-    pub max_freq: u32,
+    pub max_term_freq: u32,
+    /// The sum of the frequencies of all terms in the document
+    pub doc_len: u32,
 }
 
 impl DocumentMetadata {
@@ -24,7 +26,8 @@ impl DocumentMetadata {
     /// - N bytes: key data
     /// - 4 bytes: score (little-endian f32)
     /// - 4 bytes: flags (little-endian u32)
-    /// - 4 bytes: max_freq (little-endian u32)
+    /// - 4 bytes: max_term_freq (little-endian u32)
+    /// - 4 bytes: doc_len (little-endian u32)
     pub fn serialize(&self) -> Vec<u8> {
         let key_bytes = &self.key;
         let key_len = key_bytes.len() as u32;
@@ -34,11 +37,13 @@ impl DocumentMetadata {
         // - key_len bytes for key
         // - 4 bytes for score
         // - 4 bytes for flags
-        // - 4 bytes for max_freq
+        // - 4 bytes for max_term_freq
+        // - 4 bytes for doc_len
         let mut bytes = Vec::with_capacity(
             size_of::<u32>()
                 + key_bytes.len()
                 + size_of::<f32>()
+                + size_of::<u32>()
                 + size_of::<u32>()
                 + size_of::<u32>(),
         );
@@ -46,7 +51,8 @@ impl DocumentMetadata {
         bytes.extend_from_slice(key_bytes);
         bytes.extend_from_slice(&self.score.to_le_bytes());
         bytes.extend_from_slice(&self.flags.to_le_bytes());
-        bytes.extend_from_slice(&self.max_freq.to_le_bytes());
+        bytes.extend_from_slice(&self.max_term_freq.to_le_bytes());
+        bytes.extend_from_slice(&self.doc_len.to_le_bytes());
 
         bytes
     }
@@ -67,7 +73,8 @@ pub struct ArchivedDocumentMetadata<'archive> {
     key: &'archive [u8],
     score: &'archive [u8; size_of::<f32>()],
     flags: &'archive [u8; size_of::<u32>()],
-    max_freq: &'archive [u8; size_of::<u32>()],
+    max_term_freq: &'archive [u8; size_of::<u32>()],
+    doc_len: &'archive [u8; size_of::<u32>()],
 }
 
 impl<'archive> ArchivedDocumentMetadata<'archive> {
@@ -79,7 +86,8 @@ impl<'archive> ArchivedDocumentMetadata<'archive> {
     /// - The key bytes of the specified length.
     /// - A 4-byte little-endian float representing the score.
     /// - A 4-byte little-endian unsigned integer representing the flags.
-    /// - A 4-byte little-endian unsigned integer representing the max_freq.
+    /// - A 4-byte little-endian unsigned integer representing the max_term_freq.
+    /// - A 4-byte little-endian unsigned integer representing the doc_len.
     pub fn from_bytes(bytes: &'archive [u8]) -> Self {
         assert!(
             bytes.len() >= size_of::<u32>(),
@@ -95,9 +103,14 @@ impl<'archive> ArchivedDocumentMetadata<'archive> {
         // - key_len bytes for key
         // - 4 bytes for score
         // - 4 bytes for flags
-        // - 4 bytes for max_freq
+        // - 4 bytes for max_term_freq
+        // - 4 bytes for doc_len
         let expected_size = (key_len).saturating_add(
-            size_of::<u32>() + size_of::<u32>() + size_of::<u32>() + size_of::<u32>(),
+            size_of::<u32>()
+                + size_of::<u32>()
+                + size_of::<u32>()
+                + size_of::<u32>()
+                + size_of::<u32>(),
         );
 
         assert!(
@@ -109,8 +122,9 @@ impl<'archive> ArchivedDocumentMetadata<'archive> {
         let key_end = key_start + key_len;
         let score_start = key_end;
         let flags_start = score_start + size_of::<u32>();
-        let max_freq_start = flags_start + size_of::<u32>();
-        let max_freq_end = max_freq_start + size_of::<u32>();
+        let max_term_freq_start = flags_start + size_of::<u32>();
+        let doc_len_start = max_term_freq_start + size_of::<u32>();
+        let doc_len_end = doc_len_start + size_of::<u32>();
 
         let key = &bytes[key_start..key_end];
 
@@ -123,14 +137,21 @@ impl<'archive> ArchivedDocumentMetadata<'archive> {
 
         // SAFETY: We have already validated the slice lengths above. We are also extracting exactly 4 bytes.
         let flags = unsafe {
-            bytes[flags_start..max_freq_start]
+            bytes[flags_start..max_term_freq_start]
                 .try_into()
                 .unwrap_unchecked()
         };
 
         // SAFETY: We have already validated the slice lengths above. We are also extracting exactly 4 bytes.
-        let max_freq = unsafe {
-            bytes[max_freq_start..max_freq_end]
+        let max_term_freq = unsafe {
+            bytes[max_term_freq_start..doc_len_start]
+                .try_into()
+                .unwrap_unchecked()
+        };
+
+        // SAFETY: We have already validated the slice lengths above. We are also extracting exactly 4 bytes.
+        let doc_len = unsafe {
+            bytes[doc_len_start..doc_len_end]
                 .try_into()
                 .unwrap_unchecked()
         };
@@ -139,7 +160,8 @@ impl<'archive> ArchivedDocumentMetadata<'archive> {
             key,
             score,
             flags,
-            max_freq,
+            max_term_freq,
+            doc_len,
         }
     }
 
@@ -159,8 +181,13 @@ impl<'archive> ArchivedDocumentMetadata<'archive> {
     }
 
     #[inline(always)]
-    pub fn max_freq(&self) -> u32 {
-        u32::from_le_bytes(*self.max_freq)
+    pub fn max_term_freq(&self) -> u32 {
+        u32::from_le_bytes(*self.max_term_freq)
+    }
+
+    #[inline(always)]
+    pub fn doc_len(&self) -> u32 {
+        u32::from_le_bytes(*self.doc_len)
     }
 }
 
@@ -170,7 +197,8 @@ impl<'archive> From<ArchivedDocumentMetadata<'archive>> for DocumentMetadata {
             key: Key::from(archived.key.to_vec()),
             score: archived.score(),
             flags: archived.flags(),
-            max_freq: archived.max_freq(),
+            max_term_freq: archived.max_term_freq(),
+            doc_len: archived.doc_len(),
         }
     }
 }
@@ -186,7 +214,8 @@ mod tests {
             key: Key::from("document_1"),
             score: 3.5,
             flags: 42,
-            max_freq: 10,
+            max_term_freq: 10,
+            doc_len: 100,
         };
 
         let serialized = original.serialize();
@@ -200,21 +229,24 @@ mod tests {
         let key = b"hello";
         let score: f32 = 1.5;
         let flags: u32 = 3;
-        let max_freq: u32 = 10;
+        let max_term_freq: u32 = 10;
+        let doc_len: u32 = 100;
 
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(key.len() as u32).to_le_bytes());
         bytes.extend_from_slice(key);
         bytes.extend_from_slice(&score.to_le_bytes());
         bytes.extend_from_slice(&flags.to_le_bytes());
-        bytes.extend_from_slice(&max_freq.to_le_bytes());
+        bytes.extend_from_slice(&max_term_freq.to_le_bytes());
+        bytes.extend_from_slice(&doc_len.to_le_bytes());
 
         let archived = ArchivedDocumentMetadata::from_bytes(&bytes);
 
         assert_eq!(archived.key(), key);
         assert_eq!(archived.score(), score);
         assert_eq!(archived.flags(), flags);
-        assert_eq!(archived.max_freq(), max_freq);
+        assert_eq!(archived.max_term_freq(), max_term_freq);
+        assert_eq!(archived.doc_len(), doc_len);
     }
 
     #[test]
@@ -222,20 +254,23 @@ mod tests {
         let key = b"key";
         let score: f32 = 0.0;
         let flags: u32 = 0;
-        let max_freq: u32 = 0;
+        let max_term_freq: u32 = 0;
+        let doc_len: u32 = 0;
 
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(key.len() as u32).to_le_bytes());
         bytes.extend_from_slice(key);
         bytes.extend_from_slice(&score.to_le_bytes());
         bytes.extend_from_slice(&flags.to_le_bytes());
-        bytes.extend_from_slice(&max_freq.to_le_bytes());
+        bytes.extend_from_slice(&max_term_freq.to_le_bytes());
+        bytes.extend_from_slice(&doc_len.to_le_bytes());
 
         let archived = ArchivedDocumentMetadata::from_bytes(&bytes);
 
         assert_eq!(archived.score(), 0.0);
         assert_eq!(archived.flags(), 0);
-        assert_eq!(archived.max_freq(), 0);
+        assert_eq!(archived.max_term_freq(), 0);
+        assert_eq!(archived.doc_len(), 0);
     }
 
     #[test]
@@ -243,20 +278,23 @@ mod tests {
         let key = b"key";
         let score: f32 = f32::MAX;
         let flags: u32 = u32::MAX;
-        let max_freq: u32 = u32::MAX;
+        let max_term_freq: u32 = u32::MAX;
+        let doc_len: u32 = u32::MAX;
 
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(key.len() as u32).to_le_bytes());
         bytes.extend_from_slice(key);
         bytes.extend_from_slice(&score.to_le_bytes());
         bytes.extend_from_slice(&flags.to_le_bytes());
-        bytes.extend_from_slice(&max_freq.to_le_bytes());
+        bytes.extend_from_slice(&max_term_freq.to_le_bytes());
+        bytes.extend_from_slice(&doc_len.to_le_bytes());
 
         let archived = ArchivedDocumentMetadata::from_bytes(&bytes);
 
         assert_eq!(archived.score(), f32::MAX);
         assert_eq!(archived.flags(), u32::MAX);
-        assert_eq!(archived.max_freq(), u32::MAX);
+        assert_eq!(archived.max_term_freq(), u32::MAX);
+        assert_eq!(archived.doc_len(), u32::MAX);
     }
 
     #[test]
@@ -264,14 +302,16 @@ mod tests {
         let key = b"key";
         let score: f32 = -42.5;
         let flags: u32 = 1;
-        let max_freq: u32 = 5;
+        let max_term_freq: u32 = 5;
+        let doc_len: u32 = 100;
 
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(key.len() as u32).to_le_bytes());
         bytes.extend_from_slice(key);
         bytes.extend_from_slice(&score.to_le_bytes());
         bytes.extend_from_slice(&flags.to_le_bytes());
-        bytes.extend_from_slice(&max_freq.to_le_bytes());
+        bytes.extend_from_slice(&max_term_freq.to_le_bytes());
+        bytes.extend_from_slice(&doc_len.to_le_bytes());
 
         let archived = ArchivedDocumentMetadata::from_bytes(&bytes);
 
@@ -317,13 +357,26 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Insufficient bytes to read complete DocumentMetadata")]
-    fn insufficient_bytes_for_max_freq() {
+    fn insufficient_bytes_for_max_term_freq() {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(3u32).to_le_bytes()); // Key length is 3
         bytes.extend_from_slice(b"key");
         bytes.extend_from_slice(&(1.5f32).to_le_bytes()); // Score
         bytes.extend_from_slice(&(42u32).to_le_bytes()); // Flags
-        bytes.extend_from_slice(&[0u8, 1]); // Only 2 bytes for max_freq, need 4
+        bytes.extend_from_slice(&[0u8, 1]); // Only 2 bytes for max_term_freq, need 4
+        ArchivedDocumentMetadata::from_bytes(&bytes);
+    }
+
+    #[test]
+    #[should_panic(expected = "Insufficient bytes to read complete DocumentMetadata")]
+    fn insufficient_bytes_for_doc_len() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&(3u32).to_le_bytes()); // Key length is 3
+        bytes.extend_from_slice(b"key");
+        bytes.extend_from_slice(&(1.5f32).to_le_bytes()); // Score
+        bytes.extend_from_slice(&(42u32).to_le_bytes()); // Flags
+        bytes.extend_from_slice(&(10u32).to_le_bytes()); // max_term_freq
+        bytes.extend_from_slice(&[0u8, 1]); // Only 2 bytes for doc_len, need 4
         ArchivedDocumentMetadata::from_bytes(&bytes);
     }
 
@@ -333,14 +386,16 @@ mod tests {
         let key = b"key";
         let score: f32 = 1.0;
         let flags: u32 = 2;
-        let max_freq: u32 = 3;
+        let max_term_freq: u32 = 3;
+        let doc_len: u32 = 4;
 
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(key.len() as u32).to_le_bytes());
         bytes.extend_from_slice(key);
         bytes.extend_from_slice(&score.to_le_bytes());
         bytes.extend_from_slice(&flags.to_le_bytes());
-        bytes.extend_from_slice(&max_freq.to_le_bytes());
+        bytes.extend_from_slice(&max_term_freq.to_le_bytes());
+        bytes.extend_from_slice(&doc_len.to_le_bytes());
         bytes.extend_from_slice(b"extra_data_that_should_be_ignored");
 
         let archived = ArchivedDocumentMetadata::from_bytes(&bytes);
@@ -348,7 +403,8 @@ mod tests {
         assert_eq!(archived.key(), key);
         assert_eq!(archived.score(), 1.0);
         assert_eq!(archived.flags(), 2);
-        assert_eq!(archived.max_freq(), 3);
+        assert_eq!(archived.max_term_freq(), 3);
+        assert_eq!(archived.doc_len(), 4);
     }
 
     #[test]
@@ -356,13 +412,15 @@ mod tests {
         let key = b"document_key";
         let score: f32 = 5.5;
         let flags: u32 = 15;
-        let max_freq: u32 = 200;
+        let max_term_freq: u32 = 200;
+        let doc_len: u32 = 300;
 
         let archived = ArchivedDocumentMetadata {
             key,
             score: &score.to_le_bytes(),
             flags: &flags.to_le_bytes(),
-            max_freq: &max_freq.to_le_bytes(),
+            max_term_freq: &max_term_freq.to_le_bytes(),
+            doc_len: &doc_len.to_le_bytes(),
         };
 
         let metadata: DocumentMetadata = archived.into();
@@ -370,7 +428,8 @@ mod tests {
         assert_eq!(&metadata.key[..], key);
         assert_eq!(metadata.score, score);
         assert_eq!(metadata.flags, flags);
-        assert_eq!(metadata.max_freq, max_freq);
+        assert_eq!(metadata.max_term_freq, max_term_freq);
+        assert_eq!(metadata.doc_len, doc_len);
     }
 
     #[test]
@@ -378,20 +437,23 @@ mod tests {
         let key = b"key\x00with\x01special\xffchars";
         let score: f32 = 7.2;
         let flags: u32 = 99;
-        let max_freq: u32 = 500;
+        let max_term_freq: u32 = 500;
+        let doc_len: u32 = 1000;
 
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(key.len() as u32).to_le_bytes());
         bytes.extend_from_slice(key);
         bytes.extend_from_slice(&score.to_le_bytes());
         bytes.extend_from_slice(&flags.to_le_bytes());
-        bytes.extend_from_slice(&max_freq.to_le_bytes());
+        bytes.extend_from_slice(&max_term_freq.to_le_bytes());
+        bytes.extend_from_slice(&doc_len.to_le_bytes());
 
         let archived = ArchivedDocumentMetadata::from_bytes(&bytes);
 
         assert_eq!(archived.key(), key);
         assert_eq!(archived.score(), 7.2);
         assert_eq!(archived.flags(), 99);
-        assert_eq!(archived.max_freq(), 500);
+        assert_eq!(archived.max_term_freq(), 500);
+        assert_eq!(archived.doc_len(), 1000);
     }
 }

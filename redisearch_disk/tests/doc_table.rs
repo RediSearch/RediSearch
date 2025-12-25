@@ -33,14 +33,16 @@ fn adding_documents() {
         key: b"doc1".to_vec(),
         score: 1.2,
         flags: 3,
-        max_freq: 4,
+        max_term_freq: 4,
+        doc_len: 1,
     };
 
     let doc_2 = DocumentMetadata {
         key: b"doc2".to_vec(),
         score: 5.6,
         flags: 7,
-        max_freq: 8,
+        max_term_freq: 8,
+        doc_len: 3,
     };
 
     let doc_id1 = doc_table
@@ -48,7 +50,8 @@ fn adding_documents() {
             doc_1.key.as_slice(),
             doc_1.score,
             doc_1.flags,
-            doc_1.max_freq,
+            doc_1.max_term_freq,
+            doc_1.doc_len,
         )
         .unwrap();
     let doc_id2 = doc_table
@@ -56,7 +59,8 @@ fn adding_documents() {
             doc_2.key.as_slice(),
             doc_2.score,
             doc_2.flags,
-            doc_2.max_freq,
+            doc_2.max_term_freq,
+            doc_2.doc_len,
         )
         .unwrap();
 
@@ -84,15 +88,28 @@ fn updating_documents() {
         key: b"doc1".to_vec(),
         score: 1.2,
         flags: 3,
-        max_freq: 4,
+        max_term_freq: 4,
+        doc_len: 5,
     };
 
     let doc_id1 = doc_table
-        .insert_document(doc.key.as_slice(), doc.score, doc.flags, doc.max_freq)
+        .insert_document(
+            doc.key.as_slice(),
+            doc.score,
+            doc.flags,
+            doc.max_term_freq,
+            doc.doc_len,
+        )
         .unwrap();
     // insert the same key twice
     let doc_id2 = doc_table
-        .insert_document(doc.key.as_slice(), doc.score, doc.flags, doc.max_freq)
+        .insert_document(
+            doc.key.as_slice(),
+            doc.score,
+            doc.flags,
+            doc.max_term_freq,
+            doc.doc_len,
+        )
         .unwrap();
 
     assert_eq!(doc_id1, 1);
@@ -126,14 +143,16 @@ fn deleting_documents() {
         key: b"doc1".to_vec(),
         score: 1.2,
         flags: 3,
-        max_freq: 4,
+        max_term_freq: 4,
+        doc_len: 5,
     };
 
     let doc_2 = DocumentMetadata {
         key: b"doc2".to_vec(),
         score: 5.6,
         flags: 7,
-        max_freq: 8,
+        max_term_freq: 8,
+        doc_len: 10,
     };
 
     // Insert two documents
@@ -142,7 +161,8 @@ fn deleting_documents() {
             doc_1.key.as_slice(),
             doc_1.score,
             doc_1.flags,
-            doc_1.max_freq,
+            doc_1.max_term_freq,
+            doc_1.doc_len,
         )
         .unwrap();
     let doc_id2 = doc_table
@@ -150,7 +170,8 @@ fn deleting_documents() {
             doc_2.key.as_slice(),
             doc_2.score,
             doc_2.flags,
-            doc_2.max_freq,
+            doc_2.max_term_freq,
+            doc_2.doc_len,
         )
         .unwrap();
 
@@ -208,7 +229,7 @@ fn iterator() {
     for i in 1..=4 {
         let key = format!("doc{}", i);
         doc_table
-            .insert_document(key.as_bytes(), i as f32, i * 10, i * 100)
+            .insert_document(key.as_bytes(), i as f32, i * 10, i * 100, i * 1000)
             .unwrap();
     }
 
@@ -264,9 +285,9 @@ fn last_document_id_recovery() {
         let doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap();
 
         // Insert a few documents
-        let doc_id1 = doc_table.insert_document(b"doc1", 1.0, 0, 1).unwrap();
-        let doc_id2 = doc_table.insert_document(b"doc2", 2.0, 0, 2).unwrap();
-        let doc_id3 = doc_table.insert_document(b"doc3", 3.0, 0, 3).unwrap();
+        let doc_id1 = doc_table.insert_document(b"doc1", 1.0, 0, 1, 1).unwrap();
+        let doc_id2 = doc_table.insert_document(b"doc2", 2.0, 0, 2, 2).unwrap();
+        let doc_id3 = doc_table.insert_document(b"doc3", 3.0, 0, 3, 3).unwrap();
 
         assert_eq!(doc_id1, 1);
         assert_eq!(doc_id2, 2);
@@ -300,7 +321,7 @@ fn last_document_id_recovery() {
         );
 
         // Insert a new document - it should get ID 4 (last_doc_id + 1)
-        let doc_id4 = doc_table.insert_document(b"doc4", 4.0, 0, 4).unwrap();
+        let doc_id4 = doc_table.insert_document(b"doc4", 4.0, 0, 4, 4).unwrap();
 
         assert_eq!(
             doc_id4,
@@ -336,11 +357,11 @@ fn last_document_id_recovery_with_deletions() {
         let doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap();
 
         // Insert documents
-        let doc_id1 = doc_table.insert_document(b"doc1", 1.0, 0, 1).unwrap();
-        let doc_id2 = doc_table.insert_document(b"doc2", 2.0, 0, 2).unwrap();
-        let doc_id3 = doc_table.insert_document(b"doc3", 3.0, 0, 3).unwrap();
-        let doc_id4 = doc_table.insert_document(b"doc4", 4.0, 0, 4).unwrap();
-        let doc_id5 = doc_table.insert_document(b"doc5", 5.0, 0, 5).unwrap();
+        let doc_id1 = doc_table.insert_document(b"doc1", 1.0, 0, 1, 1).unwrap();
+        let doc_id2 = doc_table.insert_document(b"doc2", 2.0, 0, 2, 2).unwrap();
+        let doc_id3 = doc_table.insert_document(b"doc3", 3.0, 0, 3, 3).unwrap();
+        let doc_id4 = doc_table.insert_document(b"doc4", 4.0, 0, 4, 4).unwrap();
+        let doc_id5 = doc_table.insert_document(b"doc5", 5.0, 0, 5, 5).unwrap();
 
         assert_eq!(doc_id1, 1);
         assert_eq!(doc_id2, 2);
@@ -366,7 +387,7 @@ fn last_document_id_recovery_with_deletions() {
         let doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap();
 
         // Insert a new document - it should get ID 5 (highest remaining doc ID was 4, so next is 5)
-        let new_doc_id = doc_table.insert_document(b"doc6", 6.0, 0, 6).unwrap();
+        let new_doc_id = doc_table.insert_document(b"doc6", 6.0, 0, 6, 6).unwrap();
 
         assert_eq!(
             new_doc_id, 5,
@@ -427,7 +448,7 @@ fn last_document_id_recovery_empty_table() {
         let doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap();
 
         // Insert first document - should get ID 1
-        let doc_id1 = doc_table.insert_document(b"doc1", 1.0, 0, 1).unwrap();
+        let doc_id1 = doc_table.insert_document(b"doc1", 1.0, 0, 1, 1).unwrap();
 
         assert_eq!(
             doc_id1, 1,

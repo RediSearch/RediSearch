@@ -10,13 +10,8 @@
 
 //! Mock implementations or stubs of C symbol that aren't provided
 //! by the static C libraries we are linking against in build.rs.
-use std::ffi::c_void;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
-
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut RSDummyContext: *const c_void = std::ptr::null();
 
 /// Define an empty stub function for each given symbols.
 /// This is used to define C functions the linker requires but which are not actually used by the tests.
@@ -68,6 +63,8 @@ stub_c_fn! {
     HiddenString_Free,
     HiddenString_GetUnsafe,
     RedisModule_ClusterCanAccessKeysInSlot,
+    RedisModule_ClusterDisableTrim,
+    RedisModule_ClusterEnableTrim,
     RedisModule_ClusterFreeSlotRanges,
     RedisModule_ClusterGetLocalSlotRanges,
     RedisModule_ClusterKeySlotC,

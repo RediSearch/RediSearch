@@ -297,4 +297,8 @@ impl<'index, 'iterator, DBAccess: speedb::DBAccess> IndexReader<'index>
         // We own the list of IDs, so they won't change out from under us.
         false
     }
+
+    fn refresh_buffer_pointers(&mut self) {
+        // We don't need to refresh buffer pointers because we don't own the buffer.
+    }
 }

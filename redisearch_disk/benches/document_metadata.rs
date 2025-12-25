@@ -10,7 +10,8 @@ fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
                 key: Key::from("doc_1"),
                 score: 1.0,
                 flags: 0,
-                max_freq: 10,
+                max_term_freq: 10,
+                doc_len: 50,
             },
         ),
         (
@@ -19,7 +20,8 @@ fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
                 key: Key::from("document_with_medium_length_key_12345"),
                 score: 3.5,
                 flags: 42,
-                max_freq: 100,
+                max_term_freq: 100,
+                doc_len: 500,
             },
         ),
         (
@@ -30,7 +32,8 @@ fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
                 ),
                 score: 9.99,
                 flags: 255,
-                max_freq: 1000,
+                max_term_freq: 1000,
+                doc_len: 5000,
             },
         ),
         (
@@ -39,7 +42,8 @@ fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
                 key: Key::from("document_max"),
                 score: f32::MAX,
                 flags: u32::MAX,
-                max_freq: u32::MAX,
+                max_term_freq: u32::MAX,
+                doc_len: u32::MAX,
             },
         ),
     ]

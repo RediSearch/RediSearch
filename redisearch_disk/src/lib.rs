@@ -40,6 +40,7 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut RedisSearchDiskAPI {
             indexDocument: Some(index_spec_index_doc),
             newTermIterator: Some(index_spec_new_term_iterator),
             newWildcardIterator: Some(index_spec_new_wildcard_iterator),
+            markToBeDeleted: Some(index_spec_mark_to_be_deleted),
         },
         docTable: DocTableDiskAPI {
             putDocument: Some(index_spec_put_doc),
@@ -219,12 +220,16 @@ extern "C" fn index_spec_put_doc(
     key_len: usize,
     score: f32,
     flags: u32,
-    max_freq: u32,
+    max_term_freq: u32,
+    doc_len: u32,
 ) -> t_docId {
     // Safety: see safety point 2 above.
     let key = unsafe { std::slice::from_raw_parts(key.cast::<u8>(), key_len) };
 
-    debug!(key, score, flags, max_freq, "index_spec_put_doc");
+    debug!(
+        key,
+        score, flags, max_term_freq, doc_len, "index_spec_put_doc"
+    );
 
     // Safety: see safety point 1 above.
     let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
@@ -234,7 +239,7 @@ extern "C" fn index_spec_put_doc(
 
     index
         .doc_table()
-        .insert_document(key, score, flags, max_freq)
+        .insert_document(key, score, flags, max_term_freq, doc_len)
         .unwrap_or_else(|error| {
             error!(
                 error = &error as &dyn std::error::Error,
@@ -322,6 +327,15 @@ extern "C" fn index_spec_new_wildcard_iterator(
     }
 }
 
+/// Marks the index as to be deleted.
+///
+/// # Safety
+/// 1. `index` must have been returned from [`index_spec_open`].
+extern "C" fn index_spec_mark_to_be_deleted(_index: *mut RedisSearchDiskIndexSpec) {
+    debug!("index_spec_mark_to_be_deleted");
+    // TODO: implement marking index for deletion, MOD-13144
+}
+
 /// Returns whether `doc_id` is deleted in `index`.
 ///
 /// # Safety
@@ -387,8 +401,9 @@ extern "C" fn index_spec_get_document_metadata(
         )
     };
     dmd.score = doc_table_dmd.score;
-    dmd.set_maxFreq(doc_table_dmd.max_freq);
+    dmd.set_maxTermFreq(doc_table_dmd.max_term_freq);
     dmd.set_flags(doc_table_dmd.flags);
+    dmd.set_docLen(doc_table_dmd.doc_len);
     dmd.set_type(doc_table.document_type());
 
     true
