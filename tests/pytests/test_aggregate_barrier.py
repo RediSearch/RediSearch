@@ -310,12 +310,12 @@ def _test_barrier_handles_empty_results(protocol):
                     message=f"Query with no matches should return 0, got {total}")
 
 
-@skip(cluster=False)
+@skip()
 def test_barrier_handles_empty_results_resp2():
     _test_barrier_handles_empty_results(2)
 
 
-@skip(cluster=False)
+@skip()
 def test_barrier_handles_empty_results_resp3():
     _test_barrier_handles_empty_results(3)
 
