@@ -25,16 +25,8 @@ QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok
 InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len,
                                         bool write, bool *outIsNew);
 
-/*
- * Select a random term from the index that matches the index prefix and inveted key format.
- * It tries RANDOMKEY 10 times and returns NULL if it can't find anything.
- */
-const char *Redis_SelectRandomTerm(const RedisSearchCtx *ctx, size_t *tlen);
-
 #define DONT_CREATE_INDEX false
 #define CREATE_INDEX true
-
-typedef int (*ScanFunc)(RedisModuleCtx *ctx, RedisModuleString *keyName, void *opaque);
 
 int Redis_LegacyDeleteKey(RedisModuleCtx *ctx, RedisModuleString *s);
 int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr);
@@ -44,7 +36,6 @@ int Redis_LegacyDropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void
 
 /**
  * Format redis key for a term.
- * TODO: Add index name to it
  */
 RedisModuleString *Legacy_fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, size_t len);
 
