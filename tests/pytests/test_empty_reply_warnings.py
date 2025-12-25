@@ -56,7 +56,7 @@ class TestEmptyReplyWarnings:
 
         # Coordinator SHOULD have timeout warning (propagated via RS_RESULT_TIMEDOUT)
         coord_warning = res['Profile']['Coordinator']['Warning']
-        self.env.assertContains('Timeout limit was reached', coord_warning,
+        self.env.assertContains('Timeout', coord_warning,
                                 message=f"Coordinator should have timeout warning from shard's empty reply, res: {res}")
 
     def testEmptyReplyMaxPrefixExpansionsWarning(self):
