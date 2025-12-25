@@ -168,7 +168,7 @@ def test_profile(env):
           'Total profile time': ANY,
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
-          'Warning': 'None',
+          'Warning': ['None'],
           'Iterators profile':
             {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': 2},
           'Result processors profile': [
@@ -638,7 +638,7 @@ def test_profile_crash_mod5323():
             },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
-          'Warning': 'None',
+          'Warning': ['None'],
           'Result processors profile': [
             { 'Results processed': 3, 'Time': ANY, 'Type': 'Index' },
             { 'Results processed': 3, 'Time': ANY, 'Type': 'Scorer' },
@@ -723,7 +723,7 @@ def test_profile_child_itrerators_array():
             },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
-          'Warning': 'None',
+          'Warning': ['None'],
           'Result processors profile': [
             { 'Results processed': 0, 'Time': ANY, 'Type': 'Index'},
             { 'Results processed': 0, 'Time': ANY, 'Type': 'Scorer'},

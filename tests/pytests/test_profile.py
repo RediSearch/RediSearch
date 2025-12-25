@@ -425,7 +425,7 @@ def testNotIterator(env):
   #before the fix, we would not get an empty iterator
   res = [[1, '1', ['t', 'foo']],
          ['Shards', [[
-            'Warning', 'None',
+            'Warning', ['None'],
             'Iterators profile', # Static query optimization: foo && -@t:baz => foo && -(EMPTY) => foo && ALL => foo
             ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1],
             'Result processors profile',
@@ -531,7 +531,7 @@ def TimedoutTest_resp3(env):
   )
 
   for shard_profile in res['Profile']['Shards']:
-    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached')
+    env.assertEqual(shard_profile['Warning'], ['Timeout limit was reached'])
 
   # Simple `AGGREGATE` command
   res = conn.execute_command(
@@ -539,7 +539,7 @@ def TimedoutTest_resp3(env):
   )
 
   for shard_profile in res['Profile']['Shards']:
-    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached')
+    env.assertEqual(shard_profile['Warning'], ['Timeout limit was reached'])
 
 def TimedOutWarningtestCoord(env):
   """Tests the `FT.PROFILE` response for the cluster build (coordinator)"""
