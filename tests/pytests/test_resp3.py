@@ -1611,6 +1611,24 @@ def test_multiple_warnings():
   env.assertContains('Timeout limit was reached', res['warning'])
   env.assertContains('Max prefix expansions limit was reached', res['warning'])
 
+  # Query with wildcard that exceeds the limit and force timeout
+  query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'prefix*']
+  timeout_after_n = 1
+  res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after_n, internal_only=True)
+
+  shards_profile = get_shards_profile(env, res)
+  env.assertEqual(len(shards_profile), env.shardsCount, message=f"unexpected shard count: {res}")
+  for shard_profile in shards_profile:
+    env.assertContains('Timeout limit was reached', shard_profile['Warning'])
+    if env.isCluster():
+        # MOD-12984: In cluster mode, warnings are not persisted across cursor reads,
+        # so only the timeout warning is present.
+        # Once MOD-12984 is fixed, remove this branch and keep only the assertContains below.
+        env.assertEqual(len(shard_profile['Warning']), 1, message=f"full reply output: {res}")
+    else:
+        # In standalone mode, both warnings should be present
+        env.assertContains('Max prefix expansions limit was reached', shard_profile['Warning'])
+
 # TODO: `total_results` is currently not  on cluster - to be fixed in MOD-9094
 @skip(cluster=True)
 def test_totalResults_aggregate():
