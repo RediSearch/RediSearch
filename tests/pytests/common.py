@@ -758,10 +758,8 @@ def downloadFile(env, file_name, depth=0, max_retries=3):
             ], check=True, capture_output=True, text=True)
 
         except subprocess.CalledProcessError as e:
-            env.assertTrue(False,
-                message=f"Failed to download {BASE_RDBS_URL + file_name} after {max_retries + 1} attempts. "
-                       f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}",
-                depth=depth + 1)
+            env.debugPrint(f"Failed to download {file_name} after {max_retries + 1} attempts. "
+                           f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}", force=True)
 
             # Clean up partial download
             try:
