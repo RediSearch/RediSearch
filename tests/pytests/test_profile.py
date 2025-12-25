@@ -427,7 +427,7 @@ def testNotIterator(env):
   #before the fix, we would not get an empty iterator
   res = [[1, '1', ['t', 'foo']],
          ['Shards', [[
-            'Warning', 'None',
+            'Warning', ['None'],
             'Iterators profile',
             ['Type', 'INTERSECT', 'Number of reading operations', 1, 'Child iterators',
               [['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1],
@@ -470,7 +470,7 @@ def TimeoutWarningInProfile(env):
        'Parsing time', ANY,
        'Pipeline creation time', ANY,
        'Total GIL time', ANY,
-       'Warning', 'Timeout limit was reached',
+       'Warning', ['Timeout limit was reached'],
        'Iterators profile',
          ['Type', 'WILDCARD', 'Time', ANY, 'Number of reading operations', ANY],
        'Result processors profile',
@@ -491,7 +491,7 @@ def TimeoutWarningInProfile(env):
        'Parsing time', ANY,
        'Pipeline creation time', ANY,
        'Total GIL time', ANY,
-       'Warning', 'Timeout limit was reached',
+       'Warning', ['Timeout limit was reached'],
        'Iterators profile',
         ['Type', 'WILDCARD', 'Time', ANY, 'Number of reading operations', ANY],
        'Result processors profile',
@@ -538,7 +538,7 @@ def TimedoutTest_resp3(env):
   )
 
   for shard_profile in res['Profile']['Shards']:
-    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached')
+    env.assertEqual(shard_profile['Warning'], ['Timeout limit was reached'])
 
   # Simple `AGGREGATE` command
   res = conn.execute_command(
@@ -546,7 +546,7 @@ def TimedoutTest_resp3(env):
   )
 
   for shard_profile in res['Profile']['Shards']:
-    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached')
+    env.assertEqual(shard_profile['Warning'], ['Timeout limit was reached'])
 
 def TimedOutWarningtestCoord(env):
   """Tests the `FT.PROFILE` response for the cluster build (coordinator)"""
@@ -569,10 +569,10 @@ def TimedOutWarningtestCoord(env):
   # Test that a timeout warning is returned for all shards
   if env.protocol == 2:
     for shard_profile in res[1][1]:
-      env.assertEqual(to_dict(shard_profile)['Warning'], 'Timeout limit was reached')
+      env.assertEqual(to_dict(shard_profile)['Warning'], ['Timeout limit was reached'])
   else:
     for shard_profile in res['Profile']['Shards']:
-      env.assertEquals(shard_profile['Warning'], 'Timeout limit was reached')
+      env.assertEquals(shard_profile['Warning'], ['Timeout limit was reached'])
 
   res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT', '1')
   coord_profile = None
@@ -584,7 +584,7 @@ def TimedOutWarningtestCoord(env):
     coord_profile = res['Profile']['Coordinator']
     shards_profile = res['Profile']['Shards']
 
-  env.assertEqual(coord_profile['Warning'], 'Timeout limit was reached')
+  env.assertEqual(coord_profile['Warning'], ['Timeout limit was reached'])
   env.assertEqual(len(shards_profile), env.shardsCount)
 
 @skip(asan=True, msan=True, cluster=False)
@@ -594,13 +594,6 @@ def testTimedOutWarningCoordResp3():
 @skip(asan=True, msan=True, cluster=False)
 def testTimedOutWarningCoordResp2():
   TimedOutWarningtestCoord(Env(protocol=2))
-
-def get_shards_profile(env, res):
-  """Extract shard profiles from FT.PROFILE AGGREGATE response."""
-  if env.protocol == 3:
-    return res['Profile']['Shards']
-  else:
-    return [to_dict(p) for p in res[-1][1]]
 
 def InternalCursorReadsInProfile(protocol):
   """Tests that 'Internal cursor reads' appears in shard profiles for AGGREGATE."""
@@ -662,7 +655,7 @@ def testInternalCursorReadsWithTimeoutResp3():
     env.assertContains('Internal cursor reads', shard_profile, message=f"full reply output: {res}")
     # Coordinator stops after first timeout, so only 1 cursor read per shard
     env.assertEqual(shard_profile['Internal cursor reads'], 1, message=f"full reply output: {res}")
-    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached', message=f"full reply output: {res}")
+    env.assertEqual(shard_profile['Warning'], ['Timeout limit was reached'], message=f"full reply output: {res}")
 
 @skip(cluster=False)
 def testInternalCursorReadsWithTimeoutResp2():
@@ -702,11 +695,11 @@ def testInternalCursorReadsWithTimeoutResp2():
   # Verify each shard has warning
   for shard_profile in shards_profile:
     env.assertContains('Internal cursor reads', shard_profile, message=f"full reply output: {res}")
-    env.assertEqual(shard_profile['Warning'], 'Timeout limit was reached', message=f"full reply output: {res}")
+    env.assertEqual(shard_profile['Warning'], ['Timeout limit was reached'], message=f"full reply output: {res}")
 
   # Coordinator should NOT have timeout warning (it doesn't detect it in RESP2)
   coord_profile = to_dict(res[-1][-1])
-  env.assertEqual(coord_profile['Warning'], 'None', message=f"full reply output: {res}")
+  env.assertEqual(coord_profile['Warning'], ['None'], message=f"full reply output: {res}")
 
 # This test is currently skipped due to flaky behavior of some of the machines'
 # timers. MOD-6436

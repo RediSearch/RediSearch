@@ -229,20 +229,21 @@ static bool shardResponseBarrier_HandleError(RPNet *nc) {
 // Returns RS_RESULT_TIMEDOUT if timeout warning found, RS_RESULT_OK otherwise.
 static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   bool timed_out = false;
-  // Check for a warning (resp3 only)
+  // Check for warnings (resp3 only)
   if (is_resp3) {
     RS_ASSERT(nc->current.meta);
     RS_ASSERT(nc->areq);
     MRReply *warning = MRReply_MapElement(nc->current.meta, "warning");
-    if (MRReply_Length(warning) > 0) {
-      const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, 0), NULL);
+    size_t num_warnings = MRReply_Length(warning);
+    // Iterate over all warnings in the array
+    for (size_t i = 0; i < num_warnings; i++) {
+      const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, i), NULL);
       // Set an error to be later picked up and sent as a warning
       if (!strcmp(warning_str, QueryError_Strerror(QUERY_ETIMEDOUT))) {
         timed_out = true;
       } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
         nc->areq->qiter.err->reachedMaxPrefixExpansions = true;
-      }
-      if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
+      } else if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
         nc->areq->qiter.bgScanOOM = true;
       }
     }
