@@ -1215,3 +1215,10 @@ def shard_change_timeout_policy(env, shardId, policy):
 def allShards_change_timeout_policy(env, policy):
     for shardId in range(1, env.shardsCount + 1):
         shard_change_timeout_policy(env, shardId, policy)
+
+def get_shards_profile(env, res):
+  """Extract shard profiles from FT.PROFILE AGGREGATE response."""
+  if env.protocol == 3:
+    return res['Profile']['Shards']
+  else:
+    return [to_dict(p) for p in res[-1][1]]

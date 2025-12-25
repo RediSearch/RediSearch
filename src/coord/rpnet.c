@@ -240,18 +240,14 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
       // Set an error to be later picked up and sent as a warning
       if (!strcmp(warning_str, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
         timed_out = true;
-      }
-      if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
+      } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
         QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
-      }
-      if (!strcmp(warning_str, QUERY_WOOM_SHARD)) {
+      } else if (!strcmp(warning_str, QUERY_WOOM_SHARD)) {
         QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
-      }
-      if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
+      } else if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
         RS_ASSERT(nc->areq);
         AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
-      }
-      if (!strcmp(warning_str, QUERY_ASM_INACCURATE_RESULTS)) {
+      } else if (!strcmp(warning_str, QUERY_ASM_INACCURATE_RESULTS)) {
         RS_ASSERT(nc->areq);
         nc->areq->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
       }
