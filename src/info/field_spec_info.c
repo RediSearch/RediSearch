@@ -185,10 +185,9 @@ size_t IndexSpec_VectorIndexesSize(IndexSpec *sp) {
 }
 
 // Get the stats of the vector field `fs` in the index `sp`.
-VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *fs){
+VectorIndexStats IndexSpec_GetVectorIndexStats(FieldSpec *fs){
   VectorIndexStats stats = {0};
-  RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-  VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
+  VecSimIndex *vecsim = openVectorIndex(fs, DONT_CREATE_INDEX);
   if (!vecsim) {
     return stats;
   }
@@ -202,9 +201,9 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *f
 VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
   VectorIndexStats stats = {0};
   for (size_t i = 0; i < sp->numFields; ++i) {
-    const FieldSpec *fs = sp->fields + i;
+    FieldSpec *fs = sp->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      VectorIndexStats field_stats = IndexSpec_GetVectorIndexStats(sp, fs);
+      VectorIndexStats field_stats = IndexSpec_GetVectorIndexStats(fs);
       stats.memory += field_stats.memory;
       stats.marked_deleted += field_stats.marked_deleted;
     }
@@ -213,12 +212,12 @@ VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
 }
 
 // Get the stats of the field `fs` in the index `sp`.
-FieldSpecStats IndexSpec_GetFieldStats(const FieldSpec *fs, IndexSpec *sp){
+FieldSpecStats IndexSpec_GetFieldStats(FieldSpec *fs){
   FieldSpecStats stats = {0};
   stats.type = fs->types;
   switch (stats.type) {
     case INDEXFLD_T_VECTOR:
-      stats.vecStats = IndexSpec_GetVectorIndexStats(sp, fs);
+      stats.vecStats = IndexSpec_GetVectorIndexStats(fs);
       return stats;
     default:
       return (FieldSpecStats){0};
@@ -226,11 +225,11 @@ FieldSpecStats IndexSpec_GetFieldStats(const FieldSpec *fs, IndexSpec *sp){
 }
 
 // Get the information of the field `fs` in the index `sp`.
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, IndexSpec *sp, bool obfuscate) {
+FieldSpecInfo FieldSpec_GetInfo(FieldSpec *fs, bool obfuscate) {
   FieldSpecInfo info = {0};
   FieldSpecInfo_SetIdentifier(&info, FieldSpec_FormatPath(fs, obfuscate));
   FieldSpecInfo_SetAttribute(&info, FieldSpec_FormatName(fs, obfuscate));
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
-  FieldSpecInfo_SetStats(&info, IndexSpec_GetFieldStats(fs, sp));
+  FieldSpecInfo_SetStats(&info, IndexSpec_GetFieldStats(fs));
   return info;
 }

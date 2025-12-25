@@ -90,9 +90,9 @@ void freeSpec(RefManager *ism) {
 }
 
 NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field) {
-  RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(spec, field, INDEXFLD_T_NUMERIC);
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, field, strlen(field));
 
-  return openNumericKeysDict(spec, fmtkey, DONT_CREATE_INDEX);
+  return openNumericOrGeoIndex(spec, const_cast<FieldSpec *>(fs), DONT_CREATE_INDEX);
 }
 
 size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNode **failed_range) {
