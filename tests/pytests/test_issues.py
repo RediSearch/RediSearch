@@ -1782,7 +1782,7 @@ def test_mod_12493(env:Env):
   env.assertEqual(to_dict(index_info(env)['cursor_stats'])['index_total'], env.shardsCount)
   # Check command stats for internal cursors command. We expect a single one (READ) on each shard
   for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
-    stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR']
+    stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR|READ']
     env.assertEqual(stats['calls'], 1, message=f'Expected 1 call on shard {i}, got {stats["calls"]}')
 
   # Delete the cursor. This should delete the internal cursors on all shards.
@@ -1796,8 +1796,8 @@ def test_mod_12493(env:Env):
 
   # Expect another call on each shard for the DEL command
   for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
-    stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR']
-    env.assertEqual(stats['calls'], 2, message=f'Expected 2 calls on shard {i}, got {stats["calls"]}')
+    stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR|DEL']
+    env.assertEqual(stats['calls'], 1, message=f'Expected 1 call on shard {i}, got {stats["calls"]}')
 
 @skip(cluster=True)
 def test_mod_12807(env:Env):
