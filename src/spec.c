@@ -2166,22 +2166,48 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   return fs;
 }
 
-static dictType invidxDictType = {0};
-
-static void valFreeCb(void *unused, void *p) {
-  KeysDictValue *kdv = p;
-  if (kdv->dtor) {
-    kdv->dtor(kdv->p);
-  }
-  rm_free(kdv);
+uint64_t CharBuf_HashFunction(const void *key) {
+  const CharBuf *cb = key;
+  return RS_dictGenHashFunction(cb->buf, cb->len);
 }
 
-static void valIIFreeCb(void *unused, void *p) {
-  InvertedIndex *ii = p;
-  if(ii) {
-    InvertedIndex_Free(ii);
-  }
+void *CharBuf_KeyDup(void *privdata, const void *key) {
+  const CharBuf *cb = key;
+  CharBuf *newcb = rm_malloc(sizeof(*newcb));
+  newcb->len = cb->len;
+  newcb->buf = rm_malloc(cb->len);
+  memcpy(newcb->buf, cb->buf, cb->len);
+  return newcb;
 }
+
+int CharBuf_KeyCompare(void *privdata, const void *key1, const void *key2) {
+  const CharBuf *cb1 = key1;
+  const CharBuf *cb2 = key2;
+  if (cb1->len != cb2->len) {
+    return 0;
+  }
+  return (memcmp(cb1->buf, cb2->buf, cb1->len) == 0);
+}
+
+void CharBuf_KeyDestructor(void *privdata, void *key) {
+  CharBuf *cb = key;
+  rm_free(cb->buf);
+  rm_free(cb);
+}
+
+void InvIndFreeCb(void *privdata, void *val) {
+  InvertedIndex *idx = val;
+  InvertedIndex_Free(idx);
+}
+
+static dictType invIdxDictType = {
+  .hashFunction = CharBuf_HashFunction,
+  .keyDup = CharBuf_KeyDup,
+  .valDup = NULL, // Taking and owning the InvertedIndex pointer
+  .keyCompare = CharBuf_KeyCompare,
+  .keyDestructor = CharBuf_KeyDestructor,
+  .valDestructor = InvIndFreeCb,
+};
 
 static dictType missingFieldDictType = {
         .hashFunction = hiddenNameHashFunction,
@@ -2189,17 +2215,12 @@ static dictType missingFieldDictType = {
         .valDup = NULL,
         .keyCompare = hiddenNameKeyCompare,
         .keyDestructor = hiddenNameKeyDestructor,
-        .valDestructor = valIIFreeCb,
+        .valDestructor = InvIndFreeCb,
 };
 
 // Only used on new specs so it's thread safe
 void IndexSpec_MakeKeyless(IndexSpec *sp) {
-  // Initialize only once:
-  if (!invidxDictType.valDestructor) {
-    invidxDictType = dictTypeHeapRedisStrings;
-    invidxDictType.valDestructor = valFreeCb;
-  }
-  sp->keysDict = dictCreate(&invidxDictType, NULL);
+  sp->keysDict = dictCreate(&invIdxDictType, NULL);
   sp->missingFieldDict = dictCreate(&missingFieldDictType, NULL);
 }
 
@@ -2883,8 +2904,8 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   TrieIterator *it = Trie_Iterate(ctx.spec->terms, "", 0, 0, 1);
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
-    RedisModuleString *keyName = fmtRedisTermKey(&ctx, res, strlen(res));
-    Redis_DropScanHandler(ctx.redisCtx, keyName, &ctx);
+    RedisModuleString *keyName = Legacy_fmtRedisTermKey(&ctx, res, strlen(res));
+    Redis_LegacyDropScanHandler(ctx.redisCtx, keyName, &ctx);
     RedisModule_FreeString(ctx.redisCtx, keyName);
     rm_free(res);
   }
