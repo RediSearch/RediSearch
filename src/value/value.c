@@ -82,14 +82,32 @@ RSValue *RSValue_Trio_GetRight(const RSValue *v) {
   return v->_trioval.vals[2];
 }
 
+RSValue *RSValue_Dereference(const RSValue *v) {
+  for (; v && v->_t == RSValueType_Reference; v = v->_ref);
+  return (RSValue *)v;
+}
+
+void RSValue_MakeReference(RSValue *dst, RSValue *src) {
+  RS_LOG_ASSERT(src, "RSvalue is missing");
+  RSValue_Clear(dst);
+  dst->_t = RSValueType_Reference;
+  dst->_ref = RSValue_IncrRef(src);
+}
+
+void RSValue_MakeOwnReference(RSValue *dst, RSValue *src) {
+  RSValue_MakeReference(dst, src);
+  RSValue_DecrRef(src);
+}
+
+void RSValue_Replace(RSValue **destpp, RSValue *src) {
+    RSValue_DecrRef(*destpp);
+    RSValue_IncrRef(src);
+    *(destpp) = src;
+}
+
 ///////////////////////////////////////////////////////////////
 // Setters (needed by some constructors)
 ///////////////////////////////////////////////////////////////
-
-// Forward declarations needed for RSValue_Clear and other functions
-void RSValue_Free(RSValue *v);
-void RSValue_DecrRef(RSValue* v);
-RSValue* RSValue_IncrRef(RSValue* v);
 
 inline void RSValue_SetNumber(RSValue *v, double n) {
   v->_t = RSValueType_Number;
@@ -111,12 +129,6 @@ inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
   v->_strval.stype = RSStringType_Const;
 }
 
-void RSValue_MakeRStringOwner(RSValue *v) {
-  RS_LOG_ASSERT(v->_t == RSValueType_RedisString, "RSvalue type should be string");
-  v->_t = RSValueType_OwnRstring;
-  RedisModule_RetainString(RSDummyContext, v->_rstrval);
-}
-
 ///////////////////////////////////////////////////////////////
 // Constructors
 ///////////////////////////////////////////////////////////////
@@ -129,44 +141,19 @@ RSValue *RSValue_NewWithType(RSValueType t) {
   return v;
 }
 
-RSValue RSValue_Undefined() {
-  RSValue v;
-  v._t = RSValueType_Undef;
-  v._allocated = 0;
-  v._refcount = 1;
-  return v;
-}
-
-RSValue RSValue_Number(double n) {
-  RSValue v = {0};
-
-  v._t = RSValueType_Number;
-  v._refcount = 1;
-  v._allocated = 0;
-  v._numval = n;
-
-  return v;
-}
-
-RSValue RSValue_String(char *str, uint32_t len) {
-  RSValue v = {0};
-  v._allocated = 0;
-  v._refcount = 1;
-  v._t = RSValueType_String;
-  v._strval.str = str;
-  v._strval.len = len;
-  v._strval.stype = RSStringType_RMAlloc;
-  return v;
-}
-
 RSValue *RSValue_NewUndefined() {
   RSValue *v = RSValue_NewWithType(RSValueType_Undef);
   return v;
 }
 
+RSValue *RSValue_NewNull() {
+  RSValue *v = RSValue_NewWithType(RSValueType_Null);
+  return v;
+}
+
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
  * the value needs to be detached */
-inline RSValue *RSValue_NewString(char *str, uint32_t len) {
+RSValue *RSValue_NewString(char *str, uint32_t len) {
   RS_LOG_ASSERT(len <= (UINT32_MAX >> 4), "string length exceeds limit");
   RSValue *v = RSValue_NewWithType(RSValueType_String);
   v->_strval.str = str;
@@ -184,24 +171,10 @@ RSValue *RSValue_NewConstString(const char *str, uint32_t len) {
   return v;
 }
 
-/* Wrap a redis string value */
-RSValue *RSValue_NewBorrowedRedisString(RedisModuleString *str) {
+RSValue *RSValue_NewRedisString(RedisModuleString *str) {
   RSValue *v = RSValue_NewWithType(RSValueType_RedisString);
   v->_rstrval = str;
   return v;
-}
-
-RSValue *RSValue_NewOwnedRedisString(RedisModuleString *str) {
-  RSValue *r = RSValue_NewBorrowedRedisString(str);
-  RSValue_MakeRStringOwner(r);
-  return r;
-}
-
-// TODO : NORMALLY
-RSValue *RSValue_NewStolenRedisString(RedisModuleString *str) {
-  RSValue *ret = RSValue_NewBorrowedRedisString(str);
-  ret->_t = RSValueType_OwnRstring;
-  return ret;
 }
 
 RSValue RS_NULL = {._t = RSValueType_Null, ._refcount = 1, ._allocated = 0};
@@ -268,37 +241,6 @@ RSValue *RSValue_NewMap(RSValueMap map) {
   return v;
 }
 
-RSValue *RSValue_NewVStringArray(uint32_t sz, ...) {
-  RSValue **arr = RSValue_AllocateArray(sz);
-  va_list ap;
-  va_start(ap, sz);
-  for (uint32_t i = 0; i < sz; i++) {
-    char *p = va_arg(ap, char *);
-    arr[i] = RSValue_NewCString(p);
-  }
-  va_end(ap);
-  return RSValue_NewArray(arr, sz);
-}
-
-/* Wrap an array of NULL terminated C strings into an RSValue array */
-RSValue *RSValue_NewStringArray(char **strs, uint32_t sz) {
-  RSValue **arr = RSValue_AllocateArray(sz);
-
-  for (uint32_t i = 0; i < sz; i++) {
-    arr[i] = RSValue_NewCString(strs[i]);
-  }
-  return RSValue_NewArray(arr, sz);
-}
-
-RSValue *RSValue_NewConstStringArray(char **strs, uint32_t sz) {
-  RSValue **arr = RSValue_AllocateArray(sz);
-
-  for (uint32_t i = 0; i < sz; i++) {
-    arr[i] = RSValue_NewConstString(strs[i], strlen(strs[i]));
-  }
-  return RSValue_NewArray(arr, sz);
-}
-
 RSValue *RSValue_NewTrio(RSValue *val, RSValue *otherval, RSValue *other2val) {
   RSValue *trio = RSValue_NewWithType(RSValueType_Trio);
   trio->_trioval.vals = rm_calloc(3, sizeof(*trio->_trioval.vals));
@@ -306,6 +248,12 @@ RSValue *RSValue_NewTrio(RSValue *val, RSValue *otherval, RSValue *other2val) {
   trio->_trioval.vals[1] = otherval;
   trio->_trioval.vals[2] = other2val;
   return trio;
+}
+
+RSValue *RSValue_NewReference(RSValue *src) {
+  RSValue *ref = RSValue_NewWithType(RSValueType_Reference);
+  ref->_ref = RSValue_IncrRef(src);
+  return ref;
 }
 
 ///////////////////////////////////////////////////////////////
@@ -338,16 +286,16 @@ bool RSValue_IsRedisString(const RSValue *v) {
   return (v && v->_t == RSValueType_RedisString);
 }
 
-bool RSValue_IsOwnRString(const RSValue *v) {
-  return (v && v->_t == RSValueType_OwnRstring);
-}
-
 bool RSValue_IsTrio(const RSValue *v) {
   return (v && v->_t == RSValueType_Trio);
 }
 
+int RSValue_IsAnyString(const RSValue *value) {
+  return value && (value->_t == RSValueType_String || value->_t == RSValueType_RedisString);
+}
+
 int RSValue_IsNull(const RSValue *value) {
-  if (!value || value == RSValue_NullStatic()) return 1;
+  if (!value || value->_t == RSValueType_Null) return 1;
   if (value->_t == RSValueType_Reference) return RSValue_IsNull(value->_ref);
   return 0;
 }
@@ -373,12 +321,8 @@ char *RSValue_String_Get(const RSValue *v, uint32_t *lenp) {
   return v->_strval.str;
 }
 
-char *RSValue_String_GetPtr(const RSValue *v) {
-  return RSValue_String_Get(v, NULL);
-}
-
 RedisModuleString *RSValue_RedisString_Get(const RSValue *v) {
-  RS_ASSERT(v && (v->_t == RSValueType_RedisString || v->_t == RSValueType_OwnRstring));
+  RS_ASSERT(v && v->_t == RSValueType_RedisString);
   return v->_rstrval;
 }
 
@@ -393,13 +337,23 @@ const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
       }
       return value->_strval.str;
     case RSValueType_RedisString:
-    case RSValueType_OwnRstring:
       return RedisModule_StringPtrLen(value->_rstrval, lenp);
     case RSValueType_Trio:
       return RSValue_StringPtrLen(RSValue_Trio_GetLeft(value), lenp);
     default:
       return NULL;
   }
+}
+
+// Array getters/setters
+RSValue *RSValue_ArrayItem(const RSValue *arr, uint32_t index) {
+  RS_ASSERT(arr && arr->_t == RSValueType_Array);
+  RS_ASSERT(index < arr->_arrval.len);
+  return arr->_arrval.vals[index];
+}
+
+uint32_t RSValue_ArrayLen(const RSValue *arr) {
+  return arr ? arr->_arrval.len : 0;
 }
 
 // Map getters/setters
@@ -437,11 +391,11 @@ void RSValue_Clear(RSValue *v) {
     case RSValueType_Reference:
       RSValue_DecrRef(v->_ref);
       break;
-    case RSValueType_OwnRstring:
+    case RSValueType_RedisString:
       RedisModule_FreeString(RSDummyContext, v->_rstrval);
       break;
     case RSValueType_Null:
-      return;  // prevent changing global RS_NULL to RSValue_Undef
+      return;  // prevent changing global RS_NULL to RSValueType_Undef
     case RSValueType_Trio:
       RSValue_DecrRef(RSValue_Trio_GetLeft(v));
       RSValue_DecrRef(RSValue_Trio_GetMiddle(v));
@@ -478,18 +432,16 @@ RSValue* RSValue_IncrRef(RSValue* v) {
 
 void RSValue_DecrRef(RSValue* v) {
   if (__atomic_sub_fetch(&(v)->_refcount, 1, __ATOMIC_RELAXED) == 0) {
-    RSValue_Free(v);
+    RSValue_Clear(v);
+    if (v->_allocated) {
+      mempool_release(getPool(), v);
+    }
   }
-}
-
-// Type conversion setters
-void RSValue_IntoUndefined(RSValue *v) {
-  RS_ASSERT(v);
-  v->_t = RSValueType_Undef;
 }
 
 void RSValue_IntoNull(RSValue *v) {
   RS_ASSERT(v);
+  RSValue_Clear(v);
   v->_t = RSValueType_Null;
 }
 
@@ -503,15 +455,6 @@ uint16_t RSValue_Refcount(const RSValue *v) {
 // Other Functions (utility, comparison, conversion, etc.)
 ///////////////////////////////////////////////////////////////
 
-/* Free a value's internal value. It only does anything in the case of a string, and doesn't free
- * the actual value object */
-void RSValue_Free(RSValue *v) {
-  RSValue_Clear(v);
-  if (v->_allocated) {
-    mempool_release(getPool(), v);
-  }
-}
-
 /* Convert a value to a string value. If the value is already a string value it gets
  * shallow-copied (no string buffer gets copied) */
 void RSValue_ToString(RSValue *dst, RSValue *v) {
@@ -519,8 +462,7 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
     case RSValueType_String:
       RSValue_MakeReference(dst, v);
       break;
-    case RSValueType_RedisString:
-    case RSValueType_OwnRstring: {
+    case RSValueType_RedisString: {
       size_t sz;
       const char *str = RedisModule_StringPtrLen(v->_rstrval, &sz);
       RSValue_SetConstString(dst, str, sz);
@@ -566,7 +508,6 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
       l = v->_strval.len;
       break;
     case RSValueType_RedisString:
-    case RSValueType_OwnRstring:
       // Redis strings - take the number and len
       p = RedisModule_StringPtrLen(v->_rstrval, &l);
       break;
@@ -592,6 +533,48 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
     }
 
     return 1;
+  }
+
+  return 0;
+}
+
+uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
+  switch (v->_t) {
+    case RSValueType_Reference:
+      return RSValue_Hash(v->_ref, hval);
+    case RSValueType_String:
+
+      return fnv_64a_buf(v->_strval.str, v->_strval.len, hval);
+    case RSValueType_Number:
+      return fnv_64a_buf(&v->_numval, sizeof(double), hval);
+
+    case RSValueType_RedisString: {
+      size_t sz;
+      const char *c = RedisModule_StringPtrLen(v->_rstrval, &sz);
+      return fnv_64a_buf((void *)c, sz, hval);
+    }
+    case RSValueType_Null:
+      return hval + 1;
+
+    case RSValueType_Array: {
+      for (uint32_t i = 0; i < v->_arrval.len; i++) {
+        hval = RSValue_Hash(v->_arrval.vals[i], hval);
+      }
+      return hval;
+    }
+
+    case RSValueType_Map:
+      for (uint32_t i = 0; i < v->_mapval.len; i++) {
+        hval = RSValue_Hash(v->_mapval.entries[i].key, hval);
+        hval = RSValue_Hash(v->_mapval.entries[i].value, hval);
+      }
+      return hval;
+
+    case RSValueType_Undef:
+      return 0;
+
+    case RSValueType_Trio:
+      return RSValue_Hash(RSValue_Trio_GetLeft(v), hval);
   }
 
   return 0;
@@ -670,8 +653,7 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2, QueryError *qerr)
       return cmp_numbers(v1, v2);
     case RSValueType_String:
       return cmp_strings(v1->_strval.str, v2->_strval.str, v1->_strval.len, v2->_strval.len);
-    case RSValueType_RedisString:
-    case RSValueType_OwnRstring: {
+    case RSValueType_RedisString: {
       size_t l1, l2;
       const char *s1 = RedisModule_StringPtrLen(v1->_rstrval, &l1);
       const char *s2 = RedisModule_StringPtrLen(v2->_rstrval, &l2);
@@ -688,6 +670,10 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2, QueryError *qerr)
     default:
       return 0;
   }
+}
+
+RSValue **RSValue_AllocateArray(uint32_t len) {
+  return (RSValue **)rm_malloc(len * sizeof(RSValue *));
 }
 
 /* Compare 2 values for sorting */
@@ -769,6 +755,38 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   return cmp_strings(s1, s2, l1, l2) == 0;
 }
 
+int RSValue_BoolTest(const RSValue *v) {
+  if (RSValue_IsNull(v)) return 0;
+
+  v = RSValue_Dereference(v);
+  switch (v->_t) {
+    case RSValueType_Array:
+      return v->_arrval.len != 0;
+    case RSValueType_Number:
+      return v->_numval != 0;
+    case RSValueType_String:
+      return v->_strval.len != 0;
+    case RSValueType_RedisString: {
+      size_t l = 0;
+      const char *p = RedisModule_StringPtrLen(v->_rstrval, &l);
+      return l != 0;
+    }
+    default:
+      return 0;
+  }
+}
+
+size_t RSValue_NumToString(const RSValue *v, char *buf, size_t buflen) {
+  RS_ASSERT(v->_t == RSValueType_Number);
+  double dd = v->_numval;
+  long long ll = dd;
+  if (ll == dd) {
+    return snprintf(buf, buflen, "%lld", ll);
+  } else {
+    return snprintf(buf, buflen, "%.12g", dd);
+  }
+}
+
 sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
   if (!v) {
     return sdscat(s, "nil");
@@ -786,7 +804,6 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
       }
       break;
     case RSValueType_RedisString:
-    case RSValueType_OwnRstring:
       if (obfuscate) {
         size_t len;
         const char *obfuscated = Obfuscate_Text(RedisModule_StringPtrLen(v->_rstrval, &len));

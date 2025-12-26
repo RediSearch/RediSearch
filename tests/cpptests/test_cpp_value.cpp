@@ -27,35 +27,23 @@ TEST_F(ValueTest, testBasic) {
   RSValue_DecrRef(v2);
 
   const char *str = "hello world";
-  v = RSValue_NewCString(strdup(str));
+  char *str2 = strdup(str);
+  v = RSValue_NewString(str2, strlen(str2));
   ASSERT_EQ(RSValueType_String, RSValue_Type(v));
   uint32_t v_str_len;
   char *v_str = RSValue_String_Get(v, &v_str_len);
   ASSERT_EQ(strlen(str), v_str_len);
   ASSERT_EQ(0, strcmp(str, v_str));
   RSValue_DecrRef(v);
-
-  // cannot use redis strings in tests...
-  v = RSValue_NewBorrowedRedisString(NULL);
-  ASSERT_EQ(RSValueType_RedisString, RSValue_Type(v));
-  RSValue_DecrRef(v);
 }
 
 TEST_F(ValueTest, testArray) {
-  RSValue *arr = RSValue_NewVStringArray(3, strdup("foo"), strdup("bar"), strdup("baz"));
-  ASSERT_EQ(3, RSValue_ArrayLen(arr));
-  ASSERT_EQ(RSValueType_String, RSValue_Type(RSValue_ArrayItem(arr, 0)));
-  ASSERT_STREQ("foo", RSValue_String_Get(RSValue_ArrayItem(arr, 0), NULL));
+  RSValue **array = RSValue_AllocateArray(3);
+  array[0] = RSValue_NewConstString("foo", strlen("foo"));
+  array[1] = RSValue_NewConstString("bar", strlen("bar"));
+  array[2] = RSValue_NewConstString("baz", strlen("baz"));
+  RSValue *arr = RSValue_NewArray(array, 3);
 
-  ASSERT_EQ(RSValueType_String, RSValue_Type(RSValue_ArrayItem(arr, 1)));
-  ASSERT_STREQ("bar", RSValue_String_Get(RSValue_ArrayItem(arr, 1), NULL));
-
-  ASSERT_EQ(RSValueType_String, RSValue_Type(RSValue_ArrayItem(arr, 2)));
-  ASSERT_STREQ("baz", RSValue_String_Get(RSValue_ArrayItem(arr, 2), NULL));
-  RSValue_DecrRef(arr);
-
-  char *strs[] = {strdup("foo"), strdup("bar"), strdup("baz")};
-  arr = RSValue_NewStringArray(strs, 3);
   ASSERT_EQ(3, RSValue_ArrayLen(arr));
   ASSERT_EQ(RSValueType_String, RSValue_Type(RSValue_ArrayItem(arr, 0)));
   ASSERT_STREQ("foo", RSValue_String_Get(RSValue_ArrayItem(arr, 0), NULL));
