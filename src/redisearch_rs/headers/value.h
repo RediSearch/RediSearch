@@ -102,6 +102,14 @@ struct RSValue *RSValue_NewTrio(struct RSValue *val,
                                 struct RSValue *otherval,
                                 struct RSValue *other2val);
 
+int RSValue_Cmp(const struct RSValue *v1, const struct RSValue *v2, QueryError *status);
+
+int RSValue_Equal(const struct RSValue *v1, const struct RSValue *v2, QueryError *status);
+
+int RSValue_BoolTest(const struct RSValue *v);
+
+uint64_t RSValue_Hash(const struct RSValue *v, uint64_t hval);
+
 RSValueMap RSValueMap_AllocUninit(uint32_t value);
 
 struct RSValue *RSValue_NewMap(RSValueMap map);
@@ -155,14 +163,6 @@ const char *RSValue_ConvertStringPtrLen(const struct RSValue *v,
                                         size_t buflen);
 
 const char *RSValue_StringPtrLen(const struct RSValue *value, size_t *lenp);
-
-int RSValue_Cmp(const struct RSValue *v1, const struct RSValue *v2, QueryError *status);
-
-int RSValue_Equal(const struct RSValue *v1, const struct RSValue *v2, QueryError *status);
-
-int RSValue_BoolTest(const struct RSValue *v);
-
-uint64_t RSValue_Hash(const struct RSValue *v, uint64_t hval);
 
 void RSValue_ToString(const struct RSValue *dst, const struct RSValue *value);
 
