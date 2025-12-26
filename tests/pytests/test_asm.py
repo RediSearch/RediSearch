@@ -354,7 +354,7 @@ def create_and_populate_index(env: Env, index_name: str, n_docs: int):
                               'timestamp', int(time.time() * 1000),
                               'extra_data', f'initial_{i}')
 
-def wait_for_migration_complete(env, dest_shard, source_shard, timeout=300, query_during_migration=None):
+def wait_for_migration_complete(env, dest_shard, source_shard, timeout=200, query_during_migration=None):
     """Helper to wait for slot migration to complete with retry on failure
 
     Args:

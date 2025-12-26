@@ -523,6 +523,43 @@ done_2_err:
     }
 }
 
+static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+  ProfilePrinterCtx *profileCtx = &req->profileCtx;
+  RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
+  // qctx->bgScanOOM for coordinator, sctx->spec->scan_failed_OOM for shards
+  if ((qctx->bgScanOOM)||(sctx->spec && sctx->spec->scan_failed_OOM)) {
+    RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
+    ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
+  }
+  if (QueryError_HasQueryOOMWarning(qctx->err)) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, !IsInternal(req));
+    // We use the cluster warning since shard level warning sent via empty reply bailout
+    RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
+    ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
+  }
+  if (rc == RS_RESULT_TIMEDOUT) {
+    // Track warnings in global statistics
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+    RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
+  } else if (rc == RS_RESULT_ERROR) {
+    // Non-fatal error
+    RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
+  }
+  if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
+    RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
+    ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
+  }
+  if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
+    RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
+  }
+  RedisModule_Reply_ArrayEnd(reply); // >warnings
+}
+
 /**
  * Sends a chunk of <n> rows in the resp3 format
 **/
@@ -611,36 +648,7 @@ done_3:
     RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
     // <error>
-    RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
-    // qctx->bgScanOOM for coordinator, sctx->spec->scan_failed_OOM for shards
-    if ((qctx->bgScanOOM)||(sctx->spec && sctx->spec->scan_failed_OOM)) {
-      RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
-      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
-    }
-    if (QueryError_HasQueryOOMWarning(qctx->err)) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, !IsInternal(req));
-      // We use the cluster warning since shard level warning sent via empty reply bailout
-      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
-      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
-    }
-    if (rc == RS_RESULT_TIMEDOUT) {
-      // Track warnings in global statistics
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
-      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_TIMEOUT);
-    } else if (rc == RS_RESULT_ERROR) {
-      // Non-fatal error
-      RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
-    } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
-      RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
-      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
-    }
-    if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
-      RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
-    }
-    RedisModule_Reply_ArrayEnd(reply); // >warnings
+    _replyWarnings(req, reply, rc);
 
     cursor_done = (rc != RS_RESULT_OK
                    && !(rc == RS_RESULT_TIMEDOUT
