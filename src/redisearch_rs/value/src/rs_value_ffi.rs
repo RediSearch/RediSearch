@@ -169,7 +169,7 @@ impl RSValueTrait for RSValueFFI {
     }
 
     fn mem_size() -> usize {
-        unsafe { ffi::RSValueSize }
+        ffi::RSValueSize as usize
     }
 
     fn refcount(&self) -> Option<usize> {
