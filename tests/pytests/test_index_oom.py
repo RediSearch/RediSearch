@@ -167,7 +167,7 @@ def test_stop_indexing_low_mem_verbosity():
   # find warning index
   warning_index = results_str.index('Warning')+1
   warning = results_str[warning_index]
-  env.assertEqual(warning, partial_results_warning_str)
+  env.assertEqual(warning[0], partial_results_warning_str)
 
 @skip(cluster=True)
 def test_idx_delete_during_bg_indexing(env):

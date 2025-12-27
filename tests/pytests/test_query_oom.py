@@ -352,17 +352,17 @@ def test_oom_verbosity_cluster_return():
     # Search Profile
     res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
     env.assertEqual(res['Results']['warning'][0], SHARD_OOM_WARNING)
-    shards_warning_lst = [shard_profile['Warning'] for shard_profile in res['Profile']['Shards']]
     # Since we don't know the order of responses, we need to count 2 errors
-    env.assertEqual(shards_warning_lst.count(SHARD_OOM_WARNING), 2)
+    n_warnings = sum(1 for shard in res['Profile']['Shards'] if SHARD_OOM_WARNING in shard['Warning'])
+    env.assertEqual(n_warnings, 2)
 
     # Aggregate Profile (MOD-12640: warnings propagated from empty shard replies)
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
     env.assertEqual(res['Results']['warning'][0], COORD_OOM_WARNING)
-    env.assertEqual(res['Profile']['Coordinator']['Warning'], SHARD_OOM_WARNING)
-    shards_warning_lst = [shard_profile['Warning'] for shard_profile in res['Profile']['Shards']]
+    env.assertContains(SHARD_OOM_WARNING, res['Profile']['Coordinator']['Warning'])
     # Since we don't know the order of responses, we need to count 2 errors
-    env.assertEqual(shards_warning_lst.count(SHARD_OOM_WARNING), 2)
+    n_warnings = sum(1 for shard in res['Profile']['Shards'] if SHARD_OOM_WARNING in shard['Warning'])
+    env.assertEqual(n_warnings, 2)
 
     # RESP2
     env.cmd('HELLO', 2)
@@ -370,6 +370,6 @@ def test_oom_verbosity_cluster_return():
     # Aggregate Profile
     # In resp 2 the shard warnings are not detected by the coordinator
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
-    shards_warning_lst = [shard_res[11] for shard_res in res[1][1]]
     # Since we don't know the order of responses, we need to count 2 errors
-    env.assertEqual(shards_warning_lst.count(SHARD_OOM_WARNING), 2)
+    n_warnings = sum(1 for shard_res in res[1][1] if SHARD_OOM_WARNING in shard_res[11])
+    env.assertEqual(n_warnings, 2)
