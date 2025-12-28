@@ -163,6 +163,7 @@ jobs:
           import boto3
           import os
           import json
+          import re
           from concurrent.futures import ThreadPoolExecutor
           from zipfile import ZipFile
 
@@ -170,7 +171,10 @@ jobs:
           oss_dir = "redisearch-oss"
           ent_dir = "redisearch"
 
-          suffix = f".{os.environ['SOURCE']}.zip"
+          # Suffix pattern: .{SOURCE}.{TIMESTAMP}.{WORKFLOW_NUM}.zip
+          # Example: .2.10.20231228.123456.123.zip
+          # Pattern matches: .{SOURCE}. followed by timestamp (YYYYMMDD.HHMMSS) and workflow number
+          suffix_pattern = re.compile(rf"\.{re.escape(os.environ['SOURCE'])}\.(\d{{8}}\.\d{{6}}\.\d+)\.zip$")
           new_suffix = f".{os.environ['CUR_VERSION']}.zip"
           expected_sha = os.environ["EXPECTED_SHA"]
 
@@ -178,12 +182,12 @@ jobs:
 
           ########################### Helper Functions ###########################
 
-          # List all file in `bucket`, with suffix `suffix` and the given prefix (path)
+          # List all file in `bucket`, matching suffix_pattern and the given prefix (path)
           def list_files_by_branch(prefix):
               paginator = client.get_paginator("list_objects_v2")
               for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
                   for obj in page.get("Contents", []):
-                      if obj["Key"].endswith(suffix):
+                      if suffix_pattern.search(obj["Key"]):
                           yield obj["Key"]
 
           def list_snapshots_by_branch(dir):
@@ -201,9 +205,14 @@ jobs:
                       return sha[2:-1] if sha[:2] in ['b"', "b'"] else sha
 
           # new location is outside snapshots/ directory and with the new suffix
-          # Only called on files we know end with `suffix` and have a `snapshot` directory in the path
+          # Remove snapshots/ directory and replace the suffix pattern with the version suffix
+          # TODO: remove "staging-test" after verifying
           def get_target_name(name):
-              return name.replace("snapshots/", "", 1)[:-len(suffix)] + new_suffix
+              # Remove snapshots/ from path
+              name_without_snapshots = name.replace("snapshots/", "staging-test/", 1)
+              # Remove the suffix pattern and add new suffix
+              # suffix_pattern matches .{SOURCE}.{TIMESTAMP}.{WORKFLOW_NUM}.zip at the end
+              return suffix_pattern.sub(new_suffix, name_without_snapshots)
 
           def group_print(title, args):
               print(f"::group::{title} ({len(args)})")
@@ -221,24 +230,20 @@ jobs:
               raise Exception("::error title=No candidates found!")
 
           with ThreadPoolExecutor() as executor:
-              sha_list = executor.map(extract_sha, files)
+              sha_list = list(executor.map(extract_sha, files))
 
-          exclude_list = [(f, sha) for f, sha in zip(files, sha_list) if sha != expected_sha]
-          include_list = [f for f in files if f not in [x for x, _ in exclude_list]]
+          # Include only files that match the expected SHA
+          include_list = [f for f, sha in zip(files, sha_list) if sha == expected_sha]
+
+          if not include_list:
+              raise Exception(f"::error title=No artifacts found with expected SHA {expected_sha}!")
+
           dest_files = [get_target_name(f) for f in include_list]
 
           # Log files
-          group_print("Excluded Files", exclude_list)
           group_print("Included Files", include_list)
-          group_print("Unexpected SHAs", set([sha for _, sha in exclude_list]))
+          group_print("New Files", dest_files)
 
           # Copy included files to new location
           for src, dst in zip(include_list, dest_files):
               client.copy_object(Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src}, ACL="public-read")
-
-          group_print("New Files", dest_files)
-
-          if len(exclude_list) > 0:
-              print("::warning title=Unexpected Files::The workflow has encountered files that do not match the "
-                    "expected git sha. These files will not be included in the release artifacts. Look for the "
-                    "`Excluded Files` section above for more details.")
