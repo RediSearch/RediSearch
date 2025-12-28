@@ -60,7 +60,8 @@ void ConcurrentCmdCtx_KeepRedisCtx(struct ConcurrentCmdCtx *ctx);
 // Returns the WeakRef held in the context.
 WeakRef ConcurrentCmdCtx_GetWeakRef(struct ConcurrentCmdCtx *cctx);
 
-// Returns the local slots held in the context.
+// Returns the local slots held in the context, ownership will remain in the context
+// Caller should clone the result if lifetime needs to extend beyond the context lifetime
 const struct SharedSlotRangeArray *ConcurrentCmdCtx_GetSlots(struct ConcurrentCmdCtx *cctx);
 
 /* Same as handleRedis command, but set flags for the concurrent context */

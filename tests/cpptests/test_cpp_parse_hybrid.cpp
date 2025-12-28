@@ -70,6 +70,7 @@ class ParseHybridTest : public ::testing::Test {
     result.hybridParams = &hybridParams;
     result.reqConfig = &hybridRequest->reqConfig;
     result.cursorConfig = &hybridRequest->cursorConfig;
+    result.localSlots = Slots_GetLocalSlots();
   }
 
   void TearDown() override {
@@ -78,6 +79,9 @@ class ParseHybridTest : public ::testing::Test {
     }
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
+    }
+    if (result.localSlots) {
+      Slots_FreeLocalSlots(result.localSlots);
     }
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
