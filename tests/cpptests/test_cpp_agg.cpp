@@ -62,7 +62,7 @@ TEST_F(AggTest, testBasic) {
   ASSERT_FALSE(QueryError_HasError(&qerr));
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->specName, true);
   ASSERT_FALSE(sctx == NULL);
-  rv = AREQ_ApplyContext(rr, sctx, &qerr);
+  rv = AREQ_ApplyContext(rr, sctx, &qerr, Slots_GetLocalSlots());
   ASSERT_EQ(REDISMODULE_OK, rv);
 
   rv = AREQ_BuildPipeline(rr, &qerr);

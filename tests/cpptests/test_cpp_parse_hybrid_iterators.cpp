@@ -126,7 +126,8 @@ bool SetupHybridIteratorTest(RedisModuleCtx *ctx,
       .tailPlan = &testCtx->hybridReq->tailPipeline->ap,
       .hybridParams = &testCtx->hybridParams,
       .reqConfig = &reqConfig,
-      .cursorConfig = &cursorConfig
+      .cursorConfig = &cursorConfig,
+      .localSlots = Slots_GetLocalSlots()
     };
 
     ArgsCursor ac = {0};

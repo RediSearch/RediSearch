@@ -154,7 +154,8 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
     .tailPlan = &hybridReq->tailPipeline->ap,
     .hybridParams = &hybridParams,
     .reqConfig = &reqConfig,
-    .cursorConfig = &cursorConfig
+    .cursorConfig = &cursorConfig,
+    .localSlots = Slots_GetLocalSlots()
   };
 
   ArgsCursor ac = {0};
