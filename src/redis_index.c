@@ -287,7 +287,7 @@ InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *te
 
 
 IndexReader *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok_id, DocTable *dt,
-                                t_fieldMask fieldMask, double weight) {
+                                t_fieldMask fieldMask, ConcurrentSearchCtx *csx, double weight) {
 
   InvertedIndex *idx = NULL;
   CharBuf termKey = {.buf = tok->str, .len = tok->len};
