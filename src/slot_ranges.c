@@ -25,7 +25,7 @@ struct SharedSlotRangeArray {
 // Dropped when Slots_DropCachedLocalSlots is called (when we know local slots have changed)
 static SharedSlotRangeArray *localSlots = NULL;
 
-SharedSlotRangeArray *Slots_GetLocalSlotsMutable() {
+const SharedSlotRangeArray *Slots_GetLocalSlots(void) {
   if (!localSlots) {
     RedisModuleSlotRangeArray *ranges = RedisModule_ClusterGetLocalSlotRanges(RSDummyContext);
     RS_LOG_ASSERT(ranges != NULL, "Expected non-NULL ranges from ClusterGetLocalSlotRanges in any mode");
@@ -41,17 +41,15 @@ SharedSlotRangeArray *Slots_GetLocalSlotsMutable() {
   return localSlots;
 }
 
-const SharedSlotRangeArray *Slots_GetLocalSlots(void) {
-  return Slots_GetLocalSlotsMutable();
-}
-
-SharedSlotRangeArray *Slots_Clone(SharedSlotRangeArray *src) {
-  if (!src) {
+const SharedSlotRangeArray *Slots_Clone(const SharedSlotRangeArray *src) {
+  // remove constness - needed in order to manage the refcount
+  SharedSlotRangeArray *slots = (SharedSlotRangeArray *)src;
+  if (!slots) {
     return NULL;
   }
-  uint32_t refcount = atomic_fetch_add_explicit(&src->refcount, 1, memory_order_acquire);
+  uint32_t refcount = atomic_fetch_add_explicit(&slots->refcount, 1, memory_order_acquire);
   RS_LOG_ASSERT(refcount > 0, "Expected refcount > 0");
-  return (SharedSlotRangeArray *)src;
+  return slots;
 }
 
 void Slots_FreeLocalSlots(const SharedSlotRangeArray *slots) {

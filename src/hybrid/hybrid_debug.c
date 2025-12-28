@@ -208,7 +208,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   cmd.hybridParams = &hybridParams;
   cmd.tailPlan = &hreq->tailPipeline->ap;
   cmd.reqConfig = &hreq->reqConfig;
-  cmd.localSlots = Slots_GetLocalSlotsMutable();
+  cmd.localSlots = Slots_GetLocalSlots();
 
   int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, status, false);
   Slots_FreeLocalSlots(cmd.localSlots);

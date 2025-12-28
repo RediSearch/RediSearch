@@ -21,11 +21,6 @@ extern "C" {
 
 typedef struct SharedSlotRangeArray SharedSlotRangeArray;
 
-/// @brief Get mutable slot ranges for the local node. The returned value must be freed using FreeLocalSlots
-/// @returns A pointer to the shared slot range array, or NULL if not in cluster mode
-/// @warning MUST be called from the main thread
-SharedSlotRangeArray *Slots_GetLocalSlotsMutable(void);
-
 /// @brief Get slot ranges for the local node. The returned value must be freed using FreeLocalSlots
 /// @returns A pointer to the shared slot range array, or NULL if not in cluster mode
 /// @warning MUST be called from the main thread
@@ -34,7 +29,7 @@ const SharedSlotRangeArray *Slots_GetLocalSlots(void);
 /// @brief  Clone the shared slot range array
 /// @param src source array to clone
 /// @return clone of the shared slot range array
-SharedSlotRangeArray *Slots_Clone(SharedSlotRangeArray *src);
+const SharedSlotRangeArray *Slots_Clone(const SharedSlotRangeArray *src);
 
 /// @brief Free the shared slot range array
 /// @param slots The slot range array to free (can be NULL)

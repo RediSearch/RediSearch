@@ -49,7 +49,7 @@ typedef struct ConcurrentCmdCtx {
   int options;
   WeakRef spec_ref;
   // need to be captured in the main thread since Slots_GetLocalSlots is not thread safe
-  struct SharedSlotRangeArray *slotRanges;
+  const struct SharedSlotRangeArray *slotRanges;
 } ConcurrentCmdCtx;
 
 /* Run a function on the concurrent thread pool */
@@ -98,7 +98,7 @@ WeakRef ConcurrentCmdCtx_GetWeakRef(ConcurrentCmdCtx *cctx) {
   return cctx->spec_ref;
 }
 
-SharedSlotRangeArray *ConcurrentCmdCtx_GetSlotsMutable(ConcurrentCmdCtx *cctx) {
+const SharedSlotRangeArray *ConcurrentCmdCtx_GetSlotsMutable(ConcurrentCmdCtx *cctx) {
   return cctx->slotRanges;
 }
 
@@ -115,7 +115,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;
   cmdCtx->options = 0;
-  cmdCtx->slotRanges = Slots_GetLocalSlotsMutable();
+  cmdCtx->slotRanges = Slots_GetLocalSlots();
   // Copy command arguments so they can be released by the calling thread
   cmdCtx->argv = rm_calloc(argc, sizeof(RedisModuleString *));
   for (int i = 0; i < argc; i++) {
