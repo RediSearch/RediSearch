@@ -48,7 +48,7 @@ typedef struct ConcurrentCmdCtx {
   int argc;
   int options;
   WeakRef spec_ref;
-  // beed to be captured in the main thread since Slots_GetLocalSlots is not thread safe
+  // need to be captured in the main thread since Slots_GetLocalSlots is not thread safe
   struct SharedSlotRangeArray *slotRanges;
 } ConcurrentCmdCtx;
 
