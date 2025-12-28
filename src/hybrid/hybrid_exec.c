@@ -562,15 +562,16 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
   }
 }
 
-static inline void DefaultCleanup(StrongRef hybrid_ref) {
+static inline void DefaultCleanup(StrongRef hybrid_ref, SharedSlotRangeArray *localSlots) {
   StrongRef_Release(hybrid_ref);
+  Slots_FreeLocalSlots(localSlots);
   CurrentThread_ClearIndexSpec();
 }
 
 // We only want to free the hybrid params in case an error happened
-static inline int CleanupAndReplyStatus(RedisModuleCtx *ctx, StrongRef hybrid_ref, HybridPipelineParams *hybridParams, QueryError *status, bool internal) {
+static inline int CleanupAndReplyStatus(RedisModuleCtx *ctx, StrongRef hybrid_ref, HybridPipelineParams *hybridParams, SharedSlotRangeArray *localSlots, QueryError *status, bool internal) {
     freeHybridParams(hybridParams);
-    DefaultCleanup(hybrid_ref);
+    DefaultCleanup(hybrid_ref, localSlots);
     // Update global query errors, this path is only used for SA and internal
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !internal);
     return QueryError_ReplyAndClear(ctx, status);
@@ -622,12 +623,13 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.cursorConfig = &hybridRequest->cursorConfig;
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
+  cmd.localSlots = Slots_GetLocalSlots();
 
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, argv, argc);
 
   if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal) != REDISMODULE_OK) {
-    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
+    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, cmd.localSlots, &status, internal);
   }
 
   for (int i = 0; i < hybridRequest->nrequests; i++) {
@@ -639,14 +641,14 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
     HybridRequest_ClearErrors(hybridRequest);
-    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
+    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, cmd.localSlots, &status, internal);
   }
 
   // Update dialect statistics only after successful execution
   SET_DIALECT(sctx->spec->used_dialects, hybridRequest->reqConfig.dialectVersion);
   SET_DIALECT(RSGlobalStats.totalStats.used_dialects, hybridRequest->reqConfig.dialectVersion);
 
-  DefaultCleanup(hybrid_ref);
+  DefaultCleanup(hybrid_ref, cmd.localSlots);
   return REDISMODULE_OK;
 }
 

@@ -1008,7 +1008,8 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
-  rc = AREQ_ApplyContext(*r, sctx, status);
+  RS_ASSERT(r->slotRanges == NULL); // if this is not null then we should release the default slots
+  rc = AREQ_ApplyContext(*r, sctx, status, Slots_GetLocalSlots());
   thctx = NULL;
   // ctx is always assigned after ApplyContext
   if (rc != REDISMODULE_OK) {

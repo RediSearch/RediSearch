@@ -34,6 +34,7 @@ typedef struct ParseHybridCommandCtx {
     HybridPipelineParams* hybridParams;
     RequestConfig* reqConfig;
     CursorConfig* cursorConfig;
+    const SharedSlotRangeArray *localSlots;
 } ParseHybridCommandCtx;
 
 // Function for parsing hybrid command arguments - exposed for testing
