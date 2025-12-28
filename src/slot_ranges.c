@@ -25,7 +25,7 @@ struct SharedSlotRangeArray {
 // Dropped when Slots_DropCachedLocalSlots is called (when we know local slots have changed)
 static SharedSlotRangeArray *localSlots = NULL;
 
-const SharedSlotRangeArray *Slots_GetLocalSlots(void) {
+SharedSlotRangeArray *Slots_GetLocalSlotsMutable() {
   if (!localSlots) {
     RedisModuleSlotRangeArray *ranges = RedisModule_ClusterGetLocalSlotRanges(RSDummyContext);
     RS_LOG_ASSERT(ranges != NULL, "Expected non-NULL ranges from ClusterGetLocalSlotRanges in any mode");
@@ -41,7 +41,11 @@ const SharedSlotRangeArray *Slots_GetLocalSlots(void) {
   return localSlots;
 }
 
-SharedSlotRangeArray *Slots_Clone(const SharedSlotRangeArray *src) {
+const SharedSlotRangeArray *Slots_GetLocalSlots(void) {
+  return Slots_GetLocalSlotsMutable();
+}
+
+SharedSlotRangeArray *Slots_Clone(SharedSlotRangeArray *src) {
   if (!src) {
     return NULL;
   }

@@ -562,7 +562,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
 
-    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, ConcurrentCmdCtx_GetSlots(cmdCtx), &status) != REDISMODULE_OK) {
+    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, ConcurrentCmdCtx_GetSlotsMutable(cmdCtx), &status) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;
     }

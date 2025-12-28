@@ -29,7 +29,7 @@ const SharedSlotRangeArray *Slots_GetLocalSlots(void);
 /// @brief  Clone the shared slot range array
 /// @param src source array to clone
 /// @return clone of the shared slot range array
-SharedSlotRangeArray *Slots_Clone(const SharedSlotRangeArray *src);
+SharedSlotRangeArray *Slots_Clone(SharedSlotRangeArray *src);
 
 /// @brief Free the shared slot range array
 /// @param slots The slot range array to free (can be NULL)

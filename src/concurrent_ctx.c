@@ -98,7 +98,7 @@ WeakRef ConcurrentCmdCtx_GetWeakRef(ConcurrentCmdCtx *cctx) {
   return cctx->spec_ref;
 }
 
-const SharedSlotRangeArray *ConcurrentCmdCtx_GetSlots(ConcurrentCmdCtx *cctx) {
+SharedSlotRangeArray *ConcurrentCmdCtx_GetSlotsMutable(ConcurrentCmdCtx *cctx) {
   return cctx->slotRanges;
 }
 
@@ -115,7 +115,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;
   cmdCtx->options = 0;
-  cmdCtx->slotRanges = Slots_GetLocalSlots();
+  cmdCtx->slotRanges = Slots_GetLocalSlotsMutable();
   // Copy command arguments so they can be released by the calling thread
   cmdCtx->argv = rm_calloc(argc, sizeof(RedisModuleString *));
   for (int i = 0; i < argc; i++) {

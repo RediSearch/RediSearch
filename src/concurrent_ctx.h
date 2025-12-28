@@ -62,7 +62,7 @@ WeakRef ConcurrentCmdCtx_GetWeakRef(struct ConcurrentCmdCtx *cctx);
 
 // Returns the local slots held in the context, ownership will remain in the context
 // Caller should clone the result if lifetime needs to extend beyond the context lifetime
-const struct SharedSlotRangeArray *ConcurrentCmdCtx_GetSlots(struct ConcurrentCmdCtx *cctx);
+struct SharedSlotRangeArray *ConcurrentCmdCtx_GetSlotsMutable(struct ConcurrentCmdCtx *cctx);
 
 /* Same as handleRedis command, but set flags for the concurrent context */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
