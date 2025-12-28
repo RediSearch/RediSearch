@@ -173,8 +173,8 @@ jobs:
 
           # Suffix pattern: .{SOURCE}.{TIMESTAMP}.{WORKFLOW_NUM}.zip
           # Example: .2.10.20231228.123456.123.zip
-          # Pattern matches: .{SOURCE}. followed by timestamp (YYYYMMDD.HHMMSS) and workflow number
-          suffix_pattern = re.compile(rf"\.{re.escape(os.environ['SOURCE'])}\.(\d{{8}}\.\d{{6}}\.\d+)\.zip$")
+          # Pattern matches: .+.{SOURCE}. followed by timestamp (YYYYMMDD.HHMMSS) and workflow number
+          suffix_pattern = re.compile(rf".+\.({re.escape(os.environ['SOURCE'])}\.\d{8}\.\d{6}\.\d+)\.zip$")
           new_suffix = f".{os.environ['CUR_VERSION']}.zip"
           expected_sha = os.environ["EXPECTED_SHA"]
 
