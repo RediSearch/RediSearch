@@ -521,13 +521,3 @@ void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, Profile
     case MAX_ITERATOR:        { RS_ABORT("nope");   break; } // LCOV_EXCL_LINE
   }
 }
-
-void ProfileWarnings_Add(ProfileWarnings *profileWarnings, ProfileWarningType code) {
-  RS_ASSERT(profileWarnings);
-  *profileWarnings |= code;
-}
-
-bool ProfileWarnings_Has(const ProfileWarnings *profileWarnings, ProfileWarningType code) {
-  RS_ASSERT(profileWarnings);
-  return *profileWarnings & code;
-}

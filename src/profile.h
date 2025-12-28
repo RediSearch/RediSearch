@@ -62,8 +62,15 @@ typedef enum {
   PROFILE_WARNING_TYPE_BG_SCAN_OOM = 1 << 3,
 } ProfileWarningType;
 
-void ProfileWarnings_Add(ProfileWarnings *profileWarnings, ProfileWarningType code);
-bool ProfileWarnings_Has(const ProfileWarnings *profileWarnings, ProfileWarningType code);
+static void ProfileWarnings_Add(ProfileWarnings *profileWarnings, ProfileWarningType code) {
+  RS_ASSERT(profileWarnings);
+  *profileWarnings |= code;
+}
+
+static bool ProfileWarnings_Has(const ProfileWarnings *profileWarnings, ProfileWarningType code) {
+  RS_ASSERT(profileWarnings);
+  return *profileWarnings & code;
+}
 
 typedef struct {
   ProfileWarnings warnings;
