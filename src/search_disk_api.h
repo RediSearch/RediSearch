@@ -27,9 +27,11 @@ typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 
 typedef struct BasicDiskAPI {
   RedisSearchDisk *(*open)(RedisModuleCtx *ctx, const char *path);
+  void (*close)(RedisSearchDisk *disk);
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type);
   void (*closeIndexSpec)(RedisSearchDiskIndexSpec *index);
-  void (*close)(RedisSearchDisk *disk);
+  int (*IndexSpecDiskRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+  int (*IndexSpecDiskRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index, bool load_from_sst);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {

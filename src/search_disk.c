@@ -64,6 +64,16 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
     disk->basic.closeIndexSpec(index);
 }
 
+void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && index);
+  disk->basic.IndexSpecDiskRdbSave(rdb, index);
+}
+
+int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index, bool load_from_sst) {
+  RS_ASSERT(disk && index);
+  return disk->basic.IndexSpecDiskRdbLoad(rdb, index, load_from_sst);
+}
+
 // Index API wrappers
 bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask) {
     RS_ASSERT(disk && index);

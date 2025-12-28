@@ -60,6 +60,26 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
  */
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
 
+/**
+ * @brief Save the disk-related data of the index to the rdb file
+ *
+ * @param rdb Redis module rdb file
+ * @param index Pointer to the index
+ * @return true if successful, false otherwise
+ */
+void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+
+/**
+ * @brief Load the disk-related data of the index from the rdb file
+ *
+ * @param rdb Redis module rdb file
+ * @param index Pointer to the index
+ * @param load_from_sst Whether to save the loaded data to the index spec.
+ *                      If false, the RDB is depleted but data is not applied.
+ * @return true if successful, false otherwise
+ */
+int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index, bool load_from_sst);
+
 // Index API wrappers
 
 /**

@@ -3107,6 +3107,11 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   } else {
     RedisModule_SaveUnsigned(rdb, 0);
   }
+
+  // Disk index
+  if (sp->diskSpec) {
+    SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
+  }
 }
 
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status) {
@@ -3189,6 +3194,29 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     }
   }
 
+  if (isSpecOnDisk(sp)) {
+    RS_ASSERT(disk_db);
+    size_t len;
+    const char* name = HiddenString_GetUnsafe(sp->specName, &len);
+    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+    IndexSpec_PopulateVectorDiskParams(sp);
+  }
+
+  if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp)) {
+    // Load the disk-spec (needed only if we load from SST files).
+    // TODO: If we are loading without SST files, we should not use the max-doc-id
+    // and the deleted-ids from the rdb file, since we will be re-adding the documents.
+    // How do we add that distinction?
+    // NOTE: Even if we are not loading with SST files, we must deplete the RDB for other future reads.
+
+
+    // TEMPORARY: For now, we always use the max-doc-id and deleted-ids from the rdb file.
+    bool load_from_sst = true;
+    if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec, load_from_sst) != REDISMODULE_OK) {
+      goto cleanup;
+    }
+  }
+
   return sp;
 
 cleanup:
@@ -3199,7 +3227,6 @@ cleanup_no_index:
 }
 
 static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
-
   if (!sp) {
     addPendingIndexDrop();
     return REDISMODULE_ERR;
@@ -3224,18 +3251,9 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
     // This is the only global structure that we added the new spec to at this point
     SchemaPrefixes_RemoveSpec(spec_ref);
     addPendingIndexDrop();
+    SearchDisk_CloseIndex(sp->diskSpec);
     StrongRef_Release(spec_ref);
   } else {
-    if (isSpecOnDisk(sp)) {
-      // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
-      // we add the `Index_StoreInRAM` flag to the rdb file.
-      RS_ASSERT(disk_db);
-      size_t len;
-      const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-      sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
-      // Populate diskParams for vector fields now that diskSpec is available
-      IndexSpec_PopulateVectorDiskParams(sp);
-    }
     IndexSpec_StartGC(spec_ref, sp);
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
 
