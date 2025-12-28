@@ -78,7 +78,7 @@ protected:
     cmd.hybridParams = &hybridParams;
     cmd.reqConfig = &result->reqConfig;
     cmd.cursorConfig = &result->cursorConfig;
-    cmd.localSlots = Slots_GetLocalSlots();
+    cmd.localSlots = Slots_GetLocalSlotsMutable();
 
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(result, &ac, args, args.size());
