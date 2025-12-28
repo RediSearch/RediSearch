@@ -31,7 +31,7 @@ typedef struct BasicDiskAPI {
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type);
   void (*closeIndexSpec)(RedisSearchDiskIndexSpec *index);
   int (*IndexSpecDiskRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
-  int (*IndexSpecDiskRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index, bool load_from_sst);
+  int (*IndexSpecDiskRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
