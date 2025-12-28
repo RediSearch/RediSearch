@@ -2126,7 +2126,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
 
 uint64_t CharBuf_HashFunction(const void *key) {
   const CharBuf *cb = key;
-  return RS_dictGenHashFunction(cb->buf, cb->len);
+  return dictGenHashFunction(cb->buf, cb->len);
 }
 
 void *CharBuf_KeyDup(void *privdata, const void *key) {
