@@ -18,6 +18,8 @@
 #include "rmalloc.h"
 #include <stdio.h>
 
+RedisModuleType *InvertedIndexType;
+
 static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
   if (RS_IsMock) return;
 
