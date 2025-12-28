@@ -78,7 +78,7 @@ void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *i
  *                      If false, the RDB is depleted but data is not applied.
  * @return true if successful, false otherwise
  */
-int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index, bool load_from_sst);
+int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
 // Index API wrappers
 

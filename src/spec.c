@@ -3202,17 +3202,11 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     IndexSpec_PopulateVectorDiskParams(sp);
   }
 
-  if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp)) {
-    // Load the disk-spec (needed only if we load from SST files).
-    // TODO: If we are loading without SST files, we should not use the max-doc-id
-    // and the deleted-ids from the rdb file, since we will be re-adding the documents.
-    // How do we add that distinction?
-    // NOTE: Even if we are not loading with SST files, we must deplete the RDB for other future reads.
-
-
-    // TEMPORARY: For now, we always use the max-doc-id and deleted-ids from the rdb file.
-    bool load_from_sst = true;
-    if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec, load_from_sst) != REDISMODULE_OK) {
+  bool load_from_sst = true; // Fix according to the below
+  if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && load_from_sst) {
+    // TODO: Load the disk-related data only in case the `REDISMODULE_CTX_FLAGS_SST_RDB`
+    // context flag is set, as we wrote this data only in that case.
+    if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec) != REDISMODULE_OK) {
       goto cleanup;
     }
   }

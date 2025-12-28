@@ -13,7 +13,18 @@
 void Sha1_Compute(const char *value, size_t len, Sha1* output) {
   boost::uuids::detail::sha1 sha1;
   sha1.process_bytes(value, len);
-  sha1.get_digest(output->hash);
+
+  // get_digest expects unsigned int[5], so we need a temporary buffer
+  unsigned int digest[5];
+  sha1.get_digest(digest);
+
+  // Convert from unsigned int[5] to unsigned char[20]
+  for (int i = 0; i < 5; i++) {
+    output->hash[i*4]     = (digest[i] >> 24) & 0xFF;
+    output->hash[i*4 + 1] = (digest[i] >> 16) & 0xFF;
+    output->hash[i*4 + 2] = (digest[i] >> 8)  & 0xFF;
+    output->hash[i*4 + 3] = digest[i]         & 0xFF;
+  }
 }
 
 void Sha1_FormatIntoBuffer(const Sha1 *sha1, char *buffer) {
