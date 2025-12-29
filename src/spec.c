@@ -1583,6 +1583,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   int rc = AC_OK;
   ACArgSpec *errarg = NULL;
   if (isSpecOnDiskForValidation(spec)) {
+    rule_args.type = RULE_TYPE_HASH;
     ACArgSpec argopts[] = {
       {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
       {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
@@ -1595,7 +1596,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
       {.name = NULL}
     };
     rc = AC_ParseArgSpec(&ac, argopts, &errarg);
-    if (strcmp(rule_args.type, RULE_TYPE_HASH) != 0) {
+    if (strcasecmp(rule_args.type, RULE_TYPE_HASH) != 0) {
       QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT, "Only HASH is supported as index data type for Flex indexes");
       goto failure;
     }
