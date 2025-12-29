@@ -71,8 +71,10 @@ def run_query_with_delayed_shard(env, cmd, query_result, sleep_duration):
         sleep_thread = threading.Thread(target=block_shard, daemon=True)
         sleep_thread.start()
 
-        # Wait a bit to ensure DEBUG SLEEP has started
-        time.sleep(0.5)
+        # Wait to ensure DEBUG SLEEP has started on the shard.
+        # This needs to be long enough for the thread to start, establish
+        # connection, and begin executing DEBUG SLEEP.
+        time.sleep(3)
 
         # Now send the query from coordinator
         # Shards 0 and 2 will respond quickly and start sending data
@@ -211,7 +213,8 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
     # We delay shard 1 (connection index 2) which has 0 docs
     # This tests that the coordinator waits for ALL shards even while
     # receiving lots of data from the fast shards (0 and 2)
-    sleep_duration = 3  # seconds
+    # sleep_duration of 6 seconds - long enough for query timeout to expire while shard is blocked
+    sleep_duration = 6
 
     # --------------------------------------------------------------------------
     # Case 1: No timeout
@@ -300,15 +303,15 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
     # Verify we got a timeout warning in the response
     if isinstance(result, dict):
         env.assertEqual(result.get('warning', []),
-                        ['Timeout limit was reached'])
+                        ['ShardResponseBarrier: Timeout while waiting for first responses from all shards'])
 
 
-@skip() # Flaky test
+@skip(cluster=False)
 def test_barrier_waits_for_delayed_unbalanced_shard_resp2():
     _test_barrier_waits_for_delayed_unbalanced_shard(2)
 
 
-@skip() # Flaky test
+@skip(cluster=False)
 def test_barrier_waits_for_delayed_unbalanced_shard_resp3():
     _test_barrier_waits_for_delayed_unbalanced_shard(3)
 
