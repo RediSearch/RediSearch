@@ -654,7 +654,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else if (!dropCommand && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
       delDocs = true;
     } else {
-      return RedisModule_ReplyWithError(ctx, "SEARCH_ARG_UNRECOGNIZED: Argument not found");
+      return RedisModule_ReplyWithError(ctx, "SEARCH_ARG_UNKNOWN: Unknown argument");
     }
   }
 
@@ -1127,7 +1127,7 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_Reply_SimpleString(reply, "OK");
     }
   } else {
-    RedisModule_Reply_SimpleString(reply, "No such configuration action");
+    RedisModule_Reply_SimpleString(reply, "SEARCH_CONFIG_ACTION_NOT_FOUND: Configuration action not found");
   }
 
   RedisModule_EndReply(reply);

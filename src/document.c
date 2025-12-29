@@ -93,7 +93,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
     aCtx->fspecs[i] = *fs;
     if (dedupe[fs->index]) {
-      QueryError_SetWithUserDataFmt(&aCtx->status, QUERY_ERROR_CODE_DUP_FIELD, "Tried to insert field twice", ": '%s'", HiddenString_GetUnsafe(fs->fieldName, NULL));
+      QueryError_SetWithUserDataFmt(&aCtx->status, QUERY_ERROR_CODE_DUP_FIELD, "SEARCH_FIELD_DUPLICATE: Tried to insert field twice", ": '%s'", HiddenString_GetUnsafe(fs->fieldName, NULL));
       return -1;
     }
 
@@ -111,7 +111,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
       // Verify the flags:
       if ((f->indexAs & fs->types) != f->indexAs) {
         QueryError_SetWithUserDataFmt(&aCtx->status, QUERY_ERROR_CODE_UNSUPP_TYPE,
-                               "Tried to index field as a type that is not specified in schema", ": %s", HiddenString_GetUnsafe(fs->fieldName, NULL));
+                               "SEARCH_FIELD_TYPE_UNSUPPORTED: Tried to index field as a type that is not specified in schema", ": %s", HiddenString_GetUnsafe(fs->fieldName, NULL));
         return -1;
       }
     }
@@ -476,7 +476,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
     case FLD_VAR_T_RMS:
       fdata->isMulti = 0;
       if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NOT_NUMERIC, "Invalid numeric value", ": '%s'",
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NOT_NUMERIC, "SEARCH_NUMERIC_VALUE_INVALID: Invalid numeric value", ": '%s'",
                                RedisModule_StringPtrLen(field->text, NULL));
         return -1;
       }
@@ -487,7 +487,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
         fdata->isMulti = 0;
         fdata->numeric = fast_float_strtod(field->strval, &end);
         if (*end) {
-          QueryError_SetCode(status, QUERY_ERROR_CODE_NOT_NUMERIC);
+          QueryError_SetError(status, QUERY_ERROR_CODE_NOT_NUMERIC, "SEARCH_NUMERIC_VALUE_INVALID: Invalid numeric value");
           return -1;
         }
       }
@@ -555,7 +555,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 FIELD_BULK_INDEXER(geometryIndexer) {
   GeometryIndex *rt = OpenGeometryIndex(&ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open geoshape index for indexing");
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "SEARCH_GEOSHAPE_INDEX_OPEN_FAILED: Could not open geoshape index for indexing");
     return -1;
   }
 
@@ -563,7 +563,7 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   RedisModuleString *errMsg;
   if (!fdata->isMulti) {
     if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "Error indexing geoshape", ": %s",
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "SEARCH_GEOSHAPE_INDEX_ERROR: Error indexing geoshape", ": %s",
                              RedisModule_StringPtrLen(errMsg, NULL));
       RedisModule_FreeString(NULL, errMsg);
       return -1;
@@ -582,7 +582,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
 
   NumericRangeTree *rt = openNumericOrGeoIndex(ctx->spec, &ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open numeric index for indexing");
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "SEARCH_NUMERIC_INDEX_OPEN_FAILED: Could not open numeric index for indexing");
     return -1;
   }
 
@@ -622,7 +622,7 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
   if (fdata->vecLen != fs->vectorOpts.expBlobSize) {
 
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_ATTR,
-                           "Could not add vector with blob size", " %zu (expected size %zu)", fdata->vecLen,
+                           "SEARCH_VECTOR_BLOB_SIZE_MISMATCH: Could not add vector with blob size", " %zu (expected size %zu)", fdata->vecLen,
                            fs->vectorOpts.expBlobSize);
     return -1;
   }
@@ -633,7 +633,7 @@ FIELD_BULK_INDEXER(vectorIndexer) {
   IndexSpec *sp = ctx->spec;
   VecSimIndex *vecsim = openVectorIndex(&sp->fields[fs->index], CREATE_INDEX);
   if (!vecsim) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open vector for indexing");
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "SEARCH_VECTOR_INDEX_OPEN_FAILED: Could not open vector for indexing");
     return -1;
   }
   char *curr_vec = (char *)fdata->vector;
@@ -656,7 +656,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       fdata->isMulti = 0;
       geohash = calcGeoHash(field->lon, field->lat);
       if (geohash == INVALID_GEOHASH) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Invalid geo coordinates", ": %f, %f",
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "SEARCH_GEO_COORDINATES_INVALID: Invalid geo coordinates", ": %f, %f",
                                field->lon, field->lat);
         return REDISMODULE_ERR;
       }
@@ -690,7 +690,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     }
     geohash = calcGeoHash(lon, lat);
     if (geohash == INVALID_GEOHASH) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Invalid geo coordinates", ": %f, %f",
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "SEARCH_GEO_COORDINATES_INVALID: Invalid geo coordinates", ": %f, %f",
                         lon, lat);
       return REDISMODULE_ERR;
     }
@@ -707,7 +707,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       }
       geohash = calcGeoHash(lon, lat);
       if (geohash == INVALID_GEOHASH) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Invalid geo coordinates", ": %f, %f",
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "SEARCH_GEO_COORDINATES_INVALID: Invalid geo coordinates", ": %f, %f",
                         lon, lat);
         array_free(arr);
         fdata->arrNumeric = NULL;
@@ -753,7 +753,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 FIELD_BULK_INDEXER(tagIndexer) {
   TagIndex *tidx = TagIndex_Open(&ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!tidx) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open tag index for indexing");
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "SEARCH_TAG_INDEX_OPEN_FAILED: Could not open tag index for indexing");
     return -1;
   }
   if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
@@ -801,7 +801,7 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
           break;
         default:
           rc = -1;
-          QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "BUG: invalid index type");
+          QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "SEARCH_INDEX_TYPE_INVALID: BUG: invalid index type");
           break;
       }
     }
@@ -853,7 +853,7 @@ cleanup:
     // to prevent mismatch of index and hash
     IndexSpec_DeleteDoc_Unsafe(aCtx->spec, RSDummyContext, doc->docKey);
 
-    QueryError_SetCode(&aCtx->status, QUERY_ERROR_CODE_GENERIC);
+    QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC, "SEARCH_DOCUMENT_ADD_FAILED: Document add operation failed");
     AddDocumentCtx_Finish(aCtx);
   }
   return ourRv;
@@ -875,7 +875,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   const RSDocumentMetadata *dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
   if (!dmd) {
     // We don't know the document...
-    QueryError_SetError(status, QUERY_ERROR_CODE_NO_DOC, "");
+    QueryError_SetError(status, QUERY_ERROR_CODE_NO_DOC, "SEARCH_DOC_NOT_FOUND: Document not found");
     goto done;
   }
 
@@ -924,7 +924,7 @@ done:
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 #define BAIL(s)                                            \
   do {                                                     \
-    QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC, s); \
+    QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC, "SEARCH_UPDATE_FAILED: " s); \
     goto done;                                             \
   } while (0)
 

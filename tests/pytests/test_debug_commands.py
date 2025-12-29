@@ -55,12 +55,11 @@ class TestDebugCommands(object):
             "DUMP_HNSW",
             "SET_MONITOR_EXPIRATION",
             "WORKERS",
-            'COORD_THREADS',
             'BG_SCAN_CONTROLLER',
             "INDEXES",
             "INFO",
             'GET_HIDE_USER_DATA_FROM_LOGS',
-            'YIELDS_COUNTER',
+            'YIELDS_ON_LOAD_COUNTER',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
             'QUERY_CONTROLLER',
             'DUMP_SCHEMA',
@@ -73,8 +72,6 @@ class TestDebugCommands(object):
             '_FT.SEARCH',
             'FT.HYBRID',
             '_FT.HYBRID',
-            'FT.PROFILE',
-            '_FT.PROFILE',
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
@@ -82,7 +79,7 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
-                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS']
+                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS', 'YIELDS_ON_LOAD_COUNTER']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
@@ -243,17 +240,17 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx1', 'no_suffix').error()
 
     def testGCStopAndContinueSchedule(self):
-        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'non-existing').error().contains('Unknown index name')
-        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'non-existing').error().contains('Index not found')
+        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'non-existing').error().contains('Index not found')
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
         self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
 
     def testTTLcommands(self):
         num_indexes = len(self.env.cmd('FT._LIST'))
-        self.env.expect(debug_cmd(), 'TTL', 'non-existing').error().contains('Unknown index name')
-        self.env.expect(debug_cmd(), 'TTL_PAUSE', 'non-existing').error().contains('Unknown index name')
-        self.env.expect(debug_cmd(), 'TTL_EXPIRE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect(debug_cmd(), 'TTL', 'non-existing').error().contains('Index not found')
+        self.env.expect(debug_cmd(), 'TTL_PAUSE', 'non-existing').error().contains('Index not found')
+        self.env.expect(debug_cmd(), 'TTL_EXPIRE', 'non-existing').error().contains('Index not found')
         self.env.expect(debug_cmd(), 'TTL', 'idx').error().contains('Index is not temporary')
         self.env.expect(debug_cmd(), 'TTL_PAUSE', 'idx').error().contains('Index is not temporary')
         self.env.expect(debug_cmd(), 'TTL_EXPIRE', 'idx').error().contains('Index is not temporary')
@@ -295,8 +292,7 @@ class TestDebugCommands(object):
                                      'totalPendingJobs': orig_stats['totalPendingJobs']+1,
                                      'highPriorityPendingJobs': orig_stats['highPriorityPendingJobs'],
                                      'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']+1,
-                                     'numThreadsAlive': self.workers_count,
-                                     'numJobsInProgress': 0})
+                                     'numThreadsAlive': self.workers_count})
 
         # After resuming, expect that the job is done.
         orig_stats = stats
@@ -307,8 +303,7 @@ class TestDebugCommands(object):
                                      'totalPendingJobs': orig_stats['totalPendingJobs']-1,
                                      'highPriorityPendingJobs': orig_stats['highPriorityPendingJobs'],
                                      'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']-1,
-                                     'numThreadsAlive': self.workers_count,
-                                     'numJobsInProgress': 0})
+                                     'numThreadsAlive': self.workers_count})
 
     def testWorkersNumThreads(self):
         # test stats and drain
@@ -382,6 +377,7 @@ def testSpecIndexesInfo(env: Env):
 
     # Add a document
     env.expect('HSET', 'doc1', 'n', 1).equal(1)
+    expected_reply["inverted_indexes_dict_size"] = 1
 
     # adding the document will create a new index block (48 bytes) with 1 byte of buffer capacity
     # and 8 bytes of header for the block thin vector
@@ -572,7 +568,7 @@ def testDebugScannerStatus(env: Env):
 
     # Test error handling
     # Giving non existing index name
-    checkDebugScannerStatusError(env, 'non_existing', 'Unknown index name')
+    checkDebugScannerStatusError(env, 'non_existing', 'Index not found')
 
     # Test error handling
     # Giving invalid argument to debug scanner control command
@@ -695,6 +691,11 @@ class TestQueryDebugCommands(object):
         debug_params = ['INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 1]
         expectError(debug_params, 'INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N')
         expectError(debug_params, 'INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N')
+
+        # TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR is disabled.
+        if (self.env.isCluster() and self.cmd == "AGGREGATE"):
+            debug_params = ['TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3]
+            expectError(debug_params, 'INTERNAL_ONLY with TIMEOUT_AFTER_N 0 is not allowed without WITHCURSOR')
 
     def QueryDebug(self):
         env = self.env
@@ -824,12 +825,6 @@ class TestQueryDebugCommands(object):
         res, cursor = env.cmd(*cursor_query, 'LIMIT', 0, limit, *debug_params)
         should_timeout = False
         self.verifyResultsResp3(res, cursor_count, should_timeout=should_timeout, message="AggregateDebug with cursor count lower than timeout_res_count:")
-
-        # Test TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR in cluster mode - should work and return empty results
-        if env.isCluster():
-            debug_params = ['TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3]
-            res = env.cmd(*basic_debug_query, *debug_params)
-            self.verifyResultsResp3(res, 0, message="AggregateDebug: TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR in cluster:")
 
         self.StrictPolicy()
 
@@ -1045,16 +1040,16 @@ def test_update_debug_scanner_config(env):
 
     # Test error handling
     # Giving non existing index name
-    checkDebugScannerUpdateError(env, 'non_existing', 'Unknown index name')
+    checkDebugScannerUpdateError(env, 'non_existing', 'Index not found')
 
 @skip(cluster=True)
 def test_yield_counter(env):
     # Giving wrong arity
-    env.expect(debug_cmd(), 'YIELDS_COUNTER','ExtraARG1','ExtraARG2').error()\
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER','ExtraARG1','ExtraARG2').error()\
     .contains('wrong number of arguments')
     # Giving wrong subcommand
-    env.expect(debug_cmd(), 'YIELDS_COUNTER', 'NOT_A_COMMAND').error()\
-    .contains('Unknown subcommand')
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'NOT_A_COMMAND').error()\
+    .contains('Subcommand not found')
 
 @skip(cluster=True)
 def test_query_controller(env):

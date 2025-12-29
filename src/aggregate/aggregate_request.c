@@ -53,7 +53,7 @@ static bool ensureSimpleMode(AREQ *req) {
 static int ensureExtendedMode(uint32_t *reqflags, const char *name, QueryError *status) {
   if (*reqflags & QEXEC_F_IS_SEARCH) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
-                           "option `%s` is mutually exclusive with simple (i.e. search) options",
+                           "SEARCH_OPTION_MUTEX: option `%s` is mutually exclusive with simple (i.e. search) options",
                            name);
     return 0;
   }
@@ -145,7 +145,7 @@ static int parseRequiredFields(const char ***requiredFields, ArgsCursor *ac, Que
   ArgsCursor args = {0};
   int rv = AC_GetVarArgs(ac, &args);
   if (rv != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for _REQUIRED_FIELDS: %s", AC_Strerror(rv));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_BAD: Bad arguments", " for _REQUIRED_FIELDS: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
   int requiredFieldNum = AC_NumArgs(&args);
@@ -169,13 +169,13 @@ static int parseRequiredFields(const char ***requiredFields, ArgsCursor *ac, Que
 
 int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
   if (AC_NumRemaining(ac) < 1) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Need an argument for DIALECT");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_DIALECT_ARG_NONE: Need an argument for DIALECT");
       return REDISMODULE_ERR;
     }
     if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {
       QueryError_SetWithoutUserDataFmt(
         status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "DIALECT requires a non negative integer >=%u and <= %u",
+        "SEARCH_DIALECT_VERSION_BAD: DIALECT requires a non negative integer >=%u and <= %u",
         MIN_DIALECT_VERSION, MAX_DIALECT_VERSION
       );
       return REDISMODULE_ERR;
@@ -188,7 +188,7 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
   const char *format;
   int rv = AC_GetString(ac, &format, NULL, 0);
   if (rv != AC_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Need an argument for FORMAT");
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "SEARCH_FORMAT_ARG_NONE: Need an argument for FORMAT");
     return REDISMODULE_ERR;
   }
   if (!strcasecmp(format, "EXPAND")) {

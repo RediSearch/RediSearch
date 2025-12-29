@@ -1098,7 +1098,7 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     while (!AC_IsAtEnd(ac)) {
       if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
         if (AC_IsAtEnd(ac)) {
-          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_MISSING: " SPEC_TAG_SEPARATOR_STR " requires an argument");
+          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_NONE: " SPEC_TAG_SEPARATOR_STR " requires an argument");
           rc = 0;
           break;
         }
@@ -1618,10 +1618,10 @@ void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status,
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
         "Unsupported argument for Flex index:", " `%s`", badarg);
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_UNRECOGNIZED: Unknown argument", " `%s`", badarg);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_UNKNOWN: Unknown argument", " `%s`", badarg);
     }
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_UNRECOGNIZED: Unknown argument", " `%s`", badarg);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_UNKNOWN: Unknown argument", " `%s`", badarg);
   }
 }
 
