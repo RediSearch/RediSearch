@@ -14,7 +14,6 @@ use crate::{
 };
 use enumflags2::{BitFlags, bitflags, make_bitflags};
 use pin_project::pin_project;
-use query_error::QueryError;
 use std::{
     borrow::Cow,
     cell::UnsafeCell,
@@ -1268,25 +1267,24 @@ impl<'a> RLookup<'a> {
             let mut keys = (0..nkeys)
                 .map(|i| {
                     let idx = *rule.filter_fields_index.add(i);
-                    let a = if (idx == -1) {
+                    // No match was found, we will load the field by the name provided.
+                    if (idx == -1) {
                         create_new_key(self, &NAME, RLookupKeyFlags::empty())
                     } else {
-                        let fs = &*spec
-                            .fields
-                            .add(idx.try_into().expect("idx must not exceed usize"));
+                        let idx = idx.try_into().expect("idx must not exceed usize");
+                        let fs = &*spec.fields.add(idx);
 
-                        let mut length = 0;
                         // Safety: we received the pointer from the field spec and have to assume it is valid
-                        let name_ptr = unsafe {
-                            ffi::HiddenString_GetUnsafe(fs.fieldName, ptr::from_mut(&mut length))
-                        };
-                        let new_key = create_new_key(self, &NAME, RLookupKeyFlags::empty());
-                        let path_ptr = ffi::HiddenString_GetUnsafe(fs.fieldPath, ptr::null_mut());
+                        let (name_ptr, length) = hidden_string_to_c_char(fs.fieldName);
+                        let mut new_key = create_new_key(self, &NAME, RLookupKeyFlags::empty());
+
+                        // Safety: we received the pointer from the field spec and have to assume it is valid
+                        let (path_ptr, _) = hidden_string_to_c_char(fs.fieldPath);
                         (&mut *new_key).path = path_ptr;
 
                         new_key
-                    } as *const ffi::RLookupKey;
-                    a
+                    }
+                    .as_ref() as *const RLookupKey<'_> as *const ffi::RLookupKey
                 })
                 .collect::<Vec<_>>()
                 // Move to heap.
@@ -1306,19 +1304,29 @@ impl<'a> RLookup<'a> {
                 status: &mut status,
                 forceLoad: true,
                 mode: ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
-                dmd: todo!(),
-                forceString: todo!(),
+                dmd: ptr::null(),
+                forceString: false,
             };
-            let lookup: *mut ffi::RLookup = todo!();
+            let ffi_lookup: *mut ffi::RLookup = todo!();
             let dst_row: *mut ffi::RLookupRow = todo!();
 
-            let _: ffi::RLookupKey;
-
-            let rv = ffi::loadIndividualKeys(lookup, dst_row, &mut opt);
+            let rv = ffi::loadIndividualKeys(ffi_lookup, dst_row, &mut opt);
             // TODO: free keys
             rv
         }
     }
+}
+
+const NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"hello\0") };
+
+/// # Safety
+/// 1. value must be valid... etc
+unsafe fn hidden_string_to_c_char(value: *const ffi::HiddenString) -> (*const c_char, usize) {
+    let mut length = 0;
+    let length_ptr = ptr::from_mut(&mut length);
+    // Safety: Ensure by caller (1.)
+    let name_ptr = unsafe { ffi::HiddenString_GetUnsafe(value, length_ptr) };
+    (name_ptr, length)
 }
 
 fn redis_search_ctx_new_with_ctx_and_spec(
@@ -1345,8 +1353,6 @@ fn redis_search_ctx_new_with_ctx_and_spec(
     }
 }
 
-const NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"hello\0") };
-
 /// Allocate a new RLookupKey and add it to the RLookup table.
 ///
 /// TODO: Should this be a method on RLookupKey instead? Or RLookup::create_and_add_key()?
@@ -1354,15 +1360,15 @@ fn create_new_key<'a>(
     lookup: &mut RLookup<'a>,
     name: &'a CStr,
     flags: RLookupKeyFlags,
-) -> *mut RLookupKey<'a> {
+) -> Box<RLookupKey<'a>> {
     // Create key and move it to the heap.
-    let mut key = *Box::new(RLookupKey::new(lookup, name, flags));
+    let mut key = Box::new(RLookupKey::new(lookup, name, flags));
     key.dstidx = lookup
         .keys
         .rowlen
         .try_into()
         .expect("rowlen must not exceed u16");
-    let wrapped_key = Some((&key).into());
+    let wrapped_key = Some((&*key).into());
 
     let keys = &mut lookup.keys;
     if keys.head.is_none() {
@@ -1376,7 +1382,7 @@ fn create_new_key<'a>(
     // Increase the RLookup table row length. (All rows have the same length).
     keys.rowlen += 1;
 
-    &mut key
+    key
 }
 
 #[cfg(test)]
