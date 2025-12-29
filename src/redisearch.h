@@ -129,7 +129,7 @@ typedef struct RSDocumentMetadata_s {
   struct RSSortingVector *sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
-  DLLIST2_node llnode;
+  struct RSDocumentMetadata_s *nextInChain;
 
   /* Optional user payload */
   RSPayload *payload;
