@@ -417,7 +417,7 @@ void handleFilterPolicy(ArgParser *parser, const void *value, void *user_data) {
     // Map ADHOC to adhoc_bf (BATCHES is used as-is)
     // Note: ADHOC_BF is already rejected by ARG_OPT_ALLOWED_VALUES
     if (strcasecmp(policy, "ADHOC") == 0) {
-        attrValue = VECSIM_POLICY_ADHOC_BF;
+        attrValue = VECSIM_HYBRID_ADHOC_BF;
     }
     // else: BATCHES is used as-is (no mapping needed)
 

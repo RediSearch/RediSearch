@@ -162,7 +162,7 @@ static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
 
 static int timeoutHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_Log(ctx, "notice", "Timed out coordination request");
-  return RedisModule_ReplyWithError(ctx, "Timeout calling command");
+  return RedisModule_ReplyWithError(ctx, "RQE_CLUSTER_TIMEOUT: Timeout calling command");
 }
 
 /* handler for unblocking redis commands, that calls the actual reducer */
