@@ -306,6 +306,65 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   // VSIM @vectorfield vector [KNN/RANGE ...] FILTER ...
   //                                                 ^
   vreq->query = AC_GetStringNC(ac, NULL);
+  ArgParser *parser = ArgParser_New(&argCursor, "FILTER");
+  if (!parser) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to create argument parser for FILTER");
+    return REDISMODULE_ERR;
+  }
+
+  // Parse POLICY (optional, enum)
+  const char *policy = NULL;
+  static const char *allowedPolicies[] = {"ADHOC", "BATCHES", NULL};
+  ArgParser_AddStringV(parser, "POLICY", "Filter policy",
+                      &policy, ARG_OPT_OPTIONAL,
+                      ARG_OPT_ALLOWED_VALUES, allowedPolicies,
+                      ARG_OPT_CALLBACK, handleFilterPolicy, pvd,
+                      ARG_OPT_END);
+
+  // Parse BATCH_SIZE (optional)
+  const char *batchSize = NULL;
+  ArgParser_AddStringV(parser, "BATCH_SIZE", "Batch size",
+                      &batchSize, ARG_OPT_OPTIONAL,
+                      ARG_OPT_CALLBACK, handleFilterBatchSize, pvd,
+                      ARG_OPT_END);
+
+  ArgParseResult result = ArgParser_Parse(parser);
+  if (!result.success) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, ArgParser_GetErrorString(parser));
+    ArgParser_Free(parser);
+    return REDISMODULE_ERR;
+  }
+
+  ArgParser_Free(parser);
+  return REDISMODULE_OK;
+}
+
+static int parseYieldScoreClause(ArgsCursor *ac, ParsedVectorData *pvd, QueryError *status) {
+  // VSIM @vectorfield vector [KNN/RANGE ...] [FILTER ...] YIELD_SCORE_AS <alias>
+  //                                                       ^
+  if (pvd->vectorScoreFieldAlias != NULL) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate YIELD_SCORE_AS argument");
+    return REDISMODULE_ERR;
+  }
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for YIELD_SCORE_AS");
+    return REDISMODULE_ERR;
+  }
+  const char *value;
+  if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid YIELD_SCORE_AS value");
+    return REDISMODULE_ERR;
+  }
+  // Add as QueryAttribute (for query node processing, not vector-specific)
+  QueryAttribute attr = {
+    .name = YIELD_DISTANCE_ATTR,
+    .namelen = strlen(YIELD_DISTANCE_ATTR),
+    .value = rm_strdup(value),
+    .vallen = strlen(value)
+  };
+  pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
+  pvd->vectorScoreFieldAlias = rm_strdup(value);
+
   return REDISMODULE_OK;
 }
 
