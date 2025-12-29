@@ -1257,38 +1257,43 @@ impl<'a> RLookup<'a> {
         ctx: &mut ffi::RedisModuleCtx,
         dst_row: &mut RLookupRow<value::RSValueFFI>,
         spec: &mut ffi::IndexSpec,
-        key: &CStr,
+        key: *const c_char,
     ) -> i32 {
         unsafe {
             let rule = spec.rule.as_ref().unwrap();
 
-            // create rlookupkeys
+            // Create RLookupKeys.
             let nkeys: usize = array_len_func(*rule.filter_fields as *mut c_void)
                 .try_into()
                 .expect("array_len must not exceed usize");
             let keys = (0..nkeys)
                 .map(|i| {
                     let idx = *rule.filter_fields_index.add(i);
-                    let new_key = if (idx == -1) {
+                    if (idx == -1) {
                         create_new_key(self, &NAME, RLookupKeyFlags::empty())
                     } else {
-                        let fs = spec.fields.add(idx.try_into().unwrap());
+                        let fs = &*spec
+                            .fields
+                            .add(idx.try_into().expect("dix must not exceed usize"));
 
                         let mut length = 0;
-                        let new_new_key = create_new_key(self, &NAME, RLookupKeyFlags::empty());
+                        // Safety: we received the pointer from the field spec and have to assume it is valid
+                        let name_ptr = unsafe {
+                            ffi::HiddenString_GetUnsafe(fs.fieldName, ptr::from_mut(&mut length))
+                        };
+                        let new_key = create_new_key(self, &NAME, RLookupKeyFlags::empty());
+                        let path_ptr = ffi::HiddenString_GetUnsafe(fs.fieldPath, ptr::null_mut());
+                        (*new_key).path = path_ptr;
 
-                        new_new_key.unwrap().as_mut().path =
-                            ffi::HiddenString_GetUnsafe((*fs).fieldPath, ptr::null_mut());
-
-                        new_new_key
-                    };
-                    new_key
+                        new_key
+                    } //as ffi::RLookupKey
                 })
                 .collect::<Vec<_>>()
                 // Move to heap.
-                .into_boxed_slice();
+                .into_boxed_slice()
+                .as_mut_ptr();
 
-            // load
+            // Load.
             let sctx = RedisSearchCtx {
                 redisCtx: ctx,
                 spec: spec,
@@ -1300,16 +1305,16 @@ impl<'a> RLookup<'a> {
             };
             let status = QueryError { _0: todo!() };
             let opt = RLookupLoadOptions {
-                sctx: todo!(),
+                keys: keys,
+                nkeys: nkeys,
+                sctx: &mut sctx,
+                keyPtr: key,
+                type_: rule.type_,
+                status: &mut status,
+                forceLoad: true,
+                mode: ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
                 dmd: todo!(),
-                keyPtr: todo!(),
-                type_: todo!(),
-                keys: todo!(),
-                nkeys: todo!(),
-                mode: todo!(),
-                forceLoad: todo!(),
                 forceString: todo!(),
-                status: todo!(),
             };
             let lookup: *mut ffi::RLookup = todo!();
             let dst_row: *mut ffi::RLookupRow = todo!();
@@ -1330,8 +1335,8 @@ fn create_new_key<'a>(
     lookup: &mut RLookup<'a>,
     name: &'a CStr,
     flags: RLookupKeyFlags,
-) -> Option<NonNull<RLookupKey<'a>>> {
-    // Create and move the key to the heap.
+) -> *mut RLookupKey<'a> {
+    // Create key and move it to the heap.
     let mut key = *Box::new(RLookupKey::new(lookup, name, flags));
     key.dstidx = lookup
         .keys
@@ -1352,7 +1357,7 @@ fn create_new_key<'a>(
     // Increase the RLookup table row length. (All rows have the same length).
     keys.rowlen += 1;
 
-    wrapped_key
+    &mut key
 }
 
 #[cfg(test)]
