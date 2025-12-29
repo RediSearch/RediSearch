@@ -387,7 +387,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
 
     let spec = unsafe { spec.unwrap().as_mut() };
 
-    let key = unsafe { CStr::from_ptr(key) };
+    // let key = unsafe { CStr::from_ptr(key) };
 
     lookup.load_rule_fields(ctx, dst_row, spec, key)
 }

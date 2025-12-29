@@ -13,10 +13,9 @@ use crate::{
     bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache},
 };
 use enumflags2::{BitFlags, bitflags, make_bitflags};
-use ffi::{QueryError, RLookupLoadOptions, RedisSearchCtx, array_len_func, loadIndividualKeys};
 use pin_project::pin_project;
+use query_error::QueryError;
 use std::{
-    alloc::Layout,
     borrow::Cow,
     cell::UnsafeCell,
     ffi::{CStr, c_char, c_void},
@@ -1263,18 +1262,18 @@ impl<'a> RLookup<'a> {
             let rule = spec.rule.as_ref().unwrap();
 
             // Create RLookupKeys.
-            let nkeys: usize = array_len_func(*rule.filter_fields as *mut c_void)
+            let nkeys: usize = ffi::array_len_func(*rule.filter_fields as *mut c_void)
                 .try_into()
                 .expect("array_len must not exceed usize");
-            let keys = (0..nkeys)
+            let mut keys = (0..nkeys)
                 .map(|i| {
                     let idx = *rule.filter_fields_index.add(i);
-                    if (idx == -1) {
+                    let a = if (idx == -1) {
                         create_new_key(self, &NAME, RLookupKeyFlags::empty())
                     } else {
                         let fs = &*spec
                             .fields
-                            .add(idx.try_into().expect("dix must not exceed usize"));
+                            .add(idx.try_into().expect("idx must not exceed usize"));
 
                         let mut length = 0;
                         // Safety: we received the pointer from the field spec and have to assume it is valid
@@ -1283,29 +1282,23 @@ impl<'a> RLookup<'a> {
                         };
                         let new_key = create_new_key(self, &NAME, RLookupKeyFlags::empty());
                         let path_ptr = ffi::HiddenString_GetUnsafe(fs.fieldPath, ptr::null_mut());
-                        (*new_key).path = path_ptr;
+                        (&mut *new_key).path = path_ptr;
 
                         new_key
-                    } //as ffi::RLookupKey
+                    } as *const ffi::RLookupKey;
+                    a
                 })
                 .collect::<Vec<_>>()
                 // Move to heap.
-                .into_boxed_slice()
-                .as_mut_ptr();
+                .into_boxed_slice();
 
             // Load.
-            let sctx = RedisSearchCtx {
-                redisCtx: ctx,
-                spec: spec,
-                key_: todo!(),
-                time: todo!(),
-                apiVersion: todo!(),
-                expanded: todo!(),
-                flags: todo!(),
-            };
-            let status = QueryError { _0: todo!() };
-            let opt = RLookupLoadOptions {
-                keys: keys,
+            // TODO: Use existing methods for creation?
+            let mut sctx = redis_search_ctx_new_with_ctx_and_spec(ctx, spec);
+            // TODO: Want to use QueryError::default(), but doesn't work with ffi::RLookupLoadOptions.
+            let mut status = ffi::QueryError { _0: [0; 38] };
+            let opt = ffi::RLookupLoadOptions {
+                keys: (*keys).as_mut_ptr(),
                 nkeys: nkeys,
                 sctx: &mut sctx,
                 keyPtr: key,
@@ -1319,10 +1312,36 @@ impl<'a> RLookup<'a> {
             let lookup: *mut ffi::RLookup = todo!();
             let dst_row: *mut ffi::RLookupRow = todo!();
 
-            let rv = loadIndividualKeys(lookup, dst_row, &mut opt);
+            let _: ffi::RLookupKey;
+
+            let rv = ffi::loadIndividualKeys(lookup, dst_row, &mut opt);
             // TODO: free keys
             rv
         }
+    }
+}
+
+fn redis_search_ctx_new_with_ctx_and_spec(
+    module_ctx: *mut ffi::RedisModuleCtx,
+    index_spec: *mut ffi::IndexSpec,
+) -> ffi::RedisSearchCtx {
+    ffi::RedisSearchCtx {
+        redisCtx: module_ctx,
+        spec: index_spec,
+        key_: ptr::null_mut(),
+        time: ffi::SearchTime {
+            current: ffi::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+            timeout: ffi::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+        },
+        apiVersion: 0,
+        expanded: 0,
+        flags: 0,
     }
 }
 
