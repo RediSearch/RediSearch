@@ -37,13 +37,84 @@ def test_invalid_field_type(env):
         .error().contains('VECTOR fields are not supported in Flex indexes')
 
 @skip(cluster=True)
-def test_invalid_ft_create_argument(env):
-    """Test that creating an index with an invalid FT.CREATE argument fails when search-_simulate-in-flex is true"""
+def test_valid_field_types(env):
+    """Test that creating an index with valid field types succeeds when search-_simulate-in-flex is true"""
     # Set the simulate-in-flex configuration to true
     env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'TEMPORARY', 60, 'SCHEMA', 'field', 'TEXT') \
-        .error().contains('Unsupported argument for Flex index: `TEMPORARY`')
+
+    # Create index with only TEXT fields (the only supported type in Flex)
+    env.expect('FT.CREATE', 'valid_idx', 'ON', 'HASH', 'SCHEMA',
+               'title', 'TEXT',
+               'description', 'TEXT', 'WEIGHT', '2.0',
+               'content', 'TEXT', 'SORTABLE').ok()
+
+    # Verify the index was created
+    info_result = env.cmd('FT.INFO', 'valid_idx')
+
+    # Check that the schema contains the expected fields
+    schema_info = None
+    for i in range(0, len(info_result), 2):
+        if info_result[i] == 'attributes':
+            schema_info = info_result[i + 1]
+            break
+
+    env.assertTrue(schema_info is not None, "Schema information not found")
+    env.assertEqual(len(schema_info), 3, "Expected 3 fields in schema")
+
+    # Verify each field's properties
+    field_names = [field[1] for field in schema_info]  # attribute names
+    field_types = [field[3] for field in schema_info]  # field types
+
+    env.assertIn('title', field_names)
+    env.assertIn('description', field_names)
+    env.assertIn('content', field_names)
+
+    # All fields should be TEXT type
+    for field_type in field_types:
+        env.assertEqual(field_type, 'TEXT')
+
+@skip(cluster=True)
+def test_valid_flex_arguments(env):
+    """Test that supported FT.CREATE arguments work correctly in Flex mode"""
+    # Set the simulate-in-flex configuration to true
+    env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
+
+    # Test with all supported Flex arguments
+    env.expect('FT.CREATE', 'flex_args_idx', 'ON', 'HASH',
+               'PREFIX', '2', 'doc:', 'item:',
+               'FILTER', '@status=="active"',
+               'LANGUAGE', 'english',
+               'LANGUAGE_FIELD', 'lang',
+               'SCORE', '0.5',
+               'SCORE_FIELD', 'score',
+               'STOPWORDS', '2', 'the', 'and',
+               'SCHEMA', 'title', 'TEXT', 'body', 'TEXT').ok()
+
+    # Verify the index was created successfully
+    info_result = env.cmd('FT.INFO', 'flex_args_idx')
+    env.assertTrue(info_result is not None)
+
+@skip(cluster=True)
+def test_unsupported_flex_arguments(env):
+    """Test that unsupported FT.CREATE arguments fail in Flex mode"""
+    # Set the simulate-in-flex configuration to true
+    env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
+
+    # Test unsupported arguments that are valid in regular mode
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'NOOFFSETS', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unsupported argument for Flex index: `NOOFFSETS`')
+
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'NOHL', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unsupported argument for Flex index: `NOHL`')
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'NOFIELDS', 'SCHEMA', 'field', 'TEXT') \
+        .error().contains('Unsupported argument for Flex index: `NOFIELDS`')
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'NOFREQS', 'SCHEMA', 'field', 'TEXT') \
+        .error().contains('Unsupported argument for Flex index: `NOFREQS`')
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT') \
+        .error().contains('Unsupported argument for Flex index: `SKIPINITIALSCAN`')
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'ASYNC', 'SCHEMA', 'field', 'TEXT') \
+        .error().contains('Unsupported argument for Flex index: `ASYNC`')
