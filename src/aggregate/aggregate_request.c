@@ -341,6 +341,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
+    //TODO (Joan): Mark not supported for Flex
     if (((*papCtx->reqflags) & QEXEC_F_IS_AGGREGATE) && ((*papCtx->reqflags) & QEXEC_F_HAS_WITHCOUNT)) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
       return ARG_ERROR;
@@ -351,8 +352,10 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
   } else if (AC_AdvanceIfMatch(ac, "_NUM_SSTRING")) {
     REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_TYPED);
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
+    //TODO (Joan): Mark not supported for Flex
     REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SENDRAWIDS);
   } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
+    //TODO (Joan): Mark not supported for Flex
     if (parseParams(&(papCtx->searchopts->params), ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -367,6 +370,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if(AC_AdvanceIfMatch(ac, "FORMAT")) {
+    //TODO (Joan): Mark not supported for Flex
     if (parseValueFormat(papCtx->reqflags, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -379,6 +383,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       RS_LOG_ASSERT(false, "Bad arguments for _INDEX_PREFIXES (coordinator)");
     }
   } else if (AC_AdvanceIfMatch(ac, "BM25STD_TANH_FACTOR")) {
+    //TODO (Joan): Mark not supported for Flex
     if (AC_NumRemaining(ac) < 1) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Need an argument for BM25STD_TANH_FACTOR");
       return ARG_ERROR;
@@ -561,32 +566,42 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   ArgsCursor inKeys = {0};
   ArgsCursor inFields = {0};
   Pipeline *pipeline = &req->pipeline;
+  //If is  Search request and Search on DIsk
   ACArgSpec querySpecs[] = {
-      {.name = "INFIELDS", .type = AC_ARGTYPE_SUBARGS, .target = &inFields},  // Comment
-      {.name = "SLOP",
-       .type = AC_ARGTYPE_INT,
-       .target = &searchOpts->slop,
-       .intflags = AC_F_COALESCE},
-      {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr},
-      {.name = "EXPANDER", .type = AC_ARGTYPE_STRING, .target = &searchOpts->expanderName},
-      {.name = "INKEYS", .type = AC_ARGTYPE_SUBARGS, .target = &inKeys},
-      {.name = "SCORER", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scorerName},
-      {.name = "RETURN", .type = AC_ARGTYPE_SUBARGS, .target = &returnFields},
-      {AC_MKBITFLAG("INORDER", &searchOpts->flags, Search_InOrder)},
-      {AC_MKBITFLAG("VERBATIM", &searchOpts->flags, Search_Verbatim)},
-      {AC_MKBITFLAG("WITHSCORES", &req->reqflags, QEXEC_F_SEND_SCORES)},
-      {AC_MKBITFLAG("ADDSCORES", &req->reqflags, QEXEC_F_SEND_SCORES_AS_FIELD)},
-      {AC_MKBITFLAG("WITHSORTKEYS", &req->reqflags, QEXEC_F_SEND_SORTKEYS)},
-      {AC_MKBITFLAG("WITHPAYLOADS", &req->reqflags, QEXEC_F_SEND_PAYLOADS)},
-      {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
-      {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopWords)},
-      {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
-      {.name = "PAYLOAD",
-       .type = AC_ARGTYPE_STRING,
-       .target = &ast->udata,
-       .len = &ast->udatalen},
-      {NULL}};
+    {.name = "INFIELDS", .type = AC_ARGTYPE_SUBARGS, .target = &inFields},  // Comment
+    {.name = "SLOP",
+    .type = AC_ARGTYPE_INT,
+    .target = &searchOpts->slop,
+    .intflags = AC_F_COALESCE},
+    {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr},
+    {.name = "EXPANDER", .type = AC_ARGTYPE_STRING, .target = &searchOpts->expanderName},
+    {.name = "INKEYS", .type = AC_ARGTYPE_SUBARGS, .target = &inKeys},
+    {.name = "SCORER", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scorerName},
+    {.name = "RETURN", .type = AC_ARGTYPE_SUBARGS, .target = &returnFields},
+    {AC_MKBITFLAG("INORDER", &searchOpts->flags, Search_InOrder)},
+    {AC_MKBITFLAG("VERBATIM", &searchOpts->flags, Search_Verbatim)},
+    {AC_MKBITFLAG("WITHSCORES", &req->reqflags, QEXEC_F_SEND_SCORES)},
+    {AC_MKBITFLAG("ADDSCORES", &req->reqflags, QEXEC_F_SEND_SCORES_AS_FIELD)},
+    {AC_MKBITFLAG("WITHSORTKEYS", &req->reqflags, QEXEC_F_SEND_SORTKEYS)},
+    {AC_MKBITFLAG("WITHPAYLOADS", &req->reqflags, QEXEC_F_SEND_PAYLOADS)},
+    {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
+    {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopWords)},
+    {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
+    {.name = "PAYLOAD", .type = AC_ARGTYPE_STRING, .target = &ast->udata, .len = &ast->udatalen},
+    {NULL}};
 
+  if (AREQ_SearchCtx(req)->spec->diskSpec && (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH)) {//(isSpecOnDiskForValidation(AREQ_SearchCtx(req)->spec) && (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH)) {
+    // Reuse querySpecs to avoid allocation on heap
+    querySpecs[0] = (ACArgSpec){.name = "INKEYS", .type = AC_ARGTYPE_SUBARGS, .target = &inKeys};
+    querySpecs[1] = (ACArgSpec){.name = "RETURN", .type = AC_ARGTYPE_SUBARGS, .target = &returnFields};
+    querySpecs[2] = (ACArgSpec){.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr};
+    querySpecs[3] = (ACArgSpec){AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)};
+    querySpecs[4] = (ACArgSpec){AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopWords)};
+    querySpecs[5] = (ACArgSpec){AC_MKBITFLAG("WITHSCORES", &req->reqflags, QEXEC_F_SEND_SCORES)};
+    querySpecs[6] = (ACArgSpec){AC_MKBITFLAG("WITHSORTKEYS", &req->reqflags, QEXEC_F_SEND_SORTKEYS)};
+    querySpecs[7] = (ACArgSpec){AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)};
+    querySpecs[8] = (ACArgSpec){NULL};
+  }
   AREQ_AddRequestFlags(req, QEXEC_FORMAT_DEFAULT);
   bool optimization_specified = false;
   bool hasEmptyFilterValue = false;
@@ -604,6 +619,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
     // See if this is one of our arguments which requires special handling
     if (AC_AdvanceIfMatch(ac, "SUMMARIZE")) {
+      // TODO(Joan): Mark not supported for Flex
       if(!ensureSimpleMode(req)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SUMMARIZE is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
@@ -615,6 +631,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       AREQ_AddRequestFlags(req, QEXEC_F_SEND_HIGHLIGHT);
 
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
+      // TODO(Joan): Mark not supported for Flex
       if(!ensureSimpleMode(req)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "HIGHLIGHT is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
@@ -632,6 +649,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
+      // TODO: Mark not supported for Flex
       AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
       if (IsAggregate(req)) {
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
@@ -642,6 +660,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
+      // TODO(Joan): Mark not supported for Flex
       AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
       if (IsAggregate(req)) {
         AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
