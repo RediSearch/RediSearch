@@ -43,6 +43,7 @@ jobs:
       - name: Get version branch
         id: get_version_branch
         run: |
+          git fetch --all
           version_branch=$(git branch -a --contains tags/${{ env.input_tag }} | grep -oE 'remotes/origin/[0-9]+\.[0-9]+$' | sed 's|.*/||')
           count=$(echo "$version_branch" | wc -l)
           
