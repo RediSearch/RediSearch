@@ -298,25 +298,14 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
   return TagIndex_GetReader(sctx, iv, value, len, weight, fieldIndex);
 }
 
-/* Format the key name for a tag index */
-RedisModuleString *TagIndex_FormatName(const IndexSpec *spec, const HiddenString* field) {
-  return RedisModule_CreateStringPrintf(RSDummyContext, TAG_INDEX_KEY_FMT, HiddenString_GetUnsafe(spec->specName, NULL), HiddenString_GetUnsafe(field, NULL));
-}
 
 /* Open the tag index */
-TagIndex *TagIndex_Open(const IndexSpec *spec, RedisModuleString *key, bool create_if_missing) {
-  KeysDictValue *kdv = dictFetchValue(spec->keysDict, key);
-  if (kdv) {
-    return kdv->p;
+TagIndex *TagIndex_Open(FieldSpec *spec, bool create_if_missing) {
+  RS_ASSERT(FIELD_IS(spec, INDEXFLD_T_TAG));
+  if (!spec->tagOpts.tagIndex && create_if_missing) {
+    spec->tagOpts.tagIndex = NewTagIndex();
   }
-  if (!create_if_missing) {
-    return NULL;
-  }
-  kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->p = NewTagIndex();
-  kdv->dtor = TagIndex_Free;
-  dictAdd(spec->keysDict, key, kdv);
-  return kdv->p;
+  return spec->tagOpts.tagIndex;
 }
 
 /* Serialize all the tags in the index to the redis client */
@@ -373,8 +362,7 @@ void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
   TrieMapIterator_Free(it);
 }
 
-void TagIndex_Free(void *p) {
-  TagIndex *idx = p;
+void TagIndex_Free(TagIndex *idx) {
   TrieMap_Free(idx->values, InvertedIndex_Free);
   TrieMap_Free(idx->suffix, suffixTrieMap_freeCallback);
   rm_free(idx);
@@ -401,7 +389,7 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
                                .rdb_load = TagIndex_RdbLoad,
                                .rdb_save = TagIndex_RdbSave,
                                .aof_rewrite = GenericAofRewrite_DisabledHandler,
-                               .free = TagIndex_Free,
+                               .free = (RedisModuleTypeFreeFunc)TagIndex_Free,
                                .mem_usage = TagIndex_MemUsage};
 
   TagIndexType = RedisModule_CreateDataType(ctx, "ft_tagidx", TAGIDX_CURRENT_VERSION, &tm);
@@ -413,12 +401,9 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-size_t TagIndex_GetOverhead(const IndexSpec *sp, FieldSpec *fs) {
+size_t TagIndex_GetOverhead(FieldSpec *fs) {
   size_t overhead = 0;
-  TagIndex *idx = NULL;
-  RedisModuleString *keyName = TagIndex_FormatName(sp, fs->fieldName);
-  idx = TagIndex_Open(sp, keyName, DONT_CREATE_INDEX);
-  RedisModule_FreeString(RSDummyContext, keyName);
+  TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
   if (idx) {
     overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize
     if (idx->suffix) {

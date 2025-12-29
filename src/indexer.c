@@ -144,8 +144,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       if (spec->flags & Index_HasVecSim) {
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-            RedisModuleString *rmstr = IndexSpec_GetFormattedKey(spec, &spec->fields[i], INDEXFLD_T_VECTOR);
-            VecSimIndex *vecsim = openVectorIndex(spec, rmstr, DONT_CREATE_INDEX);
+            VecSimIndex *vecsim = openVectorIndex(&spec->fields[i], DONT_CREATE_INDEX);
             if(!vecsim)
               continue;
             VecSimIndex_DeleteVector(vecsim, dmd->id);
