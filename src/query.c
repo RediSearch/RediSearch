@@ -509,15 +509,11 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
 IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_TOKEN, "query node type should be token")
 
-  RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
+  IndexReader *ir = Redis_OpenReader(q->sctx, &qn->tn, q->tokenId++, q->docTable, EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
 
-  IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable,
-                                     EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
   if (ir == NULL) {
-    Term_Free(term);
     return NULL;
   }
-
   return NewReadIterator(ir);
 }
 
@@ -531,14 +527,11 @@ static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
       .str = str
   };
 
-  RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
-
   // Open an index reader
-  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
-                                     q->opts->fieldmask & opts->fieldMask, q->conc, 1);
+  IndexReader *ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
+                                      q->opts->fieldmask & opts->fieldMask, q->conc, 1);
 
   if (!ir) {
-    Term_Free(term);
     return;
   }
 
@@ -796,12 +789,10 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   }
   RSToken tok = {0};
   tok.str = runesToStr(r, n, &tok.len);
-  RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
-  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
+  IndexReader *ir = Redis_OpenReader(q->sctx, &tok, ctx->q->tokenId++, &q->sctx->spec->docs,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
   rm_free(tok.str);
   if (!ir) {
-    Term_Free(term);
     return REDISEARCH_OK;
   }
 
@@ -817,15 +808,12 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
     return REDISEARCH_ERR;
   }
   RSToken tok = {.str = (char *)s, .len = n};
-  RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
-  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
+  IndexReader *ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
-  if (!ir) {
-    Term_Free(term);
-    return REDISEARCH_OK;
+  if (ir) {
+    rangeItersAddIterator(ctx, ir);
   }
 
-  rangeItersAddIterator(ctx, ir);
   return REDISEARCH_OK;
 }
 

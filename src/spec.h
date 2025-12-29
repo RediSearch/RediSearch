@@ -284,6 +284,11 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 // Forward declaration
 typedef struct InvertedIndex InvertedIndex;
 
+typedef struct CharBuf {
+  char *buf;
+  size_t len;
+} CharBuf;
+
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
@@ -366,11 +371,6 @@ typedef struct SpecOpIndexingCtx {
   dict *specs;
   SpecOpCtx *specsOps;
 } SpecOpIndexingCtx;
-
-typedef struct {
-  void (*dtor)(void *p);
-  void *p;
-} KeysDictValue;
 
 extern RedisModuleType *IndexSpecType;
 extern RedisModuleType *IndexAliasType;
@@ -525,8 +525,6 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
  * the Redis keyspace
  */
 void IndexSpec_MakeKeyless(IndexSpec *sp);
-
-#define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
 
 void IndexesScanner_Cancel(struct IndexesScanner *scanner);
 void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
