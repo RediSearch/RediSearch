@@ -107,6 +107,21 @@ enum QueryErrorCode
 typedef uint8_t QueryErrorCode;
 #endif // __cplusplus
 
+enum QueryWarningCode
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  QUERY_WARNING_CODE_OK = 0,
+  QUERY_WARNING_CODE_TIMED_OUT,
+  QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS,
+  QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD,
+  QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD,
+};
+#ifndef __cplusplus
+typedef uint8_t QueryWarningCode;
+#endif // __cplusplus
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
