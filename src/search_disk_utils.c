@@ -10,14 +10,17 @@
 #include "search_disk_utils.h"
 #include "search_disk.h"
 
-/**
- * @brief Check if the number of indexes is within the limit
- *
- * @return true if the number of indexes is within the limit, false otherwise
- */
 bool SearchDisk_CheckLimitNumberOfIndexes(size_t nIndexes) {
   if (!SearchDisk_IsEnabledForValidation()) {
     return true;
   }
   return nIndexes <= FLEX_MAX_INDEX_COUNT;
+}
+
+bool SearchDisk_MarkUnsupportedFieldIfDiskEnabled(const char *fieldTypeStr, const FieldSpec *fs, QueryError *status) {
+  if (SearchDisk_IsEnabledForValidation()) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FIELD, "%s fields are not supported in Flex indexes", fieldTypeStr);
+    return false;
+  }
+  return true;
 }

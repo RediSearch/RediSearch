@@ -1252,7 +1252,6 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
  *  Returns 1 on successful parse, 0 otherwise */
 static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
-
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Field", " `%s` does not have a type", HiddenString_GetUnsafe(fs->fieldName, NULL));
     return 0;
   }
@@ -1263,22 +1262,27 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
       sp->flags |= Index_HasNonEmpty;
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
+    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_TAG_STR, fs, status)) goto error;
     if (!parseTagField(fs, ac, status)) goto error;
     if (!FieldSpec_IndexesEmpty(fs)) {
       sp->flags |= Index_HasNonEmpty;
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
+    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_GEOMETRY_STR, fs, status)) goto error;
     if (!parseGeometryField(sp, fs, ac, status)) goto error;
   } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
+    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_VECTOR_STR, fs, status)) goto error;
     if (!parseVectorField(sp, sp_ref, fs, ac, status)) goto error;
     // Skip SORTABLE and NOINDEX options
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
+    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_NUMERIC_STR, fs, status)) goto error;
     fs->types |= INDEXFLD_T_NUMERIC;
     if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
       fs->options |= FieldSpec_IndexMissing;
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
+    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_GEO_STR, fs, status)) goto error;
     fs->types |= INDEXFLD_T_GEO;
     if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
       fs->options |= FieldSpec_IndexMissing;
