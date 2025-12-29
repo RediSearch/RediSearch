@@ -343,7 +343,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return RedisModule_ReplyWithError(ctx, "RQE_INDEX_NOT_FOUND: Unknown index name");
   }
   CurrentThread_SetIndexSpec(sp->own_ref);
   const bool with_times = (argc > 2 && !strcmp(RedisModule_StringPtrLen(argv[2], NULL), WITH_INDEX_ERROR_TIME));
@@ -388,7 +388,7 @@ int IndexObfuscatedInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RedisModule_EndReply(&_reply);
   dictReleaseIterator(iter);
   if (!found) {
-    return RedisModule_ReplyWithError(ctx, "Unknown obfuscated index name");
+    return RedisModule_ReplyWithError(ctx, "RQE_INDEX_OBFUSCATED_NOT_FOUND: Unknown obfuscated index name");
   }
   return REDISMODULE_OK;
 }

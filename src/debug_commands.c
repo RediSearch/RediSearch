@@ -72,7 +72,7 @@ void validateDebugMode(DebugCTX *debugCtx) {
 #define GET_SEARCH_CTX(name)                                        \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
   if (!sctx) {                                                      \
-    RedisModule_ReplyWithError(ctx, "Can not create a search ctx"); \
+    RedisModule_ReplyWithError(ctx, "RQE_SEARCH_CTX_CREATE_FAILED: Can not create a search ctx"); \
     return REDISMODULE_OK;                                          \
   }
 
@@ -789,7 +789,7 @@ DEBUG_COMMAND(GCForceInvoke) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return RedisModule_ReplyWithError(ctx, "RQE_INDEX_NOT_FOUND: Unknown index name");
   }
 
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(
@@ -808,7 +808,7 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return RedisModule_ReplyWithError(ctx, "RQE_INDEX_NOT_FOUND: Unknown index name");
   }
   GCContext_ForceBGInvoke(sp->gc);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -825,7 +825,7 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return RedisModule_ReplyWithError(ctx, "RQE_INDEX_NOT_FOUND: Unknown index name");
   }
   // Make sure there is no pending timer
   RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
@@ -845,7 +845,7 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return RedisModule_ReplyWithError(ctx, "RQE_INDEX_NOT_FOUND: Unknown index name");
   }
   if (sp->gc->timerID) {
     return RedisModule_ReplyWithError(ctx, "GC is already running periodically");
@@ -907,7 +907,7 @@ DEBUG_COMMAND(ttl) {
   StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return RedisModule_ReplyWithError(ctx, "RQE_INDEX_NOT_FOUND: Unknown index name");
   }
 
   if (!(sp->flags & Index_Temporary)) {
@@ -937,7 +937,7 @@ DEBUG_COMMAND(ttlPause) {
   StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return RedisModule_ReplyWithError(ctx, "RQE_INDEX_NOT_FOUND: Unknown index name");
   }
 
   if (!(sp->flags & Index_Temporary)) {
@@ -973,7 +973,7 @@ DEBUG_COMMAND(ttlExpire) {
   StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return RedisModule_ReplyWithError(ctx, "RQE_INDEX_NOT_FOUND: Unknown index name");
   }
 
   if (!(sp->flags & Index_Temporary)) {
@@ -1012,7 +1012,7 @@ DEBUG_COMMAND(setMonitorExpiration) {
   StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return RedisModule_ReplyWithError(ctx, "RQE_INDEX_NOT_FOUND: Unknown index name");
   }
 
   MonitorExpirationOptions options = {0};
@@ -1696,7 +1696,7 @@ DEBUG_COMMAND(getDebugScannerStatus) {
   IndexSpec *sp = StrongRef_Get(ref);
 
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return RedisModule_ReplyWithError(ctx, "RQE_INDEX_NOT_FOUND: Unknown index name");
   }
 
   if (!sp->scanner) {
@@ -1824,7 +1824,7 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
   IndexSpec *sp = StrongRef_Get(ref);
 
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return RedisModule_ReplyWithError(ctx, "RQE_INDEX_NOT_FOUND: Unknown index name");
   }
 
   if (!sp->scanner) {

@@ -1234,7 +1234,7 @@ int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
     cmdType = COMMAND_AGGREGATE;
   } else {
-    RedisModule_ReplyWithError(ctx, "No `SEARCH` or `AGGREGATE` provided");
+    RedisModule_ReplyWithError(ctx, "RQE_COMMAND_TYPE_MISSING: No `SEARCH` or `AGGREGATE` provided");
     return REDISMODULE_OK;
   }
 
@@ -1245,7 +1245,7 @@ int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
   if (strcasecmp(cmd, "QUERY") != 0) {
-    RedisModule_ReplyWithError(ctx, "The QUERY keyword is expected");
+    RedisModule_ReplyWithError(ctx, "RQE_COMMAND_QUERY_KEYWORD_MISSING: The QUERY keyword is expected");
     return REDISMODULE_OK;
   }
 
@@ -1352,7 +1352,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
       Cursor_Free(cursor);
-      RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
+      RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_DROPPED_DURING_CURSOR));
       return;
     }
 
@@ -1414,9 +1414,11 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   long long cid;
   if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
+    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_CURSOR_INVALID_ID));
   }
 
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  
   long long count = 0;
   if (argc > 5) {
     // e.g. 'COUNT <timeout>'
@@ -1431,20 +1433,57 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
   }
 
-  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
-  if (cursor == NULL) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
+  if (strcasecmp(cmd, "READ") == 0) {
+    long long count = 0;
+    if (argc > 5) {
+      // e.g. 'COUNT <timeout>'
+      // Verify that the 4'th argument is `COUNT`.
+      const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
+      if (strcasecmp(count_str, "count") != 0) {
+        RedisModule_ReplyWithErrorFormat(ctx, "%s `%s`", QueryError_Strerror(QUERY_ERROR_CODE_PARSE_ARGS), count_str);
+        RedisModule_EndReply(reply);
+        return REDISMODULE_OK;
+      }
+
+      if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
+        RedisModule_ReplyWithErrorFormat(ctx, "%s: `%s`", QueryError_Strerror(QUERY_ERROR_CODE_ARGUMENT_COUNT_INVALID), RedisModule_StringPtrLen(argv[5], NULL));
+        RedisModule_EndReply(reply);
+        return REDISMODULE_OK;
+      }
+    }
+
+    Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+    if (cursor == NULL) {
+      RedisModule_ReplyWithErrorFormat(ctx, "%s, id: %d", QueryError_Strerror(QUERY_ERROR_CODE_CURSOR_NOT_FOUND), cid);
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
+    }
   }
 
-  // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
-  if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
-    CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
-    cr_ctx->bc = BlockCursorClient(ctx, cursor, count, 0);
-    cr_ctx->cursor = cursor;
-    cr_ctx->count = count;
-    workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
+    // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
+    if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
+      CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
+      cr_ctx->bc = BlockCursorClient(ctx, cursor, count, 0);
+      cr_ctx->cursor = cursor;
+      cr_ctx->count = count;
+      workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
+    } else {
+      cursorRead(reply, cursor, count, false);
+    }
+  } else if (strcasecmp(cmd, "DEL") == 0) {
+    int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
+    if (rc != REDISMODULE_OK) {
+      RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_CURSOR_DOES_NOT_EXIST));
+    } else {
+      RedisModule_Reply_SimpleString(reply, "OK");
+    }
+  } else if (strcasecmp(cmd, "GC") == 0) {
+    int rc = Cursors_CollectIdle(&g_CursorsList);
+    rc += Cursors_CollectIdle(&g_CursorsListCoord);
+    RedisModule_Reply_LongLong(reply, rc);
   } else {
-    cursorRead(ctx, cursor, count, false);
+    RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_CMD_SUBCMD_UNKNOWN));
+  }
   }
 
   return REDISMODULE_OK;
@@ -1597,3 +1636,4 @@ int DEBUG_RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 int DEBUG_RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return DEBUG_execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, EXEC_DEBUG);
 }
+
