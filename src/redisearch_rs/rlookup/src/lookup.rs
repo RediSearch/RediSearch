@@ -13,11 +13,12 @@ use crate::{
     bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache},
 };
 use enumflags2::{BitFlags, bitflags, make_bitflags};
+use ffi::{QueryError, RLookupLoadOptions, RedisSearchCtx, loadIndividualKeys};
 use pin_project::pin_project;
 use std::{
     borrow::Cow,
     cell::UnsafeCell,
-    ffi::{CStr, CString, c_char},
+    ffi::{CStr, c_char},
     mem,
     ops::{Deref, DerefMut},
     pin::Pin,
@@ -1249,32 +1250,31 @@ impl<'a> RLookup<'a> {
         self.header.keys.rowlen
     }
 
-    #[allow(clippy::missing_const_for_fn, unused)]
+    #[allow(unused)]
     pub fn load_rule_fields(
-        &self,
-        ctx: &ffi::RedisModuleCtx,
-        lookup: &mut RLookup<'_>,
-        dst_row: &RLookupRow<value::RSValueFFI>,
-        spec: &ffi::IndexSpec,
+        &mut self,
+        ctx: &mut ffi::RedisModuleCtx,
+        dst_row: &mut RLookupRow<value::RSValueFFI>,
+        spec: &mut ffi::IndexSpec,
         key: &CStr,
     ) -> i32 {
         unsafe {
+            // create rlookupkeys
             let rule = spec.rule;
             let nkeys = 10; //(*rule).filter_fields;
 
-            let name = CString::new("Hello").unwrap();
             let keys = (0..nkeys)
                 .map(|i| {
                     // let idx = *(*rule).filter_fields_index[i];
                     let idx = 0_i32;
 
                     let new_key = if (idx == -1) {
-                        createNewKey(lookup, &'a name, RLookupKeyFlags::empty())
+                        create_new_key(self, &NAME, RLookupKeyFlags::empty())
                     } else {
                         let fs = spec.fields.add(idx.try_into().unwrap());
 
                         let mut length = 0;
-                        let new_new_key = createNewKey(lookup, &name, RLookupKeyFlags::empty());
+                        let new_new_key = create_new_key(self, &NAME, RLookupKeyFlags::empty());
 
                         new_new_key.unwrap().as_mut().path =
                             ffi::HiddenString_GetUnsafe((*fs).fieldPath, ptr::null_mut());
@@ -1284,47 +1284,73 @@ impl<'a> RLookup<'a> {
                     new_key
                 })
                 .collect::<Vec<_>>();
-        }
 
-        0
+            // load
+            let sctx = RedisSearchCtx {
+                redisCtx: ctx,
+                spec: spec,
+                key_: todo!(),
+                time: todo!(),
+                apiVersion: todo!(),
+                expanded: todo!(),
+                flags: todo!(),
+            };
+            let status = QueryError { _0: todo!() };
+            let opt = RLookupLoadOptions {
+                sctx: todo!(),
+                dmd: todo!(),
+                keyPtr: todo!(),
+                type_: todo!(),
+                keys: todo!(),
+                nkeys: todo!(),
+                mode: todo!(),
+                forceLoad: todo!(),
+                forceString: todo!(),
+                status: todo!(),
+            };
+            let lookup: *mut ffi::RLookup = todo!();
+            let dst_row: *mut ffi::RLookupRow = todo!();
+
+            let rv = loadIndividualKeys(lookup, dst_row, &mut opt);
+            // TODO: free keys
+            rv
+        }
     }
 }
 
-#[allow(
-    clippy::missing_safety_doc,
-    clippy::multiple_unsafe_ops_per_block,
-    clippy::undocumented_unsafe_blocks
-)]
-fn createNewKey<'a>(
+const NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"hello\0") };
+
+/// Allocate a new RLookupKey and add it to the RLookup table.
+///
+/// TODO: Should this be a method on RLookupKey instead? Or RLookup::create_and_add_key()?
+fn create_new_key<'a>(
     lookup: &mut RLookup<'a>,
     name: &'a CStr,
     flags: RLookupKeyFlags,
 ) -> Option<NonNull<RLookupKey<'a>>> {
-    unsafe {
-        let mut key = RLookupKey::new(lookup, name, flags);
-        //   ret->dstidx = lookup->rowlen;
-        key.dstidx = lookup
-            .header
-            .keys
-            .rowlen
-            .try_into()
-            .expect("rowlen must not exceed u16");
-        let wrapped_key = Some((&key).into());
+    // RLookupKey *ret = rm_calloc(1, sizeof(*ret));
+    // TODO: Who will dealloc this key?
+    let mut key = RLookupKey::new(lookup, name, flags);
+    key.dstidx = lookup
+        .keys
+        .rowlen
+        .try_into()
+        .expect("rowlen must not exceed u16");
+    let wrapped_key = Some((&key).into());
 
-        let keys = &mut lookup.header.keys;
-        if keys.head.is_none() {
-            keys.head = wrapped_key;
-            keys.tail = wrapped_key;
-        } else {
-            keys.tail.unwrap().as_mut().next = wrapped_key.into();
-            keys.tail = wrapped_key;
-        }
-
-        // Increase the RLookup table row length. (all rows have the same length).
-        keys.rowlen += 1;
-
-        wrapped_key
+    let keys = &mut lookup.keys;
+    if keys.head.is_none() {
+        keys.head = wrapped_key;
+        keys.tail = wrapped_key;
+    } else {
+        unsafe { keys.tail.expect("tail must not be empty").as_mut().next = wrapped_key.into() };
+        keys.tail = wrapped_key;
     }
+
+    // Increase the RLookup table row length. (All rows have the same length).
+    keys.rowlen += 1;
+
+    wrapped_key
 }
 
 #[cfg(test)]
