@@ -917,13 +917,13 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
     int idx = rule->filter_fields_index[i];
     if (idx == -1) {
       keys[i] = createNewKey(it, rule->filter_fields[i], strlen(rule->filter_fields[i]), RLOOKUP_F_NOFLAGS);
-      continue;
+    } else {
+      FieldSpec *fs = spec->fields + idx;
+      size_t length = 0;
+      const char *name = HiddenString_GetUnsafe(fs->fieldName, &length);
+      keys[i] = createNewKey(it, name, length, RLOOKUP_F_NOFLAGS);
+      keys[i]->path = HiddenString_GetUnsafe(fs->fieldPath, NULL);
     }
-    FieldSpec *fs = spec->fields + idx;
-    size_t length = 0;
-    const char *name = HiddenString_GetUnsafe(fs->fieldName, &length);
-    keys[i] = createNewKey(it, name, length, RLOOKUP_F_NOFLAGS);
-    keys[i]->path = HiddenString_GetUnsafe(fs->fieldPath, NULL);
   }
 
   // load
