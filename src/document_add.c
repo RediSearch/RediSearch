@@ -109,14 +109,14 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
       // Argument not found, that's ok. We'll handle it below
     } else {
       char message[1024];
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_ADD_ARGS, "Parsing error for document option %s: %s", errArg->name, AC_Strerror(rv));
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_ADD_ARGS, "SEARCH_DOC_OPTION_PARSE_FAILED: Parsing error for document option %s: %s", errArg->name, AC_Strerror(rv));
       return REDISMODULE_ERR;
     }
   }
 
   if (!foundFields) {
     // If we've reached here, there is no fields list. This is an error??
-    QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "No field list found");
+    QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "SEARCH_FIELD_LIST_MISSING: No field list found");
     return REDISMODULE_ERR;
   }
 
@@ -125,7 +125,7 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
     const char *lang = RedisModule_StringPtrLen(opts->languageStr, &len);
     opts->language = RSLanguage_Find(lang, len);
     if (opts->language == RS_LANG_UNSUPPORTED) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "Unsupported language");
+      QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "SEARCH_LANGUAGE_UNSUPPORTED: Unsupported language");
       return REDISMODULE_ERR;
     }
   }
@@ -164,7 +164,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   }
 
   if (!exists && (opts->options & DOCUMENT_ADD_NOCREATE)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_NO_DOC, "Document does not exist");
+    QueryError_SetError(status, QUERY_ERROR_CODE_NO_DOC, "SEARCH_NO_DOC: Document does not exist");
     goto done;
   }
 
@@ -244,9 +244,9 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   int rv = 0;
   if ((rv = AC_GetDouble(&ac, &opts.score, 0) != AC_OK)) {
-    QueryError_SetError(&status, QUERY_ERROR_CODE_ADD_ARGS, "Could not parse document score");
+    QueryError_SetError(&status, QUERY_ERROR_CODE_ADD_ARGS, "SEARCH_SCORE_PARSE_FAILED: Could not parse document score");
   } else if (opts.score < 0 || opts.score > 1.0) {
-    QueryError_SetError(&status, QUERY_ERROR_CODE_ADD_ARGS, "Score must be between 0 and 1");
+    QueryError_SetError(&status, QUERY_ERROR_CODE_ADD_ARGS, "SEARCH_SCORE_RANGE_INVALID: Score must be between 0 and 1");
   } else if (parseDocumentOptions(&opts, &ac, &status) != REDISMODULE_OK) {
     QueryError_MaybeSetCode(&status, QUERY_ERROR_CODE_ADD_ARGS);
   }

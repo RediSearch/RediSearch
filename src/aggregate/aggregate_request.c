@@ -281,15 +281,15 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       // TODO: unify if when req holds only maxResults according to the query type.
       //(SEARCH / AGGREGATE)
     } else if ((arng->limit > *papCtx->maxSearchResults) && (*papCtx->reqflags & (QEXEC_F_IS_SEARCH))) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "LIMIT exceeds maximum of %llu",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_LIMIT_EXCEEDED: LIMIT exceeds maximum of %llu",
                              *papCtx->maxSearchResults);
       return ARG_ERROR;
     } else if ((arng->limit > *papCtx->maxAggregateResults) && !(*papCtx->reqflags & (QEXEC_F_IS_SEARCH))) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "LIMIT exceeds maximum of %llu",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_LIMIT_EXCEEDED: LIMIT exceeds maximum of %llu",
                              *papCtx->maxAggregateResults);
       return ARG_ERROR;
     } else if (arng->offset > *papCtx->maxSearchResults) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "OFFSET exceeds maximum of %llu",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_OFFSET_EXCEEDED: OFFSET exceeds maximum of %llu",
                              *papCtx->maxSearchResults);
       return ARG_ERROR;
     }
@@ -385,7 +385,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
     if (AC_GetUnsignedLongLong(ac, (unsigned long long *)&papCtx->reqConfig->BM25STD_TanhFactor, AC_F_GE1) != AC_OK) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "BM25STD_TANH_FACTOR must be between %d and %d inclusive",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_BM25_FACTOR_RANGE_INVALID: BM25STD_TANH_FACTOR must be between %d and %d inclusive",
       BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
       return ARG_ERROR;
     }
@@ -433,7 +433,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
   }
 
   if (dialect_specified && papCtx->reqConfig->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST && *papCtx->reqflags & QEXEC_FORMAT_EXPAND) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_DIALECT_VERSION_REQUIRED: EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
     return ARG_ERROR;
   }
 
@@ -499,7 +499,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
       const char *s = AC_GetStringNC(&subArgs, NULL);
       if (*s == '@') {
         if (array_len(keys) >= SORTASCMAP_MAXFIELDS) {
-          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
+          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_SORT_FIELDS_EXCEEDED: Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
           goto err;
         }
         s++;
@@ -1350,7 +1350,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   if (opts->scorerName) {
     if (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "No such scorer %s", opts->scorerName);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "SEARCH_SCORER_NOT_FOUND: No such scorer %s", opts->scorerName);
       return REDISMODULE_ERR;
     }
   } else {
