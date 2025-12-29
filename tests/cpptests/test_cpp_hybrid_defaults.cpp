@@ -78,10 +78,12 @@ protected:
     cmd.hybridParams = &hybridParams;
     cmd.reqConfig = &result->reqConfig;
     cmd.cursorConfig = &result->cursorConfig;
+    cmd.localSlots = Slots_GetLocalSlots();
 
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(result, &ac, args, args.size());
     int rc =  parseHybridCommand(ctx, &ac, result->sctx, &cmd, &status, false);
+    Slots_FreeLocalSlots(cmd.localSlots);
     if (rc != REDISMODULE_OK) {
       HybridRequest_Free(result);
       result = nullptr;

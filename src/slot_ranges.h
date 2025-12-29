@@ -26,6 +26,11 @@ typedef struct SharedSlotRangeArray SharedSlotRangeArray;
 /// @warning MUST be called from the main thread
 const SharedSlotRangeArray *Slots_GetLocalSlots(void);
 
+/// @brief  Clone the shared slot range array
+/// @param src source array to clone
+/// @return clone of the shared slot range array
+const SharedSlotRangeArray *Slots_Clone(const SharedSlotRangeArray *src);
+
 /// @brief Free the shared slot range array
 /// @param slots The slot range array to free (can be NULL)
 /// @note Safe to call from any thread

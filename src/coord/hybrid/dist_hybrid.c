@@ -19,6 +19,7 @@
 #include "rpnet.h"
 #include "hybrid_cursor_mappings.h"
 #include "info/global_stats.h"
+#include "concurrent_ctx.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -371,7 +372,7 @@ static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorReques
 }
 
 static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
-        RedisModuleString **argv, int argc, IndexSpec *sp, QueryError *status) {
+        RedisModuleString **argv, int argc, IndexSpec *sp, SharedSlotRangeArray *localSlots, QueryError *status) {
 
     hreq->tailPipeline->qctx.err = status;
 
@@ -384,6 +385,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     cmd.hybridParams = &hybridParams;
     cmd.tailPlan = &hreq->tailPipeline->ap;
     cmd.reqConfig = &hreq->reqConfig;
+    cmd.localSlots = localSlots;
 
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
@@ -560,7 +562,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
 
-    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, &status) != REDISMODULE_OK) {
+    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, ConcurrentCmdCtx_GetSlotsMutable(cmdCtx), &status) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;
     }

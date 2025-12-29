@@ -3116,13 +3116,49 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
       {
         .name = "filter",
         .token = "FILTER",
-        .type = REDISMODULE_ARG_TYPE_STRING,
+        .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+        .subargs = (RedisModuleCommandArg[]){
+          {
+            .name = "count",
+            .type = REDISMODULE_ARG_TYPE_INTEGER,
+          },
+          {
+            .name = "filter_expression",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+          },
+          {
+            .name = "policy",
+            .token = "POLICY",
+            .type = REDISMODULE_ARG_TYPE_ONEOF,
+            .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+            .subargs = (RedisModuleCommandArg[]){
+              {
+                .name = "adhoc",
+                .token = "ADHOC",
+                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+              },
+              {
+                .name = "batches",
+                .token = "BATCHES",
+                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+              },
+              {0}
+            },
+          },
+          {
+            .name = "batch_size_value",
+            .token = "BATCH_SIZE",
+            .type = REDISMODULE_ARG_TYPE_INTEGER,
+            .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+          },
+          {0}
+        },
       },
       {0}
     },
     .arity = -4,
-    .since = "8.4.0",
+    .since = "8.4.4",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }

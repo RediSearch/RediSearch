@@ -126,13 +126,15 @@ bool SetupHybridIteratorTest(RedisModuleCtx *ctx,
       .tailPlan = &testCtx->hybridReq->tailPipeline->ap,
       .hybridParams = &testCtx->hybridParams,
       .reqConfig = &reqConfig,
-      .cursorConfig = &cursorConfig
+      .cursorConfig = &cursorConfig,
+      .localSlots = Slots_GetLocalSlots()
     };
 
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(testCtx->hybridReq, &ac, args, args.size());
 
     int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &testCtx->status, false);
+    Slots_FreeLocalSlots(cmd.localSlots);
     if (rc != REDISMODULE_OK) return false;
 
     // Step 5: Create iterator from vector request

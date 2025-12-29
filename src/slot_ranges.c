@@ -41,6 +41,17 @@ const SharedSlotRangeArray *Slots_GetLocalSlots(void) {
   return localSlots;
 }
 
+const SharedSlotRangeArray *Slots_Clone(const SharedSlotRangeArray *src) {
+  // remove constness - needed in order to manage the refcount
+  SharedSlotRangeArray *slots = (SharedSlotRangeArray *)src;
+  if (!slots) {
+    return NULL;
+  }
+  uint32_t refcount = atomic_fetch_add_explicit(&slots->refcount, 1, memory_order_relaxed);
+  RS_LOG_ASSERT(refcount > 0, "Expected refcount > 0");
+  return slots;
+}
+
 void Slots_FreeLocalSlots(const SharedSlotRangeArray *slots) {
   SharedSlotRangeArray *slots_ = (SharedSlotRangeArray *)slots; // Cast away constness for refcount management
   if (slots_ && atomic_fetch_sub_explicit(&slots_->refcount, 1, memory_order_release) == 1) {
