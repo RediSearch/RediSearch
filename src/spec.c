@@ -1584,7 +1584,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   ACArgSpec *errarg = NULL;
   if (isSpecOnDiskForValidation(spec)) {
     ACArgSpec argopts[] = {
-      {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING}, // TODO(Joan): Is this option valid for Flex?
+      {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
       {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
       {.name = "FILTER", .target = &rule_args.filter_exp_str, .len = &dummy2, .type = AC_ARGTYPE_STRING},
       {.name = "LANGUAGE", .target = &rule_args.lang_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
@@ -1595,6 +1595,10 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
       {.name = NULL}
     };
     rc = AC_ParseArgSpec(&ac, argopts, &errarg);
+    if (strcmp(rule_args.type, RULE_TYPE_HASH) != 0) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT, "Only HASH is supported as index data type for Flex indexes");
+      goto failure;
+    }
   } else {
     ACArgSpec argopts[] = {
       {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,

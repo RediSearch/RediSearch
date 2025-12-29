@@ -126,3 +126,12 @@ def test_unsupported_flex_arguments(env):
 
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'ASYNC', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unsupported argument for Flex index: `ASYNC`')
+
+@skip(cluster=True)
+def test_invalid_on_json(env):
+    """Test that ON JSON fails when search-_simulate-in-flex is true"""
+    # Set the simulate-in-flex configuration to true
+    env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', 'field', 'TEXT') \
+        .error().contains('Only HASH is supported as index data type for Flex indexes')
