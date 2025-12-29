@@ -69,7 +69,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
     if (fieldType & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG | INDEXFLD_T_GEO | INDEXFLD_T_GEOMETRY)) {
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_JSON_TYPE_INVALID: Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_JSON_TYPE_BAD: Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field");
     }
     break;
   }
@@ -79,7 +79,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
     if (fieldType == INDEXFLD_T_NUMERIC) {
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_JSON_TYPE_INVALID: Invalid JSON type: Numeric type can represent only NUMERIC field");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_JSON_TYPE_BAD: Invalid JSON type: Numeric type can represent only NUMERIC field");
     }
     break;
   // Boolean values can be represented only as TAG
@@ -87,7 +87,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
     if (fieldType == INDEXFLD_T_TAG) {
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_JSON_TYPE_INVALID: Invalid JSON type: Boolean type can be represent only TAG field");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_JSON_TYPE_BAD: Invalid JSON type: Boolean type can be represent only TAG field");
     }
     break;
   case JSONType_Null:
@@ -97,7 +97,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
     if (!(fieldType & INDEXFLD_T_GEOMETRY)) { // TODO: GEOMETRY Handle multi-value geometry
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_JSON_TYPE_INVALID: Invalid JSON type: Array type cannot represent GEOMETRY field");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_JSON_TYPE_BAD: Invalid JSON type: Array type cannot represent GEOMETRY field");
     }
     break;
   case JSONType_Object:
@@ -105,12 +105,12 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
       // A GEOSHAPE field can be represented as GEOJSON "geoshape" object
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_JSON_TYPE_INVALID: Invalid JSON type: Object type can represent only GEOMETRY fields");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_JSON_TYPE_BAD: Invalid JSON type: Object type can represent only GEOMETRY fields");
     }
     break;
   // null type is not supported
   case JSONType__EOF: {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_JSON_TYPE_INVALID: Invalid JSON type: Null type is not supported");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_JSON_TYPE_BAD: Invalid JSON type: Null type is not supported");
       break;
     }
   }
@@ -284,14 +284,14 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
       dim = params->algoParams.svsParams.dim;
       break;
     default: {
-      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "SEARCH_VECTOR_ALGORITHM_INVALID: Invalid vector similarity algorithm");
+      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "SEARCH_VECTOR_ALGO_BAD: Invalid vector similarity algorithm");
       return REDISMODULE_ERR;
     }
   }
   size_t arrLen;
   japi->getLen(arr, &arrLen);
   if (arrLen != dim) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "SEARCH_VECTOR_LENGTH_INVALID: Invalid vector length. Expected %lu, got %lu", dim, arrLen);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "SEARCH_VECTOR_LEN_BAD: Invalid vector length. Expected %lu, got %lu", dim, arrLen);
     return REDISMODULE_ERR;
   }
 
@@ -590,17 +590,17 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
           break;
         case INDEXFLD_T_GEOMETRY:
           rv = REDISMODULE_ERR; // TODO: GEOMETRY = JSON_StoreGeometryInDocFieldFromArr(json, df);
-          QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "SEARCH_GEOMETRY_ARRAY_UNSUPPORTED: GEOMETRY field does not support array type");
+          QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "SEARCH_GEOMETRY_ARRAY_UNSUP: GEOMETRY field does not support array type");
           break;
         default:
           rv = REDISMODULE_ERR;
-          QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "SEARCH_FIELD_TYPE_UNSUPPORTED: Unsupported field type");
+          QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "SEARCH_FIELD_TYPE_UNSUP: Unsupported field type");
           break;
       }
       break;
     case JSONType_Object:
       rv = REDISMODULE_ERR;
-      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "SEARCH_OBJECT_TYPE_UNSUPPORTED: Object type is not supported");
+      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "SEARCH_OBJECT_TYPE_UNSUP: Object type is not supported");
       break;
     case JSONType__EOF:
       RS_ABORT("Should not happen");

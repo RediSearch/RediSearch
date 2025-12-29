@@ -1098,7 +1098,7 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     while (!AC_IsAtEnd(ac)) {
       if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
         if (AC_IsAtEnd(ac)) {
-          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_MISSING: " SPEC_TAG_SEPARATOR_STR " requires an argument");
+          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_NONE: " SPEC_TAG_SEPARATOR_STR " requires an argument");
           rc = 0;
           break;
         }
@@ -1631,7 +1631,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
     if (AC_NumRemaining(&ac)) {
       const char *badarg = AC_GetStringNC(&ac, NULL);
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_UNRECOGNIZED: Unknown argument", " `%s`", badarg);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_UNKNOWN: Unknown argument", " `%s`", badarg);
     } else {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_SCHEMA_NOT_FOUND: No schema found");
     }

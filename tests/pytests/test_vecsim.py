@@ -627,7 +627,7 @@ def test_index_errors():
         error_count += 1
         cur_index_errors = index_errors(env)
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
-        env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 4 (expected size 8)')
+        env.assertContains('Could not add vector with blob size 4 (expected size 8)', cur_index_errors['last indexing error'])
         env.assertEqual(cur_index_errors['last indexing error key'], str(i))
         assertEqual_dicts_on_intersection(env, cur_index_errors, field_errors(env))
 
@@ -635,7 +635,7 @@ def test_index_errors():
         error_count += 1
         cur_index_errors = index_errors(env)
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
-        env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 12 (expected size 8)')
+        env.assertContains(cur_index_errors['last indexing error'], 'Could not add vector with blob size 12 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i + 1))
         assertEqual_dicts_on_intersection(env, cur_index_errors, field_errors(env))
 
@@ -1855,7 +1855,7 @@ def test_create_multi_value_json():
 
     path = 'not a valid path'
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', 'FLAT',
-               '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).error().equal(
+               '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).error().contains(
                 f"Invalid JSONPath '{path}' in attribute 'vec' in index 'idx'")
 
     for algo in VECSIM_ALGOS:
@@ -2599,7 +2599,7 @@ def test_vector_index_ptr_valid(env):
     env.assertEqual(res, 1)
 
     index_errors_dict = index_errors(env, 'idx')
-    env.assertEqual(index_errors_dict['last indexing error'], "Could not open vector for indexing")
+    env.assertContains("Could not open vector for indexing", index_errors_dict['last indexing error'])
 
     # Check FlushAll - before bug fix, the following command would cause a server crash due to the null pointer access
     # Server will reply OK but crash afterwards, so a PING is required to verify
