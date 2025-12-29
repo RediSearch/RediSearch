@@ -17,7 +17,7 @@ def redis_module_loaded(redis_env):
 @when(parsers.parse('I create an index "{index_name}" with schema field "{field_name}" as {field_type}'))
 def create_index_single_field(redis_env, index_name, field_name, field_type):
     """Create an index with a single field."""
-    redis_env.expect('FT.CREATE', index_name, 'ON', 'HASH', 'SCHEMA', field_name, field_type).ok()
+    redis_env.expect('FT.CREATE', index_name, 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', field_name, field_type).ok()
 
 # Usage example:
 #    When I create an index "idx" with fields:
@@ -29,7 +29,7 @@ def create_index_single_field(redis_env, index_name, field_name, field_type):
 @when(parsers.parse('I create an index "{index_name}" with fields:'))
 def create_index_multiple_fields(redis_env, index_name, datatable):
     """Create an index with multiple fields from a data table."""
-    schema_args = ['FT.CREATE', index_name, 'ON', 'HASH', 'SCHEMA']
+    schema_args = ['FT.CREATE', index_name, 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA']
 
     # datatable is a list of lists: [['field', 'type'], ['title', 'TEXT'], ...]
     # Skip the header row

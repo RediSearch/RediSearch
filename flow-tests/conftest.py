@@ -11,7 +11,7 @@ import pytest
 from RLTest import Defaults, Env
 
 # Import all step definitions so they are registered with pytest-bdd
-pytest_plugins = ['steps.basic_steps']
+pytest_plugins = ['steps.basic_steps', 'steps.drop_steps']
 
 
 def pytest_configure(config):
@@ -63,13 +63,15 @@ def redis_env(request):
     - Creates a Redis cluster using RLTest with the configured module
     - Verifies the environment started successfully
     - Yields the environment for use in tests
+    - Verifies Redis is still running and healthy after the test completes
     - Cleans up (flushes) the environment after each test
 
     Each test gets its own subdirectory in the logs folder, ensuring complete
     isolation even when running tests in parallel.
 
     Raises:
-        Exception: If the Redis environment fails to start or is not healthy
+        Exception: If the Redis environment fails to start, is not healthy,
+                   or crashes during the test execution
     """
     import tempfile
     import shutil
@@ -142,6 +144,20 @@ def redis_env(request):
         )
 
         yield env
+
+        # Verify Redis is still running and healthy after the test
+        if not env.isUp():
+            raise Exception(f"Redis crashed during test '{test_name}'. Check logs at {test_log_dir}")
+
+        if not env.isHealthy():
+            raise Exception(f"Redis became unhealthy during test '{test_name}'. Check logs at {test_log_dir}")
+
+        # Verify we can still execute commands (additional sanity check)
+        try:
+            conn = env.getConnection()
+            conn.execute_command('PING')
+        except Exception as e:
+            raise Exception(f"Redis is not responding after test '{test_name}': {e}. Check logs at {test_log_dir}")
 
         # Cleanup: flush all data after each test to ensure test isolation
         env.flush()

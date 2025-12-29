@@ -15,6 +15,7 @@ use ffi::{
     RedisSearchDisk, RedisSearchDiskAPI, RedisSearchDiskIndexSpec, t_docId, t_fieldMask,
 };
 use rqe_iterators_interop::RQEIteratorWrapper;
+
 use std::ffi::{CStr, OsStr, c_char, c_void};
 use tracing::{debug, error, warn};
 
@@ -161,6 +162,26 @@ extern "C" fn index_spec_close(index: *mut RedisSearchDiskIndexSpec) {
     let index = unsafe { IndexSpec::from_ptr(index) };
 
     debug!(index_name = index.name(), "closing index spec");
+
+    // Drop the index. If it was marked for deletion, the database's Drop implementation
+    // will automatically destroy the database files.
+    drop(index);
+}
+
+/// Marks the index as to be deleted.
+///
+/// # Safety
+/// 1. `index` must have been returned from [`index_spec_open`].
+extern "C" fn index_spec_mark_to_be_deleted(index: *mut RedisSearchDiskIndexSpec) {
+    // Safety: See safety point 1 above.
+    let index = unsafe { IndexSpec::try_as_mut(index) };
+
+    if let Some(index) = index {
+        debug!(index_name = index.name(), "requesting deletion on close");
+        index.mark_for_deletion();
+    } else {
+        warn!("index_spec_mark_to_be_deleted called with null pointer, skipping");
+    }
 }
 
 /// Indexes a new document.
@@ -325,15 +346,6 @@ extern "C" fn index_spec_new_wildcard_iterator(
             std::ptr::null_mut()
         }
     }
-}
-
-/// Marks the index as to be deleted.
-///
-/// # Safety
-/// 1. `index` must have been returned from [`index_spec_open`].
-extern "C" fn index_spec_mark_to_be_deleted(_index: *mut RedisSearchDiskIndexSpec) {
-    debug!("index_spec_mark_to_be_deleted");
-    // TODO: implement marking index for deletion, MOD-13144
 }
 
 /// Returns whether `doc_id` is deleted in `index`.

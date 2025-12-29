@@ -45,6 +45,9 @@ pub struct IndexSpec {
     inverted_index: InvertedIndex,
     /// The document table mapping document IDs to document metadata
     doc_table: DocTable,
+
+    /// The Speedb database used by this index, makes it easier to drop the database when the index is dropped
+    database: SpeedbMultithreadedDatabase,
 }
 
 impl IndexSpec {
@@ -97,7 +100,8 @@ impl IndexSpec {
         Ok(Self {
             name,
             doc_table: DocTable::new(document_type, database.clone(), deleted_ids)?,
-            inverted_index: InvertedIndex::new(database),
+            inverted_index: InvertedIndex::new(database.clone()),
+            database,
         })
     }
 
@@ -114,5 +118,10 @@ impl IndexSpec {
     /// Returns a reference to the document table for this index.
     pub fn doc_table(&self) -> &DocTable {
         &self.doc_table
+    }
+
+    /// Marks the index for deletion. When the index is dropped, the database files will be destroyed.
+    pub fn mark_for_deletion(&mut self) {
+        self.database.mark_for_deletion();
     }
 }
