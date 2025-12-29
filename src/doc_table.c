@@ -72,18 +72,14 @@ static RSDocumentMetadata *DocTable_DmdUnchain(DocTable *t, t_docId docId) {
     return NULL;
   }
   DMDChain *dmdChain = &t->buckets[bucketIndex];
-  RSDocumentMetadata *prev = NULL;
+  RSDocumentMetadata **prev_next = &dmdChain->root;
   for (RSDocumentMetadata *md = dmdChain->root; md != NULL; md = md->nextInChain) {
     if (md->id == docId) {
-      if (prev == NULL) {
-        dmdChain->root = md->nextInChain;
-      } else {
-        prev->nextInChain = md->nextInChain;
-      }
+      *prev_next = md->nextInChain;
       md->nextInChain = NULL;
       return md;
     }
-    prev = md;
+    prev_next = &md->nextInChain;
   }
   return NULL;
 }
