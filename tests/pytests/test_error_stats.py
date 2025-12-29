@@ -36,7 +36,7 @@ def test_search_error_stats_tracking(env):
             break
 
     env.assertTrue(index_error_key is not None, message="SEARCH_INDEX_NOT_FOUND should appear in errorstats")
-    env.assertEqual(final_stats[index_error_key], 1, message="SEARCH_INDEX_NOT_FOUND count should be 1")
+    env.assertEqual(final_stats[index_error_key]['count'], 1, message="SEARCH_INDEX_NOT_FOUND count should be 1")
 
     # Check SEARCH_ARG_UNRECOGNIZED appears with count=1
     arg_error_key = None
@@ -46,4 +46,4 @@ def test_search_error_stats_tracking(env):
             break
 
     env.assertTrue(arg_error_key is not None, message="SEARCH_ARG_UNRECOGNIZED should appear in errorstats")
-    env.assertEqual(final_stats[arg_error_key], 1, message="SEARCH_ARG_UNRECOGNIZED count should be 1")
+    env.assertEqual(final_stats[arg_error_key]['count'], 1, message="SEARCH_ARG_UNRECOGNIZED count should be 1")
