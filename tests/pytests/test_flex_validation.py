@@ -51,20 +51,28 @@ def test_valid_field_types(env):
     # Verify the index was created
     info_result = env.cmd('FT.INFO', 'valid_idx')
 
-    # Check that the schema contains the expected fields
+    # Find the attributes section
     schema_info = None
     for i in range(0, len(info_result), 2):
         if info_result[i] == 'attributes':
             schema_info = info_result[i + 1]
             break
+    env.assertEqual(len(schema_info), 3)
 
-    env.assertTrue(schema_info is not None, "Schema information not found")
-    env.assertEqual(len(schema_info), 3, "Expected 3 fields in schema")
+    # Parse field information correctly
+    field_names = []
+    field_types = []
 
-    # Verify each field's properties
-    field_names = [field[1] for field in schema_info]  # attribute names
-    field_types = [field[3] for field in schema_info]  # field types
+    for field_info in schema_info:
+        # Each field_info is a list like ['identifier', 'title', 'attribute', 'title', 'type', 'TEXT', ...]
+        attribute_name = field_info[3]  # The actual field name
+        type_index = field_info.index('type') + 1
+        field_type = field_info[type_index]
 
+        field_names.append(attribute_name)
+        field_types.append(field_type)
+
+    # Verify field names
     env.assertIn('title', field_names)
     env.assertIn('description', field_names)
     env.assertIn('content', field_names)

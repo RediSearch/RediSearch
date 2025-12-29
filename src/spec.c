@@ -1584,6 +1584,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   ACArgSpec *errarg = NULL;
   if (isSpecOnDiskForValidation(spec)) {
     ACArgSpec argopts[] = {
+      {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING}, // TODO(Joan): Is this option valid for Flex?
       {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
       {.name = "FILTER", .target = &rule_args.filter_exp_str, .len = &dummy2, .type = AC_ARGTYPE_STRING},
       {.name = "LANGUAGE", .target = &rule_args.lang_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
@@ -1591,7 +1592,6 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
       {.name = "SCORE", .target = &rule_args.score_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
       {.name = "SCORE_FIELD", .target = &rule_args.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-      {.name = SPEC_SCHEMA_STR, .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG}, // Allow SCHEMA to pass through
       {.name = NULL}
     };
     rc = AC_ParseArgSpec(&ac, argopts, &errarg);
@@ -1619,12 +1619,6 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
-      goto failure;
-    } else if (isSpecOnDiskForValidation(spec)) {
-      size_t narg;
-      const char *s = AC_GetStringNC(&ac, &narg);
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
-                                   "Unsupported argument for Flex index", " `%s`", s);
       goto failure;
     }
   }
@@ -1659,7 +1653,12 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
     if (AC_NumRemaining(&ac)) {
       const char *badarg = AC_GetStringNC(&ac, NULL);
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
+      if (isSpecOnDiskForValidation(spec)) {
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
+                                     "Unsupported argument for Flex index:", " `%s`", badarg);
+      } else {
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
+      }
     } else {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No schema found");
     }
