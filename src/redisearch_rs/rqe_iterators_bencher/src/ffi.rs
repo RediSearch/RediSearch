@@ -19,7 +19,7 @@ mod bindings {
     #![allow(clippy::missing_const_for_fn)]
     #![allow(clippy::upper_case_acronyms)]
 
-    use ffi::{NumericFilter, t_fieldIndex, t_fieldMask, RSDocumentMetadata};
+    use ffi::{NumericFilter, RSDocumentMetadata, t_fieldIndex, t_fieldMask};
     use field::{FieldFilterContext, FieldMaskOrIndex};
     use inverted_index::t_docId;
 
