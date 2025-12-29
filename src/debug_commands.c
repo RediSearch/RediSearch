@@ -2202,7 +2202,16 @@ DEBUG_COMMAND(DumpDeletedIds) {
         return REDISMODULE_OK;
       }
 
+      // Note: There is a TOCTOU window between obtaining `count` and fetching
+      // the IDs.
+      // This command is for debugging only, so it is acceptable if some IDs are
+      // missed or added between these calls. `count` is treated as a hard upper
+      // bound on the number of IDs written into `buffer`.
       size_t actual_count = SearchDisk_GetDeletedIds(sctx->spec->diskSpec, buffer, count);
+      if (actual_count > count) {
+        // Clamp to buffer capacity to avoid reading beyond the allocated array
+        actual_count = count;
+      }
       RedisModule_ReplyWithArray(sctx->redisCtx, actual_count);
       for (size_t i = 0; i < actual_count; i++) {
         RedisModule_ReplyWithLongLong(sctx->redisCtx, buffer[i]);

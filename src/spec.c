@@ -3202,8 +3202,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     IndexSpec_PopulateVectorDiskParams(sp);
   }
 
-  bool load_from_sst = true; // Fix according to the below
-  if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && load_from_sst) {
+  if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp)) {
     // TODO: Load the disk-related data only in case the `REDISMODULE_CTX_FLAGS_SST_RDB`
     // context flag is set, as we wrote this data only in that case.
     if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec) != REDISMODULE_OK) {
@@ -3245,7 +3244,9 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
     // This is the only global structure that we added the new spec to at this point
     SchemaPrefixes_RemoveSpec(spec_ref);
     addPendingIndexDrop();
-    SearchDisk_CloseIndex(sp->diskSpec);
+    if (sp->diskSpec) {
+      SearchDisk_CloseIndex(sp->diskSpec);
+    }
     StrongRef_Release(spec_ref);
   } else {
     IndexSpec_StartGC(spec_ref, sp);
@@ -3661,6 +3662,11 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     // Get the doc ID
     t_docId id = DocTable_GetIdR(&spec->docs, key);
     RedisSearchCtx_UnlockSpec(&sctx);
+
+    if (id == 0) {
+      // ID does not exist.
+      return REDISMODULE_ERR;
+    }
 
     IndexSpec_IncrActiveWrites(spec);
     RedisSearchCtx_LockSpecWrite(&sctx);

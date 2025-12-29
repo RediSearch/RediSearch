@@ -74,8 +74,6 @@ void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *i
  *
  * @param rdb Redis module rdb file
  * @param index Pointer to the index
- * @param load_from_sst Whether to save the loaded data to the index spec.
- *                      If false, the RDB is depleted but data is not applied.
  * @return true if successful, false otherwise
  */
 int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
