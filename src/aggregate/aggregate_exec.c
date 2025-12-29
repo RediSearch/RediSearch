@@ -19,7 +19,7 @@
 #include "profile.h"
 #include "query_optimizer.h"
 #include "resp3.h"
-#include "query_error.h"
+#include "redisearch_rs/headers/query_error.h"
 #include "info/global_stats.h"
 #include "aggregate_debug.h"
 #include "info/info_redis/block_client.h"
