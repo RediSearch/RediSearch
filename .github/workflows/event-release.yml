@@ -177,7 +177,6 @@ jobs:
           from concurrent.futures import ThreadPoolExecutor
           from zipfile import ZipFile
 
-          
           bucket = "redismodules"
           oss_dir = "redisearch-oss"
           ent_dir = "redisearch"
