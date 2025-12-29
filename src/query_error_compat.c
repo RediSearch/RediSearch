@@ -11,7 +11,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "rmalloc.h"
-#include "query_error.h"
+#include "redisearch_rs/headers/query_error.h"
 
 /**
  * Set the error code using a custom-formatted string
