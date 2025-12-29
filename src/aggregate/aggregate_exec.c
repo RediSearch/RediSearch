@@ -571,6 +571,28 @@ done_2_err:
     }
 }
 
+static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
+  RedisSearchCtx *sctx = req->sctx;
+  RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
+  // req->qiter.bgScanOOM for coordinator, sctx->spec->scan_failed_OOM for shards
+  if ((req->qiter.bgScanOOM)|| (sctx->spec && sctx->spec->scan_failed_OOM)) {
+    RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
+  }
+  if (rc == RS_RESULT_TIMEDOUT) {
+    // Track warnings in global statistics
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+    RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+  } else if (rc == RS_RESULT_ERROR) {
+    // Non-fatal error
+    RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(req->qiter.err));
+  }
+  if (req->qiter.err->reachedMaxPrefixExpansions) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
+    RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
+  }
+  RedisModule_Reply_ArrayEnd(reply); // >warnings
+}
+
 /**
  * Sends a chunk of <n> rows in the resp3 format
 **/
@@ -657,23 +679,7 @@ done_3:
     RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
 
     // <error>
-    RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
-    // req->qiter.bgScanOOM for coordinator, req->sctx->spec->scan_failed_OOM for shards
-    if ((req->qiter.bgScanOOM)||(req->sctx->spec && req->sctx->spec->scan_failed_OOM)) {
-      RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
-    }
-    if (rc == RS_RESULT_TIMEDOUT) {
-      // Track warnings in global statistics
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
-      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
-    } else if (rc == RS_RESULT_ERROR) {
-      // Non-fatal error
-      RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(req->qiter.err));
-    } else if (req->qiter.err->reachedMaxPrefixExpansions) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
-      RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
-    }
-    RedisModule_Reply_ArrayEnd(reply); // >warnings
+    _replyWarnings(req, reply, rc);
 
     cursor_done = (rc != RS_RESULT_OK
                    && !(rc == RS_RESULT_TIMEDOUT
