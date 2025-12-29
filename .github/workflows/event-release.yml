@@ -43,7 +43,8 @@ jobs:
       - name: Get version branch
         id: get_version_branch
         run: |
-          version_branch=$(git branch -a --contains tags/v${{ env.input_tag }} | grep -oE 'remotes/origin/[0-9]+\.[0-9]+$' | sed 's|.*/||')
+          git fetch --all
+          version_branch=$(git branch -a --contains tags/${{ env.input_tag }} | grep -oE 'remotes/origin/[0-9]+\.[0-9]+$' | sed 's|.*/||')
           count=$(echo "$version_branch" | wc -l)
           
           [ "$count" -ne 1 ] && echo "Error: Expected 1 branch, found $count" && echo "$version_branch" && exit 1
@@ -164,7 +165,7 @@ jobs:
         run: pip install boto3
       - name: Set Version Artifacts
         env:
-          SOURCE: ${{ needs.validate-tag.outputs.release_branch }}
+          SOURCE: ${{ inputs.snapshot_of || inputs.tag || needs.validate-tag.outputs.release_branch }}
           CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
           EXPECTED_SHA: ${{ needs.validate-tag.outputs.expected_sha }}
         shell: python
@@ -256,3 +257,4 @@ jobs:
           # Copy included files to new location
           for src, dst in zip(include_list, dest_files):
               client.copy_object(Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src}, ACL="public-read")
+              
