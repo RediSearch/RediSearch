@@ -24,11 +24,11 @@
 bool SearchDisk_CheckLimitNumberOfIndexes(size_t nIndexes);
 
 /**
- * @brief Check if a field type is supported in Flex indexes
+ * @brief Mark a field as unsupported in Flex indexes
  *
  * @param fieldTypeStr Field type string
  * @param fs Field specification
  * @param status Query error status
  * @return true if the field type is supported, false otherwise
  */
-bool SearchDisk_CheckFieldSupport(const char *fieldTypeStr, const FieldSpec *fs, QueryError *status);
+bool SearchDisk_MarkUnsupportedField(const char *fieldTypeStr, const FieldSpec *fs, QueryError *status);

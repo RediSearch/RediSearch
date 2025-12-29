@@ -1262,27 +1262,27 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
       sp->flags |= Index_HasNonEmpty;
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    if (!SearchDisk_CheckFieldSupport(SPEC_TAG_STR, fs, status)) goto error;
+    if (!SearchDisk_MarkUnsupportedField(SPEC_TAG_STR, fs, status)) goto error;
     if (!parseTagField(fs, ac, status)) goto error;
     if (!FieldSpec_IndexesEmpty(fs)) {
       sp->flags |= Index_HasNonEmpty;
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
-    if (!SearchDisk_CheckFieldSupport(SPEC_GEOMETRY_STR, fs, status)) goto error;
+    if (!SearchDisk_MarkUnsupportedField(SPEC_GEOMETRY_STR, fs, status)) goto error;
     if (!parseGeometryField(sp, fs, ac, status)) goto error;
   } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
-    if (!SearchDisk_CheckFieldSupport(SPEC_VECTOR_STR, fs, status)) goto error;
+    if (!SearchDisk_MarkUnsupportedField(SPEC_VECTOR_STR, fs, status)) goto error;
     if (!parseVectorField(sp, sp_ref, fs, ac, status)) goto error;
     // Skip SORTABLE and NOINDEX options
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
-    if (!SearchDisk_CheckFieldSupport(SPEC_NUMERIC_STR, fs, status)) goto error;
+    if (!SearchDisk_MarkUnsupportedField(SPEC_NUMERIC_STR, fs, status)) goto error;
     fs->types |= INDEXFLD_T_NUMERIC;
     if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
       fs->options |= FieldSpec_IndexMissing;
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
-    if (!SearchDisk_CheckFieldSupport(SPEC_GEO_STR, fs, status)) goto error;
+    if (!SearchDisk_MarkUnsupportedField(SPEC_GEO_STR, fs, status)) goto error;
     fs->types |= INDEXFLD_T_GEO;
     if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
       fs->options |= FieldSpec_IndexMissing;
