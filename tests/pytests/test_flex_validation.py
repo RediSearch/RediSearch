@@ -35,3 +35,15 @@ def test_invalid_field_type(env):
         .error().contains('NUMERIC fields are not supported in Flex indexes')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'field', 'VECTOR') \
         .error().contains('VECTOR fields are not supported in Flex indexes')
+
+@skip(cluster=True)
+def test_invalid_ft_create_argument(env):
+    """Test that creating an index with an invalid FT.CREATE argument fails when search-_simulate-in-flex is true"""
+    # Set the simulate-in-flex configuration to true
+    env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'TEMPORARY', 60, 'SCHEMA', 'field', 'TEXT') \
+        .error().contains('Unsupported argument for Flex index: `TEMPORARY`')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'NOOFFSETS', 'SCHEMA', 'field', 'TEXT') \
+        .error().contains('Unsupported argument for Flex index: `NOOFFSETS`')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'NOHL', 'SCHEMA', 'field', 'TEXT') \
+        .error().contains('Unsupported argument for Flex index: `NOHL`')

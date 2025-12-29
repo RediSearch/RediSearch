@@ -1597,32 +1597,34 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     rc = AC_ParseArgSpec(&ac, argopts, &errarg);
   } else {
     ACArgSpec argopts[] = {
-        {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
-                    Index_StoreTermOffsets | Index_StoreByteOffsets)},
-        {AC_MKUNFLAG(SPEC_NOHL_STR, &spec->flags, Index_StoreByteOffsets)},
-        {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &spec->flags, Index_StoreFieldFlags)},
-        {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
-        {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
-        {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
-        {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
+      {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
+                  Index_StoreTermOffsets | Index_StoreByteOffsets)},
+      {AC_MKUNFLAG(SPEC_NOHL_STR, &spec->flags, Index_StoreByteOffsets)},
+      {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &spec->flags, Index_StoreFieldFlags)},
+      {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
+      {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
+      {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
+      {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
 
-        // For compatibility
-        {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
-        {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-        SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
-        {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
-        {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-        {.name = NULL}
-      };
-      rc = AC_ParseArgSpec(&ac, argopts, &errarg);
+      // For compatibility
+      {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
+      {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
+      {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
+      {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
+      {.name = NULL}
+    };
+    rc = AC_ParseArgSpec(&ac, argopts, &errarg);
   }
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
       goto failure;
     } else if (isSpecOnDiskForValidation(spec)) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
-                                   "Unsupported argument for disk index", " `%s`", errarg->name);
+      size_t narg;
+      const char *s = AC_GetStringNC(&ac, &narg);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
+                                   "Unsupported argument for Flex index", " `%s`", s);
       goto failure;
     }
   }
