@@ -184,7 +184,7 @@ size_t IndexSpec_VectorIndexesSize(IndexSpec *sp) {
   return stats.memory;
 }
 
-// Get the stats of the vector field `fs` in the index `sp`.
+// Get the stats of the vector field `fs`.
 VectorIndexStats IndexSpec_GetVectorIndexStats(FieldSpec *fs){
   VectorIndexStats stats = {0};
   VecSimIndex *vecsim = openVectorIndex(fs, DONT_CREATE_INDEX);
@@ -211,7 +211,7 @@ VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
   return stats;
 }
 
-// Get the stats of the field `fs` in the index `sp`.
+// Get the stats of the field `fs`.
 FieldSpecStats IndexSpec_GetFieldStats(FieldSpec *fs){
   FieldSpecStats stats = {0};
   stats.type = fs->types;
@@ -224,7 +224,7 @@ FieldSpecStats IndexSpec_GetFieldStats(FieldSpec *fs){
   }
 }
 
-// Get the information of the field `fs` in the index `sp`.
+// Get the information of the field `fs`.
 FieldSpecInfo FieldSpec_GetInfo(FieldSpec *fs, bool obfuscate) {
   FieldSpecInfo info = {0};
   FieldSpecInfo_SetIdentifier(&info, FieldSpec_FormatPath(fs, obfuscate));

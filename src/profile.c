@@ -182,20 +182,25 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
 
   // Print whether a warning was raised throughout command execution
   bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions;
-  if (bgScanOOM) {
-    RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WINDEXING_FAILURE);
+  RedisModule_ReplyKV_Array(reply, "Warning");
+  if (!warningRaised) {
+    RedisModule_Reply_SimpleString(reply, "None");
+  } else {
+    if (bgScanOOM) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
+    }
+    if (queryOOM) {
+      // This function is called by Shard or SA, so always return SHARD warning.
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_SHARD);
+    }
+    if (timedout) {
+      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    }
+    if (reachedMaxPrefixExpansions) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
+    }
   }
-  if (queryOOM) {
-    // This function is called by Shard or SA, so always return SHARD warning.
-    RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WOOM_SHARD);
-  }
-  if (timedout) {
-    RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-  } else if (reachedMaxPrefixExpansions) {
-    RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
-  } else if (!warningRaised) {
-    RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
-  }
+  RedisModule_Reply_ArrayEnd(reply); // >warnings
 
   // Print cursor reads count if this is a cursor request.
   if (IsCursor(req)) {
