@@ -66,13 +66,6 @@ pub enum QueryErrorCode {
     Mismatch,
     UnknownIndex,
     DroppedBackground,
-    DroppedDuringCursor,
-    CursorInvalidId,
-    CursorNotFound,
-    CursorDoesNotExist,
-    ArgumentCountInvalid,
-    CmdTypeMissing,
-    CmdSubcmdUnknown,
     AliasConflict,
     IndexBgOOMFail,
     WeightNotAllowed,
@@ -243,53 +236,8 @@ impl QueryError {
         &mut self.warnings
     }
 
-    /// Clears error code and messages, but _not_ warnings.
     pub fn clear(&mut self) {
-        self.code = QueryErrorCode::default();
-        self.private_message = None;
-        self.public_message = None;
-    }
-}
-
-// Enum for query warnings
-// Unlike QueryErrorCode, this enum is not tied to any API or string mapping.
-// Its current purpose is only to serve as a lightweight identifier that can
-// be passed to functions and easily handled via switch/case logic.
-/// cbindgen:prefix-with-name
-/// cbindgen:rename-all=ScreamingSnakeCase
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[repr(u8)]
-pub enum QueryWarningCode {
-    #[default]
-    Ok = 0,
-    TimedOut,
-    ReachedMaxPrefixExpansions,
-    OutOfMemoryShard,
-    OutOfMemoryCoord,
-    UnavailableSlots,
-    AsmInaccurateResults,
-}
-
-impl QueryWarningCode {
-    pub const fn is_ok(self) -> bool {
-        matches!(self, Self::Ok)
-    }
-    pub const fn to_c_str(self) -> &'static CStr {
-        match self {
-            Self::Ok => c"Success (not a warning)",
-            Self::TimedOut => c"Timeout limit was reached",
-            Self::ReachedMaxPrefixExpansions => c"Max prefix expansions limit was reached",
-            Self::OutOfMemoryShard => {
-                c"Shard failed to execute the query due to insufficient memory"
-            }
-            Self::OutOfMemoryCoord => {
-                c"One or more shards failed to execute the query due to insufficient memory"
-            }
-            Self::UnavailableSlots => c"Query requires unavailable slots",
-            Self::AsmInaccurateResults => {
-                c"Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete due to Atomic Slot Migration."
-            }
-        }
+        *self = Self::default();
     }
 }
 
@@ -315,23 +263,4 @@ impl Warnings {
     pub const fn set_out_of_memory(&mut self) {
         self.out_of_memory = true;
     }
-}
-
-pub mod opaque {
-    use super::QueryError;
-    use c_ffi_utils::opaque::{Size, Transmute};
-
-    /// An opaque query error which can be passed by value to C.
-    ///
-    /// The size and alignment of this struct must match the Rust `QueryError`
-    /// structure exactly.
-    #[repr(C, align(8))]
-    pub struct OpaqueQueryError(Size<38>);
-
-    // Safety: `OpaqueQueryError` is defined as a `MaybeUninit` slice of
-    // bytes with the same size and alignment as `QueryError`, so any valid
-    // `QueryError` has a bit pattern which is a valid `OpaqueQueryError`.
-    unsafe impl Transmute<QueryError> for OpaqueQueryError {}
-
-    c_ffi_utils::opaque!(QueryError, OpaqueQueryError);
 }

@@ -228,7 +228,7 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "RQE_INDEX_NOT_FOUND: Unknown index name");
+    return RedisModule_ReplyWithError(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found");
   }
 
   // Validate ACL permission to the index

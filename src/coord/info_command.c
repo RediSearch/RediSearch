@@ -402,7 +402,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
 
   if (count == 0) {
-    return RedisModule_ReplyWithError(ctx, "RQE_CLUSTER_NO_RESPONSES: ERR no responses received");
+    return RedisModule_ReplyWithError(ctx, "SEARCH_CLUSTER_NO_RESPONSES: ERR no responses received");
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
