@@ -40,33 +40,42 @@ jobs:
       - name: Get SHA
         id: get_sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+      - name: Get version branch
+        id: get_version_branch
+        run: |
+          version_branch=$(git branch -a --contains tags/v${{ env.input_tag }} | grep -oE 'remotes/origin/[0-9]+\.[0-9]+$' | sed 's|.*/||')
+          count=$(echo "$version_branch" | wc -l)
+          
+          [ "$count" -ne 1 ] && echo "Error: Expected 1 branch, found $count" && echo "$version_branch" && exit 1
+          
+          echo "version_branch=$version_branch" >> $GITHUB_OUTPUT
+          echo "Found version branch: $version_branch"
       - name: Verify Tag and Version
         id: verify
         env:
           # Not used, but useful for debugging in case of failure. See https://github.com/actions/runner/issues/2788
           GH_CONTEXT: ${{ toJson(github) }}
-          EVENT_BASE_REF: ${{ github.event.base_ref }}
           EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ env.input_tag }}
+          VERSION_BRANCH: ${{ steps.get_version_branch.outputs.version_branch }}
         shell: python
         run: |
           import os
-          version_branch = os.environ["EVENT_BASE_REF"]
+          version_branch = os.environ["VERSION_BRANCH"]
           with open("src/version.h", "r") as fp:
             major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if l.startswith("#define REDISEARCH_VERSION_")]
             release_branch = f"{major}.{minor}"
-            if version_branch == f"refs/heads/{major}.{minor+1}":
+            if version_branch == f"{major}.{minor+1}":
               release_branch = f"{major}.{minor+1}"
           def valid_tag(tag):
             return tag == f"v{major}.{minor}.{patch}"
           def valid_version_branch(branch):
-            return branch == f"refs/heads/{release_branch}"
+            return branch == f"{release_branch}"
           tag = os.environ["INPUT_TAG"]
           if not valid_tag(tag):
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
           if os.environ["EVENT_NAME"] == 'push' and not valid_version_branch(version_branch):
-            start = version_branch.rfind("/") + 1 # get the branch name, not the full ref
-            raise Exception(f"Tag {tag} does not match the head of version branch {major}.{minor} (Got {version_branch[start:]})")
+            raise Exception(f"Tag {tag} does not match the head of version branch {major}.{minor} (Got {version_branch})")
 
           with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
             print(f"cur_version={major}.{minor}.{patch}", file=fp)
@@ -155,7 +164,7 @@ jobs:
         run: pip install boto3
       - name: Set Version Artifacts
         env:
-          SOURCE: ${{ inputs.snapshot_of || inputs.tag || needs.validate-tag.outputs.release_branch }}
+          SOURCE: ${{ needs.validate-tag.outputs.release_branch }}
           CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
           EXPECTED_SHA: ${{ needs.validate-tag.outputs.expected_sha }}
         shell: python
@@ -167,7 +176,6 @@ jobs:
           from concurrent.futures import ThreadPoolExecutor
           from zipfile import ZipFile
 
-          
           bucket = "redismodules"
           oss_dir = "redisearch-oss"
           ent_dir = "redisearch"
