@@ -31,4 +31,4 @@ bool SearchDisk_CheckLimitNumberOfIndexes(size_t nIndexes);
  * @param status Query error status
  * @return true if the field type is supported, false otherwise
  */
-bool SearchDisk_MarkUnsupportedField(const char *fieldTypeStr, const FieldSpec *fs, QueryError *status);
+bool SearchDisk_MarkUnsupportedFieldIfDiskEnabled(const char *fieldTypeStr, const FieldSpec *fs, QueryError *status);
