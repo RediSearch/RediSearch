@@ -13,12 +13,13 @@ use crate::{
     bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache},
 };
 use enumflags2::{BitFlags, bitflags, make_bitflags};
-use ffi::{QueryError, RLookupLoadOptions, RedisSearchCtx, loadIndividualKeys};
+use ffi::{QueryError, RLookupLoadOptions, RedisSearchCtx, array_len_func, loadIndividualKeys};
 use pin_project::pin_project;
 use std::{
+    alloc::Layout,
     borrow::Cow,
     cell::UnsafeCell,
-    ffi::{CStr, c_char},
+    ffi::{CStr, c_char, c_void},
     mem,
     ops::{Deref, DerefMut},
     pin::Pin,
@@ -1259,15 +1260,15 @@ impl<'a> RLookup<'a> {
         key: &CStr,
     ) -> i32 {
         unsafe {
-            // create rlookupkeys
-            let rule = spec.rule;
-            let nkeys = 10; //(*rule).filter_fields;
+            let rule = spec.rule.as_ref().unwrap();
 
+            // create rlookupkeys
+            let nkeys: usize = array_len_func(*rule.filter_fields as *mut c_void)
+                .try_into()
+                .expect("array_len must not exceed usize");
             let keys = (0..nkeys)
                 .map(|i| {
-                    // let idx = *(*rule).filter_fields_index[i];
-                    let idx = 0_i32;
-
+                    let idx = *rule.filter_fields_index.add(i);
                     let new_key = if (idx == -1) {
                         create_new_key(self, &NAME, RLookupKeyFlags::empty())
                     } else {
@@ -1283,7 +1284,9 @@ impl<'a> RLookup<'a> {
                     };
                     new_key
                 })
-                .collect::<Vec<_>>();
+                .collect::<Vec<_>>()
+                // Move to heap.
+                .into_boxed_slice();
 
             // load
             let sctx = RedisSearchCtx {
@@ -1328,9 +1331,8 @@ fn create_new_key<'a>(
     name: &'a CStr,
     flags: RLookupKeyFlags,
 ) -> Option<NonNull<RLookupKey<'a>>> {
-    // RLookupKey *ret = rm_calloc(1, sizeof(*ret));
-    // TODO: Who will dealloc this key?
-    let mut key = RLookupKey::new(lookup, name, flags);
+    // Create and move the key to the heap.
+    let mut key = *Box::new(RLookupKey::new(lookup, name, flags));
     key.dstidx = lookup
         .keys
         .rowlen
