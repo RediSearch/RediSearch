@@ -3649,22 +3649,26 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
-  // TODO: is this necessary?
-  RedisSearchCtx_LockSpecRead(&sctx);
-  // Get the doc ID
-  t_docId id = DocTable_GetIdR(&spec->docs, key);
-  RedisSearchCtx_UnlockSpec(&sctx);
+  if (sctx.spec->diskSpec) {
+    IndexSpec_IncrActiveWrites(spec);
+    size_t len;
+    const char *keyStr = RedisModule_StringPtrLen(key, &len);
+    SearchDisk_DeleteDocument(sctx.spec->diskSpec, keyStr, len);
+    IndexSpec_DecrActiveWrites(spec);
+  } else {
+    // TODO: is this necessary?
+    RedisSearchCtx_LockSpecRead(&sctx);
+    // Get the doc ID
+    t_docId id = DocTable_GetIdR(&spec->docs, key);
+    RedisSearchCtx_UnlockSpec(&sctx);
 
-  if (id == 0) {
-    // ID does not exist.
-    return REDISMODULE_ERR;
+    IndexSpec_IncrActiveWrites(spec);
+    RedisSearchCtx_LockSpecWrite(&sctx);
+    IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
+    IndexSpec_DecrActiveWrites(spec);
+    RedisSearchCtx_UnlockSpec(&sctx);
   }
 
-  RedisSearchCtx_LockSpecWrite(&sctx);
-  IndexSpec_IncrActiveWrites(spec);
-  IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
-  IndexSpec_DecrActiveWrites(spec);
-  RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
 

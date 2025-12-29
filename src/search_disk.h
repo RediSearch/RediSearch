@@ -124,7 +124,8 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
 // DocTable API wrappers
 
 /**
- * @brief Add a new document to the table
+ * @brief Add a new document to the table, and delete the previously existing
+ * document associated with the key.
  *
  * @param handle Handle to the document table
  * @param key Document key
@@ -184,6 +185,15 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
  * @return The number of IDs written to the buffer
  */
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
+
+/**
+ * @brief Delete a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
+ *
+ * @param handle Handle to the document table
+ * @param key Document key
+ * @param keyLen Length of the document key
+ */
+void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen);
 
 /**
  * @brief Check if the search disk module is enabled from configuration

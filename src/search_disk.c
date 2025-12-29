@@ -120,6 +120,11 @@ size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffe
     return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
 }
 
+void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen) {
+    RS_ASSERT(disk && handle);
+    disk->docTable.deleteDocument(handle, key, keyLen);
+}
+
 bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx) {
   bool isFlexConfigured = false;
   char *isFlexEnabledStr = getRedisConfigValue(ctx, "bigredis-enabled");

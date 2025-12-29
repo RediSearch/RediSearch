@@ -134,6 +134,15 @@ typedef struct DocTableDiskAPI {
    * @return The number of IDs written to the buffer
    */
   size_t (*getDeletedIds)(RedisSearchDiskIndexSpec* handle, t_docId* buffer, size_t buffer_size);
+
+  /**
+   * @brief Deletes a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
+   *
+   * @param handle Handle to the document table
+   * @param key Document key
+   * @param keyLen Length of the document key
+   */
+  void (*deleteDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen);
 } DocTableDiskAPI;
 
 // VecSimHNSWDiskParams is defined in VecSim/vec_sim_common.h
