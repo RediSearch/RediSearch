@@ -37,13 +37,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.checkout_target }}
+          fetch-depth: 0
       - name: Get SHA
         id: get_sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
       - name: Get version branch
         id: get_version_branch
         run: |
-          git fetch --all
           version_branch=$(git branch -a --contains tags/${{ env.input_tag }} | grep -oE 'remotes/origin/[0-9]+\.[0-9]+$' | sed 's|.*/||')
           count=$(echo "$version_branch" | wc -l)
           
@@ -215,13 +215,10 @@ jobs:
                       return sha[2:-1] if sha[:2] in ['b"', "b'"] else sha
 
           # new location is outside snapshots/ directory and with the new suffix
-          # Remove snapshots/ directory and replace the suffix pattern with the version suffix
+          # Remove snapshots/ directory and replace the suffix pattern with the new suffix
           # TODO: remove "staging-test" after verifying
           def get_target_name(name):
-              # Remove snapshots/ from path
               name_without_snapshots = name.replace("snapshots/", "staging-test/", 1)
-              # Remove the suffix pattern and add new suffix
-              # suffix_pattern matches .{SOURCE}.{TIMESTAMP}.{WORKFLOW_NUM}.zip at the end
               return suffix_pattern.sub(new_suffix, name_without_snapshots)
 
           def group_print(title, args):
@@ -257,4 +254,3 @@ jobs:
           # Copy included files to new location
           for src, dst in zip(include_list, dest_files):
               client.copy_object(Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src}, ACL="public-read")
-              
