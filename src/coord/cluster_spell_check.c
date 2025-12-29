@@ -380,7 +380,7 @@ int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
 finish:
   spellcheckReducerCtx_Free(spellcheckCtx);
   if (error) {
-    RedisModule_ReplyWithError(ctx, error);  // error already contains RQE_ prefix from other sources
+    RedisModule_ReplyWithError(ctx, error);
   }
 
   return REDISMODULE_OK;

@@ -82,7 +82,7 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RedisModuleString *val = argv[2];
   double score;
   if ((RedisModule_StringToDouble(argv[3], &score) != REDISMODULE_OK)) {
-    RedisModule_ReplyWithError(ctx, "RQE_SUGGEST_INVALID_SCORE: ERR invalid score");
+    RedisModule_ReplyWithError(ctx, "SEARCH_SUGGEST_INVALID_SCORE: ERR invalid score");
     goto end;
   }
 
@@ -276,7 +276,7 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   size_t len;
   const char *s = RedisModule_StringPtrLen(argv[2], &len);
   if (len >= TRIE_MAX_PREFIX * sizeof(rune)) {
-    return RedisModule_ReplyWithError(ctx, "RQE_SUGGEST_QUERY_TOO_LONG: Invalid query length");
+    return RedisModule_ReplyWithError(ctx, "SEARCH_SUGGEST_QUERY_TOO_LONG: Invalid query length");
   }
 
   SuggestOptions options = {.numResults = 5};
@@ -313,7 +313,7 @@ parse_error:
   Vector *res = Trie_Search(tree, s, len, options.numResults, options.maxDistance, 1, options.trim,
                             options.optimize);
   if (!res) {
-    RedisModule_ReplyWithError(ctx, "RQE_SUGGEST_INVALID_QUERY: Invalid query");
+    RedisModule_ReplyWithError(ctx, "SEARCH_SUGGEST_INVALID_QUERY: Invalid query");
     goto end;
   }
   // if we also need to return scores, we need double the records
