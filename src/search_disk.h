@@ -157,6 +157,35 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId do
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
 
 /**
+ * @brief Get the maximum document ID of the index (next to be assigned)
+ *
+ * @param handle Handle to the document table
+ * @return The maximum document ID, or 0 if the index is empty
+ */
+t_docId SearchDisk_GetMaxDocId(RedisSearchDiskIndexSpec *handle);
+
+/**
+ * @brief Get the count of deleted document IDs
+ *
+ * @param handle Handle to the document table
+ * @return The number of deleted document IDs
+ */
+uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
+
+/**
+ * @brief Get all deleted document IDs
+ *
+ * Fills the provided buffer with deleted document IDs. The caller must ensure
+ * the buffer is large enough to hold all deleted IDs (use SearchDisk_GetDeletedIdsCount first).
+ *
+ * @param handle Handle to the document table
+ * @param buffer Buffer to fill with deleted document IDs
+ * @param buffer_size Size of the buffer (number of t_docId elements)
+ * @return The number of IDs written to the buffer
+ */
+size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
+
+/**
  * @brief Check if the search disk module is enabled from configuration
  *
  * @param ctx Redis module context

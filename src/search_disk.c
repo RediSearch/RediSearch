@@ -105,6 +105,21 @@ bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
     return disk->docTable.isDocIdDeleted(handle, docId);
 }
 
+t_docId SearchDisk_GetMaxDocId(RedisSearchDiskIndexSpec *handle) {
+    RS_ASSERT(disk && handle);
+    return disk->docTable.getMaxDocId(handle);
+}
+
+uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle) {
+    RS_ASSERT(disk && handle);
+    return disk->docTable.getDeletedIdsCount(handle);
+}
+
+size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size) {
+    RS_ASSERT(disk && handle);
+    return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
+}
+
 bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx) {
   bool isFlexConfigured = false;
   char *isFlexEnabledStr = getRedisConfigValue(ctx, "bigredis-enabled");

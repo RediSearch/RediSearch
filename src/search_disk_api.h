@@ -105,6 +105,35 @@ typedef struct DocTableDiskAPI {
   bool (*isDocIdDeleted)(RedisSearchDiskIndexSpec* handle, t_docId docId);
 
   bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocateKey);
+
+  /**
+   * @brief Gets the maximum document ID assigned in the index
+   *
+   * @param handle Handle to the document table
+   * @return The maximum document ID, or 0 if the index is empty
+   */
+  t_docId (*getMaxDocId)(RedisSearchDiskIndexSpec* handle);
+
+  /**
+   * @brief Gets the count of deleted document IDs
+   *
+   * @param handle Handle to the document table
+   * @return The number of deleted document IDs
+   */
+  uint64_t (*getDeletedIdsCount)(RedisSearchDiskIndexSpec* handle);
+
+  /**
+   * @brief Gets all deleted document IDs
+   *
+   * Fills the provided buffer with deleted document IDs. The caller must ensure
+   * the buffer is large enough to hold all deleted IDs (use getDeletedIdsCount first).
+   *
+   * @param handle Handle to the document table
+   * @param buffer Buffer to fill with deleted document IDs
+   * @param buffer_size Size of the buffer (number of t_docId elements)
+   * @return The number of IDs written to the buffer
+   */
+  size_t (*getDeletedIds)(RedisSearchDiskIndexSpec* handle, t_docId* buffer, size_t buffer_size);
 } DocTableDiskAPI;
 
 // VecSimHNSWDiskParams is defined in VecSim/vec_sim_common.h

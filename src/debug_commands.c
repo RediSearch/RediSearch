@@ -32,6 +32,7 @@
 #include "obfuscation/obfuscation_api.h"
 #include "info/info_command.h"
 #include "iterators/inverted_index_iterator.h"
+#include "search_disk.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -2155,6 +2156,68 @@ DEBUG_COMMAND(VecSimMockTimeout) {
   }
 }
 
+// FT.DEBUG GET_MAX_DOC_ID INDEX_NAME
+DEBUG_COMMAND(GetMaxDocId) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[2])
+
+  t_docId maxDocId;
+  if (sctx->spec->diskSpec) {
+    maxDocId = SearchDisk_GetMaxDocId(sctx->spec->diskSpec);
+  } else {
+    maxDocId = DocTable_GetMaxDocId(&sctx->spec->docs);
+  }
+
+  RedisModule_ReplyWithLongLong(sctx->redisCtx, maxDocId);
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
+// FT.DEBUG DUMP_DELETED_IDS INDEX_NAME
+DEBUG_COMMAND(DumpDeletedIds) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[2])
+
+  if (sctx->spec->diskSpec) {
+    // Disk-based index
+    uint64_t count = SearchDisk_GetDeletedIdsCount(sctx->spec->diskSpec);
+
+    if (count == 0) {
+      RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
+    } else {
+      t_docId *buffer = rm_malloc(count * sizeof(t_docId));
+      if (!buffer) {
+        RedisModule_ReplyWithError(sctx->redisCtx, "Out of memory");
+        SearchCtx_Free(sctx);
+        return REDISMODULE_OK;
+      }
+
+      size_t actual_count = SearchDisk_GetDeletedIds(sctx->spec->diskSpec, buffer, count);
+      RedisModule_ReplyWithArray(sctx->redisCtx, actual_count);
+      for (size_t i = 0; i < actual_count; i++) {
+        RedisModule_ReplyWithLongLong(sctx->redisCtx, buffer[i]);
+      }
+      rm_free(buffer);
+    }
+  } else {
+    // In-memory index - we do not hold a deleted-ids set here, so we return an empty array
+    RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
+  }
+
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -2196,6 +2259,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"QUERY_CONTROLLER", queryController},
                                {"DUMP_SCHEMA", DumpSchema},
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
+                               {"GET_MAX_DOC_ID", GetMaxDocId},
+                               {"DUMP_DELETED_IDS", DumpDeletedIds},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
