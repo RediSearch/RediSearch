@@ -156,7 +156,9 @@ impl QueryErrorCode {
             Self::UnavailableSlots => c"Query requires unavailable slots",
             Self::FlexLimitNumberOfIndexes => c"Flex index limit was reached",
             Self::FlexUnsupportedField => c"Unsupported field for Flex index",
-            Self::FlexUnsupportedFTCreateArgument => c"Unsupported FT.CREATE argument for Flex index",
+            Self::FlexUnsupportedFTCreateArgument => {
+                c"Unsupported FT.CREATE argument for Flex index"
+            }
         }
     }
 }
