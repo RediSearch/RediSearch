@@ -47,7 +47,7 @@ const SharedSlotRangeArray *Slots_Clone(const SharedSlotRangeArray *src) {
   if (!slots) {
     return NULL;
   }
-  uint32_t refcount = atomic_fetch_add_explicit(&slots->refcount, 1, memory_order_acquire);
+  uint32_t refcount = atomic_fetch_add_explicit(&slots->refcount, 1, memory_order_relaxed);
   RS_LOG_ASSERT(refcount > 0, "Expected refcount > 0");
   return slots;
 }
