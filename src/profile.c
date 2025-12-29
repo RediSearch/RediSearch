@@ -141,6 +141,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
   bool bgScanOOM = profileCtx->bgScanOOM;
   bool queryOOM = profileCtx->queryOOM;
+  bool asmTrimmingDelayTimeout = req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
   req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
@@ -181,7 +182,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   }
 
   // Print whether a warning was raised throughout command execution
-  bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions;
+  bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions || asmTrimmingDelayTimeout;
   RedisModule_ReplyKV_Array(reply, "Warning");
   if (!warningRaised) {
     RedisModule_Reply_SimpleString(reply, "None");
@@ -198,6 +199,9 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
     }
     if (reachedMaxPrefixExpansions) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
+    }
+    if (asmTrimmingDelayTimeout) {
+      RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
     }
   }
   RedisModule_Reply_ArrayEnd(reply); // >warnings
