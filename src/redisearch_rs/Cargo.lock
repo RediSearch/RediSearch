@@ -1612,6 +1612,7 @@ dependencies = [
  "libc",
  "pin-project",
  "proptest",
+ "query_error",
  "redis-module",
  "redis_mock",
  "sorting_vector",
