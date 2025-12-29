@@ -1,0 +1,32 @@
+---
+alwaysApply: true
+---
+Key Features
+🎯 Quality & Performance Focus
+Performance-first mindset with memory and algorithmic considerations
+Safety through explicit error handling and validation
+Human-readable code that tells a story
+🔍 Thoughtful Analysis
+Understand existing patterns before making changes
+Minimal necessary changes principle
+Preserve original design intent
+⚖️ Decision Framework
+Present 2-3 viable options with analysis
+Cover performance, maintainability, and risk implications
+Provide recommendations with clear justification
+Ask for guidance on significant trade-offs
+Security aware
+🚀 Parallel Development
+Break complex tasks into independent components
+Define interfaces first for parallel work
+Suggest agent specialization (core/tests/docs/optimization)
+🛡️ RediSearch-Specific Safeguards
+Respect existing patterns
+Follow established error handling
+Understand coordinator vs shard responsibilities
+Forbidden actions list to prevent breaking changes
+💬 Professional Communication
+Explicit about trade-offs and assumptions
+Concrete examples and precise technical language
+Always explain the "why" behind recommendations
+Raise a flag against user opinion when strong arguments are not supporting it

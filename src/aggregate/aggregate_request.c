@@ -52,7 +52,7 @@ static bool ensureSimpleMode(AREQ *req) {
 static int ensureExtendedMode(uint32_t *reqflags, const char *name, QueryError *status) {
   if (*reqflags & QEXEC_F_IS_SEARCH) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
-                           "option `%s` is mutually exclusive with simple (i.e. search) options",
+                           "SEARCH_OPTION_MUTEX: option `%s` is mutually exclusive with simple (i.e. search) options",
                            name);
     return 0;
   }
@@ -144,7 +144,7 @@ static int parseRequiredFields(const char ***requiredFields, ArgsCursor *ac, Que
   ArgsCursor args = {0};
   int rv = AC_GetVarArgs(ac, &args);
   if (rv != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for _REQUIRED_FIELDS: %s", AC_Strerror(rv));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_BAD: Bad arguments", " for _REQUIRED_FIELDS: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
   int requiredFieldNum = AC_NumArgs(&args);
@@ -168,13 +168,13 @@ static int parseRequiredFields(const char ***requiredFields, ArgsCursor *ac, Que
 
 int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
   if (AC_NumRemaining(ac) < 1) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Need an argument for DIALECT");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_DIALECT_ARG_NONE: Need an argument for DIALECT");
       return REDISMODULE_ERR;
     }
     if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {
       QueryError_SetWithoutUserDataFmt(
         status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "DIALECT requires a non negative integer >=%u and <= %u",
+        "SEARCH_DIALECT_VERSION_BAD: DIALECT requires a non negative integer >=%u and <= %u",
         MIN_DIALECT_VERSION, MAX_DIALECT_VERSION
       );
       return REDISMODULE_ERR;
@@ -187,7 +187,7 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
   const char *format;
   int rv = AC_GetString(ac, &format, NULL, 0);
   if (rv != AC_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Need an argument for FORMAT");
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "SEARCH_FORMAT_ARG_NONE: Need an argument for FORMAT");
     return REDISMODULE_ERR;
   }
   if (!strcasecmp(format, "EXPAND")) {
@@ -195,7 +195,7 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
   } else if (!strcasecmp(format, "STRING")) {
     *flags &= ~QEXEC_FORMAT_EXPAND;
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "FORMAT", " %s is not supported", format);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, QueryError_Strerror(QUERY_ERROR_CODE_PARSE_ARGS), ": FORMAT %s is not supported", format);
     return REDISMODULE_ERR;
   }
   *flags &= ~QEXEC_FORMAT_DEFAULT;
@@ -280,15 +280,15 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       // TODO: unify if when req holds only maxResults according to the query type.
       //(SEARCH / AGGREGATE)
     } else if ((arng->limit > *papCtx->maxSearchResults) && (*papCtx->reqflags & (QEXEC_F_IS_SEARCH))) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "LIMIT exceeds maximum of %llu",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_LIMIT_EXCEEDED: LIMIT exceeds maximum of %llu",
                              *papCtx->maxSearchResults);
       return ARG_ERROR;
     } else if ((arng->limit > *papCtx->maxAggregateResults) && !(*papCtx->reqflags & (QEXEC_F_IS_SEARCH))) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "LIMIT exceeds maximum of %llu",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_LIMIT_EXCEEDED: LIMIT exceeds maximum of %llu",
                              *papCtx->maxAggregateResults);
       return ARG_ERROR;
     } else if (arng->offset > *papCtx->maxSearchResults) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "OFFSET exceeds maximum of %llu",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_OFFSET_EXCEEDED: OFFSET exceeds maximum of %llu",
                              *papCtx->maxSearchResults);
       return ARG_ERROR;
     }
@@ -384,7 +384,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
     if (AC_GetUnsignedLongLong(ac, (unsigned long long *)&papCtx->reqConfig->BM25STD_TanhFactor, AC_F_GE1) != AC_OK) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "BM25STD_TANH_FACTOR must be between %d and %d inclusive",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_BM25_FACTOR_RANGE_INVALID: BM25STD_TANH_FACTOR must be between %d and %d inclusive",
       BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
       return ARG_ERROR;
     }
@@ -420,7 +420,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
   }
 
   if (dialect_specified && papCtx->reqConfig->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST && *papCtx->reqflags & QEXEC_FORMAT_EXPAND) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_DIALECT_VERSION_REQUIRED: EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
     return ARG_ERROR;
   }
 
@@ -486,7 +486,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
       const char *s = AC_GetStringNC(&subArgs, NULL);
       if (*s == '@') {
         if (array_len(keys) >= SORTASCMAP_MAXFIELDS) {
-          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
+          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_SORT_FIELDS_EXCEEDED: Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
           goto err;
         }
         s++;
@@ -500,7 +500,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
         SORTASCMAP_SETDESC(ascMap, array_len(keys) - 1);
       } else {
         // Unknown token - neither a property nor ASC/DESC
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "MISSING ASC or DESC after sort field", " (%s)", s);
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, QueryError_Strerror(QUERY_ERROR_CODE_PARSE_ARGS), ": MISSING ASC or DESC after sort field (%s)", s);
         goto err;
       }
     }
@@ -1241,7 +1241,7 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Unknown field", " `%s`", fieldName);
     return REDISMODULE_ERR;
   } else if (!FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Expected a " SPEC_VECTOR_STR " field", " `%s`", fieldName);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, QueryError_Strerror(QUERY_ERROR_CODE_SYNTAX), ": Expected a " SPEC_VECTOR_STR " field `%s`", fieldName);
     return REDISMODULE_ERR;
   }
   vq->field = vectorField;
@@ -1338,7 +1338,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   if (opts->scorerName) {
     if (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "No such scorer %s", opts->scorerName);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "SEARCH_SCORER_NOT_FOUND: No such scorer %s", opts->scorerName);
       return REDISMODULE_ERR;
     }
   } else {
