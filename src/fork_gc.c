@@ -584,13 +584,11 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   if (InvertedIndex_NumDocs(idx) == 0) {
 
     // inverted index was cleaned entirely lets free it
-    RedisModuleString *termKey = fmtRedisTermKey(sctx, term, len);
-    size_t formatedTremLen;
-    const char *formatedTrem = RedisModule_StringPtrLen(termKey, &formatedTremLen);
     if (sctx->spec->keysDict) {
+      CharBuf termKey = {.buf = term, .len = len};
       // get memory before deleting the inverted index
       size_t inv_idx_size = InvertedIndex_MemUsage(idx);
-      if (dictDelete(sctx->spec->keysDict, termKey) == DICT_OK) {
+      if (dictDelete(sctx->spec->keysDict, &termKey) == DICT_OK) {
         info.nbytesCollected += inv_idx_size;
       }
     }
@@ -602,7 +600,6 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     }
     sctx->spec->stats.numTerms--;
     sctx->spec->stats.termsSize -= len;
-    RedisModule_FreeString(sctx->redisCtx, termKey);
     if (sctx->spec->suffix) {
       deleteSuffixTrie(sctx->spec->suffix, term, len);
     }
@@ -625,7 +622,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
   size_t fieldNameLen;
   char *fieldName = NULL;
   const FieldSpec *fs = NULL;
-  RedisModuleString *keyName = NULL;
   uint64_t rtUniqueId;
   NumericRangeTree *rt = NULL;
   FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &rtUniqueId);
@@ -725,7 +721,6 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
   while (status == FGC_COLLECTED) {
     InvertedIndexGcDelta *delta = NULL;
     II_GCScanStats info = {0};
-    RedisModuleString *keyName = NULL;
     TagIndex *tagIdx = NULL;
     char *tagVal = NULL;
     size_t tagValLen;
