@@ -33,7 +33,7 @@ extern "C" fn HiddenString_GetUnsafe(
     length: *mut usize,
 ) -> *const c_char {
     let text = unsafe { value.cast::<UserString>().as_ref().unwrap() };
-    if text.length != 0 {
+    if !length.is_null() && text.length != 0 {
         unsafe {
             *length = text.length;
         }

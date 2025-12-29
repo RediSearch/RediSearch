@@ -8,6 +8,9 @@
 */
 
 mod bindings;
+mod field_spec;
+mod hidden_string;
+mod index_spec;
 mod load_document;
 mod lookup;
 #[cfg(test)]
@@ -18,6 +21,7 @@ mod row;
 mod schema_rule;
 
 pub use bindings::IndexSpecCache;
+pub use index_spec::IndexSpec;
 pub use load_document::load_document;
 pub use lookup::{
     Cursor, CursorMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOption,

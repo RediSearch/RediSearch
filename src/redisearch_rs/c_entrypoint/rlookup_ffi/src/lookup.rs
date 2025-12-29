@@ -9,7 +9,7 @@
 
 use crate::row::RLookupRow;
 use libc::size_t;
-use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags, SchemaRule};
+use rlookup::{IndexSpec, IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags, SchemaRule};
 use std::{
     ffi::{CStr, c_char},
     ptr::NonNull,
@@ -369,4 +369,25 @@ pub unsafe extern "C" fn RLookup_Init(
 pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
     // Safety: ensured by caller (1.,2.)
     unsafe { lookup.unwrap().drop_in_place() };
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_LoadRuleFields(
+    module_ctx: Option<NonNull<ffi::RedisModuleCtx>>,
+    lookup: Option<NonNull<RLookup<'_>>>,
+    dst_row: Option<NonNull<RLookupRow>>,
+    index_spec: Option<NonNull<ffi::IndexSpec>>,
+    key: *const c_char,
+) -> i32 {
+    let ctx = unsafe { module_ctx.unwrap().as_mut() };
+
+    let lookup = unsafe { lookup.unwrap().as_mut() };
+
+    let dst_row = unsafe { dst_row.unwrap().as_mut() };
+
+    let index_spec = unsafe { IndexSpec::from_raw(index_spec.unwrap().as_ref()) };
+
+    let key = unsafe { CStr::from_ptr(key) };
+
+    lookup.load_rule_fields(ctx, dst_row, index_spec, key)
 }

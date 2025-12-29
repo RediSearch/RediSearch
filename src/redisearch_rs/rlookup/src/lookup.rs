@@ -6,13 +6,17 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-use crate::bindings::{
-    FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache,
-};
 #[cfg(debug_assertions)]
 use crate::rlookup_id::RLookupId;
+use crate::{
+    RLookupRow,
+    bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache},
+    field_spec::FieldSpec,
+    index_spec::IndexSpec,
+};
 use enumflags2::{BitFlags, bitflags, make_bitflags};
 use pin_project::pin_project;
+use query_error::QueryError;
 use std::{
     borrow::Cow,
     cell::UnsafeCell,
@@ -288,6 +292,7 @@ impl<'a> RLookupKey<'a> {
     pub fn new(
         parent: &RLookup<'_>,
         name: impl Into<Cow<'a, CStr>>,
+        path: Option<Cow<'a, CStr>>,
         flags: RLookupKeyFlags,
     ) -> Self {
         let name = match name.into() {
@@ -297,18 +302,24 @@ impl<'a> RLookupKey<'a> {
             name => name,
         };
 
+        let path_ptr = if let Some(ref p) = path {
+            p.as_ptr()
+        } else {
+            name.as_ptr()
+        };
+
         Self {
             header: RLookupKeyHeader {
                 dstidx: 0,
                 svidx: 0,
                 flags: flags & !TRANSIENT_FLAGS,
                 name: name.as_ptr(),
-                path: name.as_ptr(),
                 name_len: name.count_bytes(),
+                path: path_ptr,
                 next: UnsafeCell::new(None),
             },
             _name: name,
-            _path: None,
+            _path: path,
             #[cfg(debug_assertions)]
             rlookup_id: parent.id(),
         }
@@ -316,6 +327,18 @@ impl<'a> RLookupKey<'a> {
 
     pub fn name(&self) -> &CStr {
         self._name.as_ref()
+    }
+
+    pub fn path(&self) -> Option<&CStr> {
+        self._path.as_ref().map(|s| &**s)
+    }
+
+    pub fn name2(&self) -> &CStr {
+        unsafe { CStr::from_ptr(self.name) }
+    }
+
+    pub fn path2(&self) -> &CStr {
+        unsafe { CStr::from_ptr(self.path) }
     }
 
     pub fn update_from_field_spec(&mut self, fs: &ffi::FieldSpec) {
@@ -563,7 +586,10 @@ impl<'a> KeyList<'a> {
     /// Insert a `RLookupKey` into this `KeyList` and return a mutable reference to it.
     ///
     /// The key will be owned by the list and freed when dropping the list.
-    fn push(&mut self, mut key: RLookupKey<'a>) -> Pin<&mut RLookupKey<'a>> {
+    fn push<'b>(&mut self, mut key: RLookupKey<'a>) -> Pin<&'b mut RLookupKey<'a>>
+    where
+        'a: 'b,
+    {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push before");
 
@@ -1051,7 +1077,7 @@ impl<'a> RLookup<'a> {
 
         // If we didn't find the key in the schema (there is no schema) and unresolved is OK, create an unresolved key.
         if self.options.contains(RLookupOption::AllowUnresolved) {
-            let mut key = RLookupKey::new(self, name, flags);
+            let mut key = RLookupKey::new(self, name, None, flags);
             key.flags |= RLookupKeyFlag::Unresolved;
 
             let key = self.keys.push(key);
@@ -1092,7 +1118,7 @@ impl<'a> RLookup<'a> {
             return Err(name);
         }
 
-        let mut key = RLookupKey::new(self, name, flags);
+        let mut key = RLookupKey::new(self, name, None, flags);
         key.update_from_field_spec(fs);
         Ok(key)
     }
@@ -1125,7 +1151,7 @@ impl<'a> RLookup<'a> {
         } else {
             // B. we didn't find the key at the lookup table:
             // create a new key with the name and flags
-            let key = RLookupKey::new(self, name.clone(), flags | RLookupKeyFlag::QuerySrc);
+            let key = RLookupKey::new(self, name.clone(), None, flags | RLookupKeyFlag::QuerySrc);
             self.keys.push(key);
         };
 
@@ -1191,6 +1217,7 @@ impl<'a> RLookup<'a> {
             let key = RLookupKey::new(
                 self,
                 name.clone(),
+                None,
                 flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded,
             );
             self.keys.push(key);
@@ -1247,17 +1274,347 @@ impl<'a> RLookup<'a> {
     pub(crate) const fn get_row_len(&self) -> u32 {
         self.header.keys.rowlen
     }
+
+    pub fn load_rule_fields(
+        &mut self,
+        module_ctx: &mut ffi::RedisModuleCtx,
+        dst_row: &mut RLookupRow<value::RSValueFFI>,
+        index_spec: &'a IndexSpec,
+        key: &CStr,
+    ) -> i32 {
+        let keys = create_keys_from_spec(self, index_spec);
+        let pushed_keys = keys.into_iter().map(|k| self.keys.push(k)).collect();
+        load_many_keys(self, module_ctx, dst_row, index_spec, key, pushed_keys)
+    }
+}
+
+fn create_keys_from_spec<'a>(
+    lookup: &mut RLookup,
+    index_spec: &'a IndexSpec,
+) -> Vec<RLookupKey<'a>> {
+    let rule = index_spec.rule();
+    let field_specs = index_spec.field_specs();
+    rule.filter_fields_index()
+        .iter()
+        .zip(rule.filter_fields())
+        .map(|(&index, filter_field)| {
+            create_key_from_data(lookup, index, filter_field, field_specs)
+        })
+        .collect::<Vec<_>>()
+}
+
+fn create_key_from_data<'a>(
+    lookup: &mut RLookup,
+    index: i32,
+    filter_field: &'a CStr,
+    field_specs: &'a [FieldSpec],
+) -> RLookupKey<'a> {
+    const NO_MATCH: i32 = -1;
+    if NO_MATCH == index {
+        RLookupKey::new(lookup, filter_field, None, RLookupKeyFlags::empty())
+    } else {
+        let index = usize::try_from(index).expect("index must be positive and fit into usize");
+        let field_spec = &field_specs[index];
+        let field_name = field_spec.field_name().get_secret_value();
+        let path = field_spec.field_path().get_secret_value();
+        let path = Cow::Borrowed(path);
+
+        RLookupKey::new(lookup, field_name, Some(path), RLookupKeyFlags::empty())
+    }
+}
+
+fn load_many_keys(
+    lookup: &mut RLookup,
+    module_ctx: &mut ffi::RedisModuleCtx,
+    dst_row: &mut RLookupRow<value::RSValueFFI>,
+    index_spec: &IndexSpec,
+    key: &CStr,
+    keys: Vec<Pin<&mut RLookupKey>>,
+) -> i32 {
+    let lookup = ptr::from_mut(lookup).cast::<ffi::RLookup>();
+    let dst_row = ptr::from_mut(dst_row).cast::<ffi::RLookupRow>();
+
+    let mut keys = keys
+        .into_iter()
+        .map(|k| {
+            // Safety: ...
+            let k = unsafe { Pin::into_inner_unchecked(k.into_ref()) };
+            ptr::from_ref(k).cast::<ffi::RLookupKey>()
+        })
+        .collect::<Vec<_>>();
+
+    let mut sctx = create_redis_search_ctx(module_ctx);
+
+    // TODO: Add comment explaining why "for real" temp.
+    // Safety: ...
+    let mut status = unsafe { mem::transmute(QueryError::default()) };
+
+    let mut options = ffi::RLookupLoadOptions {
+        keys: keys.as_mut_ptr(),
+        nkeys: keys.len(),
+        sctx: &mut sctx,
+        keyPtr: key.as_ptr(),
+        type_: index_spec.rule().type_(),
+        status: &mut status,
+        forceLoad: true,
+        mode: ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
+        dmd: ptr::null(),
+        forceString: false,
+    };
+
+    unsafe { ffi::loadIndividualKeys(lookup, dst_row, &mut options) }
+}
+
+const fn create_redis_search_ctx(module_ctx: *mut ffi::RedisModuleCtx) -> ffi::RedisSearchCtx {
+    ffi::RedisSearchCtx {
+        redisCtx: module_ctx,
+        spec: ptr::null_mut(),
+        key_: ptr::null_mut(),
+        time: ffi::SearchTime {
+            current: ffi::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+            timeout: ffi::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+        },
+        apiVersion: 0,
+        expanded: 0,
+        flags: 0,
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::hidden_string::HiddenString;
+
     use super::*;
 
     use std::ffi::CString;
     use std::mem::MaybeUninit;
 
+    use pretty_assertions::assert_eq;
+    use rstest::rstest;
+
     #[cfg(not(miri))]
     use proptest::prelude::*;
+
+    #[rstest]
+    #[case(-1, c"ff", c"ff")]
+    #[case(0, c"fn0", c"fp0")]
+    #[case(1, c"fn1", c"fp1")]
+    fn create_key_from_data(
+        #[case] index: i32,
+        #[case] expected_name: &CStr,
+        #[case] expected_path: &CStr,
+    ) {
+        let mut lookup = RLookup::new();
+        let filter_field = c"ff";
+        let field_specs = [
+            FieldSpec::from_ffi(field_spec(c"fn0", c"fp0")),
+            FieldSpec::from_ffi(field_spec(c"fn1", c"fp1")),
+        ];
+
+        let actual = super::create_key_from_data(&mut lookup, index, filter_field, &field_specs);
+
+        assert_eq!(actual.name2(), expected_name);
+        assert_eq!(actual.path2(), expected_path);
+    }
+
+    #[test]
+    fn create_keys_from_spec() {
+        // Arrange
+        let mut lookup = RLookup::new();
+        let mut index_spec = unsafe { mem::zeroed::<ffi::IndexSpec>() };
+
+        let mut schema_rule = unsafe { mem::zeroed::<ffi::SchemaRule>() };
+        schema_rule.filter_fields_index = [-1, 0, 1].as_mut_ptr();
+        schema_rule.filter_fields = filter_fields_array(&[c"ff0", c"ff1", c"ff2"]);
+
+        index_spec.rule = ptr::from_mut(&mut schema_rule);
+
+        let mut field_specs = [
+            field_spec(c"fn0", c"fp0"),
+            field_spec(c"fn1", c"fp1"),
+            field_spec(c"fn2", c"fp2"),
+        ];
+        index_spec.fields = field_specs.as_mut_ptr();
+        index_spec.numFields = field_specs.len().try_into().unwrap();
+
+        let index_spec = IndexSpec::from_ffi(index_spec);
+
+        // Act
+        let actual = super::create_keys_from_spec(&mut lookup, &index_spec);
+
+        // Assert
+        assert_eq!(actual.len(), 3);
+
+        assert_eq!(actual[0].name2(), c"ff0");
+        assert_eq!(actual[0].path2(), c"ff0");
+        assert_eq!(actual[0].rlookup_id(), lookup.id());
+
+        assert_eq!(actual[1].name2(), c"fn0");
+        assert_eq!(actual[1].path2(), c"fp0");
+        assert_eq!(actual[1].rlookup_id(), lookup.id());
+
+        assert_eq!(actual[2].name2(), c"fn1");
+        assert_eq!(actual[2].path2(), c"fp1");
+        assert_eq!(actual[2].rlookup_id(), lookup.id());
+    }
+
+    fn filter_fields_array(filter_fields: &[&CStr]) -> *mut *mut i8 {
+        let temp = filter_fields
+            .iter()
+            .map(|ff| ff.as_ptr().cast_mut())
+            .collect::<Vec<_>>();
+
+        make_array(&temp)
+    }
+
+    fn field_spec(field_name: &CStr, field_path: &CStr) -> ffi::FieldSpec {
+        let mut res = unsafe { mem::zeroed::<ffi::FieldSpec>() };
+        res.fieldName =
+            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
+        res.fieldPath =
+            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
+        res
+    }
+
+    #[derive(Debug)]
+    #[repr(C)]
+    pub struct ArrayHdr {
+        pub len: u32,
+        pub remain_cap: u16,
+        pub elem_sz: u16,
+        // Flexible array member (`char buf[]`) exists in memory after the header.
+    }
+
+    // #[derive(Debug)]
+    // #[repr(C)]
+    // pub struct ArrayHdr_2<T: ?Sized> {
+    //     pub len: u32,
+    //     pub remain_cap: u16,
+    //     pub elem_sz: u16,
+
+    //     pub data: T,
+    // }
+
+    // fn hej() -> ArrayHdr_2<[i32]> {
+    //     let x: ArrayHdr_2<_> = ArrayHdr_2 {
+    //         len: 1,
+    //         remain_cap: 1,
+    //         elem_sz: 1,
+    //         data: [1, 2, 3],
+    //     };
+    //     // let y:
+    //     todo!()
+    // }
+
+    // fn make_array_2<T: ?Sized>(v: T) -> Box<ArrayHdr_2<T>> {
+    //     let x = ArrayHdr_2 {
+    //         len: 1,
+    //         remain_cap: 0,
+    //         elem_sz: 0,
+    //         data: v,
+    //     };
+    //     Box::new(x)
+    // }
+
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn array_len_func_2(arr: *const u8) -> u32 {
+        if arr.is_null() {
+            return 0;
+        }
+
+        let hdr_ptr = unsafe {
+            arr.cast::<u8>()
+                .sub(mem::size_of::<ArrayHdr>())
+                .cast::<ArrayHdr>()
+        };
+
+        unsafe { ptr::read_unaligned(&raw const (*hdr_ptr).len) }
+    }
+
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn array_len_func(arr: *const u8) -> u32 {
+        if arr.is_null() {
+            return 0;
+        }
+
+        let hdr_ptr = unsafe {
+            arr.cast::<u8>()
+                .sub(mem::size_of::<ArrayHdr>())
+                .cast::<ArrayHdr>()
+        };
+
+        unsafe { ptr::read_unaligned(&raw const (*hdr_ptr).len) }
+    }
+
+    fn make_array<T: Copy>(xs: &[T]) -> *mut T {
+        unsafe {
+            use core::{mem, ptr};
+            use std::alloc::{Layout, alloc};
+
+            let n = xs.len();
+            let hdr_sz = mem::size_of::<ArrayHdr>();
+            let data_sz = n * mem::size_of::<T>();
+
+            let layout = Layout::from_size_align(
+                hdr_sz + data_sz,
+                mem::align_of::<ArrayHdr>().max(mem::align_of::<T>()),
+            )
+            .unwrap();
+
+            let base = alloc(layout);
+
+            ptr::write(
+                base.cast::<ArrayHdr>(),
+                ArrayHdr {
+                    len: n as u32,
+                    remain_cap: 0,
+                    elem_sz: mem::size_of::<T>() as u16,
+                },
+            );
+
+            let data = base.add(hdr_sz).cast::<T>();
+            ptr::copy(xs.as_ptr(), data, n);
+
+            data
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(1000))]
+        #[test]
+        fn test_my_add(
+            mut a in proptest::collection::vec(1u8..=255u8, 0..=50),
+            mut b in proptest::collection::vec(1u8..=255u8, 0..=50),
+        ) {
+            unsafe {
+                a.push(0);
+                let a = CStr::from_bytes_with_nul(&a).unwrap();
+
+                b.push(0);
+                let b = CStr::from_bytes_with_nul(&b).unwrap();
+
+                let arr=[a.as_ptr().cast_mut(), b.as_ptr().cast_mut()];
+                // let arr = [c"hej".as_ptr().cast_mut(), c"hoj".as_ptr().cast_mut()];
+
+                let array = make_array(&arr);
+
+                assert_eq!(array_len_func(array as _) as usize, arr.len());
+            }
+        }
+    }
+
+    // proptest! {
+    //  // assert that a key can in the keylist can be retrieved by its name
+    //  #[test]
+    //  fn rlookup_get_key_read_found(name in "\\PC+") {
+
+    //  }}
 
     // Compile time check to ensure that `RLookupKey` can safely be re-interpreted as `RLookupKeyHeader` (has the same
     // layout at the beginning).
@@ -1314,7 +1671,7 @@ mod tests {
     fn into_ptr_from_ptr_roundtrip() {
         let rlookup = RLookup::new();
 
-        let key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+        let key = RLookupKey::new(&rlookup, c"test", None, RLookupKeyFlags::empty());
         let key = Box::pin(key);
 
         let ptr = unsafe { RLookupKey::into_ptr(key) };
@@ -1331,7 +1688,12 @@ mod tests {
 
         let rlookup = RLookup::new();
 
-        let key = RLookupKey::new(&rlookup, name, make_bitflags!(RLookupKeyFlag::NameAlloc));
+        let key = RLookupKey::new(
+            &rlookup,
+            name,
+            None,
+            make_bitflags!(RLookupKeyFlag::NameAlloc),
+        );
         assert_ne!(key.name, name.as_ptr());
         assert!(matches!(key._name, Cow::Owned(_)));
     }
@@ -1343,7 +1705,7 @@ mod tests {
 
         let rlookup = RLookup::new();
 
-        let key = RLookupKey::new(&rlookup, name, RLookupKeyFlags::empty());
+        let key = RLookupKey::new(&rlookup, name, None, RLookupKeyFlags::empty());
         assert_eq!(key.name, name.as_ptr());
         assert!(matches!(key._name, Cow::Borrowed(_)));
     }
@@ -1355,7 +1717,12 @@ mod tests {
 
         let rlookup = RLookup::new();
 
-        let key = RLookupKey::new(&rlookup, name, make_bitflags!(RLookupKeyFlag::NameAlloc));
+        let key = RLookupKey::new(
+            &rlookup,
+            name,
+            None,
+            make_bitflags!(RLookupKeyFlag::NameAlloc),
+        );
         assert_ne!(key.name, name.as_ptr());
         assert_eq!(key.name_len, 12); // 3 characters, 4 bytes each
         assert!(matches!(key._name, Cow::Owned(_)));
@@ -1368,7 +1735,7 @@ mod tests {
 
         let rlookup = RLookup::new();
 
-        let key = RLookupKey::new(&rlookup, name, RLookupKeyFlags::empty());
+        let key = RLookupKey::new(&rlookup, name, None, RLookupKeyFlags::empty());
         assert_eq!(key.name, name.as_ptr());
         assert_eq!(key.name_len, 12); // 3 characters, 4 bytes each
         assert!(matches!(key._name, Cow::Borrowed(_)));
@@ -1378,7 +1745,7 @@ mod tests {
     fn update_from_field_spec() {
         let rlookup = RLookup::new();
 
-        let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+        let mut key = RLookupKey::new(&rlookup, c"test", None, RLookupKeyFlags::empty());
 
         let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
         let field_name = c"this is the field name";
@@ -1414,7 +1781,7 @@ mod tests {
     fn update_from_field_spec_sortable() {
         let rlookup = RLookup::new();
 
-        let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+        let mut key = RLookupKey::new(&rlookup, c"test", None, RLookupKeyFlags::empty());
 
         let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
         let field_name = c"this is the field name";
@@ -1457,7 +1824,7 @@ mod tests {
     fn update_from_field_spec_numeric() {
         let rlookup = RLookup::new();
 
-        let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+        let mut key = RLookupKey::new(&rlookup, c"test", None, RLookupKeyFlags::empty());
 
         let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
         let field_name = c"this is the field name";
@@ -1494,7 +1861,12 @@ mod tests {
     fn update_from_field_spec_namealloc() {
         let rlookup = RLookup::new();
 
-        let mut key = RLookupKey::new(&rlookup, c"test", make_bitflags!(RLookupKeyFlag::NameAlloc));
+        let mut key = RLookupKey::new(
+            &rlookup,
+            c"test",
+            None,
+            make_bitflags!(RLookupKeyFlag::NameAlloc),
+        );
 
         let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
         let field_name = c"this is the field name";
@@ -1655,10 +2027,20 @@ mod tests {
         let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(&rlookup, c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist.push(RLookupKey::new(
+            &rlookup,
+            c"foo",
+            None,
+            RLookupKeyFlags::empty(),
+        ));
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist.push(RLookupKey::new(
+            &rlookup,
+            c"bar",
+            None,
+            RLookupKeyFlags::empty(),
+        ));
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_push_consistency after insertions");
@@ -1682,12 +2064,19 @@ mod tests {
         keylist.push(RLookupKey::new(
             &rlookup,
             c"foo",
+            None,
             make_bitflags!(RLookupKeyFlag::Hidden),
         ));
-        keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(
+            &rlookup,
+            c"bar",
+            None,
+            RLookupKeyFlags::empty(),
+        ));
         keylist.push(RLookupKey::new(
             &rlookup,
             c"baz",
+            None,
             make_bitflags!(RLookupKeyFlag::Hidden),
         ));
         keylist.assert_valid("tests::keylist_cursor_move_next after insertions");
@@ -1711,12 +2100,19 @@ mod tests {
         keylist.push(RLookupKey::new(
             &rlookup,
             c"foo",
+            None,
             make_bitflags!(RLookupKeyFlag::Hidden),
         ));
-        keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(
+            &rlookup,
+            c"bar",
+            None,
+            RLookupKeyFlags::empty(),
+        ));
         keylist.push(RLookupKey::new(
             &rlookup,
             c"baz",
+            None,
             make_bitflags!(RLookupKeyFlag::Hidden),
         ));
         keylist.assert_valid("tests::keylist_cursor_mut_move_next after insertions");
@@ -1736,10 +2132,20 @@ mod tests {
         let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(&rlookup, c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist.push(RLookupKey::new(
+            &rlookup,
+            c"foo",
+            None,
+            RLookupKeyFlags::empty(),
+        ));
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist.push(RLookupKey::new(
+            &rlookup,
+            c"bar",
+            None,
+            RLookupKeyFlags::empty(),
+        ));
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_find after insertions");
@@ -1758,10 +2164,20 @@ mod tests {
         let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(&rlookup, c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist.push(RLookupKey::new(
+            &rlookup,
+            c"foo",
+            None,
+            RLookupKeyFlags::empty(),
+        ));
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist.push(RLookupKey::new(
+            &rlookup,
+            c"bar",
+            None,
+            RLookupKeyFlags::empty(),
+        ));
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_find_mut after insertions");
@@ -1789,6 +2205,7 @@ mod tests {
         keylist.push(RLookupKey::new(
             &rlookup,
             c"foo",
+            None,
             make_bitflags!(RLookupKeyFlag::Unresolved),
         ));
 
@@ -1821,6 +2238,7 @@ mod tests {
         keylist.push(RLookupKey::new(
             &rlookup,
             c"foo",
+            None,
             make_bitflags!(RLookupKeyFlag::Unresolved),
         ));
         keylist
@@ -1846,11 +2264,13 @@ mod tests {
         keylist.push(RLookupKey::new(
             &rlookup,
             c"foo",
+            None,
             make_bitflags!(RLookupKeyFlag::Unresolved),
         ));
         let secoond = keylist.push(RLookupKey::new(
             &rlookup,
             c"bar",
+            None,
             make_bitflags!(RLookupKeyFlag::Unresolved),
         ));
         let second = unsafe { NonNull::from(Pin::into_inner_unchecked(secoond)) };
@@ -1983,7 +2403,7 @@ mod tests {
 
         let mut rlookup = RLookup::new();
 
-        let key = RLookupKey::new(&rlookup, key_name, RLookupKeyFlags::empty());
+        let key = RLookupKey::new(&rlookup, key_name, None, RLookupKeyFlags::empty());
 
         rlookup.keys.push(key);
 
@@ -2013,7 +2433,7 @@ mod tests {
         let mut rlookup = RLookup::new();
         rlookup.init(Some(spcache));
 
-        let key = RLookupKey::new(&rlookup, key_name, RLookupKeyFlags::empty());
+        let key = RLookupKey::new(&rlookup, key_name, None, RLookupKeyFlags::empty());
         rlookup.keys.push(key);
 
         let retrieved_key = rlookup
@@ -2055,7 +2475,7 @@ mod tests {
         let mut rlookup = RLookup::new();
         rlookup.init(Some(spcache));
 
-        let key = RLookupKey::new(&rlookup, key_name, RLookupKeyFlags::empty());
+        let key = RLookupKey::new(&rlookup, key_name, None, RLookupKeyFlags::empty());
 
         rlookup.keys.push(key);
 
@@ -2110,7 +2530,7 @@ mod tests {
         let mut rlookup = RLookup::new();
         rlookup.init(Some(spcache));
 
-        let key = RLookupKey::new(&rlookup, key_name, RLookupKeyFlags::empty());
+        let key = RLookupKey::new(&rlookup, key_name, None, RLookupKeyFlags::empty());
 
         rlookup.keys.push(key);
 
@@ -2156,7 +2576,7 @@ mod tests {
         let mut rlookup = RLookup::new();
         rlookup.init(Some(spcache));
 
-        let key = RLookupKey::new(&rlookup, key_name, RLookupKeyFlags::empty());
+        let key = RLookupKey::new(&rlookup, key_name, None, RLookupKeyFlags::empty());
 
         rlookup.keys.push(key);
 
@@ -2207,7 +2627,7 @@ mod tests {
             let mut rlookup = RLookup::new();
             rlookup.init(Some(spcache));
 
-            let key = RLookupKey::new(&rlookup, key_name, flag.into());
+            let key = RLookupKey::new(&rlookup, key_name, None, flag.into());
 
             rlookup.keys.push(key);
 
@@ -2541,7 +2961,7 @@ mod tests {
 
              let mut rlookup = RLookup::new();
 
-             let key = RLookupKey::new(&rlookup, &name, RLookupKeyFlags::empty());
+             let key = RLookupKey::new(&rlookup, &name, None,RLookupKeyFlags::empty());
 
              rlookup.keys.push(key);
 
@@ -2565,7 +2985,7 @@ mod tests {
 
              let mut rlookup = RLookup::new();
 
-             let key = RLookupKey::new(&rlookup, &name, RLookupKeyFlags::empty());
+             let key = RLookupKey::new(&rlookup, &name, None,RLookupKeyFlags::empty());
              rlookup.keys.push(key);
 
              let not_key = rlookup
@@ -2649,7 +3069,7 @@ mod tests {
              let mut rlookup = RLookup::new();
 
              // push a key to the keylist
-             let key = RLookupKey::new(&rlookup, &name1, RLookupKeyFlags::empty());
+             let key = RLookupKey::new(&rlookup, &name1, None,RLookupKeyFlags::empty());
              rlookup.keys.push(key);
 
              // push a field spec to the cache
@@ -2692,7 +3112,7 @@ mod tests {
 
              let mut rlookup = RLookup::new();
 
-             let key = RLookupKey::new(&rlookup, &name1, RLookupKeyFlags::empty());
+             let key = RLookupKey::new(&rlookup, &name1, None,RLookupKeyFlags::empty());
 
              rlookup.keys.push(key);
 

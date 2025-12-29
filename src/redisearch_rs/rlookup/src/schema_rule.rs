@@ -7,7 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::{CStr, c_char};
+use std::{
+    ffi::{CStr, c_char},
+    slice,
+};
+
+use ffi::DocumentType;
 
 use crate::RLookupKey;
 
@@ -62,6 +67,33 @@ impl SchemaRule {
             .into_iter()
             .any(|f| f == Some(key.name_as_cstr()))
     }
+
+    /// Expose the underlying `filter_fields` as a Vec of CStrs.
+    pub fn filter_fields(&self) -> Vec<&CStr> {
+        let len = self.filter_fields_len();
+        let filter_fields = unsafe { slice::from_raw_parts(self.0.filter_fields, len) };
+        filter_fields
+            .into_iter()
+            .map(|&c| unsafe { CStr::from_ptr(c) })
+            .collect::<Vec<_>>()
+    }
+
+    /// Expose the underlying `filter_fields_index` as a slice of ints.
+    pub fn filter_fields_index(&self) -> &[i32] {
+        // We are assuming that the number of elements in `filter_fields` and `filter_fields_index` are the same.
+        let len = self.filter_fields_len();
+        unsafe { slice::from_raw_parts(self.0.filter_fields_index, len) }
+    }
+
+    fn filter_fields_len(&self) -> usize {
+        unsafe { ffi::array_len_func(self.0.filter_fields as ffi::array_t) }
+            .try_into()
+            .expect("array_len must not exceed usize")
+    }
+
+    pub fn type_(&self) -> DocumentType {
+        self.0.type_
+    }
 }
 
 /// Convert a raw C string pointer to an `Option<&CStr>`, returning `None` if the pointer is null.
@@ -88,5 +120,29 @@ const unsafe fn maybe_cstr_from_ptr<'a>(ffi_field: *mut c_char) -> Option<&'a CS
     } else {
         // Safety: Ensured by caller (1., 2., 3., 4.). Non-nullness is ensured by the call to is_null() above.
         Some(unsafe { CStr::from_ptr(ffi_field) })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use std::{ffi::CStr, mem};
+
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn field_name_and_path() {
+        // Arrange
+        let mut schema_rule = unsafe { mem::zeroed::<ffi::SchemaRule>() };
+        schema_rule.filter_fields = todo!();
+        schema_rule.filter_fields_index = todo!();
+        let sut = unsafe { SchemaRule::from_raw(&raw const schema_rule) };
+
+        // Act
+        let a = sut.filter_fields();
+        let b = sut.filter_fields_index();
+
+        // Assert
     }
 }

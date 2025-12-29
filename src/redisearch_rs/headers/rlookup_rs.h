@@ -169,6 +169,8 @@ typedef struct RLookup {
 
 typedef struct RLookupRow RLookupRow;
 
+typedef IndexSpec IndexSpec;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -386,6 +388,12 @@ void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookup_Cleanup(struct RLookup *lookup);
+
+int32_t RLookup_LoadRuleFields(RedisModuleCtx *module_ctx,
+                               struct RLookup *lookup,
+                               RLookupRow *dst_row,
+                               IndexSpec *index_spec,
+                               const char *key);
 
 /**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
