@@ -200,8 +200,8 @@ def testGet(env):
     env.expect('ft.mget', 'idx').error().contains("wrong number of arguments")
     env.expect('ft.mget', 'fake_idx').error().contains("wrong number of arguments")
 
-    env.expect('ft.get fake_idx foo').error().contains("Index not found")
-    env.expect('ft.mget fake_idx foo').error().contains("Index not found")
+    env.expect('ft.get fake_idx foo').error().contains("SEARCH_INDEX_NOT_FOUND")
+    env.expect('ft.mget fake_idx foo').error().contains("SEARCH_INDEX_NOT_FOUND")
 
     for i in range(100):
         env.expect('ft.add', 'idx', f"doc{i}", 1.0, 'fields',

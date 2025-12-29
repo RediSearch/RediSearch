@@ -475,9 +475,9 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
                     results['info_calls'] += 1
                     results['errors'] += 1
                     # Expected errors when index is being deleted:
-                    # - "Unknown index name" or "no such index"
+                    # - "SEARCH_INDEX_NOT_FOUND: Index not found"
                     error_msg = str(e).lower()
-                    if 'unknown index' in error_msg or 'no such index' in error_msg:
+                    if 'index not found' in error_msg:
                         # These are expected errors during index deletion
                         pass
                     else:
@@ -518,7 +518,7 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
         try:
             forceBGInvokeGC(env, idx_name)
         except Exception as e:
-            env.assertTrue('unknown index' in str(e).lower() or 'no such index' in str(e).lower(),
+            env.assertTrue('index not found' in str(e).lower(),
                           message=f"Unexpected error in GC for deleted index {idx_name}: {e}")
             pass
 
@@ -545,7 +545,7 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
             env.assertTrue(False, f"Index {idx_name} should have been deleted")
         except Exception as e:
             # Expected - index should be gone
-            env.assertTrue('unknown index' in str(e).lower() or 'no such index' in str(e).lower(),
+            env.assertTrue('index not found' in str(e).lower(),
                           message=f"Unexpected error for deleted index {idx_name}: {e}")
     env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
 
