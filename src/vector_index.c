@@ -15,6 +15,7 @@
 #include "util/workers_pool.h"
 #include "util/threadpool_api.h"
 #include "redis_index.h"
+#include "search_disk.h"
 
 
 #if defined(__x86_64__) && defined(__GLIBC__)
@@ -66,13 +67,39 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
   }
 
   // create new vector data structure
-  VecSimIndex* temp = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
+  VecSimIndex* temp = NULL;
+  if (spec->diskSpec) {
+    // Disk path - create disk-based HNSW index
+    const HNSWParams *hnsw = &fieldSpec->vectorOpts.vecSimParams.algoParams.hnswParams;
+    size_t nameLen;
+    const char *name = HiddenString_GetUnsafe(spec->specName, &nameLen);
+    VecSimHNSWDiskParams diskParams = {
+      .dim = hnsw->dim,
+      .type = hnsw->type,
+      .metric = hnsw->metric,
+      .M = hnsw->M,
+      .efConstruction = hnsw->efConstruction,
+      .efRuntime = hnsw->efRuntime,
+      .blockSize = hnsw->blockSize,
+      .multi = hnsw->multi,
+      .storage = NULL,  // Will be set by disk layer from diskSpec
+      .indexName = name,
+      .indexNameLen = nameLen,
+      .logCtx = fieldSpec->vectorOpts.vecSimParams.logCtx,
+    };
+    temp = SearchDisk_CreateVectorIndex(spec->diskSpec, &diskParams);
+  } else {
+    // RAM path - use standard VectorSimilarity
+    temp = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
+  }
   if (!temp) {
     return NULL;
   }
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->p = temp;
-  kdv->dtor = (void (*)(void *))VecSimIndex_Free;
+  kdv->dtor = spec->diskSpec
+    ? (void (*)(void *))SearchDisk_FreeVectorIndex
+    : (void (*)(void *))VecSimIndex_Free;
   dictAdd(spec->keysDict, keyName, kdv);
   return kdv->p;
 }

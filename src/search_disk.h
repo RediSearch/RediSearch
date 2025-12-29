@@ -141,7 +141,7 @@ bool SearchDisk_IsEnabled(RedisModuleCtx *ctx);
  * @param params Vector index parameters
  * @return VecSimIndex* handle, or NULL on error
  */
-void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSimDiskParams *params);
+void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSimHNSWDiskParams *params);
 
 /**
  * @brief Free a disk-based vector index

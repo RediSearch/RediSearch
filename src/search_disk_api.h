@@ -97,26 +97,8 @@ typedef struct DocTableDiskAPI {
   bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocateKey);
 } DocTableDiskAPI;
 
-/**
- * @brief Parameters for creating a disk-based vector index.
- *
- * This struct is passed from RediSearch to the disk API to create a disk-based
- * HNSW index. The disk implementation (vecsim_disk) uses these parameters.
- */
-typedef struct VecSimDiskParams {
-  size_t dim;           // Vector dimension
-  int type;             // VecSimType enum value (FLOAT32=0)
-  int metric;           // VecSimMetric enum value (L2=0, IP=1, COSINE=2)
-  size_t M;             // Max outgoing edges per node
-  size_t efConstruction;// Construction-time ef
-  size_t efRuntime;     // Query-time ef
-  size_t blockSize;     // Block size for memory allocation
-  int multi;            // Multi-value index flag
-  void* storage;        // Opaque pointer to disk storage
-  const char* indexName;// Name of the index
-  size_t indexNameLen;  // Length of index name
-  void* logCtx;         // Logging context
-} VecSimDiskParams;
+// VecSimHNSWDiskParams is defined in VecSim/vec_sim_common.h
+struct VecSimHNSWDiskParams;
 
 typedef struct VectorDiskAPI {
   /**
@@ -129,7 +111,7 @@ typedef struct VectorDiskAPI {
    * @param params Vector index parameters
    * @return VecSimIndex* handle, or NULL on error
    */
-  void* (*createVectorIndex)(RedisSearchDiskIndexSpec* index, const VecSimDiskParams* params);
+  void* (*createVectorIndex)(RedisSearchDiskIndexSpec* index, const VecSimHNSWDiskParams* params);
 
   /**
    * @brief Frees a disk-based vector index.

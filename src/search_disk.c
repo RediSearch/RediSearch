@@ -91,7 +91,7 @@ bool SearchDisk_IsEnabled(RedisModuleCtx *ctx) {
 }
 
 // Vector API wrappers
-void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSimDiskParams *params) {
+void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSimHNSWDiskParams *params) {
     RS_ASSERT(disk && index && params);
     if (!disk->vector.createVectorIndex) {
         return NULL;  // Vector disk API not implemented
