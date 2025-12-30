@@ -250,7 +250,7 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
 
-static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
+static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status, bool isftSearchOnDisk) {
   int rv;
   bool dialect_specified = false;
   // This handles the common arguments that are not stateful
@@ -341,7 +341,10 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
-    //TODO (Joan): Mark not supported for Flex
+    if (isftSearchOnDisk) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_SEARCH_ARGUMENT, "WITHCURSOR is not supported on FT.SEARCH in Flex indexes");
+      return ARG_ERROR;
+    }
     if (((*papCtx->reqflags) & QEXEC_F_IS_AGGREGATE) && ((*papCtx->reqflags) & QEXEC_F_HAS_WITHCOUNT)) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
       return ARG_ERROR;
@@ -352,10 +355,16 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
   } else if (AC_AdvanceIfMatch(ac, "_NUM_SSTRING")) {
     REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_TYPED);
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
-    //TODO (Joan): Mark not supported for Flex
+    if (isftSearchOnDisk) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_SEARCH_ARGUMENT, "WITHRAWIDS is not supported on FT.SEARCH in Flex indexes");
+      return ARG_ERROR;
+    }
     REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SENDRAWIDS);
   } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
-    //TODO (Joan): Mark not supported for Flex
+    if (isftSearchOnDisk) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_SEARCH_ARGUMENT, "PARAMS is not supported on FT.SEARCH in Flex indexes");
+      return ARG_ERROR;
+    }
     if (parseParams(&(papCtx->searchopts->params), ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -370,7 +379,10 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if(AC_AdvanceIfMatch(ac, "FORMAT")) {
-    //TODO (Joan): Mark not supported for Flex
+    if (isftSearchOnDisk) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_SEARCH_ARGUMENT, "FORMAT is not supported on FT.SEARCH in Flex indexes");
+      return ARG_ERROR;
+    }
     if (parseValueFormat(papCtx->reqflags, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -383,7 +395,10 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       RS_LOG_ASSERT(false, "Bad arguments for _INDEX_PREFIXES (coordinator)");
     }
   } else if (AC_AdvanceIfMatch(ac, "BM25STD_TANH_FACTOR")) {
-    //TODO (Joan): Mark not supported for Flex
+    if (isftSearchOnDisk) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_SEARCH_ARGUMENT, "BM25STD_TANH_FACTOR is not supported on FT.SEARCH in Flex indexes");
+      return ARG_ERROR;
+    }
     if (AC_NumRemaining(ac) < 1) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Need an argument for BM25STD_TANH_FACTOR");
       return ARG_ERROR;
@@ -559,14 +574,13 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *
 }
 
 static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts,
-                          QueryAST *ast, AggregatePlan *plan, QueryError *status) {
+                          QueryAST *ast, AggregatePlan *plan, QueryError *status, bool isftSearchOnDisk) {
   // Parse query-specific arguments..
   const char *languageStr = NULL;
   ArgsCursor returnFields = {0};
   ArgsCursor inKeys = {0};
   ArgsCursor inFields = {0};
   Pipeline *pipeline = &req->pipeline;
-  //If is a Search request and Search on Disk
   ACArgSpec globalSearchArgs[] = {
     {.name = "INFIELDS", .type = AC_ARGTYPE_SUBARGS, .target = &inFields},  // Comment
     {.name = "SLOP",
@@ -588,7 +602,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopWords)},
     {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
     {.name = "PAYLOAD", .type = AC_ARGTYPE_STRING, .target = &ast->udata, .len = &ast->udatalen},
-    {NULL}};
+    {NULL}
+  };
 
   ACArgSpec SearchInFlexArgs[] = {
     {.name = "INKEYS", .type = AC_ARGTYPE_SUBARGS, .target = &inKeys},
@@ -599,10 +614,12 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     {AC_MKBITFLAG("WITHSCORES", &req->reqflags, QEXEC_F_SEND_SCORES)},
     {AC_MKBITFLAG("WITHSORTKEYS", &req->reqflags, QEXEC_F_SEND_SORTKEYS)},
     {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
-    {NULL}};
+    {NULL}
+  };
 
   ACArgSpec *querySpecs = globalSearchArgs;
-  if (AREQ_SearchCtx(req)->spec->diskSpec && (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH)) {//(isSpecOnDiskForValidation(AREQ_SearchCtx(req)->spec) && (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH)) {
+  // If is a Search request and Search on Disk
+  if (isftSearchOnDisk) {
     querySpecs = SearchInFlexArgs;
   }
   AREQ_AddRequestFlags(req, QEXEC_FORMAT_DEFAULT);
@@ -622,7 +639,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
     // See if this is one of our arguments which requires special handling
     if (AC_AdvanceIfMatch(ac, "SUMMARIZE")) {
-      // TODO(Joan): Mark not supported for Flex
+      if (isftSearchOnDisk) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_SEARCH_ARGUMENT, "SUMMARIZE is not supported on FT.SEARCH in Flex indexes");
+        return REDISMODULE_ERR;
+      }
       if(!ensureSimpleMode(req)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SUMMARIZE is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
@@ -634,7 +654,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       AREQ_AddRequestFlags(req, QEXEC_F_SEND_HIGHLIGHT);
 
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
-      // TODO(Joan): Mark not supported for Flex
+      if (isftSearchOnDisk) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_SEARCH_ARGUMENT, "HIGHLIGHT is not supported on FT.SEARCH in Flex indexes");
+        return REDISMODULE_ERR;
+      }
       if(!ensureSimpleMode(req)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "HIGHLIGHT is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
@@ -652,7 +675,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
-      // TODO: Mark not supported for Flex
+      if (isftSearchOnDisk) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_SEARCH_ARGUMENT, "WITHCOUNT is not supported on FT.SEARCH in Flex indexes");
+        return REDISMODULE_ERR;
+      }
       AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
       if (IsAggregate(req)) {
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
@@ -663,7 +689,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
-      // TODO(Joan): Mark not supported for Flex
+      if (isftSearchOnDisk) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_SEARCH_ARGUMENT, "WITHOUTCOUNT is not supported on FT.SEARCH in Flex indexes");
+        return REDISMODULE_ERR;
+      }
       AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
       if (IsAggregate(req)) {
         AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
@@ -683,7 +712,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .querySlots = &req->querySlots,
         .keySpaceVersion = &req->keySpaceVersion,
       };
-      int rv = handleCommonArgs(&papCtx, ac, status);
+      int rv = handleCommonArgs(&papCtx, ac, status, isftSearchOnDisk);
       if (rv == ARG_HANDLED) {
         // nothing
       } else if (rv == ARG_ERROR) {
@@ -1050,9 +1079,9 @@ AREQ *AREQ_New(void) {
   return req;
 }
 
-int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
+int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status, bool isftSearchOnDisk) {
   while (!AC_IsAtEnd(ac)) {
-    int rv = handleCommonArgs(papCtx, ac, status);
+    int rv = handleCommonArgs(papCtx, ac, status, isftSearchOnDisk);
     if (rv == ARG_HANDLED) {
       continue;
     } else if (rv == ARG_ERROR) {
@@ -1124,7 +1153,9 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   req->query = AC_GetStringNC(&ac, NULL);
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
-  if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), status) != REDISMODULE_OK) {
+  bool isftSearchOnDisk = AREQ_SearchCtx(req)->spec->diskSpec && (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH);//(isSpecOnDiskForValidation(AREQ_SearchCtx(req)->spec) && (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH));
+
+  if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), status, isftSearchOnDisk) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -1143,7 +1174,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .querySlots = &req->querySlots,
     .keySpaceVersion = &req->keySpaceVersion,
   };
-  if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
+  if (parseAggPlan(&papCtx, &ac, status, isftSearchOnDisk) != REDISMODULE_OK) {
     goto error;
   }
 
