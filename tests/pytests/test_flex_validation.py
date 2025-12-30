@@ -168,3 +168,50 @@ def test_default_on_hash(env):
             break
 
     env.assertEqual(key_type, 'HASH')
+
+@skip(cluster=True)
+def test_unsupported_ft_search_arguments(env):
+    """Test that unsupported FT.SEARCH arguments fail in Flex mode"""
+    # Set the simulate-in-flex configuration to true
+    env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
+
+    # Create a valid Flex index for testing
+    env.expect('FT.CREATE', 'flex_idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'content', 'TEXT').ok()
+
+    # Test unsupported FT.SEARCH arguments that should fail in Flex mode
+
+    # WITHCURSOR is not supported
+    env.expect('FT.SEARCH', 'flex_idx', '*', 'WITHCURSOR', 'COUNT', '10') \
+        .error().contains('WITHCURSOR is not supported on FT.SEARCH in Flex indexes')
+
+    # WITHRAWIDS is not supported
+    env.expect('FT.SEARCH', 'flex_idx', '*', 'WITHRAWIDS') \
+        .error().contains('WITHRAWIDS is not supported on FT.SEARCH in Flex indexes')
+
+    # PARAMS is not supported
+    env.expect('FT.SEARCH', 'flex_idx', '*', 'PARAMS', '2', 'param1', 'value1') \
+        .error().contains('PARAMS is not supported on FT.SEARCH in Flex indexes')
+
+    # FORMAT is not supported
+    env.expect('FT.SEARCH', 'flex_idx', '*', 'FORMAT', 'STRING') \
+        .error().contains('FORMAT is not supported on FT.SEARCH in Flex indexes')
+
+    # BM25STD_TANH_FACTOR is not supported
+    env.expect('FT.SEARCH', 'flex_idx', '*', 'BM25STD_TANH_FACTOR', '0.5') \
+        .error().contains('BM25STD_TANH_FACTOR is not supported on FT.SEARCH in Flex indexes')
+
+    # SUMMARIZE is not supported
+    env.expect('FT.SEARCH', 'flex_idx', '*', 'SUMMARIZE', 'FIELDS', '1', 'title') \
+        .error().contains('SUMMARIZE is not supported on FT.SEARCH in Flex indexes')
+
+    # HIGHLIGHT is not supported
+    env.expect('FT.SEARCH', 'flex_idx', '*', 'HIGHLIGHT', 'FIELDS', '1', 'title') \
+        .error().contains('HIGHLIGHT is not supported on FT.SEARCH in Flex indexes')
+
+    # WITHCOUNT is not supported
+    env.expect('FT.SEARCH', 'flex_idx', '*', 'WITHCOUNT') \
+        .error().contains('WITHCOUNT is not supported on FT.SEARCH in Flex indexes')
+
+    # WITHOUTCOUNT is not supported
+    env.expect('FT.SEARCH', 'flex_idx', '*', 'WITHOUTCOUNT') \
+        .error().contains('WITHOUTCOUNT is not supported on FT.SEARCH in Flex indexes')

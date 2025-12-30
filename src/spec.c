@@ -1553,12 +1553,8 @@ bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
   return true;
 }
 
-bool IndexSpec_IsOnDiskForValidation(const IndexSpec *sp) {
-  return SearchDisk_IsEnabledForValidation();
-}
-
 static void handleBadArgument(const char *badarg, IndexSpec *spec, QueryError *status, ACArgSpec *non_flex_argopts) {
-  if (IndexSpec_IsOnDiskForValidation(spec)) {
+  if (SearchDisk_IsEnabledForValidation()) {
     bool isKnownArg = false;
     for (int i = 0; non_flex_argopts[i].name; i++) {
       if (strcasecmp(badarg, non_flex_argopts[i].name) == 0) {
@@ -1627,7 +1623,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
     {.name = NULL}
   };
-  ACArgSpec *argopts = IndexSpec_IsOnDiskForValidation(spec) ? flex_argopts : non_flex_argopts;
+  ACArgSpec *argopts = SearchDisk_IsEnabledForValidation() ? flex_argopts : non_flex_argopts;
   rc = AC_ParseArgSpec(&ac, argopts, &errarg);
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
@@ -1635,7 +1631,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
       goto failure;
     }
   }
-  bool invalidFlexOnType = IndexSpec_IsOnDiskForValidation(spec) && rule_args.type && (strcasecmp(rule_args.type, RULE_TYPE_HASH) != 0);
+  bool invalidFlexOnType = SearchDisk_IsEnabledForValidation() && rule_args.type && (strcasecmp(rule_args.type, RULE_TYPE_HASH) != 0);
 
   if (invalidFlexOnType) {
     QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT, "Only HASH is supported as index data type for Flex indexes");
