@@ -123,7 +123,7 @@ typedef struct DocTableDiskAPI {
   uint64_t (*getDeletedIdsCount)(RedisSearchDiskIndexSpec* handle);
 
   /**
-   * @brief Gets all deleted document IDs
+   * @brief Gets all deleted document IDs (used for debugging)
    *
    * Fills the provided buffer with deleted document IDs. The caller must ensure
    * the buffer is large enough to hold all deleted IDs (use getDeletedIdsCount first).

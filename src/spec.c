@@ -3200,6 +3200,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
     sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
     IndexSpec_PopulateVectorDiskParams(sp);
+    if (!sp->diskSpec) {
+      goto cleanup;
+    }
   }
 
   if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp)) {
@@ -3364,6 +3367,10 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
     sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
     // Populate diskParams for vector fields now that diskSpec is available
+    if (!sp->diskSpec) {
+      StrongRef_Release(spec_ref);
+      return NULL;
+    }
     IndexSpec_PopulateVectorDiskParams(sp);
   }
 
@@ -3651,11 +3658,14 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   if (sctx.spec->diskSpec) {
-    IndexSpec_IncrActiveWrites(spec);
+    // TODO: Statistics handling is done in IndexSpec_DeleteDoc_Unsafe (MOD-13306).
     size_t len;
     const char *keyStr = RedisModule_StringPtrLen(key, &len);
+    IndexSpec_IncrActiveWrites(spec);
+    RedisSearchCtx_LockSpecWrite(&sctx);
     SearchDisk_DeleteDocument(sctx.spec->diskSpec, keyStr, len);
     IndexSpec_DecrActiveWrites(spec);
+    RedisSearchCtx_UnlockSpec(&sctx);
   } else {
     // TODO: is this necessary?
     RedisSearchCtx_LockSpecRead(&sctx);
