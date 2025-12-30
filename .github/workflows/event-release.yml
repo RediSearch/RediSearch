@@ -18,7 +18,7 @@ on:
         description: 'The branch/tag/commit of the snapshots to release. Defaults to the given tag'
 
 env:
-  checkout_target: ${{ inputs.snapshot_of || inputs.tag || github.event.release.target_commitish }}
+  checkout_target: ${{ inputs.snapshot_of || inputs.tag || github.event.release.tag_name }}
 
 jobs:
   validate-tag:
@@ -42,9 +42,9 @@ jobs:
         env:
           # Not used, but useful for debugging in case of failure. See https://github.com/actions/runner/issues/2788
           GH_CONTEXT: ${{ toJson(github) }}
-          EVENT_BASE_REF: ${{ github.event.base_ref }}
           EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          VERSION_BRANCH: ${{ github.event.release.target_commitish }}
         shell: python
         run: |
           import os
@@ -58,7 +58,7 @@ jobs:
           tag = os.environ["INPUT_TAG"]
           if not valid_tag(tag):
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
-          version_branch = '${{ env.checkout_target }}'
+          version_branch = os.environ["VERSION_BRANCH"]
           if not valid_version_branch(version_branch) and os.environ["EVENT_NAME"] == 'release':
             raise Exception(f"Version branch {version_branch} does not match the tag {tag}")
 
@@ -75,16 +75,22 @@ jobs:
     if: needs.validate-tag.outputs.should_bump == 'true'
     env:
       BRANCH: bump-version-${{ needs.validate-tag.outputs.next_version }}
+      # Common environment variables for security (shell injection prevention)
+      CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
+      NEXT_VERSION: ${{ needs.validate-tag.outputs.next_version }}
+      RELEASE_BRANCH: ${{ github.event.release.target_commitish }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.checkout_target }}
+          ref: ${{ github.event.release.target_commitish }}
       - name: Update version for next patch
         env:
           PATCH_LINE_PREFIX: '#define REDISEARCH_VERSION_PATCH'
           NEXT_PATCH: ${{ needs.validate-tag.outputs.next_patch }}
         # find the line with the patch version and replace it with the next patch version
-        run: sed -i "s/^${{ env.PATCH_LINE_PREFIX }} [0-9]\+$/${{ env.PATCH_LINE_PREFIX }} ${{ env.NEXT_PATCH }}/" src/version.h
+        run: sed -i "s/^$PATCH_LINE_PREFIX [0-9]\+$/$PATCH_LINE_PREFIX $NEXT_PATCH/" src/version.h
 
       - name: Commit and push
         env:
@@ -96,33 +102,41 @@ jobs:
           git config --global user.email "$SENDER_ID+$SENDER_LOGIN@users.noreply.github.com"
           git checkout -b "$BRANCH"
           git add src/version.h
-          git commit -m "Bump version from ${{ needs.validate-tag.outputs.cur_version }} to ${{ needs.validate-tag.outputs.next_version }}"
-          git push origin ${{ env.BRANCH }}
+          git commit -m "Bump version from $CUR_VERSION to $NEXT_VERSION"
+          git push origin "$BRANCH"
 
       - name: Create Pull Request
         env:
           GH_TOKEN: ${{ github.token }}
+          TEAM_LEADERS: ${{ vars.TEAM_LEADERS }}
+          ISSUES_SHIFT_ASSIGNEE: ${{ vars.ISSUES_SHIFT_ASSIGNEE }}
           GITHUB_ACTOR: ${{ github.actor }}
           RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
         run: |
           gh pr create \
-            --title    "Bump version from ${{ needs.validate-tag.outputs.cur_version }} to ${{ needs.validate-tag.outputs.next_version }}" \
+            --title    "Bump version from $CUR_VERSION to $NEXT_VERSION" \
             --body     "This PR was automatically created by the release workflow of $RELEASE_TAG." \
-            --head     "${{ env.BRANCH }}" \
-            --base     "${{ env.checkout_target }}" \
-            --reviewer "${{ vars.TEAM_LEADERS }},${{ vars.ISSUES_SHIFT_ASSIGNEE }},$GITHUB_ACTOR" \
+            --head     "$BRANCH" \
+            --base     "$RELEASE_BRANCH" \
+            --reviewer "$TEAM_LEADERS,$ISSUES_SHIFT_ASSIGNEE,$GITHUB_ACTOR" \
             --draft
 
       - name: Trigger CI
         env:
           GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
         run: |
-          gh pr ready ${{ env.BRANCH }} -R ${{ github.repository }}
-          gh pr merge ${{ env.BRANCH }} -R ${{ github.repository }} --auto
+          gh pr ready "$BRANCH" -R "$GITHUB_REPOSITORY"
+          gh pr merge "$BRANCH" -R "$GITHUB_REPOSITORY" --auto
+
+  generate-matrix:
+    uses: ./.github/workflows/generate-matrix.yml
+    with:
+      platform: all,!intel
+      architecture: all
 
   set-artifacts:
-    needs: validate-tag
-    runs-on: ${{ vars.RUNS_ON }}
+    needs: [validate-tag, generate-matrix]
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - name: Configure AWS Credentials Using Role
         if: vars.USE_AWS_ROLE == 'true'
@@ -140,11 +154,17 @@ jobs:
       - name: Get boto3
         run: pip install boto3
       - name: Set Version Artifacts
+        env:
+          SOURCE: ${{ inputs.snapshot_of || inputs.tag || github.event.release.target_commitish }}
+          CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
+          EXPECTED_SHA: ${{ needs.validate-tag.outputs.expected_sha }}
+          EXPECTED_MATRIX: ${{ needs.generate-matrix.outputs.matrix }}
         shell: python
         run: |
           import boto3
           import os
           import json
+          import re
           from concurrent.futures import ThreadPoolExecutor
           from zipfile import ZipFile
 
@@ -152,20 +172,23 @@ jobs:
           oss_dir = "redisearch-oss"
           ent_dir = "redisearch"
 
-          suffix = ".${{ env.checkout_target }}.zip"
-          new_suffix = ".${{ needs.validate-tag.outputs.cur_version }}.zip"
-          expected_sha = "${{ needs.validate-tag.outputs.expected_sha }}"
+          # Suffix pattern: .{SOURCE}.{TIMESTAMP}.{WORKFLOW_NUM}.zip
+          # Example: .2.10.20231228.123456.123.zip
+          # Pattern matches: .+.{SOURCE}. followed by timestamp (YYYYMMDD.HHMMSS) and workflow number
+          suffix_pattern = re.compile(rf"(.+)\.{re.escape(os.environ['SOURCE'])}\.\d{{8}}\.\d{{6}}\.\d+\.zip$")
+          new_suffix = rf"\1.{os.environ['CUR_VERSION']}.zip"
+          expected_sha = os.environ["EXPECTED_SHA"]
 
           client = boto3.client("s3")
 
           ########################### Helper Functions ###########################
 
-          # List all file in `bucket`, with suffix `suffix` and the given prefix (path)
+          # List all file in `bucket`, matching suffix_pattern and the given prefix (path)
           def list_files_by_branch(prefix):
               paginator = client.get_paginator("list_objects_v2")
               for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
                   for obj in page.get("Contents", []):
-                      if obj["Key"].endswith(suffix):
+                      if suffix_pattern.search(obj["Key"]):
                           yield obj["Key"]
 
           def list_snapshots_by_branch(dir):
@@ -183,9 +206,10 @@ jobs:
                       return sha[2:-1] if sha[:2] in ['b"', "b'"] else sha
 
           # new location is outside snapshots/ directory and with the new suffix
-          # Only called on files we know end with `suffix` and have a `snapshot` directory in the path
+          # Remove snapshots/ directory and replace the suffix pattern with the new suffix
           def get_target_name(name):
-              return name.replace("snapshots/", "", 1)[:-len(suffix)] + new_suffix
+              name_without_snapshots = name.replace("snapshots/", "", 1)
+              return suffix_pattern.sub(new_suffix, name_without_snapshots)
 
           def group_print(title, args):
               print(f"::group::{title} ({len(args)})")
@@ -198,27 +222,42 @@ jobs:
           for dir in [oss_dir, ent_dir]:
               files.extend(list_snapshots_by_branch(dir))
 
-          group_print("${{ env.checkout_target }} Build Candidates", files)
+          group_print(f"{os.environ['SOURCE']} Build Candidates", files)
+          if not files:
+              raise Exception("::error title=No candidates found!")
 
           with ThreadPoolExecutor() as executor:
               sha_list = executor.map(extract_sha, files)
+          sha_list = list(sha_list)
+          
+          # Include only files that match the expected SHA
+          include_list = [f for f, sha in zip(files, sha_list) if sha == expected_sha]
 
-          exclude_list = [(f, sha) for f, sha in zip(files, sha_list) if sha != expected_sha]
-          include_list = [f for f in files if f not in [x for x, _ in exclude_list]]
+          if not include_list:
+              raise Exception(f"::error title=No artifacts found with expected SHA {expected_sha}!")
+
+          # Verify artifact count matches expected matrix
+          matrix = json.loads(os.environ["EXPECTED_MATRIX"])
+          expected_count = len(matrix.get("include", []))
+          # Each matrix entry produces 2 artifacts (release, debug X redisearch, redisearch-light, redisearch-oss, redisearch-oss-cluster)
+          expected_artifact_count = expected_count * 8
+          actual_artifact_count = len(include_list)
+
+          if actual_artifact_count != expected_artifact_count:
+              print(
+                  f"::warning title=Artifact count mismatch::"
+                  f"Expected {expected_artifact_count} artifacts ({expected_count} builds X 2), "
+                  f"but found {actual_artifact_count} artifacts"
+              )
+          else:
+              print(f"✓ Verified: Found {actual_artifact_count} artifacts matching {expected_count} matrix builds")
+
           dest_files = [get_target_name(f) for f in include_list]
 
           # Log files
-          group_print("Excluded Files", exclude_list)
           group_print("Included Files", include_list)
-          group_print("Unexpected SHAs", set([sha for _, sha in exclude_list]))
+          group_print("New Files", dest_files)
 
           # Copy included files to new location
           for src, dst in zip(include_list, dest_files):
               client.copy_object(Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src}, ACL="public-read")
-
-          group_print("New Files", dest_files)
-
-          if len(exclude_list) > 0:
-              print("::warning title=Unexpected Files::The workflow has encountered files that do not match the "
-                    "expected git sha. These files will not be included in the release artifacts. Look for the "
-                    "`Excluded Files` section above for more details.")
