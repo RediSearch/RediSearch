@@ -1406,8 +1406,6 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
   }
 
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
   if (strcasecmp(cmd, "READ") == 0) {
     long long count = 0;
     if (argc > 5) {
@@ -1415,23 +1413,17 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       // Verify that the 4'th argument is `COUNT`.
       const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
       if (strcasecmp(count_str, "count") != 0) {
-        RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
-        RedisModule_EndReply(reply);
-        return REDISMODULE_OK;
+        return RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
       }
 
       if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
-        RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
-        RedisModule_EndReply(reply);
-        return REDISMODULE_OK;
+        return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
       }
     }
 
     Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
     if (cursor == NULL) {
-      RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
-      RedisModule_EndReply(reply);
-      return REDISMODULE_OK;
+      return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
     }
 
     // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
@@ -1448,17 +1440,13 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // Return profile
     Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
     if (cursor == NULL) {
-      RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
-      RedisModule_EndReply(reply);
-      return REDISMODULE_OK;
+      return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
     }
 
     AREQ *req = cursor->execState;
     if (!IsProfile(req)) {
       Cursor_Pause(cursor); // Pause the cursor again since we are not going to use it, but it's still valid.
-      RedisModule_ReplyWithErrorFormat(ctx, "cursor request is not profile, id: %d", cid);
-      RedisModule_EndReply(reply);
-      return REDISMODULE_OK;
+      return RedisModule_ReplyWithErrorFormat(ctx, "cursor request is not profile, id: %d", cid);
     }
     // We get here only if it's internal (coord) cursor because cursor is not supported with profile,
     // and we already checked that the cmd is not for profiling.
@@ -1469,11 +1457,11 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
-      RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
+      RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
     } else {
       QueryError status = QueryError_Default();
       AREQ_QueryProcessingCtx(req)->err = &status;
-      sendChunk_ReplyOnly_EmptyResults(reply, req);
+      sendChunk_ReplyOnly_EmptyResults(ctx, req);
       IndexSpecRef_Release(execution_ref);
     }
 
@@ -1482,18 +1470,17 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else if (strcasecmp(cmd, "DEL") == 0) {
     int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
     if (rc != REDISMODULE_OK) {
-      RedisModule_Reply_Error(reply, "Cursor does not exist");
+      return RedisModule_ReplyWithError(ctx, "Cursor does not exist");
     } else {
-      RedisModule_Reply_SimpleString(reply, "OK");
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
   } else if (strcasecmp(cmd, "GC") == 0) {
     int rc = Cursors_CollectIdle(&g_CursorsList);
     rc += Cursors_CollectIdle(&g_CursorsListCoord);
-    RedisModule_Reply_LongLong(reply, rc);
+    return RedisModule_ReplyWithLongLong(ctx, rc);
   } else {
-    RedisModule_Reply_Error(reply, "Unknown subcommand");
+    return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
   }
-  RedisModule_EndReply(reply);
   return REDISMODULE_OK;
 }
 
