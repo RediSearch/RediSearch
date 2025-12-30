@@ -443,3 +443,29 @@ def test_specific_command_docs_structure():
     env.debugPrint(f"FT.CREATE summary: {summary}")
     env.debugPrint(f"FT.CREATE complexity: {cmd_docs.get('complexity', 'N/A')}")
     env.debugPrint(f"FT.CREATE since: {cmd_docs.get('since', 'N/A')}")
+
+
+"""Test that FT.CURSOR commands have request_policy:special in tips."""
+def test_cursor_commands_have_request_policy_special():
+    env = Env(protocol=3)
+    conn = env.getConnection()
+
+    # Get command info for FT.CURSOR
+    info = conn.execute_command("COMMAND", "INFO", "FT.CURSOR")
+
+    env.assertIsNotNone(info, message="FT.CURSOR should have command info")
+    env.assertIn("FT.CURSOR", info, message="FT.CURSOR should be in command info response")
+
+    cmd_info = info["FT.CURSOR"]
+    env.assertIsNotNone(cmd_info, message="FT.CURSOR command info should not be None")
+
+    # Check that tips field exists and contains request_policy:special
+    env.assertIn("tips", cmd_info, message="FT.CURSOR should have tips field")
+
+    tips = cmd_info["tips"]
+    env.assertIsInstance(tips, list, message="Tips should be a list")
+    env.assertIn("request_policy:special", tips,
+                 message="FT.CURSOR tips should contain 'request_policy:special'")
+
+
+
