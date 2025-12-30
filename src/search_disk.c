@@ -122,7 +122,7 @@ size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffe
 
 void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen) {
     RS_ASSERT(disk && handle);
-    disk->docTable.deleteDocument(handle, key, keyLen);
+    disk->index.deleteDocument(handle, key, keyLen);
 }
 
 bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx) {

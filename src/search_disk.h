@@ -93,6 +93,15 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
 bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask);
 
 /**
+ * @brief Delete a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
+ *
+ * @param handle Handle to the document table
+ * @param key Document key
+ * @param keyLen Length of the document key
+ */
+void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen);
+
+/**
  * @brief Create an IndexIterator for a term in the inverted index
  *
  * This function creates a full IndexIterator that wraps the disk API and can be used
@@ -183,15 +192,6 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
  * @return The number of IDs written to the buffer
  */
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
-
-/**
- * @brief Delete a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
- *
- * @param handle Handle to the document table
- * @param key Document key
- * @param keyLen Length of the document key
- */
-void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen);
 
 /**
  * @brief Check if the search disk module is enabled from configuration
