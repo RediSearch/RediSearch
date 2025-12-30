@@ -1553,16 +1553,12 @@ bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
   return true;
 }
 
-inline static bool isSpecOnDisk(const IndexSpec *sp) {
-  return SearchDisk_IsEnabled();
-}
-
-inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
+bool IndexSpec_IsOnDiskForValidation(const IndexSpec *sp) {
   return SearchDisk_IsEnabledForValidation();
 }
 
 static void handleBadArgument(const char *badarg, IndexSpec *spec, QueryError *status, ACArgSpec *non_flex_argopts) {
-  if (isSpecOnDiskForValidation(spec)) {
+  if (IndexSpec_IsOnDiskForValidation(spec)) {
     bool isKnownArg = false;
     for (int i = 0; non_flex_argopts[i].name; i++) {
       if (strcasecmp(badarg, non_flex_argopts[i].name) == 0) {
@@ -1631,7 +1627,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
     {.name = NULL}
   };
-  ACArgSpec *argopts = isSpecOnDiskForValidation(spec) ? flex_argopts : non_flex_argopts;
+  ACArgSpec *argopts = IndexSpec_IsOnDiskForValidation(spec) ? flex_argopts : non_flex_argopts;
   rc = AC_ParseArgSpec(&ac, argopts, &errarg);
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
@@ -1639,7 +1635,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
       goto failure;
     }
   }
-  bool invalidFlexOnType = isSpecOnDiskForValidation(spec) && rule_args.type && (strcasecmp(rule_args.type, RULE_TYPE_HASH) != 0);
+  bool invalidFlexOnType = IndexSpec_IsOnDiskForValidation(spec) && rule_args.type && (strcasecmp(rule_args.type, RULE_TYPE_HASH) != 0);
 
   if (invalidFlexOnType) {
     QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT, "Only HASH is supported as index data type for Flex indexes");
@@ -1692,7 +1688,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   }
 
   // Store on disk if we're on Flex and we don't force RAM
-  if (isSpecOnDisk(spec)) {
+  if (SearchDisk_IsEnabled()) {
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(spec->specName, &len);
@@ -3162,7 +3158,7 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
     addPendingIndexDrop();
     StrongRef_Release(spec_ref);
   } else {
-    if (isSpecOnDisk(sp)) {
+    if (SearchDisk_IsEnabled()) {
       // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
       // we add the `Index_StoreInRAM` flag to the rdb file.
       RS_ASSERT(disk_db);

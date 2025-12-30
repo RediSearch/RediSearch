@@ -1153,7 +1153,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   req->query = AC_GetStringNC(&ac, NULL);
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
-  bool isftSearchOnDisk = AREQ_SearchCtx(req)->spec->diskSpec && (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH);//(isSpecOnDiskForValidation(AREQ_SearchCtx(req)->spec) && (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH));
+  bool isftSearchOnDisk = (IndexSpec_IsOnDiskForValidation(AREQ_SearchCtx(req)->spec) && (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH));
 
   if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), status, isftSearchOnDisk) != REDISMODULE_OK) {
     goto error;

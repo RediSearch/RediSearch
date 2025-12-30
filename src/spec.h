@@ -708,13 +708,19 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
 char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
+/*
+  * @brief Check if the index is on disk (or is supposed to be on disk). This function is used for validation purposes only.
+  * @return true if the index is on disk, false otherwise
+*/
+bool IndexSpec_IsOnDiskForValidation(const IndexSpec *sp);
+
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
 /*
  * Free all indexes.
  * @param deleteDiskData - delete the disk data
-*/ 
+*/
 void Indexes_Free(dict *d, bool deleteDiskData);
 size_t Indexes_Count();
 void Indexes_Propagate(RedisModuleCtx *ctx);
