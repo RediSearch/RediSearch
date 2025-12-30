@@ -55,6 +55,8 @@ void Profile_PrepareMapForReply(RedisModule_Reply *reply);
 // A bitset of warnings
 typedef uint8_t ProfileWarnings;
 
+// Profile warnings - stored in AREQ profileCtx, printed in profile output.
+// Not to be confused with QueryWarnings (query error/warning status in QueryError).
 typedef enum {
   PROFILE_WARNING_TYPE_TIMEOUT = 1 << 0,
   PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS = 1 << 1,
