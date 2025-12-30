@@ -1553,8 +1553,8 @@ bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
   return true;
 }
 
-static void handleBadArgument(const char *badarg, IndexSpec *spec, QueryError *status, ACArgSpec *non_flex_argopts) {
-  if (SearchDisk_IsEnabledForValidation()) {
+void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status, ACArgSpec *non_flex_argopts) {
+  if (SearchDisk_IsEnabledForValidation(spec)) {
     bool isKnownArg = false;
     for (int i = 0; non_flex_argopts[i].name; i++) {
       if (strcasecmp(badarg, non_flex_argopts[i].name) == 0) {
@@ -1668,7 +1668,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
     if (AC_NumRemaining(&ac)) {
       const char *badarg = AC_GetStringNC(&ac, NULL);
-      handleBadArgument(badarg, spec, status, non_flex_argopts);
+      handleBadArguments(spec, badarg, status, non_flex_argopts);
     } else {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No schema found");
     }
