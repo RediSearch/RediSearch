@@ -1617,10 +1617,6 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
 
     // For compatibility
     {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
-    {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
-    {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
-    {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
     {.name = NULL}
   };
   ACArgSpec *argopts = SearchDisk_IsEnabledForValidation() ? flex_argopts : non_flex_argopts;
