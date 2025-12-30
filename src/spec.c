@@ -1561,6 +1561,26 @@ inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
   return SearchDisk_IsEnabledForValidation();
 }
 
+static void handleBadArgument(const char *badarg, IndexSpec *spec, QueryError *status, ACArgSpec *non_flex_argopts) {
+  if (isSpecOnDiskForValidation(spec)) {
+    bool isKnownArg = false;
+    for (int i = 0; non_flex_argopts[i].name; i++) {
+      if (strcasecmp(badarg, non_flex_argopts[i].name) == 0) {
+        isKnownArg = true;
+        break;
+      }
+    }
+    if (isKnownArg) {
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
+        "Unsupported argument for Flex index:", " `%s`", badarg);
+    } else {
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
+    }
+  } else {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
+  }
+}
+
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
@@ -1582,7 +1602,6 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   ArgsCursor rule_prefixes = {0};
   int rc = AC_OK;
   ACArgSpec *errarg = NULL;
-  bool invalid_flex_on_type = false;
   ACArgSpec flex_argopts[] = {
     {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
     {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
@@ -1614,14 +1633,15 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   };
   ACArgSpec *argopts = isSpecOnDiskForValidation(spec) ? flex_argopts : non_flex_argopts;
   rc = AC_ParseArgSpec(&ac, argopts, &errarg);
-  invalid_flex_on_type = isSpecOnDiskForValidation(spec) && rule_args.type && (strcasecmp(rule_args.type, RULE_TYPE_HASH) != 0);
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
       goto failure;
     }
   }
-  if (invalid_flex_on_type) {
+  bool invalidFlexOnType = isSpecOnDiskForValidation(spec) && rule_args.type && (strcasecmp(rule_args.type, RULE_TYPE_HASH) != 0);
+
+  if (invalidFlexOnType) {
     QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT, "Only HASH is supported as index data type for Flex indexes");
     goto failure;
   }
@@ -1656,23 +1676,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
     if (AC_NumRemaining(&ac)) {
       const char *badarg = AC_GetStringNC(&ac, NULL);
-      if (isSpecOnDiskForValidation(spec)) {
-        bool isKnownArg = false;
-        for (int i = 0; non_flex_argopts[i].name; i++) {
-          if (strcasecmp(badarg, non_flex_argopts[i].name) == 0) {
-            isKnownArg = true;
-            break;
-          }
-        }
-        if (isKnownArg) {
-          QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
-            "Unsupported argument for Flex index:", " `%s`", badarg);
-        } else {
-          QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
-        }
-      } else {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
-      }
+      handleBadArgument(badarg, spec, status, non_flex_argopts);
     } else {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No schema found");
     }
