@@ -66,12 +66,12 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
 
 void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
   RS_ASSERT(disk && index);
-  disk->basic.IndexSpecRdbSave(rdb, index);
+  disk->basic.indexSpecRdbSave(rdb, index);
 }
 
 int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
   RS_ASSERT(disk && index);
-  return disk->basic.IndexSpecRdbLoad(rdb, index);
+  return disk->basic.indexSpecRdbLoad(rdb, index);
 }
 
 // Index API wrappers
