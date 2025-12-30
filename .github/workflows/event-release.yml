@@ -262,6 +262,7 @@ jobs:
           if not include_list:
               raise Exception(f"::error title=No artifacts found with expected SHA {expected_sha}!")
 
+              
           # Verify artifact count matches expected matrix
           matrix = json.loads(os.environ["EXPECTED_MATRIX"])
           expected_count = len(matrix.get("include", []))
