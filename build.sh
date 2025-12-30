@@ -16,6 +16,7 @@ Commands:
   test-miri   Run rust unit tests with Miri (requires nightly toolchain)
   test-flow   Run integration tests with RLTest
   bench       Run micro benchmarks
+  profile     Profile the module with VTune
 
 Environment Variables:
   PROFILE     Build profile: Debug (default) or Release
@@ -102,6 +103,18 @@ Micro Benchmarks (./build.sh bench):
   Note: Benchmarks always run in release mode for accurate performance measurement.
         Install critcmp for comparing results: cargo install critcmp
 
+Profiling (./build.sh profile):
+  Profile the module with VTune:
+    ./build.sh profile
+
+  Specify VTune result directory:
+    ./build.sh profile --result-dir /path/to/results
+
+  Note: Requires Intel VTune to be installed and available in PATH.
+        The module is built in Release mode for accurate profiling.
+        Redis server is started with the module loaded and configured with SEARCH.CLUSTERSET.
+        After profiling, use vtune-gui to view the results.
+
 Notes:
 - This builds RediSearch as a static library and links our disk code.
 - Integration tests require redis-server to be installed and in PATH.
@@ -165,6 +178,16 @@ cmd_bench() {
   cargo bench --benches --color=always "$@"
 }
 
+cmd_profile() {
+  # Build in Release mode
+  echo "[profile] Building module in Release mode..."
+  PROFILE=Release cmd_build
+
+  # Source and run the profile script
+  source "${ROOT_DIR}/profile.sh"
+  run_profile "${ROOT_DIR}" "${BUILD_DIR}" "$@"
+}
+
 main() {
   local cmd="${1:-}" || true
   case "${cmd}" in
@@ -175,6 +198,7 @@ main() {
     test-miri) shift; cmd_test_miri "$@" ;;
     test-flow) shift; cmd_test_flow "$@" ;;
     bench) shift; cmd_bench "$@" ;;
+    profile) shift; cmd_profile "$@" ;;
     -h|--help|help|"") usage ;;
     *) echo "Unknown command: ${cmd}"; usage; exit 2 ;;
   esac

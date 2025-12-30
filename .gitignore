@@ -23,6 +23,7 @@
 .cproject
 VSCODE.DB*
 callgrind.out.*
+vtune_results/
 **/.ipynb_checkpoints/
 
 # CMake generated files
