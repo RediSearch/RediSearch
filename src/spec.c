@@ -3247,9 +3247,6 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
     // This is the only global structure that we added the new spec to at this point
     SchemaPrefixes_RemoveSpec(spec_ref);
     addPendingIndexDrop();
-    if (sp->diskSpec) {
-      SearchDisk_CloseIndex(sp->diskSpec);
-    }
     StrongRef_Release(spec_ref);
   } else {
     IndexSpec_StartGC(spec_ref, sp);
