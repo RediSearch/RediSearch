@@ -251,9 +251,10 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
 
-static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status, bool isftSearchOnDisk) {
+static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
   int rv;
   bool dialect_specified = false;
+  bool isftSearchOnDisk = (SearchDisk_IsEnabledForValidation() && (*papCtx->reqflags & QEXEC_F_IS_SEARCH));
   // This handles the common arguments that are not stateful
   if (AC_AdvanceIfMatch(ac, "LIMIT")) {
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(papCtx->plan);
@@ -575,7 +576,7 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *
 }
 
 static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts,
-                          QueryAST *ast, AggregatePlan *plan, QueryError *status, bool isftSearchOnDisk) {
+                          QueryAST *ast, AggregatePlan *plan, QueryError *status) {
   // Parse query-specific arguments..
   const char *languageStr = NULL;
   ArgsCursor returnFields = {0};
@@ -617,12 +618,9 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
     {NULL}
   };
+  bool isftSearchOnDisk = (SearchDisk_IsEnabledForValidation() && (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH));
+  ACArgSpec *querySpecs = isftSearchOnDisk ? SearchInFlexArgs : globalSearchArgs;
 
-  ACArgSpec *querySpecs = globalSearchArgs;
-  // If is a Search request and Search on Disk
-  if (isftSearchOnDisk) {
-    querySpecs = SearchInFlexArgs;
-  }
   AREQ_AddRequestFlags(req, QEXEC_FORMAT_DEFAULT);
   bool optimization_specified = false;
   bool hasEmptyFilterValue = false;
@@ -713,7 +711,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .querySlots = &req->querySlots,
         .keySpaceVersion = &req->keySpaceVersion,
       };
-      int rv = handleCommonArgs(&papCtx, ac, status, isftSearchOnDisk);
+      int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
         // nothing
       } else if (rv == ARG_ERROR) {
@@ -1080,9 +1078,9 @@ AREQ *AREQ_New(void) {
   return req;
 }
 
-int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status, bool isftSearchOnDisk) {
+int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
   while (!AC_IsAtEnd(ac)) {
-    int rv = handleCommonArgs(papCtx, ac, status, isftSearchOnDisk);
+    int rv = handleCommonArgs(papCtx, ac, status);
     if (rv == ARG_HANDLED) {
       continue;
     } else if (rv == ARG_ERROR) {
@@ -1154,9 +1152,8 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   req->query = AC_GetStringNC(&ac, NULL);
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
-  bool isftSearchOnDisk = (SearchDisk_IsEnabledForValidation() && (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH));
 
-  if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), status, isftSearchOnDisk) != REDISMODULE_OK) {
+  if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -1175,7 +1172,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .querySlots = &req->querySlots,
     .keySpaceVersion = &req->keySpaceVersion,
   };
-  if (parseAggPlan(&papCtx, &ac, status, isftSearchOnDisk) != REDISMODULE_OK) {
+  if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
     goto error;
   }
 
