@@ -466,6 +466,3 @@ def test_cursor_commands_have_request_policy_special():
     env.assertIsInstance(tips, list, message="Tips should be a list")
     env.assertIn("request_policy:special", tips,
                  message="FT.CURSOR tips should contain 'request_policy:special'")
-
-
-
