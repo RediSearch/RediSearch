@@ -566,8 +566,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   ArgsCursor inKeys = {0};
   ArgsCursor inFields = {0};
   Pipeline *pipeline = &req->pipeline;
-  //If is  Search request and Search on DIsk
-  ACArgSpec querySpecs[] = {
+  //If is a Search request and Search on Disk
+  ACArgSpec globalSearchArgs[] = {
     {.name = "INFIELDS", .type = AC_ARGTYPE_SUBARGS, .target = &inFields},  // Comment
     {.name = "SLOP",
     .type = AC_ARGTYPE_INT,
@@ -590,17 +590,20 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     {.name = "PAYLOAD", .type = AC_ARGTYPE_STRING, .target = &ast->udata, .len = &ast->udatalen},
     {NULL}};
 
+  ACArgSpec SearchInFlexArgs[] = {
+    {.name = "INKEYS", .type = AC_ARGTYPE_SUBARGS, .target = &inKeys},
+    {.name = "RETURN", .type = AC_ARGTYPE_SUBARGS, .target = &returnFields},
+    {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr},
+    {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
+    {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopWords)},
+    {AC_MKBITFLAG("WITHSCORES", &req->reqflags, QEXEC_F_SEND_SCORES)},
+    {AC_MKBITFLAG("WITHSORTKEYS", &req->reqflags, QEXEC_F_SEND_SORTKEYS)},
+    {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
+    {NULL}};
+
+  ACArgSpec *querySpecs = globalSearchArgs;
   if (AREQ_SearchCtx(req)->spec->diskSpec && (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH)) {//(isSpecOnDiskForValidation(AREQ_SearchCtx(req)->spec) && (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH)) {
-    // Reuse querySpecs to avoid allocation on heap
-    querySpecs[0] = (ACArgSpec){.name = "INKEYS", .type = AC_ARGTYPE_SUBARGS, .target = &inKeys};
-    querySpecs[1] = (ACArgSpec){.name = "RETURN", .type = AC_ARGTYPE_SUBARGS, .target = &returnFields};
-    querySpecs[2] = (ACArgSpec){.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr};
-    querySpecs[3] = (ACArgSpec){AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)};
-    querySpecs[4] = (ACArgSpec){AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopWords)};
-    querySpecs[5] = (ACArgSpec){AC_MKBITFLAG("WITHSCORES", &req->reqflags, QEXEC_F_SEND_SCORES)};
-    querySpecs[6] = (ACArgSpec){AC_MKBITFLAG("WITHSORTKEYS", &req->reqflags, QEXEC_F_SEND_SORTKEYS)};
-    querySpecs[7] = (ACArgSpec){AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)};
-    querySpecs[8] = (ACArgSpec){NULL};
+    querySpecs = SearchInFlexArgs;
   }
   AREQ_AddRequestFlags(req, QEXEC_FORMAT_DEFAULT);
   bool optimization_specified = false;
