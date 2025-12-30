@@ -33,7 +33,6 @@
 #include "hybrid/parse/hybrid_optional_args.h"
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "util/arg_parser.h"
-#include "slot_ranges.h"
 
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
@@ -819,11 +818,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   prefixes = NULL;
 
   // Apply context to each request
-  if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status, Slots_Clone(parsedCmdCtx->localSlots)) != REDISMODULE_OK) {
+  if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
     AddValidationErrorContext(searchRequest, status);
     goto error;
   }
-  if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status, Slots_Clone(parsedCmdCtx->localSlots)) != REDISMODULE_OK) {
+  if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status) != REDISMODULE_OK) {
     AddValidationErrorContext(vectorRequest, status);
     goto error;
   }

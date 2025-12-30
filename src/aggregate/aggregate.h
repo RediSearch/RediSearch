@@ -348,7 +348,7 @@ void initializeAREQ(AREQ *req);
  *
  * Note that this function consumes a refcount even if it fails!
  */
-int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status, const SharedSlotRangeArray *localSlots);
+int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
 /**
  * Constructs the pipeline objects needed to actually start processing
