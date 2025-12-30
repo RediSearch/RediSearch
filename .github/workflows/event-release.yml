@@ -152,8 +152,14 @@ jobs:
           gh pr ready "$BRANCH" -R "$GITHUB_REPOSITORY"
           gh pr merge "$BRANCH" -R "$GITHUB_REPOSITORY" --auto
 
+  generate-matrix:
+    uses: ./.github/workflows/generate-matrix.yml
+    with:
+      platform: all,!intel
+      architecture: all
+
   set-artifacts:
-    needs: validate-tag
+    needs: [validate-tag, generate-matrix]
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - name: Configure AWS Credentials Using Role
@@ -176,6 +182,7 @@ jobs:
           SOURCE: ${{ inputs.snapshot_of || inputs.tag || needs.validate-tag.outputs.release_branch }}
           CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
           EXPECTED_SHA: ${{ needs.validate-tag.outputs.expected_sha }}
+          EXPECTED_MATRIX: ${{ needs.generate-matrix.outputs.matrix }}
         shell: python
         run: |
           import boto3
@@ -253,6 +260,22 @@ jobs:
 
           if not include_list:
               raise Exception(f"::error title=No artifacts found with expected SHA {expected_sha}!")
+
+          # Verify artifact count matches expected matrix
+          matrix = json.loads(os.environ["EXPECTED_MATRIX"])
+          expected_count = len(matrix.get("include", []))
+          # Each matrix entry produces 2 artifacts (OSS and Enterprise)
+          expected_artifact_count = expected_count * 2
+          actual_artifact_count = len(include_list)
+
+          if actual_artifact_count != expected_artifact_count:
+              print(
+                  f"::warning title=Artifact count mismatch::"
+                  f"Expected {expected_artifact_count} artifacts ({expected_count} builds × 2), "
+                  f"but found {actual_artifact_count} artifacts"
+              )
+          else:
+              print(f"✓ Verified: Found {actual_artifact_count} artifacts matching {expected_count} matrix builds")
 
           dest_files = [get_target_name(f) for f in include_list]
 
