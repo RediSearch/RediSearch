@@ -122,6 +122,21 @@ enum QueryWarningCode
 typedef uint8_t QueryWarningCode;
 #endif // __cplusplus
 
+/**
+ * A type with size `N`.
+ */
+typedef uint8_t Size_38[38];
+
+/**
+ * An opaque query error which can be passed by value to C.
+ *
+ * The size and alignment of this struct must match the Rust `QueryError`
+ * structure exactly.
+ */
+typedef struct ALIGNED(8) QueryError {
+  Size_38 _0;
+} QueryError;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -129,7 +144,7 @@ extern "C" {
 /**
  * Returns the default [`QueryError`].
  */
-QueryError QueryError_Default(void);
+struct QueryError QueryError_Default(void);
 
 /**
  * Returns true if `query_error` has no error code set.
