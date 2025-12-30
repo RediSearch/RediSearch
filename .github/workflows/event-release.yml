@@ -131,7 +131,7 @@ jobs:
   generate-matrix:
     uses: ./.github/workflows/generate-matrix.yml
     with:
-      platform: all,!intel
+      platform: all
       architecture: all
 
   set-artifacts:
