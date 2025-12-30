@@ -639,6 +639,8 @@ static bool parseSubqueriesCount(ArgsCursor *ac, QueryError *status) {
  * Expected format: FT.HYBRID <index> SEARCH <query> [SCORER <scorer>] VSIM <vector_args>
  *                  [COMBINE <method> [params]] [aggregation_options]
  *
+ * Can be called from the main thread or from a background thread. (Note: access RSGlobalConfig which is not thread safe)
+ *
  * @param ctx Redis module context
  * @param ac ArgsCursor for parsing command arguments - should start after the index name
  * @param sctx Search context for the index (takes ownership)
