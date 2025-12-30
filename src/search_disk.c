@@ -112,3 +112,19 @@ bool SearchDisk_IsEnabled() {
 bool SearchDisk_IsEnabledForValidation() {
   return isFlex || RSGlobalConfig.simulateInFlex;
 }
+
+// Vector API wrappers
+void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const struct VecSimHNSWDiskParams *params) {
+    RS_ASSERT(disk && index && params);
+    if (!disk->vector.createVectorIndex) {
+        return NULL;  // Vector disk API not implemented
+    }
+    return disk->vector.createVectorIndex(index, params);
+}
+
+void SearchDisk_FreeVectorIndex(void *vecIndex) {
+    RS_ASSERT(disk);
+    if (vecIndex && disk->vector.freeVectorIndex) {
+        disk->vector.freeVectorIndex(vecIndex);
+    }
+}

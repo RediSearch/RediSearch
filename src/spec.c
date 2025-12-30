@@ -1134,6 +1134,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   sp->flags |= Index_HasVecSim;
 
   memset(&fs->vectorOpts.vecSimParams, 0, sizeof(VecSimParams));
+  memset(&fs->vectorOpts.diskParams, 0, sizeof(VecSimHNSWDiskParams));
 
   // If the index is on JSON and the given path is dynamic, create a multi-value index.
   bool multi = false;
@@ -1185,6 +1186,23 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
     result = parseVectorField_hnsw(fs, params, ac, status);
+    // Build disk params if disk mode is enabled
+    if (result && sp->diskSpec) {
+      const HNSWParams *hnsw = &params->algoParams.hnswParams;
+      fs->vectorOpts.diskParams = (VecSimHNSWDiskParams){
+        .dim = hnsw->dim,
+        .type = hnsw->type,
+        .metric = hnsw->metric,
+        .M = hnsw->M,
+        .efConstruction = hnsw->efConstruction,
+        .efRuntime = hnsw->efRuntime,
+        .blockSize = hnsw->blockSize,
+        .multi = hnsw->multi,
+        .storage = sp->diskSpec,
+        .logCtx = logCtx,
+      };
+      fs->vectorOpts.diskParams.indexName = HiddenString_GetUnsafe(fs->fieldName, &fs->vectorOpts.diskParams.indexNameLen);
+    }
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
