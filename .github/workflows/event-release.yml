@@ -37,13 +37,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.checkout_target }}
+          fetch-depth: 0
       - name: Get SHA
         id: get_sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
       - name: Get version branch
         id: get_version_branch
         run: |
-          git fetch --all
           version_branch=$(git branch -a --contains tags/${{ env.input_tag }} | grep -oE 'remotes/origin/[0-9]+\.[0-9]+$' | sed 's|.*/||')
           count=$(echo "$version_branch" | wc -l)
           
@@ -240,8 +240,9 @@ jobs:
               raise Exception("::error title=No candidates found!")
 
           with ThreadPoolExecutor() as executor:
-              sha_list = list(executor.map(extract_sha, files))
-
+              sha_list = executor.map(extract_sha, files)
+          sha_list = list(sha_list)
+          group_print("SHA List", sha_list)
           # Include only files that match the expected SHA
           include_list = [f for f, sha in zip(files, sha_list) if sha == expected_sha]
 
