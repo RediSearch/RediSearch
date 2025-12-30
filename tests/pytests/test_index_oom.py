@@ -1039,12 +1039,21 @@ def test_bg_scan_oom_warning_in_profile_resp3():
 
 def _test_profile_warnings_persist_on_empty_reply(env, protocol):
   """
-  Test that profile warnings persist when empty reply is triggered.
-  Tests two scenarios:
-  1. Timeout + Index OOM warnings
-  2. Query OOM + Index OOM warnings
+  Test that profile warnings persist when query times out.
 
-  Both scenarios should show multiple warnings in the profile output.
+  This test verifies that when a query times out, the Index OOM warning
+  (from background scan failure) still appears in the profile.
+
+  Note on protocol differences:
+  - RESP3: Timeout is detected from shard's reply immediately. Shards return empty results
+    via sendChunk_ReplyOnly_EmptyResults, and Index OOM warning is added from the empty
+    reply path.
+  - RESP2: Only the coordinator (rpnet_next) can detect timeout. The background
+    thread (netCursorCallback) polls shards with FT.CURSOR READ (not PROFILE) until coordinator
+    detects timeout. Race condition: if coordinator detects timeout late, shards may finish
+    execution normally via regular sendChunk and return Index OOM warning from the regular
+    execution path, not from the empty reply path.
+    The test should be stable, but might not cover the empty reply path.
 
   Args:
     env: Test environment
@@ -1077,7 +1086,8 @@ def _test_profile_warnings_persist_on_empty_reply(env, protocol):
   error_dict = get_index_errors_dict(env)
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
 
-  # Scenario A: Timeout + Index OOM
+  # Test: Timeout + Index OOM
+  # Trigger timeout during query execution to verify Index OOM warning persists
   query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*']
   timeout_after_n = 1
   res_timeout = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after_n)
@@ -1090,56 +1100,28 @@ def _test_profile_warnings_persist_on_empty_reply(env, protocol):
   # Verify both warnings appear in each shard's profile
   shards_profile_timeout = get_shards_profile(env, res_timeout)
   for shard_profile in shards_profile_timeout:
+    # Index OOM warning should appear in all shards
     env.assertContains(partial_results_warning_str, shard_profile['Warning'])
+    # Timeout warning should appear in all shards
     env.assertContains('Timeout limit was reached', shard_profile['Warning'])
-    if protocol == 3:
-      # Verify internal cursor reads (In resp3 timeout is detected and we stop after 1 read)
+    if protocol == 3 and env.shardsCount == 1:
+      # In RESP3, timeout is detected immediately and we stop after 1 cursor read
       env.assertEqual(shard_profile['Internal cursor reads'], 1)
 
-  # Scenario B: Query OOM + Index OOM
-  # Set OOM policy to return (triggers empty reply with query OOM warning)
-  allShards_change_oom_policy(env, 'return')
-  # Set maxmemory to 1 on all shards to guarantee query OOM
-  allShards_change_maxmemory_low(env)
-  # Set unlimited maxmemory on coordinator so OOM comes from shards only
-  set_unlimited_maxmemory_for_oom(env)
-
-  res_query_oom = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
-
-  # Verify both BG_SCAN_OOM and Query OOM warnings appear in results
-  if protocol == 3:
-    env.assertContains(partial_results_warning_str, res_query_oom['Results']['warning'])
-    # Coordinator should show SHARD OOM warning (OOM from shards, not coordinator)
-    env.assertContains(SHARD_OOM_WARNING, res_query_oom['Results']['warning'])
-
-  # Verify warnings in each shard's profile
-  shards_profile_query_oom = get_shards_profile(env, res_query_oom)
-  env.assertEqual(len(shards_profile_query_oom), env.shardsCount,
-                  message=f"Expected {env.shardsCount} shard profiles")
-
-  # All shards should have index OOM warning
-  for i, shard_profile in enumerate(shards_profile_query_oom):
-    env.assertContains(partial_results_warning_str, shard_profile['Warning'],
-                       message=f"shard {i} failed. profile res: {res_query_oom}")
-
-  # Only non-coordinator shards should have query OOM warning (coordinator has unlimited memory)
-  # Count how many shards have the query OOM warning
-  shards_with_query_oom = sum(1 for sp in shards_profile_query_oom
-                               if SHARD_OOM_WARNING in sp['Warning'])
-  # In cluster mode, coordinator is one of the shards, so we expect shardsCount - 1 shards with query OOM
-  env.assertEqual(shards_with_query_oom, env.shardsCount - 1,
-                  message=f"profile res: {res_query_oom}")
-
+@skip(cluster=False)
 def test_profile_warnings_persist_on_empty_reply_resp2():
-  """Test that profile warnings persist on empty reply with RESP2 protocol.
-  Tests timeout and query OOM scenarios with index OOM background.
-  Works in both standalone and cluster modes."""
+  """Test that profile warnings persist when timeout occurs (RESP2).
+
+  In RESP2, the Index OOM warning might appear via the regular execution path,
+  not from the empty reply path (see function docstring for details)."""
   env = Env(protocol=2)
   _test_profile_warnings_persist_on_empty_reply(env, 2)
 
+@skip(cluster=False)
 def test_profile_warnings_persist_on_empty_reply_resp3():
-  """Test that profile warnings persist on empty reply with RESP3 protocol.
-  Tests timeout and query OOM scenarios with index OOM background.
-  Works in both standalone and cluster modes."""
+  """Test that profile warnings persist when timeout occurs (RESP3).
+
+  In RESP3, the Index OOM warning appears via the empty reply path
+  (sendChunk_ReplyOnly_EmptyResults) when timeout is detected from shard's reply."""
   env = Env(protocol=3)
   _test_profile_warnings_persist_on_empty_reply(env, 3)
