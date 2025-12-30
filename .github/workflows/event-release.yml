@@ -45,10 +45,18 @@ jobs:
         id: get_version_branch
         run: |
           version_branch=$(git branch -a --contains tags/${{ env.input_tag }} | grep -oE 'remotes/origin/[0-9]+\.[0-9]+$' | sed 's|.*/||')
+          if [ -z "$version_branch" ]; then
+            echo "Error: No version branch found"
+            exit 1
+          fi
+
           count=$(echo "$version_branch" | wc -l)
-          
-          [ "$count" -ne 1 ] && echo "Error: Expected 1 branch, found $count" && echo "$version_branch" && exit 1
-          
+          if [ "$count" -gt 1 ]; then
+            echo "Error: Multiple version branches found:"
+            echo "$version_branch"
+            exit 1
+          fi
+
           echo "version_branch=$version_branch" >> $GITHUB_OUTPUT
           echo "Found version branch: $version_branch"
       - name: Verify Tag and Version
@@ -144,8 +152,14 @@ jobs:
           gh pr ready "$BRANCH" -R "$GITHUB_REPOSITORY"
           gh pr merge "$BRANCH" -R "$GITHUB_REPOSITORY" --auto
 
+  generate-matrix:
+    uses: ./.github/workflows/generate-matrix.yml
+    with:
+      platform: all,!intel
+      architecture: all
+
   set-artifacts:
-    needs: validate-tag
+    needs: [validate-tag, generate-matrix]
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - name: Configure AWS Credentials Using Role
@@ -168,6 +182,7 @@ jobs:
           SOURCE: ${{ inputs.snapshot_of || inputs.tag || needs.validate-tag.outputs.release_branch }}
           CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
           EXPECTED_SHA: ${{ needs.validate-tag.outputs.expected_sha }}
+          EXPECTED_MATRIX: ${{ needs.generate-matrix.outputs.matrix }}
         shell: python
         run: |
           import boto3
@@ -215,13 +230,10 @@ jobs:
                       return sha[2:-1] if sha[:2] in ['b"', "b'"] else sha
 
           # new location is outside snapshots/ directory and with the new suffix
-          # Remove snapshots/ directory and replace the suffix pattern with the version suffix
+          # Remove snapshots/ directory and replace the suffix pattern with the new suffix
           # TODO: remove "staging-test" after verifying
           def get_target_name(name):
-              # Remove snapshots/ from path
               name_without_snapshots = name.replace("snapshots/", "staging-test/", 1)
-              # Remove the suffix pattern and add new suffix
-              # suffix_pattern matches .{SOURCE}.{TIMESTAMP}.{WORKFLOW_NUM}.zip at the end
               return suffix_pattern.sub(new_suffix, name_without_snapshots)
 
           def group_print(title, args):
@@ -242,12 +254,28 @@ jobs:
           with ThreadPoolExecutor() as executor:
               sha_list = executor.map(extract_sha, files)
           sha_list = list(sha_list)
-          group_print("SHA List", sha_list)
+          
           # Include only files that match the expected SHA
           include_list = [f for f, sha in zip(files, sha_list) if sha == expected_sha]
 
           if not include_list:
               raise Exception(f"::error title=No artifacts found with expected SHA {expected_sha}!")
+
+          # Verify artifact count matches expected matrix
+          matrix = json.loads(os.environ["EXPECTED_MATRIX"])
+          expected_count = len(matrix.get("include", []))
+          # Each matrix entry produces 4 artifacts (OSS and Enterprise, Release and Debug)
+          expected_artifact_count = expected_count * 4
+          actual_artifact_count = len(include_list)
+
+          if actual_artifact_count != expected_artifact_count:
+              print(
+                  f"::warning title=Artifact count mismatch::"
+                  f"Expected {expected_artifact_count} artifacts ({expected_count} builds × 2), "
+                  f"but found {actual_artifact_count} artifacts"
+              )
+          else:
+              print(f"✓ Verified: Found {actual_artifact_count} artifacts matching {expected_count} matrix builds")
 
           dest_files = [get_target_name(f) for f in include_list]
 
