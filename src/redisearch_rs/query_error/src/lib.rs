@@ -76,6 +76,7 @@ pub enum QueryErrorCode {
     FlexUnsupportedField,
     FlexUnsupportedFTCreateArgument,
     FlexUnsupportedFTSearchArgument,
+    FlexUnsupportedFTAggregateArgument,
 }
 
 impl Debug for QueryErrorCode {
@@ -162,7 +163,10 @@ impl QueryErrorCode {
             }
             Self::FlexUnsupportedFTSearchArgument => {
                 c"Unsupported FT.SEARCH argument for Flex index"
-            }
+            },
+            Self::FlexUnsupportedFTAggregateArgument => {
+                c"Unsupported FT.AGGREGATE argument for Flex index"
+            },
         }
     }
 }

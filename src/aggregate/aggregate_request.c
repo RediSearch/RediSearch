@@ -618,6 +618,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     {NULL}
   };
 
+  ACArgSpec AggregateInFlexArgs[] = {
+    {NULL}
+  };
+
   ACArgSpec *querySpecs = globalSearchArgs;
   // If is a Search request and Search on Disk
   if (isftSearchOnDisk) {
