@@ -68,7 +68,6 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
 
   // create new vector data structure
   VecSimIndex* temp = NULL;
-  RedisModule_Log(RSDummyContext, "warning", "[vector_index] openVectorIndex: diskSpec=%p", (void*)spec->diskSpec);
   if (spec->diskSpec) {
     // Disk path - create disk-based HNSW index
     // For HNSW, the algo is VecSimAlgo_TIERED and the actual params are in tieredParams.primaryIndexParams
@@ -91,8 +90,6 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
       return NULL;
     }
 
-    RedisModule_Log(RSDummyContext, "warning", "[vector_index] hnsw params: dim=%zu, type=%d, metric=%d, M=%zu",
-                    hnsw->dim, hnsw->type, hnsw->metric, hnsw->M);
     size_t nameLen;
     const char *name = HiddenString_GetUnsafe(spec->specName, &nameLen);
     VecSimHNSWDiskParams diskParams = {
@@ -109,9 +106,7 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
       .indexNameLen = nameLen,
       .logCtx = fieldSpec->vectorOpts.vecSimParams.logCtx,
     };
-    RedisModule_Log(RSDummyContext, "warning", "[vector_index] calling SearchDisk_CreateVectorIndex: dim=%zu", diskParams.dim);
     temp = SearchDisk_CreateVectorIndex(spec->diskSpec, &diskParams);
-    RedisModule_Log(RSDummyContext, "warning", "[vector_index] SearchDisk_CreateVectorIndex returned: %p", (void*)temp);
   } else {
     // RAM path - use standard VectorSimilarity
     temp = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
