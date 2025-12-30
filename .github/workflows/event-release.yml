@@ -237,8 +237,9 @@ jobs:
               raise Exception("::error title=No candidates found!")
 
           with ThreadPoolExecutor() as executor:
-              sha_list = list(executor.map(extract_sha, files))
-
+              sha_list = executor.map(extract_sha, files)
+          sha_list = list(sha_list)
+          
           # Include only files that match the expected SHA
           include_list = [f for f, sha in zip(files, sha_list) if sha == expected_sha]
 
