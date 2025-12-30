@@ -270,7 +270,7 @@ jobs:
           if actual_artifact_count != expected_artifact_count:
               print(
                   f"::warning title=Artifact count mismatch::"
-                  f"Expected {expected_artifact_count} artifacts ({expected_count} builds × 2), "
+                  f"Expected {expected_artifact_count} artifacts ({expected_count} builds X 2), "
                   f"but found {actual_artifact_count} artifacts"
               )
           else:
