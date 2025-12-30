@@ -732,7 +732,8 @@ static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
 // Includes OOM warning when QueryError has OOM status.
 // Currently used during OOM conditions to return empty results instead of failing.
 // Based on sendChunk_Resp2/3 patterns.
- void sendChunk_ReplyOnly_EmptyResults(RedisModule_Reply *reply, AREQ *req) {
+ void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req) {
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   if (reply->resp3) {
 
@@ -825,6 +826,7 @@ static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
       RedisModule_Reply_ArrayEnd(reply);
     }
   }
+  RedisModule_EndReply(reply);
 }
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
@@ -1311,7 +1313,7 @@ static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader,
   return qctx;
 }
 
-static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, bool bg) {
+static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool bg) {
 
   QueryError status = QueryError_Default();
 
@@ -1329,7 +1331,7 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
       Cursor_Free(cursor); // Free the cursor since it is no longer valid
-      RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
+      RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
       return;
     }
 
@@ -1354,7 +1356,9 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
   }
 
   if (req) {
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     runCursor(reply, cursor, count);
+    RedisModule_EndReply(reply);
   } else {
     // TODO: run hybrid cursor - this needs to be implemented for the coordinator
   }
@@ -1371,9 +1375,7 @@ typedef struct {
 
 static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  cursorRead(reply, cr_ctx->cursor, cr_ctx->count, true);
-  RedisModule_EndReply(reply);
+  cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
   void *privdata = RedisModule_BlockClientGetPrivateData(cr_ctx->bc);
@@ -1440,7 +1442,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       cr_ctx->count = count;
       workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
     } else {
-      cursorRead(reply, cursor, count, false);
+      cursorRead(ctx, cursor, count, false);
     }
   } else if (strcasecmp(cmd, "PROFILE") == 0) {
     // Return profile

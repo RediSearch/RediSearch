@@ -446,7 +446,7 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 int prepareExecutionPlan(AREQ *req, QueryError *status);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
-void sendChunk_ReplyOnly_EmptyResults(RedisModule_Reply *reply, AREQ *req);
+void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
 void AREQ_Free(AREQ *req);
 
 /**
