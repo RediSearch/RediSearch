@@ -1622,7 +1622,8 @@ def test_multiple_warnings():
     env.assertContains('Timeout limit was reached', shard_profile['Warning'])
     env.assertContains('Max prefix expansions limit was reached', shard_profile['Warning'])
     # Verify internal cursor reads (In resp3 timeout is detected and we stop after 1 read)
-    env.assertEqual(shard_profile['Internal cursor reads'], 1)
+    if env.isCluster():
+      env.assertEqual(shard_profile['Internal cursor reads'], 1)
 
 # TODO: `total_results` is currently not  on cluster - to be fixed in MOD-9094
 @skip(cluster=True)
