@@ -11,6 +11,7 @@ members = [
     "inverted_index_bencher",
     "low_memory_thin_vec",
     "qint",
+    "index_error",
     "query_error",
     "redis_mock",
     "result_processor",
@@ -74,6 +75,7 @@ fnv = { path = "./fnv" }
 inverted_index = { path = "./inverted_index" }
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 qint = { path = "./qint" }
+index_error = { path = "./index_error" }
 query_error = { path = "./query_error" }
 redis_mock = { path = "./redis_mock" }
 result_processor = { path = "./result_processor" }
