@@ -45,10 +45,18 @@ jobs:
         id: get_version_branch
         run: |
           version_branch=$(git branch -a --contains tags/${{ env.input_tag }} | grep -oE 'remotes/origin/[0-9]+\.[0-9]+$' | sed 's|.*/||')
+          if [ -z "$version_branch" ]; then
+            echo "Error: No version branch found"
+            exit 1
+          fi
+
           count=$(echo "$version_branch" | wc -l)
-          
-          [ "$count" -ne 1 ] && echo "Error: Expected 1 branch, found $count" && echo "$version_branch" && exit 1
-          
+          if [ "$count" -gt 1 ]; then
+            echo "Error: Multiple version branches found:"
+            echo "$version_branch"
+            exit 1
+          fi
+
           echo "version_branch=$version_branch" >> $GITHUB_OUTPUT
           echo "Found version branch: $version_branch"
       - name: Verify Tag and Version
