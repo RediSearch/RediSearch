@@ -1554,7 +1554,7 @@ bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
 }
 
 void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status, ACArgSpec *non_flex_argopts) {
-  if (SearchDisk_IsEnabledForValidation(spec)) {
+  if (SearchDisk_IsEnabledForValidation()) {
     bool isKnownArg = false;
     for (int i = 0; non_flex_argopts[i].name; i++) {
       if (strcasecmp(badarg, non_flex_argopts[i].name) == 0) {
