@@ -30,8 +30,8 @@ typedef struct BasicDiskAPI {
   void (*close)(RedisSearchDisk *disk);
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type);
   void (*closeIndexSpec)(RedisSearchDiskIndexSpec *index);
-  int (*IndexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
-  int (*IndexSpecRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+  void (*IndexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+  u_int32_t (*IndexSpecRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
