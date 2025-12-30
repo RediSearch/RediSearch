@@ -127,6 +127,13 @@ def test_unsupported_flex_arguments(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'ASYNC', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unsupported argument for Flex index: `ASYNC`')
 
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'MAXTEXTFIELDS', 'SCHEMA', 'field', 'TEXT') \
+        .error().contains('Unsupported argument for Flex index: `MAXTEXTFIELDS`')
+
+    # Test unsupported arguments that are invalid in RAM, should give same error
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'RANDOM_NAME', 'payload', 'SCHEMA', 'field', 'TEXT') \
+        .error().contains('Unknown argument `RANDOM_NAME`')
+
 @skip(cluster=True)
 def test_invalid_on_json(env):
     """Test that ON JSON fails when search-_simulate-in-flex is true"""
@@ -135,3 +142,29 @@ def test_invalid_on_json(env):
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Only HASH is supported as index data type for Flex indexes')
+
+@skip(cluster=True)
+def test_default_on_hash(env):
+    """Test that ON HASH fails when search-_simulate-in-flex is false"""
+    # Set the simulate-in-flex configuration to false
+    env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'no').ok()
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'field', 'TEXT').ok()
+
+    info_result = env.cmd('FT.INFO', 'idx')
+
+    # Find the index_definition section
+    index_definition = None
+    for i in range(0, len(info_result), 2):
+        if info_result[i] == 'index_definition':
+            index_definition = info_result[i + 1]
+            break
+
+    # Extract key_type from index_definition
+    key_type = None
+    for i in range(0, len(index_definition), 2):
+        if index_definition[i] == 'key_type':
+            key_type = index_definition[i + 1]
+            break
+
+    env.assertEqual(key_type, 'HASH')
