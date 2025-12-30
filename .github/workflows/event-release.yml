@@ -110,7 +110,7 @@ jobs:
             --body     "This PR was automatically created by the release workflow of $RELEASE_TAG." \
             --head     "${{ env.BRANCH }}" \
             --base     "${{ env.checkout_target }}" \
-            --reviewer "${{ vars.TEAM_LEADERS }},${{ vars.ISSUES_SHIFT_ASSIGNEE }},$GITHUB_ACTOR"" \
+            --reviewer "${{ vars.TEAM_LEADERS }},${{ vars.ISSUES_SHIFT_ASSIGNEE }},$GITHUB_ACTOR" \
             --draft
 
       - name: Trigger CI
