@@ -127,6 +127,13 @@ def test_unsupported_flex_arguments(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'ASYNC', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unsupported argument for Flex index: `ASYNC`')
 
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'MAXTEXTFIELDS', 'SCHEMA', 'field', 'TEXT') \
+        .error().contains('Unsupported argument for Flex index: `MAXTEXTFIELDS`')
+
+    # Test unsupported arguments that are invalid in RAM, should give same error
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'RANDOM_NAME', 'payload', 'SCHEMA', 'field', 'TEXT') \
+        .error().contains('Unknown argument `RANDOM_NAME`')
+
 @skip(cluster=True)
 def test_invalid_on_json(env):
     """Test that ON JSON fails when search-_simulate-in-flex is true"""
