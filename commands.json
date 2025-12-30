@@ -1940,8 +1940,8 @@
     "since": "2.2.0",
     "group": "search"
   },
-  "FT.CURSOR READ": {
-    "summary": "Reads from a cursor",
+  "FT.CURSOR": {
+    "summary": "Reads from or delete a cursor",
     "complexity": "O(1)",
     "arguments": [
       {
@@ -1952,33 +1952,7 @@
       {
         "name": "cursor_id",
         "type": "integer"
-      },
-      {
-        "name": "read size",
-        "type": "integer",
-        "optional": true,
-        "token": "COUNT"
-      }
-    ],
-    "command_tips": [
-      "REQUEST_POLICY:SPECIAL"
-    ],
-    "since": "1.1.0",
-    "group": "search"
-  },
-  "FT.CURSOR DEL": {
-    "summary": "Deletes a cursor",
-    "complexity": "O(1)",
-    "arguments": [
-      {
-        "name": "index",
-        "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
-      },
-      {
-        "name": "cursor_id",
-        "type": "integer"
-      }
+      }      
     ],
     "command_tips": [
       "REQUEST_POLICY:SPECIAL"

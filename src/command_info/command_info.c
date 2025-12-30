@@ -2178,42 +2178,11 @@ int SetFtProfileInfo(RedisModuleCommand *cmd) {
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
-// Info for FT.CURSOR READ
-int SetFtCursorReadInfo(RedisModuleCommand *cmd) {
+// Info for FT.CURSOR
+int SetFtCursorInfo(RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
-    .summary = "Reads from a cursor",
-    .complexity = "O(1)",
-    .args = (RedisModuleCommandArg[]){
-      {
-        .name = "index",
-        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
-        .type = REDISMODULE_ARG_TYPE_STRING,
-      },
-      {
-        .name = "cursor_id",
-        .type = REDISMODULE_ARG_TYPE_INTEGER,
-      },
-      {
-        .name = "read size",
-        .token = "COUNT",
-        .type = REDISMODULE_ARG_TYPE_INTEGER,
-        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
-      },
-      {0}
-    },
-    .arity = -3,
-    .tips = "request_policy:special",
-    .since = "1.1.0",
-  };
-  return RedisModule_SetCommandInfo(cmd, &info);
-}
-
-// Info for FT.CURSOR DEL
-int SetFtCursorDelInfo(RedisModuleCommand *cmd) {
-  const RedisModuleCommandInfo info = {
-    .version = REDISMODULE_COMMAND_INFO_VERSION,
-    .summary = "Deletes a cursor",
+    .summary = "Reads from or delete a cursor",
     .complexity = "O(1)",
     .args = (RedisModuleCommandArg[]){
       {
