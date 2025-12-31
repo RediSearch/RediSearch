@@ -1189,6 +1189,8 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     // Build disk params if disk mode is enabled
     if (result && sp->diskSpec) {
       const HNSWParams *hnsw = &params->algoParams.hnswParams;
+      size_t nameLen;
+      const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
       fs->vectorOpts.diskParams = (VecSimHNSWDiskParams){
         .dim = hnsw->dim,
         .type = hnsw->type,
@@ -1200,8 +1202,9 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
         .multi = hnsw->multi,
         .storage = sp->diskSpec,
         .logCtx = logCtx,
+        .indexName = rm_strndup(namePtr, nameLen),
+        .indexNameLen = nameLen,
       };
-      fs->vectorOpts.diskParams.indexName = HiddenString_GetUnsafe(fs->fieldName, &fs->vectorOpts.diskParams.indexNameLen);
     }
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;

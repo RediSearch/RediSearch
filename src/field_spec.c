@@ -39,6 +39,10 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
       }
       fs->vectorOpts.vecSimIndex = NULL;
     }
+    if (fs->vectorOpts.diskParams.indexName) {
+      rm_free((void *)fs->vectorOpts.diskParams.indexName);
+      fs->vectorOpts.diskParams.indexName = NULL;
+    }
   }
   if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
     if (fs->geometryOpts.geometryIndex) {
