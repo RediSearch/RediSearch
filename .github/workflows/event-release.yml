@@ -45,6 +45,7 @@ jobs:
             echo "version_branch=${{ github.event.release.target_commitish }}" >> $GITHUB_OUTPUT
             exit 0
           fi
+          
           version_branch=$(git branch -a --contains ${{ steps.get_sha.outputs.sha }} | grep -oE 'remotes/origin/[0-9]+\.[0-9]+$' | sed 's|.*/||')
           if [ -z "$version_branch" ]; then
             echo "Error: No version branch found"
