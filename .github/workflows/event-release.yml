@@ -62,6 +62,10 @@ jobs:
 
           echo "version_branch=$version_branch" >> $GITHUB_OUTPUT
           echo "Found version branch: $version_branch"
+      - name: Checkout version branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.get_version_branch.outputs.version_branch }}
       - name: Verify Tag and Version
         id: verify
         env:
@@ -104,7 +108,7 @@ jobs:
       CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
       NEXT_VERSION: ${{ needs.validate-tag.outputs.next_version }}
       RELEASE_BRANCH: ${{ needs.validate-tag.outputs.version_branch }}
-      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
       GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
@@ -264,7 +268,7 @@ jobs:
           # Verify artifact count matches expected matrix
           matrix = json.loads(os.environ["EXPECTED_MATRIX"])
           expected_count = len(matrix.get("include", []))
-          # Each matrix entry produces 8 artifacts (release, debug X redisearch, redisearch-light, redisearch-oss, redisearch-oss-cluster)
+          # Each matrix entry produces 8 artifacts ((release, debug) X (redisearch, redisearch-light, redisearch-oss, redisearch-oss-cluster))
           expected_artifact_count = expected_count * 8
           actual_artifact_count = len(include_list)
 
