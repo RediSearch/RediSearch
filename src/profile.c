@@ -54,13 +54,11 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
       decodeGeo(it->profileCtx.numeric.rangeMax, nw);
       RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
     }
-  } else {
-    if (root && root->current) {
-      RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
-      if (term != NULL) {
-        printProfileType("TEXT");
-        REPLY_KVSTR_SAFE("Term", term->str);
-      }
+  } else if (root && root->current) {
+    RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
+    if (term != NULL) {
+      printProfileType("TEXT");
+      REPLY_KVSTR_SAFE("Term", term->str);
     }
   }
 
@@ -146,7 +144,6 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   bool bgScanOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
   bool queryOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
   bool asmTrimmingDelayTimeout = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
-
   req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
