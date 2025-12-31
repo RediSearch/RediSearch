@@ -9,6 +9,7 @@
 #include "profile.h"
 #include "reply_macros.h"
 #include "util/units.h"
+#include "aggregate/aggregate.h"
 
 void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime, PrintProfileConfig *config) {
   IndexReader *ir = root->ctx;

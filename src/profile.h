@@ -10,6 +10,8 @@
 
 #include "value.h"
 #include "util/timeout.h"
+#include "index_iterator.h"
+#include "index.h"
 
 #define printProfileType(vtype) RedisModule_ReplyKV_SimpleString(reply, "Type", (vtype))
 #define printProfileTime(vtime) RedisModule_ReplyKV_Double(reply, "Time", (vtime))

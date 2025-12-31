@@ -537,7 +537,7 @@ done_2:
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
     }
 
-    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+    RedisSearchCtx *sctx = req->sctx;
     if (sctx->spec && sctx->spec->scan_failed_OOM) {
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
     }
@@ -785,7 +785,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_Reply_ArrayEnd(reply);
 
     // Add BG_SCAN_OOM warning to profile context if applicable
-    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+    RedisSearchCtx *sctx = req->sctx;
     if (sctx && sctx->spec && sctx->spec->scan_failed_OOM) {
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
     }
@@ -821,7 +821,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_Reply_ArrayEnd(reply);
 
     // Add BG_SCAN_OOM warning to profile context if applicable
-    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+    RedisSearchCtx *sctx = req->sctx;
     if (sctx && sctx->spec && sctx->spec->scan_failed_OOM) {
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
     }
