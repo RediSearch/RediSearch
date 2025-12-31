@@ -772,7 +772,28 @@ def info_modules_to_dict(conn):
           info[section_name][data[0]] = data[1]
     return info
 
-def _test_ft_cursors_trimmed(env: Env, protocol: int, is_profile: bool = False):
+def _test_ft_cursors_trimmed_profile_warning(env: Env):
+    for shard in env.getOSSMasterNodesConnectionList():
+        shard.execute_command('CONFIG', 'SET', 'search-_max-trim-delay-ms', 2500)
+
+    n_docs = 2**14
+    create_and_populate_index(env, 'idx', n_docs)
+
+    shard1, shard2 = env.getConnection(1), env.getConnection(2)
+    query = ('_FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR', '_SLOTS_INFO', generate_slots(range(int(2**14/env.shardsCount) + 1, 2 * int(2**14/env.shardsCount) + 2)))
+    shard2.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    _, cursor_id = shard2.execute_command(*query)
+    wait_for_migration_complete(env, shard1, shard2)
+    time.sleep(5)
+    num_warnings = 0
+    while cursor_id != 0:
+        res, cursor_id = shard2.execute_command('_FT.CURSOR', 'PROFILE', 'idx', cursor_id, 'COUNT', 1)
+        if 'Warning' in res['Profile']['Shards'][0] and len(res['Profile']['Shards'][0]['Warning']) > 0:
+            env.assertContains('Results may be incomplete due to Atomic Slot Migration', res['Profile']['Shards'][0]['Warning'][0])
+            num_warnings += 1
+    env.assertGreaterEqual(num_warnings, 1)
+
+def _test_ft_cursors_trimmed(env: Env, protocol: int):
     for shard in env.getOSSMasterNodesConnectionList():
         shard.execute_command('CONFIG', 'SET', 'search-_max-trim-delay-ms', 2500)
     n_docs = 2**14
@@ -780,31 +801,16 @@ def _test_ft_cursors_trimmed(env: Env, protocol: int, is_profile: bool = False):
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
 
-    if is_profile:
-        query = ('_FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR', '_SLOTS_INFO', generate_slots(range(0, int(2**14/env.shardsCount))))
-    else:
-        query = ('FT.AGGREGATE', 'idx', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR')
+    query = ('FT.AGGREGATE', 'idx', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR')
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
     expected = get_expected(env, query, 'FT.AGGREGATE.WITHCURSOR', protocol)
-    print(expected)
-    if is_profile:
-        _, cursor_id = env.cmd(*query)
-    else:
-        _, cursor_id = env.cmd(*query)
+    _, cursor_id = env.cmd(*query)
     wait_for_migration_complete(env, shard1, shard2)
     time.sleep(5)
     total_results = []
     num_warnings = 0
     while cursor_id != 0:
-        if is_profile:
-          res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
-          #res, cursor_id = env.cmd('_FT.CURSOR', 'PROFILE', 'idx', cursor_id, 'COUNT', 10)
-          print(res)
-          print(cursor_id)
-        else:
-          res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
-          print(res)
-          print(cursor_id)
+        res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
         if protocol == 2:
           total_results.extend(res)
         else:
@@ -881,7 +887,7 @@ def test_ft_cursors_trimmed_protocol_3():
 def test_ft_cursors_trimmed_protocol_3_profile():
     protocol = 3
     env = Env(clusterNodeTimeout=cluster_node_timeout, protocol=protocol)
-    _test_ft_cursors_trimmed(env, protocol, True)
+    _test_ft_cursors_trimmed_profile_warning(env)
 
 @skip(cluster=False, min_shards=2)
 def test_ft_cursors_trimmed_BG_protocol_2():
@@ -899,7 +905,7 @@ def test_ft_cursors_trimmed_BG_protocol_3():
 def test_ft_cursors_trimmed_BG_protocol_3_profile():
     protocol = 3
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2', protocol=protocol)
-    _test_ft_cursors_trimmed(env, protocol, True)
+    _test_ft_cursors_trimmed_profile_warning(env)
 
 @skip(cluster=False, min_shards=2)
 def test_migrate_no_indexes():
