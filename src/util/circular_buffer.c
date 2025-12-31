@@ -210,6 +210,67 @@ void *CircularBuffer_Read(CircularBuffer cb, void *item) {
   return read;
 }
 
+// Read all items from the buffer (item_count), ignoring the current read pointer position.
+// This function is not thread-safe.
+// assuming the buffer looks like this:
+// [., ., ., A, B, C, ., ., .]
+//                    ^
+//                    W
+// item_count = 3
+// CircularBuffer_ReadAll will read A, B, C
+/**
+ * @param dst Destination buffer. Must be large enough to hold all items in the buffer.
+ * @param advance If true, advance the read pointer to the write pointer.
+ */
+size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance){
+  RedisModule_Assert(cb != NULL);
+  RedisModule_Assert(dst != NULL);
+
+  if (unlikely(CircularBuffer_Empty(cb))) {
+    return 0;
+  }
+
+  // Calculate the starting position for reading
+  uint64_t item_count = (int64_t)atomic_load(&cb->item_count);
+  uint64_t write = (int64_t)atomic_load(&cb->write);
+  uint64_t write_idx = write / cb->item_size;
+  uint64_t read_idx;
+  if (write_idx >= item_count) {
+    // The items are sequential behind the write_index, so we want to find the first item we can read
+    read_idx = write_idx - item_count;
+  } else { // Adjusts read_idx to handle negative values by wrapping around the circular buffer.
+    // invariant: item_cap >= item_count > write_idx
+    read_idx = cb->item_cap - (item_count - write_idx);
+  }
+
+  size_t first_chunk = (read_idx + item_count <= cb->item_cap) ? item_count : (cb->item_cap - read_idx);
+  size_t second_chunk = item_count - first_chunk;
+  first_chunk *= cb->item_size;
+  second_chunk *= cb->item_size;
+  // For example: [e,f,g,.,.,.,a,b,c,d] -> first_chunk = [a,b,c,d] , second_chunk = [e,f,g]
+  //                     ^
+  //                     W
+  // item_count = 7
+
+  // Copy the buffer content to the destination
+  void* read = cb->data + read_idx * cb->item_size;
+  // Buffer = [.,.,.,.,.,.,.]
+  memcpy(dst, read, first_chunk);
+  // Buffer = [a,b,c,d,.,.,.]
+  if (second_chunk > 0) {
+    memcpy(dst + first_chunk, cb->data, second_chunk);
+    // Buffer = [a,b,c,d,e,f,g]
+  }
+
+
+  if (advance) {
+    // Move read pointer to the current write position and update buffer item count
+    cb->item_count = 0;
+    cb->read = cb->data + cb->write;
+  }
+  return item_count;
+}
+
 // Sets the read pointer to the beginning of the buffer. Not thread-safe.
 // assuming the buffer looks like this:
 //
