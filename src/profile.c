@@ -135,13 +135,13 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
 }
 
 void Profile_Print(RedisModule_Reply *reply, void *ctx) {
-  ProfilePrinterCtx *profileCtx = ctx;
-  AREQ *req = profileCtx->req;
-  bool timedout = profileCtx->timedout;
-  bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
-  bool bgScanOOM = profileCtx->bgScanOOM;
-  bool queryOOM = profileCtx->queryOOM;
-  bool asmTrimmingDelayTimeout = req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
+  AREQ *req = ctx;
+  ProfilePrinterCtx *profileCtx = AREQ_ProfilePrinterCtx(req);
+  bool timedout = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
+  bool reachedMaxPrefixExpansions = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
+  bool bgScanOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
+  bool queryOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
+  bool asmTrimmingDelayTimeout = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
@@ -210,7 +210,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   if (IsCursor(req)) {
     // Only internal requests can use profile with cursor.
     RS_ASSERT(IsInternal(req));
-    RedisModule_ReplyKV_LongLong(reply, "Internal cursor reads", req->cursor_reads);
+    RedisModule_ReplyKV_LongLong(reply, "Internal cursor reads", profileCtx->cursor_reads);
   }
 
   // Print profile of iterators

@@ -473,37 +473,35 @@ done_2:
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
-    req->has_timedout |= has_timedout;
     if (has_timedout) {
       // Track warnings in global statistics
       // Assuming that if we reached here, timeout is not an error.
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_TIMEOUT);
     }
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, !IsInternal(req));
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
     }
     if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
     }
     if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
     }
 
-    // Prepare profile printer context
     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-    ProfilePrinterCtx profileCtx = {
-      .req = req,
-      .timedout = req->has_timedout,
-      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
-      .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
-      .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
-    };
+    if (sctx->spec && sctx->spec->scan_failed_OOM) {
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
+    }
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
       if (cursor_done) {
         RedisModule_Reply_LongLong(reply, 0);
         if (IsProfile(req)) {
-          req->profile(reply, &profileCtx);
+          req->profile(reply, req);
         }
       } else {
         RedisModule_Reply_LongLong(reply, req->cursor_id);
@@ -514,7 +512,7 @@ done_2:
       }
       RedisModule_Reply_ArrayEnd(reply);
     } else if (IsProfile(req)) {
-      req->profile(reply, &profileCtx);
+      req->profile(reply, req);
       RedisModule_Reply_ArrayEnd(reply);
     }
 
@@ -528,20 +526,25 @@ done_2_err:
 
 static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  RedisSearchCtx *sctx = AREQ_SearchCtx(req);  RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+  ProfilePrinterCtx *profileCtx = &req->profileCtx;
+  RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
   // qctx->bgScanOOM for coordinator, sctx->spec->scan_failed_OOM for shards
   if ((qctx->bgScanOOM)||(sctx->spec && sctx->spec->scan_failed_OOM)) {
     RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
+    ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
   }
   if (QueryError_HasQueryOOMWarning(qctx->err)) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, !IsInternal(req));
     // We use the cluster warning since shard level warning sent via empty reply bailout
     RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
+    ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
   }
   if (rc == RS_RESULT_TIMEDOUT) {
     // Track warnings in global statistics
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
   } else if (rc == RS_RESULT_ERROR) {
     // Non-fatal error
     RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
@@ -549,10 +552,12 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
+    ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
   }
   if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
+    ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   }
   RedisModule_Reply_ArrayEnd(reply); // >warnings
 }
@@ -652,20 +657,14 @@ done_3:
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
-    req->has_timedout |= has_timedout;
 
     if (IsProfile(req)) {
+      if (has_timedout) {
+        ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_TIMEOUT);
+      }
       RedisModule_Reply_MapEnd(reply); // >Results
       if (!(AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) || cursor_done) {
-        // Prepare profile printer context
-        ProfilePrinterCtx profileCtx = {
-          .req = req,
-          .timedout = req->has_timedout,
-          .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
-          .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
-          .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
-        };
-        req->profile(reply, &profileCtx);
+        req->profile(reply, req);
       }
     }
 
@@ -718,22 +717,6 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   }
 }
 
-static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
-  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-
-  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-
-  ProfilePrinterCtx profileCtx = {
-      .req = req,
-      .timedout = req->has_timedout,
-      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
-      .bgScanOOM = sctx && sctx->spec && sctx->spec->scan_failed_OOM,
-      .queryOOM = QueryError_HasQueryOOMWarning(qctx->err)
-  };
-
-  return profileCtx;
-}
-
 // Simple version of sendChunk that returns empty results for aggregate queries.
 // Handles both RESP2 and RESP3 protocols with cursor support.
 // Includes OOM warning when QueryError has OOM status.
@@ -780,13 +763,19 @@ static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
       // SA and Coordinator should use COORD warning
       const char *warning = !IsInternal(req) ? QUERY_WOOM_COORD : QUERY_WOOM_SHARD;
       RedisModule_Reply_SimpleString(reply, warning);
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
     }
     RedisModule_Reply_ArrayEnd(reply);
 
+    // Add BG_SCAN_OOM warning to profile context if applicable
+    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+    if (sctx && sctx->spec && sctx->spec->scan_failed_OOM) {
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
+    }
+
     if (IsProfile(req)) {
       RedisModule_Reply_MapEnd(reply);  // >Results
-      ProfilePrinterCtx profileCtx = createProfilePrinterCtx(req);
-      req->profile(reply, &profileCtx);
+      req->profile(reply, req);
     }
 
     RedisModule_Reply_MapEnd(reply);
@@ -814,22 +803,27 @@ static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
 
     RedisModule_Reply_ArrayEnd(reply);
 
-    ProfilePrinterCtx profileCtx = createProfilePrinterCtx(req);
-
     if (QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, !IsInternal(req));
+      ProfileWarnings_Add(&AREQ_ProfilePrinterCtx(req)->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
+    }
+
+    // Add BG_SCAN_OOM warning to profile context if applicable
+    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+    if (sctx && sctx->spec && sctx->spec->scan_failed_OOM) {
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
     }
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
       // Cursor done
       RedisModule_Reply_LongLong(reply, 0);
       if (IsProfile(req)) {
-        req->profile(reply, &profileCtx);
+        req->profile(reply, req);
       }
       // Cursor end array
       RedisModule_Reply_ArrayEnd(reply);
     } else if (IsProfile(req)) {
-      req->profile(reply, &profileCtx);
+      req->profile(reply, req);
       RedisModule_Reply_ArrayEnd(reply);
     }
   }
@@ -1276,8 +1270,7 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
 // Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
-  req->cursor_reads++;
-
+  AREQ_ProfilePrinterCtx(req)->cursor_reads++;
   // update timeout for current cursor read
   SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
 
