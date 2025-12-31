@@ -196,6 +196,12 @@ int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t);
  */
 PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln);
 
+
+/**
+ * Create a new arrange step, does not add it to the plan.
+ */
+PLN_ArrangeStep *NewArrangeStep();
+
 /**
  * Add an arrange step that corresponds a KNN clause in the query, where the field to sort by it is
  * the distFieldName, and k is the limit. We add this step to the head of the steps linked list,
@@ -252,8 +258,6 @@ typedef enum {
  *  are ignored (NYI).
  */
 RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode);
-
-void AGPLN_Dump(const AGGPlan *pln);
 
 /**
  * Determines if the plan is a 'reduce' type. A 'reduce' plan is one which

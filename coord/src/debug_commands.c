@@ -9,6 +9,7 @@
 #include "debug_commands.h"
 #include "debug_command_names.h"
 #include "coord/src/rmr/redis_cluster.h"
+#include "coord/src/coord_module.h"
 #include <assert.h>
 
 DEBUG_COMMAND(shardConnectionStates) {
@@ -41,11 +42,73 @@ DEBUG_COMMAND(clearTopology) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
+  // at least one debug_param should be provided
+  // (1)_FT.DEBUG (2)FT.AGGREGATE (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  DistAggregateCommandImp(ctx, ++argv, --argc, true);
+}
+
+DEBUG_COMMAND(DistSearchCommand_DebugWrapper) {
+  // at least one debug_param should be provided
+  // (1)_FT.DEBUG (2)FT.SEARCH (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  DistSearchCommandImp(ctx, ++argv, --argc, true);
+}
+
+DEBUG_COMMAND(ProfileCommandCommand_DebugWrapper) {
+
+  // at least one debug_param should be provided
+  // (1)_FT.DEBUG (2) FT.PROFILE (3) <index> (4) SEARCH | AGGREGATE [LIMITED] (6) QUERY <query> [query_options] (5) debug_params (6)DEBUG_PARAMS_COUNT (7) <debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return ProfileCommandHandlerImp(ctx, ++argv, --argc, true);
+}
+
+/**
+ * FT.DEBUG COORD_THREADS [PAUSE / RESUME / IS_PAUSED ]
+ *
+ */
+DEBUG_COMMAND(CoordThreadsSwitch) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcasecmp(op, "pause")) {
+    if (ConcurrentSearch_pause() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: coordinator thread pool doesn't exists"
+                                      " or is not running");
+    }
+  } else if (!strcasecmp(op, "resume")) {
+    if (ConcurrentSearch_resume() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: coordinator thread pool doesn't exists"
+                                        " or is already running");
+    }
+  } else if (!strcasecmp(op, "is_paused")) {
+    return RedisModule_ReplyWithLongLong(ctx, ConcurrentSearch_isPaused());
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'COORD_THREADS' subcommand");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 DebugCommandType coordCommands[] = {
   {"SHARD_CONNECTION_STATES", shardConnectionStates},
   {"PAUSE_TOPOLOGY_UPDATER", pauseTopologyUpdater},
   {"RESUME_TOPOLOGY_UPDATER", resumeTopologyUpdater},
   {"CLEAR_PENDING_TOPOLOGY", clearTopology},
+  {"FT.AGGREGATE", DistAggregateCommand_DebugWrapper},
+  {"FT.SEARCH", DistSearchCommand_DebugWrapper},
+  {"FT.PROFILE", ProfileCommandCommand_DebugWrapper},
+  {"COORD_THREADS", CoordThreadsSwitch},
   {NULL, NULL}
 };
 // Make sure the two arrays are of the same size (don't forget to update `debug_command_names.h`)

@@ -93,7 +93,15 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
   if (sep == TAG_FIELD_DEFAULT_JSON_SEP) {
     char *tok = rm_strdup(str);
     if (!(flags & TagField_CaseSensitive)) { // check case sensitive
-      tok = strtolower(tok);
+      size_t len = strlen(tok);
+      char *dst = unicode_tolower(tok, &len);
+      if (dst) {
+        rm_free(tok);
+        tok = dst;
+      } else {
+        // No memory allocation, just ensure null termination
+        tok[len] = '\0';
+      }
     }
     array_append(*resArray, tok);
     return REDISMODULE_OK;
@@ -110,11 +118,18 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
     tok = TagIndex_SepString(sep, &p, &toklen, indexEmpty);
 
     if (tok) {
-      // lowercase the string (TODO: non latin lowercase)
+      // normalize the string
       if (!(flags & TagField_CaseSensitive)) { // check case sensitive
-        tok = strtolower(tok);
+        char *longer_dst = unicode_tolower(tok, &toklen);
+        if (longer_dst) {
+          tok = longer_dst;
+        } else {
+          tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
+        }
+      } else {
+        tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
       }
-      tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
+
       array_append(*resArray, tok);
     } else {
       break;
@@ -158,18 +173,19 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
   case FLD_VAR_T_NUM:
   case FLD_VAR_T_BLOB_ARRAY:
   case FLD_VAR_T_GEOMETRY:
-    RS_LOG_ASSERT(0, "nope")
+    RS_ABORT("nope")
+    break;
   }
   fdata->tags = arr;
   return ret;
 }
 
 struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
-                                          size_t len, int create, size_t *sz) {
+                                          size_t len, int create_if_missing, size_t *sz) {
   *sz = 0;
   InvertedIndex *iv = TrieMap_Find(idx->values, value, len);
   if (iv == TRIEMAP_NOTFOUND) {
-    if (create) {
+    if (create_if_missing) {
       iv = NewInvertedIndex(Index_DocIdsOnly, 1, sz);
       TrieMap_Add(idx->values, value, len, iv, NULL);
     }
@@ -184,7 +200,7 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
   size_t sz;
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-  InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, 1, &sz);
+  InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
   return InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec) + sz;
 }
 
@@ -224,14 +240,14 @@ static void TagReader_OnReopen(void *privdata) {
       // we need to reopen the inverted index to make sure its still valid.
       // the GC might have deleted it by now.
       InvertedIndex *idx = TagIndex_OpenIndex(ctx->idx, ir->record->term.term->str,
-                                              ir->record->term.term->len, 0, &sz);
+                                              ir->record->term.term->len, DONT_CREATE_INDEX, &sz);
       if (idx == TRIEMAP_NOTFOUND || ir->idx != idx) {
-        // the inverted index was collected entirely by GC, lets stop searching.
-        // notice, it might be that a new inverted index was created, we will not
-        // continue read those results and we are not promise that documents
-        // that was added during cursor life will be returned by the cursor.
+        // The inverted index was collected entirely by GC.
+        // All the documents that were inside were deleted and new ones were added.
+        // We will not continue reading those new results and instead abort reading
+        // for this specific inverted index.
         IR_Abort(ir);
-        return;
+        continue; // Deal with the next IndexReader
       }
     }
     // Use generic `OnReopen` callback for all readers
@@ -279,23 +295,23 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *val
 }
 
 /* Format the key name for a tag index */
-RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) {
-  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field);
+RedisModuleString *TagIndex_FormatName(const IndexSpec *spec, const char *field) {
+  return RedisModule_CreateStringPrintf(RSDummyContext, TAG_INDEX_KEY_FMT, spec->name, field);
 }
 
 /* Open the tag index */
-TagIndex *TagIndex_Open(const RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {
-  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, key);
+TagIndex *TagIndex_Open(const IndexSpec *spec, RedisModuleString *key, bool create_if_missing) {
+  KeysDictValue *kdv = dictFetchValue(spec->keysDict, key);
   if (kdv) {
     return kdv->p;
   }
-  if (!openWrite) {
+  if (!create_if_missing) {
     return NULL;
   }
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->p = NewTagIndex();
   kdv->dtor = TagIndex_Free;
-  dictAdd(ctx->spec->keysDict, key, kdv);
+  dictAdd(spec->keysDict, key, kdv);
   return kdv->p;
 }
 
@@ -393,12 +409,11 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
+size_t TagIndex_GetOverhead(const IndexSpec *sp, FieldSpec *fs) {
   size_t overhead = 0;
   TagIndex *idx = NULL;
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
-  RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->name);
-  idx = TagIndex_Open(&sctx, keyName, 0);
+  RedisModuleString *keyName = TagIndex_FormatName(sp, fs->name);
+  idx = TagIndex_Open(sp, keyName, DONT_CREATE_INDEX);
   RedisModule_FreeString(RSDummyContext, keyName);
   if (idx) {
     overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize

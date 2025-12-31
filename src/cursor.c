@@ -59,12 +59,12 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
 }
 
 /* Assumed to be called under the cursors global lock or upon server shut down. */
-static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
+static void Cursor_FreeInternal(Cursor *cur) {
   CursorList *cl = getCursorList(cur->is_coord);
+  khiter_t khi = kh_get(cursors, cl->lookup, cur->id);
+
   /* Decrement the used count */
   RS_LOG_ASSERT(khi != kh_end(cl->lookup), "Iterator shouldn't be at end of cursor list");
-  RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) != kh_end(cl->lookup),
-                                                    "Cursor was not found");
   kh_del(cursors, cl->lookup, khi);
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
@@ -118,7 +118,7 @@ static void cursorGcCb(CursorList *cl, Cursor *cur, void *arg) {
   cursorGcCtx *ctx = arg;
   if (cur->nextTimeoutNs <= ctx->now) {
     Cursor_RemoveFromIdle(cur);
-    Cursor_FreeInternal(cur, kh_get(cursors, cl->lookup, cur->id));
+    Cursor_FreeInternal(cur);
     ctx->numCollected++;
   }
 }
@@ -211,7 +211,7 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
     /** Collect idle cursors now */
     Cursors_GCInternal(cl, 0);
     if (spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
-      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "INDEX_CURSOR_LIMIT of %lld has been reached for an index", RSGlobalConfig.indexCursorLimit);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "INDEX_CURSOR_LIMIT of %lld has been reached for an index", RSGlobalConfig.indexCursorLimit);
       goto done;
     }
   }
@@ -243,16 +243,24 @@ int Cursor_Pause(Cursor *cur) {
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
 
-  cur->nextTimeoutNs = curTimeNs() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
-  if (cur->nextTimeoutNs < cl->nextIdleTimeoutNs || cl->nextIdleTimeoutNs == 0) {
-    cl->nextIdleTimeoutNs = cur->nextTimeoutNs;
+  if (cur->delete_mark) {
+    // Cursor is marked for deletion, we need to free it.
+    Cursor_FreeInternal(cur);
+  } else {
+    // Cursor is not marked for deletion, we need to pause it.
+
+    // Set the next timeout to be the current time + timeout interval
+    cur->nextTimeoutNs = curTimeNs() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
+    if (cur->nextTimeoutNs < cl->nextIdleTimeoutNs || cl->nextIdleTimeoutNs == 0) {
+      cl->nextIdleTimeoutNs = cur->nextTimeoutNs;
+    }
+
+    /* Add to idle list */
+    cur->pos = ARRAY_GETSIZE_AS(&cl->idle, Cursor **);
+    *(Cursor **)(ARRAY_ADD_AS(&cl->idle, Cursor *)) = cur;
   }
 
-  /* Add to idle list */
-  *(Cursor **)(ARRAY_ADD_AS(&cl->idle, Cursor *)) = cur;
-  cur->pos = ARRAY_GETSIZE_AS(&cl->idle, Cursor **) - 1;
   CursorList_Unlock(cl);
-
   return REDISMODULE_OK;
 }
 
@@ -286,23 +294,33 @@ int Cursors_Purge(CursorList *cl, uint64_t cid) {
   if (iter != kh_end(cl->lookup)) {
     Cursor *cur = kh_value(cl->lookup, iter);
     if (Cursor_IsIdle(cur)) {
+      // Cursor is idle, we can free it (regardless of ownership)
       Cursor_RemoveFromIdle(cur);
+      Cursor_FreeInternal(cur);
+    } else {
+      // Cursor is not idle, and we don't own it. We need to mark it for deletion.
+      // This is used when the cursor is still in use by another connection.
+      cur->delete_mark = true;
     }
-    Cursor_FreeInternal(cur, iter);
     rc = REDISMODULE_OK;
-
   } else {
-    rc = REDISMODULE_ERR;
+    rc = REDISMODULE_ERR; // Cursor not found
   }
+
   CursorList_Unlock(cl);
   return rc;
 }
 
 int Cursor_Free(Cursor *cur) {
-  return Cursors_Purge(getCursorList(cur->is_coord), cur->id);
+  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList_Lock(cl);
+  CursorList_IncrCounter(cl);
+  Cursor_FreeInternal(cur);
+  CursorList_Unlock(cl);
+  return REDISMODULE_OK;
 }
 
-void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModule_Reply *reply) {
+void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const IndexSpec *spec, RedisModule_Reply *reply) {
   CursorList_Lock(cl);
   CursorList_Lock(cl_coord);
 
@@ -321,7 +339,7 @@ void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, 
 }
 
 #ifdef FTINFO_FOR_INFO_MODULES
-void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModuleInfoCtx *ctx) {
+void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const IndexSpec *spec, RedisModuleInfoCtx *ctx) {
   CursorList_Lock(cl);
 
   RedisModule_InfoBeginDictField(ctx, "cursor_stats");
@@ -336,38 +354,22 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, IndexSpec 
 }
 #endif // FTINFO_FOR_INFO_MODULES
 
-void CursorList_Destroy(CursorList *cl) {
-  Cursors_GCInternal(cl, 1);
+void CursorList_Empty(CursorList *cl) {
+  CursorList_Lock(cl);
   for (khiter_t ii = 0; ii != kh_end(cl->lookup); ++ii) {
     if (!kh_exist(cl->lookup, ii)) {
       continue;
     }
-    Cursor *c = kh_val(cl->lookup, ii);
-    Cursor_FreeInternal(c, ii);
+    Cursor *cur = kh_val(cl->lookup, ii);
+    if (Cursor_IsIdle(cur)) {
+      // Since the cursor is idle, we can free it.
+      Cursor_RemoveFromIdle(cur);
+      Cursor_FreeInternal(cur);
+    } else {
+      // Since the cursor is not idle, we mark it for deletion.
+      // The next time the cursor is accessed, it will be freed.
+      cur->delete_mark = true;
+    }
   }
-  kh_destroy(cursors, cl->lookup);
-
-  pthread_mutex_destroy(&cl->lock);
-  Array_Free(&cl->idle);
-}
-
-void CursorList_Empty(CursorList *cl) {
-  bool is_coord = cl->is_coord;
-  CursorList_Destroy(cl);
-  CursorList_Init(cl, is_coord);
-}
-
-void CursorList_Expire(CursorList *cl) {
-  CursorList_Lock(cl);
-  // Not calling `CursorList_IncrCounter` as we don't want to trigger GC
-
-  uint64_t now = curTimeNs(); // Taking `now` as a signature
-  Cursor *cursor;
-  kh_foreach_value(cl->lookup, cursor, cursor->nextTimeoutNs = MIN(cursor->nextTimeoutNs, now));
-
-  if (now < cl->nextIdleTimeoutNs || cl->nextIdleTimeoutNs == 0) {
-    cl->nextIdleTimeoutNs = now;
-  }
-
   CursorList_Unlock(cl);
 }

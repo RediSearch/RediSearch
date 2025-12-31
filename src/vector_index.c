@@ -11,13 +11,14 @@
 #include "rdb.h"
 #include "util/workers_pool.h"
 #include "util/threadpool_api.h"
+#include "redis_index.h"
 
-static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName, int write) {
+VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index) {
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
   }
-  if (!write) {
+  if (!create_if_index) {
     return NULL;
   }
 
@@ -35,16 +36,15 @@ static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyNa
   }
 
   // create new vector data structure
+  VecSimIndex* temp = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
+  if (!temp) {
+    return NULL;
+  }
   kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->p = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
-
-  dictAdd(spec->keysDict, keyName, kdv);
+  kdv->p = temp;
   kdv->dtor = (void (*)(void *))VecSimIndex_Free;
+  dictAdd(spec->keysDict, keyName, kdv);
   return kdv->p;
-}
-
-VecSimIndex *OpenVectorIndex(IndexSpec *sp, RedisModuleString *keyName) {
-  return openVectorKeysDict(sp, keyName, 1);
 }
 
 IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, bool yields_metric) {
@@ -73,7 +73,7 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
-  VecSimIndex *vecsim = openVectorKeysDict(ctx->spec, key, 0);
+  VecSimIndex *vecsim = openVectorIndex(ctx->spec, key, DONT_CREATE_INDEX);
   RedisModule_FreeString(ctx->redisCtx, key);
   if (!vecsim) {
     return NULL;
@@ -88,10 +88,10 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
-        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
-                               "Error parsing vector similarity query: query vector blob size"
-                               " (%zu) does not match index's expected size (%zu).",
-                               vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
+        QueryError_SetWithUserDataFmt(q->status, QUERY_EINVAL,
+                                      "Error parsing vector similarity query: query vector blob size",
+                                      " (%zu) does not match index's expected size (%zu).",
+                                      vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
         return NULL;
       }
       VecsimQueryType queryType = child_it != NULL ? QUERY_TYPE_HYBRID : QUERY_TYPE_KNN;
@@ -100,8 +100,8 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
         return NULL;
       }
       if (vq->knn.k > MAX_KNN_K) {
-        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
-                               "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
+        QueryError_SetWithoutUserDataFmt(q->status, QUERY_EINVAL,
+                                               "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
         return NULL;
       }
       HybridIteratorParams hParams = {.index = vecsim,
@@ -111,7 +111,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .query = vq->knn,
                                       .qParams = qParams,
                                       .vectorScoreField = vq->scoreField,
-                                      .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
+                                      .canTrimDeepResults = q->opts->flags & Search_CanSkipRichResults,
                                       .childIt = child_it,
                                       .timeout = q->sctx->timeout,
       };
@@ -119,16 +119,16 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
     }
     case VECSIM_QT_RANGE: {
       if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {
-        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
-                               "Error parsing vector similarity query: query vector blob size"
+        QueryError_SetWithUserDataFmt(q->status, QUERY_EINVAL,
+                               "Error parsing vector similarity query: query vector blob size",
                                " (%zu) does not match index's expected size (%zu).",
                                vq->range.vecLen, (dim * VecSimType_sizeof(type)));
         return NULL;
       }
       if (vq->range.radius < 0) {
-        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
-                               "Error parsing vector similarity query: negative radius (%g) "
-                               "given in a range query",
+        QueryError_SetWithoutUserDataFmt(q->status, QUERY_EINVAL,
+                               "Error parsing vector similarity query: negative radius"
+                               " (%g) given in a range query",
                                vq->range.radius);
         return NULL;
       }
@@ -241,6 +241,23 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
   }
   return NULL;
 }
+const char *VecSimSearchMode_ToString(VecSearchMode vecsimSearchMode) {
+    switch (vecsimSearchMode) {
+    case EMPTY_MODE:
+        return "EMPTY_MODE";
+    case STANDARD_KNN:
+        return "STANDARD_KNN";
+    case HYBRID_ADHOC_BF:
+        return "HYBRID_ADHOC_BF";
+    case HYBRID_BATCHES:
+        return "HYBRID_BATCHES";
+    case HYBRID_BATCHES_TO_ADHOC_BF:
+        return "HYBRID_BATCHES_TO_ADHOC_BF";
+    case RANGE_QUERY:
+        return "RANGE_QUERY";
+    }
+    return NULL;
+}
 
 void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
   RedisModule_SaveUnsigned(rdb, vecsimParams->algo);
@@ -284,7 +301,7 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
   if (REDISMODULE_OK != rv) {
     size_t old_block_size = 0;
     size_t old_initial_cap = 0;
-    RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: %s", QueryError_GetError(&status));
+    RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: %s", QueryError_GetDisplayableError(&status, false));
     // We change the initial size and block size to default and try again.
     switch (vecsimParams->algo) {
       case VecSimAlgo_BF:
@@ -332,7 +349,7 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
     }
     // If the second validation failed, we fail.
     if (REDISMODULE_OK != rv) {
-      RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: second load with default parameters failed! %s", QueryError_GetError(&status));
+      RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: second load with default parameters failed! %s", QueryError_GetDisplayableError(&status, false));
     }
   }
   QueryError_ClearError(&status);
@@ -505,7 +522,7 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
     }
   }
   const char *error_msg = QueryError_Strerror(RSErrorCode);
-  QueryError_SetErrorFmt(status, RSErrorCode, "Error parsing vector similarity parameters: %s", error_msg);
+  QueryError_SetWithUserDataFmt(status, RSErrorCode, "Error parsing vector similarity parameters", ": %s", error_msg);
   return vecSimCode;
 }
 
@@ -545,7 +562,7 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
           sp->fields[ii].vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
         // Get the vector index
         RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, sp->fields + ii, INDEXFLD_T_VECTOR);
-        VecSimIndex *vecsim = openVectorKeysDict(sp, vecsim_name, 0);
+        VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
         // Call the tiered index GC if the vector index is not empty
         if (vecsim) VecSimTieredIndex_GC(vecsim);
       }

@@ -67,7 +67,7 @@ void pathFree(JSONPath jsonpath) {
     japi->pathFree(jsonpath);
   } else {
     // Should not attempt to free none-null path when the required API to parse is not available
-    assert(jsonpath != NULL);
+    RS_ASSERT(jsonpath != NULL);
   }
 }
 
@@ -76,7 +76,7 @@ int pathIsSingle(JSONPath jsonpath) {
     return japi->pathIsSingle(jsonpath);
   } else {
     // Should not use none-null path when the required API to parse is not available
-    assert(jsonpath != NULL);
+    RS_ASSERT(jsonpath != NULL);
   }
   return false;
 }
@@ -86,7 +86,7 @@ int pathHasDefinedOrder(JSONPath jsonpath) {
     return japi->pathHasDefinedOrder(jsonpath);
   } else {
     // Should not use none-null path when the required API to parse is not available
-    assert(jsonpath != NULL);
+    RS_ASSERT(jsonpath != NULL);
   }
   return false;
 }
@@ -249,7 +249,7 @@ int JSON_StoreVectorAt(RedisJSON arr, size_t len, getJSONElementFunc getElement,
   for (int i = 0; i < len; ++i) {
     RedisJSON json = japi->getAt(arr, i);
     if (getElement(json, target) != REDISMODULE_OK) {
-      QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Invalid vector element at index %d", i);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Invalid vector element at index %d", i);
       return REDISMODULE_ERR;
     }
     target += step;
@@ -304,7 +304,7 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
   size_t arrLen;
   japi->getLen(arr, &arrLen);
   if (arrLen != dim) {
-    QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Invalid vector length. Expected %lu, got %lu", dim, arrLen);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Invalid vector length. Expected %lu, got %lu", dim, arrLen);
     return REDISMODULE_ERR;
   }
 
@@ -579,17 +579,21 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
           break;
         case INDEXFLD_T_GEOMETRY:
           rv = REDISMODULE_ERR; // TODO: GEOMETRY = JSON_StoreGeometryInDocFieldFromArr(json, df);
+          QueryError_SetError(status, QUERY_EGENERIC, "GEOMETRY field does not support array type");
           break;
         default:
           rv = REDISMODULE_ERR;
+          QueryError_SetError(status, QUERY_EGENERIC, "Unsupported field type");
           break;
       }
       break;
     case JSONType_Object:
       rv = REDISMODULE_ERR;
+      QueryError_SetError(status, QUERY_EGENERIC, "Object type is not supported");
       break;
     case JSONType__EOF:
-      RS_LOG_ASSERT(0, "Should not happen");
+      RS_ABORT("Should not happen");
+      rv = REDISMODULE_ERR;
   }
 
   return rv;
@@ -629,6 +633,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
         break;
       default:
         rv = REDISMODULE_ERR;
+        QueryError_SetError(status, QUERY_EGENERIC, "Unsupported field type");
         break;
     }
   }
@@ -647,7 +652,15 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
       df->multisv = rsv;
     } else {
       rv = REDISMODULE_ERR;
+      QueryError_SetError(status, QUERY_EGENERIC, "Failed to get value from iterator");
     }
   }
   return rv;
+}
+
+void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const char *path, const char *fieldName, const char *indexName) {
+  QueryError_SetWithUserDataFmt(status, QUERY_EINVALPATH,
+                         "Invalid JSONPath", " '%s' in attribute '%s' in index '%s'",
+                         path, fieldName, indexName);
+  RedisModule_FreeString(RSDummyContext, err_msg);
 }

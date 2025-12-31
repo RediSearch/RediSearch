@@ -56,7 +56,14 @@ typedef enum {
   RP_PROFILE,
   RP_NETWORK,
   RP_METRICS,
-  RP_MAX,
+  RP_KEY_NAME_LOADER,
+  RP_MAX_SCORE_NORMALIZER,
+  RP_DEPLETER,
+  RP_MAX, // Marks the last non-debug RP type
+  // Debug only result processors
+  RP_TIMEOUT,
+  RP_PAUSE,
+  RP_MAX_DEBUG,
 } ResultProcessorType;
 
 struct ResultProcessor;
@@ -69,6 +76,9 @@ typedef struct {
   // Last processor
   struct ResultProcessor *endProc;
 
+  rs_wall_clock initTime;  //used with clock_gettime(CLOCK_MONOTONIC, ...)
+  rs_wall_clock_ns_t queryGILTime;  //Time accumulated in nanoseconds
+
   // Concurrent search context for thread switching
   ConcurrentSearchCtx *conc;
 
@@ -78,17 +88,24 @@ typedef struct {
   // the minimal score applicable for a result. It can be used to optimize the scorers
   double minScore;
 
-  // the total results found in the query, incremented by the root processors and decremented by
-  // others who might disqualify results
+  // the total results found in the query, incremented by the root processors
+  // and decremented by others who might disqualify results
   uint32_t totalResults;
 
-  // the number of results we requested to return at the current chunk. This value may be used by
-  // processors to optimize their work and to signal RP in the upstream their limit.
+  // the number of results we requested to return at the current chunk.
+  // This value is meant to be used by the RP to limit the number of results
+  // returned by its upstream RP ONLY.
+  // It should be restored after using it for local aggregation etc., as done in
+  // the Safe-Loader, Sorter, and Pager.
   uint32_t resultLimit;
 
   // Object which contains the error
   QueryError *err;
 
+  // Background indexing OOM warning
+  bool bgScanOOM;
+
+  bool isProfile;
   RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;
 
@@ -158,6 +175,8 @@ typedef struct ResultProcessor {
   // Type of result processor
   ResultProcessorType type;
 
+  rs_wall_clock_ns_t rpGILTime; // Accumulated GIL time of the ResultProcessor, if applicable (e.g. RP_SAFE_LOADER)
+
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
    * not read, so it is the responsibility of the caller to ensure that there
@@ -207,7 +226,6 @@ ResultProcessor *RPMetricsLoader_New();
 #define SORTASCMAP_SETASC(mm, pos) ((mm) |= (1LLU << (pos)))
 #define SORTASCMAP_SETDESC(mm, pos) ((mm) &= ~(1LLU << (pos)))
 #define SORTASCMAP_GETASC(mm, pos) ((mm) & (1LLU << (pos)))
-void SortAscMap_Dump(uint64_t v, size_t n);
 
 /**
  * Creates a sorter result processor.
@@ -245,8 +263,6 @@ void SetLoadersForMainThread(struct AREQ *r);
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
                                    const RLookup *lookup);
 
-void RP_DumpChain(const ResultProcessor *rp);
-
 /*******************************************************************************************************************
  *  Profiling Processor
  *
@@ -264,13 +280,64 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
  *******************************************************************************************************************/
 ResultProcessor *RPCounter_New();
 
-clock_t RPProfile_GetClock(ResultProcessor *rp);
+rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryIterator *qiter);
 
+ /*******************************************************************************************************************
+  *  Normalizer Result Processor
+  *
+  * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
+  * First accumulates all results from the upstream, then normalizes and yields them.
+  *******************************************************************************************************************/
+ ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
+
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);
+
+// Return RPType for string
+ResultProcessorType StringToRPType(const char *str);
+
+ /*******************************************************************************************************************
+  *  Normalizer Result Processor
+  *
+  * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
+  * First accumulates all results from the upstream, then normalizes and yields them.
+  *******************************************************************************************************************/
+ ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
+
+/*******************************************************************************
+* Depleter Result Processor
+*
+*******************************************************************************/
+/**
+* Constructs a new depleter processor that runs in the current thread.
+*/
+ResultProcessor *RPDepleter_New();
+
+/*******************************************************************************************************************
+ *  Debug only result processors
+ *
+ * *******************************************************************************************************************/
+
+/*******************************************************************************************************************
+ *  Timeout Processor - DEBUG ONLY
+ *
+ * returns timeout after N results, N >= 0.
+ *******************************************************************************************************************/
+ResultProcessor *RPTimeoutAfterCount_New(size_t count);
+void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
+
+/*******************************************************************************************************************
+ *  Pause Processor - DEBUG ONLY
+ *
+ * Pauses the query after N results, N >= 0.
+ *******************************************************************************************************************/
+ResultProcessor *RPPauseAfterCount_New(size_t count);
+
+// Adds a pause processor after N results, before/after a specific RP type
+bool PipelineAddPauseRPcount(struct AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type, QueryError *status);
 
 #ifdef __cplusplus
 }

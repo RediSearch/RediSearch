@@ -72,7 +72,6 @@ static int readRecord(ReaderCtx *ctx) {
     freq = htonl(freq);
   }
 
-  // printf("Adding record TYPE: %u. TERM: %s. NSYNS: %u\n", lexType, term, numSyns);
   friso_dic_add_with_fre(ctx->dic, lexType, rm_strdup(term), syns, freq);
   return 1;
 }

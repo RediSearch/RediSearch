@@ -24,6 +24,7 @@
 #include "fork_gc.h"
 #include "module.h"
 #include "cursor.h"
+#include "info/indexes_info.h"
 
 /**
  * Most of the spec interaction is done through the RefManager, which is wrapped by a strong or weak reference struct.
@@ -167,7 +168,7 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
   }
   if (options & RSFLDOPT_SORTABLE) {
     fs->options |= FieldSpec_Sortable;
-    fs->sortIdx = RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+    fs->sortIdx = sp->numSortableFields++;
   }
   if (options & RSFLDOPT_TXTNOSTEM) {
     fs->options |= FieldSpec_NoStemming;
@@ -318,7 +319,7 @@ void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* er
   RSError* ourErr = err;
   if (QueryError_HasError(&aCtx->status)) {
     if (ourErr->s) {
-      *ourErr->s = rm_strdup(QueryError_GetError(&aCtx->status));
+      *ourErr->s = rm_strdup(QueryError_GetUserError(&aCtx->status));
     }
     ourErr->hasErr = aCtx->status.code;
   }
@@ -607,7 +608,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   }
 
   IndexSpec_GetStats(sp, &it->scargs.indexStats);
-  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, DEFAULT_SCORER_NAME);
+  const char *defaultScorer = RSGlobalConfig.defaultScorer;
+  RS_LOG_ASSERT(defaultScorer, "No default scorer");
+  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, defaultScorer);
   RS_LOG_ASSERT(scoreCtx, "GetScoringFunction failed");
   it->scorer = scoreCtx->sf;
   it->scorerFree = scoreCtx->ff;
@@ -624,7 +627,7 @@ end:
       it = NULL;
     }
     if (error) {
-      *error = rm_strdup(QueryError_GetError(&status));
+      *error = rm_strdup(QueryError_GetUserError(&status));
     }
   }
   QueryError_ClearError(&status);
@@ -684,8 +687,6 @@ double RediSearch_ResultsIteratorGetScore(const RS_ApiIter* it) {
 void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   if (iter->internal) {
     iter->internal->Free(iter->internal);
-  } else {
-    printf("Not freeing internal iterator. internal iterator is null\n");
   }
   if (iter->scorerFree) {
     iter->scorerFree(iter->scargs.extdata);
@@ -891,72 +892,12 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
 
 size_t RediSearch_MemUsage(RSIndex* rm) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
-  size_t res = 0;
-  res += sp->docs.memsize;
-  res += sp->docs.sortablesSize;
-  res += TrieMap_MemUsage(sp->docs.dim.tm);
-  res += IndexSpec_collect_text_overhead(sp);
-  res += IndexSpec_collect_tags_overhead(sp);
-  res += sp->stats.invertedSize;
-  res += sp->stats.offsetVecsSize;
-  res += sp->stats.termsSize;
-  return res;
+  return IndexSpec_TotalMemUsage(sp, 0, 0, 0, 0);
 }
 
 // Collect statistics of all the currently existing indexes
-TotalSpecsInfo RediSearch_TotalInfo(void) {
-  TotalSpecsInfo info = {0};
-  info.min_mem = -1; // Initialize to max value
-  // Traverse `specDict_g`, and aggregate indices statistics
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry;
-  while ((entry = dictNext(iter))) {
-    StrongRef ref = dictGetRef(entry);
-    IndexSpec *sp = (IndexSpec *)StrongRef_Get(ref);
-    if (!sp) {
-      continue;
-    }
-    // Lock for read
-    pthread_rwlock_rdlock(&sp->rwlock);
-    size_t cur_mem = RediSearch_MemUsage((RSIndex *)ref.rm);
-    info.total_mem += cur_mem;
-    if (info.min_mem > cur_mem) info.min_mem = cur_mem;
-    if (info.max_mem < cur_mem) info.max_mem = cur_mem;
-    info.indexing_time += sp->stats.totalIndexTime;
-
-    // Vector index stats
-    VectorIndexStats vec_info = IndexSpec_GetVectorIndexStats(sp);
-    info.fields_stats.total_vector_idx_mem += vec_info.memory;
-    info.fields_stats.total_mark_deleted_vectors += vec_info.marked_deleted;
-
-    if (sp->gc) {
-      ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
-      info.gc_stats.totalCollectedBytes += gcStats.totalCollected;
-      info.gc_stats.totalCycles += gcStats.numCycles;
-      info.gc_stats.totalTime += gcStats.totalMSRun;
-    }
-
-    // Index
-    size_t activeQueries = IndexSpec_GetActiveQueries(sp);
-    size_t activeWrites = IndexSpec_GetActiveWrites(sp);
-    if (activeQueries) info.num_active_indexes_querying++;
-    if (activeWrites) info.num_active_indexes_indexing++;
-    if (activeQueries || activeWrites) info.num_active_indexes++;
-    info.total_active_queries += activeQueries;
-    info.total_active_writes += activeWrites;
-
-    // Index errors metrics
-    size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);
-    info.indexing_failures += index_error_count;
-    if (info.max_indexing_failures < index_error_count) {
-      info.max_indexing_failures = index_error_count;
-    }
-
-    pthread_rwlock_unlock(&sp->rwlock);
-  }
-  dictReleaseIterator(iter);
-  if (info.min_mem == -1) info.min_mem = 0; // No index found
-  return info;
+TotalIndexesInfo RediSearch_TotalInfo(void) {
+  return IndexesInfo_TotalInfo();
 }
 
 void RediSearch_IndexInfoFree(RSIdxInfo *info) {

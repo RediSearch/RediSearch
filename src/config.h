@@ -61,6 +61,8 @@ typedef struct {
   RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   int printProfileClock;
+  // BM25STD.TANH factor
+  uint64_t BM25STD_TanhFactor;
 } RequestConfig;
 
 // Configuration parameters related to the query execution.
@@ -83,6 +85,8 @@ typedef struct {
   const char *extLoad;
   // Path to friso.ini for chinese dictionary file
   const char *frisoIni;
+  // Default scorer name to use when no scorer is specified (default: TFIDF)
+  const char *defaultScorer;
 
   IteratorsConfig iteratorsConfigParams;
 
@@ -140,8 +144,19 @@ typedef struct {
   // If set, we use an optimization that sorts the children of an intersection iterator in a way
   // where union iterators are being factorize by the number of their own children.
   int prioritizeIntersectUnionChildren;
+    // The number of indexing operations per field to perform before yielding to Redis during indexing while loading (so redis can be responsive)
+  unsigned int indexerYieldEveryOpsWhileLoading;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
+  // The maximum ratio between current memory and max memory for which background indexing is allowed
+  uint8_t indexingMemoryLimit;
+  // Enable to execute unstable features
+  bool enableUnstableFeatures;
+  // Control user data obfuscation in logs
+  bool hideUserDataFromLog;
+  // Set how much time after OOM is detected we should wait to enable the resource manager to
+  // allocate more memory. Note: has different default values for OSS and Enterprise.
+  uint32_t bgIndexingOomPauseTimeBeforeRetry;
 } RSConfig;
 
 typedef enum {
@@ -222,8 +237,8 @@ void UpgradeDeprecatedMTConfigs();
 #define GC_SCANSIZE 100
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
-#define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
+#define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
 #define DEFAULT_MAX_SEARCH_REQUEST_RESULTS 1000000
 #define MAX_SEARCH_REQUEST_RESULTS (1ULL << 31)
@@ -233,6 +248,15 @@ void UpgradeDeprecatedMTConfigs();
 #define DEFAULT_MIN_STEM_LENGTH 4
 #define MIN_MIN_STEM_LENGHT 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
+#define DEFAULT_BM25STD_TANH_FACTOR 4
+#define BM25STD_TANH_FACTOR_MAX 10000
+#define BM25STD_TANH_FACTOR_MIN 1
+#define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
+#define DEFAULT_INDEXING_MEMORY_LIMIT 100
+#define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 0 // Note: The config value default is changed to 5 in enterprise
+#define DEFAULT_SHARD_WINDOW_RATIO 1.0
+#define MIN_SHARD_WINDOW_RATIO 0.0  // Exclusive minimum (must be > 0.0)
+#define MAX_SHARD_WINDOW_RATIO 1.0
 
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG \
@@ -245,42 +269,50 @@ void UpgradeDeprecatedMTConfigs();
 #endif
 
 // default configuration
-#define RS_DEFAULT_CONFIG {                                                                                           \
-    .extLoad = NULL,                                                                                                  \
-    .gcConfigParams.enableGC = 1,                                                                                     \
-    .iteratorsConfigParams.minTermPrefix = 2,                                                                         \
-    .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,                                                   \
-    .iteratorsConfigParams.maxPrefixExpansions = 200,                                                                 \
-    .requestConfigParams.queryTimeoutMS = 500,                                                                        \
-    .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                                                        \
-    .cursorReadSize = 1000,                                                                                           \
-    .cursorMaxIdle = 300000,                                                                                          \
-    .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                                                        \
-     MT_BUILD_CONFIG                                                                                                  \
-    .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                         \
-    .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
-    .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                         \
-    .gcConfigParams.forkGc.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,                                       \
-    .gcConfigParams.forkGc.forkGcSleepBeforeExit = 0,                                                                 \
-    .gcConfigParams.forkGc.forkGcRetryInterval = 5,                                                                   \
-    .gcConfigParams.forkGc.forkGcCleanThreshold = 100,                                                                \
-    .noMemPool = 0,                                                                                                   \
-    .filterCommands = 0,                                                                                              \
-    .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                                                               \
-    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,                                                         \
-    .iteratorsConfigParams.minUnionIterHeap = 20,                                                                     \
-    .numericCompress = false,                                                                                         \
-    .numericTreeMaxDepthRange = 0,                                                                                    \
-    .requestConfigParams.printProfileClock = 1,                                                                       \
-    .invertedIndexRawDocidEncoding = false,                                                                           \
-    .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                                                       \
-    .freeResourcesThread = true,                                                                                      \
-    .requestConfigParams.dialectVersion = 1,                                                                          \
-    .vssMaxResize = 0,                                                                                                \
-    .multiTextOffsetDelta = 100,                                                                                      \
-    .numBGIndexingIterationsBeforeSleep = 100,                                                                        \
-    .prioritizeIntersectUnionChildren = false,                                                                        \
-    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                                                                    \
+#define RS_DEFAULT_CONFIG {                                                     \
+    .extLoad = NULL,                                                            \
+    .frisoIni = NULL,                                                           \
+    .defaultScorer = NULL,                                                      \
+    .gcConfigParams.enableGC = 1,                                               \
+    .iteratorsConfigParams.minTermPrefix = 2,                                   \
+    .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,             \
+    .iteratorsConfigParams.maxPrefixExpansions = 200,                           \
+    .requestConfigParams.queryTimeoutMS = 500,                                  \
+    .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                  \
+    .cursorReadSize = 1000,                                                     \
+    .cursorMaxIdle = 300000,                                                    \
+    .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                  \
+     MT_BUILD_CONFIG                                                            \
+    .gcConfigParams.gcScanSize = GC_SCANSIZE,                                   \
+    .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                        \
+    .gcConfigParams.gcPolicy = GCPolicy_Fork,                                   \
+    .gcConfigParams.forkGc.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL, \
+    .gcConfigParams.forkGc.forkGcSleepBeforeExit = 0,                           \
+    .gcConfigParams.forkGc.forkGcRetryInterval = 5,                             \
+    .gcConfigParams.forkGc.forkGcCleanThreshold = 100,                          \
+    .noMemPool = 0,                                                             \
+    .filterCommands = 0,                                                        \
+    .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                     \
+    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,               \
+    .iteratorsConfigParams.minUnionIterHeap = 20,                               \
+    .numericCompress = false,                                                   \
+    .numericTreeMaxDepthRange = 0,                                              \
+    .requestConfigParams.printProfileClock = 1,                                 \
+    .invertedIndexRawDocidEncoding = false,                                     \
+    .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                 \
+    .freeResourcesThread = true,                                                \
+    .requestConfigParams.dialectVersion = 1,                                    \
+    .vssMaxResize = 0,                                                          \
+    .multiTextOffsetDelta = 100,                                                \
+    .numBGIndexingIterationsBeforeSleep = 100,                                  \
+    .prioritizeIntersectUnionChildren = false,                                  \
+    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                             \
+    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE ,                \
+    .hideUserDataFromLog = false,                                               \
+    .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,      \
+    .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,        \
+    .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                       \
+    .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY  \
   }
 
 #define REDIS_ARRAY_LIMIT 7

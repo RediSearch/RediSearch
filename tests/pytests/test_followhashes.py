@@ -248,7 +248,7 @@ def testFlush(env):
 
     conn.execute_command('hset', 'thing:bar', 'name', 'foo')
 
-    env.expect('ft.search', 'things', 'foo').equal('things: no such index')
+    env.expect('ft.search', 'things', 'foo').equal('No such index things')
 
 def testNotExist(env):
     conn = getConnectionByEnv(env)
@@ -353,7 +353,7 @@ def testLanguageDefaultAndField(env):
         res = env.cmd('FT.SEARCH', 'idxTest1', u'अँगरेज़')
         res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
         env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', res1['body'])
-        # test for default langauge
+        # test for default language
         res = env.cmd('FT.SEARCH', 'idxTest2', u'अँगरेज़')
         res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
         env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', res1['body'])
@@ -560,7 +560,7 @@ def testEvicted(env):
             memory = int(sub[1])
 
     conn.execute_command('CONFIG', 'SET', 'MAXMEMORY-POLICY', 'ALLKEYS-RANDOM')
-    conn.execute_command('CONFIG', 'SET', 'MAXMEMORY', memory + 100000)
+    conn.execute_command('CONFIG', 'SET', 'MAXMEMORY', memory + 150000)
     for i in range(1000):
         env.expect('HSET', 'doc{}'.format(i), 'test', 'foo').equal(1)
     res = env.cmd('FT.SEARCH idx foo limit 0 0')

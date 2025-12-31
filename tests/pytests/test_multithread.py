@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from common import *
+import threading
 
 def initEnv(moduleArgs: str = 'WORKERS 1'):
     if(moduleArgs == ''):
@@ -288,7 +289,7 @@ def test_async_updates_sanity():
     local_marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
     env.assertEqual(local_marked_deleted_vectors, n_local_vectors_before_update)
 
-    # Get the updated numer of local vectors after the update, and validate that all of them are in the frontend
+    # Get the updated number of local vectors after the update, and validate that all of them are in the frontend
     # index (hadn't been ingested already).
     n_local_vectors = get_vecsim_debug_dict(env, 'idx', 'vector')['INDEX_LABEL_COUNT']
     env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], n_local_vectors)
@@ -467,55 +468,279 @@ def test_change_num_connections(env: Env):
     # The number of connections should be 1 again
     env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(1))
 
-def test_change_workers_number():
+def check_threads(env, expected_num_threads_alive, expected_n_threads):
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive, depth=1, message='numThreadsAlive should match num_threads_alive')
+    env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads, depth=1, message='n_threads should match WORKERS')
 
-    def check_threads(expected_num_threads_alive, expected_n_threads):
-        env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive)
-        env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads)
+def test_change_workers_number():
+    def send_query(environment):
+      environment.expect('ft.search', 'idx', '*').equal([0])
+
     # On start up the threadpool is not initialized. We can change the value of requested threads
     # without actually creating the threads.
     env = initEnv(moduleArgs='WORKERS 1')
-    check_threads(expected_num_threads_alive=0, expected_n_threads=1)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
+    check_threads(env, expected_num_threads_alive=0, expected_n_threads=1)
+
+    # Before starting the test, set the number of connections per shard to 2 to avoid flakiness
+    # due to connections being rapidly opened/closed when changing the number of workers.
+    if env.isCluster():
+        env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '2').ok()
+
     # Increase number of threads
     env.expect(config_cmd(), 'SET', 'WORKERS', '2').ok()
-    check_threads(expected_num_threads_alive=0, expected_n_threads=2)
+    # After the first increase, since no queries arrived yet
+    check_threads(env, expected_num_threads_alive=0, expected_n_threads=2)
     # Decrease number of threads
     env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
-    check_threads(expected_num_threads_alive=0, expected_n_threads=1)
+    check_threads(env, expected_num_threads_alive=0, expected_n_threads=1)
+    # If I send many queries, we know one of the threads will take the ADMIN job and terminate
+    num_query_threads = 100
+    query_threads = []
+
+    for i in range(num_query_threads):
+        t = threading.Thread(target=send_query, name=f'QueryThread-{i}', args=(env,))
+        t.start()
+        query_threads.append(t)
+
+    for t in query_threads:
+        t.join()
+
+    check_threads(env, expected_num_threads_alive=1, expected_n_threads=1)
     # Set it to 0
     env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
-    check_threads(expected_num_threads_alive=0, expected_n_threads=0)
+    with TimeLimit(10):
+        while (getWorkersThpoolStats(env)['numThreadsAlive'] != 0 or getWorkersThpoolNumThreads(env) != 0):
+            time.sleep(0.1)
 
-    # Query should not be executed by the threadpool
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
+    check_threads(env, expected_num_threads_alive=0, expected_n_threads=0)
+
     env.expect('ft.search', 'idx', '*').equal([0])
-    check_threads(expected_num_threads_alive=0, expected_n_threads=0)
-    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 0)
+    check_threads(env, expected_num_threads_alive=0, expected_n_threads=0)
+    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], num_query_threads)
 
     # Enable threadpool
     env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
-    check_threads(expected_num_threads_alive=0, expected_n_threads=1)
-
-    # Trigger thpool initialization.
+    # Since additioning workers after initialization is not lazy anymore, this would indeed create the thread
+    check_threads(env, expected_num_threads_alive=0, expected_n_threads=1)
     env.expect('ft.search', 'idx', '*').equal([0])
-    check_threads(expected_num_threads_alive=1, expected_n_threads=1)
+    # Keep initialized
+    check_threads(env, expected_num_threads_alive=1, expected_n_threads=1)
     # wait for the job to finish
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
     # Query should be executed by the threadpool
-    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 1)
+    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], num_query_threads + 1)
 
     # Add threads to a running pool
     env.expect(config_cmd(), 'SET', 'WORKERS', '2').ok()
-    check_threads(expected_num_threads_alive=2, expected_n_threads=2)
+    check_threads(env,expected_num_threads_alive=2, expected_n_threads=2)
     # Remove threads from a running pool
     env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
-    check_threads(expected_num_threads_alive=1, expected_n_threads=1)
+    with TimeLimit(10):
+        while (getWorkersThpoolStats(env)['numThreadsAlive'] != 1 or getWorkersThpoolNumThreads(env) != 1):
+            time.sleep(0.1)
+    check_threads(env, expected_num_threads_alive=1, expected_n_threads=1)
 
     # Terminate all threads
     env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
+    with TimeLimit(10):
+        while (getWorkersThpoolNumThreads(env) != 0):
+            time.sleep(0.1)
     env.assertEqual(getWorkersThpoolNumThreads(env), 0)
 
     # Query should not be executed by the threadpool
     env.expect('ft.search', 'idx', '*').equal([0])
-    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 1)
+    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], num_query_threads + 1)
+
+def test_workers_reduction_sequence():
+    """
+    Test gradual reduction of workers to see if the issue is specific to large deltas.
+    This test reduces workers gradually: 8 -> 4 -> 2 -> 1 -> 0
+    """
+    env = Env(moduleArgs='WORKERS 8', enableDebugCommand=True)
+
+    # Create simple index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+
+    # Add some documents
+    conn = getConnectionByEnv(env)
+    for i in range(100):
+        conn.execute_command('HSET', f'doc{i}', 'text', f'document {i} with searchable content')
+
+    waitForIndex(env, 'idx')
+
+    # Test gradual reduction
+    worker_sequence = [8, 4, 2, 1, 0]
+    result = env.cmd('FT.SEARCH', 'idx', 'searchable', 'LIMIT', '0', '5')
+    # I can check the thread pool state after the thpool is initialized by the first query
+    check_threads(env, 8, 8)
+
+    for workers in worker_sequence:
+        env.debugPrint(f"Testing with WORKERS={workers}", force=True)
+
+        if workers < 8:  # Skip first iteration (already at 8)
+            env.expect(config_cmd(), 'SET', 'WORKERS', str(workers)).ok()
+
+        # Verify config
+        current = env.cmd(config_cmd(), 'GET', 'WORKERS')
+        env.assertEqual(current, [['WORKERS', str(workers)]])
+
+        # Verify responsiveness
+        ping_result = env.cmd('PING')
+        env.assertTrue(ping_result in ['PONG', True])
+
+        # Run a query
+        result = env.cmd('FT.SEARCH', 'idx', 'searchable', 'LIMIT', '0', '5')
+        env.assertTrue(result[0] > 0, message="Search should work with WORKERS={}".format(workers))
+        # Small delay between changes
+        time.sleep(0.5)
+
+    time.sleep(5)
+    check_threads(env, 0, 0)
+
+
+def test_workers_zero_to_nonzero():
+    """
+    Test that increasing workers from 0 to a higher value also works correctly.
+    This tests the reverse direction to ensure the connection pool expansion works.
+    """
+    # Start with WORKERS=0
+    env = Env(moduleArgs='WORKERS 0', enableDebugCommand=True)
+
+    check_threads(env, 0, 0)
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+
+    # Add documents
+    conn = getConnectionByEnv(env)
+    for i in range(100):
+        conn.execute_command('HSET', f'doc{i}', 'text', f'document {i}')
+
+    waitForIndex(env, 'idx')
+
+    # Verify initial state
+    env.assertEqual(env.cmd(config_cmd(), 'GET', 'WORKERS'), [['WORKERS', '0']])
+
+    # Query should work with WORKERS=0 (on main thread)
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
+    env.assertTrue(result[0] > 0)
+
+    # Increase workers to 8
+    env.expect(config_cmd(), 'SET', 'WORKERS', '8').ok()
+    env.assertEqual(env.cmd(config_cmd(), 'GET', 'WORKERS'), [['WORKERS', '8']])
+    # Lazy initialization of threads
+    check_threads(env, 0, 8)
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
+    check_threads(env, 8, 8)
+
+    # Verify still responsive
+    ping_result = env.cmd('PING')
+    env.assertTrue(ping_result in ['PONG', True])
+
+    # Query should still work
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
+    env.assertTrue(result[0] > 0)
+
+def test_workers_increase_from_nonzero():
+    """
+    Test that increasing workers from 0 to a higher value also works correctly.
+    This tests the reverse direction to ensure the connection pool expansion works.
+    """
+    # Start with WORKERS=0
+    env = Env(moduleArgs='WORKERS 2', enableDebugCommand=True)
+
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+
+    # Add documents
+    conn = getConnectionByEnv(env)
+    for i in range(100):
+        conn.execute_command('HSET', f'doc{i}', 'text', f'document {i}')
+
+    waitForIndex(env, 'idx')
+
+    # Verify initial state
+    env.assertEqual(env.cmd(config_cmd(), 'GET', 'WORKERS'), [['WORKERS', '2']])
+
+    # Query should work with WORKERS=0 (on main thread)
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
+    env.assertTrue(result[0] > 0)
+    # I can check the thread pool state after the thpool is initialized by the first query
+    check_threads(env, 2, 2)
+
+    # Increase workers to 8
+    env.expect(config_cmd(), 'SET', 'WORKERS', '8').ok()
+    env.assertEqual(env.cmd(config_cmd(), 'GET', 'WORKERS'), [['WORKERS', '8']])
+    check_threads(env, 8, 8)
+
+    # Verify still responsive
+    ping_result = env.cmd('PING')
+    env.assertTrue(ping_result in ['PONG', True])
+
+    # Query should still work
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
+    env.assertTrue(result[0] > 0)
+
+def testNameLoader(env: Env):
+    def get_RP_name(profile_res):
+        if not env.isCluster():
+            return profile_res[1][6][-1][1]
+        if isinstance(profile_res[0], list):
+            return profile_res[2][8][-1][1] # 2.10 aggregate
+        else:
+            return profile_res[-1][7][-1][1] # 2.10 search
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'sortable', 'TEXT', 'SORTABLE', 'UNF', 'not-sortable', 'TEXT').ok()
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(10):
+            con.execute_command('HSET', f'doc:{i}', 'sortable', f'S{i}', 'not-sortable', f'NS{i}')
+
+    normal_search = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 'sortable', 'RETURN', 1, '__key')
+    normal_aggregate = env.cmd('FT.AGGREGATE', 'idx', '*', 'SORTBY', '1', '@sortable', 'LOAD', 3, '@__key', 'AS', 'doc_id')
+
+    # enable unstable features so we have the special loader
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
+
+    # Run the search and aggregate commands again, expecting the same results
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'sortable', 'RETURN', 1, '__key').equal(normal_search)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '1', '@sortable', 'LOAD', 3, '@__key', 'AS', 'doc_id').equal(normal_aggregate)
+
+    # Check that the right loader is used
+    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'RETURN', 1, '__key')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader')
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 3, '@__key', 'AS', 'doc_id')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader')
+
+    # Check that the right loader is used in the aggregate command when loading multiple fields
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@sortable', '@__key')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@sortable')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@not-sortable', '@__key')
+    env.assertEqual(get_RP_name(res), 'Loader', message="Expected not to be optimized")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@not-sortable')
+    env.assertEqual(get_RP_name(res), 'Loader', message="Expected not to be optimized")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@not-sortable')
+    env.assertEqual(get_RP_name(res), 'Loader', message="Expected not to be optimized")
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@__key', 'SORTBY', '1', '@__key').equal(
+        [10] + [['__key', f'doc:{i}'] for i in range(10)])
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 3, '@__key', 'AS', 'key',
+                                           'GROUPBY', '1', '@key', 'REDUCE', 'COUNT', '0', 'AS', 'count',
+                                           'SORTBY', '1', '@key').equal(
+        [10] + [['key', f'doc:{i}', 'count', '1'] for i in range(10)])
+
+    # Check that the right loader is used in the aggregate command when loading multiple fields with BG query
+    if MT_BUILD:
+        verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', '1')
+        res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@sortable', '@__key')
+        env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
+        res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@sortable')
+        env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
+        res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@not-sortable', '@__key')
+        env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
+        res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@not-sortable')
+        env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
+        res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@not-sortable')
+        env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")

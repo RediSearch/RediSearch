@@ -9,28 +9,12 @@ on:
 # TODO: Use RedisJSON's `master` branch when testing on nightly
 
 jobs:
-  test-linux:
-    uses: ./.github/workflows/flow-linux-platforms.yml
+  test-all-platforms:
+    uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
+      platform: all
+      architecture: all
       redis-ref: unstable
-      test-config: QUICK=1
-      fail-fast: false
-
-  test-macos:
-    uses: ./.github/workflows/flow-macos.yml
-    secrets: inherit
-    with:
-      redis-ref: unstable
-      test-config: QUICK=1
-
-  coverage:
-    if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' }}
-    uses: ./.github/workflows/flow-coverage.yml
-    secrets: inherit
-
-  sanitize:
-    uses: ./.github/workflows/flow-sanitizer.yml
-    secrets: inherit
-    with:
-      flow-config: QUICK=1
+      job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
+      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'coordinator,standalone,rejson,coverage,sanitize' || 'coordinator,standalone,rejson,sanitize' }}

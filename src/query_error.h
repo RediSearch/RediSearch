@@ -14,8 +14,8 @@
 #include <stdbool.h>
 
 #ifdef __cplusplus
-extern "C" {      
-#endif      
+extern "C" {
+#endif
 
 #define QUERY_XERRS(X)                                                                          \
   X(QUERY_EGENERIC, "Generic error evaluating the query")                                       \
@@ -63,9 +63,10 @@ extern "C" {
   X(QUERY_EADHOCWEFRUNTIME, "'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")                 \
   X(QUERY_ENRANGE, "range query attributes were sent for a non-range query")                    \
   X(QUERY_EMISSING, "'ismissing' requires field to be defined with 'INDEXMISSING'")             \
+  X(QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM")                  \
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
-
+#define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
 typedef enum {
   QUERY_OK = 0,
 
@@ -76,6 +77,9 @@ typedef enum {
 
 typedef struct QueryError {
   QueryErrorCode code;
+  // The error message which we can expose in the logs, does not contain user data
+  const char* message;
+  // The formatted error message in its entirety, can be shown only to the user
   char *detail;
 
   // warnings
@@ -94,42 +98,38 @@ const char *QueryError_Strerror(QueryErrorCode code);
  *
  * Only has an effect if no error is already present
  */
-void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *err);
+void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *message);
 
 /** Set the error code of the query without setting an error string. */
 void QueryError_SetCode(QueryError *status, QueryErrorCode code);
 
 /** Set the error code using a custom-formatted string */
-void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
+void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, const char* message, const char *fmt, ...);
 
-/** Convenience macro to set an error of a 'bad argument' with the name of the argument */
-#define QERR_MKBADARGS_FMT(status, fmt, ...) \
-  QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, fmt, ##__VA_ARGS__)
+/**
+ * Set the error code using a custom-formatted string
+ * Only use this function if you are certain that no user data is leaked in the format string
+ */
+void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
+
 
 /** Convenience macro to extract the error string of the argument parser */
 #define QERR_MKBADARGS_AC(status, name, rv)                                          \
-  QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Bad arguments for %s: %s", name, \
+  QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for %s: %s", name, \
                          AC_Strerror(rv))
 
-#define QERR_MKSYNTAXERR(status, ...) QueryError_SetErrorFmt(status, QUERY_ESYNTAX, ##__VA_ARGS__)
+#define QERR_MKSYNTAXERR(status, message) QueryError_SetError(status, QUERY_ESYNTAX, message)
 
 /**
  * Convenience macro to reply the error string to redis and clear the error code.
  * I'm making this into a macro so I don't need to include redismodule.h
  */
-#define QueryError_ReplyAndClear(rctx, qerr)                     \
-  ({                                                             \
-    RedisModule_ReplyWithError(rctx, QueryError_GetError(qerr)); \
-    QueryError_ClearError(qerr);                                 \
-    REDISMODULE_OK;                                              \
+#define QueryError_ReplyAndClear(rctx, qerr)                         \
+  ({                                                                 \
+    RedisModule_ReplyWithError(rctx, QueryError_GetUserError(qerr)); \
+    QueryError_ClearError(qerr);                                     \
+    REDISMODULE_OK;                                                  \
   })
-
-#define QueryError_ReplyNoIndex(rctx, ixname)                                        \
-  {                                                                                  \
-    QueryError qidx__tmp = {0};                                                      \
-    QueryError_SetErrorFmt(&qidx__tmp, QUERY_ENOINDEX, "%s: No such index", ixname); \
-    QueryError_ReplyAndClear(rctx, &qidx__tmp);                                      \
-  }
 
 /**
  * Sets the current error from the current argument within the args cursor
@@ -142,7 +142,7 @@ void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char 
  * Equivalent to the following boilerplate:
  * @code{c}
  *  const char *unknown = AC_GetStringNC(ac, NULL);
- *  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument for %s: %s", name, unknown);
+ *  QueryError_SetWithUserDataFmt(err, QUERY_EPARSEARGS, "Unknown argument for %s:", " %s", name, unknown);
  * @endcode
  */
 void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name);
@@ -152,12 +152,24 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
  * built-in error string for the given code, or the custom string within the
  * object.
  */
-const char *QueryError_GetError(const QueryError *status);
+const char *QueryError_GetUserError(const QueryError *status);
+
+/**
+* Retrieve the error suitable for being displayed.
+* If obfuscate is true, the error message will only contain the error without any user data.
+* If obfuscate is false, the error message will contain the error and the user data, equivalent to QueryError_GetUserError
+*/
+const char *QueryError_GetDisplayableError(const QueryError *status, bool obfuscate);
 
 /**
  * Retrieve the error code.
  */
 QueryErrorCode QueryError_GetCode(const QueryError *status);
+
+// Extracts the query error from the error message
+// Returns the error code
+// Only checks for timeout
+QueryErrorCode QueryError_GetCodeFromMessage(const char *errorMessage);
 
 /**
  * Clear the error state, potentially releasing the embedded string
@@ -172,6 +184,27 @@ static inline int QueryError_HasError(const QueryError *status) {
 }
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code);
+
+#define QUERY_XWARNS(X)                                                               \
+  X(QUERY_WARNING_CODE_TIMED_OUT, "Timeout limit was reached")                        \
+  X(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, QUERY_WMAXPREFIXEXPANSIONS)     \
+
+typedef enum {
+  QUERY_WARNING_CODE_OK = 0,
+
+#define X(N, msg) N,
+  QUERY_XWARNS(X)
+#undef X
+
+} QueryWarningCode;
+
+const char *QueryWarningCode_Strerror(QueryWarningCode code);
+
+/**
+ * Returns a [`QueryWarningCode`] given an warnings message.
+ * If the message does not match any known warning, returns `QUERY_WARNING_CODE_OK`.
+ */
+QueryWarningCode QueryWarningCode_GetCodeFromMessage(const char *message);
 
 #ifdef __cplusplus
 }

@@ -48,19 +48,19 @@ def testMissingValidations():
     # when `field` does not index missing values.
     env.expect('FT.SEARCH', 'idx', 'ismissing(@tag)').error().contains(
         #'`INDEXMISSING` applied to field `tag`, which does not index missing values'
-        "'ismissing' requires field 'tag' to be defined with 'INDEXMISSING'"
+        "'ismissing' requires field to be defined with 'INDEXMISSING', field: 'tag'"
         )
     env.expect('FT.SEARCH', 'idx', 'ismissing(@text)').error().contains(
-        "'ismissing' requires field 'text' to be defined with 'INDEXMISSING'"
+        "'ismissing' requires field to be defined with 'INDEXMISSING', field: 'text'"
     )
     env.expect('FT.SEARCH', 'idx', 'ismissing(@numeric)').error().contains(
-        "'ismissing' requires field 'numeric' to be defined with 'INDEXMISSING'"
+        "'ismissing' requires field to be defined with 'INDEXMISSING', field: 'numeric'"
     )
 
     # Tests that we get an error in case of a user tries to use "ismissing(@field)"
     # when `field` is created with `NOINDEX` and `INDEXMISSING`
     env.expect('FT.CREATE', 'idx3', 'SCHEMA', 'f1', 'TAG', 'INDEXMISSING', 'NOINDEX').error().contains(
-        'Field `f1` cannot be defined with both `NOINDEX` and `INDEXMISSING`'
+        'Field cannot be defined with both `NOINDEX` and `INDEXMISSING` `f1`'
     )
 
 def testMissingInfo():
@@ -193,7 +193,7 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
     dialect = int(env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1])
     if dialect in [2, 3]:
         res = conn.execute_command(
-            'FT.AGGREGATE', idx, '*', 'GROUPBY', '1', f'@{field1}', 
+            'FT.AGGREGATE', idx, '*', 'GROUPBY', '1', f'@{field1}',
             'REDUCE', 'COUNT', '0', 'AS', 'count',
             'SORTBY', 2, '@count', 'DESC'
         )
@@ -203,7 +203,7 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
                     # Decode the string
                     s = f'{val1}'
                     s = s[2:-1]
-                    val1 = bytes(s, 'utf-8').decode('unicode_escape')            
+                    val1 = bytes(s, 'utf-8').decode('unicode_escape')
             expected = [2, [field1, f'{val1}', 'count', '3'], [field1, None, 'count', '2']]
         else: # JSON
             if dialect == 2:
@@ -424,9 +424,9 @@ def HashMissingTest(env, conn):
                                  field2, val2, 'id', 3)
             conn.execute_command('HSET', DOC_WITH_NONE, 'text', 'dummy',
                                  'id', 4)
-            conn.execute_command('HSET', DOC_WITH_BOTH_AND_TEXT, field1, val1, 
+            conn.execute_command('HSET', DOC_WITH_BOTH_AND_TEXT, field1, val1,
                                 field2, val2, 'text', 'dummy', 'id', 5)
-    
+
     # Create an index with multiple fields types that index missing values, i.e.,
     # index documents that do not have these fields.
     for field, ftype, opt, val1, val2, field1Opt in fields_and_values:
@@ -559,7 +559,7 @@ def testMissingGC():
     res = env.cmd('FT.INFO', 'idx')
     gc_sec = res[res.index('gc_stats') + 1]
     bytes_collected = gc_sec[gc_sec.index('bytes_collected') + 1]
-    env.assertTrue(int(bytes_collected) > 0)
+    env.assertGreater(int(bytes_collected), 0)
 
     # Reschedule the gc - add a job to the queue
     env.cmd('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx')

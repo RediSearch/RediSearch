@@ -13,8 +13,11 @@
 #include "index.h"
 #include "redis_index.h"
 #include "suffix.h"
+#include "config.h"
 #include "rmutil/rm_assert.h"
 #include "phonetic_manager.h"
+#include "redismodule.h"
+#include "debug_commands.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -138,7 +141,9 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
             RedisModuleString *rmstr = IndexSpec_GetFormattedKey(spec, &spec->fields[i], INDEXFLD_T_VECTOR);
-            VecSimIndex *vecsim = OpenVectorIndex(spec, rmstr);
+            VecSimIndex *vecsim = openVectorIndex(spec, rmstr, DONT_CREATE_INDEX);
+            if(!vecsim)
+              continue;
             VecSimIndex_DeleteVector(vecsim, dmd->id);
             // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
           }
@@ -215,10 +220,9 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs) || fdata->isNull) {
         continue;
       }
-
       if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
-        IndexError_AddError(&cur->spec->stats.indexError, cur->status.detail, doc->docKey);
-        FieldSpec_AddError(&cur->spec->fields[fs->index], cur->status.detail, doc->docKey);
+        IndexError_AddError(&cur->spec->stats.indexError, cur->status.message, cur->status.detail, doc->docKey);
+        FieldSpec_AddError(&cur->spec->fields[fs->index], cur->status.message, cur->status.detail, doc->docKey);
         QueryError_ClearError(&cur->status);
         cur->stateFlags |= ACTX_F_ERRORED;
       }
@@ -370,7 +374,6 @@ DocumentIndexer *NewIndexer(IndexSpec *spec) {
   DocumentIndexer *indexer = rm_calloc(1, sizeof(*indexer));
 
   indexer->redisCtx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
-  indexer->specId = spec->uniqueId;
   indexer->specKeyName =
       RedisModule_CreateStringPrintf(indexer->redisCtx, INDEX_SPEC_KEY_FMT, spec->name);
 
@@ -383,4 +386,29 @@ void Indexer_Free(DocumentIndexer *indexer) {
   RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
   RedisModule_FreeThreadSafeContext(indexer->redisCtx);
   rm_free(indexer);
+}
+
+bool g_isLoading = false;
+
+/**
+ * Yield to Redis after a certain number of operations during indexing.
+ * This helps keep Redis responsive during long indexing operations.
+ * @param ctx The Redis context
+ * @param numOps Tue number of operations to count in the counter before considering RSGlobalConfig.indexerYieldEveryOpsWhileLoading. These are related to the number of fields in the document
+ * @param flags The flags to pass to RedisModule_Yield
+ */
+void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flags) {
+  static size_t opCounter = 0;
+
+  // If server is loading, Yield to Redis if the number of operations is greater than the yieldEveryOps
+  opCounter += numOps;
+  if (g_isLoading && opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
+    opCounter = opCounter % RSGlobalConfig.indexerYieldEveryOpsWhileLoading;
+    IncrementLoadYieldCounter(); // Track that we called yield
+    unsigned int sleepMicros = GetIndexerSleepBeforeYieldMicros();
+    if (sleepMicros > 0) {
+      usleep(sleepMicros);
+    }
+    RedisModule_Yield(ctx, flags, NULL);
+  }
 }

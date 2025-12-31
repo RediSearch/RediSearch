@@ -49,7 +49,7 @@ static void workersThreadPool_OnDeactivation(size_t old_num) {
 
 // set up workers' thread pool
 int workersThreadPool_CreatePool(size_t worker_count) {
-  assert(_workers_thpool == NULL);
+  RS_ASSERT(_workers_thpool == NULL);
 
   _workers_thpool = redisearch_thpool_create(worker_count, RSGlobalConfig.highPriorityBiasNum, LogCallback, "workers");
   if (_workers_thpool == NULL) return REDISMODULE_ERR;
@@ -80,41 +80,63 @@ void workersThreadPool_SetNumWorkers() {
     worker_count = RSGlobalConfig.minOperationWorkers;
   }
   size_t curr_workers = redisearch_thpool_get_num_threads(_workers_thpool);
-  size_t new_num_threads = worker_count;
 
-  if (worker_count == 0 && curr_workers > 0) {
-    redisearch_thpool_terminate_when_empty(_workers_thpool);
-    new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers);
-    workersThreadPool_OnDeactivation(curr_workers);
-  } else if (worker_count > curr_workers) {
-    new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
-    if (!curr_workers) workersThreadPool_OnActivation(worker_count);
-  } else if (worker_count < curr_workers) {
-    new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers - worker_count);
+  if (worker_count != curr_workers) {
+    RedisModule_Log(RSDummyContext, "notice", "Changing workers threadpool size from %zu to %zu", curr_workers, worker_count);
   }
 
-  RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
-    "Attempt to change the workers thpool size to %lu "
-    "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
+  if (worker_count == 0 && curr_workers > 0) {
+    // Schedule in the thpool in the config_worker_reducer_job -> a pointer to
+    RedisModule_Log(RSDummyContext, "notice", "Scheduling config_reduce_threads_job to remove all %zu threads when empty", curr_workers);
+    redisearch_thpool_schedule_config_reduce_threads_job(_workers_thpool, curr_workers, true);
+    workersThreadPool_OnDeactivation(curr_workers);
+  } else if (worker_count > curr_workers) {
+    size_t new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
+    if (!curr_workers) workersThreadPool_OnActivation(worker_count);
+    RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
+      "Attempt to change the workers thpool size to %lu "
+      "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
+  } else if (worker_count < curr_workers) {
+    RedisModule_Log(RSDummyContext, "notice", "Scheduling config_reduce_threads_job to remove %zu threads ASAP", curr_workers - worker_count);
+    redisearch_thpool_schedule_config_reduce_threads_job(_workers_thpool, curr_workers - worker_count, false);
+  }
 }
 
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void) {
-  assert(_workers_thpool != NULL);
+  RS_ASSERT(_workers_thpool != NULL);
 
   return redisearch_thpool_num_jobs_in_progress(_workers_thpool);
 }
 
+size_t workersThreadPool_LowPriorityPendingJobsCount(void) {
+  RS_ASSERT(_workers_thpool != NULL);
+
+  return redisearch_thpool_low_priority_pending_jobs(_workers_thpool);
+}
+
+size_t workersThreadPool_HighPriorityPendingJobsCount(void) {
+  RS_ASSERT(_workers_thpool != NULL);
+
+  return redisearch_thpool_high_priority_pending_jobs(_workers_thpool);
+}
+
+size_t workersThreadPool_AdminPriorityPendingJobsCount(void) {
+  RS_ASSERT(_workers_thpool != NULL);
+
+  return redisearch_thpool_admin_priority_pending_jobs(_workers_thpool);
+}
+
 // return n_threads value.
 size_t workersThreadPool_NumThreads(void) {
-  assert(_workers_thpool);
+  RS_ASSERT(_workers_thpool);
   return redisearch_thpool_get_num_threads(_workers_thpool);
 }
 
 // add task for worker thread
 // DvirDu: I think we should add a priority parameter to this function
 int workersThreadPool_AddWork(redisearch_thpool_proc function_p, void *arg_p) {
-  assert(_workers_thpool != NULL);
+  RS_ASSERT(_workers_thpool != NULL);
 
   return redisearch_thpool_add_work(_workers_thpool, function_p, arg_p, THPOOL_PRIORITY_HIGH);
 }
@@ -124,6 +146,7 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
   if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {
     return;
   }
+  RedisModule_Log(RSDummyContext, "notice", "Draining workers thread pool with threshold %zu", threshold);
   if (RedisModule_Yield) {
     // Wait until all the threads in the pool run the jobs until there are no more than <threshold>
     // jobs in the queue. Periodically return and call RedisModule_Yield, so redis can answer PINGs
@@ -142,6 +165,7 @@ void workersThreadPool_Terminate(void) {
 
 void workersThreadPool_Destroy(void) {
   redisearch_thpool_destroy(_workers_thpool);
+  _workers_thpool = NULL;
 }
 
 void workersThreadPool_OnEventStart() {

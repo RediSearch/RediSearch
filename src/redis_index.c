@@ -170,16 +170,16 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
 }
 
 void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
-  RedisModule_Assert(ctx->flags == RS_CTX_UNSET);
+  RS_ASSERT(ctx->flags == RS_CTX_UNSET);
   pthread_rwlock_rdlock(&ctx->spec->rwlock);
   // pause rehashing while we're using the dict for reads only
   // Assert that the pause value before we pause is valid.
-  RedisModule_Assert(dictPauseRehashing(ctx->spec->keysDict));
+  RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
   ctx->flags = RS_CTX_READONLY;
 }
 
 void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
-  RedisModule_Assert(ctx->flags == RS_CTX_UNSET);
+  RS_ASSERT(ctx->flags == RS_CTX_UNSET);
   pthread_rwlock_wrlock(&ctx->spec->rwlock);
   ctx->flags = RS_CTX_READWRITE;
 }
@@ -203,14 +203,14 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, 
 }
 
 void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
-  assert(sctx);
+  RS_ASSERT(sctx);
   if (sctx->flags == RS_CTX_UNSET) {
     return;
   }
   if (sctx->flags == RS_CTX_READONLY) {
     // We paused rehashing when we locked the spec for read. Now we can resume it.
     // Assert that it was actually previously paused
-    RedisModule_Assert(dictResumeRehashing(sctx->spec->keysDict));
+    RS_ASSERT_ALWAYS(dictResumeRehashing(sctx->spec->keysDict));
   }
   pthread_rwlock_unlock(&sctx->spec->rwlock);
   sctx->flags = RS_CTX_UNSET;
@@ -301,54 +301,6 @@ err:
   return NULL;
 }
 
-int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *opaque) {
-  long long ptr = 0;
-
-  int num = 0;
-  do {
-    RedisModuleString *sptr = RedisModule_CreateStringFromLongLong(ctx, ptr);
-    RedisModuleCallReply *r =
-        RedisModule_Call(ctx, "SCAN", "scccc", sptr, "MATCH", prefix, "COUNT", "100");
-    RedisModule_FreeString(ctx, sptr);
-    if (r == NULL || RedisModule_CallReplyType(r) == REDISMODULE_REPLY_ERROR) {
-      return num;
-    }
-
-    if (RedisModule_CallReplyLength(r) < 1) {
-      break;
-    }
-
-    sptr = RedisModule_CreateStringFromCallReply(RedisModule_CallReplyArrayElement(r, 0));
-    RedisModule_StringToLongLong(sptr, &ptr);
-    RedisModule_FreeString(ctx, sptr);
-    // printf("ptr: %s %lld\n",
-    // RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(r, 0),
-    // NULL), ptr);
-    if (RedisModule_CallReplyLength(r) == 2) {
-      RedisModuleCallReply *keys = RedisModule_CallReplyArrayElement(r, 1);
-      size_t nks = RedisModule_CallReplyLength(keys);
-
-      for (size_t i = 0; i < nks; i++) {
-        RedisModuleString *kn =
-            RedisModule_CreateStringFromCallReply(RedisModule_CallReplyArrayElement(keys, i));
-        if (f(ctx, kn, opaque) != REDISMODULE_OK) goto end;
-
-        // RedisModule_FreeString(ctx, kn);
-        if (++num % 10000 == 0) {
-          LG_DEBUG("Scanned %d keys", num);
-        }
-      }
-
-      // RedisModule_FreeCallReply(keys);
-    }
-
-    RedisModule_FreeCallReply(r);
-
-  } while (ptr);
-end:
-  return num;
-}
-
 int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
   // extract the term from the key
   RedisSearchCtx *sctx = opaque;
@@ -378,7 +330,7 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
 
 int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "s", s);
-  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
+  RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);
   return res;
@@ -387,7 +339,7 @@ int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
 int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
   // Send command and args to replicas and AOF
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
-  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
+  RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);
   return res;

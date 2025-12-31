@@ -11,7 +11,7 @@
 #include <stdbool.h>
 
 #include "minmax_heap.h"
-
+#include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 
 /*
@@ -189,7 +189,7 @@ static void trickledown_min(mm_heap_t* h, int i) {
 }
 
 void mmh_insert(mm_heap_t* h, void* value) {
-  assert(value != NULL);
+  RS_ASSERT(value != NULL);
   h->count++;
   // check for realloc
   if (h->count > h->size) {
@@ -201,7 +201,7 @@ void mmh_insert(mm_heap_t* h, void* value) {
 }
 
 void* mmh_exchange_min(mm_heap_t* h, void* value) {
-  assert(value != NULL);
+  RS_ASSERT(value != NULL);
   void *min = NULL;
   if (h->count > 0) {
     min = h->data[1];
@@ -212,7 +212,7 @@ void* mmh_exchange_min(mm_heap_t* h, void* value) {
 }
 
 void* mmh_exchange_max(mm_heap_t* h, void* value) {
-  assert(value != NULL);
+  RS_ASSERT(value != NULL);
 
   if (h->count > 2) {
     int idx = heap_lt(h, 2, 3) ? 3 : 2;
@@ -308,14 +308,6 @@ void* mmh_peek_max(const mm_heap_t* h) {
   }
   return NULL;
 }
-
-// void mmh_dump(mm_heap_t* h) {
-//   printf("count is %d, elements are:\n\t [", h->count);
-//   for (int i = 1; i <= h->count; i++) {
-//     printf(" %d ", h->data[i]);
-//   }
-//   printf("]\n");
-// }
 
 mm_heap_t* mmh_init(mmh_cmp_func cmp, void* cmp_ctx, mmh_free_func ff) {
   return mmh_init_with_size(50, cmp, cmp_ctx, ff);

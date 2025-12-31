@@ -1,6 +1,7 @@
 from RLTest import Env
 from includes import *
 from common import skip, config_cmd
+import math
 
 not_modifiable = 'Not modifiable at runtime'
 
@@ -66,11 +67,13 @@ def testGetConfigOptions(env):
     check_config('_PRIORITIZE_INTERSECT_UNION_CHILDREN')
     check_config('MINSTEMLEN')
     check_config('INDEX_CURSOR_LIMIT')
-
+    check_config('ENABLE_UNSTABLE_FEATURES')
+    check_config('BM25STD_TANH_FACTOR')
+    check_config('INDEXER_YIELD_EVERY_OPS')
+    check_config('_BG_INDEX_MEM_PCT_THR')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
-
     env.expect('ft.config', 'set', 'MINPREFIX', 'str').equal('Could not convert argument to expected type')
     env.expect('ft.config', 'set', 'EXTLOAD', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'NOGC', 1).equal(not_modifiable)
@@ -79,6 +82,10 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'MAXEXPANSIONS', 1).equal('OK')
     env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'BM25STD').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'TFIDF').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+    env.expect('ft.config', 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'TFIDF').ok()
     if MT_BUILD:
         env.expect(config_cmd(), 'set', 'WORKERS', 1).equal('OK')
         env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
@@ -93,7 +100,11 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
-
+    env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', 1).equal('OK')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 1).equal('OK')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
@@ -106,7 +117,12 @@ def testSetConfigOptionsErrors(env):
         env.expect('ft.config', 'set', 'WORKERS',  2 ** 13 + 1).contains('Number of worker threads cannot exceed')
         env.expect('ft.config', 'set', 'MIN_OPERATION_WORKERS', 2 ** 13 + 1).contains('Number of worker threads cannot exceed')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', -1).contains('Value is outside acceptable bounds')
-
+    env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', -1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 10001).contains('BM25STD_TANH_FACTOR must be between 1 and 10000')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', -1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 101).contains('Memory limit for indexing cannot be greater then 100%')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', -1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', (2**32)+1).contains('Value is outside acceptable bounds')
 
 @skip(cluster=True)
 def testAllConfig(env):
@@ -125,6 +141,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXAGGREGATERESULTS'][0], 'unlimited')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
+    env.assertEqual(res_dict['DEFAULT_SCORER'][0], 'TFIDF')
     env.assertContains(res_dict['TIMEOUT'][0], ['500', '0'])
     if MT_BUILD:
         env.assertEqual(res_dict['WORKERS'][0], '0')
@@ -152,6 +169,11 @@ def testAllConfig(env):
     env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
+    env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
+    env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
+    env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
+    env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
+    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -186,6 +208,10 @@ def testInitConfig():
     test_arg_num('BG_INDEX_SLEEP_GAP', 15)
     test_arg_num('MINSTEMLEN', 3)
     test_arg_num('INDEX_CURSOR_LIMIT', 128)
+    test_arg_num('BM25STD_TANH_FACTOR', 8)
+    test_arg_num('_BG_INDEX_MEM_PCT_THR', 100)
+    test_arg_num('_BG_INDEX_OOM_PAUSE_TIME', 0)
+
 
 # True/False arguments
     def test_arg_true_false(arg_name, res):
@@ -380,3 +406,74 @@ def testInitConfigCoord():
 @skip(cluster=False)
 def testImmutableCoord(env):
     env.expect('_ft.config', 'set', 'SEARCH_THREADS').error().contains(not_modifiable)
+
+@skip(cluster=True)
+def testUnstableFeaturesOffByDefault():
+    """Tests that the unstable features are off by default."""
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+
+    reset_unstable_config = lambda: env.cmd(config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'false')
+
+    # Prepare the index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+
+    # Add a document
+    env.cmd('HSET', 'doc1', 'title', 'hello world')
+
+    # -------------------- BM25STD.TANH scorer --------------------
+    env.expect('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.TANH') \
+        .error().contains('Scorer BM25STD.TANH is unavailable when `ENABLE_UNSTABLE_FEATURES` is off')
+
+    env.cmd(config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
+
+    res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.TANH')
+
+    # Check the score (only 1 doc..)
+    env.assertEqual(round(float(res[2]), 5), 0.14286)
+
+    # -------------------- BM25STD_TANH_FACTOR --------------------
+    reset_unstable_config()
+
+    factor = 2
+    env.expect('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'BM25STD_TANH_FACTOR', str(factor)) \
+        .error().contains('BM25STD_TANH_FACTOR is not available when `ENABLE_UNSTABLE_FEATURES` is off')
+
+    env.cmd(config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
+
+    unnormalized_res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD')
+    normalized_res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.TANH', 'BM25STD_TANH_FACTOR', str(factor))
+
+    # Check the score (only 1 doc..)
+    env.assertEqual(round(math.tanh(float(unnormalized_res[2]) / factor), 5), round(float(normalized_res[2]), 5))
+
+@skip(cluster=True)
+def testDefaultScorerConfig(env):
+    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands"""
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+    env.expect('FT.CONFIG', 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    for scorer in valid_scorers:
+        env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).equal('OK')
+        env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
+
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('Invalid default scorer')
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('Invalid default scorer value')
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'HAMMING']])  # Should still be the last valid value
+
+@skip(cluster=True)
+def testDefaultScorerConfigDisabled(env):
+    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands"""
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    for scorer in valid_scorers:
+        env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+        env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])  # Should still be the last valid value

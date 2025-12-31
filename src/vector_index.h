@@ -34,12 +34,13 @@
 #define VECSIM_EPSILON "EPSILON"
 #define VECSIM_HYBRID_POLICY "HYBRID_POLICY"
 #define VECSIM_BATCH_SIZE "BATCH_SIZE"
+#define VECSIM_SHARD_WINDOW_RATIO "SHARD_WINDOW_RATIO"
 #define VECSIM_TYPE "TYPE"
 #define VECSIM_DIM "DIM"
 #define VECSIM_DISTANCE_METRIC "DISTANCE_METRIC"
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
-  QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create %s index without specifying %s argument", algorithm, arg)
+  QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)
 
 #define VECSIM_KNN_K_TOO_LARGE_ERR_MSG "KNN K parameter is too large"
 
@@ -66,6 +67,13 @@ typedef struct {
   size_t vecLen;                 // vector length
   size_t k;                      // number of vectors to return
   VecSimQueryReply_Order order;  // specify the result order.
+  double shardWindowRatio;       // shard window ratio for distributed queries
+
+  // Position tracking for K value modification (shard ratio optimization)
+  // For literal K (e.g., "KNN 10"): stores position and length of numeric value
+  // For parameter K (e.g., "KNN $k"): stores position and length INCLUDING the '$' prefix
+  size_t k_token_pos;            // Byte offset where K token starts in original query
+  size_t k_token_len;            // Length of K token
 } KNNVectorQuery;
 
 typedef struct {
@@ -111,9 +119,7 @@ typedef struct VecSimLogCtx {
     const char *index_field_name;  // should point to the field_spec name string.
 } VecSimLogCtx;
 
-// TODO: remove idxKey from all OpenFooIndex functions
-VecSimIndex *OpenVectorIndex(IndexSpec *sp,
-  RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
+VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index);
 
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it);
 
@@ -127,6 +133,7 @@ size_t VecSimType_sizeof(VecSimType type);
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
+const char *VecSimSearchMode_ToString(VecSearchMode vecsimSearchMode);
 
 void VecSimParams_Cleanup(VecSimParams *params);
 

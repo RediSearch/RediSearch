@@ -16,14 +16,18 @@
 #include "rmalloc.h"
 #include "rules.h"
 #include "spec.h"
+#include "extension.h"
 #include "util/dict.h"
 #include "resp3.h"
 #include "util/workers.h"
+#include "module.h"
 
 #include "util/config_macros.h"
 
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)
+
+#define DEFAULT_UNSTABLE_FEATURES_ENABLE false
 
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
@@ -73,7 +77,7 @@ CONFIG_SETTER(setMinStemLen) {
   unsigned int minStemLen;
   int acrc = AC_GetUnsigned(ac, &minStemLen, AC_F_GE1);
   if (minStemLen < MIN_MIN_STEM_LENGHT) {
-    QueryError_SetErrorFmt(status, MIN_MIN_STEM_LENGHT, "Minimum stem length cannot be lower than %u", MIN_MIN_STEM_LENGHT);
+    QueryError_SetWithoutUserDataFmt(status, MIN_MIN_STEM_LENGHT, "Minimum stem length cannot be lower than %u", MIN_MIN_STEM_LENGHT);
     return REDISMODULE_ERR;
   }
   config->iteratorsConfigParams.minStemLength = minStemLen;
@@ -188,7 +192,7 @@ CONFIG_GETTER(getTimeout) {
 #define MAX_WORKER_THREADS (1 << 13)
 
 static inline int errorTooManyThreads(QueryError *status) {
-  QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
+  QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
   return REDISMODULE_ERR;
 }
 
@@ -204,6 +208,7 @@ CONFIG_SETTER(setWorkThreads) {
 
   workersThreadPool_SetNumWorkers();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
+  // It is safe to set it even if change in worker threads is asynchronous, only the ration Connections/real threads may be not real for a transitional time
   COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
 }
@@ -252,7 +257,7 @@ CONFIG_SETTER(setDeprWorkThreads) {
   int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (newNumThreads > MAX_WORKER_THREADS) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
     return REDISMODULE_ERR;
   }
   numWorkerThreads_config = newNumThreads;
@@ -350,6 +355,41 @@ CONFIG_SETTER(setFrisoINI) {
 }
 CONFIG_GETTER(getFrisoINI) {
   return config->frisoIni ? sdsnew(config->frisoIni) : NULL;
+}
+
+// DEFAULT_SCORER
+CONFIG_SETTER(setDefaultScorer) {
+  if (!config->enableUnstableFeatures) {
+    QueryError_SetError(status, QUERY_EBADVAL, "`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`");
+    return REDISMODULE_ERR;
+  }
+  const char *scorerName;
+  int acrc = AC_GetString(ac, &scorerName, NULL, 0);
+  if (acrc == AC_OK) {
+    // Validate scorer name against registered scorers
+    if (Extensions_InitDone()) {
+      ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, scorerName);
+      if (scoreCtx == NULL) {
+        QueryError_SetError(status, QUERY_EBADVAL, "Invalid default scorer value");
+        return REDISMODULE_ERR;
+      }
+    }
+    // Free the old scorer name before assigning the new one
+    if (config->defaultScorer) {
+      rm_free((void *)config->defaultScorer);
+    }
+    config->defaultScorer = rm_strdup(scorerName);
+  }
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getDefaultScorer) {
+  RS_ASSERT(config->defaultScorer != NULL);
+  if (config->defaultScorer && strlen(config->defaultScorer) > 0) {
+    return sdsnew(config->defaultScorer);
+  } else {
+    return NULL;
+  }
 }
 
 // ON_TIMEOUT
@@ -493,7 +533,7 @@ CONFIG_SETTER(setDefaultDialectVersion) {
   unsigned int dialectVersion;
   int acrc = AC_GetUnsigned(ac, &dialectVersion, AC_F_GE1);
   if (dialectVersion > MAX_DIALECT_VERSION) {
-    QueryError_SetErrorFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
+    QueryError_SetWithoutUserDataFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
     return REDISMODULE_ERR;
   }
   config->requestConfigParams.dialectVersion = dialectVersion;
@@ -651,6 +691,74 @@ CONFIG_GETTER(getIndexCursorLimit) {
   return sdscatprintf(ss, "%lld", config->indexCursorLimit);
 }
 
+// ENABLE_UNSTABLE_FEATURES
+CONFIG_BOOLEAN_SETTER(set_EnableUnstableFeatures, enableUnstableFeatures)
+CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
+
+// BM25STD_TANH_FACTOR
+CONFIG_SETTER(setBM25StdTanhFactor) {
+  uint64_t newFactor;
+  int acrc = AC_GetU64(ac, &newFactor, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newFactor > BM25STD_TANH_FACTOR_MAX) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT,
+      "BM25STD_TANH_FACTOR must be between %d and %d inclusive",
+      BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
+    return REDISMODULE_ERR;
+  }
+  config->requestConfigParams.BM25STD_TanhFactor = newFactor;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getBM25StdTanhFactor) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->requestConfigParams.BM25STD_TanhFactor);
+}
+
+// INDEXER_YIELD_EVERY_OPS
+CONFIG_SETTER(setIndexerYieldEveryOps) {
+  unsigned int yieldEveryOps;
+  int acrc = AC_GetUnsigned(ac, &yieldEveryOps, AC_F_GE1);
+  config->indexerYieldEveryOpsWhileLoading = yieldEveryOps;
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getIndexerYieldEveryOps) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->indexerYieldEveryOpsWhileLoading);
+}
+
+// SET MEMORY LIMIT PERCENTAGE
+CONFIG_SETTER(setIndexingMemoryLimit) {
+  uint8_t newLimit;
+  int acrc = AC_GetU8(ac, &newLimit, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newLimit > 100) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Memory limit for indexing cannot be greater then 100%%");
+    return REDISMODULE_ERR;
+  }
+  config->indexingMemoryLimit = newLimit;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getIndexingMemoryLimit) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->indexingMemoryLimit);
+}
+
+CONFIG_SETTER(setBgOOMpauseTimeForRetry) {
+  uint32_t newPauseTime;
+  int acrc = AC_GetU32(ac, &newPauseTime, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  config->bgIndexingOomPauseTimeBeforeRetry = newPauseTime;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getBgOOMpauseTimeForRetry) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->bgIndexingOomPauseTimeBeforeRetry);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -691,7 +799,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     // If we don't have a coordinator or this configuration has no trigger, this value
     // is meaningless and should be ignored
     if (curVar->setValue(&RSGlobalConfig, &ac, curVar->triggerId, &status) != REDISMODULE_OK) {
-      *err = rm_strdup(QueryError_GetError(&status));
+      *err = rm_strdup(QueryError_GetUserError(&status));
       QueryError_ClearError(&status);
       return REDISMODULE_ERR;
     }
@@ -810,6 +918,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setFrisoINI,
          .getValue = getFrisoINI,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "DEFAULT_SCORER",
+         .helpText = "Default scorer to use when no scorer is specified in queries",
+         .setValue = setDefaultScorer,
+         .getValue = getDefaultScorer},
         {.name = "ON_TIMEOUT",
          .helpText = "Action to perform when search timeout is exceeded (choose RETURN or FAIL)",
          .setValue = setOnTimeout,
@@ -932,6 +1044,29 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "overall estimated number of results instead.",
          .setValue = set_PrioritizeIntersectUnionChildren,
          .getValue = get_PrioritizeIntersectUnionChildren},
+        {.name = "ENABLE_UNSTABLE_FEATURES",
+         .helpText = "Enable unstable features.",
+         .setValue = set_EnableUnstableFeatures,
+         .getValue = get_EnableUnstableFeatures},
+        {.name = "BM25STD_TANH_FACTOR",
+          .helpText = "Set the BM25STD.TANH stretch factor. This is an integer value that divides the argument"
+                      " of the tanh function that is used to normalize the score computed by the BM25STD scorer."
+                      "The default value is 4.",
+          .setValue = setBM25StdTanhFactor,
+          .getValue = getBM25StdTanhFactor},
+        {.name = "INDEXER_YIELD_EVERY_OPS",
+         .helpText = "The number of operations to perform before yielding to Redis during indexing while loading",
+         .setValue = setIndexerYieldEveryOps,
+         .getValue = getIndexerYieldEveryOps},
+        {.name = "_BG_INDEX_MEM_PCT_THR",
+        .helpText = "Set the percentage of memory usage threshold (out of maxmemory) at which background indexing will stop. The default is 100 percent.",
+        .setValue = setIndexingMemoryLimit,
+        .getValue = getIndexingMemoryLimit},
+        {.name = "_BG_INDEX_OOM_PAUSE_TIME",
+          .helpText = "Set the time (in seconds) given to the background indexing thread to sleep when it reaches the memory limit, giving time to reallocate memory."
+                      "The default value is 5 seconds in Redis Enterprise, 0 in Redis OS.",
+          .setValue = setBgOOMpauseTimeForRetry,
+          .getValue = getBgOOMpauseTimeForRetry},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -1033,6 +1168,10 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   if (config->frisoIni) {
     ss = sdscatprintf(ss, "friso ini: %s, ", config->frisoIni);
   }
+
+  if (config->defaultScorer && strlen(config->defaultScorer) > 0) {
+    ss = sdscatprintf(ss, "default scorer: %s, ", config->defaultScorer);
+  }
   return ss;
 }
 
@@ -1110,31 +1249,6 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
   int rc = var->setValue(config, &ac, var->triggerId, status);
   *offset += ac.offset;
   return rc;
-}
-
-void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
-  RedisModule_InfoAddSection(ctx, "runtime_configurations");
-
-  if (RSGlobalConfig.extLoad != NULL) {
-    RedisModule_InfoAddFieldCString(ctx, "extension_load", (char*)RSGlobalConfig.extLoad);
-  }
-  if (RSGlobalConfig.frisoIni != NULL) {
-    RedisModule_InfoAddFieldCString(ctx, "friso_ini", (char*)RSGlobalConfig.frisoIni);
-  }
-  RedisModule_InfoAddFieldCString(ctx, "enableGC", RSGlobalConfig.gcConfigParams.enableGC ? "ON" : "OFF");
-  RedisModule_InfoAddFieldLongLong(ctx, "minimal_term_prefix", RSGlobalConfig.iteratorsConfigParams.minTermPrefix);
-  RedisModule_InfoAddFieldLongLong(ctx, "minimal_stem_length", RSGlobalConfig.iteratorsConfigParams.minStemLength);
-  RedisModule_InfoAddFieldLongLong(ctx, "maximal_prefix_expansions", RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions);
-  RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms", RSGlobalConfig.requestConfigParams.queryTimeoutMS);
-  RedisModule_InfoAddFieldCString(ctx, "timeout_policy", (char*)TimeoutPolicy_ToString(RSGlobalConfig.requestConfigParams.timeoutPolicy));
-  RedisModule_InfoAddFieldLongLong(ctx, "cursor_read_size", RSGlobalConfig.cursorReadSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "cursor_max_idle_time", RSGlobalConfig.cursorMaxIdle);
-
-  RedisModule_InfoAddFieldLongLong(ctx, "max_doc_table_size", RSGlobalConfig.maxDocTableSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "max_search_results", RSGlobalConfig.maxSearchResults);
-  RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.maxAggregateResults);
-  RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length", RSGlobalConfig.minPhoneticTermLen);
 }
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {

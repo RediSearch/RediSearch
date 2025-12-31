@@ -10,10 +10,11 @@ from functools import wraps
 import signal
 import platform
 import itertools
+import threading
 from redis.client import NEVER_DECODE
 from redis import exceptions as redis_exceptions
 import RLTest
-from typing import Any, Callable
+from typing import Any, Callable, List
 from RLTest import Env
 from RLTest.env import Query
 import numpy as np
@@ -23,11 +24,14 @@ from deepdiff import DeepDiff
 from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
+import subprocess
+import math
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64', 'FLOAT16', 'BFLOAT16']
 VECSIM_ALGOS = ['FLAT', 'HNSW']
+DEFAULT_VECTOR_FIELD_NAME = 'vector'
 
 class TimeLimit(object):
     """
@@ -50,6 +54,33 @@ class TimeLimit(object):
     def handler(self, signum, frame):
         raise Exception(f'Timeout: {self.message}')
 
+def wait_for_condition(check_fn, message, timeout=120):
+    """
+    Wait for a condition with timeout and status reporting.
+
+    Parameters:
+        - env: Test environment
+        - check_fn: Function that takes returns (status: bool, state: dict)
+                   where state is a dict of the current state information
+        - message: Message prefix for timeout exception
+    """
+    iter = 0
+    timeout_msg = {}
+
+    try:
+        with TimeLimit(timeout):
+            while True:
+                done, state = check_fn()
+                if done:
+                    break
+                time.sleep(0.01)
+                iter += 1
+                timeout_msg['iter'] = iter
+                timeout_msg['state'] = state
+    except Exception as e:
+        log = f"{message}: {timeout_msg}"
+        raise Exception(f'Error: {e}, log: {log}')
+
 class DialectEnv(Env):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -70,7 +101,7 @@ class DialectEnv(Env):
                 message = f'Dialect {self.dialect}'
             else:
                 message = f'Dialect {self.dialect}, {message}'
-        super().assertEqual(first, second, depth=depth, message=message)
+        super().assertEqual(first, second, depth=depth+1, message=message)
 
 def getConnectionByEnv(env):
     conn = None
@@ -135,6 +166,17 @@ def toSortedFlatList(res):
 
         return py2sorted(finalList)
     return [res]
+
+def countFlatElements(arr):
+    """Count elements without sorting (lighter than toSortedFlatList)"""
+    if isinstance(arr, str):
+        return 1
+    if isinstance(arr, Iterable):
+        count = 0
+        for e in arr:
+            count += countFlatElements(e)
+        return count
+    return 1
 
 def assertInfoField(env, idx, field, expected, delta=None):
     d = index_info(env, idx)
@@ -310,12 +352,51 @@ def collectKeys(env, pattern='*'):
 def debug_cmd():
     return '_ft.debug' if COORD else 'ft.debug'
 
+def enable_unstable_features(env):
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
+
+def disable_unstable_features(env):
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'false')
+
+class unstable_features:
+    """Context manager to enable unstable features for a block of code.
+
+    Usage:
+        with unstable_features(env):
+            # code that requires unstable features
+        # unstable features are disabled after the block
+    """
+    def __init__(self, env):
+        self.env = env
+
+    def __enter__(self):
+        enable_unstable_features(self.env)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        disable_unstable_features(self.env)
+        return False  # Don't suppress exceptions
+
 def run_command_on_all_shards(env, *args):
     return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
 
 def config_cmd():
     return '_ft.config' if COORD else 'ft.config'
 
+def call_and_store(fn, args, out_list):
+    """
+    Helper function for threading: calls a function and stores its return value in a list.
+
+    Args:
+        fn: Function to call
+        args: Tuple of arguments to pass to the function
+        out_list: List to append the function's return value to
+    """
+    out_list.append(fn(*args))
+
+def verify_command_OK_on_all_shards(env, *args):
+    res = run_command_on_all_shards(env, *args)
+    env.assertEqual(res, ['OK'] * env.shardsCount)
 
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
@@ -449,6 +530,10 @@ def create_np_array_typed(data, data_type='FLOAT32'):
         return Bfloat16Array(data)
     return np.array(data, dtype=data_type.lower())
 
+def create_random_np_array_typed(dim, data_type='FLOAT32', seed=10):
+    np.random.seed(seed)
+    return create_np_array_typed(np.random.rand(dim), data_type)
+
 def compare_lists_rec(var1, var2, delta):
     if type(var1) != type(var2):
         return False
@@ -533,14 +618,17 @@ class ConditionalExpected:
             func(self.env.expect(*self.query))
         return self
 
-def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0, seed=10):
+def load_vectors_to_redis(env, n_vec, query_vec_index, dim, data_type='FLOAT32', vec_field_name=DEFAULT_VECTOR_FIELD_NAME, ids_offset=0, seed=10):
     conn = getConnectionByEnv(env)
     np.random.seed(seed)
+    p = conn.pipeline(transaction=False)
+    query_vec = None
     for i in range(n_vec):
-        vector = create_np_array_typed(np.random.rand(vec_size), data_type)
+        vector = create_np_array_typed(np.random.rand(dim), data_type)
         if i == query_vec_index:
             query_vec = vector
-        conn.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
+        p.execute_command('HSET', ids_offset + i, vec_field_name, vector.tobytes())
+    p.execute()
     return query_vec
 
 def sortResultByKeyName(res, start_index=1):
@@ -663,9 +751,345 @@ def verify_shard_init(shard):
                 shard.execute_command('FT.SEARCH', 'non-existing', '*')
                 raise Exception('Expected FT.SEARCH to fail')
             except redis_exceptions.ResponseError as e:
-                if 'no such index' in str(e):
+                if 'No such index' in str(e):
                     break
 
 def cmd_assert(env, cmd, res, message=None):
     db_res = env.cmd(*cmd)
     env.assertEqual(db_res, res, message=message)
+
+# fields should be in capital letters
+def getInvertedIndexInitialSize(env, fields, depth=0):
+    total_size = 0
+    for field in fields:
+        if field in ['GEO', 'NUMERIC']:
+            block_size = 48
+            initial_block_cap = 6
+            inverted_index_meta_data = 40
+            total_size += (block_size + initial_block_cap + inverted_index_meta_data)
+            continue
+        env.assertTrue(field in ['TEXT', 'TAG', 'GEOMETRY', 'VECTOR'], message=f"type {field} is not supported", depth=depth+1)
+
+    return total_size
+
+# fields should be in capital letters
+def getInvertedIndexInitialSize_MB(env, fields, depth=0) -> float:
+    return getInvertedIndexInitialSize(env, fields, depth=depth+1) / float(1024 * 1024)
+
+def check_index_info(env, idx, exp_num_records, exp_inv_idx_size, msg="", depth=0):
+    d = index_info(env, idx)
+    env.assertEqual(float(d['num_records']), exp_num_records, message=msg + ", num_records", depth=depth+1)
+
+    if(exp_inv_idx_size != None):
+        env.assertEqual(float(d['inverted_sz_mb']), exp_inv_idx_size, message=msg + ", inverted_sz_mb", depth=depth+1)
+
+# Iterates items in d1 and compare their keys[value] with d2
+# asserts when a key is missing in d2
+# For simplicity, all values are compared as floats
+def compare_numeric_dicts(env, d1, d2, d1_name="d1", d2_name="d2", msg="", _assert=True, depth=0):
+    for key, value in d1.items():
+        try:
+            res = float(d2[key]) == float(value)
+            if _assert:
+                env.assertTrue(res, message=msg + " value is different in key: " + key, depth=depth+1)
+            else:
+                if res == False:
+                    return False
+        except KeyError:
+            if _assert:
+                env.assertTrue(False, message=msg + f" key {key} exists in {d1_name} but doesn't exist in {d2_name}")
+            else:
+                raise KeyError
+    return True
+
+def compare_index_info_dict(env, idx, expected_info_dict, msg="", depth=0):
+    d = index_info(env, idx)
+    compare_numeric_dicts(env, expected_info_dict, d, "expected_info_dict", "index_info", msg, depth=depth+1)
+
+# expected info for index that was initialized and *emptied*
+def check_index_info_empty(env, idx, fields, msg="after delete all and gc", depth=0):
+    expected_size = getInvertedIndexInitialSize_MB(env, fields, depth=depth+1)
+    check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)
+
+def recursive_index(lst, target):
+    for i, element in enumerate(lst):
+        if isinstance(element, list):
+            sublist_index = recursive_index(element, target)
+            if sublist_index != -1:
+                return [i] + sublist_index
+        elif element == target:
+            return [i]
+    return -1
+
+def recursive_contains(lst, target):
+    return recursive_index(lst, target) != -1
+
+def downloadFile(env, file_name, depth=0, max_retries=3):
+    path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
+    path_dir = os.path.dirname(path)
+    os.makedirs(path_dir, exist_ok=True)  # create dir if not exists
+    if not os.path.exists(path):
+        env.debugPrint(f"downloading {file_name}", force=True)
+        try:
+            subprocess.run(
+                [
+                "wget",
+                "--no-check-certificate",
+                "--tries", str(max_retries + 1),  # wget tries
+                "--waitretry", "2",  # wait 2 seconds between retries
+                "--retry-connrefused",  # retry on connection refused
+                BASE_RDBS_URL + file_name,
+                "-O",
+                path,
+                "-v"  # verbose to get better error info
+            ], check=True, capture_output=True, text=True)
+
+        except subprocess.CalledProcessError as e:
+            env.debugPrint(f"Failed to download {file_name} after {max_retries + 1} attempts. "
+                           f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}", force=True)
+
+            # Clean up partial download
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+                    env.debugPrint(f"Removed partially downloaded file {path}", force=True)
+            except OSError:
+                env.debugPrint(f"Failed to remove {path}", force=True)
+                pass
+            return False
+    if not os.path.exists(path):
+        env.assertTrue(
+            False,
+            message=f"{path} does not exist after download",
+            depth=depth + 1,
+        )
+        return False
+    return True
+
+def downloadFiles(env, rdbs=None, depth=0):
+    if rdbs is None:
+        return False
+
+    for f in rdbs:
+        if not downloadFile(env, f, depth=depth + 1):
+            return False
+    return True
+
+def index_errors(env, idx = 'idx'):
+    return to_dict(index_info(env, idx)['Index Errors'])
+def field_errors(env, idx = 'idx', fld_index = 0):
+    return to_dict(to_dict(to_dict(index_info(env, idx)['field statistics'][fld_index]))['Index Errors'])
+
+def VerifyTimeoutWarningResp3(env, res, message="", depth=0):
+    env.assertTrue(res['warning'], message=message + " expected warning", depth=depth+1)
+    if (res['warning']):
+        env.assertContains("Timeout", res["warning"][0], message=message + " expected timeout warning", depth=depth+1)
+
+def parseDebugQueryCommandArgs(query_cmd, debug_params):
+    return [*query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)]
+
+def runDebugQueryCommand(env, query_cmd, debug_params):
+    # Use the helper function to build the argument list
+    args = parseDebugQueryCommandArgs(query_cmd, debug_params)
+    return env.cmd(debug_cmd(), *args)
+
+
+def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, internal_only=False):
+    debug_params = ['TIMEOUT_AFTER_N', timeout_res_count]
+    if internal_only:
+        debug_params.append("INTERNAL_ONLY")
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def runDebugQueryCommandPauseAfterRPAfterN(env, query_cmd, rp_type, pause_after_n):
+    debug_params = ['PAUSE_AFTER_RP_N', rp_type, pause_after_n]
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def runDebugQueryCommandPauseBeforeRPAfterN(env, query_cmd, rp_type, pause_after_n, extra_args=None):
+    debug_params = ['PAUSE_BEFORE_RP_N', rp_type, pause_after_n]
+    if extra_args:
+        debug_params.extend(extra_args)
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def getIsRPPaused(env):
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_RP_PAUSED')
+
+def setPauseRPResume(env):
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
+
+def allShards_getIsRPPaused(env):
+    results = []
+    for shardId in range(1, env.shardsCount + 1):
+        result = env.getConnection(shardId).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_RP_PAUSED')
+        results.append(result)
+    return results
+
+def allShards_setPauseRPResume(env):
+    results = []
+    for shardId in range(1, env.shardsCount + 1):
+        result = env.getConnection(shardId).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
+        results.append(result)
+    return results
+
+class vecsimMockTimeoutContext:
+    """Context manager for enabling/disabling VECSIM mock timeout on all shards"""
+    def __init__(self, env):
+        self.env = env
+
+    def __enter__(self):
+        run_command_on_all_shards(self.env, debug_cmd(), 'VECSIM_MOCK_TIMEOUT', 'enable')
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        run_command_on_all_shards(self.env, debug_cmd(), 'VECSIM_MOCK_TIMEOUT', 'disable')
+
+def waitForIndexFinishScan(env, idx = 'idx'):
+    with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
+        while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+            time.sleep(0.1)
+
+def bgScanCommand():
+    return debug_cmd() + ' BG_SCAN_CONTROLLER'
+
+def getDebugScannerStatus(env, idx = 'idx'):
+    return env.cmd(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
+
+def checkDebugScannerStatusError(env, idx = 'idx', expected_error = ''):
+    env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx).error() \
+        .contains(expected_error)
+
+def checkDebugScannerUpdateError(env, idx = 'idx', expected_error = ''):
+    env.expect(bgScanCommand(), 'DEBUG_SCANNER_UPDATE_CONFIG', idx).error() \
+        .contains(expected_error)
+
+def waitForIndexPauseScan(env, idx = 'idx'):
+    while getDebugScannerStatus(env, idx)!='PAUSED':
+        time.sleep(0.1)
+
+def set_tight_maxmemory_for_oom(env, memory_limit_per = 1):
+    # Get current memory consumption value
+    memory_usage = env.cmd('INFO', 'MEMORY')['used_memory']
+    # Set memory limit to less then memory limit
+    required_memory = memory_usage * (1/memory_limit_per)
+    # Round up and add 1
+    new_memory = math.ceil(required_memory) + 1
+
+    env.expect('config', 'set', 'maxmemory',new_memory).ok()
+
+def set_unlimited_maxmemory_for_oom(env):
+    env.expect('config', 'set', 'maxmemory', 0).ok()
+
+
+def waitForIndexStatus(env, status, idx='idx'):
+    with TimeLimit(60, 'Timeout while waiting for index status'):
+        while getDebugScannerStatus(env, idx) != status:
+            time.sleep(0.1)
+
+def waitForIndexPauseScan(env,idx = 'idx'):
+    waitForIndexStatus(env,'PAUSED', idx)
+
+def shard_getDebugScannerStatus(env, shardId, idx = 'idx'):
+    return env.getConnection(shardId).execute_command(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
+
+def shard_waitForIndexStatus(env, shardId, status, idx='idx'):
+    with TimeLimit(60, 'Timeout while waiting for index status'):
+        while shard_getDebugScannerStatus(env, shardId, idx) != status:
+            time.sleep(0.1)
+
+def shard_waitForIndexPauseScan(env, shardId, idx = 'idx'):
+    shard_waitForIndexStatus(env, shardId, 'PAUSED', idx)
+
+def allShards_waitForIndexPauseScan(env, idx = 'idx'):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_waitForIndexPauseScan(env, shardId, idx)
+
+def allShards_waitForIndexStatus(env, status, idx='idx'):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_waitForIndexStatus(env, shardId, status, idx)
+
+def shard_waitForIndexFinishScan(env, shardId, idx = 'idx'):
+    with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
+        while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+            time.sleep(0.1)
+
+
+def allShards_waitForIndexFinishScan(env, idx = 'idx'):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_waitForIndexFinishScan(env, shardId, idx)
+
+def shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per = 1):
+    # Get current memory consumption value
+    memory_usage = env.getConnection(shardId).execute_command('INFO', 'MEMORY')['used_memory']
+    # Set memory limit to less then memory limit
+    required_memory = memory_usage * (1/memory_limit_per)
+    # Round up and add 1
+    new_memory = math.ceil(required_memory) + 1
+    res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', new_memory)
+    env.assertEqual(res, 'OK')
+
+def allShards_set_tight_maxmemory_for_oom(env, memory_limit_per = 1):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per)
+
+def shard_set_unlimited_maxmemory_for_oom(env, shardId):
+    res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', 0)
+    env.assertEqual(res, 'OK')
+
+def allShards_set_unlimited_maxmemory_for_oom(env):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_set_unlimited_maxmemory_for_oom(env, shardId)
+
+def shard_change_timeout_policy(env, shardId, policy):
+    res = env.getConnection(shardId).execute_command(config_cmd(), 'SET', 'ON_TIMEOUT', policy)
+    env.assertEqual(res, 'OK')
+
+def allShards_change_timeout_policy(env, policy):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_change_timeout_policy(env, shardId, policy)
+
+def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
+    for k in d1:
+        if k in d2:
+            env.assertEqual(d1[k], d2[k], message=message, depth=depth+1)
+
+def access_nested_list(lst, index):
+    result = lst
+    for entry in index:
+        result = result[entry]
+    return result
+
+def launch_cmds_in_bg_with_exception_check(env, command, num_triggers, exception_timeout=1):
+    """
+    Launch the same Redis command multiple times in background threads with exception monitoring.
+
+    Args:
+        env: Redis test environment for executing commands.
+        command: A list containing the Redis command to execute (e.g., ['FT.SEARCH', 'idx', 'query']).
+        num_triggers: Number of background threads to spawn, each executing the same command.
+        exception_timeout: Seconds to wait for exception detection (default: 1).
+
+    Returns:
+        list[Thread]: Started thread objects if no exceptions occur, None if any thread fails.
+    """
+    threads = []
+    exceptions = []
+    exception_event = threading.Event()
+
+    def run_cmd():
+        try:
+            env.cmd(*command)
+        except Exception as e:
+            exceptions.append(e)
+            exception_event.set()
+
+    for i in range(num_triggers):
+        t = threading.Thread(target=run_cmd)
+        threads.append(t)
+        t.start()
+
+    # Check for exceptions before proceeding
+    if exception_event.wait(timeout=exception_timeout):
+        error_msg = f"Background command {command} failed with {len(exceptions)} error(s): {exceptions}"
+        env.assertTrue(False, message=error_msg)
+        return None
+
+    return threads

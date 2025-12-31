@@ -1,4 +1,6 @@
 from common import *
+import threading
+import time
 
 class TestDebugCommands(object):
 
@@ -22,22 +24,60 @@ class TestDebugCommands(object):
 
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
-        help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'DUMP_GEOMIDX',
-                     'DUMP_PREFIX_TRIE', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO', 'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE',
-                     'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY', 'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC',
-                     'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'TTL_PAUSE',
-                     'TTL_EXPIRE', 'VECSIM_INFO', 'DELETE_LOCAL_CURSORS', 'DUMP_HNSW']
+        help_list = [
+            "DUMP_INVIDX",
+            "DUMP_NUMIDX",
+            "DUMP_NUMIDXTREE",
+            "DUMP_TAGIDX",
+            "INFO_TAGIDX",
+            "DUMP_GEOMIDX",
+            "DUMP_PREFIX_TRIE",
+            "IDTODOCID",
+            "DOCIDTOID",
+            "DOCINFO",
+            "DUMP_PHONETIC_HASH",
+            "DUMP_SUFFIX_TRIE",
+            "DUMP_TERMS",
+            "INVIDX_SUMMARY",
+            "NUMIDX_SUMMARY",
+            "SPEC_INVIDXES_INFO",
+            "GC_FORCEINVOKE",
+            "GC_FORCEBGINVOKE",
+            "GC_CLEAN_NUMERIC",
+            "GC_STOP_SCHEDULE",
+            "GC_CONTINUE_SCHEDULE",
+            "GC_WAIT_FOR_JOBS",
+            "GIT_SHA",
+            "TTL",
+            "TTL_PAUSE",
+            "TTL_EXPIRE",
+            "VECSIM_INFO",
+            "DELETE_LOCAL_CURSORS",
+            "DUMP_HNSW",
+            "INDEXES",
+            "INFO",
+            'GET_HIDE_USER_DATA_FROM_LOGS',
+            'YIELDS_COUNTER',
+            'BG_SCAN_CONTROLLER',
+            'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
+            'QUERY_CONTROLLER',
+            'VECSIM_MOCK_TIMEOUT',
+            'FT.AGGREGATE',
+            'FT.SEARCH',
+            'FT.PROFILE',
+        ]
         if MT_BUILD:
             help_list.append('WORKERS')
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
-        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS']
+        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
+                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
     def testDocInfo(self):
-        rv = self.env.cmd('ft.debug', 'docinfo', 'idx', 'doc1')
+        rv = self.env.cmd('ft.debug', 'docinfo', 'idx', 'doc1', 'REVEAL')
         self.env.assertEqual(['internal_id', 1, 'flags', '(0xc):HasSortVector,HasOffsetVector,',
                               'score', '1', 'num_tokens', 1, 'max_freq', 1, 'refcount', 1, 'sortables',
                                [['index', 0, 'field', 'name AS name', 'value', 'meir'],
@@ -211,7 +251,6 @@ class TestDebugCommands(object):
             while len(self.env.cmd('FT._LIST')) > num_indexes:
                 pass
 
-
     def testStopAndResumeWorkersPool(self):
         if not MT_BUILD:
             self.env.skip()
@@ -315,3 +354,1204 @@ def testCoordDebug(env: Env):
     env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').error().contains('Topology updater is already paused')
     env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()
     env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').error().contains('Topology updater is already running')
+
+@skip(cluster=True)
+def testSpecIndexesInfo(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+
+    expected_reply = {
+        "inverted_indexes_dict_size": 0,
+        "inverted_indexes_memory": 0,
+    }
+    # Sanity check - empty spec
+    debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
+    env.assertEqual(to_dict(debug_output), expected_reply)
+
+    # Add a document
+    env.expect('HSET', 'doc1', 'n', 1).equal(1)
+    expected_reply["inverted_indexes_dict_size"] = 1
+
+    # assuming the document doesn't exceed the initial block size
+    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC'])
+    debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
+    env.assertEqual(to_dict(debug_output), expected_reply)
+
+def testVecsimInfo_badParams(env: Env):
+
+    # Scenerio1: Vecsim Index scheme with vector type with invalid parameter
+
+    # HNSW parameters the causes an execution throw (M > UINT16_MAX)
+    UINT16_MAX = 2**16
+    M = UINT16_MAX + 1
+    dim = 2
+    env.expect('FT.CREATE', 'idx','SCHEMA','v', 'VECTOR', 'HNSW', '8',
+                'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
+    env.expect(debug_cmd(), 'VECSIM_INFO', 'idx','v').error() \
+        .contains("Can't open vector index")
+
+def testHNSWdump_badParams(env: Env):
+    # Scenerio1: Vecsim Index scheme with vector type with invalid parameter
+
+    # HNSW parameters the causes an execution throw (M > UINT16_MAX)
+    UINT16_MAX = 2**16
+    M = UINT16_MAX + 1
+    dim = 2
+    env.expect('FT.CREATE', 'idx','SCHEMA','v', 'VECTOR', 'HNSW', '8',
+                'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
+
+    # Test dump HNSW with invalid index name
+    # If index error is "Can't open vector index" then function tries to accsses null pointer
+    env.expect(debug_cmd(), 'DUMP_HNSW', 'idx','v').error() \
+        .contains("Can't open vector index")
+
+class TestQueryDebugCommands(object):
+    def __init__(self):
+        # Set the module default behaviour to non strict timeout policy, as this is the main focus of this test suite
+        self.env = Env(testName="testing query debug commands", protocol=3, moduleArgs='ON_TIMEOUT RETURN')
+
+        conn = getConnectionByEnv(self.env)
+
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+        waitForIndex(self.env, 'idx')
+        self.num_docs = 1500 * self.env.shardsCount
+        for i in range(self.num_docs):
+            conn.execute_command('HSET', f'doc{i}' ,'n', i)
+
+        self.basic_query = []
+        self.basic_debug_query = []
+
+        self.cmd = None
+
+    def setBasicDebugQuery(self, cmd):
+        self.basic_query  = ['FT.' + cmd, 'idx', '*']
+        self.basic_debug_query = [debug_cmd(), *self.basic_query]
+        self.cmd = cmd
+
+    def verifyWarning(self, res, message, should_timeout=True, depth=0):
+        if should_timeout:
+            VerifyTimeoutWarningResp3(self.env, res, depth=depth+1, message=message + " expected warning")
+        else:
+            self.env.assertFalse(res['warning'], depth=depth+1, message=message + " unexpected warning")
+
+    def verifyResultsResp3(self, res, expected_results_count, message, should_timeout=True, depth=0):
+        env = self.env
+        env.assertEqual(len(res["results"]), expected_results_count, depth=depth+1, message=message + " unexpected results count")
+        self.verifyWarning(res, message, should_timeout=should_timeout, depth=depth+1)
+
+    def verifyResultsResp2(self, res, expected_results_count, message, depth=0):
+        env = self.env
+        env.assertEqual(len(res[1:] / 2), expected_results_count, depth=depth+1, message=message + " unexpected results count")
+
+    def QueryWithLimit(self, query, timeout_res_count, limit, expected_res_count, should_timeout=False, message="", depth=0):
+        env = self.env
+        debug_params = ['TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2]
+        res = env.cmd(*query, 'LIMIT', 0, limit, *debug_params)
+        self.verifyResultsResp3(res, expected_res_count, message=message + " QueryWithLimit:", should_timeout=should_timeout, depth=depth+1)
+
+        return res
+
+    def InvalidParams(self):
+        env = self.env
+        basic_debug_query = self.basic_debug_query
+
+        basic_debug_query_with_args = [*basic_debug_query, 'limit', 0, 0, 'timeout', 10000] # add random params to reach the minimum required to run the debug command
+
+        def expectError(debug_params, error_message, message="", depth=1):
+            test_cmd = [*basic_debug_query_with_args, *debug_params]
+            err = env.expect(*test_cmd).error().res
+            self.env.assertContains(error_message, err, message=message, depth=depth)
+
+        # Unrecognized arguments
+        debug_params = ['TIMEOUT_AFTER_MEOW', 1, 'DEBUG_PARAMS_COUNT', 2]
+        expectError(debug_params, "Unrecognized argument: TIMEOUT_AFTER_MEOW")
+
+        debug_params = ['TIMEOUT_AFTER_N', 1, 'PRINT_MEOW', 'DEBUG_PARAMS_COUNT', 3]
+        expectError(debug_params, "Unrecognized argument: PRINT_MEOW")
+
+        invalid_numeric_values = ["meow", -1, 0.2]
+
+        # Test invalid params count
+        def invalid_params_count(invalid_count, message=""):
+            debug_params = ['DEBUG_PARAMS_COUNT', invalid_count]
+            expectError(debug_params, 'Invalid DEBUG_PARAMS_COUNT count', message)
+
+        for invalid_count in invalid_numeric_values:
+            invalid_params_count(invalid_count, f"DEBUG_PARAMS_COUNT {invalid_count} should be invalid")
+
+        # Test invalid N count
+        def invalid_N(invalid_count, message=""):
+            debug_params = ['TIMEOUT_AFTER_N', invalid_count, 'DEBUG_PARAMS_COUNT', 2]
+            expectError(debug_params, 'Invalid TIMEOUT_AFTER_N count', message)
+
+        for invalid_count in invalid_numeric_values:
+            invalid_N(invalid_count, f"TIMEOUT_AFTER_N {invalid_count} should be invalid")
+
+        # test missing params
+        # no N
+        debug_params = ['TIMEOUT_AFTER_N', 'DEBUG_PARAMS_COUNT', 1]
+        expectError(debug_params, 'TIMEOUT_AFTER_N: Expected an argument, but none provided')
+        debug_params = ['INTERNAL_ONLY', 'TIMEOUT_AFTER_N', 'DEBUG_PARAMS_COUNT', 2]
+        expectError(debug_params, 'TIMEOUT_AFTER_N: Expected an argument, but none provided')
+
+        # INTERNAL_ONLY without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N
+        debug_params = ['INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 1]
+        expectError(debug_params, 'INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N')
+        expectError(debug_params, 'INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N')
+
+    def QueryDebug(self):
+        env = self.env
+        basic_debug_query = self.basic_debug_query
+
+        # Test invalid params
+        env.expect(*basic_debug_query).error().contains('wrong number of arguments for')
+
+        basic_debug_query_with_args = [*basic_debug_query, 'limit', 0, 0, 'timeout', 10000] # add random params to reach the minimum required to run the debug command
+        env.expect(*basic_debug_query_with_args).error().contains('DEBUG_PARAMS_COUNT arg is missing')
+
+        # in this case we try to parse [*basic_debug_query, 'limit', 0, 0, 'TIMEOUT'] so TIMEOUT count is missing
+        test_cmd = [*basic_debug_query_with_args, 'MEOW', 'DEBUG_PARAMS_COUNT', 2]
+        env.expect(*test_cmd).error().contains('argument for TIMEOUT')
+
+        self.InvalidParams()
+
+        # ft.<cmd> idx * TIMEOUT_AFTER_N 0 -> expect empty result
+        debug_params = ['TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2]
+        res = env.cmd(*basic_debug_query, *debug_params)
+        self.verifyResultsResp3(res, 0, "QueryDebug:")
+
+    def QueryWithSorter(self, limit=2, sortby_params=[], depth=0):
+        # For queries with sorter, the LIMIT determines the heap size.
+        # The sorter will continue to ask for results until it gets timeout or EOF.
+        # the number of results in this case is the minimum between the LIMIT and the TIMEOUT_AFTER_N counter.
+
+        # Therefore, as opposed to queries without sorter and LIMIT < TIMEOUT_AFTER_N,
+        # we will get LIMIT results *and* TIMEOUT warning.
+        res = self.QueryWithLimit([*self.basic_debug_query, *sortby_params], timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=True, depth=depth+1)
+        res_values = [doc_content['extra_attributes']['n'] for doc_content in res["results"]]
+        self.env.assertTrue(res_values == sorted(res_values), depth=depth+1, message="QueryWithSorter: expected sorted results")
+        self.env.assertTrue(len(res_values) == len(set(res_values)), depth=depth+1, message="QueryWithSorter: expected unique results")
+
+    ######################## Main tests ########################
+    def StrictPolicy(self):
+        env = self.env
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
+
+        with env.assertResponseError(contained="Timeout limit was reached"):
+            runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
+
+        # restore the default policy
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+
+    def SearchDebug(self):
+        self.setBasicDebugQuery("SEARCH")
+        basic_debug_query = self.basic_debug_query
+        self.QueryDebug()
+
+        timeout_res_count = 4
+
+        # FT.SEARCH with coord doesn't have a timeout check, therefore it will return shards * timeout_res_count results
+        expected_results_count = self.env.shardsCount * timeout_res_count
+        # set LIMIT to be larger than the expected results count
+        limit = expected_results_count + 1
+        self.QueryWithLimit(basic_debug_query, timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
+
+        # SEARCH always has a sorter
+        self.QueryWithSorter()
+
+        # with no sorter (dialect 4)
+        self.QueryWithLimit(basic_debug_query + ["DIALECT", 4], timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
+
+        self.StrictPolicy()
+
+    def testSearchDebug(self):
+        self.SearchDebug()
+
+    def testSearchDebug_MT(self):
+        skipTest(noWorkers=True)
+        self.env.expect(config_cmd(), 'SET', 'WORKERS', 4).ok()
+        self.SearchDebug()
+        self.env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
+
+    def AggregateDebug(self):
+        env = self.env
+        self.setBasicDebugQuery("AGGREGATE")
+        basic_debug_query = self.basic_debug_query
+        self.QueryDebug()
+
+        # EOF will be reached before the timeout counter
+        limit = 2
+        res = self.QueryWithLimit(basic_debug_query, timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=False)
+
+        self.QueryWithSorter(sortby_params=['sortby', 1, '@n'])
+
+        # with cursor
+        timeout_res_count = 200
+        limit = self.num_docs
+        cursor_count = 600 # higher than timeout_res_count, but lower than limit
+        debug_params = ["TIMEOUT_AFTER_N", timeout_res_count, "DEBUG_PARAMS_COUNT", 2]
+        cursor_query = [*basic_debug_query, 'WITHCURSOR', 'COUNT', cursor_count]
+        res, cursor = env.cmd(*cursor_query, 'LIMIT', 0, limit, *debug_params)
+        self.verifyResultsResp3(res, timeout_res_count, "AggregateDebug with cursor:")
+
+        iter = 0
+        total_returned = len(res['results'])
+        expected_results_per_iter = timeout_res_count
+
+        should_timeout = True
+        check_res = True
+        while (cursor):
+            remaining = limit - total_returned
+            if remaining <= timeout_res_count * env.shardsCount:
+                # We don't know how many docs are left in each shard, so the result structure is unpredictable.
+                # If all shards return fewer results than timeout_res_count, no timeout warning will occur.
+                # If at least one shard returns more than timeout_res_count, a timeout warning will be issued.
+                # See aggregate/aggregate_debug.h for more details.
+                if env.isCluster():
+                    check_res = False
+                else:
+                    # in a single shard the next read will return EOF
+                    expected_results_per_iter = remaining
+            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+            total_returned += len(res['results'])
+            if cursor == 0:
+                should_timeout = False
+
+            if check_res:
+                self.verifyResultsResp3(res, expected_results_per_iter, f"AggregateDebug with cursor: iter: {iter}, total_returned: {total_returned}", should_timeout=should_timeout)
+            iter += 1
+        env.assertEqual(total_returned, self.num_docs, message=f"AggregateDebug with cursor: depletion took {iter} iterations")
+
+        # cursor count smaller than timeout count, expect no timeout
+        cursor_count = timeout_res_count // 2
+        cursor_query = [*basic_debug_query, 'WITHCURSOR', 'COUNT', cursor_count]
+        res, cursor = env.cmd(*cursor_query, 'LIMIT', 0, limit, *debug_params)
+        should_timeout = False
+        self.verifyResultsResp3(res, cursor_count, should_timeout=should_timeout, message="AggregateDebug with cursor count lower than timeout_res_count:")
+
+        # Test TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR in cluster mode - should work and return empty results
+        if env.isCluster():
+            debug_params = ['TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3]
+            res = env.cmd(*basic_debug_query, *debug_params)
+            self.verifyResultsResp3(res, 0, message="AggregateDebug: TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR in cluster:")
+
+        self.StrictPolicy()
+
+    def testAggregateDebug(self):
+        self.AggregateDebug()
+
+    def testAggregateDebug_MT(self):
+        skipTest(noWorkers=True)
+        self.env.expect(config_cmd(), 'SET', 'WORKERS', 4).ok()
+        self.AggregateDebug()
+        self.env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
+
+    # compare results of regular query and debug query
+    def Sanity(self, cmd, query_params):
+        # avoid running this test in cluster mode, as it relies on the order of the shards reply.
+        skipTest(cluster=True)
+        env = self.env
+        results_count = 200
+        timeout_res_count = results_count - 1 # less than limit to get timeout and not EOF
+        query = ['FT.' + cmd, 'idx', '*', *query_params, 'LIMIT', 0, results_count]
+        debug_params = ["TIMEOUT_AFTER_N", timeout_res_count, "DEBUG_PARAMS_COUNT", 2]
+
+        # expect that the first timeout_res_count of the regular query will be the same as the debug query
+        regular_res = env.cmd(*query)
+        debug_res = env.cmd(debug_cmd(), *query, *debug_params)
+        self.verifyResultsResp3(debug_res, timeout_res_count, f"{cmd} Sanity: compare regular and debug results", should_timeout=True)
+
+        for i in range(timeout_res_count):
+            env.assertEqual(regular_res["results"][i], debug_res["results"][i], message=f"Sanity: compare regular and debug results at index {i}")
+
+    def testSearchSanity(self):
+        self.Sanity("SEARCH", ['SORTBY', 'n'])
+    def testAggSanity(self):
+        self.Sanity("AGGREGATE", ['LOAD', 1, '@n', 'SORTBY', 1, '@n'])
+
+    def testInternalOnly(self):
+        env = self.env
+        # test we get count * num_shards results with internal only
+        timeout_res_count = 4
+        limit = self.env.shardsCount * timeout_res_count + 1
+
+        def runCmd(cmd, expected_results_count):
+            query = [debug_cmd(), 'FT.' + cmd, 'idx', '*', 'LIMIT', 0, limit + 1, "TIMEOUT_AFTER_N", timeout_res_count, "INTERNAL_ONLY", "DEBUG_PARAMS_COUNT", 3]
+            res = env.cmd(*query)
+            self.verifyResultsResp3(res, expected_results_count, f"InternalOnly: FT.{cmd}:")
+
+        # we get timeout_res_count from each shard
+        runCmd("SEARCH", self.env.shardsCount * timeout_res_count)
+
+        # with AGGREGATE we will get timeout_res_count results because the shard returned timeout
+        runCmd("AGGREGATE", timeout_res_count)
+
+    def Resp2(self, cmd, query_params, listResults_func):
+        skipTest(cluster=True)
+        conn = getConnectionByEnv(self.env)
+        conn.execute_command("hello", "2")
+
+        timeout_res_count = 4
+        limit = self.env.shardsCount * timeout_res_count + 1
+        query = ['FT.' + cmd, 'idx', '*', *query_params, 'LIMIT', 0, limit]
+        debug_params = ["TIMEOUT_AFTER_N", timeout_res_count, "DEBUG_PARAMS_COUNT", 2]
+        # expect that the first timeout_res_count of the regular query will be the same as the debug query
+        regular_res = listResults_func(conn.execute_command(*query))
+        debug_res = listResults_func(conn.execute_command(debug_cmd(), *query, *debug_params))
+        self.env.assertEqual(len(debug_res), timeout_res_count, message=f"Resp2 with FT.{cmd}: expected results count")
+
+        for i in range(timeout_res_count):
+            self.env.assertEqual(regular_res[i], debug_res[i], message=f"Resp2 with FT.{cmd}: compare regular and debug results at index {i}")
+
+    def testAggResp2(self):
+        def listResults(res):
+            return res[1:]
+        self.Resp2("AGGREGATE", ['LOAD', 1, '@n', 'SORTBY', 1, '@n'], listResults)
+
+    def testSearchResp2(self):
+        def listResults(res):
+            return [{res[i]: res[i + 1]} for i in range(1, len(res[1:]), 2)]
+        self.Resp2("SEARCH", ['SORTBY', 'n'], listResults)
+
+# For now allowing access to the value through the debug command
+# Maybe in the future it should be accessible through the FT.CONFIG command and the test move to test_config.py
+# Didn't want to "break" the API by adding a new config parameter
+def test_hideUserDataFromLogs(env):
+    env.skipOnCluster()
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
+    env.assertEqual(value, 0)
+    env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'yes').ok()
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
+    env.assertEqual(value, 1)
+    env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'no').ok()
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
+    env.assertEqual(value, 0)
+
+
+def testIndexObfuscatedInfo(env: Env):
+    # we create more indexes to cover the found case in the code (it should break from the loop)
+    env.expect('FT.CREATE', 'first', 'SCHEMA', 'name', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    env.expect('FT.CREATE', 'last', 'SCHEMA', 'name', 'TEXT').ok()
+
+    obfuscated_name = 'Index@4e7f626df794f6491574a236f22c100c34ed804f'
+    debug_output = env.cmd(debug_cmd(), 'INFO', obfuscated_name)
+    info = to_dict(debug_output[0])
+    env.assertEqual(info['index_name'], obfuscated_name)
+    index_definition = to_dict(info['index_definition'])
+    env.assertEqual(index_definition['prefixes'][0], '')
+    attr_list = info['attributes']
+    field_stats_list = info['field statistics']
+    field_count = len(attr_list)
+    env.assertEqual(field_count, 1)
+    env.assertEqual(len(field_stats_list), field_count)
+    for i in range(field_count):
+        attr = to_dict(attr_list[i])
+        env.assertEqual(attr['identifier'], 'name')
+        env.assertEqual(attr['attribute'], 'name')
+        field_stats = to_dict(field_stats_list[i])
+        env.assertEqual(field_stats['identifier'], 'name')
+        env.assertEqual(field_stats['attribute'], 'name')
+
+@skip(cluster=True)
+def test_yield_counter(env):
+    # Giving wrong arity
+    env.expect(debug_cmd(), 'YIELDS_COUNTER','ExtraARG1','ExtraARG2').error()\
+    .contains('wrong number of arguments')
+    # Giving wrong subcommand
+    env.expect(debug_cmd(), 'YIELDS_COUNTER', 'NOT_A_COMMAND').error()\
+    .contains('Unknown subcommand')
+
+@skip(cluster=True)
+def testSetMaxScannedDocs(env: Env):
+
+    # Test setting max scanned docs of background scan
+    # Insert 10 documents
+    num_docs = 10
+    for i in range(num_docs):
+        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+    # Create a baseline index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndexFinishScan(env)
+    # Get count of indexed documents
+    docs_in_index = env.cmd('FT.SEARCH', 'idx', '*')[0]
+    env.assertEqual(docs_in_index, num_docs)
+
+    # Check error handling
+    # Giving invalid argument
+    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', 'notAnumber').error()\
+    .contains("Invalid argument for 'SET_MAX_SCANNED_DOCS'")
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS').error()\
+    .contains('wrong number of arguments')
+
+
+    # Set max scanned docs to 5
+    max_scanned = 5
+    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', max_scanned).ok()
+
+    # Create a new index
+    env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndexFinishScan(env, 'idx2')
+    # Get count of indexed documents
+    docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
+    env.assertEqual(docs_in_index, max_scanned)
+
+    # Reset max scanned docs by setting negative value
+    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', -1).ok()
+    # Create a new index
+    env.expect('FT.CREATE', 'idx3', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndexFinishScan(env, 'idx3')
+    # Get count of indexed documents
+    docs_in_index = env.cmd('FT.SEARCH', 'idx3', '*')[0]
+    env.assertEqual(docs_in_index, num_docs)
+
+@skip(cluster=True)
+def testPauseOnScannedDocs(env: Env):
+    num_docs = 10
+    for i in range(num_docs):
+        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+
+    # Create a baseline index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndexFinishScan(env)
+    # Get count of indexed documents
+    docs_in_index = env.cmd('FT.SEARCH', 'idx', '*')[0]
+    env.assertEqual(docs_in_index, num_docs)
+
+
+    # Check error handling
+    # Giving invalid argument
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 'notAnumber').error()\
+    .contains("Invalid argument for 'SET_PAUSE_ON_SCANNED_DOCS'")
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS').error()\
+    .contains('wrong number of arguments')
+
+    # Set max scanned docs to 5
+    pause_on_scanned = 5
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', pause_on_scanned).ok()
+
+    env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndexPauseScan(env, 'idx2')
+
+    # Get count of indexed documents
+    docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
+    env.assertEqual(docs_in_index, pause_on_scanned)
+
+    # Get indexing info
+    idx_info = index_info(env, 'idx2')
+    env.assertEqual(idx_info['indexing'], 1)
+    env.assertEqual(idx_info['percent_indexed'], f'{pause_on_scanned/num_docs}')
+
+    # Check resume error handling
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').error()\
+    .contains('wrong number of arguments')
+
+    # Resume indexing
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    waitForIndexFinishScan(env, 'idx2')
+    # Get count of indexed documents
+    docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
+    env.assertEqual(docs_in_index, num_docs)
+
+@skip(cluster=True)
+def testPauseBeforeScan(env: Env):
+    num_docs = 10
+    for i in range(num_docs):
+        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+
+    # Create a baseline index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndexFinishScan(env)
+
+    # Get count of indexed documents
+    docs_in_index = env.cmd('FT.SEARCH', 'idx', '*')[0]
+    env.assertEqual(docs_in_index, num_docs)
+
+    # Check error handling
+    # Giving invalid argument
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'notTrue').error()\
+    .contains("Invalid argument for 'SET_PAUSE_BEFORE_SCAN'")
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN').error()\
+    .contains('wrong number of arguments')
+
+    # Set pause before scan
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+
+    env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndexStatus(env, 'NEW', 'idx2')
+
+    idx_info = index_info(env, 'idx2')
+    env.assertEqual(idx_info['indexing'], 1)
+    # If is indexing, but debug scanner status is NEW, it means that the scanner is paused before scan
+
+    # Resume indexing
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    waitForIndexFinishScan(env, 'idx2')
+    # Get count of indexed documents
+    docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
+    env.assertEqual(docs_in_index, num_docs)
+
+@skip(cluster=True)
+def testDebugScannerStatus(env: Env):
+    num_docs = 10
+    for i in range(num_docs):
+        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+    pause_on_scanned = 5
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', pause_on_scanned).ok()
+    max_scanned = 7
+    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', max_scanned).ok()
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndexStatus(env, 'NEW')
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    waitForIndexPauseScan(env, 'idx')
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    waitForIndexFinishScan(env, 'idx')
+    # When scan is done, the scanner is freed
+    checkDebugScannerStatusError(env, 'idx', 'Scanner is not initialized')
+
+    # Test error handling
+    # Giving non existing index name
+    checkDebugScannerStatusError(env, 'non_existing', 'Unknown index name')
+
+    # Test error handling
+    # Giving invalid argument to debug scanner control command
+    env.expect(bgScanCommand(), 'NOT_A_COMMAND', 'notTrue').error()\
+    .contains("Invalid command for 'BG_SCAN_CONTROLLER'")
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS').error()\
+    .contains('wrong number of arguments')
+
+    # Test OOM pause
+    # Insert more docs to ensure un-flakey test
+    extra_docs = 90
+    for i in range(num_docs,extra_docs+num_docs):
+        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+
+    # Remove previous debug scanner settings
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'false').ok()
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 0).ok()
+    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', 0).ok()
+    # Set OOM pause
+    # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
+    env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+    # Set tight memory limit to trigger OOM
+    set_tight_maxmemory_for_oom(env, 0.85)
+    # Create an index and expect OOM pause
+    env.expect('FT.CREATE', 'idx_oom', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndexStatus(env, 'PAUSED_ON_OOM','idx_oom')
+    # Resume indexing
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+
+@skip(cluster=True)
+def testPauseOnOOM(env: Env):
+    # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
+    env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+    num_docs = 1000
+    for i in range(num_docs):
+        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+
+    # Check error handling
+    # Giving invalid argument
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'notAbool').error()\
+    .contains("Invalid argument for 'SET_PAUSE_ON_OOM'")
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM').error()\
+    .contains('wrong number of arguments')
+
+    # Set pause on OOM
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+    # Set pause after quarter of the docs were scanned
+    num_docs_scanned = num_docs//4
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+
+    # Baseline failed scans due to OOM
+    failed_idx_oom = env.cmd('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndexPauseScan(env, 'idx')
+
+    # At this point num_docs_scanned were scanned
+    # Now we set the tight memory limit
+    set_tight_maxmemory_for_oom(env, 0.85)
+    # After we resume, an OOM should trigger
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+
+    # At this point, the index should be paused on OOM
+    # Wait for INFO metric "OOM_indexing_failures_indexes_count" to increment
+    # Note: While there are other ways to check if OOM occurred, this is the most direct way,
+    #       as the metric is based directly on the spec field "scan_failed_OOM"
+    while (env.cmd('INFO', 'modules')['search_OOM_indexing_failures_indexes_count'])!=(failed_idx_oom+1):
+        time.sleep(0.1)
+
+    # At this point, we are certain an OOM occurred, but the index scanning should be paused
+    # We can verify this (without using the scanner status to maintain independency) by checking "indexing" entry in ft.info
+    idx_info = index_info(env, 'idx')
+    env.assertEqual(idx_info['indexing'], 1)
+    # The percent index should be close to 0.25 as we set the tight memory limit after 25% of the docs were scanned
+    env.assertAlmostEqual(float(idx_info['percent_indexed']), 0.25, delta=0.1)
+
+    # Resume indexing for the sake of completeness
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+
+    # Test giving false to pause on OOM for coverage
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'false').ok()
+
+@skip(cluster=True)
+def test_terminate_bg_pool(env):
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'TERMINATE_BG_POOL','ExtraARG').error()\
+    .contains('wrong number of arguments')
+    # Test OK returned only after scan complete
+    # Insert 1000 docs
+    num_docs = 1000
+    for i in range(num_docs):
+        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    env.expect(bgScanCommand(), 'TERMINATE_BG_POOL').ok()
+    # Check if the scan is finished
+    env.assertEqual(index_info(env, 'idx')['indexing'], 0)
+
+@skip(cluster=True)
+def test_pause_before_oom_retry(env):
+    # Check error handling
+    # Giving invalid argument
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'notAbool').error()\
+    .contains("Invalid argument for 'SET_PAUSE_BEFORE_OOM_RETRY'")
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY').error()\
+    .contains('wrong number of arguments')
+
+@skip(cluster=True)
+def test_update_debug_scanner_config(env):
+    # Check error handling
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'DEBUG_SCANNER_UPDATE_CONFIG').error()\
+    .contains('wrong number of arguments')
+
+    num_docs = 10
+    for i in range(num_docs):
+        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+
+    # When scan is done, the scanner is freed
+    checkDebugScannerUpdateError(env, 'idx', 'Scanner is not initialized')
+
+    # Test error handling
+    # Giving non existing index name
+    checkDebugScannerUpdateError(env, 'non_existing', 'Unknown index name')
+
+@skip(cluster=True)
+def test_query_controller(env):
+    # Giving wrong arity
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER').error()\
+    .contains('wrong number of arguments')
+    # Giving wrong subcommand
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'NOT_A_COMMAND').error()\
+    .contains("Invalid command for 'QUERY_CONTROLLER'")
+
+@skip(cluster=True)
+def test_query_controller_pause_and_resume(env):
+
+    # Giving wrong arity
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME', 'ExtraARG').error()\
+    .contains('wrong number of arguments')
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_RP_PAUSED', 'ExtraARG').error()\
+    .contains('wrong number of arguments')
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM', 'ExtraARG').error()\
+    .contains('wrong number of arguments')
+
+    # Test error when trying to resume when no query is paused
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME').error()\
+    .contains('Query is not paused')
+
+    # Test error when trying to print RP stream when no debug RP is set
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM').error()\
+    .contains('No debug RP is set')
+
+    # Set workers to 2 to make sure the query can be paused
+    # 1 worker is for testing we can't debug multiple queries
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', 2).ok()
+
+    # Create 1 docs
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
+
+    queries_completed = 0
+
+    for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
+        # We need to call the queries in MT so the paused query won't block the test
+        query_result = []
+
+        # Build threads
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                (env, [query_type, 'idx', '*'], 'Index', 0, ['INTERNAL_ONLY'] if query_type == 'FT.AGGREGATE' else None),
+                query_result),
+            daemon=True
+        )
+
+        # Start the query and the pause-check in parallel
+        t_query.start()
+
+        while getIsRPPaused(env) != 1:
+            time.sleep(0.1)
+
+        # Test error when trying to create multiple debug RPs (should fail with "Failed to create pause RP or another debug RP is already set")
+        # This tests the error case in PipelineAddPauseRPcount when RPPauseAfterCount_New returns NULL
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_BEFORE_RP_N', 'Index', 0, 'PAUSE_AFTER_RP_N', 'Sorter', 0, 'DEBUG_PARAMS_COUNT', 6).error()\
+        .contains('Failed to create pause RP or another debug RP is already set')
+        # The query above completed even though it failed
+        queries_completed += 1
+
+        # If we are here, the query is paused
+        # Verify we have 1 active query
+        active_queries = env.cmd('INFO', 'MODULES')['search_total_active_queries']
+        env.assertEqual(active_queries, 1)
+
+        # Test PRINT_RP_STREAM
+        rp_stream = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM')
+        if query_type == 'FT.SEARCH':
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','Sorter','Scorer','DEBUG_RP','Index'])
+        if query_type == 'FT.AGGREGATE':
+            env.assertEqual(rp_stream, ['DEBUG_RP','Index'])
+
+        # Resume the query
+        setPauseRPResume(env)
+
+        t_query.join()
+
+        queries_completed += 1
+
+        # Verify the query returned only 1 result
+        env.assertEqual(query_result[0][0], 1)
+
+@skip(cluster=True)
+def test_query_controller_add_before_after(env):
+    # Set workers to 1 to make sure the query can be paused
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    # Create 1 docs
+    env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
+
+    # Check error when workers is 0
+    env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_BEFORE_RP_N', 'Index', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+    .contains("Query PAUSE_BEFORE_RP_N is only supported with WORKERS")
+
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', 1).ok()
+
+    # Check error when insert after Index RP
+    env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_AFTER_RP_N', 'Index', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+    .contains("Index RP type not found in stream or tried to insert after last RP")
+
+    for before in [True, False]:
+
+        target_func = runDebugQueryCommandPauseBeforeRPAfterN if before else runDebugQueryCommandPauseAfterRPAfterN
+
+        # Check wrong RP type error
+        cmd_str = 'BEFORE' if before else 'AFTER'
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'InvalidRP', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+        .contains(f"InvalidRP is an invalid PAUSE_{cmd_str}_RP_N RP type")
+        # Check RP type that is not in the stream
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'Highlighter', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+        .contains(f"Highlighter RP type not found in stream or tried to insert after last RP")
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'Highlighter', -1, 'DEBUG_PARAMS_COUNT', 3).error()\
+        .contains(f"Invalid PAUSE_{cmd_str}_RP_N count")
+        # Build threads
+        t_query = threading.Thread(
+            target=target_func,
+            args=(env,['FT.SEARCH', 'idx', '*'], 'Sorter', 0),
+            daemon=True
+        )
+
+        # Start the query and the pause-check in parallel
+        t_query.start()
+
+        while getIsRPPaused(env) != 1:
+            time.sleep(0.1)
+        rp_stream = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM')
+        if before:
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','DEBUG_RP','Sorter','Scorer','Index'])
+        else:
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','Sorter','DEBUG_RP','Scorer','Index'])
+
+        # Resume the query
+        setPauseRPResume(env)
+        t_query.join()
+
+@skip(cluster=False)
+def test_cluster_query_controller_pause_and_resume():
+    # Set workers to 1 on all shards to make sure queries can be paused
+    env = Env(moduleArgs='WORKERS 1')
+
+    conn = getConnectionByEnv(env)
+
+    # Create index
+    res = conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.assertEqual(res, 'OK')
+
+    n_docs_per_shard = 100
+    # Enough docs to make sure we have results from all shards
+    n_docs = n_docs_per_shard * env.shardsCount
+    for i in range(n_docs):
+        res = conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
+        env.assertEqual(res, 1)
+
+    for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
+        # We need to call the queries in MT so the paused query won't block the test
+        query_result = []
+
+        # Build threads
+        query_args = [query_type, 'idx', '*']
+        if query_type == 'FT.AGGREGATE':
+            query_args.append('LOAD')
+            query_args.append(1)
+            query_args.append('@t')
+
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                (env, query_args, 'Index', 0, ['INTERNAL_ONLY'] if query_type == 'FT.AGGREGATE' else None),
+                query_result),
+            daemon=True
+        )
+
+        # Start the query and the pause-check in parallel
+        t_query.start()
+
+        # Wait for any shard to be paused
+        while False in allShards_getIsRPPaused(env):
+            time.sleep(0.1)
+
+        # If we are here, at least one query is paused
+        # Verify that we have active queries across the cluster
+        for shard_id in range(1, env.shardsCount + 1):
+            active_queries = env.getConnection(shard_id).execute_command('INFO', 'MODULES')['search_total_active_queries']
+            env.assertEqual(active_queries, 1)
+
+        # Resume all shards
+        allShards_setPauseRPResume(env)
+
+        t_query.join()
+
+        if query_type == 'FT.SEARCH':
+            env.assertEqual(query_result[0][0], n_docs)
+        else:
+            env.assertEqual(len(query_result[0]) - 1, n_docs)
+
+@skip(cluster=False)
+def test_cluster_query_controller_pause_and_resume_coord(env):
+
+    conn = getConnectionByEnv(env)
+
+    # Create index
+    res = conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.assertEqual(res, 'OK')
+
+    n_docs_per_shard = 100
+    # Enough docs to make sure we have results from all shards
+    n_docs = n_docs_per_shard * env.shardsCount
+    for i in range(n_docs):
+        res = conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
+        env.assertEqual(res, 1)
+
+    # Check error when insert after Network RP
+    env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'PAUSE_AFTER_RP_N', 'Network', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+    .contains("Network RP type not found in stream or tried to insert after last RP")
+
+    # We need to call the queries in MT so the paused query won't block the test
+    query_result = []
+
+    # Build threads
+    query_args = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t']
+
+    t_query = threading.Thread(
+        target=call_and_store,
+        args=(runDebugQueryCommandPauseBeforeRPAfterN,
+            (env, query_args, 'Network', 0),
+            query_result),
+        daemon=True
+    )
+
+    # Start the query and the pause-check in parallel
+    t_query.start()
+
+    # Wait for the coordinator to be paused
+    while getIsRPPaused(env) != 1:
+        time.sleep(0.1)
+
+    # Resume the coordinator
+    setPauseRPResume(env)
+
+    t_query.join()
+
+    env.assertEqual(len(query_result[0]) - 1, n_docs)
+
+class ProfileDebugSA:
+    @staticmethod
+    def createIndex(env):
+        skipTest(cluster=True)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
+        env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+        conn = getConnectionByEnv(env)
+        for i in range(10):
+            conn.execute_command('HSET', f'doc{i}', 't', f"hello{i}")
+    @staticmethod
+    def get_profile_data(res, cmd_type):
+        if isinstance(res, dict):  # RESP3
+            return {
+                'results_count': len(res['results']),
+                'profile': res['profile']
+            }
+        else:  # RESP2
+            # RESP2 format: [results_array, profile_array]
+            return {
+                'results_count': len(res[0]) - 1 if cmd_type == 'AGGREGATE' else len(res[0][1:]) // 2,  # Subtract 1 for total count
+                'profile': res[1]
+            }
+
+    # Helper to get value from profile sections
+    @staticmethod
+    def get_section(env, profile_sections, key):
+        if isinstance(profile_sections, dict):  # RESP3
+            return profile_sections.get(key)
+        else:  # RESP2
+            for i, section in enumerate(profile_sections):
+                if key in section:
+                    env.assertGreaterEqual(len(profile_sections[i]), 2, message=f"Expected at least 2 elements in section {key}, but got {profile_sections[i]}")
+                    return profile_sections[i][1:]
+            env.assertTrue(False, message=f"Expected section {key} not found in profile_sections: {profile_sections}")
+
+    @staticmethod
+    def get_field(item, field_name):
+        if isinstance(item, dict):  # RESP3
+            return item.get(field_name)
+        else:  # RESP2
+            return item[item.index(field_name) + 1]
+
+    @staticmethod
+    def ProfileDebugTimeout(env, command_type, protocol):
+        conn = getConnectionByEnv(env)
+        message_prefix = f"command_type: {command_type}, protocol: {protocol}"
+
+        # Run baseline normal query to get expected structure
+        baseline_query = ['FT.PROFILE', 'idx', command_type, 'QUERY', '@t:hello*']
+        baseline_res = conn.execute_command(*baseline_query)
+
+        baseline_data = ProfileDebugSA.get_profile_data(baseline_res, command_type)
+        baseline_profile = baseline_data['profile']
+
+        # Run debug query with TIMEOUT_AFTER_N
+        results_count = 5
+        debug_res = runDebugQueryCommandTimeoutAfterN(env, baseline_query, results_count)
+        debug_data = ProfileDebugSA.get_profile_data(debug_res, command_type)
+        debug_profile = debug_data['profile']
+        # Verify both return same number of results
+        env.assertEqual(debug_data['results_count'], results_count,
+                        message=f"{message_prefix}: Debug should return expected number of results")
+
+        # Both should have same number of entries in baseline_iterators
+        baseline_iterators = ProfileDebugSA.get_section(env, baseline_profile, 'Iterators profile')
+        debug_iterators = ProfileDebugSA.get_section(env, debug_profile, 'Iterators profile')
+        env.assertEqual(countFlatElements(baseline_iterators), countFlatElements(debug_iterators),
+                        message=f"{message_prefix}: Baseline and debug should have same number of entries in iterators profile. baseline: {countFlatElements(baseline_iterators)}, debug: {countFlatElements(debug_iterators)}")
+
+        # Verify Result processors profile structure matches
+        baseline_rp = ProfileDebugSA.get_section(env, baseline_profile, 'Result processors profile')
+        debug_rp = ProfileDebugSA.get_section(env, debug_profile, 'Result processors profile')
+
+        # Both should have same number of RPs
+        env.assertEqual(len(baseline_rp), len(debug_rp),
+                        message=f"{message_prefix}: Baseline and debug should have same number of result processors. baseline: {baseline_rp}, debug: {debug_rp}")
+
+        # Verify each RP has same Type
+        for i, (baseline_rp_item, debug_rp_item) in enumerate(zip(baseline_rp, debug_rp)):
+            baseline_type = ProfileDebugSA.get_field(baseline_rp_item, 'Type')
+            debug_type = ProfileDebugSA.get_field(debug_rp_item, 'Type')
+            env.assertEqual(baseline_type, debug_type,
+                            message=f"{message_prefix}: RP {i}: Type should match baseline")
+
+            # Verify no "Debug" type appears (debug RPs should be skipped)
+            env.assertNotEqual(debug_type, 'Debug',
+                                message=f"{message_prefix}: RP {i}: Debug RP should not appear in Result processors profile")
+
+        # Verify debug has timeout warning
+        debug_warning = ProfileDebugSA.get_section(env, debug_profile, 'Warning')
+        env.assertIsNotNone(debug_warning, message="Debug should have timeout warning")
+        env.assertContains('Timeout', str(debug_warning), message="Debug warning should contain 'Timeout'")
+
+class TestProfileDebugSAResp2(object):
+    def __init__(self):
+        env = Env(protocol=2)
+        ProfileDebugSA.createIndex(env)
+        self.env = env
+
+    def testProfileTimeoutSearchResp2(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "SEARCH", 2)
+    def testProfileTimeoutAggregateResp2(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "AGGREGATE", 2)
+
+class TestProfileDebugSAResp3(object):
+    def __init__(self):
+        env = Env(protocol=3)
+        ProfileDebugSA.createIndex(env)
+        self.env = env
+
+    def testProfileTimeoutSearchResp3(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "SEARCH", 3)
+    def testProfileTimeoutAggregateResp3(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "AGGREGATE", 3)
+
+class ProfileDebugCluster:
+    @staticmethod
+    def createIndex(env):
+        skipTest(cluster=False)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
+        run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+        conn = getConnectionByEnv(env)
+        for i in range(100):
+            conn.execute_command('HSET', f'doc{i}', 't', f"hello{i}")
+
+    @staticmethod
+    def get_profile_data(res, cmd_type):
+        if isinstance(res, dict):  # RESP3
+            return {
+                'results_count': len(res['results']),
+                'shards_profile': res['Shards'].keys() if cmd_type == 'AGGREGATE' else res['shards'].keys(),
+                'coordinator_profile': res['Coordinator'] if cmd_type == 'AGGREGATE' else res['shards']['Coordinator']
+            }
+        else:  # RESP2
+            # RESP2 format: [results_array, profile_array]
+            if cmd_type == 'AGGREGATE':
+                return {
+                    'results_count': len(res[0]) - 1,
+                    'shards_profile': [item for item in res[2] if "Shard #" in item],
+                    'coordinator_profile': res[res.index('Coordinator') + 1][1:] # for some reason the first element is "Result processors profile"
+                }
+            # Else SEARCH
+            # find the array in res that strart with "Shard #"
+            profile_start_index_search = 0
+            for i, item in enumerate(res):
+                if isinstance(item, list) and item[0] == 'Shard #1':
+                    profile_start_index_search = i
+                    break
+            return {
+                'results_count': len(res[1:profile_start_index_search]) // 2,  # Subtract 1 for total count
+                'shards_profile': [item for item in res[profile_start_index_search] if "Shard #" in item],
+                'coordinator_profile': res[profile_start_index_search][res[profile_start_index_search].index('Coordinator') + 1][1:] # for some reason the first element is "Result processors profile"
+            }
+
+    # Helper to get value from profile sections
+    @staticmethod
+    def get_section(env, cmd_type, profile_sections, key):
+        if isinstance(profile_sections, dict):  # RESP3
+            # For RESP3, handle nested 'profile' key in coordinator's Result processors profile
+            if key == 'Result processors profile':
+                return profile_sections['Result processors profile']['profile']['Result processors profile']
+            return profile_sections.get(key)
+        else:  # RESP2
+            if cmd_type == 'AGGREGATE' and key == 'Result processors profile':
+                    return profile_sections[0][0][-1]
+            for i, section in enumerate(profile_sections):
+                if key in section:
+                    env.assertGreaterEqual(len(section), 2, message=f"Expected at least 2 elements in section {key}, but got {section}")
+                    return section[i][1:]
+            env.assertTrue(False, message=f"Expected section {key} not found in profile_sections: {profile_sections}")
+
+    @staticmethod
+    def get_field(item, field_name):
+        if isinstance(item, dict):  # RESP3
+            return item.get(field_name)
+        else:  # RESP2
+            # For RESP2, it's a list where field_name is followed by value
+            if field_name in item:
+                return item[item.index(field_name) + 1]
+
+    @staticmethod
+    def ProfileDebugTimeout(env, command_type, protocol):
+        message_prefix = f"command_type: {command_type}, protocol: {protocol}"
+
+        # Run baseline normal query to get expected structure
+        baseline_query = ['FT.PROFILE', 'idx', command_type, 'QUERY', '@t:hello*']
+        baseline_res = env.cmd(*baseline_query)
+        baseline_data = ProfileDebugCluster.get_profile_data(baseline_res, command_type)
+
+        # Run debug query with TIMEOUT_AFTER_N
+        results_count = 3
+        debug_res = runDebugQueryCommandTimeoutAfterN(env, baseline_query, results_count)
+        debug_data = ProfileDebugCluster.get_profile_data(debug_res, command_type)
+
+        # Verify number of results
+        expected_results = results_count if command_type == 'AGGREGATE' else results_count * env.shardsCount
+        env.assertEqual(debug_data['results_count'], expected_results,
+                        message=f"{message_prefix}: Debug should return expected number of results")
+
+        # Verify we have received profiles from all 3 shards
+        # Since we only detect shard's timeout on resp 3, on resp2 we might continue sending FT.CURSOR READ to the
+        # shards until EOF. Since we discard the profile on empty replies (see MOD-12626), we lose the profile of the
+        # shard that returned EOF.
+        # Therefor, we skip this check in resp2.
+        if protocol == 3:
+            expected_len = env.shardsCount if command_type == 'AGGREGATE' else env.shardsCount + 1
+            env.assertEqual(len(debug_data['shards_profile']), expected_len,
+                            message=f"{message_prefix}: Debug should return profiles from all shards")
+        # Verify coordinator profile exists
+        env.assertTrue(debug_data['coordinator_profile'] is not None,
+                        message=f"{message_prefix}: Debug should return coordinator profile")
+
+        if command_type == 'AGGREGATE':
+            # Both baseline should have same result processors pipeline in the coordinator
+            baseline_rp = ProfileDebugCluster.get_section(env, command_type, baseline_data['coordinator_profile'], 'Result processors profile')
+            debug_rp = ProfileDebugCluster.get_section(env, command_type, debug_data['coordinator_profile'], 'Result processors profile')
+            # Both should have same number of RPs
+            env.assertEqual(len(baseline_rp), len(debug_rp),
+                        message=f"{message_prefix}: Baseline and debug should have same number of result processors. baseline: {baseline_rp}, debug: {debug_rp}")
+
+            # Verify each RP has same Type
+            for i, (baseline_rp_item, debug_rp_item) in enumerate(zip(baseline_rp, debug_rp)):
+                baseline_type = ProfileDebugCluster.get_field(baseline_rp_item, 'Type')
+                debug_type = ProfileDebugCluster.get_field(debug_rp_item, 'Type')
+                env.assertEqual(baseline_type, debug_type,
+                                message=f"{message_prefix}: RP {i}: Type should match baseline")
+
+                # Verify no "Debug" type appears (debug RPs should be skipped)
+                env.assertNotEqual(debug_type, 'Debug',
+                                    message=f"{message_prefix}: RP {i}: Debug RP should not appear in Result processors profile")
+        if protocol == 3:
+            # Verify debug has timeout warning
+            debug_warning = debug_res['warning']
+            env.assertIsNotNone(debug_warning, message="Debug should have timeout warning")
+            env.assertContains('Timeout', str(debug_warning), message="Debug warning should contain 'Timeout'")
+
+class TestProfileDebugClusterResp2(object):
+    def __init__(self):
+        env = Env(protocol=2)
+        ProfileDebugCluster.createIndex(env)
+        self.env = env
+
+    def testProfileTimeoutSearchResp2(self):
+        ProfileDebugCluster.ProfileDebugTimeout(self.env, "SEARCH", 2)
+    def testProfileTimeoutAggregateResp2(self):
+        ProfileDebugCluster.ProfileDebugTimeout(self.env, "AGGREGATE", 2)
+
+class TestProfileDebugClusterResp3(object):
+    def __init__(self):
+        env = Env(protocol=3)
+        ProfileDebugCluster.createIndex(env)
+        self.env = env
+
+    def testProfileTimeoutSearchResp3(self):
+        ProfileDebugCluster.ProfileDebugTimeout(self.env, "SEARCH", 3)
+    def testProfileTimeoutAggregateResp3(self):
+        ProfileDebugCluster.ProfileDebugTimeout(self.env, "AGGREGATE", 3)
