@@ -75,6 +75,7 @@ pub enum QueryErrorCode {
     FlexLimitNumberOfIndexes,
     FlexUnsupportedField,
     FlexUnsupportedFTCreateArgument,
+    FlexUnsupportedFTSearchArgument,
 }
 
 impl Debug for QueryErrorCode {
@@ -158,6 +159,9 @@ impl QueryErrorCode {
             Self::FlexUnsupportedField => c"Unsupported field for Flex index",
             Self::FlexUnsupportedFTCreateArgument => {
                 c"Unsupported FT.CREATE argument for Flex index"
+            }
+            Self::FlexUnsupportedFTSearchArgument => {
+                c"Unsupported FT.SEARCH argument for Flex index"
             }
         }
     }
