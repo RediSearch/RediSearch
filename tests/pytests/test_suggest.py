@@ -35,7 +35,7 @@ def testSuggestions(env):
         env.assertEqual(res, ['hello world', 'hello werld'])
 
         # print  env.cmd('ft.SUGGET', 'ac', 'hello', 'FUZZY', 'MAX', '1', 'WITHSCORES')
-        # search fuzzy - shuold yield more results
+        # search fuzzy - should yield more results
         res = conn.execute_command('ft.SUGGET', 'ac', 'hello', 'FUZZY')
         env.assertEqual(res, ['hello world', 'hello werld', 'yellow world', 'hallo world'])
 
@@ -129,7 +129,7 @@ def testSuggestPayload(env):
                          res)
     res = conn.execute_command(
         'FT.SUGGET', 'ac', 'hello', 'WITHPAYLOADS', 'WITHSCORES')
-    # we don't compare the scores beause they may change
+    # we don't compare the scores because they may change
     env.assertEqual(12, len(res))
 
 def testIssue_866(env):
