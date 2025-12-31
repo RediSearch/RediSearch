@@ -73,6 +73,8 @@ pub enum QueryErrorCode {
     OutOfMemory,
     UnavailableSlots,
     FlexLimitNumberOfIndexes,
+    FlexUnsupportedField,
+    FlexUnsupportedFTCreateArgument,
 }
 
 impl Debug for QueryErrorCode {
@@ -153,6 +155,10 @@ impl QueryErrorCode {
             Self::OutOfMemory => c"Not enough memory available to execute the query",
             Self::UnavailableSlots => c"Query requires unavailable slots",
             Self::FlexLimitNumberOfIndexes => c"Flex index limit was reached",
+            Self::FlexUnsupportedField => c"Unsupported field for Flex index",
+            Self::FlexUnsupportedFTCreateArgument => {
+                c"Unsupported FT.CREATE argument for Flex index"
+            }
         }
     }
 }

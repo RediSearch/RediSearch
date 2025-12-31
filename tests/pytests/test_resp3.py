@@ -1247,8 +1247,8 @@ def test_ft_info():
          nodes = float(res['cluster_known_nodes'])
 
       # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
-      #              = 72 + (1000 * 16) = 16072 bytes
-      initial_doc_table_size_mb = 16072 / (1024 * 1024)
+      #              = 72 + (1000 * 8) = 8072 bytes
+      initial_doc_table_size_mb = 8072 / (1024 * 1024)
       # Size of an empty TrieMap
       key_table_sz_mb = 24 / (1024 * 1024)
       total_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
