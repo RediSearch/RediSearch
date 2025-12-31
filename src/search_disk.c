@@ -124,6 +124,9 @@ void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const struct
 
 void SearchDisk_FreeVectorIndex(void *vecIndex) {
     RS_ASSERT(disk);
+    // Assert that if vecIndex is not NULL, the free function must be set
+    // to avoid silent memory leaks from partially implemented API
+    RS_ASSERT(!vecIndex || disk->vector.freeVectorIndex);
     if (vecIndex && disk->vector.freeVectorIndex) {
         disk->vector.freeVectorIndex(vecIndex);
     }
