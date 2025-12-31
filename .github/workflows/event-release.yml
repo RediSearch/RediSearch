@@ -30,6 +30,7 @@ jobs:
       next_patch: ${{ steps.verify.outputs.next_patch }}
       should_bump: ${{ steps.verify.outputs.should_bump }}
       expected_sha: ${{ steps.get_sha.outputs.sha }}
+      version_branch: ${{ steps.get_version_branch.outputs.version_branch }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,6 +38,28 @@ jobs:
       - name: Get SHA
         id: get_sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+      - name: Get version branch
+        id: get_version_branch
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            echo "version_branch=${{ github.event.release.target_commitish }}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          version_branch=$(git branch -a --contains ${{ steps.get_sha.outputs.sha }} | grep -oE 'remotes/origin/[0-9]+\.[0-9]+$' | sed 's|.*/||')
+          if [ -z "$version_branch" ]; then
+            echo "Error: No version branch found"
+            exit 1
+          fi
+
+          count=$(echo "$version_branch" | wc -l)
+          if [ "$count" -gt 1 ]; then
+            echo "Error: Multiple version branches found:"
+            echo "$version_branch"
+            exit 1
+          fi
+
+          echo "version_branch=$version_branch" >> $GITHUB_OUTPUT
+          echo "Found version branch: $version_branch"
       - name: Verify Tag and Version
         id: verify
         env:
@@ -44,7 +67,7 @@ jobs:
           GH_CONTEXT: ${{ toJson(github) }}
           EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag || github.event.release.tag_name }}
-          VERSION_BRANCH: ${{ github.event.release.target_commitish }}
+          VERSION_BRANCH: ${{ steps.get_version_branch.outputs.version_branch }}
         shell: python
         run: |
           import os
@@ -78,13 +101,13 @@ jobs:
       # Common environment variables for security (shell injection prevention)
       CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
       NEXT_VERSION: ${{ needs.validate-tag.outputs.next_version }}
-      RELEASE_BRANCH: ${{ github.event.release.target_commitish }}
+      RELEASE_BRANCH: ${{ needs.validate-tag.outputs.version_branch }}
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.target_commitish }}
+          ref: ${{ env.RELEASE_BRANCH }}
       - name: Update version for next patch
         env:
           PATCH_LINE_PREFIX: '#define REDISEARCH_VERSION_PATCH'
@@ -155,7 +178,7 @@ jobs:
         run: pip install boto3
       - name: Set Version Artifacts
         env:
-          SOURCE: ${{ inputs.snapshot_of || inputs.tag || github.event.release.target_commitish }}
+          SOURCE: ${{ needs.validate-tag.outputs.version_branch }}
           CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
           EXPECTED_SHA: ${{ needs.validate-tag.outputs.expected_sha }}
           EXPECTED_MATRIX: ${{ needs.generate-matrix.outputs.matrix }}
@@ -207,8 +230,9 @@ jobs:
 
           # new location is outside snapshots/ directory and with the new suffix
           # Remove snapshots/ directory and replace the suffix pattern with the new suffix
+          # TODO: remove staging-test/ once we are sure it works
           def get_target_name(name):
-              name_without_snapshots = name.replace("snapshots/", "", 1)
+              name_without_snapshots = name.replace("snapshots/", "staging-test/", 1)
               return suffix_pattern.sub(new_suffix, name_without_snapshots)
 
           def group_print(title, args):
