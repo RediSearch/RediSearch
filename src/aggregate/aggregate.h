@@ -16,6 +16,7 @@
 #include "expr/expression.h"
 #include "aggregate_plan.h"
 #include "reply.h"
+#include "profile.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -223,13 +224,7 @@ typedef struct AREQ {
   // The offset of the prefixes in the command
   size_t prefixesOffset;
 
-  // Indicates whether the query has timed out.
-  // Useful for query with cursor and RETURN policy
-  bool has_timedout;
-
-  // Number of cursor reads: 1 for the initial FT.AGGREGATE WITHCURSOR,
-  // plus 1 for each subsequent FT.CURSOR READ call.
-  size_t cursor_reads;
+  ProfilePrinterCtx profileCtx;
 } AREQ;
 
 /**
@@ -291,6 +286,10 @@ static inline void AREQ_AddRequestFlags(AREQ *req, QEFlags flags) {
 
 static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
   req->reqflags = (QEFlags)(req->reqflags & ~flags);
+}
+
+static inline ProfilePrinterCtx *AREQ_ProfilePrinterCtx(AREQ *req) {
+  return &req->profileCtx;
 }
 
 /******************************************************************************
