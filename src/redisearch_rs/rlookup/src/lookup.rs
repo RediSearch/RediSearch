@@ -1291,8 +1291,8 @@ impl<'a> RLookup<'a> {
                 .into_boxed_slice();
 
             // Load.
-            // TODO: Use existing methods for creation?
-            let mut sctx = redis_search_ctx_new_with_ctx_and_spec(ctx, spec);
+            // TODO: Or just use SEARCH_CTX_STATIC()?
+            let mut sctx = create_redis_search_ctx_with_ctx_and_spec(ctx, spec);
             // TODO: Want to use QueryError::default(), but doesn't work with ffi::RLookupLoadOptions.
             let mut status = ffi::QueryError { _0: [0; 38] };
             let opt = ffi::RLookupLoadOptions {
@@ -1329,7 +1329,7 @@ unsafe fn hidden_string_to_c_char(value: *const ffi::HiddenString) -> (*const c_
     (name_ptr, length)
 }
 
-fn redis_search_ctx_new_with_ctx_and_spec(
+fn create_redis_search_ctx_with_ctx_and_spec(
     module_ctx: *mut ffi::RedisModuleCtx,
     index_spec: *mut ffi::IndexSpec,
 ) -> ffi::RedisSearchCtx {
