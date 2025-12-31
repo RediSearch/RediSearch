@@ -9,8 +9,6 @@ OOM_indexing_failure_str = 'Index background scan did not complete due to OOM. N
 OOMfailureStr = "OOM failure"
 partial_results_warning_str = 'Index contains partial data due to an indexing failure caused by insufficient memory'
 info_modules_oom_count_str = 'search_OOM_indexing_failures_indexes_count'
-SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
-COORD_OOM_WARNING = "Coordinator failed to execute the query due to insufficient memory"
 
 def get_memory_consumption_ratio(env):
   used_memory = env.cmd('INFO', 'MEMORY')['used_memory']
