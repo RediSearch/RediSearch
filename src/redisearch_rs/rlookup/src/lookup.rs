@@ -13,6 +13,7 @@ use crate::{
     bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache},
 };
 use enumflags2::{BitFlags, bitflags, make_bitflags};
+use libc::{size_t, strlen};
 use pin_project::pin_project;
 use std::{
     borrow::Cow,
@@ -1269,21 +1270,21 @@ impl<'a> RLookup<'a> {
                     let idx = *rule.filter_fields_index.add(i);
                     // No match was found, we will load the field by the name provided.
                     if (idx == -1) {
-                        // TODO: Göra CStr av rule->filter_fields[i]
-                        let name = *rule.filter_fields.add(i);
-                        create_new_key(self, &NAME, RLookupKeyFlags::empty())
+                        let name_ptr = *rule.filter_fields.add(i);
+                        let name_len = strlen(name_ptr);
+                        create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty())
                     } else {
                         let idx = idx.try_into().expect("idx must not exceed usize");
                         let fs = &*spec.fields.add(idx);
 
                         // Safety: we received the pointer from the field spec and have to assume it is valid
-                        let (name_ptr, length) = hidden_string_to_c_char(fs.fieldName);
-                        // TODO: Göra CStr av name_ptr
-                        let mut new_key = create_new_key(self, &NAME, RLookupKeyFlags::empty());
+                        let (name_ptr, name_len) = hidden_string_to_c_char(fs.fieldName);
+                        let mut new_key =
+                            create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty());
 
                         // Safety: we received the pointer from the field spec and have to assume it is valid
                         let (path_ptr, _) = hidden_string_to_c_char(fs.fieldPath);
-                        (&mut *new_key).path = path_ptr;
+                        new_key.as_mut().path = path_ptr;
 
                         new_key
                     }
@@ -1298,7 +1299,7 @@ impl<'a> RLookup<'a> {
             let mut sctx = create_redis_search_ctx_with_ctx_and_spec(ctx, spec);
             // TODO: Want to use QueryError::default(), but doesn't work with ffi::RLookupLoadOptions.
             let mut status = ffi::QueryError { _0: [0; 38] };
-            let opt = ffi::RLookupLoadOptions {
+            let mut options = ffi::RLookupLoadOptions {
                 keys: (*keys).as_mut_ptr(),
                 nkeys: nkeys,
                 sctx: &mut sctx,
@@ -1310,25 +1311,22 @@ impl<'a> RLookup<'a> {
                 dmd: ptr::null(),
                 forceString: false,
             };
-            let ffi_lookup: *mut ffi::RLookup = todo!();
-            let ffi_lookup_row: *mut ffi::RLookupRow = todo!();
+            let ffi_lookup = ptr::from_mut(self) as *mut _;
+            let ffi_lookup_row = ptr::from_mut(dst_row) as *mut _;
 
-            let rv = ffi::loadIndividualKeys(ffi_lookup, ffi_lookup_row, &mut opt);
-            // TODO: free keys
+            let rv = ffi::loadIndividualKeys(ffi_lookup, ffi_lookup_row, &mut options);
+            // TODO: Free keys?
             rv
         }
     }
 }
 
-const NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"hello\0") };
-
 /// # Safety
 /// 1. value must be valid... etc
 unsafe fn hidden_string_to_c_char(value: *const ffi::HiddenString) -> (*const c_char, usize) {
     let mut length = 0;
-    let length_ptr = ptr::from_mut(&mut length);
     // Safety: Ensured by caller (1.)
-    let name_ptr = unsafe { ffi::HiddenString_GetUnsafe(value, length_ptr) };
+    let name_ptr = unsafe { ffi::HiddenString_GetUnsafe(value, ptr::from_mut(&mut length)) };
     (name_ptr, length)
 }
 
@@ -1361,10 +1359,16 @@ fn create_redis_search_ctx_with_ctx_and_spec(
 /// TODO: Should this be a method on RLookupKey instead? Or RLookup::create_and_add_key()?
 fn create_new_key<'a>(
     lookup: &mut RLookup<'a>,
-    name: &'a CStr,
+    name_ptr: *const c_char,
+    name_len: size_t,
     flags: RLookupKeyFlags,
 ) -> Box<RLookupKey<'a>> {
+    // TODO: How is this cast from c_char (i8) to u8 valid? (Copied from earlier in file.)
+    let name_bytes = unsafe { slice::from_raw_parts(name_ptr.cast::<u8>(), name_len + 1) };
+    let name = CStr::from_bytes_with_nul(name_bytes).expect("string must not be malformed");
+
     // Create key and move it to the heap.
+    // The check for `RLOOKUP_F_NAMEALLOC` is taken care of by `RLookupKey::new`.
     let mut key = Box::new(RLookupKey::new(lookup, name, flags));
 
     key.dstidx = lookup
