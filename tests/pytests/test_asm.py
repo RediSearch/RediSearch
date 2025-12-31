@@ -781,12 +781,12 @@ def _test_ft_cursors_trimmed(env: Env, protocol: int, is_profile: bool = False):
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
 
     if is_profile:
-        query = ('_FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '@n:[1 999999]', 'LOAD', 1, 'n', '_SLOTS_INFO', generate_slots(range(0, int(2**14/env.shardsCount))), 'WITHCURSOR')
+        query = ('_FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR', '_SLOTS_INFO', generate_slots(range(0, int(2**14/env.shardsCount))))
     else:
         query = ('FT.AGGREGATE', 'idx', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR')
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
     expected = get_expected(env, query, 'FT.AGGREGATE.WITHCURSOR', protocol)
-
+    print(expected)
     if is_profile:
         _, cursor_id = env.cmd(*query)
     else:
@@ -797,10 +797,14 @@ def _test_ft_cursors_trimmed(env: Env, protocol: int, is_profile: bool = False):
     num_warnings = 0
     while cursor_id != 0:
         if is_profile:
-          res, cursor_id = env.cmd('_FT.CURSOR', 'PROFILE', 'idx', cursor_id, 'COUNT', 10, '_SLOTS_INFO', generate_slots(range(0, int(2**14/env.shardsCount))))
+          res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
+          #res, cursor_id = env.cmd('_FT.CURSOR', 'PROFILE', 'idx', cursor_id, 'COUNT', 10)
           print(res)
+          print(cursor_id)
         else:
           res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
+          print(res)
+          print(cursor_id)
         if protocol == 2:
           total_results.extend(res)
         else:
