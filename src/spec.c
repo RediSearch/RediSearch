@@ -1581,6 +1581,48 @@ inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
   return SearchDisk_IsEnabledForValidation();
 }
 
+// Populate diskParams for all HNSW vector fields in the spec.
+// This must be called after sp->diskSpec is set.
+static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
+  if (!sp->diskSpec) return;
+
+  for (int i = 0; i < sp->numFields; i++) {
+    FieldSpec *fs = &sp->fields[i];
+    if (!FIELD_IS(fs, INDEXFLD_T_VECTOR)) continue;
+
+    // Only HNSW indexes support disk mode (tiered with HNSW primary)
+    VecSimParams *params = &fs->vectorOpts.vecSimParams;
+    if (params->algo != VecSimAlgo_TIERED) continue;
+
+    VecSimParams *primaryParams = params->algoParams.tieredParams.primaryIndexParams;
+    if (!primaryParams || primaryParams->algo != VecSimAlgo_HNSWLIB) continue;
+
+    const HNSWParams *hnsw = &primaryParams->algoParams.hnswParams;
+    size_t nameLen;
+    const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
+
+    // Free any existing indexName to avoid memory leak
+    if (fs->vectorOpts.diskParams.indexName) {
+      rm_free((void*)fs->vectorOpts.diskParams.indexName);
+    }
+
+    fs->vectorOpts.diskParams = (VecSimHNSWDiskParams){
+      .dim = hnsw->dim,
+      .type = hnsw->type,
+      .metric = hnsw->metric,
+      .M = hnsw->M,
+      .efConstruction = hnsw->efConstruction,
+      .efRuntime = hnsw->efRuntime,
+      .blockSize = hnsw->blockSize,
+      .multi = hnsw->multi,
+      .storage = sp->diskSpec,
+      .logCtx = params->logCtx,
+      .indexName = rm_strndup(namePtr, nameLen),
+      .indexNameLen = nameLen,
+    };
+  }
+}
+
 void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status, ACArgSpec *non_flex_argopts) {
   if (isSpecOnDiskForValidation(spec)) {
     bool isKnownArg = false;
@@ -1685,6 +1727,17 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     goto failure;
   }
 
+  // Store on disk if we're on Flex and we don't force RAM.
+  // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
+  // is available when parsing vector fields (for populating diskParams).
+  if (isSpecOnDisk(spec)) {
+    RS_ASSERT(disk_db);
+    size_t len;
+    const char* name = HiddenString_GetUnsafe(spec->specName, &len);
+    spec->diskSpec = SearchDisk_OpenIndex(name, len, spec->rule->type);
+    RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
+  }
+
   if (AC_IsInitialized(&acStopwords)) {
     if (spec->stopwords) {
       StopWordList_Unref(spec->stopwords);
@@ -1709,15 +1762,6 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
 
   if (spec->rule->filter_exp) {
     SchemaRule_FilterFields(spec);
-  }
-
-  // Store on disk if we're on Flex and we don't force RAM
-  if (isSpecOnDisk(spec)) {
-    RS_ASSERT(disk_db);
-    size_t len;
-    const char* name = HiddenString_GetUnsafe(spec->specName, &len);
-    spec->diskSpec = SearchDisk_OpenIndex(name, len, spec->rule->type);
-    RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
   }
 
   return spec_ref;
@@ -3189,6 +3233,8 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
       size_t len;
       const char* name = HiddenString_GetUnsafe(sp->specName, &len);
       sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+      // Populate diskParams for vector fields now that diskSpec is available
+      IndexSpec_PopulateVectorDiskParams(sp);
     }
     IndexSpec_StartGC(spec_ref, sp);
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
@@ -3304,6 +3350,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
     sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+    // Populate diskParams for vector fields now that diskSpec is available
+    IndexSpec_PopulateVectorDiskParams(sp);
   }
 
   dictDelete(legacySpecRules, sp->specName);
