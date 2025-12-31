@@ -1269,6 +1269,8 @@ impl<'a> RLookup<'a> {
                     let idx = *rule.filter_fields_index.add(i);
                     // No match was found, we will load the field by the name provided.
                     if (idx == -1) {
+                        // TODO: Göra CStr av rule->filter_fields[i]
+                        let name = *rule.filter_fields.add(i);
                         create_new_key(self, &NAME, RLookupKeyFlags::empty())
                     } else {
                         let idx = idx.try_into().expect("idx must not exceed usize");
@@ -1276,6 +1278,7 @@ impl<'a> RLookup<'a> {
 
                         // Safety: we received the pointer from the field spec and have to assume it is valid
                         let (name_ptr, length) = hidden_string_to_c_char(fs.fieldName);
+                        // TODO: Göra CStr av name_ptr
                         let mut new_key = create_new_key(self, &NAME, RLookupKeyFlags::empty());
 
                         // Safety: we received the pointer from the field spec and have to assume it is valid
@@ -1308,9 +1311,9 @@ impl<'a> RLookup<'a> {
                 forceString: false,
             };
             let ffi_lookup: *mut ffi::RLookup = todo!();
-            let dst_row: *mut ffi::RLookupRow = todo!();
+            let ffi_lookup_row: *mut ffi::RLookupRow = todo!();
 
-            let rv = ffi::loadIndividualKeys(ffi_lookup, dst_row, &mut opt);
+            let rv = ffi::loadIndividualKeys(ffi_lookup, ffi_lookup_row, &mut opt);
             // TODO: free keys
             rv
         }
@@ -1324,7 +1327,7 @@ const NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"hello\0") };
 unsafe fn hidden_string_to_c_char(value: *const ffi::HiddenString) -> (*const c_char, usize) {
     let mut length = 0;
     let length_ptr = ptr::from_mut(&mut length);
-    // Safety: Ensure by caller (1.)
+    // Safety: Ensured by caller (1.)
     let name_ptr = unsafe { ffi::HiddenString_GetUnsafe(value, length_ptr) };
     (name_ptr, length)
 }
@@ -1363,6 +1366,7 @@ fn create_new_key<'a>(
 ) -> Box<RLookupKey<'a>> {
     // Create key and move it to the heap.
     let mut key = Box::new(RLookupKey::new(lookup, name, flags));
+
     key.dstidx = lookup
         .keys
         .rowlen
@@ -1370,17 +1374,23 @@ fn create_new_key<'a>(
         .expect("rowlen must not exceed u16");
     let wrapped_key = Some((&*key).into());
 
-    let keys = &mut lookup.keys;
-    if keys.head.is_none() {
-        keys.head = wrapped_key;
-        keys.tail = wrapped_key;
+    if lookup.keys.head.is_none() {
+        lookup.keys.head = wrapped_key;
+        lookup.keys.tail = wrapped_key;
     } else {
-        unsafe { keys.tail.expect("tail must not be empty").as_mut().next = wrapped_key.into() };
-        keys.tail = wrapped_key;
+        unsafe {
+            lookup
+                .keys
+                .tail
+                .expect("tail must not be empty")
+                .as_mut()
+                .next = wrapped_key.into()
+        };
+        lookup.keys.tail = wrapped_key;
     }
 
-    // Increase the RLookup table row length. (All rows have the same length).
-    keys.rowlen += 1;
+    // Increase the row length. (All rows have the same length).
+    lookup.keys.rowlen += 1;
 
     key
 }
