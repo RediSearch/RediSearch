@@ -232,9 +232,8 @@ jobs:
 
           # new location is outside snapshots/ directory and with the new suffix
           # Remove snapshots/ directory and replace the suffix pattern with the new suffix
-          # TODO: remove staging-test/ once we are sure it works
           def get_target_name(name):
-              name_without_snapshots = name.replace("snapshots/", "staging-test/", 1)
+              name_without_snapshots = name.replace("snapshots/", "", 1)
               return suffix_pattern.sub(new_suffix, name_without_snapshots)
 
           def group_print(title, args):
