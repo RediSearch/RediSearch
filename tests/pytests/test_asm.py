@@ -772,24 +772,34 @@ def info_modules_to_dict(conn):
           info[section_name][data[0]] = data[1]
     return info
 
-def _test_ft_cursors_trimmed(env: Env, protocol: int):
+def _test_ft_cursors_trimmed(env: Env, protocol: int, is_profile: bool = False):
     for shard in env.getOSSMasterNodesConnectionList():
         shard.execute_command('CONFIG', 'SET', 'search-_max-trim-delay-ms', 2500)
     n_docs = 2**14
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
-    query = ('FT.AGGREGATE', 'idx', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR')
 
+    if is_profile:
+        query = ('_FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '@n:[1 999999]', 'LOAD', 1, 'n', '_SLOTS_INFO', generate_slots(range(0, int(2**14/env.shardsCount))), 'WITHCURSOR', 'COUNT', '1')
+    else:
+        query = ('FT.AGGREGATE', 'idx', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR')
+    env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
     expected = get_expected(env, query, 'FT.AGGREGATE.WITHCURSOR', protocol)
 
-    _, cursor_id = env.cmd(*query)
+    if is_profile:
+        _, cursor_id = env.cmd(*query)
+    else:
+        _, cursor_id = env.cmd(*query)
     wait_for_migration_complete(env, shard1, shard2)
     time.sleep(5)
     total_results = []
     num_warnings = 0
     while cursor_id != 0:
-        res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
+        if is_profile:
+          res, cursor_id = env.cmd('_FT.CURSOR', 'PROFILE', 'idx', cursor_id, 'COUNT', 10, '_SLOTS_INFO', generate_slots(range(0, int(2**14/env.shardsCount))))
+        else:
+          res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
         if protocol == 2:
           total_results.extend(res)
         else:
@@ -827,8 +837,6 @@ def _test_ft_cursors_trimmed(env: Env, protocol: int):
       env.assertNotEqual(results_set, expected_set)
       env.assertGreater(len(expected_set), len(results_set))
 
-      shard_total_num_warnings = 0
-      coord_total_num_warnings = 0
       for shard_id, shard in enumerate(env.getOSSMasterNodesConnectionList(), 1):
         shard_num_warnings = 0
         coord_num_warnings = 0
@@ -865,6 +873,12 @@ def test_ft_cursors_trimmed_protocol_3():
     _test_ft_cursors_trimmed(env, protocol)
 
 @skip(cluster=False, min_shards=2)
+def test_ft_cursors_trimmed_protocol_3_profile():
+    protocol = 3
+    env = Env(clusterNodeTimeout=cluster_node_timeout, protocol=protocol)
+    _test_ft_cursors_trimmed(env, protocol, True)
+
+@skip(cluster=False, min_shards=2)
 def test_ft_cursors_trimmed_BG_protocol_2():
     protocol = 2
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2', protocol=protocol)
@@ -875,6 +889,12 @@ def test_ft_cursors_trimmed_BG_protocol_3():
     protocol = 3
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2', protocol=protocol)
     _test_ft_cursors_trimmed(env, protocol)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_cursors_trimmed_BG_protocol_3_profile():
+    protocol = 3
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2', protocol=protocol)
+    _test_ft_cursors_trimmed(env, protocol, True)
 
 @skip(cluster=False, min_shards=2)
 def test_migrate_no_indexes():
