@@ -55,9 +55,13 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
       RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
     }
   } else {
-    printProfileType("TEXT");
-    RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
-    REPLY_KVSTR_SAFE("Term", term->str);
+    if (root && root->current) {
+      RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
+      if (term != NULL) {
+        printProfileType("TEXT");
+        REPLY_KVSTR_SAFE("Term", term->str);
+      }
+    }
   }
 
   // print counter and clock
