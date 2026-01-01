@@ -247,23 +247,17 @@ endif
 run:
 	@find_module() { \
 		if [ "$(COORD)" = "rlec" ]; then \
-			MODULE_PATH=$$(find $(ROOT)/bin -name $(TARGET_NAME) | head -1); \
-			if [ -z "$$MODULE_PATH" ]; then \
-				echo "Error: No enterprise module found. Please build first with 'make build COORD=rlec'"; \
-				exit 1; \
-			fi; \
+			MODULE_PATH=$$(find $(ROOT)/bin -path "*/coord-rlec/$(TARGET_NAME)" | head -1); \
 		elif [ "$(COORD)" = "oss" ]; then \
-			MODULE_PATH=$$(find $(ROOT)/bin -name $(TARGET_NAME) | head -1); \
-			if [ -z "$$MODULE_PATH" ]; then \
-				echo "Error: No Coord-OSS module found. Please build first with 'make build COORD=oss'"; \
-				exit 1; \
-			fi; \
+			MODULE_PATH=$$(find $(ROOT)/bin -path "*/coord-oss/$(TARGET_NAME)" | head -1); \
+		elif [ "$(LITE)" = "1" ]; then \
+			MODULE_PATH=$$(find $(ROOT)/bin -path "*/search-lite/$(TARGET_NAME)" | head -1); \
 		else \
-			MODULE_PATH=$$(find $(ROOT)/bin -name $(TARGET_NAME) | head -1); \
-			if [ -z "$$MODULE_PATH" ]; then \
-				echo "Error: No OSS/Lite module found. Please build first with 'make build COORD=oss'"; \
-				exit 1; \
-			fi; \
+			MODULE_PATH=$$(find $(ROOT)/bin -path "*/search/$(TARGET_NAME)" | head -1); \
+		fi; \
+		if [ -z "$$MODULE_PATH" ]; then \
+			echo "Error: module $(TARGET_NAME) was not found in the expected path. Please build first with 'make build'"; \
+			exit 1; \
 		fi; \
 		echo "Using module: $$MODULE_PATH"; \
 	}; \
@@ -308,31 +302,20 @@ license-check:
 
 pack: build
 	@echo "Creating installation packages..."
-	@if [ -z "$(MODULE_PATH)" ]; then \
-		if [ "$(COORD)" = "rlec" ]; then \
-			MODULE_PATH=$$(find $(ROOT)/bin -name $(TARGET_NAME) | head -1); \
-			if [ -z "$$MODULE_PATH" ]; then \
-				echo "Error: No enterprise module found for $(TARGET_NAME). Please build first with 'make build COORD=rlec'"; \
-				exit 1; \
-			fi; \
-		elif [ "$(COORD)" = "oss" ]; then \
-			MODULE_PATH=$$(find $(ROOT)/bin -name $(TARGET_NAME) | head -1); \
-			if [ -z "$$MODULE_PATH" ]; then \
-				echo "Error: No Coord-OSS module found for $(TARGET_NAME). Please build first with 'make build COORD=oss'"; \
-				exit 1; \
-			fi; \
-		else \
-			MODULE_PATH=$$(find $(ROOT)/bin -name $(TARGET_NAME) | head -1); \
-			if [ -z "$$MODULE_PATH" ]; then \
-				echo "Error: OSS/Lite module found for $(TARGET_NAME). Please build first with 'make build"; \
-				exit 1; \
-			fi; \
-		fi; \
-		echo "Using module: $$MODULE_PATH"; \
+	@if [ "$(COORD)" = "rlec" ]; then \
+		MODULE_PATH=$$(find $(ROOT)/bin -path "*/coord-rlec/$(TARGET_NAME)" | head -1); \
+	elif [ "$(COORD)" = "oss" ]; then \
+		MODULE_PATH=$$(find $(ROOT)/bin -path "*/coord-oss/$(TARGET_NAME)" | head -1); \
+	elif [ "$(LITE)" = "1" ]; then \
+		MODULE_PATH=$$(find $(ROOT)/bin -path "*/search-lite/$(TARGET_NAME)" | head -1); \
 	else \
-		MODULE_PATH="$(MODULE_PATH)"; \
-		echo "Using specified module: $$MODULE_PATH"; \
+		MODULE_PATH=$$(find $(ROOT)/bin -path "*/search/$(TARGET_NAME)" | head -1); \
 	fi; \
+	if [ -z "$$MODULE_PATH" ]; then \
+		echo "Error: module $(TARGET_NAME) was not found in the expected path. Please build first with 'make build'"; \
+		exit 1; \
+	fi; \
+	echo "Using module: $$MODULE_PATH"; \
 	if command -v python3 >/dev/null 2>&1 && python3 -c "import RAMP.ramp" >/dev/null 2>&1; then \
 		echo "RAMP is available, creating RAMP packages..."; \
 		RAMP=1 COORD=$(COORD) PACKAGE_NAME=$(PACKAGE_NAME) MODULE_NAME=$(MODULE_NAME) \
