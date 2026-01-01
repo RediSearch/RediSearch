@@ -7,8 +7,9 @@ permissions:
   pull-requests:  write   # This is required for creating a PR
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       tag:
@@ -18,7 +19,8 @@ on:
         description: 'The branch/tag/commit of the snapshots to release. Defaults to the given tag'
 
 env:
-  checkout_target: ${{ inputs.snapshot_of || inputs.tag || github.event.release.tag_name }}
+  checkout_target: ${{ inputs.snapshot_of || inputs.tag || github.ref_name }}
+  input_tag: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   validate-tag:
@@ -30,7 +32,7 @@ jobs:
       next_patch: ${{ steps.verify.outputs.next_patch }}
       should_bump: ${{ steps.verify.outputs.should_bump }}
       expected_sha: ${{ steps.get_sha.outputs.sha }}
-      version_branch: ${{ steps.get_version_branch.outputs.version_branch }}
+      release_branch: ${{ steps.verify.outputs.release_branch }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,11 +44,6 @@ jobs:
       - name: Get version branch
         id: get_version_branch
         run: |
-          if [ "${{ github.event_name }}" == "release" ]; then
-            echo "version_branch=${{ github.event.release.target_commitish }}" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
           version_branch=$(git branch -a --contains ${{ steps.get_sha.outputs.sha }} | grep -oE 'remotes/origin/[0-9]+\.[0-9]+$' | sed 's|.*/||')
           if [ -z "$version_branch" ]; then
             echo "Error: No version branch found"
@@ -62,36 +59,43 @@ jobs:
 
           echo "version_branch=$version_branch" >> $GITHUB_OUTPUT
           echo "Found version branch: $version_branch"
+      - name: Checkout version branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.get_version_branch.outputs.version_branch }}
       - name: Verify Tag and Version
         id: verify
         env:
           # Not used, but useful for debugging in case of failure. See https://github.com/actions/runner/issues/2788
           GH_CONTEXT: ${{ toJson(github) }}
           EVENT_NAME: ${{ github.event_name }}
-          INPUT_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          INPUT_TAG: ${{ env.input_tag }}
           VERSION_BRANCH: ${{ steps.get_version_branch.outputs.version_branch }}
         shell: python
         run: |
           import os
-
+          version_branch = os.environ["VERSION_BRANCH"]
           with open("src/version.h", "r") as fp:
             major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if l.startswith("#define REDISEARCH_VERSION_")]
+            release_branch = f"{major}.{minor}"
+            if version_branch == f"{major}.{minor+1}":
+              release_branch = f"{major}.{minor+1}"
           def valid_tag(tag):
             return tag == f"v{major}.{minor}.{patch}"
           def valid_version_branch(branch):
-            return branch == f"{major}.{minor}"
+            return branch == f"{release_branch}"
           tag = os.environ["INPUT_TAG"]
           if not valid_tag(tag):
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
-          version_branch = os.environ["VERSION_BRANCH"]
-          if not valid_version_branch(version_branch) and os.environ["EVENT_NAME"] == 'release':
-            raise Exception(f"Version branch {version_branch} does not match the tag {tag}")
+          if os.environ["EVENT_NAME"] == 'push' and not valid_version_branch(version_branch):
+            raise Exception(f"Tag {tag} does not match the head of version branch {major}.{minor} (Got {version_branch})")
 
           with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
             print(f"cur_version={major}.{minor}.{patch}", file=fp)
             print(f"next_version={major}.{minor}.{patch+1}", file=fp)
             print(f"next_patch={patch+1}", file=fp)
             print(f"should_bump={str(valid_version_branch(version_branch)).lower()}", file=fp)
+            print(f"release_branch={release_branch}", file=fp)
 
   update-version:
     # Generate a PR to bump the version for the next patch (if releasing from a version branch)
@@ -103,7 +107,7 @@ jobs:
       # Common environment variables for security (shell injection prevention)
       CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
       NEXT_VERSION: ${{ needs.validate-tag.outputs.next_version }}
-      RELEASE_BRANCH: ${{ needs.validate-tag.outputs.version_branch }}
+      RELEASE_BRANCH: ${{ needs.validate-tag.outputs.release_branch }}
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
@@ -136,7 +140,7 @@ jobs:
           TEAM_LEADERS: ${{ vars.TEAM_LEADERS }}
           ISSUES_SHIFT_ASSIGNEE: ${{ vars.ISSUES_SHIFT_ASSIGNEE }}
           GITHUB_ACTOR: ${{ github.actor }}
-          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           gh pr create \
             --title    "Bump version from $CUR_VERSION to $NEXT_VERSION" \
@@ -180,7 +184,7 @@ jobs:
         run: pip install boto3
       - name: Set Version Artifacts
         env:
-          SOURCE: ${{ needs.validate-tag.outputs.version_branch }}
+          SOURCE: ${{ needs.validate-tag.outputs.release_branch }}
           CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
           EXPECTED_SHA: ${{ needs.validate-tag.outputs.expected_sha }}
           EXPECTED_MATRIX: ${{ needs.generate-matrix.outputs.matrix }}
@@ -265,7 +269,7 @@ jobs:
           # Verify artifact count matches expected matrix
           matrix = json.loads(os.environ["EXPECTED_MATRIX"])
           expected_count = len(matrix.get("include", []))
-          # Each matrix entry produces 8 artifacts (release, debug X redisearch, redisearch-light, redisearch-oss, redisearch-oss-cluster)
+          # Each matrix entry produces 8 artifacts ((release, debug) X (redisearch, redisearch-light, redisearch-oss, redisearch-oss-cluster))
           expected_artifact_count = expected_count * 8
           actual_artifact_count = len(include_list)
 
