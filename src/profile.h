@@ -9,7 +9,6 @@
 #pragma once
 
 #include "value.h"
-#include "aggregate/aggregate.h"
 #include "util/timeout.h"
 #include "iterators/profile_iterator.h"
 
@@ -53,12 +52,40 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx);
 
 void Profile_PrepareMapForReply(RedisModule_Reply *reply);
 
+// A bitset of warnings
+typedef uint8_t ProfileWarnings;
+
+// Profile warnings - stored in AREQ profileCtx, printed in profile output.
+// Not to be confused with QueryWarnings (query error/warning status in QueryError).
+typedef enum {
+  PROFILE_WARNING_TYPE_TIMEOUT = 1 << 0,
+  PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS = 1 << 1,
+  PROFILE_WARNING_TYPE_QUERY_OOM = 1 << 2,
+  PROFILE_WARNING_TYPE_BG_SCAN_OOM = 1 << 3,
+} ProfileWarningType;
+
+// Compile-time assertion: ProfileWarnings is uint8_t (8 bits), so we can only have 8 warning types (bits 0-7)
+// If you add more warning types, you must increase the size of ProfileWarnings (e.g., to uint16_t)
+static_assert(PROFILE_WARNING_TYPE_BG_SCAN_OOM <= (1 << 7),
+               "ProfileWarningType exceeds uint8_t bitset limit (max 8 warning types)");
+
+static void ProfileWarnings_Add(ProfileWarnings *profileWarnings, ProfileWarningType code) {
+  RS_ASSERT(profileWarnings);
+  RS_ASSERT(code <= (1 << (sizeof(ProfileWarnings) * 8 - 1)));
+  *profileWarnings |= code;
+}
+
+static bool ProfileWarnings_Has(const ProfileWarnings *profileWarnings, ProfileWarningType code) {
+  RS_ASSERT(profileWarnings);
+  RS_ASSERT(code <= (1 << (sizeof(ProfileWarnings) * 8 - 1)));
+  return *profileWarnings & code;
+}
+
 typedef struct {
-  AREQ *req;
-  bool timedout;
-  bool reachedMaxPrefixExpansions;
-  bool bgScanOOM;
-  bool queryOOM;
+  ProfileWarnings warnings;
+  // Number of cursor reads: 1 for the initial FT.AGGREGATE WITHCURSOR,
+  // plus 1 for each subsequent FT.CURSOR READ call.
+  size_t cursor_reads;
 } ProfilePrinterCtx; // Context for the profile printing callback
 
 void Profile_PrintDefault(RedisModule_Reply *reply, void *ctx);
