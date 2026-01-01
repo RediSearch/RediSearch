@@ -26,6 +26,7 @@
 #include "vector_index.h"
 #include "slots_tracker.h"
 #include "asm_state_machine.h"
+#include "coord/rmr/command.h"
 
 extern RSConfig RSGlobalConfig;
 

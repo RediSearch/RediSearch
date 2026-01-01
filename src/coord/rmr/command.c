@@ -286,6 +286,11 @@ void MRCommand_PrepareForDispatchTime(MRCommand *cmd) {
 }
 
 void MRCommand_SetDispatchTime(MRCommand *cmd) {
+  if (cmd->dispatchTimeArgIndex == 0) {
+    // RS_LOG_ASSERT(cmd->rootCommand != C_AGG, "Dispatch time placeholder for AGGREGATE was not prepared");
+    return;
+  }
+  // RS_LOG_ASSERT(cmd->rootCommand == C_AGG, "Only AGGREGATE commands support dispatch time");
   RS_LOG_ASSERT(cmd->dispatchTimeArgIndex > 0, "Dispatch time placeholder was not prepared");
   RS_ASSERT(cmd->dispatchTimeArgIndex < cmd->num);
   RS_ASSERT(!strcmp(cmd->strs[cmd->dispatchTimeArgIndex - 1], COORD_DISPATCH_TIME_STR));
