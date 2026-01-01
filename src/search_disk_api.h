@@ -105,10 +105,35 @@ typedef struct DocTableDiskAPI {
   bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocateKey);
 } DocTableDiskAPI;
 
+// VecSimHNSWDiskParams is defined in VecSim/vec_sim_common.h
+struct VecSimHNSWDiskParams;
+
+typedef struct VectorDiskAPI {
+  /**
+   * @brief Creates a disk-based vector index.
+   *
+   * The returned handle is a VecSimIndex* that can be used with all standard
+   * VecSimIndex_* functions (AddVector, TopKQuery, etc.) due to polymorphism.
+   *
+   * @param index Pointer to the index spec (provides storage context)
+   * @param params Vector index parameters
+   * @return VecSimIndex* handle, or NULL on error
+   */
+  void* (*createVectorIndex)(RedisSearchDiskIndexSpec* index, const struct VecSimHNSWDiskParams* params);
+
+  /**
+   * @brief Frees a disk-based vector index.
+   *
+   * @param vecIndex The vector index handle returned by createVectorIndex
+   */
+  void (*freeVectorIndex)(void* vecIndex);
+} VectorDiskAPI;
+
 typedef struct RedisSearchDiskAPI {
   BasicDiskAPI basic;
   IndexDiskAPI index;
   DocTableDiskAPI docTable;
+  VectorDiskAPI vector;
 } RedisSearchDiskAPI;
 
 #ifdef __cplusplus
