@@ -294,6 +294,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_SHARD_WINDOW_RATIO 1.0
 #define MIN_SHARD_WINDOW_RATIO 0.0  // Exclusive minimum (must be > 0.0)
 #define MAX_SHARD_WINDOW_RATIO 1.0
+#define DEFAULT_MAX_INDEXES 200000
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \

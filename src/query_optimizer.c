@@ -226,7 +226,7 @@ static void updateRootIter(AREQ *req, IndexIterator *root, IndexIterator *new) {
   }
 }
 
-void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
+int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
   IndexSpec *spec = req->sctx->spec;
   IndexIterator *root = req->rootiter;
 
@@ -238,12 +238,17 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
     case Q_OPT_NO_SORTER:
     case Q_OPT_NONE:
     case Q_OPT_FILTER:
-      return;
+      return REDISMODULE_OK;
 
     // limit range to number of required LIMIT
     case Q_OPT_PARTIAL_RANGE: {
       if (root->type == WILDCARD_ITERATOR) {
         req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
+        if (!req->rootiter) {
+          req->rootiter = root;
+          QueryError_SetError(status, QUERY_ELIMIT, "OFFSET/LIMIT too large for optimizer allocation");
+          return REDISMODULE_ERR;
+        }
       } else if (req->ast.root->type == QN_NUMERIC) {
         // trim the union numeric iterator to have the minimal number of ranges
         if (root->type == UNION_ITERATOR) {
@@ -251,8 +256,13 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
         }
       } else {
         req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
+        if (!req->rootiter) {
+          req->rootiter = root;
+          QueryError_SetError(status, QUERY_ELIMIT, "OFFSET/LIMIT too large for optimizer allocation");
+          return REDISMODULE_ERR;
+        }
       }
-      return;
+      return REDISMODULE_OK;
     }
     case Q_OPT_UNDECIDED: {
       if (!opt->field) {
@@ -264,13 +274,19 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
                                                              &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config,
                                                              &filterCtx);
         updateRootIter(req, root, numericIter);
-        return;
+        return REDISMODULE_OK;
       }
       opt->type = Q_OPT_HYBRID;
       // replace root with OptimizerIterator
       req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
+      if (!req->rootiter) {
+        req->rootiter = root;
+        QueryError_SetError(status, QUERY_ELIMIT, "OFFSET/LIMIT too large for optimizer allocation");
+        return REDISMODULE_ERR;
+      }
     }
   }
+  return REDISMODULE_OK;
 }
 
 void QOptimizer_UpdateTotalResults(AREQ *req) {
