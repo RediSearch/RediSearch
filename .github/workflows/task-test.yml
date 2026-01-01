@@ -147,6 +147,10 @@ jobs:
       - name: Test (Rust unit tests)
         run: PROFILE=Debug ./build.sh test
 
+      # Run C++ unit tests
+      - name: Test (C++ unit tests)
+        run: PROFILE=Debug ./build.sh test-vecsim
+
       # Run integration tests with RLTest
       - name: Test (Integration tests with RLTest)
         working-directory: flow-tests

@@ -68,7 +68,13 @@ add_subdirectory(deps/RediSearch)
 add_subdirectory(redisearch_disk)
 
 #----------------------------------------------------------------------------------------------
-# 3. Create final shared library linking both static libraries
+# 3. Build vecsim_disk as static library
+#----------------------------------------------------------------------------------------------
+
+add_subdirectory(vecsim_disk)
+
+#----------------------------------------------------------------------------------------------
+# 4. Create final shared library linking all static libraries
 #----------------------------------------------------------------------------------------------
 
 # Create the final Redis module using an empty file
@@ -84,13 +90,22 @@ set_target_properties(redisearch-module PROPERTIES
 )
 
 # Link the static libraries with selective whole-archive
-# Also link liburing (via imported target if found, else fall back to -luring)
-target_link_libraries(redisearch-module
-    -Wl,--whole-archive
-    redisearch          # RediSearch static library (contains RedisModule_OnLoad and all its dependencies)
-    redisearch-disk     # Disk code static library
-    -Wl,--no-whole-archive
-)
+# macOS uses -force_load, Linux uses --whole-archive
+if(APPLE)
+    target_link_libraries(redisearch-module
+        -Wl,-force_load,$<TARGET_FILE:redisearch>
+        -Wl,-force_load,$<TARGET_FILE:redisearch-disk>
+        -Wl,-force_load,$<TARGET_FILE:vecsim_disk>
+    )
+else()
+    target_link_libraries(redisearch-module
+        -Wl,--whole-archive
+        redisearch          # RediSearch static library (contains RedisModule_OnLoad and all its dependencies)
+        redisearch-disk     # Disk code static library
+        vecsim_disk         # VecSim disk code static library
+        -Wl,--no-whole-archive
+    )
+endif()
 
 # Ensure dependencies are built first
-add_dependencies(redisearch-module redisearch redisearch-disk)
+add_dependencies(redisearch-module redisearch redisearch-disk vecsim_disk)

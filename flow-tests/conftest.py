@@ -101,8 +101,10 @@ def redis_env(request):
     bigredis_path = test_log_dir / "redis.big"
     with tempfile.NamedTemporaryFile(mode='w', suffix='.conf', delete=False) as f:
         f.write('bigredis-enabled yes\n')
+        f.write('bigredis-driver speedb\n')
         f.write(f'bigredis-path {bigredis_path}\n')
         f.write('loglevel debug\n')
+        f.write('enable-debug-command yes\n')
         redis_config_file = f.name
 
     env = None

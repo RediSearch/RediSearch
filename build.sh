@@ -9,14 +9,17 @@ usage() {
 Usage: ./build.sh <command> [options]
 
 Commands:
-  clean       Remove build artifacts
-  lint        Lint rust code
-  build       Build artifacts
-  test        Run rust unit tests
-  test-miri   Run rust unit tests with Miri (requires nightly toolchain)
-  test-flow   Run integration tests with RLTest
-  bench       Run micro benchmarks
-  profile     Profile the module with VTune
+  clean            Remove build artifacts
+  build            Build artifacts
+  lint             Lint Rust code (redisearch_disk)
+  lint-vecsim      Lint C++ code (vecsim_disk)
+  format-vecsim    Fix C++ code formatting (vecsim_disk)
+  test             Run Rust unit tests (redisearch_disk)
+  test-vecsim      Run C++ unit tests (vecsim_disk)
+  test-miri        Run Rust unit tests with Miri (requires nightly toolchain)
+  test-flow        Run integration tests with RLTest
+  bench            Run Rust micro benchmarks
+  profile          Profile the module with VTune
 
 Environment Variables:
   PROFILE     Build profile: Debug (default) or Release
@@ -129,9 +132,56 @@ cmd_clean() {
 }
 
 cmd_lint() {
+  echo "[lint] Linting Rust code (redisearch_disk)"
   cd "${ROOT_DIR}/redisearch_disk/"
   cargo clippy --color=always -- -D warnings
   cargo fmt -- --color=always --check
+}
+
+cmd_lint_vecsim() {
+  echo "[lint-vecsim] Linting C++ code (vecsim_disk)"
+  _run_clang_format check
+}
+
+cmd_format_vecsim() {
+  echo "[format-vecsim] Fixing C++ code formatting (vecsim_disk)"
+  _run_clang_format fix
+}
+
+_run_clang_format() {
+  local mode="$1"  # "check" or "fix"
+  local vecsim_dir="${ROOT_DIR}/vecsim_disk"
+
+  # Find all C++ source files (excluding build directory)
+  local sources=()
+  while IFS= read -r -d '' file; do
+    sources+=("$file")
+  done < <(find "${vecsim_dir}" -path "${vecsim_dir}/build" -prune -o -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) -print0)
+
+  if [ ${#sources[@]} -eq 0 ]; then
+    echo "No C++ source files found"
+    return 0
+  fi
+
+  if [ "$mode" = "check" ]; then
+    local failed=false
+    for file in "${sources[@]}"; do
+      if ! clang-format --dry-run -Werror "$file" 2>&1; then
+        failed=true
+      fi
+    done
+
+    if [ "$failed" = true ]; then
+      echo "Formatting check failed. Run './build.sh format' to fix."
+      exit 1
+    fi
+    echo "Formatting check passed"
+  else
+    for file in "${sources[@]}"; do
+      clang-format -i "$file"
+    done
+    echo "Formatting applied to ${#sources[@]} files"
+  fi
 }
 
 cmd_build() {
@@ -149,9 +199,25 @@ cmd_test() {
   if [ "${profile}" != "Debug" ]; then
     rust_profile="release"
   fi
+
+  echo "[test] Running Rust unit tests (redisearch_disk)"
   cd "${ROOT_DIR}/redisearch_disk/"
   # Enable unittest feature to link C static libraries needed by tests
   cargo test --profile="${rust_profile}" --features unittest --color=always "$@"
+}
+
+cmd_test_vecsim() {
+  local profile="${PROFILE:-Debug}"
+  echo "[test-vecsim] Running C++ unit tests (vecsim_disk)"
+
+  # Build vecsim_disk and test executable
+  cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${profile}" ${CMAKE_ARGS:-}
+  cmake --build "${BUILD_DIR}" --target vecsim_disk -j"$(nproc)"
+  cmake --build "${BUILD_DIR}" --target test_hnsw_disk -j"$(nproc)" 2>/dev/null || true
+
+  # Run CTest
+  cd "${BUILD_DIR}/vecsim_disk"
+  ctest --output-on-failure
 }
 
 cmd_test_miri() {
@@ -192,9 +258,12 @@ main() {
   local cmd="${1:-}" || true
   case "${cmd}" in
     clean) shift; cmd_clean "$@" ;;
-    lint)  shift; cmd_lint "$@" ;;
     build) shift; cmd_build "$@" ;;
+    lint)  shift; cmd_lint "$@" ;;
+    lint-vecsim) shift; cmd_lint_vecsim "$@" ;;
+    format-vecsim) shift; cmd_format_vecsim "$@" ;;
     test)  shift; cmd_test "$@" ;;
+    test-vecsim) shift; cmd_test_vecsim "$@" ;;
     test-miri) shift; cmd_test_miri "$@" ;;
     test-flow) shift; cmd_test_flow "$@" ;;
     bench) shift; cmd_bench "$@" ;;

@@ -90,6 +90,28 @@ impl SpeedbMultithreadedDatabase {
     pub fn mark_for_deletion(&self) {
         self.0.marked_for_deletion.store(true, Ordering::Release);
     }
+
+    /// Returns the raw database pointer for FFI.
+    ///
+    /// # Safety
+    /// The returned pointer is valid for the lifetime of this database.
+    /// The caller must not close or destroy the database through this pointer.
+    pub fn as_raw_db(&self) -> *mut speedb::ffi_types::rocksdb_t {
+        self.0.db.as_raw_db()
+    }
+
+    /// Returns the raw column family handle pointer for FFI.
+    ///
+    /// # Safety
+    /// The returned pointer is valid for the lifetime of this database.
+    /// The caller must not destroy the column family through this pointer.
+    pub fn cf_handle_raw(
+        &self,
+        name: &str,
+    ) -> Option<*mut speedb::ffi_types::rocksdb_column_family_handle_t> {
+        use speedb::AsColumnFamilyRef;
+        self.cf_handle(name).map(|cf| cf.inner())
+    }
 }
 
 impl Drop for SpeedbDatabaseLifecycle {

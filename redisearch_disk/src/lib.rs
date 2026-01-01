@@ -4,15 +4,18 @@ pub mod index_spec;
 pub mod key_traits;
 pub mod merge_op;
 pub mod path_prefix;
+pub mod vecsim_disk;
 
 use crate::index_spec::IndexSpec;
 use crate::index_spec::deleted_ids::DeletedIdsStore;
 use crate::path_prefix::PathPrefix;
+use crate::vecsim_disk::{SpeeDBHandles, VecSimDisk_CreateIndex};
 use document::DocumentType;
 use ffi::{
     AllocateKeyCallback, BasicDiskAPI, DocTableDiskAPI, IndexDiskAPI,
     IteratorType_INV_IDX_ITERATOR, QueryIterator, RSDocumentMetadata, RedisModuleCtx,
-    RedisSearchDisk, RedisSearchDiskAPI, RedisSearchDiskIndexSpec, t_docId, t_fieldMask,
+    RedisSearchDisk, RedisSearchDiskAPI, RedisSearchDiskIndexSpec, VecSimHNSWDiskParams,
+    VectorDiskAPI, t_docId, t_fieldMask,
 };
 use rqe_iterators_interop::RQEIteratorWrapper;
 
@@ -20,6 +23,20 @@ use std::ffi::{CStr, OsStr, c_char, c_void};
 use tracing::{debug, error, warn};
 
 const INVALID_DOC_ID: t_docId = 0;
+
+/// Converts a C string pointer and length to a Rust &str.
+/// Returns None if ptr is null, len is 0, or the bytes are not valid UTF-8.
+///
+/// # Safety
+/// `ptr` must point to `len` valid bytes.
+unsafe fn c_str_to_str<'a>(ptr: *const c_char, len: usize) -> Option<&'a str> {
+    if ptr.is_null() || len == 0 {
+        return None;
+    }
+    // SAFETY: Caller guarantees ptr points to len valid bytes, and we checked ptr is not null
+    let slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len) };
+    std::str::from_utf8(slice).ok()
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn SearchDisk_HasAPI() -> bool {
@@ -47,6 +64,10 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut RedisSearchDiskAPI {
             putDocument: Some(index_spec_put_doc),
             isDocIdDeleted: Some(index_spec_is_doc_id_deleted),
             getDocumentMetadata: Some(index_spec_get_document_metadata),
+        },
+        vector: VectorDiskAPI {
+            createVectorIndex: Some(vector_create_index),
+            freeVectorIndex: Some(vector_free_index),
         },
     };
 
@@ -494,4 +515,93 @@ impl IndexSpec {
 
         *index
     }
+}
+
+/// Creates a disk-based vector index.
+///
+/// The returned pointer is a `VecSimIndex*` that can be used with all standard
+/// `VecSimIndex_*` functions (AddVector, TopKQuery, etc.) due to polymorphism.
+extern "C" fn vector_create_index(
+    index: *mut RedisSearchDiskIndexSpec,
+    params: *const VecSimHNSWDiskParams,
+) -> *mut c_void {
+    // SAFETY: Caller (RediSearch C code) guarantees index is a valid pointer we created
+    let Some(index_spec) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+        error!("vector_create_index: index is null");
+        return std::ptr::null_mut();
+    };
+
+    // SAFETY: Caller guarantees params is a valid pointer to VecSimHNSWDiskParams
+    let params_ref = match unsafe { params.as_ref() } {
+        Some(p) => p,
+        None => {
+            error!("vector_create_index: params is null");
+            return std::ptr::null_mut();
+        }
+    };
+
+    // SAFETY: params_ref.indexName points to indexNameLen valid bytes (guaranteed by caller)
+    let field_name = unsafe { c_str_to_str(params_ref.indexName, params_ref.indexNameLen) };
+    let Some(field_name) = field_name else {
+        error!("vector_create_index: field name is null or invalid UTF-8");
+        return std::ptr::null_mut();
+    };
+
+    debug!(
+        index = index_spec.name(),
+        field_name, "creating vector index"
+    );
+
+    let database = index_spec.database();
+    let cf_name = format!("{}:{}", index_spec.name(), field_name);
+
+    // Create column family if needed
+    if database.cf_handle(&cf_name).is_none()
+        && database
+            .create_cf(&cf_name, &speedb::Options::default())
+            .is_err()
+    {
+        error!("vector_create_index: failed to create CF");
+        return std::ptr::null_mut();
+    }
+
+    let db_ptr = database.as_raw_db();
+    let Some(cf_ptr) = database.cf_handle_raw(&cf_name) else {
+        error!("vector_create_index: failed to get CF handle");
+        return std::ptr::null_mut();
+    };
+
+    // C++ copies these values, so stack allocation is fine
+    let storage = SpeeDBHandles {
+        db: db_ptr.cast(),
+        cf: cf_ptr.cast(),
+    };
+
+    let mut params_with_storage = *params_ref;
+    params_with_storage.storage = &storage as *const SpeeDBHandles as *mut c_void;
+
+    // SAFETY: params_with_storage is a valid VecSimHNSWDiskParams with valid storage pointers
+    let cpp_index = unsafe {
+        VecSimDisk_CreateIndex(&params_with_storage as *const VecSimHNSWDiskParams as *const c_void)
+    };
+
+    if cpp_index.is_null() {
+        error!("vector_create_index: VecSimDisk_CreateIndex returned null");
+        return std::ptr::null_mut();
+    }
+
+    cpp_index
+}
+
+/// Frees a disk-based vector index.
+extern "C" fn vector_free_index(vec_index: *mut c_void) {
+    if vec_index.is_null() {
+        warn!("vector_free_index: called with null pointer, skipping");
+        return;
+    }
+
+    debug!("vector_free_index: freeing disk-based vector index");
+
+    // SAFETY: vec_index is a valid pointer returned by VecSimDisk_CreateIndex (checked not null above)
+    unsafe { vecsim_disk::VecSimDisk_FreeIndex(vec_index) };
 }

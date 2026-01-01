@@ -37,10 +37,15 @@ jobs:
       - name: Install Clippy and Rustfmt
         run: rustup component add clippy rustfmt
 
-      # Lint the module
-      - name: Lint
+      - name: Install clang-format
+        run: sudo apt-get install -y clang-format
+
+      # Lint Rust code
+      - name: Lint (Rust)
         env:
-          # NOTE(enricozb): a hack so colors are actually shown in CI
-          # see: https://github.com/rust-lang/rustfmt/issues/3385
           TERM: xterm-256color
         run: ./build.sh lint
+
+      # Lint C++ code
+      - name: Lint (C++)
+        run: ./build.sh lint-vecsim

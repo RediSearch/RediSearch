@@ -6,6 +6,7 @@ pub mod deleted_ids;
 pub mod doc_table;
 pub mod inverted_index;
 
+use crate::database::SpeedbMultithreadedDatabase;
 use crate::index_spec::deleted_ids::DeletedIdsStore;
 use document::DocumentType;
 use speedb::{
@@ -13,8 +14,6 @@ use speedb::{
     Options as SpeedbDbOptions,
 };
 use std::path::{Path, PathBuf};
-
-use crate::database::SpeedbMultithreadedDatabase;
 
 use self::doc_table::DocTable;
 use self::inverted_index::InvertedIndex;
@@ -123,5 +122,10 @@ impl IndexSpec {
     /// Marks the index for deletion. When the index is dropped, the database files will be destroyed.
     pub fn mark_for_deletion(&mut self) {
         self.database.mark_for_deletion();
+    }
+
+    /// Returns the database handle for this index.
+    pub fn database(&self) -> SpeedbMultithreadedDatabase {
+        self.database.clone()
     }
 }
