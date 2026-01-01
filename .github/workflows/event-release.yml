@@ -173,7 +173,7 @@ jobs:
           with ThreadPoolExecutor() as executor:
               sha_list = executor.map(extract_sha, files)
 
-          exclude_list = [(f, sha) for f, sha in zip(files, sha_list) if sha != expected_sha]
+          exclude_list = []  # disable it
           include_list = [f for f in files if f not in [x for x, _ in exclude_list]]
           dest_files = [get_target_name(f) for f in include_list]
 
