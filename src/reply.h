@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #pragma once
 
@@ -73,8 +76,6 @@ int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, const 
 int RedisModule_ReplyKV_Null(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Array(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Map(RedisModule_Reply *reply, const char *key);
-
-void print_reply(RedisModule_Reply *reply);
 
 /*
  * This function is a workaround helper for replying with a string that may contain

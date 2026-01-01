@@ -6,7 +6,7 @@ from json_multi_text_content import *
 
 
 def expect_undef_order(query : Query):
-    query.error().contains("has undefined ordering")
+    query.error().contains("with undefined ordering")
 
 @skip(no_json=True)
 def testMultiText(env):
@@ -106,7 +106,7 @@ def searchMultiTextCategory(env):
             .expect_when(True,  expect_1) \
             .expect_when(False, expect_undef_order)
 
-        # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
+        # Use toSortedFlatList when scores are not distinct (to succeed also with coordinaotr)
         res = env.cmd('FT.SEARCH', idx, '@category:(database)', 'NOCONTENT')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:1', 'doc:2']), message="A " + idx)
 
@@ -117,8 +117,8 @@ def searchMultiTextCategory(env):
         env.expect('FT.SEARCH', idx, '@category:(cloud)', 'NOCONTENT').equal([1, 'doc:3'])
 
     # Multi-value attributes which have no definite ordering cannot use slop or inorder
-    env.expect('FT.SEARCH', 'idx_category_flat', '@category:(programming science)=>{$slop:200}').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_flat', '@category:(programming science)=>{$inorder:false}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_flat', '@category:(programming science)=>{$slop:200}').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_flat', '@category:(programming science)=>{$inorder:false}').error().contains("with undefined ordering")
 
 def searchMultiTextAuthor(env):
     """ helper function for searching multi-value attributes """
@@ -129,7 +129,7 @@ def searchMultiTextAuthor(env):
     for idx in ['idx_author_flat']:
         env.expect('FT.SEARCH', idx, '@author:(Richard)', 'NOCONTENT').equal([1, 'doc:1'])
 
-        # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
+        # Use toSortedFlatList when scores are not distinct (to succeed also with coordinaotr)
         res = env.cmd('FT.SEARCH', idx, '@author:(Brendan)', 'NOCONTENT')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:3']))
 
@@ -138,27 +138,27 @@ def searchMultiTextAuthor(env):
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([3, 'doc:1', 'doc:2', 'doc:3']))
 
     # None-exact phrase using multi-value attributes which have no definite ordering cannot use slop or inorder
-    env.expect('FT.SEARCH', 'idx_author_flat', '@author:(Redis Ltd.)=>{$slop:200}').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_author_flat', '@author:(Redis Ltd.)=>{$inorder:true}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_author_flat', '@author:(Redis Ltd.)=>{$slop:200}').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_author_flat', '@author:(Redis Ltd.)=>{$inorder:true}').error().contains("with undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_author_flat', '@category|author:(Redis Ltd.)=>{$slop:200}').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_author_flat', '@category|author:(Redis Ltd.)=>{$inorder:true}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category|author:(Redis Ltd.)=>{$slop:200}').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category|author:(Redis Ltd.)=>{$inorder:true}').error().contains("with undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_author_flat', '@category|author:("Redis Ltd.")=>{$inorder:true}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category|author:("Redis Ltd.")=>{$inorder:true}').error().contains("with undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(Redis Ltd.)=>{$slop:200}').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(Redis Ltd.)=>{$inorder:true}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(Redis Ltd.)=>{$slop:200}').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(Redis Ltd.)=>{$inorder:true}').error().contains("with undefined ordering")
 
     cond = ConditionalExpected(env, has_json_api_v2)
     cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$slop:200; $inorder:false}', 'NOCONTENT') \
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
-        .expect_when(False, lambda q: q.error().contains("has undefined ordering"))
+        .expect_when(False, lambda q: q.error().contains("with undefined ordering"))
     cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$slop:200}', 'NOCONTENT') \
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
-        .expect_when(False, lambda q: q.error().contains("has undefined ordering"))
+        .expect_when(False, lambda q: q.error().contains("with undefined ordering"))
     cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$inorder:false}', 'NOCONTENT') \
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
-        .expect_when(False, lambda q: q.error().contains("has undefined ordering"))
+        .expect_when(False, lambda q: q.error().contains("with undefined ordering"))
 
 @skip(no_json=True)
 def testInvalidPath(env):
@@ -192,9 +192,9 @@ def testUndefinedOrderingWithSlopAndInorder(env):
         .expect_when(True, lambda q: q.equal([0])) \
         .expect_when(False, expect_undef_order)
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$slop:200}').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$inorder:false}').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$inorder:true}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$slop:200}').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$inorder:false}').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$inorder:true}').error().contains("with undefined ordering")
 
     cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)', 'SLOP', '200') \
         .expect_when(True, lambda q: q.equal([0])) \
@@ -204,20 +204,20 @@ def testUndefinedOrderingWithSlopAndInorder(env):
         .expect_when(False, expect_undef_order)
 
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)', 'SLOP', '200').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)', 'INORDER').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)', 'SLOP', '200').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)', 'INORDER').error().contains("with undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)', 'SLOP', '200').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)', 'INORDER').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)', 'SLOP', '200').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)', 'INORDER').error().contains("with undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', 'does not matter', 'SLOP', '200').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', 'does not matter', 'INORDER').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', 'does not matter', 'SLOP', '200').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', 'does not matter', 'INORDER').error().contains("with undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$inorder:false}', 'SLOP', '200').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$slop:200}', 'INORDER').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$inorder:false}', 'SLOP', '200').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$slop:200}', 'INORDER').error().contains("with undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$inorder:false}').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$slop:200}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$inorder:false}').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$slop:200}').error().contains("with undefined ordering")
 
 
     # NOOFFSETS - SLOP/INORDER are not considered - No need to fail on undefined ordering
@@ -247,8 +247,8 @@ def testMultiNonText(env):
     #
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_text_dict.values()):
-        doc = 'doc:{}:'.format(i+1)
-        idx = 'idx{}'.format(i+1)
+        doc = f'doc:{i + 1}:'
+        idx = f'idx{i + 1}'
         env.cmd('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'TEXT')
         waitForIndex(env, idx)
         conn.execute_command('JSON.SET', doc, '$', json.dumps(v))
@@ -274,13 +274,13 @@ def testMultiNonTextNested(env):
     # Create indices, e.g.,
     #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr TEXT
     for (i,v) in enumerate(non_text_dict.values()):
-        env.cmd('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'TEXT')
+        env.cmd('FT.CREATE', f'idx{i + 1}', 'ON', 'JSON', 'SCHEMA', f'$.attr{i + 1}', 'AS', 'attr', 'TEXT')
     conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_text_content)
 
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_text_dict.values()):
         res_failures = 0 if i+1 <= 5 else 1
-        env.assertEqual(int(index_info(env, 'idx{}'.format(i+1))['hash_indexing_failures']), res_failures)
+        env.assertEqual(int(index_info(env, f'idx{i + 1}')['hash_indexing_failures']), res_failures)
 
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@attr:(third)', 'NOCONTENT').equal([1, 'doc:1'])
@@ -312,11 +312,11 @@ def testMultiSortRoot(env):
 
     # docs with array of strings
     for i, gag in enumerate(gag_arr):
-        conn.execute_command('JSON.SET', 'multi:doc:{}'.format(i+1), '$', json.dumps(gag))
+        conn.execute_command('JSON.SET', f'multi:doc:{i + 1}', '$', json.dumps(gag))
 
     # docs with a single string
     for i, gag in enumerate(gag_arr):
-        conn.execute_command('JSON.SET', 'single:doc:{}'.format(i+1), '$', json.dumps(gag[0]))
+        conn.execute_command('JSON.SET', f'single:doc:{i + 1}', '$', json.dumps(gag[0]))
 
     sortMulti(env, text_cmd_args, tag_cmd_args)
 
@@ -341,11 +341,11 @@ def testMultiSortNested(env):
 
     # docs with array of strings
     for i, gag in enumerate(gag_arr):
-        conn.execute_command('JSON.SET', 'multi:doc:{}'.format(i+1), '$', json.dumps({ "chalkboard": gag}))
+        conn.execute_command('JSON.SET', f'multi:doc:{i + 1}', '$', json.dumps({ "chalkboard": gag}))
 
     # docs with a single string
     for i, gag in enumerate(gag_arr):
-        conn.execute_command('JSON.SET', 'single:doc:{}'.format(i+1), '$', json.dumps({ "chalkboard": gag[0]}))
+        conn.execute_command('JSON.SET', f'single:doc:{i + 1}', '$', json.dumps({ "chalkboard": gag[0]}))
 
     sortMulti(env, text_cmd_args, tag_cmd_args)
 
@@ -393,15 +393,15 @@ def sortMulti(env, text_cmd_args, tag_cmd_args):
         # Multi TEXT with single TEXT
         env.assertEqual(trim_in_list('multi:', env.cmd('FT.SEARCH', 'idx1_multi_text', *text_arg)),
                         trim_in_list('single:', env.cmd('FT.SEARCH', 'idx1_single_text', *text_arg)),
-                        message = '{} with arg `{}`'.format('multi TEXT with single TEXT', text_arg))
+                        message = f'multi TEXT with single TEXT with arg `{text_arg}`')
         # Multi TAG with single TAG
         env.assertEqual(trim_in_list('multi:', env.cmd('FT.SEARCH', 'idx2_multi_tag', *tag_arg)),
                         trim_in_list('single:', env.cmd('FT.SEARCH', 'idx2_single_tag', *tag_arg)),
-                        message = '{} arg `{}`'.format('multi TAG with single TAG', tag_arg))
+                        message = f'multi TAG with single TAG arg `{tag_arg}`')
         # Multi TEXT with multi TAG
         env.assertEqual(env.cmd('FT.SEARCH', 'idx1_multi_text', *text_arg),
                         env.cmd('FT.SEARCH', 'idx2_multi_tag', *tag_arg),
-                        message = '{} text arg `{}` tag arg `{}`'.format('multi TEXT with multi TAG', text_arg, tag_arg))
+                        message = f'multi TEXT with multi TAG text arg `{text_arg}` tag arg `{tag_arg}`')
 
     if not env.isCluster():
         # (skip this comparison in cluster since score is affected by the number of shards/distribution of keys across shards)
@@ -411,7 +411,7 @@ def sortMulti(env, text_cmd_args, tag_cmd_args):
             # Multi TEXT with single TEXT
             env.assertEqual(trim_in_list('multi:', env.cmd('FT.SEARCH', 'idx1_multi_text', *text_arg)),
                             trim_in_list('single:', env.cmd('FT.SEARCH', 'idx1_single_text', *text_arg)),
-                            message = '{} arg {}'.format('multi TEXT with single TEXT', text_arg))
+                            message = f'multi TEXT with single TEXT arg {text_arg}')
 
 
 @skip(no_json=True)
@@ -431,7 +431,7 @@ def testMultiEmptyBlankOrNone(env):
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.val', 'AS', 'val', 'TEXT')
 
     for i, val in enumerate(values):
-        conn.execute_command('JSON.SET', 'doc:{}'.format(i+1), '$', json.dumps({ "val": val}))
+        conn.execute_command('JSON.SET', f'doc:{i + 1}', '$', json.dumps({ "val": val}))
     conn.execute_command('JSON.SET', 'doc', '$', json.dumps({"val": ["haha"]}))
     env.expect('FT.SEARCH', 'idx', '@val:(haha)', 'NOCONTENT', 'SORTBY', 'val', 'ASC').equal([1, 'doc'])
 
@@ -545,7 +545,7 @@ def checkMultiTextReturn(env, expected, default_dialect, is_sortable, is_sortabl
     dialect_param = ['DIALECT', 3] if not default_dialect else []
     env.assertTrue(not is_sortable_unf or is_sortable)
     sortable_param = ['SORTABLE', 'UNF'] if is_sortable_unf else (['SORTABLE'] if is_sortable else [])
-    message = 'dialect {}, sortable {}, unf {}'.format('default' if default_dialect else 3, is_sortable, is_sortable_unf)
+    message = f"dialect {'default' if default_dialect else 3}, sortable {is_sortable}, unf {is_sortable_unf}"
     env.assertEqual(len(expected), 4, message=message)
 
     doc1_content = {

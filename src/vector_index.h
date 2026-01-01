@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #pragma once
 #include "search_ctx.h"
@@ -15,6 +18,8 @@
 #define VECSIM_TYPE_FLOAT16 "FLOAT16"
 #define VECSIM_TYPE_FLOAT32 "FLOAT32"
 #define VECSIM_TYPE_FLOAT64 "FLOAT64"
+#define VECSIM_TYPE_UINT8 "UINT8"
+#define VECSIM_TYPE_INT8 "INT8"
 #define VECSIM_TYPE_INT32 "INT32"
 #define VECSIM_TYPE_INT64 "INT64"
 
@@ -39,7 +44,7 @@
 #define VECSIM_DISTANCE_METRIC "DISTANCE_METRIC"
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
-  QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create %s index without specifying %s argument", algorithm, arg)
+  QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)
 
 #define VECSIM_KNN_K_TOO_LARGE_ERR_MSG "KNN K parameter is too large"
 
@@ -76,7 +81,7 @@ typedef struct {
 } RangeVectorQuery;
 
 typedef struct VectorQuery {
-  char *property;                     // name of field
+  const FieldSpec *field;             // the vector field
   char *scoreField;                   // name of score field
   union {
     KNNVectorQuery knn;
@@ -111,13 +116,11 @@ typedef struct VecSimLogCtx {
     const char *index_field_name;  // should point to the field_spec name string.
 } VecSimLogCtx;
 
-// TODO: remove idxKey from all OpenFooIndex functions
-VecSimIndex *OpenVectorIndex(IndexSpec *sp,
-  RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
+VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index);
 
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it);
 
-int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status);
+int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);
 void VectorQuery_Free(VectorQuery *vq);
 

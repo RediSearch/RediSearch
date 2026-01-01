@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 
 #pragma once
@@ -82,9 +85,6 @@ void MRCommand_WriteTaggedKey(MRCommand *cmd, int index, const char *newarg, con
 int MRCommand_GetShardingKey(const MRCommand *cmd);
 
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx);
-
-void MRCommand_Print(MRCommand *cmd);
-void MRCommand_FPrint(FILE *fd, MRCommand *cmd);
 
 /* Create a copy of a command by duplicating all strings */
 MRCommand MRCommand_Copy(const MRCommand *cmd);

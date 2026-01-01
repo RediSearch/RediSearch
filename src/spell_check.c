@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "spell_check.h"
 #include "util/arr.h"
@@ -84,14 +87,14 @@ void RS_SuggestionsFree(RS_Suggestions *s) {
  */
 static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t len,
                                   t_fieldMask fieldMask) {
-  RedisModuleKey *keyp = NULL;
-  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(scCtx->sctx, suggestion, len, 0, NULL, &keyp);
+  InvertedIndex *invidx = Redis_OpenInvertedIndex(scCtx->sctx, suggestion, len, 0, NULL);
   double retVal = 0;
   if (!invidx) {
     // can not find inverted index key, score is 0.
     goto end;
   }
-  IndexReader *reader = NewTermIndexReader(invidx, NULL, fieldMask, NULL, 1);
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = true, .value.mask = fieldMask};
+  IndexReader *reader = NewTermIndexReaderEx(invidx, NULL, fieldMaskOrIndex, NULL, 1);
   IndexIterator *iter = NewReadIterator(reader);
   RSIndexResult *r;
   if (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
@@ -104,9 +107,6 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
   ReadIterator_Free(iter);
 
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   return retVal;
 }
 

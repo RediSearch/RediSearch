@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #pragma once
 
@@ -64,7 +67,7 @@ class RTree {
 
   int insertWKT(std::string_view wkt, t_docId id, RedisModuleString** err_msg);
   bool remove(t_docId id);
-  [[nodiscard]] auto query(std::string_view wkt, QueryType query_type,
+  [[nodiscard]] auto query(const RedisSearchCtx *sctx, const FieldFilterContext* filterCtx, std::string_view wkt, QueryType query_type,
                            RedisModuleString** err_msg) const -> IndexIterator*;
 
   void dump(RedisModuleCtx* ctx) const;

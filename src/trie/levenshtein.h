@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #ifndef __LEVENSHTEIN_H__
 #define __LEVENSHTEIN_H__
@@ -27,7 +30,7 @@ typedef struct {
     int max;
 } SparseAutomaton;
 
-struct dfaEdge; 
+struct dfaEdge;
 
 /* dfaNode is DFA graph node constructed using the Levenshtein automaton */
 typedef struct dfaNode {
@@ -91,7 +94,9 @@ typedef struct {
 DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode);
 
 /* A callback function for the DFA Filter, passed to the Trie iterator */
-FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
+// FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
+FilterCode FoldingFilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
+FilterCode LoweringFilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
 
 /* A stack-pop callback, passed to the trie iterator. It's called when we reach a dead end and need
  * to rewind the stack of the filter */

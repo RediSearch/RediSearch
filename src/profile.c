@@ -1,11 +1,15 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "profile.h"
 #include "reply_macros.h"
+#include "util/units.h"
 
 void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime, PrintProfileConfig *config) {
   IndexReader *ir = root->ctx;
@@ -17,18 +21,18 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
       REPLY_KVSTR_SAFE("Term", ir->record->term.term->str);
     }
   } else if (ir->idx->flags & Index_StoreNumeric) {
-    NumericFilter *flt = ir->decoderCtx.ptr;
+    const NumericFilter *flt = ir->decoderCtx.filter;
     if (!flt || flt->geoFilter == NULL) {
       printProfileType("NUMERIC");
       RedisModule_Reply_SimpleString(reply, "Term");
-      RedisModule_Reply_SimpleStringf(reply, "%g - %g", ir->decoderCtx.rangeMin, ir->decoderCtx.rangeMax);
+      RedisModule_Reply_SimpleStringf(reply, "%g - %g", ir->profileCtx.numeric.rangeMin, ir->profileCtx.numeric.rangeMax);
     } else {
       printProfileType("GEO");
       RedisModule_Reply_SimpleString(reply, "Term");
       double se[2];
       double nw[2];
-      decodeGeo(ir->decoderCtx.rangeMin, se);
-      decodeGeo(ir->decoderCtx.rangeMax, nw);
+      decodeGeo(ir->profileCtx.numeric.rangeMin, se);
+      decodeGeo(ir->profileCtx.numeric.rangeMax, nw);
       RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
     }
   } else {
@@ -62,13 +66,14 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_INDEX:
       case RP_METRICS:
       case RP_LOADER:
-      case RP_SAFE_LOADER:
+      case RP_KEY_NAME_LOADER:
       case RP_SCORER:
       case RP_SORTER:
       case RP_COUNTER:
       case RP_PAGER_LIMITER:
       case RP_HIGHLIGHTER:
       case RP_GROUP:
+      case RP_MAX_SCORE_NORMALIZER:
       case RP_NETWORK:
         printProfileType(RPTypeToString(rp->type));
         break;
@@ -78,9 +83,14 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
         RPEvaluator_Reply(reply, "Type", rp);
         break;
 
+      case RP_SAFE_LOADER:
+        printProfileType(RPTypeToString(rp->type));
+        printProfileGILTime(rp->GILTime);
+        break;
+
       case RP_PROFILE:
       case RP_MAX:
-        RS_LOG_ASSERT(0, "RPType error");
+        RS_ABORT("RPType error");
         break;
     }
 
@@ -105,6 +115,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   AREQ *req = profileCtx->req;
   bool timedout = profileCtx->timedout;
   bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
+  bool bgScanOOM = profileCtx->bgScanOOM;
   req->totalTime += clock() - req->initClock;
 
   //-------------------------------------------------------------------------------------------
@@ -125,7 +136,23 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
             (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
 
+      //Print total GIL time
+        if (profile_verbose){
+          if (RunInThread()){
+            RedisModule_ReplyKV_Double(reply, "Total GIL time",
+            rs_timer_ms(&req->qiter.GILTime));
+          } else {
+            struct timespec rpEndTime;
+            clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
+            rs_timersub(&rpEndTime, &req->qiter.initTime, &rpEndTime);
+            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_timer_ms(&rpEndTime));
+          }
+        }
+
       // Print whether a warning was raised throughout command execution
+      if (bgScanOOM) {
+        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WINDEXING_FAILURE);
+      }
       if (timedout) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ETIMEDOUT));
       } else if (reachedMaxPrefixExpansions) {
@@ -184,8 +211,8 @@ void Profile_PrintInFormat(RedisModule_Reply *reply,
   RedisModule_Reply_MapEnd(reply); /* >profile */
 }
 
-void Profile_PrintDefault(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions) {
-  ProfilePrinterCtx ctx = {.req = req, .timedout = timedout,
-                           .reachedMaxPrefixExpansions = reachedMaxPrefixExpansions};
-  Profile_PrintInFormat(reply, Profile_Print, &ctx, NULL, NULL);
+// Receives context as void*
+// Will be used as ProfilePrinterCtx*
+void Profile_PrintDefault(RedisModule_Reply *reply, void *ctx) {
+  Profile_PrintInFormat(reply, Profile_Print, ctx, NULL, NULL);
 }

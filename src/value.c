@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include <pthread.h>
 
@@ -11,6 +14,8 @@
 #include "module.h"
 #include "query_error.h"
 #include "rmutil/rm_assert.h"
+#include "fast_float/fast_float_strtod.h"
+#include "obfuscation/obfuscation_api.h"
 
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
@@ -248,7 +253,7 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l) {
 
   char *e;
   errno = 0;
-  double d = strtod(p, &e);
+  double d = fast_float_strtod(p, &e);
   if ((errno == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL)) || (errno != 0 && d == 0) ||
       *e != '\0') {
     return NULL;
@@ -296,7 +301,7 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
   if (p) {
     char *e;
     errno = 0;
-    *d = strtod(p, &e);
+    *d = fast_float_strtod(p, &e);
     if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
         *e != '\0') {
       return 0;
@@ -478,7 +483,7 @@ static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *q
     if (!qerr) return 0;
 
     const char *s = RSValue_StringPtrLen(v, NULL);
-    QueryError_SetErrorFmt(qerr, QUERY_ENOTNUMERIC, "Error converting string '%s' to number", s);
+    QueryError_SetWithUserDataFmt(qerr, QUERY_ENOTNUMERIC, "Error converting string", " '%s' to number", s);
     return 0;
   }
 
@@ -675,7 +680,14 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags
         size_t len = RSValue_NumToString(v->numval, buf);
 
         if (flags & SENDREPLY_FLAG_TYPED) {
-          return RedisModule_Reply_Error(reply, buf);
+          if (reply->resp3) {
+            return RedisModule_Reply_Double(reply, v->numval);
+          } else {
+             // In RESP2, RM_ReplyWithDouble() does not tag the response as
+             // double, it's just a plain string. So we send it as simple string
+             // that is converted to double by MRReply_ToValue().
+            return RedisModule_Reply_Error(reply, buf);
+          }
         } else {
           return RedisModule_Reply_StringBuffer(reply, buf, len);
         }
@@ -726,66 +738,81 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags
   return REDISMODULE_OK;
 }
 
-void RSValue_Print(const RSValue *v) {
-  FILE *fp = stderr;
+sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
   if (!v) {
-    fprintf(fp, "nil");
+    return sdscat(s, "nil");
   }
   switch (v->t) {
     case RSValue_String:
-      fprintf(fp, "\"%.*s\"", v->strval.len, v->strval.str);
+      if (obfuscate) {
+        const char *obfuscated = Obfuscate_Text(v->strval.str);
+        return sdscatfmt(s, "\"%s\"", obfuscated);
+      } else {
+        s = sdscat(s, "\"");
+        s = sdscatlen(s, v->strval.str, v->strval.len);
+        s = sdscat(s, "\"");
+        return s;
+      }
       break;
     case RSValue_RedisString:
     case RSValue_OwnRstring:
-      fprintf(fp, "\"%s\"", RedisModule_StringPtrLen(v->rstrval, NULL));
+      if (obfuscate) {
+        size_t len;
+        const char *obfuscated = Obfuscate_Text(RedisModule_StringPtrLen(v->rstrval, &len));
+        return sdscatfmt(s, "\"%s\"", obfuscated);
+      } else {
+        size_t len;
+        const char *str = RedisModule_StringPtrLen(v->rstrval, &len);
+        s = sdscat(s, "\"");
+        s = sdscatlen(s, str, len);
+        s = sdscat(s, "\"");
+        return s;
+      }
       break;
     case RSValue_Number: {
-      char tmp[128];
-      RSValue_NumToString(v->numval, tmp);
-      fprintf(fp, "%s", tmp);
+      if (obfuscate) {
+        return sdscat(s, Obfuscate_Number(v->numval));
+      } else {
+        char buf[128];
+        size_t len = RSValue_NumToString(v->numval, buf);
+        return sdscatlen(s, buf, len);
+      }
       break;
     }
     case RSValue_Null:
-      fprintf(fp, "NULL");
+      return sdscat(s, "NULL");
       break;
     case RSValue_Undef:
-      fprintf(fp, "<Undefined>");
+      return sdscat(s, "<Undefined>");
     case RSValue_Array:
-      fprintf(fp, "[");
+      s = sdscat(s, "[");
       for (uint32_t i = 0; i < v->arrval.len; i++) {
         if (i > 0)
-          fprintf(fp, ", ");
-        RSValue_Print(v->arrval.vals[i]);
+          s = sdscat(s, ", ");
+        s = RSValue_DumpSds(v->arrval.vals[i], s, obfuscate);
       }
-      fprintf(fp, "]");
+      return sdscat(s, "]");
       break;
     case RSValue_Map:
-      fprintf(fp, "{");
+      s = sdscat(s, "{");
       for (uint32_t i = 0; i < v->mapval.len; i++) {
         if (i > 0)
-          fprintf(fp, ", ");
-        RSValue_Print(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)]);
-        fprintf(fp, ": ");
-        RSValue_Print(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)]);
+          s = sdscat(s, ", ");
+        s = RSValue_DumpSds(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], s, obfuscate);
+        s = sdscat(s, ": ");
+        s = RSValue_DumpSds(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], s, obfuscate);
       }
-      fprintf(fp, "}");
+      s = sdscat(s, "}");
       break;
     case RSValue_Reference:
-      RSValue_Print(v->ref);
+      return RSValue_DumpSds(v->ref, s, obfuscate);
       break;
 
     case RSValue_Duo:
-      RSValue_Print(RS_DUOVAL_VAL(*v));
+      return RSValue_DumpSds(RS_DUOVAL_VAL(*v), s, obfuscate);
       break;
   }
 }
-
-#ifdef _DEBUG
-void print_rsvalue(RSValue *v) {
-  RSValue_Print(v);
-  fputs("\n", stderr);
-}
-#endif // _DEBUG
 
 /*
  *  - s: will be parsed as a string

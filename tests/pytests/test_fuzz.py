@@ -58,7 +58,7 @@ def compareResults(env, r, num_unions=2, toks_per_union=7):
     result = reduce(lambda x, y: x.intersection(y), union_docs)
 
     # format the equivalent search query for the same tokens
-    q = ''.join(('(%s)' % '|'.join(toks) for toks in unions))
+    q = ''.join((f"({'|'.join(toks)})" for toks in unions))
     args = ['ft.search', 'idx', q, 'nocontent', 'limit', 0, 100]
     # print args
 

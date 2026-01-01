@@ -30,4 +30,4 @@ dbconfig:
 clientconfig:
   benchmark_type: "read-only"
   tool: memtier_benchmark
-  arguments: "--test-time 180 -c 4 -t 1 --hide-histogram --command 'FT.SEARCH idx133 \"@field4: [-inf 4605003 ] @field5: [4605003 +inf ] @field8: [-inf 458.1 ] @field9:[458.1 +inf ] ( @field3: (1135)|(1137)|(1148)|(1155)|(1289)|(1290)|(1323)|(1360)|(1375)|(1399)|(1413)|(1414)|(1417)|(1418)|(1420)|(1421)|(1422)|(1432)|(1951)|(1952) @field6: [-inf 32.6 ] @field7: [32.6 +inf ] )\"'"
+  arguments: "--test-time 120 -c 4 -t 1 --hide-histogram --command 'FT.SEARCH idx133 \"@field4: [-inf 4605003 ] @field5: [4605003 +inf ] @field8: [-inf 458.1 ] @field9:[458.1 +inf ] ( @field3: (1135)|(1137)|(1148)|(1155)|(1289)|(1290)|(1323)|(1360)|(1375)|(1399)|(1413)|(1414)|(1417)|(1418)|(1420)|(1421)|(1422)|(1432)|(1951)|(1952) @field6: [-inf 32.6 ] @field7: [32.6 +inf ] )\"'"

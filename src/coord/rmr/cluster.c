@@ -1,12 +1,17 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "cluster.h"
 #include "crc16.h"
 #include "crc12.h"
+#include "rmutil/rm_assert.h"
+#include "rmalloc.h"
 
 #include <stdlib.h>
 
@@ -26,7 +31,6 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
   for (int sh = 0; sh < cl->topo->numShards; sh++) {
     for (int n = 0; n < cl->topo->shards[sh].numNodes; n++) {
       MRClusterNode *node = &cl->topo->shards[sh].nodes[n];
-      // printf("Adding node %s:%d to cluster\n", node->endpoint.host, node->endpoint.port);
       MRConnManager_Add(&cl->mgr, node->id, &node->endpoint, 0);
 
       /* This node is still valid, remove it from the nodes to delete list */
@@ -100,7 +104,6 @@ void MRKey_Parse(MRKey *mk, const char *src, size_t srclen) {
 
   const char *endBrace = src + srclen - 1;
   if (srclen < 3 || !*endBrace || *endBrace != '}') {
-    // printf("No closing brace found!\n");
     return;
   }
 
@@ -110,20 +113,17 @@ void MRKey_Parse(MRKey *mk, const char *src, size_t srclen) {
   }
 
   if (*beginBrace != '{') {
-    // printf("No open brace found!\n");
     return;
   }
 
   mk->baseLen = beginBrace - src;
   mk->shard = beginBrace + 1;
   mk->shardLen = endBrace - mk->shard;
-  // printf("Shard key: %.*s\n", (int)mk->shardLen, mk->shard);
 }
 
 static const char *MRGetShardKey(const MRCommand *cmd, size_t *len) {
   int pos = MRCommand_GetShardingKey(cmd);
   if (pos >= cmd->num) {
-    // printf("Returning NULL.. pos=%d, num=%d\n", pos, cmd->num);
     return NULL;
   }
 
@@ -255,7 +255,7 @@ int MRCLuster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopo) {
 
 
 void MRCluster_UpdateConnPerShard(MRCluster *cl, size_t new_conn_pool_size) {
-  assert(new_conn_pool_size > 0);
+  RS_ASSERT(new_conn_pool_size > 0);
   size_t old_conn_pool_size = cl->mgr.nodeConns;
   if (old_conn_pool_size > new_conn_pool_size) {
     MRConnManager_Shrink(&cl->mgr, new_conn_pool_size);

@@ -8,16 +8,32 @@ SRCDIR=.
 
 MACOS_PACKAGES=openssl
 
+IGNORE_MISSING_DEPS=1
+build: verify_build $(DEFAULT_TARGETS) $(MK_MAKEFILES) $(TARGET)
+	@echo "Build completed."
+verify_build:
+	@echo "Verifying build dependencies..."
+	@if ! $(ROOT)/.install/verify_build_deps.sh; then \
+		if [ "$(IGNORE_MISSING_DEPS)" = "1" ]; then \
+			echo -e "\033[0;33mIGNORE_MISSING_DEPS is set. Ignoring dependency check failure.\033[0m"; \
+		else \
+            echo ""; \
+			echo -e "\033[0;31mDependency check failed. You can bypass this check by running:\033[0m"; \
+			echo -e "\033[0;31m\033[1mmake IGNORE_MISSING_DEPS=1 ...\033[0m"; \
+            exit 1; \
+        fi; \
+    fi
+
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
 
 define HELPTEXT
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
-make fetch         # download and prepare dependant modules
+make fetch         # download and prepare dependent modules
 
 make build          # compile and link
-  COORD=0|1|oss|rlec  # build coordinator (1|oss: Open Source, rlec: Enterprise) default: oss
+  COORD=oss|rlec      # build coordinator (oss: Open Source, rlec: Enterprise) default: oss
   STATIC=1            # build as static lib
   LITE=1              # build RediSearchLight
   DEBUG=1             # build for debugging
@@ -34,6 +50,7 @@ make build          # compile and link
   BOOST_DIR= 		  # Custom boost headers location path (default value: .install/boost).
   					  # Can be left empty if boost is located in the standard system includes path.
   VERBOSE_UTESTS=1    # enable logging in cpp tests
+  ENABLE_ASSERT=1     # enable assertions (disabled by default)
 
 make parsers       # build parsers code
 make clean         # remove build artifacts
@@ -55,8 +72,10 @@ make pytest        # run python tests (tests/pytests)
   SA=1|0               # alias for REDIS_STANDALONE
   TEST=name            # e.g. TEST=test:testSearch
   RLTEST_ARGS=...      # pass args to RLTest
-  REJSON=1|0|get       # also load RedisJSON module (default: 1)
-  REJSON_PATH=path     # use RedisJSON module at `path`
+  REJSON=1|0           # also load RedisJSON module (default: 1)
+  REJSON_BRANCH=branch # use RedisJSON module from branch (default: 'master')
+  REJSON_PATH=path     # use RedisJSON module at `path` (default: '' - build from source)
+  REJSON_ARGS=''       # pass args to RedisJSON module
   EXT=1                # External (existing) environment
   GDB=1                # RLTest interactive debugging
   VG=1                 # use Valgrind
@@ -80,11 +99,6 @@ make pack             # create installation packages (default: 'redisearch-oss' 
   LITE=1                # pack RediSearchLight ('redisearch-light' package)
 
 make upload-artifacts   # copy snapshot packages to S3
-  OSNICK=nick             # copy snapshots for specific OSNICK
-make upload-release     # copy release packages to S3
-
-common options for upload operations:
-  STAGING=1             # copy to staging lab area (for validation)
   FORCE=1               # allow operation outside CI environment
   VERBOSE=1             # show more details
   NOP=1                 # do not copy, just print commands
@@ -104,78 +118,61 @@ endef
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(COORD),0) # Standalone build (explicit)
+ifeq ($(COORD),1)
+	override COORD:=oss
+else ifeq ($(COORD),) # Default: OSS Coordinator build
+	override COORD:=oss
+endif
 
-	ifeq ($(STATIC),1) # Static build
-		BINDIR=$(BINROOT)/search-static
-		SRCDIR=.
-		TARGET=$(BINDIR)/redisearch.a
-		PACKAGE_NAME=
-		MODULE_NAME=
-		RAMP_YAML=
+ifeq ($(COORD),oss) # OSS (community distribution) Coordinator
+	BINDIR=$(BINROOT)/search-community
+	SRCDIR=.
+	TARGET=$(BINDIR)/redisearch.so
+	PACKAGE_NAME=redisearch-community
+	MODULE_NAME=search
+	RAMP_YAML=pack/ramp-community.yml
+	PACKAGE_S3_DIR=redisearch-oss
 
-	else ifneq ($(LITE),1) # OSS Search
-		BINDIR=$(BINROOT)/search
-		SRCDIR=.
-		TARGET=$(BINDIR)/redisearch.so
-		PACKAGE_NAME=redisearch-oss
-		MODULE_NAME=search
-		RAMP_YAML=
-		PACKAGE_S3_DIR=
+else ifeq ($(COORD),rlec) # RLEC Coordinator
+	BINDIR=$(BINROOT)/search-enterprise
+	SRCDIR=.
+	TARGET=$(BINDIR)/module-enterprise.so
+	PACKAGE_NAME=redisearch
+	MODULE_NAME=search
+	RAMP_YAML=pack/ramp-enterprise.yml
+	PACKAGE_S3_DIR=redisearch
 
-	else # Search Lite
-		BINDIR=$(BINROOT)/search-lite
-		SRCDIR=.
-		TARGET=$(BINDIR)/redisearch.so
-		PACKAGE_NAME=redisearch-light
-		MODULE_NAME=searchlight
-		RAMP_YAML=pack/ramp-light.yml
-		PACKAGE_S3_DIR=redisearch
-	endif
+else
+	___:=$(error COORD should be either oss or rlec)
+endif
 
-else # COORD
+ifeq ($(LITE),1) # Search Lite - overwrite the above settings (todo: retire lite completely)
+	BINDIR=$(BINROOT)/search-lite
+	SRCDIR=.
+	TARGET=$(BINDIR)/redisearch.so
+	PACKAGE_NAME=redisearch-light
+	MODULE_NAME=searchlight
+	RAMP_YAML=pack/ramp-light.yml
+	PACKAGE_S3_DIR=redisearch
+endif
 
-	ifeq ($(STATIC),1)
-		___:=$(error STATIC=1 is incompatible with COORD)
-	endif
+ifeq ($(STATIC),1) # Static build - overwrite the above settings
+	BINDIR=$(BINROOT)/search-static
+	SRCDIR=.
+	TARGET=$(BINDIR)/redisearch.a
+	PACKAGE_NAME=
+	MODULE_NAME=
+	RAMP_YAML=
+	PACKAGE_S3_DIR=
+endif
 
-	ifeq ($(COORD),1)
-		override COORD:=oss
-	else ifeq ($(COORD),) # Default: OSS Coordinator build
-		override COORD:=oss
-	endif
+LIBUV_DIR=$(ROOT)/deps/libuv
+export LIBUV_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/libuv
+include build/libuv/Makefile.defs
 
-	ifeq ($(COORD),oss) # OSS Coordinator
-		BINDIR=$(BINROOT)/coord-oss
-		SRCDIR=src/coord
-		TARGET=$(BINDIR)/redisearch.so
-		PACKAGE_NAME=redisearch-oss
-		MODULE_NAME=search
-		RAMP_YAML=pack/ramp.yml
-		PACKAGE_S3_DIR=redisearch-oss
-
-	else ifeq ($(COORD),rlec) # RLEC Coordinator
-		BINDIR=$(BINROOT)/coord-rlec
-		SRCDIR=src/coord
-		TARGET=$(BINDIR)/module-enterprise.so
-		PACKAGE_NAME=redisearch
-		MODULE_NAME=search
-		RAMP_YAML=src/coord/pack/ramp.yml
-		PACKAGE_S3_DIR=redisearch
-
-	else
-		___:=$(error COORD should be either oss or rlec)
-	endif
-
-	LIBUV_DIR=$(ROOT)/deps/libuv
-	export LIBUV_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/libuv
-	include build/libuv/Makefile.defs
-
-	HIREDIS_DIR=$(ROOT)/deps/hiredis
-	HIREDIS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/hiredis
-	include build/hiredis/Makefile.defs
-
-endif # COORD
+HIREDIS_DIR=$(ROOT)/deps/hiredis
+HIREDIS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/hiredis
+include build/hiredis/Makefile.defs
 
 export COORD
 export PACKAGE_NAME
@@ -185,14 +182,22 @@ export PACKAGE_NAME
 CC_C_STD=gnu11
 # CC_CXX_STD=c++20
 
-CC_STATIC_LIBSTDCXX ?= 1
-
-CC_COMMON_H=src/common.h
+# Todo: currently we run sanitizer against latest stable redis version where libstd++ is NOT dynamically linked
+# Since we run against redis >= 8 where libstd++ is dynamicall linked to redis, we don't use static link.
+export CC_STATIC_LIBSTDCXX=0
 
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(VERBOSE_UTESTS),1)
 CC_FLAGS.common += -DVERBOSE_UTESTS
+endif
+
+ifeq ($(ENABLE_ASSERT),1)
+CC_FLAGS.common += -DENABLE_ASSERT
+endif
+
+ifeq ($(COV),1)
+CC_FLAGS.common += -DCOVERAGE
 endif
 
 #----------------------------------------------------------------------------------------------
@@ -207,38 +212,21 @@ ifeq ($(STATIC),1)
 CMAKE_STATIC += -DBUILD_STATIC=ON
 endif
 
-ifneq ($(COORD),0)
-CMAKE_COORD += -DCOORD_TYPE=$(COORD)
-endif
-
-CMAKE_FILES= \
-	CMakeLists.txt \
-	deps/friso/CMakeLists.txt \
-	deps/phonetics/CMakeLists.txt \
-	deps/snowball/CMakeLists.txt \
-	deps/rmutil/CMakeLists.txt
-
-ifneq ($(NO_TESTS),1)
-CMAKE_FILES+= \
-	deps/googletest/CMakeLists.txt \
-	deps/googletest/googlemock/CMakeLists.txt \
-	deps/googletest/googletest/CMakeLists.txt \
-	tests/ctests/CMakeLists.txt \
-	tests/cpptests/CMakeLists.txt \
-	tests/cpptests/redismock/CMakeLists.txt \
-	tests/pytests/CMakeLists.txt \
-	tests/c_utils/CMakeLists.txt
+ifeq ($(LITE),1)
+CMAKE_LITE = -DBUILD_LITE=ON
 endif
 
 #----------------------------------------------------------------------------------------------
 BOOST_DIR ?= $(ROOT)/.install/boost
-_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR) -DMAX_WORKER_THREADS=$(MAX_WORKER_THREADS)
+_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR) -DMAX_WORKER_THREADS=$(MAX_WORKER_THREADS) -DSAN=$(SAN) -DCOV=$(COV)
 
 ifeq ($(OS),macos)
-_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
+_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DAPPLE=ON
 endif
 
-_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
+CMAKE_COORD += -DCOORD_TYPE=$(COORD)
+_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) $(CMAKE_LITE)
+
 
 include $(MK)/defs
 
@@ -247,14 +235,6 @@ MK_CUSTOM_CLEAN=1
 #----------------------------------------------------------------------------------------------
 
 MISSING_DEPS:=
-
-# S2GEOMETRY_DIR=$(ROOT)/deps/s2geometry
-# export S2GEOMETRY_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/s2geometry
-# include build/s2geometry/Makefile.defs
-
-# ifeq ($(wildcard $(S2GEOMETRY)),)
-# MISSING_DEPS += $(S2GEOMETRY)
-# endif
 
 ifeq ($(wildcard $(LIBUV)),)
 MISSING_DEPS += $(LIBUV)
@@ -280,34 +260,12 @@ endif
 
 include $(MK)/rules
 
-#----------------------------------------------------------------------------------------------
-
-export REJSON ?= 1
-
-PLATFORM_TRI:=$(shell $(READIES)/bin/platform -t)
-REJSON_BINDIR=$(ROOT)/bin/$(PLATFORM_TRI)/RedisJSON
-
-ifneq ($(REJSON),0)
-
-ifneq ($(SAN),)
-REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
-REJSON_PATH=$(REJSON_SO)
-
-$(REJSON_SO):
-	$(SHOW)BINROOT=$(BINROOT) SAN=$(SAN) ./sbin/build-redisjson
-else
-REJSON_SO=
-endif
-
-endif # REJSON=0
 
 #----------------------------------------------------------------------------------------------
 
 clean:
 ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
-else ifeq ($(ALL),all)
-	$(SHOW)rm -rf $(BINROOT) $(REJSON_BINDIR)
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
 endif
@@ -370,14 +328,6 @@ fetch:
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(COORD),0)
-CMAKE_TARGET=rscore
-CMAKE_TARGET_DIR=
-else
-CMAKE_TARGET=coordinator-core
-CMAKE_TARGET_DIR=src/
-endif
-
 CMAKE_TARGET_BUILD_DIR=$(CMAKE_TARGET_DIR)CMakeFiles/$(CMAKE_TARGET).dir
 
 cc:
@@ -388,18 +338,22 @@ cc:
 
 #----------------------------------------------------------------------------------------------
 
-ifneq ($(COORD),0)
 ifeq ($(REDIS_STANDALONE),0)
 WITH_RLTEST=1
 else ifeq ($(SA),0)
 WITH_RLTEST=1
 endif
-endif
+
+# RedisJSON defaults:
+REJSON ?= 1
+REJSON_BRANCH ?= master
+REJSON_PATH ?=
+REJSON_ARGS ?=
 
 run:
 ifeq ($(WITH_RLTEST),1)
-	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) \
-	MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
+	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) REJSON_BRANCH=$(REJSON_BRANCH) REJSON_ARGS=$(REJSON_ARGS) \
+	 FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 else
 ifeq ($(GDB),1)
@@ -445,14 +399,18 @@ endif
 
 test: unit-tests pytest
 
-unit-tests:
-	$(SHOW)BINROOT=$(BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+# Temp hack - replace the arm artifact directory with aarch64 as it comes from build.sh since unit tests
+# access it directly (todo: refactor unit test flow completely)
+UPDATED_BINROOT:=$(subst arm64v8,aarch64,$(BINROOT))
 
-pytest: $(REJSON_SO)
-ifneq ($(REJSON_PATH),)
-	@echo Testing with $(REJSON_PATH)
-endif
-	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
+unit-tests:
+	@echo "UPDATED_BINROOT: $(UPDATED_BINROOT)"
+	$(SHOW)BINROOT=$(UPDATED_BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+
+pytest:
+	@printf "\n-------------- Running python flow test ------------------\n"
+	$(SHOW)REJSON=$(REJSON) REJSON_BRANCH=$(REJSON_BRANCH) REJSON_PATH=$(REJSON_PATH) REJSON_ARGS=$(REJSON_ARGS) \
+	TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
 	LOG_LEVEL=$(LOG_LEVEL) TEST_TIMEOUT=$(TEST_TIMEOUT) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
@@ -502,13 +460,14 @@ PACK_ARGS=\
 	RAMP_YAML=$(RAMP_YAML) \
 	RAMP_ARGS=$(RAMP_ARGS)
 
-RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 $(PACK_ARGS) $(ROOT)/sbin/pack.sh)
+RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 $(PACK_ARGS) $(ROOT)/sbin/pack.sh)
 
 ifneq ($(FORCE),1)
 bin/artifacts/$(RAMP.release): $(RAMP_YAML) # $(TARGET)
 else
 bin/artifacts/$(RAMP.release): __force
 endif
+
 	@echo Packing module...
 	$(SHOW)$(PACK_ARGS) $(ROOT)/sbin/pack.sh $(TARGET)
 
@@ -521,16 +480,12 @@ pack:
 
 endif # RAML_YAML
 
-upload-release:
-	$(SHOW)RELEASE=1 ./sbin/upload-artifacts
-
 upload-artifacts:
-	$(SHOW)SNAPSHOT=1 ./sbin/upload-artifacts
+	./sbin/upload-artifacts
 
-.PHONY: pack upload-artifacts upload-release
+.PHONY: pack upload-artifacts
 
 #----------------------------------------------------------------------------------------------
-
 ifeq ($(REMOTE),1)
 BENCHMARK_ARGS=run-remote
 else
@@ -539,15 +494,18 @@ endif
 
 BENCHMARK_ARGS += --module_path $(realpath $(TARGET)) --required-module search
 
-ifeq ($(REJSON),1)
-BENCHMARK_ARGS += --module_path $(realpath $(REJSON_PATH)) --required-module ReJSON
-endif
-
 ifneq ($(BENCHMARK),)
 BENCHMARK_ARGS += --test $(BENCHMARK)
 endif
 
+
+# Todo: fix that, currently will not work manually with rejson
 benchmark:
+ifeq ($(REJSON),1)
+	ROOT=$(ROOT) REJSON_BRANCH=$(REJSON_BRANCH) $(shell $(ROOT)/tests/deps/setup_rejson.sh)
+	BENCHMARK_ARGS += --module_path $(realpath $(JSON_BIN_DIR)) --required-module ReJSON
+endif
+
 	$(SHOW)cd tests/benchmarks ;\
 	redisbench-admin $(BENCHMARK_ARGS)
 
@@ -563,24 +521,28 @@ COV_EXCLUDE_DIRS += \
 
 COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
-ifeq ($(REJSON_PATH),)
-REJSON_MODULE_FILE:=$(shell mktemp /tmp/rejson.XXXXXX)
-REJSON_COV_ARG=REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
-endif
+coverage-unit:
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
+	$(SHOW)$(MAKE) unit-tests COV=1
+	$(SHOW)lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/unit.info
+	$(SHOW)lcov -a $(BINROOT)/base.info -a $(BINROOT)/unit.info -o $(BINROOT)/unit.info.1
+	$(SHOW)lcov -o $(BINROOT)/unit.info.2 -r $(BINROOT)/unit.info.1 $(COV_EXCLUDE)
+	$(SHOW)mv $(BINROOT)/unit.info.2 $(BINROOT)/unit.info
+	$(SHOW)rm $(BINROOT)/unit.info.1
 
-coverage:
-ifeq ($(REJSON_PATH),)
-	$(SHOW)OSS=1 MODULE_FILE=$(REJSON_MODULE_FILE) ./sbin/get-redisjson
-endif
-	$(SHOW)$(MAKE) build COV=1
-	$(SHOW)$(MAKE) build COORD=0 COV=1
-	$(SHOW)$(COVERAGE_RESET)
-	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 $(REJSON_COV_ARG)
-	$(SHOW)$(COVERAGE_COLLECT_REPORT)
+coverage-flow:
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
+	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
+	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
+	$(SHOW)lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/flow.info
+	$(SHOW)lcov -a $(BINROOT)/base.info -a $(BINROOT)/flow.info -o $(BINROOT)/flow.info.1
+	$(SHOW)lcov -o $(BINROOT)/flow.info.2 -r $(BINROOT)/flow.info.1 $(COV_EXCLUDE)
+	$(SHOW)mv $(BINROOT)/flow.info.2 $(BINROOT)/flow.info
+	$(SHOW)rm $(BINROOT)/flow.info.1
 
-.PHONY: coverage
+.PHONY: coverage-unit coverage-flow
 
 #----------------------------------------------------------------------------------------------
 

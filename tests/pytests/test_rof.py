@@ -19,7 +19,7 @@ def createRdb(env, q):
             for i_f in range(len(f_list)):
               val = a_list[i_a] + ' ' + b_list[i_b] + ' ' + c_list[i_c] + ' ' + \
                     d_list[i_d] + ' ' + e_list[i_e] + ' ' + f_list[i_f]
-              r.execute_command('ft.add', 'rof', 'doc{}'.format(i), 1.0, 'fields', 'title', val, 'num', i % 10)
+              r.execute_command('ft.add', 'rof', f'doc{i}', 1.0, 'fields', 'title', val, 'num', i % 10)
               i+=1
               if i % 10000 == 0:
                 r.execute()

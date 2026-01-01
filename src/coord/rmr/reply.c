@@ -1,14 +1,18 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #define __RMR_REPLY_C__
 #include "reply.h"
 
 #include "redismodule.h"
 #include "hiredis/hiredis.h"
+#include "fast_float/fast_float_strtod.h"
 
 #include <string.h>
 #include <errno.h>
@@ -28,135 +32,6 @@ int MRReply_StringEquals(MRReply *r, const char *s, int caseSensitive) {
   }
 }
 
-void MRReply_Print(FILE *fp, MRReply *r) {
-  if (!r) {
-    fprintf(fp, "NULL");
-    return;
-  }
-
-  size_t len;
-  switch (MRReply_Type(r)) {
-    case MR_REPLY_INTEGER:
-      fprintf(fp, "INT(%lld)", MRReply_Integer(r));
-      break;
-
-    case MR_REPLY_DOUBLE:
-      fprintf(fp, "DOUBLE(%f)", MRReply_Double(r));
-      break;
-
-    case MR_REPLY_STRING:
-    case MR_REPLY_STATUS:
-      fprintf(fp, "STR(%s)", MRReply_String(r, NULL));
-      break;
-
-    case MR_REPLY_ERROR:
-      fprintf(fp, "ERR(%s)", MRReply_String(r, NULL));
-      break;
-
-    case MR_REPLY_NIL:
-      fprintf(fp, "(nil)");
-      break;
-
-    case MR_REPLY_ARRAY:
-      len = MRReply_Length(r);
-      fprintf(fp, "ARR(%zd):[ ", len);
-      for (size_t i = 0; i < len; i++) {
-        MRReply_Print(fp, MRReply_ArrayElement(r, i));
-        fprintf(fp, ", ");
-      }
-      fprintf(fp, "]");
-      break;
-
-    case MR_REPLY_MAP:
-      len = MRReply_Length(r);
-      fprintf(fp, "MAP(%zd):{ ", len);
-      for (size_t i = 0; i < len; i++) {
-        MRReply_Print(fp, MRReply_ArrayElement(r, i++));
-        fprintf(fp, ": ");
-        if (i < len) {
-          MRReply_Print(fp, MRReply_ArrayElement(r, i));
-          fprintf(fp, ", ");
-        } else {
-          fprintf(fp, "(none), ");
-        }
-      }
-      fprintf(fp, "}");
-      break;
-
-    default:
-      break;
-  }
-}
-
-void MRReply_Print_1(FILE *fp, MRReply *r) {
-  if (!r) {
-    fprintf(fp, "NULL");
-    return;
-  }
-
-  size_t len;
-  switch (MRReply_Type(r)) {
-    case MR_REPLY_INTEGER:
-      fprintf(fp, "%lld", MRReply_Integer(r));
-      break;
-
-    case MR_REPLY_DOUBLE:
-      fprintf(fp, "%f", MRReply_Double(r));
-      break;
-
-    case MR_REPLY_STRING:
-    case MR_REPLY_STATUS:
-      fprintf(fp, "'%s'", MRReply_String(r, NULL));
-      break;
-
-    case MR_REPLY_ERROR:
-      fprintf(fp, "ERR(%s)", MRReply_String(r, NULL));
-      break;
-
-    case MR_REPLY_NIL:
-      fprintf(fp, "(nil)");
-      break;
-
-    case MR_REPLY_ARRAY:
-      len = MRReply_Length(r);
-      fprintf(fp, "[ ");
-      for (size_t i = 0; i < len; i++) {
-        MRReply_Print_1(fp, MRReply_ArrayElement(r, i));
-        fprintf(fp, ", ");
-      }
-      fprintf(fp, " ]");
-      break;
-
-    case MR_REPLY_MAP:
-      len = MRReply_Length(r);
-      fprintf(fp, "{ ");
-      for (size_t i = 0; i < len; i++) {
-        MRReply_Print_1(fp, MRReply_ArrayElement(r, i++));
-        fprintf(fp, ": ");
-        if (i < len) {
-          MRReply_Print_1(fp, MRReply_ArrayElement(r, i));
-          fprintf(fp, ", ");
-        } else {
-          fprintf(fp, "(none), ");
-        }
-      }
-      fprintf(fp, "}");
-      break;
-
-    default:
-      break;
-  }
-}
-
-#if DEBUG
-
-void print_mr_reply(MRReply *r) {
-  MRReply_Print_1(stderr, r);
-  puts("");
-}
-
-#endif // DEBUG
-
 int _parseInt(const char *str, size_t len, long long *i) {
   errno = 0; /* To distinguish success/failure after call */
   char *endptr = (char *)str + len;
@@ -168,7 +43,6 @@ int _parseInt(const char *str, size_t len, long long *i) {
   }
 
   if (endptr == str) {
-    //  fprintf(stderr, "No digits were found\n");
     return 0;
   }
 
@@ -179,7 +53,7 @@ int _parseInt(const char *str, size_t len, long long *i) {
 int _parseFloat(const char *str, size_t len, double *d) {
   errno = 0; /* To distinguish success/failure after call */
   char *endptr = (char *)str + len;
-  double val = strtod(str, &endptr);
+  double val = fast_float_strtod(str, &endptr);
 
   /* Check for various possible errors */
   if (errno != 0 || (endptr == str && val == 0)) {
@@ -345,19 +219,36 @@ inline const char *MRReply_String(const MRReply *reply, size_t *len) {
 }
 
 inline MRReply *MRReply_ArrayElement(const MRReply *reply, size_t idx) {
-  // TODO: check out of bounds
+  RS_ASSERT(reply->elements > idx);
   return reply->element[idx];
 }
 
-inline MRReply *MRReply_MapElement(const MRReply *reply, const char *key) {
-  if (reply->type != MR_REPLY_MAP) return NULL;
-  for (int i = 0; i < reply->elements; i += 2) {
+inline MRReply *MRReply_TakeArrayElement(const MRReply *reply, size_t idx) {
+  RS_ASSERT(reply->elements > idx);
+  MRReply *ret = reply->element[idx];
+  reply->element[idx] = NULL; // Take ownership
+  return ret;
+}
+
+static inline int MRReply_FindMapElement(const MRReply *reply, const char *key) {
+  if (reply->type != MR_REPLY_MAP) return -1;
+  for (int i = 0; i < reply->elements - 1; i += 2) {
     if (MRReply_StringEquals(reply->element[i], key, false)) {
-      ++i;
-      return i < reply->elements ? reply->element[i] : NULL;
+      return i + 1; // Return the index of the value
     }
   }
-  return NULL;
+  return -1; // Not found
+}
+
+inline MRReply *MRReply_MapElement(const MRReply *reply, const char *key) {
+  int idx = MRReply_FindMapElement(reply, key);
+  return idx >= 0 ? reply->element[idx] : NULL;
+}
+
+inline MRReply *MRReply_TakeMapElement(const MRReply *reply, const char *key) {
+  int idx = MRReply_FindMapElement(reply, key);
+  if (idx < 0) return NULL; // Not found
+  return MRReply_TakeArrayElement(reply, idx); // Take ownership of the value
 }
 
 

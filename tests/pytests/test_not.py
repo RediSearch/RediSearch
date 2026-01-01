@@ -1,5 +1,4 @@
 from common import *
-import faker
 
 def test_not_optimized():
     """Tests the optimized version of the NOT iterator, which holds an optimized
@@ -10,29 +9,25 @@ def test_not_optimized():
     conn = getConnectionByEnv(env)
 
     # Create an index that optimizes the wildcard iterator
-    env.expect('FT.CREATE', 'idx', 'INDEXALL', 'ENABLE', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'INDEXALL', 'ENABLE', 'SCHEMA', 'n', 'NUMERIC').ok()
 
     n_docs = 1005       # 5 more than the amount of entries in an index block
-    fake = faker.Faker()
-    names = set()
-    for i in range(n_docs):
-        # Add a name to the list of names
-        old_len = len(names)
-        while len(names) == old_len:
-            new_name = fake.name()
-            names.add(new_name)
+    q = '(@n:[42 42])'  # A simple query that has one result
 
-        conn.execute_command('HSET', f'doc{i}', 't', new_name)
+    # Insert documents with positive numeric values
+    for i in range(1, 1 + n_docs):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
 
-    names = list(names)
-
-    res = env.cmd('FT.SEARCH', 'idx', '-t | t', 'LIMIT', '0', '0')
+    # Search for the query and its negation
+    res = env.cmd('FT.SEARCH', 'idx', f'-{q} | {q}', 'LIMIT', '0', '0')
     env.assertEqual(res, [n_docs])
 
-    res = env.cmd('FT.SEARCH', 'idx', '-@t:123', 'LIMIT', '0', '0')
+    # Search for the negation of the query with no results (as all documents have a positive value)
+    res = env.cmd('FT.SEARCH', 'idx', '-@n:[-1 -1]', 'LIMIT', '0', '0')
     env.assertEqual(res, [n_docs])
 
-    res = env.cmd('FT.SEARCH', 'idx', f'-(@t:{names[0]})', 'LIMIT', '0', '0')
+    # Search for the negation of the query with one result
+    res = env.cmd('FT.SEARCH', 'idx', f'-{q}', 'LIMIT', '0', '0')
     env.assertEqual(res, [n_docs-1])
 
 def test_not_optimized_with_missing():

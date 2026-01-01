@@ -1,10 +1,14 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "rs_geo.h"
+#include "fast_float/fast_float_strtod.h"
 
 int encodeGeo(double lon, double lat, double *bits) {
   GeoHashBits hash;
@@ -123,8 +127,8 @@ int parseGeo(const char *c, size_t len, double *lon, double *lat, QueryError *st
   pos++;
 
   char *end1 = NULL, *end2 = NULL;
-  *lon = strtod(str, &end1);
-  *lat = strtod(pos, &end2);
+  *lon = fast_float_strtod(str, &end1);
+  *lat = fast_float_strtod(pos, &end2);
   if (*end1 || *end2) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid geo string");
     return REDISMODULE_ERR;
@@ -132,30 +136,3 @@ int parseGeo(const char *c, size_t len, double *lon, double *lat, QueryError *st
 
   return REDISMODULE_OK;
 }
-
-/*
-int isWithinRadius(double center, double point, double radius, double *distance) {
-  double xyCenter[2], xyPoint[2];
-  decodeGeo(center, xyCenter);
-  decodeGeo(point, xyPoint);
-  return isWithinRadiusLonLat(xyCenter[0], xyCenter[1], xyPoint[0], xyPoint[1],
-                                    radius, distance);
-}
-
-IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double weight) {
-  GeoHashRange ranges[GEO_RANGE_COUNT] = {0};
-  calcRanges(gf, ranges);
-
-  int iterCount = 0;
-  IndexIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
-  for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
-    if (ranges[ii].min != ranges[ii].max) {
-      NumericFilter *filt = NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1);
-      iters[iterCount++] = NewNumericFilterIterator(NULL, filt, NULL);
-    }
-  }
-  iters = rm_realloc(iters, iterCount * sizeof(*iters));
-  IndexIterator *it = NewUnionIterator(iters, iterCount, 1, 1);
-  return it;
-}*/
-

@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "byte_offsets.h"
 #include <arpa/inet.h>
@@ -91,9 +94,6 @@ int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
     return REDISMODULE_ERR;
   }
 
-  // printf("Generating iterator for fieldId=%lu. BeginPos=%lu. EndPos=%lu\n", fieldId,
-  //        offField->firstTokPos, offField->lastTokPos);
-
   iter->buf.cap = 0;
   iter->buf.data = offsets->offsets.data;
   iter->buf.offset = offsets->offsets.len;
@@ -104,12 +104,10 @@ int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
   iter->lastValue = 0;
 
   while (iter->curPos < offField->firstTokPos && !BufferReader_AtEnd(&iter->rdr)) {
-    // printf("Seeking & incrementing\n");
     iter->lastValue = ReadVarint(&iter->rdr) + iter->lastValue;
     iter->curPos++;
   }
 
-  // printf("Iterator is now at %lu\n", iter->curPos);
   iter->curPos--;
   return REDISMODULE_OK;
 }

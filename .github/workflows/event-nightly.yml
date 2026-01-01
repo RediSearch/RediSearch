@@ -25,15 +25,23 @@ jobs:
       test-config: QUICK=1
 
   coverage:
-    if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' }}
-    uses: ./.github/workflows/flow-coverage.yml
-    secrets: inherit
-
-  sanitize:
-    uses: ./.github/workflows/flow-sanitizer.yml
+    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
+    uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
-      flow-config: QUICK=1
+      coverage: true
+      test-config: QUICK=1
+      get-redis: unstable
+
+  sanitize:
+    secrets: inherit
+    uses: ./.github/workflows/task-test.yml
+    with:
+      # Consider running against unstable Redis (will require dynamic linking to libstdc++
+      get-redis: unstable
+      test-config: QUICK=1
+      san: address
+      env: ubuntu-latest
 
   notify-failure:
     needs: [test-linux, test-macos, coverage, sanitize]

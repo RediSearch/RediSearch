@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 
 #pragma once
@@ -49,8 +52,12 @@ int MRReply_StringEquals(MRReply *r, const char *s, int caseSensitive);
 const char *MRReply_String(const MRReply *reply, size_t *len);
 
 MRReply *MRReply_ArrayElement(const MRReply *reply, size_t idx);
+// Same as `MRReply_ArrayElement`, but takes ownership of the element.
+MRReply *MRReply_TakeArrayElement(const MRReply *reply, size_t idx);
 
 MRReply *MRReply_MapElement(const MRReply *reply, const char *key);
+// Same as `MRReply_MapElement`, but takes ownership of the element.
+MRReply *MRReply_TakeMapElement(const MRReply *reply, const char *key);
 
 // Converts an array reply to a map reply type. The array must be of the form
 // [key1, value1, key2, value2, ...] and the resulting map will be of the form
@@ -59,11 +66,8 @@ MRReply *MRReply_MapElement(const MRReply *reply, const char *key);
 // a map.
 void MRReply_ArrayToMap(MRReply *reply);
 
-void MRReply_Print(FILE *fp, MRReply *r);
 int MRReply_ToInteger(MRReply *reply, long long *i);
 int MRReply_ToDouble(MRReply *reply, double *d);
 
 int MR_ReplyWithMRReply(RedisModule_Reply *reply, MRReply *rep);
 int RedisModule_ReplyKV_MRReply(RedisModule_Reply *reply, const char *key, MRReply *rep);
-
-void print_mr_reply(MRReply *r);

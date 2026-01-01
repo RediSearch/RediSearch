@@ -1,6 +1,14 @@
-#include <stdio.h>
-#include <assert.h>
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
+#include <stdio.h>
+#include <rmutil/rm_assert.h>
 #include "wildcard.h"
 
 match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, size_t str_len) {
@@ -57,7 +65,7 @@ match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, s
     pattern_itr = np_itr;
     str_itr = ns_itr;
   }
-  assert(0);
+  RS_ABORT("Error");
   return FULL_MATCH;
 }
 
@@ -87,7 +95,7 @@ match_t Wildcard_MatchRune(const rune *pattern, size_t p_len, const rune *str, s
         np_itr = pattern_itr - 1;
         ns_itr = str_itr + 1;
         continue;
-      } 
+      }
     } else if (str_end == str_itr) {
       return FULL_MATCH;
     }
@@ -100,7 +108,7 @@ match_t Wildcard_MatchRune(const rune *pattern, size_t p_len, const rune *str, s
     pattern_itr = np_itr;
     str_itr = ns_itr;
   }
-  assert(0);
+  RS_ABORT("Error");
   return FULL_MATCH;
 }
 
@@ -145,7 +153,6 @@ size_t Wildcard_RemoveEscape(char *str, size_t len) {
     if (str[i] == '\\') {
       ++i;
     }
-    // printf("%c %c\n", str[runner], str[i]);
     str[runner] = str[i];
     if (str[runner] == '\0') {
       break;

@@ -115,8 +115,8 @@ def testGeoDistanceFile(env):
   env.expect('ft.create', 'idx', 'schema', 'name', 'text', 'location', 'geo').ok()
 
   for i, hotel in enumerate(hotels):
-    env.expect('ft.add', 'idx', 'hotel{}'.format(i), 1.0, 'fields', 'name',
-                  hotel[0], 'location', '{},{}'.format(hotel[2], hotel[1])).ok()
+    env.expect('ft.add', 'idx', f'hotel{i}', 1.0, 'fields', 'name',
+                  hotel[0], 'location', f'{hotel[2]},{hotel[1]}').ok()
 
   res = [102, ['distance', '0'], ['distance', '95.43'], ['distance', '399.66'], ['distance', '1896.44'],
                ['distance', '2018.14'], ['distance', '2073.48'], ['distance', '2640.42'],

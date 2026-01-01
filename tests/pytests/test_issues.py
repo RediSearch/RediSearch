@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from common import *
+import random
 
 def test_1282(env):
   conn = getConnectionByEnv(env)
@@ -133,7 +134,7 @@ def test_MOD_865(env):
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']
   for i in range(129):
     args_list.extend([i, 'TEXT'])
-  env.expect(*args_list).error().contains('Schema is limited to {} TEXT fields'.format(arch_int_bits()))
+  env.expect(*args_list).error().contains(f'Schema is limited to {arch_int_bits()} TEXT fields')
   env.expect('FT.DROPINDEX', 'idx')
 
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']
@@ -198,10 +199,11 @@ def test_issue1988(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
+    score = '0.28768210225410284'
     env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['t', 'foo']])
-    env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES').equal([1, 'doc1', '1', ['t', 'foo']])
+    env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES').equal([1, 'doc1', score, ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY' , 't').equal([1, 'doc1', ['t', 'foo']])
-    env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES', 'SORTBY' , 't').equal([1, 'doc1', '1', ['t', 'foo']])
+    env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES', 'SORTBY' , 't').equal([1, 'doc1', score, ['t', 'foo']])
 
 @no_msan
 def testIssue2104Hash(env):
@@ -368,9 +370,14 @@ def test_MOD1544(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT')
   conn.execute_command('JSON.SET', '1', '.', '{"name": "John Smith"}')
-  res = [1, '1', ['name', '<b>John</b> Smith']]
-  env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name', 'HIGHLIGHT').equal(res)
-  env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name', 'HIGHLIGHT', 'FIELDS', '1', 'name').equal(res)
+  # res = [1, '1', ['name', '<b>John</b> Smith']]
+
+  # Highlight/summarize is not supported with JSON indexes
+  error_msg = "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes"
+  env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
+             'HIGHLIGHT').error().contains(error_msg)
+  env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
+             'HIGHLIGHT', 'FIELDS', '1', 'name').error().contains(error_msg)
 
 def test_MOD_1808(env):
   conn = getConnectionByEnv(env)
@@ -379,20 +386,20 @@ def test_MOD_1808(env):
   conn.execute_command('hset', 'doc1', 't', 'world1')
   conn.execute_command('hset', 'doc2', 't', 'world2')
   conn.execute_command('hset', 'doc3', 't', 'world3')
-  res = env.cmd('FT.SEARCH', 'idx', '(~@t:world2) (~@t:world1) (~@fawdfa:wada)', 'SUMMARIZE', 'FRAGS', '1', 'LEN', '25', 'HIGHLIGHT', 'TAGS', "<span style='background-color:yellow'>", '</span>')
+  res = env.cmd('FT.SEARCH', 'idx', '(~@t:world2) (~@t:world1) (~@t:wada)', 'SUMMARIZE', 'FRAGS', '1', 'LEN', '25', 'HIGHLIGHT', 'TAGS', "<span style='background-color:yellow'>", '</span>')
   env.assertEqual(toSortedFlatList(res), toSortedFlatList([4, 'doc2', ['t', "<span style='background-color:yellow'>world2</span>... "], 'doc1', ['t', "<span style='background-color:yellow'>world1</span>... "], 'doc0', ['t', 'world0'], 'doc3', ['t', 'world3']]))
 
 def test_2370(env):
   # Test limit offset great than number of results
   conn = getConnectionByEnv(env)
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
-  conn.execute_command('HSET', 'doc1', 't1', 'foo', 't2', 'bar')
-  conn.execute_command('HSET', 'doc2', 't1', 'baz')
+  conn.execute_command('HSET', 'doc1', 't1', 'baz')
+  conn.execute_command('HSET', 'doc2', 't1', 'foo', 't2', 'bar')
 
   # number of results is lower than LIMIT
   env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '10', '10').equal([2])
   # missing fields
-  env.expect('FT.SEARCH', 'idx', '*').equal([2, 'doc1', ['t1', 'foo', 't2', 'bar'], 'doc2', ['t1', 'baz']])
+  env.expect('FT.SEARCH', 'idx', '*').equal([2, 'doc1', ['t1', 'baz'], 'doc2', ['t1', 'foo', 't2', 'bar']])
 
 def test_MOD1907(env):
   # Test FT.CREATE w/o fields parameters
@@ -583,7 +590,7 @@ def test_sortby_Noexist_Sortables(env):
   for count, args in enumerate(sortable_options):
     sortable1 = ['SORTABLE'] if args[0] else []
     sortable2 = ['SORTABLE'] if args[1] else []
-    conn.execute_command('FT.CREATE', 'idx{}'.format(count), 'SCHEMA', 'numval', 'NUMERIC' , *sortable1,
+    conn.execute_command('FT.CREATE', f'idx{count}', 'SCHEMA', 'numval', 'NUMERIC' , *sortable1,
                                                 'text', 'TEXT', *sortable2)
 
   for count, args in enumerate(sortable_options):
@@ -593,19 +600,19 @@ def test_sortby_Noexist_Sortables(env):
     conn.execute_command('HSET', '{key2}1', 'text', 'Meow')
     conn.execute_command('HSET', '{key2}2', 'text', 'Chirp')
 
-    msg = 'sortable1: {}, sortable2: {}'.format(sortable1, sortable2)
+    msg = f'sortable1: {sortable1}, sortable2: {sortable2}'
 
     # Check ordering of docs:
     #   In cluster: Docs without sortby field are ordered by key name
     #   In non-cluster: Docs without sortby field are ordered by doc id (order of insertion/update)
 
-    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'ASC')
+    res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'ASC')
     env.assertEqual(res, [4,
         '{key1}2', ['numval', '108'], '{key1}1', ['numval', '110'],
         '{key2}1', ['text', 'Meow'], '{key2}2', ['text', 'Chirp'],
       ], message=msg)
 
-    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'DESC')
+    res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'DESC')
     env.assertEqual(res, [4,
         '{key1}1', ['numval', '110'], '{key1}2', ['numval', '108'],
         '{key2}2', ['text', 'Chirp'], '{key2}1', ['text', 'Meow'],
@@ -620,7 +627,7 @@ def test_sortby_Noexist_Sortables(env):
   conn.execute_command('HSET', '{key2}6', 'text', 'Squeak')
 
   for count, args in enumerate(sortable_options):
-    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'ASC')
+    res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'ASC')
     if env.isCluster():
       env.assertEqual(res, [10,
           '{key1}2', ['numval', '108'],
@@ -648,7 +655,7 @@ def test_sortby_Noexist_Sortables(env):
           '{key2}6', ['text', 'Squeak'],
         ], message=msg)
 
-    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'DESC')
+    res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'DESC')
     if env.isCluster():
       env.assertEqual(res, [10,
           '{key2}4', ['numval', '111'],
@@ -692,13 +699,13 @@ def test_mod_4207(env):
 
   env.cmd('FT.CREATE', 'idx1', 'FILTER', 'EXISTS(@country)', 'SCHEMA', 'business', 'TEXT', 'country', 'TEXT')
   env.cmd('FT.CREATE', 'idx2', 'FILTER', 'EXISTS(@business)', 'SCHEMA', 'business', 'TEXT', 'country', 'TEXT')
-  conn.execute_command('HSET', 'address:1', 'business', 'foo', 'country', 'USA')
-  conn.execute_command('HSET', 'address:2', 'business', 'bar', 'country', 'Israel')
+  conn.execute_command('HSET', 'address:1', 'business', 'bar', 'country', 'USA')
+  conn.execute_command('HSET', 'address:2', 'business', 'baz', 'country', 'Israel')
   conn.execute_command('HSET', 'address:3', 'business', 'foo')
   conn.execute_command('HSET', 'address:4', 'country', 'Israel')
 
-  env.expect('FT.SEARCH', 'idx1', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:4'])
-  env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:3'])
+  env.expect('FT.SEARCH', 'idx1', '*', 'NOCONTENT', 'SORTBY', 'business').equal([3, 'address:1', 'address:2', 'address:4'])
+  env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT', 'SORTBY', 'business').equal([3, 'address:1', 'address:2', 'address:3'])
 
 @skip(cluster=True)
 def test_mod_4255(env):
@@ -772,8 +779,8 @@ def test_as_startswith_as(env):
 def test_mod4296_badexpr(env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').equal('OK')
   env.expect('HSET', 'doc', 't', 'foo').equal(1)
-  env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1%0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
-  env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1/0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
+  env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1%0', 'as', 'foo').apply(lambda x: str(float(x[-1][-1]))).equal('nan')
+  env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1/0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'inf']])
 
 @skip(cluster=True)
 def test_mod5062(env):
@@ -835,10 +842,10 @@ def test_mod_6276(env):
   # Actual Test
   env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()   # Stop the gc from running uncontrollably
   env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE') # Make sure there are no running gc jobs
-  env.expect('MULTI').ok()                                 # Start an atomic transaction:
+  env.expect('MULTI').ok()                                  # Start an atomic transaction:
   env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx')       # 1. Reschedule the gc - add a job to the queue
-  env.cmd('FT.DROPINDEX', 'idx')                           # 2. Drop the index while the gc is running/queued
-  env.expect('EXEC').equal(['OK', 'OK'])                   # Execute the transaction
+  env.cmd('FT.DROPINDEX', 'idx')                            # 2. Drop the index while the gc is running/queued
+  env.expect('EXEC').equal(['OK', 'OK'])                    # Execute the transaction
   env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE') # Wait for the gc to finish
 
 def test_mod5791(env):
@@ -861,11 +868,9 @@ def test_mod5791(env):
                   'WITHSCORES', 'DIALECT', '2', 'params', '2', 'blob', 'abcdefgh')
     env.assertEqual(res[:2], [1, 'doc1'])
 
-
 @skip(asan=True, cluster=False)
 def test_mod5778_add_new_shard_to_cluster(env):
     mod5778_add_new_shard_to_cluster(env)
-
 
 @skip(asan=True, cluster=False)
 def test_mod5778_add_new_shard_to_cluster_TLS():
@@ -922,7 +927,6 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     env.assertEqual(len(shards_with_slot_0), 1, message=f"cluster info is {cluster_info}")
     env.assertEqual(shards_with_slot_0[0][2][0], new_shard_id, message=f"cluster info is {cluster_info}")
 
-
 @skip(cluster=True)
 def test_mod5910(env):
     con = getConnectionByEnv(env)
@@ -953,7 +957,6 @@ def test_mod5910(env):
     env.assertEqual(iterators_profile[1], 'INTERSECT')
     env.assertEqual(iterators_profile[7][0][1], 'NUMERIC')
     env.assertEqual(iterators_profile[7][1][1], 'UNION')
-
 
 @skip(cluster=True)
 def test_mod5880(env):
@@ -1041,8 +1044,8 @@ def test_mod_6557(env: Env):
              '127.0.0.1:9',
              'MASTER'
   ).ok()
-  # Verify that `FT.SEARCH` queries are not hanging and return an error
-  env.expect('FT.SEARCH', 'idx', '*').error().contains('Could not send query to cluster')
+  # Verify that `FT.CREATE` queries are not hanging and return an error
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').error().contains('Could not distribute command')
 
 def test_mod6186(env):
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
@@ -1088,7 +1091,6 @@ def test_mod_6541(env: Env):
     ('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'),
     ('FT.INFO', 'idx'),
     ('FT.SPELLCHECK', 'idx', 'foo'),
-    ('FT.SUGLEN', 'idx', 'foo'),
     ('FT.ALIASADD', 'alias', 'idx'),
     # Deprecated commands
     ('FT.TAGVALS', 'idx', 't'),
@@ -1144,7 +1146,7 @@ def test_unsafe_simpleString_values():
 
   # Test creating an index with unsafe name
   env.expect('FT.CREATE', unsafe_index, 'PREFIX', '1', unsafe_value, 'SCHEMA', 't', 'TEXT').ok()
-  env.expect('FT._LIST').equal({escape(unsafe_index)})
+  env.expect('FT._LIST').equal([escape(unsafe_index)])
   info = index_info(env, unsafe_index)
   env.assertEqual(info['index_name'], escape(unsafe_index))
   env.assertEqual(info['index_definition']['prefixes'], [escape(unsafe_value)])
@@ -1204,3 +1206,401 @@ def test_mod_7495(env: Env):
   # First non-stopword is not found
   env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|foo)', 'DIALECT', '2').equal([0]).noError()
   env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|foo|world)', 'DIALECT', '2').equal(expected).noError()
+
+
+@skip(cluster=True)
+def test_mod_8142(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('FT.CREATE', 'idxOptimized', 'INDEXALL', 'ENABLE', 'SCHEMA', 't', 'TEXT').ok()
+  env.cmd('HSET', 'doc1', 't', 'city')
+  env.cmd('HSET', 'doc2', 't', 'cities')
+  score_opt = ['WITHSCORES', 'SCORER', 'TFIDF']
+
+  # Test with a term search
+  env.expect('FT.SEARCH', 'idx', 'city', *score_opt).equal([2, 'doc1', '3', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', 'cities', *score_opt).equal([2, 'doc2', '3', ['t', 'cities'], 'doc1', '1', ['t', 'city']])
+  # Test with an exact term search
+  env.expect('FT.SEARCH', 'idx', '"city"', *score_opt).equal([1, 'doc1', '2', ['t', 'city']])
+  env.expect('FT.SEARCH', 'idx', '"cities"', *score_opt).equal([1, 'doc2', '2', ['t', 'cities']])
+  # Test with an optional term search
+  env.expect('FT.SEARCH', 'idx', '~city', *score_opt).equal([2, 'doc1', '3', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~city', *score_opt).equal([2, 'doc1', '3', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', '~cities', *score_opt).equal([2, 'doc2', '3', ['t', 'cities'], 'doc1', '1', ['t', 'city']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~cities', *score_opt).equal([2, 'doc2', '3', ['t', 'cities'], 'doc1', '1', ['t', 'city']])
+  # Test with an optional exact term search
+  env.expect('FT.SEARCH', 'idx', '~"city"', *score_opt).equal([2, 'doc1', '2', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~"city"', *score_opt).equal([2, 'doc1', '2', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', '~"cities"', *score_opt).equal([2, 'doc2', '2', ['t', 'cities'], 'doc1', '0', ['t', 'city']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~"cities"', *score_opt).equal([2, 'doc2', '2', ['t', 'cities'], 'doc1', '0', ['t', 'city']])
+  # Test without a term search
+  env.expect('FT.SEARCH', 'idx', '-city', *score_opt).equal([0])
+  env.expect('FT.SEARCH', 'idxOptimized', '-city', *score_opt).equal([0])
+  env.expect('FT.SEARCH', 'idx', '-cities', *score_opt).equal([0])
+  env.expect('FT.SEARCH', 'idxOptimized', '-cities', *score_opt).equal([0])
+  # Test without an exact term search
+  env.expect('FT.SEARCH', 'idx', '-"city"', *score_opt).equal([1, 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '-"city"', *score_opt).equal([1, 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', '-"cities"', *score_opt).equal([1, 'doc1', '0', ['t', 'city']])
+  env.expect('FT.SEARCH', 'idxOptimized', '-"cities"', *score_opt).equal([1, 'doc1', '0', ['t', 'city']])
+  # Test with an optional negated term search
+  env.expect('FT.SEARCH', 'idx', '~-city', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~-city', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', '~-cities', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~-cities', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  # Test with an optional negated exact term search
+  env.expect('FT.SEARCH', 'idx', '~-"city"', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~-"city"', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', '~-"cities"', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~-"cities"', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+
+  # Verify that the vector search doesn't affect the scoring or result set
+  env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  env.cmd('HSET', 'doc1', 'v', np.array([1, 1], dtype=np.float32).tobytes())
+  env.cmd('HSET', 'doc2', 'v', np.array([1, 2], dtype=np.float32).tobytes())
+  res1 = env.cmd('FT.SEARCH', 'idx', 'city', 'WITHSCORES', 'RETURN', '1', 't')
+  res2 = env.cmd('FT.SEARCH', 'idx', 'city=>[KNN 10 @v $BLOB]', 'WITHSCORES', 'RETURN', '1', 't', 'DIALECT', '2',
+                                                                'PARAMS', 2, 'BLOB', np.array([1, 0], dtype=np.float32).tobytes())
+  env.assertEqual(res1, res2)
+
+@skip(cluster=True)
+def test_mod_7882(env:Env):
+  """
+  We currently don't support searching for strings that are longer than 1024 characters in the Trie.
+  """
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  long_text = 'a'*1025
+
+  # All the queries below should return an error without crashing.
+  env.expect('FT.SEARCH', 'idx', '*' + long_text).error().contains('SUFFIX query string is too long')
+  env.expect('FT.SEARCH', 'idx', long_text + '*').error().contains('PREFIX query string is too long')
+  env.expect('FT.SEARCH', 'idx', '*' + long_text + '*').error().contains('INFIX query string is too long')
+
+  env.expect('FT.SEARCH', 'idx', "w'" + long_text + "'", 'DIALECT', '2').error().contains('Wildcard query string is too long')
+
+@skip(cluster=True)
+def test_mod_6783(env:Env):
+  n_max_sortable = 1024
+  n_docs = 10
+  step = 71 # Testing every possible number of sortables is too slow
+
+  # Add documents with a unique values for each sortable field, in unique random orders
+  orders = random.choices(list(itertools.permutations(range(n_docs))), k=n_max_sortable)
+  for field_id, vals in enumerate(orders):
+    for doc_id, val in enumerate(vals):
+      env.cmd('HSET', f'doc{doc_id}', f'f{field_id}', val)
+
+  expected = [sorted(range(n_docs), key=lambda x: order[x]) for order in orders]
+  expected = [[n_docs] + [f'doc{doc_id}' for doc_id in exp] for exp in expected]
+
+  for n_sortables in range(1, n_max_sortable + 1, step):
+    env.expect('FT._DROPINDEXIFX', 'idx').ok()
+    schema = sum([['f'+str(i), 'NUMERIC', 'SORTABLE'] for i in range(n_sortables)], [])
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', *schema).ok()
+    waitForIndex(env)
+
+    for i in range(n_sortables):
+      res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', f'f{i}', 'NOCONTENT')
+      env.assertEqual(res, expected[i], message=f'Failed on field f{i} with {n_sortables} sortables')
+
+@skip(cluster=True)
+def test_mod_8589(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  env.cmd('HSET', 'doc1', 'v', '????????', 't', 'foo bar foo') # Max frequency is 2 (foo)
+  docinfo = to_dict(env.cmd(debug_cmd(), 'DOCINFO', 'idx', 'doc1', 'REVEAL'))
+  env.assertEqual(docinfo['max_freq'], 2)
+
+@skip(cluster=True)
+def test_mod_8568(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  env.expect('HSET', 'doc1', 'g', '1.1,1.1').equal(1)
+  env.expect('HSET', 'doc2', 'g', '1.2,1.2').equal(1)
+  expected = [1, 'doc1', ['g', '1.1,1.1']]
+
+  env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km').equal(expected)
+  env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km',
+                                      'GEOFILTER', 'g', '1.1', '1.1', '1000', 'km').equal(expected)
+
+@skip(cluster=True)
+def test_mod_6786(env:Env):
+  # Test search of long term (>128) inside text field
+  MAX_NORMALIZE_SIZE = 128
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  long_term = 'A'*(MAX_NORMALIZE_SIZE+1)
+  text_with_long_term = ' '.join([long_term, long_term[:MAX_NORMALIZE_SIZE//2]])
+  env.cmd('HSET', 'doc1', 't', text_with_long_term)
+
+  # Searching for the long term should return the document
+  # Before fix, the long term was partially normalized and the document was not found
+  env.expect('FT.SEARCH', 'idx', long_term).equal([1, 'doc1', ['t', text_with_long_term]])
+
+@skip(cluster=False)
+def test_mod_7609(env:Env):
+  # Create the same named index on all shards, but with different schemas
+  for i in range(1, env.shardsCount + 1):
+    con = env.getConnection(i)
+    con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT') # required for running the internal `_FT.CREATE` command
+    schema = []
+    for j in range(i):
+      schema.extend(['f'+str(j), 'TEXT'])
+    con.execute_command('_FT.CREATE', 'idx', 'SCHEMA', *schema)
+
+  env.expect('FT.INFO', 'idx').error().contains('Inconsistent index state')
+
+@skip(cluster=True)
+def test_mod_8561(env:Env):
+  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TAG').ok()
+
+  # Add a document with the term foo
+  env.cmd('HSET', '1', 't', 'foo')
+
+  # Add two documents with the terms foo and bar
+  env.cmd('HSET', '2', 't', 'foo,bar')
+  env.cmd('HSET', '3', 't', 'foo,bar')
+
+  # Delete the last document with the term foo
+  env.cmd('DEL', '3')
+
+  # Run GC to remove the deleted document
+  forceInvokeGC(env, 'idx1')
+  forceInvokeGC(env, 'idx2')
+
+  # Search
+  expected = [1, '2', ['t', 'foo,bar']]
+  env.expect('FT.SEARCH', 'idx1', 'bar foo').noError().equal(expected)
+  env.expect('FT.SEARCH', 'idx2', "@t:{bar} @t:{foo}").noError().equal(expected)
+
+import time
+@skip(cluster=True)
+def test_mod_8695():
+  env = Env(moduleArgs='DEFAULT_DIALECT 2')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT',
+                                           'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+  env.cmd('HSET', 'doc1', 't', 'foo', 'v', '????????')
+  env.cmd('HSET', 'doc2', 't', 'bar', 'v', '????????')
+  env.cmd('HSET', 'doc3', 't', 'foo bar', 'v', '????????')
+
+  # Test highlighting
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo',
+                 'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  res2 = env.cmd('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', '????????',
+                 'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  env.assertEqual(res1, res2)
+
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo|bar',
+                 'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  res2 = env.cmd('FT.SEARCH', 'idx', '(foo|bar)=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', '????????',
+                  'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  env.assertEqual(res1, res2)
+
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo bar',
+                  'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  res2 = env.cmd('FT.SEARCH', 'idx', '(foo bar)=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', '????????',
+                  'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  env.assertEqual(res1, res2)
+
+  # Test vector with highlight only (implicit return)
+  env.expect('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                  'HIGHLIGHT', 'FIELDS', 1, 't', ).noError().equal(
+               [2, 'doc1', ['score', '0', 't', '<b>foo</b>', 'v', '????????'], 'doc3', ['score', '0', 't', '<b>foo</b> bar', 'v', '????????']])
+
+  # Test vector with highlight and explicit return
+  env.expect('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                  'RETURN', 2, 't', 'score', 'HIGHLIGHT', 'FIELDS', 1, 't').noError().equal(
+               [2, 'doc1', ['score', '0', 't', '<b>foo</b>'], 'doc3', ['score', '0', 't', '<b>foo</b> bar']])
+
+  # Test that we get the same results (with scores) regardless of the order of the arguments
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                    'SORTBY', 'score', 'WITHSCORES')
+  res2 = env.cmd('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                    'WITHSCORES', 'SORTBY', 'score')
+  env.assertEqual(res1, res2)
+
+  # Test vector with AGGREGATE and scores
+  env.expect('FT.AGGREGATE', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????', 'ADDSCORES', 'SCORER', 'TFIDF', 'TIMEOUT', 0).noError().apply(lambda res: res[1:]).equal(
+               [['score', '0', '__score', '1'], ['score', '0', '__score', '1']])
+
+@skip(cluster=True)
+def test_mod_9423(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.cmd('HSET', 'doc1', 'n', '1') # Document with no text
+
+  # Expect the document score to be 0, since it has no text
+  expected = [1, 'doc1', '0', ['n', '1']]
+  env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF').equal(expected)
+  env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF.DOCNORM').equal(expected)
+
+  expected = [1, 'doc1', ['0', 'Document max frequency is 0'], ['n', '1']]
+  env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF', 'EXPLAINSCORE').equal(expected)
+  expected = [1, 'doc1', ['0', 'Document length is 0'], ['n', '1']]
+  env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF.DOCNORM', 'EXPLAINSCORE').equal(expected)
+
+# Test that RedisModule_Yield is called while indexing in order to prevent master from killing the replica [MOD-8809]
+@skip(cluster=True)
+def test_mod_8809_single_index_single_field(env:Env):
+
+    # Configure yield every 10 operations
+    yield_every_n_ops = 10
+    env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
+    env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
+
+    # Reset yield counter
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
+    initial_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.assertEqual(initial_count, 0, message="Initial yield counter should be 0")
+
+    # Create index
+    dimension = 128
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+
+    # Add enough documents to trigger yields
+    num_docs = 1000
+    for i in range(num_docs):
+        vector = np.random.rand(1, dimension).astype(np.float32)
+        env.execute_command('HSET', f'doc{i}', 'v', vector.tobytes())
+    waitForIndex(env, 'idx')
+
+
+    # Check that yield was not called
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.assertEqual(yields_count, 0, message="Yield should not have been called")
+
+    # Reload and check
+    env.broadcast('SAVE')
+    env.broadcast('DEBUG RELOAD NOSAVE')
+    waitForIndex(env, 'idx')
+    env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
+
+    # Verify the number of yields
+    expected_min_yields = num_docs // yield_every_n_ops
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.assertGreaterEqual(yields_count, expected_min_yields,
+                          message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
+
+    # Test with different configuration
+    yields_every_n_ops = 5
+    env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
+
+    # Reload and check
+    env.broadcast('SAVE')
+    env.broadcast('DEBUG RELOAD NOSAVE')
+    waitForIndex(env, 'idx')
+
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    expected_min_yields = num_docs // yield_every_n_ops
+    env.assertGreaterEqual(yields_count, expected_min_yields,
+                          message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
+
+@skip(cluster=True)
+def test_mod_8809_multi_index_multi_fields(env:Env):
+
+    # Configure yield every 10 operations
+    yield_every_n_ops = 10
+    env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
+    env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
+
+    # Reset yield counter
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
+    initial_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.assertEqual(initial_count, 0, message="Initial yield counter should be 0")
+
+    # Create index
+    dimension = 128
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+    env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+    env.cmd('FT.CREATE', 'idx3', 'SCHEMA', 'geom', 'GEOSHAPE', 'tag', 'TAG' ,'t2', 'TEXT')
+
+    # Add enough documents to trigger yields
+    num_docs = 1000
+    for i in range(num_docs):
+        vector = np.random.rand(1, dimension).astype(np.float32)
+        env.execute_command('HSET', f'doc{i}', 'v', vector.tobytes(), 'num', i, 't', f'text {i}', 't2', f'text2 {i}', 'geom', f'POINT({i%10} {i%15})', 'tag', f'tag{i%10}')
+    waitForIndex(env, 'idx')
+    waitForIndex(env, 'idx2')
+    waitForIndex(env, 'idx3')
+
+    # Reload and check
+    env.broadcast('SAVE')
+    env.broadcast('DEBUG RELOAD NOSAVE')
+    waitForIndex(env, 'idx')
+    waitForIndex(env, 'idx2')
+    waitForIndex(env, 'idx3')
+
+    # Check that yield was called
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.assertGreater(yields_count, 0, message="Yield should have been called at least once")
+
+    # Verify the number of yields
+    expected_min_yields = 7 * num_docs // yield_every_n_ops
+    env.assertGreaterEqual(yields_count, expected_min_yields,
+                          message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
+
+    # Test with different configuration
+    yield_every_n_ops = 5
+    env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
+
+    # Reload and check
+    env.broadcast('SAVE')
+    env.broadcast('DEBUG RELOAD NOSAVE')
+    waitForIndex(env, 'idx')
+    waitForIndex(env, 'idx2')
+    waitForIndex(env, 'idx3')
+    env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
+
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    expected_min_yields = 7 * num_docs // yield_every_n_ops
+    env.assertGreaterEqual(yields_count, expected_min_yields,
+                          message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
+
+def _mod_8157(env:Env):
+    """
+    Test missing profile info on aggregate query
+    """
+    shard_chunk_size = 1000 # Hardcoded chunk size from the shards
+
+    def verify_profile(reply):
+        if env.protocol == 2:
+            # RESP2 returns a list of lists
+            profile = reply[1]
+        else:
+            # RESP3 returns a dictionary
+            profile = reply['Profile']
+        profile = to_dict(profile)
+        env.assertContains('Shards', profile, message='missing `Shards` section', depth=1)
+        env.assertEqual(len(profile['Shards']), env.shardsCount, message='missing some shards profile info', depth=1)
+
+    # Case 1: Profile info arrives in an empty reply (some shards have no documents,
+    # one have exactly `shard_chunk_size` documents, so another read is required to get EOF)
+    env.expect('FT.CREATE', 'idx1', 'PREFIX', '1', 'case1:', 'SCHEMA', 't', 'TEXT').ok()
+    # Add to some shard exactly `shard_chunk_size` documents
+    with env.getClusterConnectionIfNeeded() as conn:
+      for i in range(shard_chunk_size):
+        # Use `{x}` suffix to ensure that the documents are added to the same shard
+        conn.execute_command('HSET', f'case1:{i}{{x}}', 't', 'foo')
+
+    reply = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '*')
+    verify_profile(reply)
+
+    # Case 2: Profile info arrives but the coordinator doesn't consume the reply fully
+    # (previously, we didn't pass the reply to the profile reply aggregation)
+    env.expect('FT.CREATE', 'idx2', 'PREFIX', '1', 'case2:', 'SCHEMA', 't', 'TEXT').ok()
+    with env.getClusterConnectionIfNeeded() as conn:
+      # `chunk_size` documents spread across all shards, so each shard will have less than `shard_chunk_size` documents
+      for i in range(shard_chunk_size):
+        conn.execute_command('HSET', f'case2:{i}', 't', 'foo')
+    # Search for a bit less than `shard_chunk_size` documents, so the coordinator will not deplete the last shard reply
+    reply = env.cmd('FT.PROFILE', 'idx2', 'AGGREGATE', 'QUERY', '*', 'LIMIT', '0', str(int(shard_chunk_size * 0.95)))
+    verify_profile(reply)
+
+@skip(cluster=False, min_shards=2)
+def test_mod_8157_RESP2():
+  _mod_8157(Env(protocol=2))
+
+@skip(cluster=False, min_shards=2)
+def test_mod_8157_RESP3():
+  _mod_8157(Env(protocol=3))

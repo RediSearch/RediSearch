@@ -1,15 +1,17 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "aggregate/reducer.h"
 #include "util/block_alloc.h"
 #include "util/khash.h"
 #include "util/fnv.h"
 #include "hll/hll.h"
-#include "rmutil/sds.h"
 
 #define HLL_PRECISION_BITS 8
 #define INSTANCE_BLOCK_NUM 1024
@@ -209,8 +211,7 @@ static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
     }
   } else {
     // Not yet initialized - make this our first register and continue.
-    hll_init(ctr, hdr->bits);
-    memcpy(ctr->registers, registers, regsz);
+    hll_load(ctr, registers, regsz);
   }
   return 1;
 }

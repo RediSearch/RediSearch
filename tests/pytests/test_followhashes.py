@@ -248,7 +248,7 @@ def testFlush(env):
 
     conn.execute_command('hset', 'thing:bar', 'name', 'foo')
 
-    env.expect('ft.search', 'things', 'foo').equal('things: no such index')
+    env.expect('ft.search', 'things', 'foo').equal('No such index things')
 
 def testNotExist(env):
     conn = getConnectionByEnv(env)
@@ -353,7 +353,7 @@ def testLanguageDefaultAndField(env):
         res = env.cmd('FT.SEARCH', 'idxTest1', u'अँगरेज़')
         res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
         env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', res1['body'])
-        # test for default langauge
+        # test for default language
         res = env.cmd('FT.SEARCH', 'idxTest2', u'अँगरेज़')
         res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
         env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', res1['body'])
@@ -368,9 +368,9 @@ def testScoreDecimal(env):
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx1')
         waitForIndex(env, 'idx2')
-        res = env.cmd('ft.search', 'idx1', 'hello', 'withscores', 'nocontent')
+        res = env.cmd('ft.search', 'idx1', 'hello', 'scorer', 'TFIDF', 'withscores', 'nocontent')
         env.assertEqual(float(res[2]), 0.5)
-        res = env.cmd('ft.search', 'idx2', 'hello', 'withscores', 'nocontent')
+        res = env.cmd('ft.search', 'idx2', 'hello', 'scorer', 'TFIDF', 'withscores', 'nocontent')
         env.assertEqual(float(res[2]), 0.25)
 
 def testMultiFilters1(env):
@@ -562,9 +562,9 @@ def testEvicted(env):
             memory = int(sub[1])
 
     conn.execute_command('CONFIG', 'SET', 'MAXMEMORY-POLICY', 'ALLKEYS-RANDOM')
-    conn.execute_command('CONFIG', 'SET', 'MAXMEMORY', memory + 100000)
+    conn.execute_command('CONFIG', 'SET', 'MAXMEMORY', memory + 150000)
     for i in range(1000):
-        env.expect('HSET', 'doc{}'.format(i), 'test', 'foo').equal(1)
+        env.expect('HSET', f'doc{i}', 'test', 'foo').equal(1)
     res = env.cmd('FT.SEARCH idx foo limit 0 0')
     env.assertLess(res[0], 1000)
     env.assertGreater(res[0], 0)

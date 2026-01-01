@@ -1,3 +1,13 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+
 #include "query_optimizer.h"
 #include "optimizer_reader.h"
 #include "numeric_index.h"
@@ -28,7 +38,7 @@ void QOptimizer_Parse(AREQ *req) {
     }
     if (arng->sortKeys) {
       const char *name = arng->sortKeys[0];
-      const FieldSpec *field = IndexSpec_GetField(req->sctx->spec, name, strlen(name));
+      const FieldSpec *field = IndexSpec_GetFieldWithLength(req->sctx->spec, name, strlen(name));
       if (field && field->types == INDEXFLD_T_NUMERIC) {
         opt->field = field;
         opt->fieldName = name;
@@ -45,9 +55,9 @@ void QOptimizer_Parse(AREQ *req) {
     opt->scorerType = SCORER_TYPE_NONE;
   } else {
     const char *scorer = req->searchopts.scorerName;
-    if (!scorer) {      // default is TFIDF
+    if (!scorer) {      // default is BM25STD
       opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, DEFAULT_SCORER_NAME)) {  // TFIDF
+    } else if (!strcmp(scorer, TFIDF_SCORER_NAME)) {
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, TFIDF_DOCNORM_SCORER_NAME)) {
       opt->scorerType = SCORER_TYPE_TERM;
@@ -74,7 +84,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
   switch (node->type) {
     case QN_NUMERIC:
       // add support for multiple ranges on field
-      if (name && !strcmp(name, node->nn.nf->fieldName)) {
+      if (name && !HiddenString_CompareC(node->nn.nf->fieldSpec->fieldName, name, strlen(name))) {
         ret = node;
       }
       break;
@@ -135,7 +145,6 @@ size_t QOptimizer_EstimateLimit(size_t numDocs, size_t estimate, size_t limit) {
 
   double ratio = (double)estimate / (double)numDocs;
   size_t newEstimate = (limit / ratio) + 1;
-  // printf("numDocs %ld childEstimate %ld limit %ld required: %ld\n", numDocs, estimate, limit, newEstimate);
 
   return newEstimate;
 }
@@ -143,7 +152,7 @@ size_t QOptimizer_EstimateLimit(size_t numDocs, size_t estimate, size_t limit) {
 void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   const FieldSpec *field = opt->field;
   bool isSortby = !!field;
-  const char *name = field ? field->name : NULL;
+  const char *name = opt->fieldName;
   bool hasOther = false;
 
   if (root->type == QN_WILDCARD) {
@@ -217,7 +226,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
 
   switch (opt->type) {
     case Q_OPT_HYBRID:
-      RS_LOG_ASSERT(0, "cannot be decided earlier");
+      RS_ABORT("cannot be decided earlier");
 
     // Nothing to do here
     case Q_OPT_NO_SORTER:
@@ -243,8 +252,11 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
       if (!opt->field) {
         // TODO: For now set to NONE. Maybe add use of FILTER
         opt->type = Q_OPT_NONE;
+        const FieldSpec *fs = opt->sortbyNode->nn.nf->fieldSpec;
+        FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
         IndexIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->sortbyNode->nn.nf,
-                                                             &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config);
+                                                             &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config,
+                                                             &filterCtx);
         updateRootIter(req, root, numericIter);
         return;
       }

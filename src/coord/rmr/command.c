@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 
 #include "common.h"
@@ -31,7 +34,7 @@ static void assignStr(MRCommand *cmd, size_t idx, const char *s, size_t n) {
   char *news = rm_malloc(n + 1);
   cmd->strs[idx] = news;
   cmd->lens[idx] = n;
-  news[n] = 0;
+  news[n] = '\0';
   memcpy(news, s, n);
 }
 
@@ -168,7 +171,7 @@ void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, const char *newArg, si
 }
 void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t len) {
   char *news = rm_malloc(len + 1);
-  news[len] = 0;
+  news[len] = '\0';
   memcpy(news, newArg, len);
   MRCommand_ReplaceArgNoDup(cmd, index, news, len);
 }
@@ -184,19 +187,4 @@ int MRCommand_GetShardingKey(const MRCommand *cmd) {
 
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx) {
   cmd->protocol = is_resp3(ctx) ? 3 : 2;
-}
-
-void MRCommand_Print(MRCommand *cmd) {
-  MRCommand_FPrint(stdout, cmd);
-}
-
-void MRCommand_FPrint(FILE *fd, MRCommand *cmd) {
-  for (int i = 0; i < cmd->num; i++) {
-    fprintf(fd, "%.*s ", (int)cmd->lens[i], cmd->strs[i]);
-  }
-  fprintf(fd, "\n");
-}
-
-void print_mr_cmd(MRCommand *cmd) {
-  MRCommand_FPrint(stdout, cmd);
 }

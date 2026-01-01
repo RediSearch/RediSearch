@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #ifndef __INVERTED_INDEX_H__
 #define __INVERTED_INDEX_H__
@@ -56,13 +59,10 @@ typedef struct InvertedIndex {
  * a pointer or an integer. It is intended to relay along any kind of additional
  * configuration information to help the decoder determine whether to filter
  * the entry */
-typedef struct {
-  void *ptr;
-  t_fieldMask num;
-
-  // used by profile
-  double rangeMin;
-  double rangeMax;
+typedef union {
+  uint32_t mask;
+  t_fieldMask wideMask;
+  const NumericFilter *filter;
 } IndexDecoderCtx;
 
 /**
@@ -85,17 +85,19 @@ typedef struct {
 } IndexRepairParams;
 
 static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
-  int useFieldMask = flags & Index_StoreFieldFlags;
-  int useNumEntries = flags & Index_StoreNumeric;
-  RedisModule_Assert(!(useFieldMask & useNumEntries));
+  bool useFieldMask = flags & Index_StoreFieldFlags;
+  bool useNumEntries = flags & Index_StoreNumeric;
+  RS_ASSERT(!(useFieldMask && useNumEntries));
   // Avoid some of the allocation if not needed
-  return (useFieldMask || useNumEntries) ? sizeof(InvertedIndex) :
-                                                  sizeof(InvertedIndex) - sizeof(t_fieldMask);
+  const size_t base = sizeof(InvertedIndex) - sizeof(t_fieldMask); // Size without the union
+  if (useFieldMask) return base + sizeof(t_fieldMask);
+  if (useNumEntries) return base + sizeof(uint64_t);
+  return base;
 }
 
 // Create a new inverted index object, with the given flag.
 // If initBlock is 1, we create the first block.
-// out parameter memsize must be not NULL, the total of allocated memory 
+// out parameter memsize must be not NULL, the total of allocated memory
 // will be returned in it
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize);
 
@@ -122,7 +124,8 @@ void InvertedIndex_Free(void *idx);
  * If the record should not be processed, it should not be populated and 0 should
  * be returned. Otherwise, the function should return 1.
  */
-typedef int (*IndexDecoder)(BufferReader *br, const IndexDecoderCtx *ctx, RSIndexResult *res);
+typedef bool (*IndexDecoder)(BufferReader *br, const IndexDecoderCtx *ctx, RSIndexResult *res,
+                             t_docId offset);
 
 struct IndexReader;
 /**
@@ -131,9 +134,11 @@ struct IndexReader;
  *
  * The implementation of this function is optional. If this is not used, then
  * the decoder() implementation will be used instead.
+ *
+ * Note: This function must update the reader's `lastId`.
  */
-typedef int (*IndexSeeker)(BufferReader *br, const IndexDecoderCtx *ctx, struct IndexReader *ir,
-                           t_docId to, RSIndexResult *res);
+typedef bool (*IndexSeeker)(BufferReader *br, const IndexDecoderCtx *ctx, struct IndexReader *ir,
+                            t_docId to, RSIndexResult *res);
 
 typedef struct {
   IndexDecoder decoder;
@@ -146,7 +151,7 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags);
 
 /* An IndexReader wraps an inverted index record for reading and iteration */
 typedef struct IndexReader {
-  const IndexSpec *sp;
+  const RedisSearchCtx *sctx;
 
   // the underlying data buffer
   BufferReader br;
@@ -156,9 +161,13 @@ typedef struct IndexReader {
   t_docId lastId;
   // same docId, used for detecting same doc (with multi values)
   t_docId sameId;
-  // Whether to skip multi values from the same doc
-  int skipMulti;
-  uint32_t currentBlock;
+
+  union {
+    struct {
+      double rangeMin;
+      double rangeMax;
+    } numeric;
+  } profileCtx;
 
   /* The decoder's filtering context. It may be a number or a pointer. The number is used for
    * filtering field masks, the pointer for numeric filtering */
@@ -172,16 +181,21 @@ typedef struct IndexReader {
   /* The record we are decoding into */
   RSIndexResult *record;
 
-  int atEnd_;
-
   // If present, this pointer is updated when the end has been reached. This is
   // an optimization to avoid calling IR_HasNext() each time
-  uint8_t *isValidP;
+  bool *isValidP;
+
+  bool atEnd_;
+  // Whether to skip multi values from the same doc
+  bool skipMulti;
+  uint32_t currentBlock;
 
   /* This marker lets us know whether the garbage collector has visited this index while the reading
    * thread was asleep, and reset the state in a deeper way
    */
   uint32_t gcMarker;
+
+  FieldFilterContext filterCtx;
 } IndexReader;
 
 // On Reopen callback for term index
@@ -192,7 +206,7 @@ void IndexReader_OnReopen(IndexReader *ir);
 
 /* An index encoder is a callback that writes records to the index. It accepts a pre-calculated
  * delta for encoding */
-typedef size_t (*IndexEncoder)(BufferWriter *bw, uint32_t delta, RSIndexResult *record);
+typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId delta, RSIndexResult *record);
 
 /* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
  */
@@ -208,8 +222,11 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 /* Create a new index reader for numeric records, optionally using a given filter. If the filter
  * is
  * NULL we will return all the records in the index */
-IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt,
-                              double rangeMin, double rangeMax, int skipMulti);
+IndexReader *NewNumericReader(const RedisSearchCtx *sctx, InvertedIndex *idx, const NumericFilter *flt,
+                              double rangeMin, double rangeMax, bool skipMulti,
+                              const FieldFilterContext* filterCtx);
+
+IndexReader *NewMinimalNumericReader(InvertedIndex *idx, bool skipMulti);
 
 /* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
  */
@@ -220,11 +237,14 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
  * If singleWordMode is set to 1, we ignore the skip index and use the score
  * index.
  */
-IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask fieldMask,
+IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                 RSQueryTerm *term, double weight);
 
+IndexReader *NewTermIndexReader(InvertedIndex *idx);
+
 /* Create a new index reader on an inverted index of "missing values". */
-IndexReader *NewGenericIndexReader(InvertedIndex *idx, IndexSpec *sp, double weight, uint32_t freq);
+IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, double weight, uint32_t freq,
+                                   t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate);
 
 void IR_Abort(void *ctx);
 
@@ -267,7 +287,7 @@ t_docId IR_LastDocId(void *ctx);
 /* Create a reader iterator that iterates an inverted index record */
 IndexIterator *NewReadIterator(IndexReader *ir);
 
-int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
+size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
 
 static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
   return logb(1.0F + totalDocs / (termDocs ? termDocs : (double)1));
@@ -278,11 +298,6 @@ static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
 static inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
   return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
 }
-
-#ifdef _DEBUG
-void InvertedIndex_Dump(InvertedIndex *idx, int indent);
-void IndexBlock_Dump(IndexBlock *b, int indent);
-#endif // #ifdef _DEBUG
 
 #ifdef __cplusplus
 }

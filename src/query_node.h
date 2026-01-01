@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 
 #pragma once
@@ -11,6 +14,9 @@
 #include "redisearch.h"
 #include "query_error.h"
 #include "param.h"
+
+struct FieldSpec; // forward declaration
+
 
 struct RSQueryNode;
 struct numericFilter;
@@ -68,7 +74,10 @@ typedef enum {
   QN_NULL,
 
   /* Missing query */
-  QN_MISSING
+  QN_MISSING,
+
+  /* Max value, should be last */
+  QN_MAX
 } QueryNodeType;
 
 /* A phrase node represents a list of nodes with intersection between them, or a phrase in the case
@@ -86,8 +95,7 @@ typedef struct {
 } QueryNullNode;
 
 typedef struct {
-  const char *fieldName;
-  size_t len;
+  const struct FieldSpec *fs;
 } QueryTagNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
@@ -112,7 +120,7 @@ typedef struct {
 } QueryNumericNode;
 
 typedef struct {
-  const struct GeoFilter *gf;
+  struct GeoFilter *gf;
 } QueryGeofilterNode;
 
 typedef struct {
@@ -140,8 +148,7 @@ typedef struct {
 } QueryVerbatimNode;
 
 typedef struct {
-  const char *fieldName;
-  size_t len;
+  const struct FieldSpec *field;
 } QueryMissingNode;
 
 typedef enum {
@@ -178,6 +185,7 @@ typedef struct {
 typedef struct {
   QueryNodeFlags flags;
   t_fieldMask fieldMask;
+  t_fieldIndex fieldIndex;
   int maxSlop;
   int inOrder;
   double weight;
@@ -231,7 +239,7 @@ void QueryNode_ClearChildren(QueryNode *parent, int shouldFree);
  * Returns REDISMODULE_ERR
  * Otherwise, returns REDISMODULE_OK
  */
-int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status);
+int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 
 #define QueryNode_NumChildren(qn) ((qn)->children ? array_len((qn)->children) : 0)
 #define QueryNode_GetChild(qn, ix) (QueryNode_NumChildren(qn) > ix ? (qn)->children[ix] : NULL)

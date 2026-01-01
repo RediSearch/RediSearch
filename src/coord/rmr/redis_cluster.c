@@ -1,13 +1,18 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "../config.h"
 #include "cluster.h"
 #include "redismodule.h"
 #include "rmr.h"
+#include "module.h"
+#include "util/strconv.h"
 
 static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
   RS_AutoMemory(ctx);
@@ -40,7 +45,6 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "warning", "Got no slots in CLUSTER SLOTS");
     return NULL;
   }
-  // printf("Creating a topology of %zd slots\n", len);
   MRClusterTopology *topo = rm_calloc(1, sizeof(MRClusterTopology));
   topo->hashFunc = MRHashFunc_CRC16;
 
@@ -53,8 +57,9 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     // e is slot range entry
     RedisModuleCallReply *e = RedisModule_CallReplyArrayElement(r, i);
     if (RedisModule_CallReplyLength(e) < 3) {
-      printf("Invalid reply object for slot %zd, type %d. len %d\n", i,
-             RedisModule_CallReplyType(e), (int)RedisModule_CallReplyLength(e));
+      RedisModule_Log(ctx, "verbose",
+                      "Invalid reply object for slot %zd, type %d. len %d", i,
+                      RedisModule_CallReplyType(e), (int)RedisModule_CallReplyLength(e));
       goto err;
     }
     // parse the start and end slots
@@ -64,7 +69,6 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     int numNodes = RedisModule_CallReplyLength(e) - 2;
     sh.numNodes = 0;
     sh.nodes = rm_calloc(numNodes, sizeof(MRClusterNode));
-    // printf("Parsing slot %zd, %d nodes", i, numNodes);
     // parse the nodes
     for (size_t n = 0; n < numNodes; n++) {
       RedisModuleCallReply *nd = RedisModule_CallReplyArrayElement(e, n + 2);
@@ -91,7 +95,9 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
       MRClusterNode node = {
           .endpoint =
               (MREndpoint){
-                  .host = rm_strndup(host, hostlen), .port = port, .auth = (clusterConfig.globalPass ? rm_strdup(clusterConfig.globalPass) : NULL) , .unixSock = NULL},
+                  .host = rm_strndup(host, hostlen),
+                  .port = port,
+                  .unixSock = NULL},
           .id = id_str,
           .flags = 0,
       };
@@ -100,15 +106,10 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
 
       // compare the node id to our id
       if (STR_EQ(myId, idlen, node.id)) {
-        // printf("Found myself %s!\n", myId);
         node.flags |= MRNode_Self;
       }
       sh.nodes[sh.numNodes++] = node;
-
-      // printf("Added node id %s, %s:%d master? %d\n", sh.nodes[n].id, sh.nodes[n].endpoint.host,
-      //        sh.nodes[n].endpoint.port, sh.nodes[n].flags & MRNode_Master);
     }
-    // printf("Added shard %d..%d with %d nodes\n", sh.startSlot, sh.endSlot, numNodes);
     topo->shards[topo->numShards++] = sh;
   }
 
