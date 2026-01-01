@@ -9,6 +9,7 @@
 #include "profile.h"
 #include "reply_macros.h"
 #include "util/units.h"
+#include "aggregate/aggregate.h"
 
 void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime, PrintProfileConfig *config) {
   IndexReader *ir = root->ctx;
@@ -114,11 +115,11 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
 }
 
 void Profile_Print(RedisModule_Reply *reply, void *ctx) {
-  ProfilePrinterCtx *profileCtx = ctx;
-  AREQ *req = profileCtx->req;
-  bool timedout = profileCtx->timedout;
-  bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
-  bool bgScanOOM = profileCtx->bgScanOOM;
+  AREQ *req = ctx;
+  ProfilePrinterCtx *profileCtx = AREQ_ProfilePrinterCtx(req);
+  bool timedout = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
+  bool reachedMaxPrefixExpansions = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
+  bool bgScanOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
   req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
 
   RedisModule_Reply_Map(reply);
@@ -175,7 +176,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       if (req->reqflags & QEXEC_F_IS_CURSOR) {
         // Only internal requests can use profile with cursor.
         RS_ASSERT(IsInternal(req));
-        RedisModule_ReplyKV_LongLong(reply, "Internal cursor reads", req->cursor_reads);
+        RedisModule_ReplyKV_LongLong(reply, "Internal cursor reads", profileCtx->cursor_reads);
       }
 
       // print into array with a recursive function over result processors

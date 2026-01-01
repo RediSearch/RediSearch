@@ -962,3 +962,163 @@ def test_unlimited_memory_thrs(env):
   # Verify that all docs were indexed
   docs_in_index = get_index_num_docs(env)
   env.assertEqual(docs_in_index, 100)
+
+def _test_bg_scan_oom_warning_in_profile(env, protocol):
+  """
+  Helper function to test that background scan OOM warning appears in FT.PROFILE output.
+  Works in both standalone and cluster modes.
+
+  Args:
+    env: Test environment
+    protocol: RESP protocol version (2 or 3)
+  """
+  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
+  verify_command_OK_on_all_shards(env, '_FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80')
+
+  conn = getConnectionByEnv(env)
+  num_docs = 100
+  for i in range(num_docs):
+    res = conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+    env.assertEqual(res, 1)
+
+  # Set pause on OOM for all shards
+  run_command_on_all_shards(env, bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true')
+  # Set pause after scanning 10 docs for all shards
+  run_command_on_all_shards(env, bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', '10')
+
+  # Create an index
+  res = conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  env.assertEqual(res, 'OK')
+  allShards_waitForIndexPauseScan(env, 'idx')
+
+  # Set tight memory limit to trigger OOM for all shards
+  allShards_set_tight_maxmemory_for_oom(env, 0.85)
+
+  # Resume indexing - this will trigger OOM
+  run_command_on_all_shards(env, bgScanCommand(), 'SET_BG_INDEX_RESUME')
+  allShards_waitForIndexStatus(env, 'PAUSED_ON_OOM', 'idx')
+
+  # Resume again to finish with OOM failure
+  run_command_on_all_shards(env, bgScanCommand(), 'SET_BG_INDEX_RESUME')
+  allShards_waitForIndexFinishScan(env, 'idx')
+
+  # Verify OOM status in FT.INFO
+  error_dict = get_index_errors_dict(env)
+  env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
+
+  # Run FT.PROFILE and verify the warning appears in Results
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
+  # Check that the warning is present in the Results section
+  if protocol == 3:
+    # RESP3 returns dict format
+    env.assertContains(partial_results_warning_str, res['Results']['warning'])
+
+  # Verify the warning appears in each shard's profile
+  shards_profile = get_shards_profile(env, res)
+  for shard_profile in shards_profile:
+    if protocol == 3:
+      env.assertContains(partial_results_warning_str, shard_profile['Warning'])
+    else:
+      # RESP2: shard_profile is already converted to dict by get_shards_profile
+      env.assertContains(partial_results_warning_str, shard_profile['Warning'])
+
+def test_bg_scan_oom_warning_in_profile_resp2():
+  """Test background scan OOM warning in FT.PROFILE output with RESP2 protocol.
+  Works in both standalone and cluster modes."""
+  env = Env(protocol=2)
+  _test_bg_scan_oom_warning_in_profile(env, 2)
+
+def test_bg_scan_oom_warning_in_profile_resp3():
+  """Test background scan OOM warning in FT.PROFILE output with RESP3 protocol.
+  Works in both standalone and cluster modes."""
+  env = Env(protocol=3)
+  _test_bg_scan_oom_warning_in_profile(env, 3)
+
+def _test_profile_warnings_persist_on_empty_reply(env, protocol):
+  """
+  Test that profile warnings persist when query times out.
+
+  This test verifies that when a query times out, the Index OOM warning
+  (from background scan failure) still appears in the profile.
+
+  Note on protocol differences:
+  - RESP3: Timeout is detected from shard's reply immediately. Shards return empty results
+    via sendChunk_ReplyOnly_EmptyResults, and Index OOM warning is added from the empty
+    reply path.
+  - RESP2: Only the coordinator (rpnet_next) can detect timeout. The background
+    thread (netCursorCallback) polls shards with FT.CURSOR READ (not PROFILE) until coordinator
+    detects timeout. Race condition: if coordinator detects timeout late, shards may finish
+    execution normally via regular sendChunk and return Index OOM warning from the regular
+    execution path, not from the empty reply path.
+    The test should be stable, but might not cover the empty reply path.
+
+  Args:
+    env: Test environment
+    protocol: RESP protocol version (2 or 3)
+  """
+  # Setup: Create index with background scan OOM
+  verify_command_OK_on_all_shards(env, '_FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80')
+
+  conn = getConnectionByEnv(env)
+  num_docs = 100
+  for i in range(num_docs):
+    res = conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+    env.assertEqual(res, 1)
+
+  # Trigger index OOM
+  run_command_on_all_shards(env, bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true')
+  run_command_on_all_shards(env, bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', '10')
+
+  res = conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  env.assertEqual(res, 'OK')
+  allShards_waitForIndexPauseScan(env, 'idx')
+
+  allShards_set_tight_maxmemory_for_oom(env, 0.85)
+  run_command_on_all_shards(env, bgScanCommand(), 'SET_BG_INDEX_RESUME')
+  allShards_waitForIndexStatus(env, 'PAUSED_ON_OOM', 'idx')
+  run_command_on_all_shards(env, bgScanCommand(), 'SET_BG_INDEX_RESUME')
+  allShards_waitForIndexFinishScan(env, 'idx')
+
+  # Verify OOM status in FT.INFO
+  error_dict = get_index_errors_dict(env)
+  env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
+
+  # Test: Timeout + Index OOM
+  # Trigger timeout during query execution to verify Index OOM warning persists
+  query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*']
+  timeout_after_n = 1
+  res_timeout = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after_n)
+
+  # Verify both BG_SCAN_OOM and Timeout warnings appear in results
+  if protocol == 3:
+    env.assertContains(partial_results_warning_str, res_timeout['Results']['warning'])
+    env.assertContains('Timeout limit was reached', res_timeout['Results']['warning'])
+
+  # Verify both warnings appear in each shard's profile
+  shards_profile_timeout = get_shards_profile(env, res_timeout)
+  for shard_profile in shards_profile_timeout:
+    # Index OOM warning should appear in all shards
+    env.assertContains(partial_results_warning_str, shard_profile['Warning'])
+    # Timeout warning should appear in all shards
+    env.assertContains('Timeout limit was reached', shard_profile['Warning'])
+    if protocol == 3 and env.shardsCount == 1:
+      # In RESP3, timeout is detected immediately and we stop after 1 cursor read
+      env.assertEqual(shard_profile['Internal cursor reads'], 1)
+
+@skip(cluster=False)
+def test_profile_warnings_persist_on_empty_reply_resp2():
+  """Test that profile warnings persist when timeout occurs (RESP2).
+
+  In RESP2, the Index OOM warning might appear via the regular execution path,
+  not from the empty reply path (see function docstring for details)."""
+  env = Env(protocol=2)
+  _test_profile_warnings_persist_on_empty_reply(env, 2)
+
+@skip(cluster=False)
+def test_profile_warnings_persist_on_empty_reply_resp3():
+  """Test that profile warnings persist when timeout occurs (RESP3).
+
+  In RESP3, the Index OOM warning appears via the empty reply path
+  (sendChunk_ReplyOnly_EmptyResults) when timeout is detected from shard's reply."""
+  env = Env(protocol=3)
+  _test_profile_warnings_persist_on_empty_reply(env, 3)
