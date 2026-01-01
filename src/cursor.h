@@ -15,9 +15,12 @@
 
 typedef struct {
   char *keyName; /** Name of the key that refers to the spec */
-  size_t cap;    /** Maximum number of cursors for the spec */
   size_t used;   /** Number of cursors currently open */
 } CursorSpecInfo;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct CursorList;
 
@@ -43,11 +46,16 @@ typedef struct Cursor {
   /** Initial timeout interval */
   unsigned timeoutIntervalMs;
 
-  /** Position within idle list */
+  /** Position within idle list.
+   * Should only be accessed under cursor list lock */
   int pos;
 
   /** Is it an internal coordinator cursor or a user cursor*/
   bool is_coord;
+
+  /** If true, a call to `Cursor_Pause` should drop it instead.
+   *  Should only be accessed under cursor list lock */
+  bool delete_mark;
 } Cursor;
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
@@ -129,21 +137,13 @@ static inline CursorList *GetGlobalCursor(uint64_t cid) {
 void CursorList_Init(CursorList *cl, bool is_coord);
 
 /**
- * Clear the cursor list
+ * Empty the cursor list.
+ * This function is thread-safe and handles both idle and active cursors.
+ * Idle cursors are freed immediately, while active cursors are marked for
+ * deletion and will be freed when they are next accessed.
  */
-void CursorList_Destroy(CursorList *cl);
+void CursorList_Empty(CursorList *cl);
 
-/**
- * Empty the cursor list
- */
-void CursorList_Empty(CursorList *cl, bool coord);
-
-/**
- * Mark all existing cursors as expired, so that they will be removed on the next GC sweep
- */
-void CursorList_Expire(CursorList *cl);
-
-#define RSCURSORS_DEFAULT_CAPACITY 128
 #define RSCURSORS_SWEEP_INTERVAL 500                /* GC Every 500 requests */
 #define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */
 
@@ -151,7 +151,7 @@ void CursorList_Expire(CursorList *cl);
  * Add an index spec to the cursor list. This has the effect of adding the
  * spec (via its key) along with its capacity
  */
-void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity);
+void CursorList_AddSpec(CursorList *cl, const char *k);
 
 void CursorList_RemoveSpec(CursorList *cl, const char *k);
 
@@ -184,11 +184,22 @@ int Cursor_Pause(Cursor *cur);
 int Cursor_Free(Cursor *cl);
 
 /**
- * Locate and free the cursor with the given ID
+ * Locate and free the cursor with the given ID.
+ * If the cursor is found but not idle, it is marked for deletion.
  */
 int Cursors_Purge(CursorList *cl, uint64_t cid);
 
 int Cursors_CollectIdle(CursorList *cl);
+
+typedef struct CursorsInfoStats {
+  size_t total;
+  size_t total_idle;
+} CursorsInfoStats;
+
+/**
+ * Return the stats for the `INFO` command
+*/
+CursorsInfoStats Cursors_GetInfoStats(void);
 
 /** Remove all cursors with the given lookup name */
 void Cursors_PurgeWithName(CursorList *cl, const char *lookupName);
@@ -200,4 +211,8 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const char
 #endif
 
 void Cursor_FreeExecState(void *);
+#ifdef __cplusplus
+}
+#endif
+
 #endif

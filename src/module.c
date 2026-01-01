@@ -22,12 +22,11 @@
 #include "rmutil/util.h"
 #include "rmutil/args.h"
 #include "spec.h"
-#include "util/logging.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
 #include "cursor.h"
-#include "debug_commads.h"
+#include "debug_commands.h"
 #include "spell_check.h"
 #include "dictionary.h"
 #include "suggest.h"
@@ -36,9 +35,11 @@
 #include "alias.h"
 #include "module.h"
 #include "rwlock.h"
-#include "info_command.h"
+#include "info/info_command.h"
 #include "rejson_api.h"
 #include "reply_macros.h"
+#include "info/global_stats.h"
+#include "util/units.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -191,7 +192,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   SET_DIALECT(sctx->spec->used_dialects, dialect);
-  SET_DIALECT(RSGlobalConfig.used_dialects, dialect);
+  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, dialect);
 
   bool fullScoreInfo = false;
   if (RMUtil_ArgExists("FULLSCOREINFO", argv, argc, 0)) {
@@ -321,7 +322,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModuleString *rstr = TagIndex_FormatName(sctx, field);
-  TagIndex *idx = TagIndex_Open(sctx, rstr, 0, NULL);
+  TagIndex *idx = TagIndex_Open(sctx, rstr, 0);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
     RedisModule_ReplyWithArray(ctx, 0);
@@ -822,14 +823,14 @@ static void GetRedisVersion() {
     RedisModule_FreeThreadSafeContext(ctx);
     return;
   }
-  RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
+  RS_ASSERT(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
   size_t len;
   const char *replyStr = RedisModule_CallReplyStringPtr(reply, &len);
 
   int n = sscanf(replyStr, "# Server\nredis_version:%d.%d.%d", &redisVersion.majorVersion,
                  &redisVersion.minorVersion, &redisVersion.patchVersion);
 
-  RedisModule_Assert(n == 3);
+  RS_ASSERT(n == 3);
 
   rlecVersion.majorVersion = -1;
   rlecVersion.minorVersion = -1;
@@ -838,7 +839,7 @@ static void GetRedisVersion() {
   char *enterpriseStr = strstr(replyStr, "rlec_version:");
   if (enterpriseStr) {
     n = sscanf(enterpriseStr, "rlec_version:%d.%d.%d-%d", &rlecVersion.majorVersion,
-               &rlecVersion.minorVersion, &rlecVersion.buildVersion, &rlecVersion.patchVersion);
+               &rlecVersion.minorVersion, &rlecVersion.patchVersion, &rlecVersion.buildVersion);
     if (n != 4) {
       RedisModule_Log(NULL, "warning", "Could not extract enterprise version");
     }
@@ -1121,7 +1122,8 @@ void RediSearch_CleanupModule(void) {
   freeGlobalAddStrings();
   SchemaPrefixes_Free(ScemaPrefixes_g);
 
-  RedisModule_FreeThreadSafeContext(RSDummyContext);
+  IndexError_GlobalCleanup();
+
   Dictionary_Free();
   RediSearch_LockDestory();
 }

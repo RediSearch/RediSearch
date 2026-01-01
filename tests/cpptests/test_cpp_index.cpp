@@ -150,10 +150,6 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_TRUE(docIdEnc != NULL);
 
   for (size_t i = 0; i < 200; i++) {
-    // if (i % 10000 == 1) {
-    //     printf("iw cap: %ld, iw size: %d, numdocs: %d\n", w->cap, IW_Len(w),
-    //     w->ndocs);
-    // }
 
     ForwardIndexEntry h;
     h.docId = i;
@@ -180,17 +176,8 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   }
   ASSERT_EQ(199, idx->lastId);
 
-  // IW_MakeSkipIndex(w, NewMemoryBuffer(8, BUFFER_WRITE));
-
-  //   for (int x = 0; x < w->skipIdx.len; x++) {
-  //     printf("Skip entry %d: %d, %d\n", x, w->skipIdx.entries[x].docId,
-  //     w->skipIdx.entries[x].offset);
-  //   }
-  // printf("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w), w->ndocs);
-
   for (int xx = 0; xx < 1; xx++) {
-    // printf("si: %d\n", si->len);
-    IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+    IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
     RSIndexResult *h = NULL;
 
     int n = 0;
@@ -203,31 +190,78 @@ TEST_P(IndexFlagsTest, testRWFlags) {
       ASSERT_EQ(h->docId, n);
       n++;
     }
-    // for (int z= 0; z < 10; z++) {
-    // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start_time);
-
-    // IR_SkipTo(ir, 900001, &h);
-
-    // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end_time);
-    // long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
-
-    // printf("Time elapsed: %ldnano\n", diffInNanos);
-    // //IR_Free(ir);
-    // }
-    // IndexResult_Free(&h);
     IR_Free(ir);
   }
 
-  // IW_Free(w);
-  // // overriding the regular IW_Free because we already deleted the buffer
   InvertedIndex_Free(idx);
 }
 
-INSTANTIATE_TEST_SUITE_P(IndexFlagsP, IndexFlagsTest, ::testing::Range(1, 32));
+INSTANTIATE_TEST_SUITE_P(IndexFlagsP, IndexFlagsTest, ::testing::Values(
+    // 1. Full encoding - docId, freq, flags, offset
+    int(Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags),
+    int(Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_WideSchema),
+    // 2. (Frequency, Field)
+    int(Index_StoreFreqs | Index_StoreFieldFlags),
+    int(Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema),
+    // 3. Frequencies only
+    int(Index_StoreFreqs),
+    // 4. Field only
+    int(Index_StoreFieldFlags),
+    int(Index_StoreFieldFlags | Index_WideSchema),
+    // 5. (field, offset)
+    int(Index_StoreFieldFlags | Index_StoreTermOffsets),
+    int(Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema),
+    // 6. (offset)
+    int(Index_StoreTermOffsets),
+    // 7. (freq, offset) Store term offsets but not field flags
+    int(Index_StoreFreqs | Index_StoreTermOffsets),
+    // 0. docid only
+    int(Index_DocIdsOnly)
+));
 
-int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
-  printf("intersect: %llu\n", (unsigned long long)hits[0].docId);
-  return 0;
+// Test we only get the right encoder and decoder for the right flags
+TEST_F(IndexTest, testGetEncoderAndDecoders) {
+  for (int curFlags = 0; curFlags <= INDEX_STORAGE_MASK; curFlags++) {
+    switch (curFlags & INDEX_STORAGE_MASK) {
+    // 1. Full encoding - docId, freq, flags, offset
+    case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags:
+    case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_WideSchema:
+    // 2. (Frequency, Field)
+    case Index_StoreFreqs | Index_StoreFieldFlags:
+    case Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema:
+    // 3. Frequencies only
+    case Index_StoreFreqs:
+    // 4. Field only
+    case Index_StoreFieldFlags:
+    case Index_StoreFieldFlags | Index_WideSchema:
+    // 5. (field, offset)
+    case Index_StoreFieldFlags | Index_StoreTermOffsets:
+    case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
+    // 6. (offset)
+    case Index_StoreTermOffsets:
+    // 7. (freq, offset) Store term offsets but not field flags
+    case Index_StoreFreqs | Index_StoreTermOffsets:
+    // 0. docid only
+    case Index_DocIdsOnly:
+    // 9. Numeric
+    case Index_StoreNumeric:
+      ASSERT_TRUE(InvertedIndex_GetDecoder(IndexFlags(curFlags)).decoder);
+      ASSERT_TRUE(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
+      break;
+
+    // invalid flags combination
+    default:
+      // TODO: We currently test only with sanitizer since the sanitizer is
+      // running in debug mode always, while the regular tests are running in
+      // release mode.
+      #ifdef __SANITIZE_ADDRESS__
+        ASSERT_ANY_THROW(InvertedIndex_GetDecoder(IndexFlags(curFlags)));
+        ASSERT_ANY_THROW(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
+      #else
+        continue;
+      #endif
+    }
+  }
 }
 
 TEST_F(IndexTest, testReadIterator) {
@@ -696,8 +730,8 @@ TEST_F(IndexTest, testHybridVector) {
                                   .query = top_k_query,
                                   .qParams = queryParams,
                                   .vectorScoreField = (char *)"__v_score",
-                                  .ignoreDocScore = true,
-                                  .childIt = NULL
+                                  .canTrimDeepResults = true,
+                                  .childIt = NULL,
   };
   QueryError err = {QUERY_OK};
   IndexIterator *vecIt = NewHybridVectorIterator(hParams, &err);
@@ -779,7 +813,7 @@ TEST_F(IndexTest, testHybridVector) {
   // Rerun without ignoring document scores.
   r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
   ir = NewReadIterator(r);
-  hParams.ignoreDocScore = false;
+  hParams.canTrimDeepResults = false;
   hParams.childIt = ir;
   hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
@@ -855,9 +889,9 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .query = top_k_query,
                                   .qParams = queryParams,
                                   .vectorScoreField = (char *)"__v_score",
-                                  .ignoreDocScore = true,
+                                  .canTrimDeepResults = true,
                                   .childIt = ii};
-  QueryError err = {QUERY_OK};                              
+  QueryError err = {QUERY_OK};
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_FALSE(hybridIt);
@@ -896,7 +930,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
 
   float query[] = {(float)n, (float)n, (float)n, (float)n};
   RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
-  VecSimQueryParams queryParams;
+  VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = n;
   VecSimQueryResult_List results =
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
@@ -1060,46 +1094,6 @@ TEST_F(IndexTest, testBuffer) {
   Buffer_Free(w.buf);
 }
 
-typedef struct {
-  int num;
-  char **expected;
-
-} tokenContext;
-
-int tokenFunc(void *ctx, const Token *t) {
-  tokenContext *tx = (tokenContext *)ctx;
-  int ret = strncmp(t->tok, tx->expected[tx->num++], t->tokLen);
-  EXPECT_TRUE(ret == 0);
-  EXPECT_TRUE(t->pos > 0);
-  return 0;
-}
-
-// int testTokenize() {
-//   char *txt = strdup("Hello? world...   ? -WAZZ@UP? שלום");
-//   tokenContext ctx = {0};
-//   const char *expected[] = {"hello", "world", "wazz", "up", "שלום"};
-//   ctx.expected = (char **)expected;
-
-//   tokenize(txt, &ctx, tokenFunc, NULL, 0, DefaultStopWordList(), 0);
-//   ASSERT_TRUE(ctx.num == 5);
-
-//   free(txt);
-
-//   return 0;
-// }
-
-// int testForwardIndex() {
-
-//   Document doc = NewDocument(NULL, 1, 1, "english");
-//   doc.docId = 1;
-//   doc.fields[0] = N
-//   ForwardIndex *idx = NewForwardIndex(doc);
-//   char *txt = strdup("Hello? world...  hello hello ? __WAZZ@UP? שלום");
-//   tokenize(txt, 1, 1, idx, forwardIndexTokenFunc);
-
-//   return 0;
-// }
-
 TEST_F(IndexTest, testIndexSpec) {
   const char *title = "title", *body = "body", *foo = "foo", *bar = "bar", *name = "name";
   const char *args[] = {"STOPWORDS", "2",      "hello", "world",    "SCHEMA", title,
@@ -1166,14 +1160,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->options == FieldSpec_NoStemming);
   ASSERT_TRUE(f->sortIdx == -1);
 
-  ASSERT_TRUE(s->sortables != NULL);
-  ASSERT_TRUE(s->sortables->len == 2);
-  int rc = IndexSpec_GetFieldSortingIndex(s, foo, strlen(foo));
-  ASSERT_EQ(0, rc);
-  rc = IndexSpec_GetFieldSortingIndex(s, bar, strlen(bar));
-  ASSERT_EQ(1, rc);
-  rc = IndexSpec_GetFieldSortingIndex(s, title, strlen(title));
-  ASSERT_EQ(-1, rc);
+  ASSERT_EQ(s->numSortableFields, 2);
 
   IndexSpec_Free(s);
 
@@ -1264,12 +1251,6 @@ TEST_F(IndexTest, testHugeSpec) {
   QueryError_ClearError(&err);
 }
 
-typedef union {
-
-  int i;
-  float f;
-} u;
-
 TEST_F(IndexTest, testIndexFlags) {
 
   ForwardIndexEntry h;
@@ -1342,12 +1323,14 @@ TEST_F(IndexTest, testIndexFlags) {
 TEST_F(IndexTest, testDocTable) {
   char buf[16];
   DocTable dt = NewDocTable(10, 10);
+  size_t doc_table_size = sizeof(DocTable) + (10 * sizeof(DMDChain));
+  ASSERT_EQ(doc_table_size, (int)dt.memsize);
   t_docId did = 0;
   // N is set to 100 and the max cap of the doc table is 10 so we surely will
   // get overflow and check that everything works correctly
   int N = 100;
   for (int i = 0; i < N; i++) {
-    size_t nkey = sprintf(buf, "doc_%d", i);
+    size_t nkey = snprintf(buf, sizeof(buf), "doc_%d", i);
     RSDocumentMetadata *dmd = DocTable_Put(&dt, buf, nkey, (double)i, Document_DefaultFlags, buf, strlen(buf), DocumentType_Hash);
     t_docId nd = dmd->id;
     ASSERT_EQ(did + 1, nd);
@@ -1357,10 +1340,10 @@ TEST_F(IndexTest, testDocTable) {
   ASSERT_EQ(N + 1, dt.size);
   ASSERT_EQ(N, dt.maxDocId);
 #ifdef __x86_64__
-  ASSERT_EQ(10180, (int)dt.memsize);
+  ASSERT_EQ(10180 + doc_table_size, (int)dt.memsize);
 #endif
   for (int i = 0; i < N; i++) {
-    sprintf(buf, "doc_%d", i);
+    snprintf(buf, sizeof(buf), "doc_%d", i);
     const char *key = DocTable_GetKey(&dt, i + 1, NULL);
     ASSERT_STREQ(key, buf);
 
@@ -1396,7 +1379,7 @@ TEST_F(IndexTest, testDocTable) {
   RSDocumentMetadata *dmd = DocTable_Put(&dt, "Hello", 5, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   t_docId strDocId = dmd->id;
   ASSERT_TRUE(0 != strDocId);
-  ASSERT_EQ(71, (int)dt.memsize);
+  ASSERT_EQ(71 + doc_table_size, (int)dt.memsize);
 
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};
@@ -1404,83 +1387,11 @@ TEST_F(IndexTest, testDocTable) {
   ASSERT_FALSE(DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   dmd = DocTable_Put(&dt, binBuf, binBufLen, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   ASSERT_TRUE(dmd);
-  ASSERT_EQ(148, (int)dt.memsize);
+  ASSERT_EQ(148 + doc_table_size, (int)dt.memsize);
   ASSERT_NE(dmd->id, strDocId);
   ASSERT_EQ(dmd->id, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));
   DocTable_Free(&dt);
-}
-
-TEST_F(IndexTest, testSortable) {
-  RSSortingTable *tbl = NewSortingTable();
-  RSSortingTable_Add(&tbl, "foo", RSValue_String);
-  RSSortingTable_Add(&tbl, "bar", RSValue_String);
-  RSSortingTable_Add(&tbl, "baz", RSValue_String);
-  ASSERT_EQ(3, tbl->len);
-
-  ASSERT_STREQ("foo", tbl->fields[0].name);
-  ASSERT_EQ(RSValue_String, tbl->fields[0].type);
-  ASSERT_STREQ("bar", tbl->fields[1].name);
-  ASSERT_STREQ("baz", tbl->fields[2].name);
-  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "foo"));
-  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "FoO"));
-  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(NULL, "FoO"));
-
-  ASSERT_EQ(1, RSSortingTable_GetFieldIdx(tbl, "bar"));
-  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(tbl, "barbar"));
-
-  RSSortingVector *v = NewSortingVector(tbl->len);
-  ASSERT_EQ(v->len, tbl->len);
-
-  const char *str = "hello";
-  const char *masse = "Maße";
-  double num = 3.141;
-  ASSERT_TRUE(RSValue_IsNull(v->values[0]));
-  RSSortingVector_Put(v, 0, str, RS_SORTABLE_STR, 0);
-  ASSERT_EQ(v->values[0]->t, RSValue_String);
-  ASSERT_EQ(v->values[0]->strval.stype, RSString_RMAlloc);
-
-  ASSERT_TRUE(RSValue_IsNull(v->values[1]));
-  ASSERT_TRUE(RSValue_IsNull(v->values[2]));
-  RSSortingVector_Put(v, 1, &num, RSValue_Number, 0);
-  ASSERT_EQ(v->values[1]->t, RS_SORTABLE_NUM);
-
-  RSSortingVector *v2 = NewSortingVector(tbl->len);
-  RSSortingVector_Put(v2, 0, masse, RS_SORTABLE_STR, 0);
-
-  /// test string unicode lowercase normalization
-  ASSERT_STREQ("masse", v2->values[0]->strval.str);
-
-  double s2 = 4.444;
-  RSSortingVector_Put(v2, 1, &s2, RS_SORTABLE_NUM, 0);
-
-  RSSortingKey sk = {.index = 0, .ascending = 0};
-
-  QueryError qerr;
-  QueryError_Init(&qerr);
-
-  int rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
-  ASSERT_LT(0, rc);
-  ASSERT_EQ(QUERY_OK, qerr.code);
-  sk.ascending = 1;
-  rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
-  ASSERT_GT(0, rc);
-  ASSERT_EQ(QUERY_OK, qerr.code);
-  rc = RSSortingVector_Cmp(v, v, &sk, &qerr);
-  ASSERT_EQ(0, rc);
-  ASSERT_EQ(QUERY_OK, qerr.code);
-
-  sk.index = 1;
-
-  rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
-  ASSERT_TRUE(-1 == rc && qerr.code == QUERY_OK);
-  sk.ascending = 0;
-  rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
-  ASSERT_TRUE(1 == rc && qerr.code == QUERY_OK);
-
-  SortingTable_Free(tbl);
-  SortingVector_Free(v);
-  SortingVector_Free(v2);
 }
 
 TEST_F(IndexTest, testVarintFieldMask) {
@@ -1541,4 +1452,45 @@ TEST_F(IndexTest, testDeltaSplits) {
 
   IR_Free(ir);
   InvertedIndex_Free(idx);
+}
+
+TEST_F(IndexTest, testRawDocId) {
+  const int previousConfig = RSGlobalConfig.invertedIndexRawDocidEncoding;
+  RSGlobalConfig.invertedIndexRawDocidEncoding = true;
+  constexpr size_t INDEX_BLOCK_SIZE_DOCID_ONLY = 1000;
+  InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, 1);
+  IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
+  constexpr size_t n_ids = INDEX_BLOCK_SIZE_DOCID_ONLY * 3;
+
+  // Add a few entries, all with an odd docId
+  for (t_docId id = 1; id < n_ids; id += 2) {
+    InvertedIndex_WriteEntryGeneric(idx, enc, id, NULL);
+  }
+
+  // Test that we can read them back
+  IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  RSIndexResult *cur;
+  for (t_docId id = 1; id < n_ids; id += 2) {
+    ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &cur));
+    ASSERT_EQ(id, cur->docId);
+  }
+  ASSERT_EQ(INDEXREAD_EOF, IR_Read(ir, &cur));
+
+  // Test that we can skip to all the ids
+  for (t_docId id = 1; id < n_ids; id++) {
+    IR_Rewind(ir);
+    int rc = IR_SkipTo(ir, id, &cur);
+    if (id % 2 == 0) {
+      ASSERT_EQ(INDEXREAD_NOTFOUND, rc);
+      ASSERT_EQ(id + 1, cur->docId) << "Expected to skip to " << id + 1 << " but got " << cur->docId;
+    } else {
+      ASSERT_EQ(INDEXREAD_OK, rc);
+      ASSERT_EQ(id, cur->docId);
+    }
+  }
+
+  // Clean up
+  IR_Free(ir);
+  InvertedIndex_Free(idx);
+  RSGlobalConfig.invertedIndexRawDocidEncoding = previousConfig;
 }

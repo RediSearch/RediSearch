@@ -6,12 +6,11 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
 #include <stdint.h>
 #include <stdbool.h>
 
 #include "minmax_heap.h"
-
+#include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 
 /*
@@ -189,7 +188,7 @@ static void trickledown_min(heap_t* h, int i) {
 }
 
 void mmh_insert(heap_t* h, void* value) {
-  assert(value != NULL);
+  RS_ASSERT(value != NULL);
   h->count++;
   // check for realloc
   if (h->count == h->size) {
@@ -258,14 +257,6 @@ void* mmh_peek_max(const heap_t* h) {
   }
   return NULL;
 }
-
-// void mmh_dump(heap_t* h) {
-//   printf("count is %d, elements are:\n\t [", h->count);
-//   for (int i = 1; i <= h->count; i++) {
-//     printf(" %d ", h->data[i]);
-//   }
-//   printf("]\n");
-// }
 
 heap_t* mmh_init(mmh_cmp_func cmp, void* cmp_ctx, mmh_free_func ff) {
   return mmh_init_with_size(50, cmp, cmp_ctx, ff);

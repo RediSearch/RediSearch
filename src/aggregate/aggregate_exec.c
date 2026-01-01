@@ -14,6 +14,7 @@
 #include "score_explain.h"
 #include "commands.h"
 #include "profile.h"
+#include "info/global_stats.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
@@ -233,6 +234,10 @@ static size_t getResultsFactor(AREQ *req) {
   return count;
 }
 
+static bool hasTimeoutError(QueryError *err) {
+  return QueryError_GetCode(err) == QUERY_TIMEDOUT;
+}
+
 /**
  * Sends a chunk of <n> rows, optionally also sending the preamble
  */
@@ -247,7 +252,9 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
       !(req->reqflags & QEXEC_F_IS_SEARCH)) {
     limit = RSGlobalConfig.maxAggregateResults;
   }
-
+  if (req->sctx) {
+    IndexSpec_IncrActiveQueries(req->sctx->spec);
+  }
   cachedVars cv = {0};
   cv.lastLk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
   cv.lastAstp = AGPLN_GetArrangeStep(&req->ap);
@@ -313,7 +320,12 @@ done:
   if (rc != RS_RESULT_OK) {
     req->stateflags |= QEXEC_S_ITERDONE;
   }
-
+  if (req->sctx) {
+    IndexSpec_DecrActiveQueries(req->sctx->spec);
+  }
+  if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
+    TotalGlobalStats_CountQuery(req->reqflags, rs_wall_clock_elapsed_ns(&req->initClock));
+  }
   // Reset the total results length:
   req->qiter.totalResults = 0;
   if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN) {
@@ -338,7 +350,6 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         QueryError *status, AREQ **r) {
 
   int rc = REDISMODULE_ERR;
-  hires_clock_t parseClock;
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
@@ -347,7 +358,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     (*r)->reqflags |= QEXEC_F_IS_SEARCH;
   }
   else if (type == COMMAND_AGGREGATE) {
-    (*r)->reqflags |= QEXEC_F_IS_EXTENDED;
+    (*r)->reqflags |= QEXEC_F_IS_AGGREGATE;
   }
 
   if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
@@ -376,16 +387,17 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
+  rs_wall_clock parseClock;
   bool is_profile = IsProfile(*r);
   if (is_profile) {
-    hires_clock_get(&parseClock);
-    (*r)->parseTime += hires_clock_diff_msec(&parseClock, &(*r)->initClock);
+    rs_wall_clock_init(&parseClock);
+    (*r)->profileParseTime = rs_wall_clock_diff_ns(&(*r)->initClock, &parseClock);
   }
 
   rc = AREQ_BuildPipeline(*r, 0, status);
 
   if (is_profile) {
-    (*r)->pipelineBuildTime = hires_clock_since_msec(&parseClock);
+    (*r)->profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
   }
 
 done:
@@ -418,7 +430,7 @@ static int parseProfile(AREQ *r, int withProfile, RedisModuleString **argv, int 
     if (withProfile == PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
     }
-    hires_clock_get(&r->initClock);
+    rs_wall_clock_init(&r->initClock);
   }
   return REDISMODULE_OK;
 }
@@ -433,6 +445,15 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   AREQ *r = AREQ_New();
   QueryError status = {0};
+
+#ifdef RS_COORDINATOR
+  // If we got here, we know `argv[0]` is a valid registered command name.
+  // If it starts with an underscore, it is an internal command.
+  if (RedisModule_StringPtrLen(argv[0], NULL)[0] == '_') {
+    r->reqflags |= QEXEC_F_INTERNAL;
+  }
+#endif
+
   if (parseProfile(r, withProfile, argv, argc, &status) != REDISMODULE_OK) {
     goto error;
   }
@@ -442,7 +463,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   SET_DIALECT(r->sctx->spec->used_dialects, r->dialectVersion);
-  SET_DIALECT(RSGlobalConfig.used_dialects, r->dialectVersion);
+  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, r->dialectVersion);
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status, false);
@@ -549,11 +570,6 @@ int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, Qu
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
 
-  // reset profile clock for cursor reads except for 1st
-  if (IsProfile(req) && req->totalTime != 0) {
-    hires_clock_get(&req->initClock);
-  }
-
   // update timeout for current cursor read
   if (req->qiter.rootProc->type != RP_NETWORK) {
     updateTimeout(&req->timeoutTime, req->reqTimeout);
@@ -620,6 +636,7 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
   AREQ *req = cursor->execState;
   req->qiter.err = &status;
   ConcurrentSearchCtx_ReopenKeys(&req->conc);
+  req->reqflags &= ~QEXEC_F_IS_AGGREGATE; // Second read was not triggered by FT.AGGREGATE
   runCursor(ctx, cursor, count);
 }
 

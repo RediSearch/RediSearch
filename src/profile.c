@@ -6,6 +6,7 @@
 
 #include "profile.h"
 #include "reply_macros.h"
+#include "util/units.h"
 
 void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, double cpuTime) {
   IndexReader *ir = root->ctx;
@@ -19,19 +20,19 @@ void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, doubl
     REPLY_SIMPLE_SAFE(ctx, ir->record->term.term->str);
 
   } else if (ir->idx->flags & Index_StoreNumeric) {
-    NumericFilter *flt = ir->decoderCtx.ptr;
+    const NumericFilter *flt = ir->decoderCtx.filter;
     if (!flt || flt->geoFilter == NULL) {
       printProfileType("NUMERIC");
       RedisModule_ReplyWithSimpleString(ctx, "Term");
-      RedisModule_ReplyWithPrintf(ctx, "%g - %g", ir->decoderCtx.rangeMin, ir->decoderCtx.rangeMax);
+      RedisModule_ReplyWithPrintf(ctx, "%g - %g", ir->profileCtx.numeric.rangeMin, ir->profileCtx.numeric.rangeMax);
 
     } else {
       printProfileType("GEO");
       RedisModule_ReplyWithSimpleString(ctx, "Term");
       double se[2];
       double nw[2];
-      decodeGeo(ir->decoderCtx.rangeMin, se);
-      decodeGeo(ir->decoderCtx.rangeMax, nw);
+      decodeGeo(ir->profileCtx.numeric.rangeMin, se);
+      decodeGeo(ir->profileCtx.numeric.rangeMax, nw);
       RedisModule_ReplyWithPrintf(ctx, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
     }
   } else {
@@ -89,7 +90,7 @@ static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, s
 
       case RP_PROFILE:
       case RP_MAX:
-        RS_LOG_ASSERT(0, "RPType error");
+        RS_ABORT("RPType error");
         break;
     }
     return upstreamTime;
@@ -109,29 +110,28 @@ static double printProfileRP(RedisModuleCtx *ctx, ResultProcessor *rp, size_t *a
 int Profile_Print(RedisModuleCtx *ctx, AREQ *req){
   size_t nelem = 0;
 
-  hires_clock_t now;
-  req->totalTime += hires_clock_since_msec(&req->initClock);
+  req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   // Print total time
   RedisModule_ReplyWithArray(ctx, 1 + PROFILE_VERBOSE);
   RedisModule_ReplyWithSimpleString(ctx, "Total profile time");
   if (PROFILE_VERBOSE)
-      RedisModule_ReplyWithDouble(ctx, (double)req->totalTime);
+      RedisModule_ReplyWithDouble(ctx, rs_wall_clock_convert_ns_to_ms_d(req->profileTotalTime));
   nelem++;
 
   // Print query parsing time
   RedisModule_ReplyWithArray(ctx, 1 + PROFILE_VERBOSE);
   RedisModule_ReplyWithSimpleString(ctx, "Parsing time");
   if (PROFILE_VERBOSE)
-      RedisModule_ReplyWithDouble(ctx, (double)req->parseTime);
+      RedisModule_ReplyWithDouble(ctx, rs_wall_clock_convert_ns_to_ms_d(req->profileParseTime));
   nelem++;
 
   // Print iterators creation time
   RedisModule_ReplyWithArray(ctx, 1 + PROFILE_VERBOSE);
   RedisModule_ReplyWithSimpleString(ctx, "Pipeline creation time");
   if (PROFILE_VERBOSE)
-      RedisModule_ReplyWithDouble(ctx, (double)req->pipelineBuildTime);
+      RedisModule_ReplyWithDouble(ctx, rs_wall_clock_convert_ns_to_ms_d(req->profilePipelineBuildTime));
   nelem++;
 
   // print into array with a recursive function over result processors

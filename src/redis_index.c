@@ -10,11 +10,11 @@
 #include "inverted_index.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
-#include "util/logging.h"
 #include "util/misc.h"
 #include "tag_index.h"
 #include "rmalloc.h"
 #include <stdio.h>
+#include "rmutil/rm_assert.h"
 
 RedisModuleType *InvertedIndexType;
 
@@ -234,8 +234,7 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
   return kdv->p;
 }
 
-InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,
-                                         int write, bool *outIsNew, RedisModuleKey **keyp) {
+InvertedIndex *Redis_OpenInvertedIndex(RedisSearchCtx *ctx, const char *term, size_t len, int write, bool *outIsNew) {
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
   InvertedIndex *idx = NULL;
 
@@ -267,10 +266,6 @@ InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, 
     }
     if (idx == NULL) {
       RedisModule_CloseKey(k);
-    } else {
-      if (keyp) {
-        *keyp = k;
-      }
     }
   } else {
     idx = openIndexKeysDict(ctx, termKey, write, outIsNew);
@@ -328,54 +323,6 @@ err:
   return NULL;
 }
 
-int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *opaque) {
-  long long ptr = 0;
-
-  int num = 0;
-  do {
-    RedisModuleString *sptr = RedisModule_CreateStringFromLongLong(ctx, ptr);
-    RedisModuleCallReply *r =
-        RedisModule_Call(ctx, "SCAN", "scccc", sptr, "MATCH", prefix, "COUNT", "100");
-    RedisModule_FreeString(ctx, sptr);
-    if (r == NULL || RedisModule_CallReplyType(r) == REDISMODULE_REPLY_ERROR) {
-      return num;
-    }
-
-    if (RedisModule_CallReplyLength(r) < 1) {
-      break;
-    }
-
-    sptr = RedisModule_CreateStringFromCallReply(RedisModule_CallReplyArrayElement(r, 0));
-    RedisModule_StringToLongLong(sptr, &ptr);
-    RedisModule_FreeString(ctx, sptr);
-    // printf("ptr: %s %lld\n",
-    // RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(r, 0),
-    // NULL), ptr);
-    if (RedisModule_CallReplyLength(r) == 2) {
-      RedisModuleCallReply *keys = RedisModule_CallReplyArrayElement(r, 1);
-      size_t nks = RedisModule_CallReplyLength(keys);
-
-      for (size_t i = 0; i < nks; i++) {
-        RedisModuleString *kn =
-            RedisModule_CreateStringFromCallReply(RedisModule_CallReplyArrayElement(keys, i));
-        if (f(ctx, kn, opaque) != REDISMODULE_OK) goto end;
-
-        // RedisModule_FreeString(ctx, kn);
-        if (++num % 10000 == 0) {
-          LG_DEBUG("Scanned %d keys", num);
-        }
-      }
-
-      // RedisModule_FreeCallReply(keys);
-    }
-
-    RedisModule_FreeCallReply(r);
-
-  } while (ptr);
-end:
-  return num;
-}
-
 int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
   // extract the term from the key
   RedisSearchCtx *sctx = opaque;
@@ -405,7 +352,7 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
 
 int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "s", s);
-  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
+  RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);
   return res;
@@ -414,7 +361,7 @@ int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
 int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
   // Send command and args to replicas and AOF
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
-  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
+  RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);
   return res;

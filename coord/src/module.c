@@ -30,8 +30,10 @@
 #include "value.h"
 #include "cluster_spell_check.h"
 #include "profile.h"
-
+#include "info/global_stats.h"
+#include "util/units.h"
 #include "libuv/include/uv.h"
+#include "rs_wall_clock.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -84,9 +86,9 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
       nArrs++;
       for (size_t j = 0; j < MRReply_Length(replies[i]); j++) {
         size_t sl = 0;
-        char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
+        const char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
         if (s && sl) {
-          TrieMap_Add(dict, s, sl, NULL, NULL);
+          TrieMap_Add(dict, (char*)s, sl, NULL, NULL);
         }
       }
     } else if (MRReply_Type(replies[i]) == MR_REPLY_ERROR && err == NULL) {
@@ -370,6 +372,7 @@ typedef struct {
   char *queryString;
   long long offset;
   long long limit;
+  rs_wall_clock initClock;
   long long requestedResultsCount;
   int withScores;
   int withExplainScores;
@@ -384,7 +387,7 @@ typedef struct {
   // used to signal profile flag and count related args
   int profileArgs;
   int profileLimited;
-  clock_t profileClock;
+  rs_wall_clock profileClock;
   void *reducer;
 } searchRequestCtx;
 
@@ -448,7 +451,7 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     req->profileArgs += 2;
-    req->profileClock = clock();
+    rs_wall_clock_init(&req->profileClock);
     if (RMUtil_ArgIndex("LIMITED", argv + 3, 1) != -1) {
       req->profileLimited = 1;
       req->profileArgs++;
@@ -572,6 +575,8 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
   searchRequestCtx *req = searchRequestCtx_New();
 
+  rs_wall_clock_init(&req->initClock);
+
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
     return NULL;
@@ -590,8 +595,6 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
 
   req->withSortingKeys = RMUtil_ArgExists("WITHSORTKEYS", argv, argc, argvOffset) != 0;
-  // fprintf(stderr, "Sortby: %d, asc: %d withsort: %d\n", req->withSortby, req->sortAscending,
-  //         req->withSortingKeys);
 
   // Detect "NOCONTENT"
   req->noContent = RMUtil_ArgExists("NOCONTENT", argv, argc, argvOffset) != 0;
@@ -690,9 +693,6 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
 
         // Sort by string sort keys
         cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
-        // printf("Using sortKey!! <N=%lu> %.*s vs <N=%lu> %.*s. Result=%d\n", r2->sortKeyLen,
-        //        (int)r2->sortKeyLen, r2->sortKey, r1->sortKeyLen, (int)r1->sortKeyLen, r1->sortKey,
-        //        cmp);
       } else {
         // If at least one of these has no sort key, it gets high value regardless of asc/desc
         return r2->sortKey ? 1 : -1;
@@ -700,32 +700,22 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
     }
     // in case of a tie or missing both sorting keys - compare ids
     if (!cmp) {
-      // printf("It's a tie! Comparing <N=%lu> %.*s vs <N=%lu> %.*s\n", r2->idLen, (int)r2->idLen,
-      //        r2->id, r1->idLen, (int)r1->idLen, r1->id);
       cmp = cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
     }
     return (req->sortAscending ? -cmp : cmp);
   }
 
   double s1 = r1->score, s2 = r2->score;
-  // printf("Scores: %lf vs %lf. WithSortBy: %d. SK1=%p. SK2=%p\n", s1, s2, req->withSortby,
-  //        r1->sortKey, r2->sortKey);
   if (s1 < s2) {
     return 1;
   } else if (s1 > s2) {
     return -1;
   } else {
-    // printf("Scores are tied. Will compare ID Strings instead\n");
-
     // This was reversed to be more compatible with OSS version where tie breaker was changed
     // to return the lower doc ID to reduce sorting heap work. Doc name might not be ascending
     // or decending but this still may reduce heap work.
     // Our tests are usually ascending so this will create similarity between RS and RSC.
     int rv = -cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
-
-    // printf("ID Strings: Comparing <N=%lu> %.*s vs <N=%lu> %.*s => %d\n", r2->idLen,
-    // (int)r2->idLen,
-    //        r2->id, r1->idLen, (int)r1->idLen, r1->id, rv);
     return rv;
   }
 }
@@ -742,7 +732,7 @@ searchResult *newResult(searchResult *cached, MRReply *arr, int j, searchReplyOf
     res->id = NULL;
     return res;
   }
-  res->id = MRReply_String(MRReply_ArrayElement(arr, j), &res->idLen);
+  res->id = (char*)MRReply_String(MRReply_ArrayElement(arr, j), &res->idLen);
   if (!res->id) {
     return res;
   }
@@ -781,7 +771,6 @@ searchResult *newResult(searchResult *cached, MRReply *arr, int j, searchReplyOf
       res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
       RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
     }
-    // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
   }
   return res;
 }
@@ -974,8 +963,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
   size_t len = MRReply_Length(arr);
 
   int step = rCtx->offsets.step;
-  // fprintf(stderr, "Step %d, scoreOffset %d, fieldsOffset %d, sortKeyOffset %d\n", step,
-  //         scoreOffset, fieldsOffset, sortKeyOffset);
   for (int j = 1; j < len; j += step) {
     if (j + step > len) {
       RedisModule_Log(
@@ -996,12 +983,8 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
       rCtx->cachedResult = NULL;
     }
 
-    // fprintf(stderr, "Response %d result %d Reply docId %s score: %f sortkey %f\n", i, j,
-    //         res->id, res->score, res->sortKeyNum);
-
     // TODO: minmax_heap?
     if (heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
-      // printf("Offering result score %f\n", res->score);
       heap_offerx(rCtx->pq, res);
 
     } else {
@@ -1153,7 +1136,8 @@ size_t PrintShardProfile(RedisModuleCtx *ctx, int count, MRReply **replies, int 
 
 static void profileSearchReply(RedisModuleCtx *ctx, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
-                               clock_t totalTime, clock_t postProccesTime) {
+                               rs_wall_clock *totalTime,
+                               rs_wall_clock_ns_t postProccesTime) {
   RedisModule_ReplyWithArray(ctx, 2);
   // print results
   sendSearchResults(ctx, rCtx);
@@ -1170,19 +1154,18 @@ static void profileSearchReply(RedisModuleCtx *ctx, searchReducerCtx *rCtx,
   // search cmd only do the heap so there is no parsing time
   RedisModule_ReplyWithArray(ctx, 2);
   RedisModule_ReplyWithSimpleString(ctx, "Total Coordinator time");
-  RedisModule_ReplyWithDouble(ctx, (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyWithDouble(ctx, rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(totalTime)));
   arrLen++;
 
   RedisModule_ReplyWithArray(ctx, 2);
-  RedisModule_ReplyWithSimpleString(ctx, "Post Proccessing time");
-  RedisModule_ReplyWithDouble(ctx, (double)(clock() - postProccesTime) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyWithSimpleString(ctx, "Post Processing time");
+  RedisModule_ReplyWithDouble(ctx, rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_now_ns() - postProccesTime));
   arrLen++;
 
   RedisModule_ReplySetArrayLength(ctx, arrLen);
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  clock_t postProccesTime;
   RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *)MRCtx_GetRedisCtx(mc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   searchRequestCtx *req = MRCtx_GetPrivdata(mc);
@@ -1256,9 +1239,11 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   if (!profile) {
     sendSearchResults(ctx, &rCtx);
   } else {
-    postProccesTime = clock();
-    profileSearchReply(ctx, &rCtx, count, replies, req->profileClock, postProccesTime);
+    profileSearchReply(ctx, &rCtx, count, replies, &req->profileClock, rs_wall_clock_now_ns());
   }
+
+  rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
+  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, duration);
 
 cleanup:
   if (rCtx.pq) {
@@ -1610,7 +1595,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   struct MRCtx *mctx = MR_CreateCtx(ctx, NULL);
   MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
-  MR_SetCoordinationStrategy(mctx, MRCluster_FlatCoordination);
+  MR_SetCoordinationStrategy(mctx, MRCluster_MastersOnly);
   MR_Map(mctx, InfoReplyReducer, cg, true);
   cg.Free(cg.ctx);
   return REDISMODULE_OK;
@@ -1994,7 +1979,7 @@ static void addIndexCursor(const IndexSpec *sp) {
   char *end = strchr(s, '{');
   if (end) {
     *end = '\0';
-    CursorList_AddSpec(&RSCursorsCoord, s, RSCURSORS_DEFAULT_CAPACITY);
+    CursorList_AddSpec(&RSCursorsCoord, s);
   }
   rm_free(s);
 }

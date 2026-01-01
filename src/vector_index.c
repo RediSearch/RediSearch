@@ -10,9 +10,8 @@
 #include "query_param.h"
 #include "rdb.h"
 
-static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
+VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName,
                                              int write) {
-  IndexSpec *spec = ctx->spec;
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
@@ -35,11 +34,14 @@ static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *k
   }
 
   // create new vector data structure
+  VecSimIndex* temp = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
+  if (!temp) {
+    return NULL;
+  }
   kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->p = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
-  VecSimIndexInfo indexInfo = VecSimIndex_Info(kdv->p);
-  switch (indexInfo.algo)
-  {
+  kdv->p = temp;
+  VecSimIndexDebugInfo indexInfo = VecSimIndex_DebugInfo(kdv->p);
+  switch (indexInfo.algo) {
     case VecSimAlgo_BF:
       spec->stats.vectorIndexSize += indexInfo.bfInfo.memory;
       break;
@@ -56,7 +58,7 @@ static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *k
 
 VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
                             RedisModuleString *keyName) {
-  return openVectorKeysDict(ctx, keyName, 1);
+  return openVectorKeysDict(ctx->spec, keyName, 1);
 }
 
 IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
@@ -86,13 +88,13 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
-  VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
+  VecSimIndex *vecsim = openVectorKeysDict(ctx->spec, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
   if (!vecsim) {
     return NULL;
   }
 
-  VecSimIndexInfo info = VecSimIndex_Info(vecsim);
+  VecSimIndexDebugInfo info = VecSimIndex_DebugInfo(vecsim);
   size_t dim = 0;
   VecSimType type = (VecSimType)0;
   VecSimMetric metric = (VecSimMetric)0;
@@ -136,7 +138,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .query = vq->knn,
                                       .qParams = qParams,
                                       .vectorScoreField = vq->scoreField,
-                                      .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
+                                      .canTrimDeepResults = q->opts->flags & Search_CanSkipRichResults,
                                       .childIt = child_it,
                                       .timeout = q->sctx->timeout,
       };

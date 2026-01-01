@@ -13,6 +13,8 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
+#include <unistd.h>
+#include <sys/wait.h>
 #include <climits>
 #include <cassert>
 #include <mutex>
@@ -182,6 +184,15 @@ void RMCK_FreeString(RedisModuleCtx *ctx, RedisModuleString *s) {
 
 void RMCK_RetainString(RedisModuleCtx *ctx, RedisModuleString *s) {
   s->incref();
+}
+
+RedisModuleString *RMCK_HoldString(RedisModuleCtx *ctx, RedisModuleString *s) {
+  RMCK_RetainString(ctx, s);
+  return s;
+}
+
+void RMCK_TrimStringAllocation(RedisModuleString *s) {
+  s->trim();
 }
 
 void RMCK_SetModuleOptions(RedisModuleCtx *ctx, int options) {
@@ -498,6 +509,11 @@ int RMCK_CreateCommand(RedisModuleCtx *ctx, const char *s, RedisModuleCmdFunc ha
   return REDISMODULE_OK;
 }
 
+// Internal assertion handler. We still expect to use the `RedisModule_Assert` macro.
+static void RMCK__Assert(const char *estr, const char *file, int line) {
+  throw std::runtime_error(std::string(estr) + " at " + file + ":" + std::to_string(line));
+}
+
 /** Allocators */
 void *RMCK_Alloc(size_t n) {
   return malloc(n);
@@ -569,6 +585,51 @@ void RMCK_ThreadSafeContextUnlock(RedisModuleCtx *) {
   RMCK_GlobalLock.unlock();
 }
 
+static RedisModuleCallReply *RMCK_CallSet(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+                                           va_list ap) {
+  if (fmt[0] != 's' || fmt[1] != 's') {
+    return NULL;
+  }
+  RedisModuleString *key = va_arg(ap, RedisModuleString *);
+  RedisModuleString *value = va_arg(ap, RedisModuleString *);
+  ctx->db->erase(*key);
+  StringValue* v = new StringValue(*key);
+  v->m_string = *value;
+  ctx->db->set(v);
+  v->decref();
+  return NULL;
+}
+
+static RedisModuleCallReply *RMCK_CallDel(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+                                           va_list ap) {
+  RedisModuleCallReply* reply = new RedisModuleCallReply(ctx);
+  reply->type = REDISMODULE_REPLY_INTEGER;
+  reply->ll = 0;
+  if (fmt[0] != 's') {
+    return reply;
+  }
+  RedisModuleString *key = va_arg(ap, RedisModuleString *);
+  const bool erased = ctx->db->erase(*key);
+  reply->ll += erased;
+  return reply;
+}
+
+static RedisModuleCallReply *RMCK_CallGet(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+                                           va_list ap) {
+  if (fmt[0] != 's') {
+    return NULL;
+  }
+  RedisModuleString *key = va_arg(ap, RedisModuleString *);
+  Value *v = ctx->db->get(key);
+  if (!dynamic_cast<StringValue *>(v)) {
+    return NULL;
+  }
+  RedisModuleCallReply *reply = new RedisModuleCallReply(ctx);
+  reply->type = REDISMODULE_REPLY_STRING;
+  reply->s = static_cast<StringValue *>(v)->m_string;
+  return reply;
+}
+
 static RedisModuleCallReply *RMCK_CallHset(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
                                            va_list ap) {
   if (strcmp(fmt, "!v") != 0) {
@@ -628,7 +689,6 @@ static RedisModuleCallReply *RMCK_CallHgelall(RedisModuleCtx *ctx, const char *c
 }
 
 RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char *fmt, ...) {
-  // We only support HGETALL for now
   va_list ap;
   RedisModuleCallReply *reply = NULL;
   va_start(ap, fmt);
@@ -638,6 +698,14 @@ RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char
 
   if (strcasecmp(cmd, "HSET") == 0) {
     reply = RMCK_CallHset(ctx, cmd, fmt, ap);
+  } else if (strcasecmp(cmd, "SET") == 0) {
+    reply = RMCK_CallSet(ctx, cmd, fmt, ap);
+  } else if (strcasecmp(cmd, "GET") == 0) {
+    reply = RMCK_CallGet(ctx, cmd, fmt, ap);
+  } else if (strcasecmp(cmd, "DEL") == 0) {
+    reply = RMCK_CallDel(ctx, cmd, fmt, ap);
+  } else {
+    errno = ENOTSUP;
   }
 
   va_end(ap);
@@ -687,6 +755,13 @@ const char *RMCK_CallReplyStringPtr(RedisModuleCallReply *r, size_t *n) {
   return r->s.c_str();
 }
 
+long long RMCK_CallReplyInteger(RedisModuleCallReply *r) {
+  if (r->type != REDISMODULE_REPLY_INTEGER) {
+    return 0;
+  }
+  return r->ll;
+}
+
 Module::ModuleMap Module::modules;
 std::vector<KVDB *> KVDB::dbs;
 static int RMCK_GetApi(const char *s, void *pp);
@@ -728,6 +803,38 @@ static int RMCK_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent eve
   return REDISMODULE_OK;
 }
 
+void RMCK_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
+  return;
+}
+
+int RMCK_GetContextFlags(RedisModuleCtx *ctx) {
+  return 0;
+}
+
+
+/** Fork */
+static int RMCK_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
+  return fork();
+}
+
+// like in Redis' `exitFromChild`, we exit from children using _exit() instead of
+// exit(), because the latter may interact with the same file objects used by
+// the parent process (may yield errors when testing with sanitizer).
+// However if we are testing the coverage normal exit() is
+// used in order to obtain the right coverage information.
+static int RMCK_ExitFromChild(int retcode) {
+#if defined(COV) || defined(COVERAGE)
+  exit(retcode);
+#else
+  _exit(retcode);
+#endif
+  return REDISMODULE_OK; // never reached, but following the API "behavior"
+}
+
+static int RMCK_KillForkChild(int child_pid) {
+  return waitpid(child_pid, NULL, 0);
+}
+
 /** Misc */
 RedisModuleCtx::~RedisModuleCtx() {
   if (automemory) {
@@ -760,6 +867,25 @@ void KVDB::debugDump() const {
     std::cerr << "  Type: " << Value::typecodeToString(ii.second->typecode()) << std::endl;
     ii.second->debugDump("  ");
   }
+}
+
+/*
+Server Info
+*/
+
+struct ServerInfo {
+};
+
+static RedisModuleServerInfoData* RMCK_GetServerInfo(RedisModuleCtx *, const char *section) {
+  return reinterpret_cast<RedisModuleServerInfoData*>(new ServerInfo());
+}
+
+static void RMCK_FreeServerInfo(RedisModuleCtx *, RedisModuleServerInfoData *si) {
+  delete reinterpret_cast<ServerInfo*>(si);
+}
+
+static unsigned long long RMCK_ServerInfoGetFieldUnsigned(RedisModuleServerInfoData *data, const char* field, int *out_err) {
+  return 0;
 }
 
 /**
@@ -797,11 +923,14 @@ static void registerApis() {
   REGISTER_API(HashGet);
   REGISTER_API(HashGetAll);
 
+  REGISTER_API(_Assert);
+
   REGISTER_API(CreateString);
   REGISTER_API(CreateStringPrintf);
   REGISTER_API(CreateStringFromString);
   REGISTER_API(FreeString);
   REGISTER_API(RetainString);
+  REGISTER_API(HoldString);
   REGISTER_API(StringPtrLen);
   REGISTER_API(StringToDouble);
   REGISTER_API(StringToLongLong);
@@ -822,6 +951,7 @@ static void registerApis() {
   REGISTER_API(CreateStringFromCallReply);
   REGISTER_API(CallReplyArrayElement);
   REGISTER_API(CallReplyStringPtr);
+  REGISTER_API(CallReplyInteger);
 
   REGISTER_API(GetThreadSafeContext);
   REGISTER_API(GetDetachedThreadSafeContext);
@@ -838,6 +968,17 @@ static void registerApis() {
   REGISTER_API(RegisterCommandFilter);
 
   REGISTER_API(SetModuleOptions);
+
+  REGISTER_API(KillForkChild);
+  REGISTER_API(ExitFromChild);
+  REGISTER_API(Fork);
+  REGISTER_API(Yield);
+  REGISTER_API(GetContextFlags);
+
+  REGISTER_API(GetServerInfo);
+  REGISTER_API(ServerInfoGetFieldUnsigned);
+  REGISTER_API(FreeServerInfo);
+
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {

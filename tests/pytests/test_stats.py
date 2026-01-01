@@ -196,11 +196,16 @@ def testIssue1497(env):
 
 def testDocTableInfo(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE')
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE')
+    n = env.shardsCount
+
+    # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
+    #              = 64 + (1000 * 16) = 16064 bytes
+    doc_table_size_mb = 16064 / (1024 * 1024)
 
     d = ft_info_to_dict(env, 'idx')
     env.assertEqual(int(d['num_docs']), 0)
-    env.assertEqual(int(d['doc_table_size_mb']), 0)
+    env.assertEqual(float(d['doc_table_size_mb']), n * doc_table_size_mb)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
 
     conn.execute_command('HSET', 'a', 'txt', 'hello')
@@ -210,7 +215,15 @@ def testDocTableInfo(env):
     d = ft_info_to_dict(env, 'idx')
     env.assertEqual(int(d['num_docs']), 2)
     doctable_size1 = float(d['doc_table_size_mb'])
-    env.assertGreater(doctable_size1, 0)
+    # exp_doc_table_size:
+    # For each hash, the doc_table_size is increased by:
+    # = leanSize + sdsAllocSize(keyPtr)
+    # = (sizeof(RSDocumentMetadata) - sizeof(RSPayload *))  (No payload)
+    #   + (strlen(key) + 2)
+    # = (72 - 8) + 3 = 67
+    # 2 docs * 67 = 134
+    exp_doc_table_size = (n * doc_table_size_mb) + (134 / (1024 * 1024))
+    env.assertEqual(doctable_size1, exp_doc_table_size)
     sortable_size1 = float(d['sortable_values_size_mb'])
     env.assertGreater(sortable_size1, 0)
 
@@ -237,7 +250,7 @@ def testDocTableInfo(env):
     conn.execute_command('DEL', 'b')
     d = ft_info_to_dict(env, 'idx')
     env.assertEqual(int(d['num_docs']), 0)
-    env.assertEqual(int(d['doc_table_size_mb']), 0)
+    env.assertEqual(float(d['doc_table_size_mb']), n * doc_table_size_mb)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
 
 @skip(cluster=True)

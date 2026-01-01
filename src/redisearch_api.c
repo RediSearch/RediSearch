@@ -22,6 +22,8 @@
 #include "rwlock.h"
 #include "fork_gc.h"
 #include "module.h"
+#include "cursor.h"
+#include "info/indexes_info.h"
 
 int RediSearch_GetCApiVersion() {
   return REDISEARCH_CAPI_VERSION;
@@ -146,7 +148,7 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
   }
   if (options & RSFLDOPT_SORTABLE) {
     fs->options |= FieldSpec_Sortable;
-    fs->sortIdx = RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+    fs->sortIdx = sp->numSortableFields++;
   }
   if (options & RSFLDOPT_TXTNOSTEM) {
     fs->options |= FieldSpec_NoStemming;
@@ -331,6 +333,7 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
   options |= DOCUMENT_ADD_NOSAVE;
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, options);
+  QueryError_ClearError(&status);
   rm_free(d);
 
   RWLOCK_RELEASE();
@@ -646,8 +649,6 @@ double RediSearch_ResultsIteratorGetScore(const RS_ApiIter* it) {
 void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   if (iter->internal) {
     iter->internal->Free(iter->internal);
-  } else {
-    printf("Not freeing internal iterator. internal iterator is null\n");
   }
   if (iter->scorerFree) {
     iter->scorerFree(iter->scargs.extdata);
@@ -824,13 +825,13 @@ int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
   info->numTerms = sp->stats.numTerms;
   info->numRecords = sp->stats.numRecords;
   info->invertedSize = sp->stats.invertedSize;
-  info->invertedCap = sp->stats.invertedCap;
-  info->skipIndexesSize = sp->stats.skipIndexesSize;
-  info->scoreIndexesSize = sp->stats.scoreIndexesSize;
+  info->invertedCap = 0;
+  info->skipIndexesSize = 0;
+  info->scoreIndexesSize = 0;
   info->offsetVecsSize = sp->stats.offsetVecsSize;
   info->offsetVecRecords = sp->stats.offsetVecRecords;
   info->termsSize = sp->stats.termsSize;
-  info->indexingFailures = sp->stats.indexingFailures;
+  info->indexingFailures = sp->stats.indexError.error_count;
 
   if (sp->gc) {
     // LLAPI always uses ForkGC
@@ -849,18 +850,12 @@ int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
 }
 
 size_t RediSearch_MemUsage(RSIndex* sp) {
-  size_t res = 0;
-  res += sp->docs.memsize;
-  res += sp->docs.sortablesSize;
-  res += TrieMap_MemUsage(sp->docs.dim.tm);
-  res += IndexSpec_collect_text_overhead(sp);
-  res += IndexSpec_collect_tags_overhead(sp);
-  res += sp->stats.invertedSize;
-  res += sp->stats.skipIndexesSize;
-  res += sp->stats.scoreIndexesSize;
-  res += sp->stats.offsetVecsSize;
-  res += sp->stats.termsSize;
-  return res;
+  return IndexSpec_TotalMemUsage(sp, 0, 0, 0, 0);
+}
+
+// Collect statistics of all the currently existing indexes
+TotalIndexesInfo RediSearch_TotalInfo(void) {
+  return IndexesInfo_TotalInfo();
 }
 
 void RediSearch_IndexInfoFree(RSIdxInfo *info) {

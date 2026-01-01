@@ -12,6 +12,9 @@
 #include "util/block_alloc.h"
 #include "concurrent_ctx.h"
 #include "util/arr.h"
+
+extern bool g_isLoading;
+
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
   int isMulti;
@@ -91,18 +94,15 @@ typedef int (*PreprocessorFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, Do
 typedef int (*IndexerFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,
                            const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
-typedef struct {
-  RedisModuleKey *indexKeys[INDEXFLD_NUM_TYPES];
-  void *indexDatas[INDEXFLD_NUM_TYPES];
-  FieldType typemask;
-  int found;
-} IndexBulkData;
-
-// IndexerBulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->status);
-
-int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
+int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
                    QueryError *status);
-void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx);
+
+/**
+ * Yield to Redis after a certain number of operations during indexing while loading.
+ * This helps keep Redis responsive during long indexing operations.
+ * @param ctx The Redis context
+ */
+static void IndexerYieldWhileLoading(RedisModuleCtx *ctx);
 
 #endif

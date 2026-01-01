@@ -266,7 +266,7 @@ static double extractUnitFactor(GeoDistance unit) {
       break;
     default:
       rv = -1;
-      assert(0);
+      RS_ABORT("ERROR");
       break;
   }
   return rv;

@@ -1,6 +1,7 @@
 import math
 from includes import *
-from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip
+from common import *
+from RLTest import Env
 
 
 def testHammingScorer(env):
@@ -84,6 +85,7 @@ def testTFIDFScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
+    dialect = int(env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1])
 
     env.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum')
     env.execute_command('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem')
@@ -106,13 +108,19 @@ def testTFIDFScorerExplanation(env):
 
     # test depth limit
 
-    res = env.cmd('ft.search', 'idx', 'hello(world(world))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
-    env.assertEqual(res[2][1], ['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1',
+    res = env.cmd('ft.search', 'idx', 'hello(world(world))', 'SCORER', 'TFIDF', 'WITHSCORES', 'EXPLAINSCORE', 'LIMIT', 0, 1)
+    dialect1 = ['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1',
                                 [['(Weight 1.00 * total children TFIDF 30.00)',
                                   [['(Weight 1.00 * total children TFIDF 20.00)',
                                     ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
                                      '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']],
-                                   '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]])
+                                   '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
+    dialect2 = ['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1',
+                                [['(Weight 1.00 * total children TFIDF 30.00)', [
+                                    '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                                    '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                                    '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
+    env.assertEqual(res[2][1], dialect1 if dialect == 1 else dialect2)
 
     res1 = ['Final TFIDF : words TFIDF 40.00 * document score 1.00 / norm 10 / slop 1',
             [['(Weight 1.00 * total children TFIDF 40.00)',
@@ -128,39 +136,54 @@ def testTFIDFScorerExplanation(env):
                 ['(Weight 1.00 * total children TFIDF 20.00)',
                  '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']],
                '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
+    res3 = ['Final TFIDF : words TFIDF 40.00 * document score 0.50 / norm 10 / slop 1',
+            [['(Weight 1.00 * total children TFIDF 40.00)',
+              ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+               '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+               '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+               '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
 
     actual_res = env.cmd('ft.search', 'idx', 'hello(world(world(hello)))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
     # on older versions we trim the reply to remain under the 7-layer limitation.
-    res = res1 if server_version_at_least(env, "6.2.0") else res2
+    res = res3 if dialect != 1 else res1 if server_version_at_least(env, "6.2.0") else res2
     env.assertEqual(actual_res[2][1], res)
 
 def testBM25ScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
-    env.expect('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum').ok()
-    env.expect('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
-    env.expect('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
+    env.expect('ft.add', 'idx', 'doc1{hash_tag}', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum').ok()
+    env.expect('ft.add', 'idx', 'doc2{hash_tag}', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
+    env.expect('ft.add', 'idx', 'doc3{hash_tag}', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25')
     env.assertEqual(res[0], 3)
-    if env.isCluster():
-        env.assertContains('Final BM25', res[2][1][0])
-        env.assertContains('Final BM25', res[5][1][0])
-        env.assertContains('Final BM25', res[8][1][0])
-    else:
-        env.assertEqual(res[2][1], ['Final BM25 : words BM25 1.56 * document score 0.50 / slop 1',
-                            [['(Weight 1.00 * children BM25 1.56)',
-                            ['(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
-                            '(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
-        env.assertEqual(res[5][1], ['Final BM25 : words BM25 1.56 * document score 1.00 / slop 2',
-                            [['(Weight 1.00 * children BM25 1.56)',
-                            ['(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
-                            '(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
-        env.assertEqual(res[8][1], ['Final BM25 : words BM25 1.56 * document score 0.10 / slop 3',
-                            [['(Weight 1.00 * children BM25 1.56)',
-                            ['(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
-                            '(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
+    env.assertEqual(res[2][1], ['Final BM25 : words BM25 1.56 * document score 0.50 / slop 1',
+                        [['(Weight 1.00 * children BM25 1.56)',
+                        ['(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
+                        '(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
+    env.assertEqual(res[5][1], ['Final BM25 : words BM25 1.56 * document score 1.00 / slop 2',
+                        [['(Weight 1.00 * children BM25 1.56)',
+                        ['(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
+                        '(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
+    env.assertEqual(res[8][1], ['Final BM25 : words BM25 1.56 * document score 0.10 / slop 3',
+                        [['(Weight 1.00 * children BM25 1.56)',
+                        ['(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
+                        '(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
 
+    res = env.cmd('ft.search', 'idx', '((@title:(hello => {$weight: 0.5;}|world) => {$weight: 0.7;}) => {$weight: 0.3;})', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25', 'nocontent')
+
+    env.assertEqual(res[2][1],['Final BM25 : words BM25 0.35 * document score 0.50 / slop 1',
+                                [['(Weight 0.30 * children BM25 1.17)',
+                                ['(0.39 = Weight 0.50 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
+                                    '(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
+    env.assertEqual(res[4][1],['Final BM25 : words BM25 0.35 * document score 1.00 / slop 2',
+                                [['(Weight 0.30 * children BM25 1.17)',
+                                ['(0.39 = Weight 0.50 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
+                                    '(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
+    env.assertEqual(res[6][1], ['Final BM25 : words BM25 0.35 * document score 0.10 / slop 3',
+                                [['(Weight 0.30 * children BM25 1.17)',
+                                ['(0.39 = Weight 0.50 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
+                                    '(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
 
 def testDisMaxScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
@@ -205,3 +228,26 @@ def testScoreError(env):
     waitForIndex(env, 'idx')
     env.expect('ft.add idx doc1 0.01 fields title hello').ok()
     env.expect('ft.search idx hello EXPLAINSCORE').error().contains('EXPLAINSCORE must be accompanied with WITHSCORES')
+
+def scorer_with_weight_test(env, scorer):
+    # Test that the scorer is applied correctly when using the `weight` attribute
+    conn = getConnectionByEnv(env)
+    env.expect('ft.create idx ON HASH schema title text').ok()
+    conn.execute_command('HSET', 'doc1', 'title', 'hello world')
+    conn.execute_command('HSET', 'doc2', 'title', 'hello world cat dog')
+
+    def get_scores(env, query):
+        res = env.cmd('ft.search', 'idx', query, 'withscores', 'scorer', scorer, 'nocontent')
+        return [float(res[2]), float(res[4])]
+
+    default_query = '@title: hello'
+    weighted_query = '((@title:hello) => {$weight: 0.5;})'
+
+    scores = get_scores(env, default_query)
+    weighted_scores = get_scores(env, weighted_query)
+    # Assert that weighted_scores are half of the default scores, since the weight is 0.5
+    max_difference = max(abs(w - 0.5*s) for w, s in zip(weighted_scores, scores))
+    env.assertAlmostEqual(max_difference, 0, 1E-6)
+
+def testBM25ScoreWithWeight(env: Env):
+    scorer_with_weight_test(env, 'BM25')
