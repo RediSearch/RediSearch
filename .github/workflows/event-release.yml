@@ -158,7 +158,7 @@ jobs:
           gh pr merge "$BRANCH" -R "$GITHUB_REPOSITORY" --auto
 
   generate-matrix:
-    uses: ./.github/workflows/generate-matrix.yml
+    uses: ./.github/workflows/task-get-linux-configurations.yml
     with:
       platform: all
       architecture: all
@@ -187,7 +187,8 @@ jobs:
           SOURCE: ${{ needs.validate-tag.outputs.release_branch }}
           CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
           EXPECTED_SHA: ${{ needs.validate-tag.outputs.expected_sha }}
-          EXPECTED_MATRIX: ${{ needs.generate-matrix.outputs.matrix }}
+          PLATFORMS_X86: ${{ needs.generate-matrix.outputs.platforms_x86 }}
+          PLATFORMS_ARM: ${{ needs.generate-matrix.outputs.platforms_arm }}
         shell: python
         run: |
           import boto3
@@ -258,7 +259,7 @@ jobs:
           with ThreadPoolExecutor() as executor:
               sha_list = executor.map(extract_sha, files)
           sha_list = list(sha_list)
-          
+
           # Include only files that match the expected SHA
           include_list = [f for f, sha in zip(files, sha_list) if sha == expected_sha]
 
@@ -266,8 +267,9 @@ jobs:
               raise Exception(f"::error title=No artifacts found with expected SHA {expected_sha}!")
 
           # Verify artifact count matches expected matrix
-          matrix = json.loads(os.environ["EXPECTED_MATRIX"])
-          expected_count = len(matrix.get("include", []))
+          platforms_x86 = json.loads(os.environ["PLATFORMS_X86"])
+          platforms_arm = json.loads(os.environ["PLATFORMS_ARM"])
+          expected_count = len(platforms_x86) + len(platforms_arm)
           # Each matrix entry produces 8 artifacts ((release, debug) X (redisearch, redisearch-light, redisearch-oss, redisearch-oss-cluster))
           expected_artifact_count = expected_count * 8
           actual_artifact_count = len(include_list)
