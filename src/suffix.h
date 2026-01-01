@@ -18,7 +18,7 @@ extern "C" {
 typedef enum {
     SUFFIX_TYPE_SUFFIX = 0,
     SUFFIX_TYPE_CONTAINS = 1,
-    SUFFIX_TYPE_WILDCARD = 2,    
+    SUFFIX_TYPE_WILDCARD = 2,
 } SuffixType;
 
 /***********************************************************/
@@ -43,6 +43,10 @@ typedef struct suffixData {
   arrayof(char *) array;   // list of words containing the string. weak pointers
 } suffixData;
 
+/* Add string to suffix trie. If string already exists, do nothing.
+ * In case of allocation overflow in TrieNode_Add, log error and return without
+ * adding the string.
+ */
 void addSuffixTrie(Trie *trie, const char *str, uint32_t len);
 void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len);
 
@@ -51,7 +55,7 @@ void suffixTrie_freeCallback(void *data);
 /* Iterate on suffix trie and add use callback function on results */
 void Suffix_IterateContains(SuffixCtx *sufCtx);
 
-/* Iterate on suffix trie and add use callback function on results 
+/* Iterate on suffix trie and add use callback function on results
  * If wildcard pattern does not support suffix trie, return 0, else return 1. */
 int Suffix_IterateWildcard(SuffixCtx *sufCtx);
 
