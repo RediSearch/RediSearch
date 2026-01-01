@@ -185,7 +185,7 @@ jobs:
           # new location is outside snapshots/ directory and with the new suffix
           # Only called on files we know end with `suffix` and have a `snapshot` directory in the path
           def get_target_name(name):
-              return name.replace("snapshots/", "", 1)[:-len(suffix)] + new_suffix
+              return name.replace("snapshots/", "test-release/", 1)[:-len(suffix)] + new_suffix
 
           def group_print(title, args):
               print(f"::group::{title} ({len(args)})")
