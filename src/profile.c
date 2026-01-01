@@ -180,6 +180,12 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
     }
   }
 
+  // Print coord dispatch time if this is a shard handling a coordinator request.
+  if (profile_verbose && IsInternal(req)) {
+    RedisModule_ReplyKV_Double(reply, "Coordinator dispatch time",
+                               rs_wall_clock_convert_ns_to_ms_d(req->coordDispatchTime));
+  }
+
   // Print whether a warning was raised throughout command execution
   bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions;
   RedisModule_ReplyKV_Array(reply, "Warning");
