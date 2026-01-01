@@ -54,10 +54,12 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
       decodeGeo(it->profileCtx.numeric.rangeMax, nw);
       RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
     }
-  } else {
-    printProfileType("TEXT");
+  } else if (root && root->current) {
     RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
-    REPLY_KVSTR_SAFE("Term", term->str);
+    if (term != NULL) {
+      printProfileType("TEXT");
+      REPLY_KVSTR_SAFE("Term", term->str);
+    }
   }
 
   // print counter and clock
