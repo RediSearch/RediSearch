@@ -571,7 +571,14 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   IndexSpec_InitializeSynonym(sp);
 
-  SynonymMap_UpdateRedisStr(sp->smap, argv + offset, argc - offset, id);
+  SynonymMapResult ret = SynonymMap_UpdateRedisStr(sp->smap, argv + offset, argc - offset, id);
+  if (ret == SYNONYM_MAP_ERR_MAX_TERMS) {
+    RedisSearchCtx_UnlockSpec(&sctx);
+    return RedisModule_ReplyWithError(ctx, "Maximum synonym terms limit reached");
+  } else if (ret == SYNONYM_MAP_ERR_MAX_GROUP_IDS) {
+    RedisSearchCtx_UnlockSpec(&sctx);
+    return RedisModule_ReplyWithError(ctx, "Maximum group IDs per term limit reached");
+  }
 
   if (initialScan) {
     IndexSpec_ScanAndReindex(ctx, ref);
