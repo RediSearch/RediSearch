@@ -54,10 +54,12 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
       decodeGeo(it->profileCtx.numeric.rangeMax, nw);
       RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
     }
-  } else {
-    printProfileType("TEXT");
+  } else if (root && root->current) {
     RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
-    REPLY_KVSTR_SAFE("Term", term->str);
+    if (term != NULL) {
+      printProfileType("TEXT");
+      REPLY_KVSTR_SAFE("Term", term->str);
+    }
   }
 
   // print counter and clock
@@ -141,6 +143,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   bool reachedMaxPrefixExpansions = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
   bool bgScanOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
   bool queryOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
+  bool asmTrimmingDelayTimeout = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
@@ -181,7 +184,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   }
 
   // Print whether a warning was raised throughout command execution
-  bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions;
+  bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions || asmTrimmingDelayTimeout;
   RedisModule_ReplyKV_Array(reply, "Warning");
   if (!warningRaised) {
     RedisModule_Reply_SimpleString(reply, "None");
@@ -198,6 +201,9 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
     }
     if (reachedMaxPrefixExpansions) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
+    }
+    if (asmTrimmingDelayTimeout) {
+      RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
     }
   }
   RedisModule_Reply_ArrayEnd(reply); // >warnings
