@@ -3438,15 +3438,15 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   // Capture start time for coordinator dispatch time tracking
-  rs_wall_clock_ns_t t0 = rs_wall_clock_ns();
+  rs_wall_clock_ns_t t0 = rs_wall_clock_now_ns();
 
-  ConcurrentSearchHandlerCtx searchCtx = {
+  ConcurrentSearchHandlerCtx handlerCtx = {
     .coordStartTime = t0,
     .spec_ref = StrongRef_Demote(spec_ref)
   };
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
-                                               &searchCtx);
+                                               &handlerCtx);
 }
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,

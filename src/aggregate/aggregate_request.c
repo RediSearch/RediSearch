@@ -388,7 +388,8 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
       return ARG_ERROR;
     }
-  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && AC_AdvanceIfMatch(ac, SLOTS_STR)) {
+  } else if (*papCtx->reqflags & QEXEC_F_INTERNAL) {
+    if (AC_AdvanceIfMatch(ac, SLOTS_STR)) {
     if (*papCtx->querySlots) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SLOTS_STR" already specified");
       return ARG_ERROR;
@@ -415,6 +416,19 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       ASM_KeySpaceVersionTracker_IncreaseQueryCount(*papCtx->keySpaceVersion);
     }
     *papCtx->querySlots = slot_array;
+    } else if (AC_AdvanceIfMatch(ac, COORD_DISPATCH_TIME_STR)) {
+      // Parse coordinator dispatch time for internal commands
+      if (AC_NumRemaining(ac) < 1) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, COORD_DISPATCH_TIME_STR " missing argument");
+        return ARG_ERROR;
+      }
+      unsigned long long dispatchTime;
+      if (AC_GetUnsignedLongLong(ac, &dispatchTime, 0) != AC_OK) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, COORD_DISPATCH_TIME_STR " requires a numeric value");
+        return ARG_ERROR;
+      }
+      *papCtx->coordDispatchTime = dispatchTime;
+    }
   } else {
     return ARG_UNKNOWN;
   }
@@ -660,6 +674,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .maxAggregateResults = &req->maxAggregateResults,
         .querySlots = &req->querySlots,
         .keySpaceVersion = &req->keySpaceVersion,
+        .coordDispatchTime = &req->coordDispatchTime,
       };
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {

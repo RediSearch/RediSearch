@@ -211,6 +211,9 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 
   MRCommand_SetPrefix(xcmd, "_FT");
 
+  // Prepare placeholder for dispatch time (will be filled in when sending to shards)
+  MRCommand_PrepareForDispatchTime(xcmd);
+
   rm_free(n_prefixes);
   array_free(tmparr);
 }
@@ -358,6 +361,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
+  xcmd.coordStartTime = r->coordStartTime;
 
   // Build the result processor chain
   buildDistRPChain(r, &xcmd, &us, rpnetNext_Start);
@@ -416,6 +420,9 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   QueryError status = QueryError_Default();
   specialCaseCtx *knnCtx = NULL;
 
+  // Store coordinator start time for dispatch time tracking
+  r->coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+
   // Check if the index still exists, and promote the ref accordingly
   StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   IndexSpec *sp = StrongRef_Get(strong_ref);
@@ -452,6 +459,9 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   AREQ *r = NULL;
   IndexSpec *sp = NULL;
   specialCaseCtx *knnCtx = NULL;
+
+  // Store coordinator start time for dispatch time tracking
+  r->coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called

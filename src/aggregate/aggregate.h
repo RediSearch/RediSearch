@@ -22,6 +22,7 @@
 #include "vector_index.h"
 #include "hybrid/vector_query_utils.h"
 #include "slot_ranges.h"
+#include "rs_wall_clock.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -154,7 +155,8 @@ typedef struct {
   size_t *maxSearchResults;         // Maximum search results
   size_t *maxAggregateResults;      // Maximum aggregate results
   const RedisModuleSlotRangeArray **querySlots; // Slots requested (referenced from AREQ)
-  uint32_t *keySpaceVersion;                       // Version given by the slots tracker
+  uint32_t *keySpaceVersion;        // Version given by the slots tracker
+  rs_wall_clock_ns_t *coordDispatchTime; // Coordinator dispatch time (for internal commands)
 } ParseAggPlanContext;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
@@ -253,6 +255,12 @@ typedef struct AREQ {
   */
 
   RequestConfig reqConfig;
+
+  /** Time when command was received on coordinator (for dispatch time tracking) */
+  rs_wall_clock_ns_t coordStartTime;
+
+  /** Dispatch time from coordinator to shard (for timeout adjustment) */
+  rs_wall_clock_ns_t coordDispatchTime;
 
   /** Cursor configuration */
   CursorConfig cursorConfig;
@@ -446,7 +454,6 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
-int prepareExecutionPlan(AREQ *req, QueryError *status);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
 void AREQ_Free(AREQ *req);
