@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include <math.h>
 #include "hybrid_reader.h"
@@ -107,7 +110,7 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *res,
 
 static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,
                                RSIndexResult **vec_res, double *upper_bound) {
-  if (hr->ignoreScores) {
+  if (hr->canTrimDeepResults) {
     // If we ignore the document score, insert a single node of type DISTANCE.
     insertResultToHeap_Metric(hr, child_res, vec_res, upper_bound);
   } else {
@@ -298,6 +301,26 @@ static int HR_HasNext(void *ctx) {
 
 // In KNN mode, the results will return sorted by ascending order of the distance
 // (better score first), while in hybrid mode, the results will return in descending order.
+static int HR_ReadHybridUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
+  if (!HR_HasNext(hr)) {
+    return INDEXREAD_EOF;
+  }
+  if (hr->topResults->count == 0) {
+    hr->base.isValid = false;
+    return INDEXREAD_EOF;
+  }
+  *hit = mmh_pop_min(hr->topResults);
+
+  const t_fieldIndex fieldIndex = hr->filterCtx.field.value.index;
+  if (hr->sctx && fieldIndex != RS_INVALID_FIELD_INDEX
+      && !DocTable_VerifyFieldExpirationPredicate(&hr->sctx->spec->docs, (*hit)->docId, &fieldIndex, 1, hr->filterCtx.predicate, &hr->sctx->time.current)) {
+    return INDEXREAD_NOTFOUND;
+  }
+  array_append(hr->returnedResults, *hit);
+  hr->lastDocId = (*hit)->docId;
+  return INDEXREAD_OK;
+}
+
 static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
   if (!hr->resultsPrepared) {
@@ -306,16 +329,36 @@ static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
       return INDEXREAD_TIMEOUT;
     }
   }
-  if (!HR_HasNext(ctx)) {
+
+  int rc;
+  do {
+    rc = HR_ReadHybridUnsortedSingle(hr, hit);
+    if (TimedOut_WithCtx(&hr->timeoutCtx)) {
+      return INDEXREAD_TIMEOUT;
+    }
+  } while (rc == INDEXREAD_NOTFOUND);
+  return rc;
+}
+
+static int HR_ReadKnnUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
+  if (!HR_HasNext(hr)) {
     return INDEXREAD_EOF;
   }
-  if (hr->topResults->count == 0) {
+  *hit = hr->base.current;
+  if (HR_ReadInBatch(hr, hit) == INDEXREAD_EOF) {
     hr->base.isValid = false;
     return INDEXREAD_EOF;
   }
-  *hit = mmh_pop_min(hr->topResults);
-  array_append(hr->returnedResults, *hit);
+
+  const t_fieldIndex fieldIndex = hr->filterCtx.field.value.index;
+  if (hr->sctx && fieldIndex != RS_INVALID_FIELD_INDEX
+      && !DocTable_VerifyFieldExpirationPredicate(&hr->sctx->spec->docs, (*hit)->docId, &fieldIndex, 1, hr->filterCtx.predicate, &hr->sctx->time.current)) {
+    return INDEXREAD_NOTFOUND;
+  }
+
   hr->lastDocId = (*hit)->docId;
+  ResultMetrics_Reset(*hit);
+  ResultMetrics_Add(*hit, hr->base.ownKey, RS_NumVal((*hit)->num.value));
   return INDEXREAD_OK;
 }
 
@@ -327,18 +370,15 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
       return INDEXREAD_TIMEOUT;
     }
   }
-  if (!HR_HasNext(ctx)) {
-    return INDEXREAD_EOF;
-  }
-  *hit = hr->base.current;
-  if (HR_ReadInBatch(hr, hit) == INDEXREAD_EOF) {
-    hr->base.isValid = false;
-    return INDEXREAD_EOF;
-  }
-  hr->lastDocId = (*hit)->docId;
-  ResultMetrics_Reset(*hit);
-  ResultMetrics_Add(*hit, hr->base.ownKey, RS_NumVal((*hit)->num.value));
-  return INDEXREAD_OK;
+
+  int rc;
+  do {
+    rc = HR_ReadKnnUnsortedSingle(ctx, hit);
+    if (TimedOut_WithCtx(&hr->timeoutCtx)) {
+      return INDEXREAD_TIMEOUT;
+    }
+  } while (rc == INDEXREAD_NOTFOUND);
+  return rc;
 }
 
 static size_t HR_NumEstimated(void *ctx) {
@@ -407,7 +447,7 @@ void HybridIterator_Free(struct indexIterator *self) {
 IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status) {
   // If searchMode is out of the expected range.
   if (hParams.qParams.searchMode < 0 || hParams.qParams.searchMode >= VECSIM_LAST_SEARCHMODE) {
-    QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Creating new hybrid vector iterator has failed");
+    QueryError_SetError(status, QUERY_EGENERIC, "Creating new hybrid vector iterator has failed");
   }
 
   HybridIterator *hi = rm_new(HybridIterator);
@@ -427,9 +467,11 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->topResults = NULL;
   hi->returnedResults = NULL;
   hi->numIterations = 0;
-  hi->ignoreScores = hParams.ignoreDocScore;
+  hi->canTrimDeepResults = hParams.canTrimDeepResults;
   hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = 0 };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
+  hi->sctx = hParams.sctx;
+  hi->filterCtx = *hParams.filterCtx;
 
   if (hParams.childIt == NULL || hParams.query.k == 0) {
     // If there is no child iterator, or the query is going to return 0 results, we can use simple KNN.
@@ -482,7 +524,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   } else {
     // Hybrid query - save the RSIndexResult subtree which is not the vector distance only if required.
     ri->Read = HR_ReadHybridUnsorted;
-    if (hParams.ignoreDocScore) {
+    if (hParams.canTrimDeepResults) {
       ri->current = NewMetricResult();
     } else {
       ri->current = NewHybridResult();

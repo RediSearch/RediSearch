@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #ifndef __QUERY_H__
 #define __QUERY_H__
@@ -16,7 +19,7 @@
 #include "redismodule.h"
 #include "spec.h"
 #include "redisearch.h"
-#include "rmutil/sds.h"
+#include "hiredis/sds.h"
 #include "concurrent_ctx.h"
 #include "search_options.h"
 #include "query_error.h"
@@ -28,7 +31,7 @@ extern "C" {
 
 // Holds a yieldable field name, and the address to write the RLookupKey pointer later.
 typedef struct MetricRequest{
-  char *metric_name;
+  const char *metric_name;
   RLookupKey **key_ptr;
 } MetricRequest;
 
@@ -83,9 +86,11 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
  */
 typedef struct {
   // Used only to support legacy FILTER keyword. Should not be used by newer code
-  const NumericFilter *numeric;
+  NumericFilter *numeric;
   // Used only to support legacy GEOFILTER keyword. Should not be used by newer code
-  const GeoFilter *geo;
+  GeoFilter *geo;
+  // Used to set an empty iterator when a legacy filter's field is not found with Dialect 1
+  bool empty;
 
   /** List of IDs to limit to, and the length of that array */
   t_docId *ids;
@@ -122,8 +127,8 @@ IndexIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
 int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx,
                 QueryError *status);
 
-int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status);
-int QueryNode_EvalParams(dict *params, QueryNode *node, QueryError *status);
+int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, unsigned int dialectVersion, QueryError *status);
+int QueryNode_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
 

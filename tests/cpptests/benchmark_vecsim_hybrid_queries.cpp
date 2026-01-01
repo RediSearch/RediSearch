@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 
@@ -33,7 +42,7 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                          REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    return RediSearch_InitModuleInternal(ctx, argv, argc);
+    return RediSearch_InitModuleInternal(ctx);
 }
 
 }
@@ -55,9 +64,9 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       InvertedIndex *inv_indices[percent];
       IndexReader *ind_readers[percent];
       for (size_t i = 0; i < percent; i++) {
-        InvertedIndex *w = createIndex(n, step, i);
+        InvertedIndex *w = createPopulateTermsInvIndex(n, step, i);
         inv_indices[i] = w;
-        IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
+        IndexReader *r = NewTermIndexReader(w);
         ind_readers[i] = r;
       }
       IndexIterator **irs = (IndexIterator **)calloc(percent, sizeof(IndexIterator *));
@@ -72,15 +81,19 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       float query[NUM_ITERATIONS][d];
       KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
       VecSimQueryParams queryParams = {.hnswRuntimeParams = HNSWRuntimeParams{.efRuntime = 0}};
-      HybridIteratorParams hParams = {.index = index,
+      FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = { .index = RS_INVALID_FIELD_INDEX }};
+      FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+      HybridIteratorParams hParams = {.sctx = NULL,
+                                      .index = index,
                                       .dim = d,
                                       .elementType = VecSimType_FLOAT32,
                                       .spaceMetric = VecSimMetric_L2,
                                       .query = top_k_query,
                                       .qParams = queryParams,
                                       .vectorScoreField = (char *)"__v_score",
-                                      .ignoreDocScore = true,
-                                      .childIt = ui
+                                      .canTrimDeepResults = true,
+                                      .childIt = ui,
+                                      .filterCtx = &filterCtx,
       };
       QueryError err = {QUERY_OK};
       IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);

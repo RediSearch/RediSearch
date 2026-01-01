@@ -1,13 +1,21 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "document.h"
 #include "err.h"
 #include "util/logging.h"
+#include "module.h"
 #include "rmutil/rm_assert.h"
+#include "info/info_redis/threads/current_thread.h"
+
+// Forward declaration.
+bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp);
 
 /*
 ## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [PARTIAL] [IF <expr>] [LANGUAGE <lang>]
@@ -96,13 +104,13 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
         break;
 
       } else {
-        QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Unknown keyword `%.*s` provided", (int)narg,
-                               s);
+        QueryError_SetWithUserDataFmt(status, QUERY_EADDARGS, "Unknown keyword", " `%.*s` provided", (int)narg, s);
         return REDISMODULE_ERR;
       }
       // Argument not found, that's ok. We'll handle it below
     } else {
-      QueryError_SetErrorFmt(status, QUERY_EADDARGS, "%s: %s", errArg->name, AC_Strerror(rv));
+      char message[1024];
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EADDARGS, "Parsing error for document option %s: %s", errArg->name, AC_Strerror(rv));
       return REDISMODULE_ERR;
     }
   }
@@ -152,7 +160,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   }
 
   if (exists == -1) {
-    QueryError_SetError(status, QUERY_EREDISKEYTYPE, NULL);
+    QueryError_SetCode(status, QUERY_EREDISKEYTYPE);
     goto done;
   }
 
@@ -162,20 +170,22 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   }
 
   if (exists && !(opts->options & DOCUMENT_ADD_REPLACE)) {
-    QueryError_SetError(status, QUERY_EDOCEXISTS, NULL);
+    QueryError_SetCode(status, QUERY_EDOCEXISTS);
     goto done;
   }
 
   // handle update condition, only if the document exists
   if (exists && opts->evalExpr) {
     int res = 0;
-    if (Document_EvalExpression(sctx, name, opts->evalExpr, &res, status) == REDISMODULE_OK) {
+    HiddenString* expr = NewHiddenString(opts->evalExpr, strlen(opts->evalExpr), false);
+    const int rc = Document_EvalExpression(sctx, name, expr, &res, status);
+    HiddenString_Free(expr, false);
+    if (rc == REDISMODULE_OK) {
       if (res == 0) {
-        QueryError_SetError(status, QUERY_EDOCNOTADDED, NULL);
+        QueryError_SetCode(status, QUERY_EDOCNOTADDED);
         goto done;
       }
     } else {
-      printf("Eval failed! (%s)\n", opts->evalExpr);
       if (status->code == QUERY_ENOPROPVAL) {
         QueryError_ClearError(status);
         QueryError_SetCode(status, QUERY_EDOCNOTADDED);
@@ -203,7 +213,7 @@ static void replyCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unu
     if (aCtx->status.code == QUERY_EDOCNOTADDED) {
       RedisModule_ReplyWithError(ctx, "NOADD");
     } else {
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&aCtx->status));
+      RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&aCtx->status));
     }
   } else {
     RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -216,10 +226,20 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
+  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  // On Enterprise, we validate ACL permission to the index
+  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
   ArgsCursor ac;
   AddDocumentOptions opts = {.keyStr = argv[2], .scoreStr = argv[3], .donecb = replyCallback};
   QueryError status = {0};
-  IndexSpec *sp = NULL;
 
   ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
 
@@ -233,16 +253,11 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   if (QueryError_HasError(&status)) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     goto cleanup;
   }
 
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
-  sp = StrongRef_Get(ref);
-  if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    goto cleanup;
-  }
+  CurrentThread_SetIndexSpec(ref);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   rv = RS_AddDocument(&sctx, argv[2], &opts, &status);
@@ -250,7 +265,7 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     if (status.code == QUERY_EDOCNOTADDED) {
       RedisModule_ReplyWithSimpleString(ctx, "NOADD");
     } else {
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+      RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     }
   } else {
     // Replicate *here*
@@ -261,6 +276,8 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     // RS 2.0 - HSET replicates using `!v`
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
+
+  CurrentThread_ClearIndexSpec();
 
 cleanup:
   QueryError_ClearError(&status);

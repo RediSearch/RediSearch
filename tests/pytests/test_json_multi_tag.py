@@ -24,7 +24,7 @@ def testMultiTagReturnSimple(env):
     res2 = [1, 'doc:1', ['category_arr', '["mathematics and computer science","logic","programming","database"]']]
 
     # Currently return a single value (only the first value)
-    env.expect('FT.SEARCH', 'idx1', '@category:{mathematics\ and\ computer\ science}', 'RETURN', '1', 'category').equal(res1)
+    env.expect('FT.SEARCH', 'idx1', r'@category:{mathematics\ and\ computer\ science}', 'RETURN', '1', 'category').equal(res1)
     env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN', '1', 'category').equal(res1)
     env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN', '3', '$.category', 'AS', 'category_arr').equal(res2)
 
@@ -127,14 +127,14 @@ def searchMultiTagCategory(env):
     for idx in ['idx_category_arr', 'idx_category_arr_author_flat']:
         env.debugPrint(idx, force=TEST_DEBUG)
 
-        # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
+        # Use toSortedFlatList when scores are not distinct (to succeed also with coordinaotr)
         res = env.cmd('FT.SEARCH', idx, '@category:{database}', 'NOCONTENT')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:1', 'doc:2']), message="A " + idx)
 
         res = env.cmd('FT.SEARCH', idx, '@category:{performance}', 'NOCONTENT')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, 'doc:3']), message="B " + idx)
 
-        env.expect('FT.SEARCH', idx, '@category:{high\ performance}', 'NOCONTENT').equal([1, 'doc:2'])
+        env.expect('FT.SEARCH', idx, r'@category:{high\ performance}', 'NOCONTENT').equal([1, 'doc:2'])
         env.expect('FT.SEARCH', idx, '@category:{cloud}', 'NOCONTENT').equal([1, 'doc:3'])
 
 def searchMultiTagAuthor(env):
@@ -144,9 +144,9 @@ def searchMultiTagAuthor(env):
     env.assertEqual(int(index_info(env, 'idx_author_arr')['hash_indexing_failures']), 3)
 
     for idx in ['idx_author_flat']:
-        env.expect('FT.SEARCH', idx, '@author:{Donald\ Knuth}', 'NOCONTENT').equal([1, 'doc:1'])
+        env.expect('FT.SEARCH', idx, r'@author:{Donald\ Knuth}', 'NOCONTENT').equal([1, 'doc:1'])
 
-        # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
+        # Use toSortedFlatList when scores are not distinct (to succeed also with coordinaotr)
         res = env.cmd('FT.SEARCH', idx, '@author:{Brendan*}', 'NOCONTENT')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:3']))
 
@@ -173,8 +173,8 @@ def testMultiNonText(env):
     #
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_text_dict.values()):
-        doc = 'doc:{}:'.format(i+1)
-        idx = 'idx{}'.format(i+1)
+        doc = f'doc:{i + 1}:'
+        idx = f'idx{i + 1}'
         env.cmd('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'TAG')
         waitForIndex(env, idx)
         conn.execute_command('JSON.SET', doc, '$', json.dumps(v))
@@ -200,13 +200,13 @@ def testMultiNonTextNested(env):
     # Create indices, e.g.,
     #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr TEXT
     for (i,v) in enumerate(non_text_dict.values()):
-        env.cmd('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'TAG')
+        env.cmd('FT.CREATE', f'idx{i + 1}', 'ON', 'JSON', 'SCHEMA', f'$.attr{i + 1}', 'AS', 'attr', 'TAG')
     conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_text_content)
 
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_text_dict.values()):
         res_failures = 0 if i+1 <= 5 else 1
-        env.assertEqual(int(index_info(env, 'idx{}'.format(i+1))['hash_indexing_failures']), res_failures)
+        env.assertEqual(int(index_info(env, f'idx{i + 1}')['hash_indexing_failures']), res_failures)
 
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@attr:{third}', 'NOCONTENT').equal([1, 'doc:1'])
@@ -220,7 +220,7 @@ def checkMultiTagReturn(env, expected, default_dialect, is_sortable, is_sortable
     dialect_param = ['DIALECT', 3] if not default_dialect else []
     env.assertTrue(not is_sortable_unf or is_sortable)
     sortable_param = ['SORTABLE', 'UNF'] if is_sortable_unf else (['SORTABLE'] if is_sortable else [])
-    env.assertEqual(len(expected), 4, message='dialect {}, sortable {}, unf {}'.format(dialect_param, is_sortable, is_sortable_unf))
+    env.assertEqual(len(expected), 4, message=f'dialect {dialect_param}, sortable {is_sortable}, unf {is_sortable_unf}')
 
     doc1_content = {
         "Name": "Product1",

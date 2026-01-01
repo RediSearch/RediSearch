@@ -1,11 +1,16 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "conn.h"
 #include "reply.h"
+#include "src/coord/config.h"
+#include "module.h"
 #include "hiredis/adapters/libuv.h"
 
 #include <uv.h>
@@ -29,13 +34,15 @@ static int MRConn_SendAuth(MRConn *conn);
 
 #define RSCONN_RECONNECT_TIMEOUT 250
 #define RSCONN_REAUTH_TIMEOUT 1000
+#define INTERNALAUTH_USERNAME "internal connection"
 #define UNUSED(x) (void)(x)
 
-#define CONN_LOG(conn, fmt, ...)                                                \
-  fprintf(stderr, "[%p %s:%d %s]" fmt "\n", conn, conn->ep.host, conn->ep.port, \
-          MRConnState_Str((conn)->state), ##__VA_ARGS__)
+#define CONN_LOG(conn, fmt, ...)                                                      \
+  RedisModule_Log(RSDummyContext, "debug", "[%p %s:%d %s] " fmt,                      \
+                  conn, conn->ep.host, conn->ep.port, MRConnState_Str((conn)->state), \
+                  ##__VA_ARGS__)
 
-/** detaches from our redis context */
+/* detaches from our redis context */
 static redisAsyncContext *detachFromConn(MRConn *conn, int shouldFree) {
   if (!conn->conn) {
     return NULL;
@@ -158,11 +165,6 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
     return REDIS_ERR;
   }
 
-#ifdef DEBUG_MR
-  fprintf(stderr, "Sending to %s:%d\n", c->ep.host, c->ep.port);
-  MRCommand_FPrint(stderr, cmd);
-#endif
-
   if (!cmd->cmd) {
     if (redisFormatSdsCommandArgv(&cmd->cmd, cmd->num, (const char **)cmd->strs, cmd->lens) == REDIS_ERR) {
       return REDIS_ERR;
@@ -185,7 +187,6 @@ int MRConnManager_Add(MRConnManager *m, const char *id, MREndpoint *ep, int conn
     MRConn *conn = pool->conns[0];
     // the node hasn't changed address, we don't need to do anything */
     if (!strcmp(conn->ep.host, ep->host) && conn->ep.port == ep->port) {
-      // fprintf(stderr, "No need to switch conn pools!\n");
       return 0;
     }
 
@@ -411,7 +412,6 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
   }
 
   /* Success! we are now connected! */
-  // fprintf(stderr, "Connected and authenticated to %s:%d\n", conn->ep.host, conn->ep.port);
   MRConn_SwitchState(conn, MRConn_Connected);
 
 cleanup:
@@ -423,11 +423,28 @@ static int MRConn_SendAuth(MRConn *conn) {
   CONN_LOG(conn, "Authenticating...");
 
   // if we failed to send the auth command, start a reconnect loop
-  if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn, "AUTH %s", conn->ep.auth) ==
-      REDIS_ERR) {
-    MRConn_SwitchState(conn, MRConn_ReAuth);
-    return REDIS_ERR;
+  size_t len = 0;
+
+  if (!IsEnterprise()) {
+    // Take the GIL before calling the internal function getter
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
+    const char *internal_secret = RedisModule_GetInternalSecret(RSDummyContext, &len);
+    // Create a local copy of the secret so we can release the GIL.
+    int status = redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn,
+        "AUTH %s %b", INTERNALAUTH_USERNAME, internal_secret, len);
+    if (status == REDIS_ERR) {
+      MRConn_SwitchState(conn, MRConn_ReAuth);
+    }
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    return status;
   } else {
+    // On Enterprise, we use the password we got from `CLUSTERSET`.
+    // If we got here, we know we have a password.
+    if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn, "AUTH %s",
+          conn->ep.password) == REDIS_ERR) {
+      MRConn_SwitchState(conn, MRConn_ReAuth);
+      return REDIS_ERR;
+    }
     return REDIS_OK;
   }
 }
@@ -496,28 +513,6 @@ error:
     return NULL;
 }
 
-
-static char* getConfigValue(RedisModuleCtx *ctx, const char* confName){
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "config", "cc", "get", confName);
-  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
-  if (RedisModule_CallReplyLength(rep) == 0){
-    RedisModule_FreeCallReply(rep);
-    return NULL;
-  }
-  RedisModule_Assert(RedisModule_CallReplyLength(rep) == 2);
-  RedisModuleCallReply *valueRep = RedisModule_CallReplyArrayElement(rep, 1);
-  RedisModule_Assert(RedisModule_CallReplyType(valueRep) == REDISMODULE_REPLY_STRING);
-  size_t len;
-  const char* valueRepCStr = RedisModule_CallReplyStringPtr(valueRep, &len);
-
-  char* res = rm_calloc(1, len + 1);
-  memcpy(res, valueRepCStr, len);
-
-  RedisModule_FreeCallReply(rep);
-
-  return res;
-}
-
 extern RedisModuleCtx *RSDummyContext;
 static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char** key_pass){
   int ret = 1;
@@ -526,19 +521,23 @@ static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char*
   char* clusterTls = NULL;
   char* tlsPort = NULL;
 
-  clusterTls = getConfigValue(ctx, "tls-cluster");
+  // If `tls-cluster` is not set to `yes`, we do not connect to the other nodes
+  // with TLS on OSS-cluster. On Enterprise, we always want to connect with TLS
+  // when the tls-port is set to a non-zero value, since this is the port we
+  // get from the proxy.
+  clusterTls = getRedisConfigValue(ctx, "tls-cluster");
   if (!clusterTls || strcmp(clusterTls, "yes")) {
-    tlsPort = getConfigValue(ctx, "tls-port");
-    if (!tlsPort || !strcmp(tlsPort, "0")) {
+    tlsPort = getRedisConfigValue(ctx, "tls-port");
+    if (!IsEnterprise() || !tlsPort || !strcmp(tlsPort, "0")) {
       ret = 0;
       goto done;
     }
   }
 
-  *client_key = getConfigValue(ctx, "tls-key-file");
-  *client_cert = getConfigValue(ctx, "tls-cert-file");
-  *ca_cert = getConfigValue(ctx, "tls-ca-cert-file");
-  *key_pass = getConfigValue(ctx, "tls-key-file-pass");
+  *client_key = getRedisConfigValue(ctx, "tls-key-file");
+  *client_cert = getRedisConfigValue(ctx, "tls-cert-file");
+  *ca_cert = getRedisConfigValue(ctx, "tls-ca-cert-file");
+  *key_pass = getRedisConfigValue(ctx, "tls-key-file-pass");
 
   if (!*client_key || !*client_cert || !*ca_cert){
     ret = 0;
@@ -578,7 +577,6 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     return;
   }
 
-  // fprintf(stderr, "Connect callback! status :%d\n", status);
   // if the connection is not stopped - try to reconnect
   if (status != REDIS_OK) {
     CONN_LOG(conn, "Error on connect: %s", c->errstr);
@@ -625,11 +623,9 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     if (ssl_context) SSL_CTX_free(ssl_context);
   }
 
-
-
-  // If this is an authenticated connection, we need to atu
-
-  if (conn->ep.auth) {
+  // Authenticate on OSS always (as an internal connection), or on Enterprise if
+  // a password is set to the `default` ACL user.
+  if (!IsEnterprise() || conn->ep.password) {
     if (MRConn_SendAuth(conn) != REDIS_OK) {
       detachFromConn(conn, 1);
       MRConn_SwitchState(conn, MRConn_Connecting);
@@ -637,7 +633,6 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   } else {
     MRConn_SwitchState(conn, MRConn_Connected);
   }
-  // fprintf(stderr, "Connected %s:%d...\n", conn->ep.host, conn->ep.port);
 }
 
 static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
@@ -647,7 +642,6 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
     return;
   }
 
-  // fprintf(stderr, "Disconnected from %s:%d\n", conn->ep.host, conn->ep.port);
   if (conn->state != MRConn_Freeing) {
     detachFromConn(conn, 0);
     MRConn_SwitchState(conn, MRConn_Connecting);
@@ -665,8 +659,7 @@ static MRConn *MR_NewConn(MREndpoint *ep) {
 
 /* Connect to a cluster node. Return REDIS_OK if either connected, or if  */
 static int MRConn_Connect(MRConn *conn) {
-  assert(!conn->conn);
-  // fprintf(stderr, "Connectig to %s:%d\n", conn->ep.host, conn->ep.port);
+  RS_ASSERT(!conn->conn);
 
   redisOptions options = {.type = REDIS_CONN_TCP,
                           .options = REDIS_OPT_NOAUTOFREEREPLIES,

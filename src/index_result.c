@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "index_result.h"
 #include "varint.h"
@@ -149,42 +152,6 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
       break;
   }
   return ret;
-}
-
-void IndexResult_Print(RSIndexResult *r, int depth) {
-  for (int i = 0; i < depth; i++) printf("  ");
-
-  if (r->type == RSResultType_Term) {
-    printf("Term{%llu: %s},\n", (unsigned long long)r->docId,
-           r->term.term ? r->term.term->str : "nil");
-    return;
-  }
-  if (r->type == RSResultType_Virtual) {
-    printf("Virtual{%llu},\n", (unsigned long long)r->docId);
-    return;
-  }
-  if (r->type == RS_RESULT_NUMERIC) {
-    printf("Numeric{%llu:%f},\n", (unsigned long long)r->docId, r->num.value);
-    return;
-  }
-  printf("%s => %llu{ \n", r->type == RSResultType_Intersection ? "Inter" : "Union",
-         (unsigned long long)r->docId);
-
-  for (int i = 0; i < r->agg.numChildren; i++) {
-
-    IndexResult_Print(r->agg.children[i], depth + 1);
-  }
-  for (int i = 0; i < depth; i++) printf("  ");
-
-  printf("},\n");
-
-  // printf("docId: %d, finalScore: %f, flags %x. Terms:\n", r->docId, r->finalScore, r->fieldMask);
-
-  // for (int i = 0; i < r->numRecords; i++) {
-  //   printf("\t%s, %d tf %d, flags %x\n", r->records[i].term->str, r->records[i].docId,
-  //          r->records[i].freq, r->records[i].fieldMask);
-  // }
-  // printf("----------\n");
 }
 
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id) {
@@ -344,8 +311,6 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
         if (s) {
           arr[(*len)++] = r->term.term;
         }
-
-        // fprintf(stderr, "Term! %zd\n", *len);
       }
     default:
       return;
@@ -369,14 +334,11 @@ int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *position
       // For the first iterator we always advance once
       uint32_t pos = i ? positions[i] : iters[i].Next(iters[i].ctx, NULL);
       uint32_t lastPos = i ? positions[i - 1] : 0;
-      // printf("Before: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
 
       // read while we are not in order
       while (pos != RS_OFFSETVECTOR_EOF && pos < lastPos) {
         pos = iters[i].Next(iters[i].ctx, NULL);
-        // printf("Reading: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
       }
-      // printf("i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
 
       // we've read through the entire list and it's not in order relative to the last pos
       if (pos == RS_OFFSETVECTOR_EOF) {
@@ -444,8 +406,6 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
     if (min != max) {
       // calculate max - min
       int span = (int)max - (int)min - (num - 1);
-      // printf("maxslop %d min %d, max %d, minPos %d, maxPos %d, span %d\n", maxSlop, min, max,
-      //        minPos, maxPos, span);
       // if it matches the condition - just return success
       if (span <= maxSlop) {
         return 1;
@@ -508,7 +468,6 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
     rc = __indexResult_withinRangeInOrder(iters, positions, n, maxSlop);
   else
     rc = __indexResult_withinRangeUnordered(iters, positions, n, maxSlop);
-  // printf("slop result for %d: %d\n", ir->docId, rc);
   for (int i = 0; i < n; i++) {
     iters[i].Free(iters[i].ctx);
   }

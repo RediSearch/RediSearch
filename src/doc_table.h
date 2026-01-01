@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #ifndef __DOC_TABLE_H__
 #define __DOC_TABLE_H__
@@ -13,9 +16,9 @@
 #include "redisearch.h"
 #include "sortable.h"
 #include "byte_offsets.h"
-#include "rmutil/sds.h"
-#include "util/dict.h"
+#include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
+#include "ttl_table.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -66,13 +69,14 @@ typedef struct {
 typedef struct {
   size_t size;
   t_docId maxSize;          // the maximum size this table is allowed to grow to
-  t_docId maxDocId;
-  size_t cap;
-  size_t memsize;
-  size_t sortablesSize;
+  t_docId maxDocId;         // the maximum docId assigned
+  size_t cap;               // current capacity of buckets
+  size_t memsize;           // total memory size occupied by the table
+  size_t sortablesSize;     // total memory size occupied by the sortables
 
   DMDChain *buckets;
   DocIdMap dim;             // Mapping between document name to internal id
+  TimeToLiveTable* ttl;
 } DocTable;
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
@@ -117,7 +121,7 @@ sds DocTable_GetKey(const DocTable *t, t_docId docId, size_t *n);
  * document */
 int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, size_t len);
 
-int DocTable_Exists(const DocTable *t, t_docId docId);
+bool DocTable_Exists(const DocTable *t, t_docId docId);
 
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
@@ -127,6 +131,22 @@ int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVec
  * the document. This is used for highlighting
  */
 void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *offsets);
+
+void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) allFieldSorted);
+
+typedef struct {
+  FieldMaskOrIndex field;
+  // our field expiration predicate
+  enum FieldExpirationPredicate predicate;
+} FieldFilterContext;
+
+bool DocTable_HasExpiration(DocTable *t, t_docId docId);
+bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint);
+
+// Will return true if the document passed the predicate
+// default predicate - one of the fields did not yet expire -> entry is still valid
+// missing predicate - one of the fields did expire -> entry is valid in the context of missing
+bool DocTable_VerifyFieldExpirationPredicate(const DocTable *t, t_docId docId, const t_fieldIndex* fieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint);
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
@@ -178,13 +198,7 @@ static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   }
 }
 
-/* Save the table to RDB. Called from the owning index */
-void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);
-
 void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
-
-/* Load the table from RDB */
-void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
 #ifdef __cplusplus
 }

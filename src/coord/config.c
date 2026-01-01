@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 
 #include "config.h"
@@ -12,6 +15,8 @@
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
 #include "hiredis/hiredis.h"
+#include "module.h"
+
 
 #include <string.h>
 #include <stdlib.h>
@@ -38,7 +43,7 @@ CONFIG_GETTER(getNumPartitions) {
   return sdsnew("AUTO");
 }
 
-// TIMEOUT
+// CLUSTER_TIMEOUT
 CONFIG_SETTER(setClusterTimeout) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   int acrc = AC_GetInt(ac, &realConfig->timeoutMS, AC_F_GE1);
@@ -51,12 +56,19 @@ CONFIG_GETTER(getClusterTimeout) {
 }
 
 CONFIG_SETTER(setGlobalPass) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  int acrc = AC_GetString(ac, &realConfig->globalPass, NULL, 0);
-  RETURN_STATUS(acrc);
+  // Deprecated, no scenario in which this config param should be set, nor should
+  // it affect something (replaced by internal connections)
+
+  RedisModule_Log(RSDummyContext, "warning",
+    "Notice: OSS_GLOBAL_PASSWORD is deprecated, inter-shard communication is now done via internal connections");
+  // Read next arg, but do nothing with it
+  int acrc = AC_Advance(ac);
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getGlobalPass) {
+  RedisModule_Log(RSDummyContext, "warning",
+    "Notice: OSS_GLOBAL_PASSWORD is deprecated, inter-shard communication is now done via internal connections");
   return sdsnew("Password: *******");
 }
 
@@ -85,6 +97,21 @@ CONFIG_GETTER(getConnPerShard) {
   return sdsfromlonglong(realConfig->connPerShard);
 }
 
+// search-conn-per-shard
+int set_conn_per_shard(const char *name, long long val, void *privdata,
+  RedisModuleString **err) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  realConfig->connPerShard = (size_t)val;
+  return triggerConnPerShard(config);
+}
+
+long long get_conn_per_shard(const char *name, void *privdata) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  return (long long)realConfig->connPerShard;
+}
+
 // CURSOR_REPLY_THRESHOLD
 CONFIG_SETTER(setCursorReplyThreshold) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
@@ -95,6 +122,21 @@ CONFIG_SETTER(setCursorReplyThreshold) {
 CONFIG_GETTER(getCursorReplyThreshold) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
   return sdsfromlonglong(realConfig->cursorReplyThreshold);
+}
+
+// search-cursor-reply-threshold
+int set_cursor_reply_threshold(const char *name, long long val, void *privdata,
+  RedisModuleString **err) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  realConfig->cursorReplyThreshold = (size_t)val;
+  return REDISMODULE_OK;
+}
+
+long long get_cursor_reply_threshold(const char *name, void *privdata) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  return (long long)realConfig->cursorReplyThreshold;
 }
 
 // SEARCH_THREADS
@@ -109,6 +151,21 @@ CONFIG_GETTER(getSearchThreads) {
   return sdsfromlonglong(realConfig->coordinatorPoolSize);
 }
 
+// search-threads
+int set_search_threads(const char *name, long long val, void *privdata,
+                  RedisModuleString **err) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  realConfig->coordinatorPoolSize = (size_t)val;
+  return REDISMODULE_OK;
+}
+
+long long get_search_threads(const char *name, void *privdata) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  return (long long)realConfig->coordinatorPoolSize;
+}
+
 // TOPOLOGY_VALIDATION_TIMEOUT
 CONFIG_SETTER(setTopologyValidationTimeout) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
@@ -121,6 +178,22 @@ CONFIG_GETTER(getTopologyValidationTimeout) {
   return sdsfromlonglong(realConfig->topologyValidationTimeoutMS);
 }
 
+// topology-validation-timeout
+int set_topology_validation_timeout(const char *name,
+                      long long val, void *privdata, RedisModuleString **err) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  realConfig->topologyValidationTimeoutMS = val;
+  return REDISMODULE_OK;
+}
+
+long long get_topology_validation_timeout(
+                const char *name, void *privdata) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  return realConfig->topologyValidationTimeoutMS;
+}
+
 static RSConfigOptions clusterOptions_g = {
     .vars =
         {
@@ -129,12 +202,12 @@ static RSConfigOptions clusterOptions_g = {
              .setValue = setNumPartitions,
              .getValue = getNumPartitions,
              .flags = RSCONFIGVAR_F_IMMUTABLE},
-            {.name = "TIMEOUT",
+            {.name = "CLUSTER_TIMEOUT",
              .helpText = "Cluster synchronization timeout",
              .setValue = setClusterTimeout,
              .getValue = getClusterTimeout},
             {.name = "OSS_GLOBAL_PASSWORD",
-             .helpText = "Global oss cluster password that will be used to connect to other shards",
+             .helpText = "Deprecated, Global oss cluster password that will be used to connect to other shards",
              .setValue = setGlobalPass,
              .getValue = getGlobalPass},
             {.name = "CONN_PER_SHARD",
@@ -196,4 +269,45 @@ RSConfigOptions *GetClusterConfigOptions(void) {
 void ClusterConfig_RegisterTriggers(void) {
   const char *connPerShardConfigs[] = {"WORKERS", NULL};
   RSConfigExternalTrigger_Register(triggerConnPerShard, connPerShardConfigs);
+}
+
+int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-threads", COORDINATOR_POOL_DEFAULT_SIZE,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      LLONG_MAX, get_search_threads, set_search_threads, NULL,
+      (void*)&RSGlobalConfig
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
+      REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
+      get_topology_validation_timeout, set_topology_validation_timeout, NULL,
+      (void*)&RSGlobalConfig
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-cursor-reply-threshold", DEFAULT_CURSOR_REPLY_THRESHOLD,
+      REDISMODULE_CONFIG_UNPREFIXED, 1, LLONG_MAX,
+      get_cursor_reply_threshold, set_cursor_reply_threshold, NULL,
+      (void*)&RSGlobalConfig
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-conn-per-shard", DEFAULT_CONN_PER_SHARD,
+      REDISMODULE_CONFIG_UNPREFIXED, 0, UINT32_MAX,
+      get_conn_per_shard, set_conn_per_shard, NULL,
+      (void*)&RSGlobalConfig
+    )
+  )
+
+
+  return REDISMODULE_OK;
 }

@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "aggregate_plan.h"
 #include "reducer.h"
@@ -65,9 +68,8 @@ void AGPLN_Prepend(AGGPlan *pln, PLN_BaseStep *newstp) {
   dllist_prepend(&pln->steps, &newstp->llnodePln);
 }
 
-void AGPLN_PopStep(AGGPlan *pln, PLN_BaseStep *step) {
+void AGPLN_PopStep(PLN_BaseStep *step) {
   dllist_delete(&step->llnodePln);
-  (void)pln;
 }
 
 static void rootStepDtor(PLN_BaseStep *bstp) {
@@ -221,76 +223,6 @@ void AGPLN_FreeSteps(AGGPlan *pln) {
   }
 }
 
-void AGPLN_Dump(const AGGPlan *pln) {
-  for (const DLLIST_node *nn = pln->steps.next; nn && nn != &pln->steps; nn = nn->next) {
-    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
-    printf("STEP: [T=%s. P=%p]\n", steptypeToString(stp->type), stp);
-    const RLookup *lk = lookupFromNode(nn);
-    if (lk) {
-      printf("  NEW LOOKUP: %p\n", lk);
-      for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-        printf("    %s @%p: FLAGS=0x%x\n", kk->name, kk, kk->flags);
-      }
-    }
-
-    switch (stp->type) {
-      case PLN_T_APPLY:
-      case PLN_T_FILTER:
-        printf("  EXPR:%s\n", ((PLN_MapFilterStep *)stp)->rawExpr);
-        if (stp->alias) {
-          printf("  AS:%s\n", stp->alias);
-        }
-        break;
-      case PLN_T_ARRANGE: {
-        const PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
-        if (astp->offset || astp->limit) {
-          printf("  OFFSET:%lu LIMIT:%lu\n", (unsigned long)astp->offset,
-                 (unsigned long)astp->limit);
-        }
-        if (astp->sortKeys) {
-          printf("  SORT:\n");
-          for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
-            const char *dir = SORTASCMAP_GETASC(astp->sortAscMap, ii) ? "ASC" : "DESC";
-            printf("    %s:%s\n", astp->sortKeys[ii], dir);
-          }
-        }
-        break;
-      }
-      case PLN_T_LOAD: {
-        const PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
-        for (size_t ii = 0; ii < lstp->args.argc; ++ii) {
-          printf("  %s\n", (char *)lstp->args.objs[ii]);
-        }
-        break;
-      }
-      case PLN_T_GROUP: {
-        const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
-        printf("  BY:\n");
-        for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-          printf("    %s\n", gstp->properties[ii]);
-        }
-        for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
-          const PLN_Reducer *r = gstp->reducers + ii;
-          printf("  REDUCE: %s AS %s\n", r->name, r->alias);
-          if (r->args.argc) {
-            printf("    ARGS:[");
-          }
-          for (size_t jj = 0; jj < r->args.argc; ++jj) {
-            printf("%s ", (char *)r->args.objs[jj]);
-          }
-          printf("]\n");
-        }
-        break;
-      }
-      case PLN_T_ROOT:
-      case PLN_T_DISTRIBUTE:
-      case PLN_T_INVALID:
-      case PLN_T__MAX:
-        break;
-    }
-  }
-}
-
 typedef char **myArgArray_t;
 
 static inline void append_string(myArgArray_t *arr, const char *src) {
@@ -315,7 +247,7 @@ static void serializeMapFilter(myArgArray_t *arr, const PLN_BaseStep *stp) {
   } else {
     append_string(arr, "FILTER");
   }
-  append_string(arr, mstp->rawExpr);
+  append_string(arr, HiddenString_GetUnsafe(mstp->expr, NULL));
   if (stp->alias) {
     append_string(arr, "AS");
     append_string(arr, stp->alias);

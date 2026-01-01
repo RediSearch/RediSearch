@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #ifndef __INDEX_H__
 #define __INDEX_H__
@@ -73,7 +76,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId,
 
 /* Create an Optional clause iterator by wrapping another index iterator. An optional iterator
  * always returns OK on skips, but a virtual hit with frequency of 0 if there is no hit */
-IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight);
+IndexIterator *NewOptionalIterator(IndexIterator *it, QueryEvalCtx *q, double weight);
 
 /* Create a wildcard iterator, to iterate all the existing docs in the*/
 IndexIterator *NewWildcardIterator(QueryEvalCtx *q);

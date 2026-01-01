@@ -617,8 +617,17 @@ def test_JSON_RDB_load_fail_without_JSON_module(env: Env):
     env.envRunner.modulePath.pop() # Assumes Search module is the first and JSON module is the second
     env.envRunner.moduleArgs.pop()
     env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
-    env.start() # Restart without JSON module. Attempt to load RDB
-    env.assertFalse(env.isUp()) # Server is down with no assertion error (MOD-7587)
+    # Restart without JSON module. Attempt to load RDB - should fail.
+    # RLTest may or may not fail to start the server with an exception
+    try:
+        env.start()
+    except Exception as e:
+        expected_msg = 'Redis server is dead'
+        env.assertContains(expected_msg, str(e))
+        if expected_msg not in str(e):
+            raise e
+    finally:
+        env.assertFalse(env.isUp()) # Server is down with no assertion error (MOD-7587)
 
 @skip(msan=True, no_json=True)
 def testIndexSeparation(env):
@@ -880,12 +889,12 @@ def testScoreField(env):
     env.cmd('FT.CREATE', 'permits1', 'ON', 'JSON', 'PREFIX', '1', 'tst:', 'SCORE_FIELD', '$._score', 'SCHEMA', '$._score', 'AS', '_score', 'NUMERIC', '$.description', 'AS', 'description', 'TEXT')
     env.cmd('FT.CREATE', 'permits2', 'ON', 'JSON', 'PREFIX', '1', 'tst:', 'SCORE_FIELD', '$._score', 'SCHEMA', '$.description', 'AS', 'description', 'TEXT')
     env.assertOk(conn.execute_command('JSON.SET', 'tst:permit1', '$', r'{"_score":0.8, "description":"Fix the facade"}'))
-    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit2', '$', r'{"_score":0.7, "description":"Fix the facade"}'))
-    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit3', '$', r'{"_score":0.9, "description":"Fix the facade"}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit2', '$', r'{"_score":0.07, "description":"Fix the facade"}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit3', '$', r'{"_score":9, "description":"Fix the facade"}'))
 
-    res = [3, 'tst:permit3', ['$', '{"_score":0.9,"description":"Fix the facade"}'],
+    res = [3, 'tst:permit3', ['$', '{"_score":9,"description":"Fix the facade"}'],
                'tst:permit1', ['$', '{"_score":0.8,"description":"Fix the facade"}'],
-               'tst:permit2', ['$', '{"_score":0.7,"description":"Fix the facade"}']]
+               'tst:permit2', ['$', '{"_score":0.07,"description":"Fix the facade"}']]
     env.expect('FT.SEARCH', 'permits1', '*').equal(res)
     env.expect('FT.SEARCH', 'permits2', '*').equal(res)
     env.expect('FT.SEARCH', 'permits1', 'facade').equal(res)
@@ -938,10 +947,10 @@ def check_index_with_null(env, idx):
                     'doc5', ['sort', '5', '$', '{"sort":5,"num":0.8,"txt":"hello","tag":"world","geo":"1.23,4.56","vec":null}']]
 
     res = env.cmd('FT.SEARCH', idx, '*', 'SORTBY', "sort")
-    env.assertEqual(res, expected, message = '{} * sort'.format(idx))
+    env.assertEqual(res, expected, message = f'{idx} * sort')
 
     res = env.cmd('FT.SEARCH', idx, '@sort:[1 5]', 'SORTBY', "sort")
-    env.assertEqual(res, expected, message = '{} [1 5] sort'.format(idx))
+    env.assertEqual(res, expected, message = f'{idx} [1 5] sort')
 
     info_res = index_info(env, idx)
     env.assertEqual(int(info_res['hash_indexing_failures']), 0)
@@ -1041,6 +1050,44 @@ def testVector_correct_eval(env):
             else:  # data type is float64, expect higher precision
                 env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-9)
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+
+    # Test INT8
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'INT8', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    env.assertOk(conn.execute_command('JSON.SET', 'j1', '$', r'{"vec":[1,1]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[-128,-128]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[127,127]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j4', '$', r'{"vec":[-128,127]}'))
+    query_vec = create_np_array_typed([1]*dim, 'INT8')
+    expected_res = [4,  'j1', ['score', spatial.distance.sqeuclidean(np.array([1, 1]), query_vec)],
+                        'j2', ['score', spatial.distance.sqeuclidean(np.array([-128, -128]), query_vec)],
+                        'j3', ['score', spatial.distance.sqeuclidean(np.array([127, 127]), query_vec)],
+                        'j4', ['score', spatial.distance.sqeuclidean(np.array([-128,127]), query_vec)]]
+    actual_res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @vec $b AS scores]', 'PARAMS', '2', 'b', query_vec.tobytes(),
+                                'RETURN', '1', 'scores').res
+    env.assertEqual(expected_res[0], actual_res[0])
+    for i in range(1, len(expected_res), 2):
+        env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-6)
+    conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+
+    # Test UINT8
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'UINT8', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    env.assertOk(conn.execute_command('JSON.SET', 'j1', '$', r'{"vec":[1,1]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[0,0]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[255,255]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j4', '$', r'{"vec":[0,255]}'))
+    query_vec = create_np_array_typed([1]*dim, 'UINT8')
+    expected_res = [4,  'j1', ['score', spatial.distance.sqeuclidean(np.array([1, 1]), query_vec)],
+                        'j2', ['score', spatial.distance.sqeuclidean(np.array([0, 0]), query_vec)],
+                        'j3', ['score', spatial.distance.sqeuclidean(np.array([255, 255]), query_vec)],
+                        'j4', ['score', spatial.distance.sqeuclidean(np.array([0, 255]), query_vec)]]
+    actual_res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @vec $b AS scores]', 'PARAMS', '2', 'b', query_vec.tobytes(),
+                                'RETURN', '1', 'scores').res
+    env.assertEqual(expected_res[0], actual_res[0])
+    for i in range(1, len(expected_res), 2):
+        env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-6)
+    conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
 @skip(msan=True, no_json=True)
@@ -1173,7 +1220,7 @@ def testTagAutoescaping(env):
 
     conn = getConnectionByEnv(env)
     # We are using ',' as tag SEPARATOR to get the same results of HASH index
-    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON',
             'SCHEMA', '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
 
     # create sample data
@@ -1274,7 +1321,7 @@ def testTagAutoescaping(env):
 
     # if '$' is escaped, it is treated as a regular character, and the parameter
     # is not replaced
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*\$param*}=>{$weight:3.4}',
+    res = env.cmd('FT.SEARCH', 'idx', r'@tag:{*\$param*}=>{$weight:3.4}',
                   'PARAMS', '2', 'param', '@mail.', 'NOCONTENT')
     env.assertEqual(res, [0])
 
@@ -1347,3 +1394,18 @@ def testTagAutoescaping(env):
 
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{"trailing:space"  }')
     env.assertEqual(res, expected_result)
+
+@skip(no_json=True)
+def testLimitations(env):
+    """ highlight/summarize is not supported with JSON indexes """
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA',  '$.txt', 'AS', 'txt', 'TEXT').ok()
+
+    error_msg = "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes"
+
+    env.expect('FT.SEARCH', 'idx', 'jacob', 'HIGHLIGHT').error()\
+        .contains(error_msg)
+
+    env.expect('FT.SEARCH', 'idx', 'abraham', 'SUMMARIZE').error()\
+        .contains(error_msg)

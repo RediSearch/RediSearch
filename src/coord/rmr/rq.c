@@ -1,10 +1,18 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #define RQ_C__
+
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
+#include <pthread.h>
 
 #include <stdlib.h>
 #include <uv.h>
@@ -12,6 +20,7 @@
 #include "rmalloc.h"
 #include "rmr.h"
 #include "coord/config.h"
+#include "rmutil/rm_assert.h"
 
 struct queueItem {
   void *privdata;
@@ -27,7 +36,7 @@ typedef struct MRWorkQueue {
   size_t sz;
   struct {
     struct queueItem *head;
-    size_t hitCount;
+    size_t warnSize;
   } pendingInfo;
   uv_mutex_t lock;
   uv_async_t async;
@@ -111,7 +120,19 @@ static void topologyAsyncCB(uv_async_t *async) {
 /* start the event loop side thread */
 static void sideThread(void *arg) {
   REDISMODULE_NOT_USED(arg);
-  RedisModule_Assert(__atomic_load_n(&pendingTopo, __ATOMIC_ACQUIRE));
+  /* Set thread name for profiling and debugging */
+  char *thread_name = REDISEARCH_MODULE_NAME "-uv";
+
+#if defined(__linux__)
+  /* Use prctl instead to prevent using _GNU_SOURCE flag and implicit
+   * declaration */
+  prctl(PR_SET_NAME, thread_name);
+#elif defined(__APPLE__) && defined(__MACH__)
+  pthread_setname_np(thread_name);
+#else
+  RedisModule_Log(RSDummyContext, "verbose",
+      "sideThread(): pthread_setname_np is not supported on this system");
+#endif
   // Mark the event loop thread as running before triggering the topology check.
   loop_th_running = true;
   uv_async_send(&topologyAsync); // start the topology check
@@ -124,7 +145,9 @@ static void verify_uv_thread() {
     uv_timer_init(uv_default_loop(), &topologyFailureTimer);
     uv_async_init(uv_default_loop(), &topologyAsync, topologyAsyncCB);
     // Verify that we are running on the event loop thread
-    RedisModule_Assert(uv_thread_create(&loop_th, sideThread, NULL) == 0);
+    int uv_thread_create_status = uv_thread_create(&loop_th, sideThread, NULL);
+    RS_ASSERT(uv_thread_create_status == 0);
+    REDISMODULE_NOT_USED(uv_thread_create_status);
     RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread");
   }
 }
@@ -167,7 +190,6 @@ void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
 
 static struct queueItem *rqPop(MRWorkQueue *q) {
   uv_mutex_lock(&q->lock);
-  // fprintf(stderr, "%d %zd\n", concurrentRequests_g, q->sz);
 
   if (q->head == NULL) {
     uv_mutex_unlock(&q->lock);
@@ -180,21 +202,19 @@ static struct queueItem *rqPop(MRWorkQueue *q) {
 
     // Handle pending info logging. Access only to a non-NULL head and pendingInfo,
     // So it's safe to do without the lock.
-    const char *logLevel = "verbose";
-    if (q->head == q->pendingInfo.head) {
-      // If we hit the same head multiple times, we may have a problem. Increase log level.
-      if (++q->pendingInfo.hitCount > 100) logLevel = "notice";
+    if (q->head == q->pendingInfo.head && q->sz > q->pendingInfo.warnSize) {
+      // If we hit the same head multiple times, we may have a problem. Log it once.
+      RedisModule_Log(RSDummyContext, "warning", "Work queue at max pending with the same head. Size: %zu", q->sz);
+      q->pendingInfo.warnSize = q->sz + (1 << 10);
     } else {
       q->pendingInfo.head = q->head;
-      q->pendingInfo.hitCount = 1;
+      q->pendingInfo.warnSize = q->sz + (1 << 10);
     }
-    RedisModule_Log(RSDummyContext, logLevel, "MRWorkQueue: Max pending requests reached");
-    RedisModule_Log(RSDummyContext, "debug", "MRWorkQueue: Head at %p", q->head);
 
     return NULL;
   } else {
     q->pendingInfo.head = NULL;
-    q->pendingInfo.hitCount = 0;
+    q->pendingInfo.warnSize = 0;
   }
 
   struct queueItem *r = q->head;
@@ -235,7 +255,7 @@ MRWorkQueue *RQ_New(int maxPending) {
   q->pending = 0;
   q->maxPending = maxPending;
   q->pendingInfo.head = NULL;
-  q->pendingInfo.hitCount = 0;
+  q->pendingInfo.warnSize = 0;
   uv_mutex_init(&q->lock);
   uv_async_init(uv_default_loop(), &q->async, rqAsyncCb);
   q->async.data = q;
@@ -246,4 +266,12 @@ void RQ_UpdateMaxPending(MRWorkQueue *q, int maxPending) {
   uv_mutex_lock(&q->lock);
   q->maxPending = maxPending;
   uv_mutex_unlock(&q->lock);
+}
+
+void RQ_Debug_ClearPendingTopo() {
+  struct queueItem *topo = exchangePendingTopo(NULL);
+  if (topo) {
+    MRClusterTopology_Free(topo->privdata);
+    rm_free(topo);
+  }
 }

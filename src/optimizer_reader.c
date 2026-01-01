@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "optimizer_reader.h"
 #include "aggregate/aggregate.h"
@@ -23,6 +26,11 @@ int cmpDesc(const void *v1, const void *v2, const void *udata) {
   if (res1->num.value > res2->num.value) return -1;
   if (res1->num.value < res2->num.value) return 1;
   return res1->docId < res2->docId ? -1 : 1;
+}
+
+static inline double getSuccessRatio(const OptimizerIterator *optIt) {
+  double resultsCollectedSinceLast = heap_count(optIt->heap) - optIt->heapOldSize;
+  return resultsCollectedSinceLast / optIt->lastLimitEstimate;
 }
 
 
@@ -63,9 +71,7 @@ static void OPT_Rewind(void *ctx) {
   numeric->Free(numeric);
   optIt->numericIter = NULL;
 
-  int resultsCollectedSinceLast = heap_count(heap) - optIt->heapOldSize;
-  double successRatio = resultsCollectedSinceLast / optIt->lastLimitEstimate;
-  RS_LOG_ASSERT(successRatio < 1, "successRatio == 1 means heap is full");
+  double successRatio = getSuccessRatio(optIt);
 
   // very low success, lets get all remaining results
   if (successRatio < 0.01 || optIt->numIterations == 3) {
@@ -76,8 +82,9 @@ static void OPT_Rewind(void *ctx) {
     optIt->lastLimitEstimate = nf->limit = limitEstimate * successRatio;
   }
 
+  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= optIt->numericFieldIndex}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   // create new numeric filter
-  optIt->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC, optIt->config);
+  optIt->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC, optIt->config, &filterCtx);
 
   optIt->heapOldSize = heap_count(heap);
   optIt->numIterations++;
@@ -192,14 +199,20 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
 
     // Not enough result, try to rewind
     if (heap_size(it->heap) > heap_count(it->heap) && it->offset < it->childEstimate) {
-      OPT_Rewind(it->base.ctx);
-      childRes = numericRes = NULL;
-      // rewind was successful, continue iteration
-      if (it->numericIter != NULL) {
-        numeric = it->numericIter;
-        it->hitCounter = 0;
-        it->numIterations++;
-        continue;;
+      if (getSuccessRatio(it) < 1) {
+        OPT_Rewind(it->base.ctx);
+        childRes = numericRes = NULL;
+        // rewind was successful, continue iteration
+        if (it->numericIter != NULL) {
+          numeric = it->numericIter;
+          it->hitCounter = 0;
+          it->numIterations++;
+          continue;
+        }
+      } else {
+        RedisModule_Log(RSDummyContext, "verbose", "Not enough results collected, but success ratio is %f", getSuccessRatio(it));
+        RedisModule_Log(RSDummyContext, "debug", "Heap size: %d, heap count: %d, offset: %ld, childEstimate: %ld",
+                                        heap_size(it->heap), heap_count(it->heap), it->offset, it->childEstimate);
       }
     }
 
@@ -223,16 +236,18 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, Itera
   oi->numDocs = qOpt->sctx->spec->docs.size;
   oi->childEstimate = root->NumEstimated(root->ctx);
 
+  const FieldSpec *field = IndexSpec_GetFieldWithLength(qOpt->sctx->spec, qOpt->fieldName, strlen(qOpt->fieldName));
   // if there is no numeric range query but sortby, create a Numeric Filter
   if (!qOpt->nf) {
-    qOpt->nf = NewNumericFilter(NF_NEGATIVE_INFINITY, NF_INFINITY, 1, 1, qOpt->asc);
-    qOpt->nf->fieldName = rm_strdup(qOpt->fieldName);
+    qOpt->nf = NewNumericFilter(-INFINITY, INFINITY, 1, 1, qOpt->asc, field);
     oi->flags |= OPTIM_OWN_NF;
   }
   oi->lastLimitEstimate = qOpt->nf->limit =
     QOptimizer_EstimateLimit(oi->numDocs, oi->childEstimate, qOpt->limit);
 
-  oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC, config);
+  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= field->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  oi->numericFieldIndex = field->index;
+  oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC, config, &filterCtx);
   if (!oi->numericIter) {
     oi->base.ctx = oi;
     OptimizerIterator_Free(&oi->base);

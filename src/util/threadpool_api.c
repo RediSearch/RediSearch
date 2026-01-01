@@ -1,20 +1,27 @@
 /*
- * Copyright 2018-2022 Redis Labs Ltd. and Contributors
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
  *
- * This file is available under the Redis Labs Source Available License Agreement
- */
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "threadpool_api.h"
 #include "rmalloc.h"
+#include "spec.h"
 
 static void ThreadPoolAPI_Execute(void *ctx) {
   ThreadPoolAPI_AsyncIndexJob *job = ctx;
-  StrongRef spec_ref = WeakRef_Promote(job->spec_ref);
+  StrongRef spec_ref = IndexSpecRef_Promote(job->spec_ref);
 
   // If the spec is still alive, execute the callback
-  if (StrongRef_Get(spec_ref)) {
+  IndexSpec *spec = StrongRef_Get(spec_ref);
+  if (spec) {
+    IndexSpec_IncrActiveWrites(spec); // Currently assuming all jobs are writes
     job->cb(job->arg);
-    StrongRef_Release(spec_ref);
+    IndexSpec_DecrActiveWrites(spec);
+    IndexSpecRef_Release(spec_ref);
   }
 
   // Free the job

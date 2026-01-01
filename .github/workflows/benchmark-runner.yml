@@ -9,43 +9,72 @@ on:
         type: boolean
         description: 'Run extended benchmarks'
         default: false
+      profiler:
+        type: boolean
+        description: 'Run profiler on standalone benchmarks'
+        default: false
+      allowed_setup:
+        type: string
+        description: 'if empty allows all setups. if not, will only trigger for a specific setup'
+        default: ""
+      rejson_branch:
+        type: string
+        default: '8.0'
+        description: 'branch to use for rejson'
   workflow_call:
     inputs:
       extended:
         type: boolean
         default: false
+      profiler:
+        type: boolean
+        default: false
+      allowed_setup:
+        type: string
+        description: 'if empty allows all setups. if not, will only trigger for a specific setup'
+        default: ""
 
 jobs:
   benchmark-search-oss-standalone:
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-vecsim-oss-standalone:
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       benchmark_glob: "vecsim*.yml"
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-02-primaries:
+    needs: benchmark-search-oss-standalone
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries' }}
     strategy:
+      fail-fast: false
       matrix:
-        member_id: [1, 2]
+        member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-02-primaries
@@ -53,13 +82,14 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-04-primaries:
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries') }}
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-04-primaries
@@ -67,13 +97,14 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-08-primaries:
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-08-primaries') }}
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-08-primaries
@@ -81,13 +112,14 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-16-primaries:
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries') }}
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-16-primaries
@@ -96,14 +128,14 @@ jobs:
 
 
   benchmark-search-oss-cluster-20-primaries:
-    if: inputs.extended
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-20-primaries') }}
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-20-primaries
@@ -112,14 +144,14 @@ jobs:
 
 
   benchmark-search-oss-cluster-24-primaries:
-    if: inputs.extended
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-24-primaries') }}
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-24-primaries
@@ -127,7 +159,9 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-standalone-profiler:
+    if: ${{ inputs.profiler && (inputs.allowed_setup == '' || inputs.allowed_setup == 'standalone') }}
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -136,14 +170,18 @@ jobs:
       profile_env: 1
       # TODO: change to "github-actions.profilers" when ready on grafana
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-      module_path: bin/linux-x64-release-profile/search/redisearch.so
+      module_path: bin/linux-x64-release-profile/search-community/redisearch.so
       benchmark_glob: "search*.yml"
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
 
   benchmark-vecsim-oss-standalone-profiler:
+    if: ${{ inputs.profiler && (inputs.allowed_setup == '' || inputs.allowed_setup == 'standalone') }}
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -152,7 +190,34 @@ jobs:
       profile_env: 1
       # TODO: change to "github-actions.profilers" when ready on grafana
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-      module_path: bin/linux-x64-release-profile/search/redisearch.so
+      module_path: bin/linux-x64-release-profile/search-community/redisearch.so
       benchmark_glob: "vecsim*.yml"
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+
+  notify-failure:
+    needs:
+      - benchmark-search-oss-standalone
+      - benchmark-vecsim-oss-standalone
+      - benchmark-search-oss-cluster-02-primaries
+      - benchmark-search-oss-cluster-04-primaries
+      - benchmark-search-oss-cluster-08-primaries
+      - benchmark-search-oss-cluster-16-primaries
+      - benchmark-search-oss-cluster-20-primaries
+      - benchmark-search-oss-cluster-24-primaries
+      - benchmark-search-oss-standalone-profiler
+      - benchmark-vecsim-oss-standalone-profiler
+    if: failure()
+    runs-on: ${{ vars.RUNS_ON }}
+    steps:
+      - name: Notify Failure
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_BENCHMARK_FAILED }}

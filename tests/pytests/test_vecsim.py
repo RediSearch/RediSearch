@@ -42,7 +42,7 @@ def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors, data
 
 
 def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_by_vector=True, sort_by_non_vector_field=False,
-                         hybrid_mode='HYBRID_BATCHES'):
+                         hybrid_mode='HYBRID_BATCHES', scorer='BM25STD'):
     if sort_by_vector:
         ret = env.expect('FT.SEARCH', 'idx', query_string,
                          'SORTBY', '__v_score',
@@ -50,14 +50,15 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
                          'RETURN', 2, '__v_score', non_vector_field, 'LIMIT', 0, 10)
 
     else:
+
         if sort_by_non_vector_field:
-            ret = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
+            ret = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES', 'SCORER', scorer,
                              'SORTBY', non_vector_field,
                              'PARAMS', 2, 'vec_param', query_data.tobytes(),
                              'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
 
         else:
-            ret = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
+            ret = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES', 'SCORER', scorer,
                              'PARAMS', 2, 'vec_param', query_data.tobytes(),
                              'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
 
@@ -320,7 +321,7 @@ def test_create():
     dummy_val = 'dummy_supplement'
 
     # Test for INT32, INT64 as well when support for these types is added.
-    for data_type in VECSIM_DATA_TYPES:
+    for data_type in VECSIM_DATA_TYPES + ['INT8', 'UINT8']:
         conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v_HNSW', 'VECTOR', 'HNSW', '14', 'TYPE', data_type,
                              'DIM', '1024', 'DISTANCE_METRIC', 'COSINE', 'INITIAL_CAP', '10', 'M', '16',
                              'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10')
@@ -352,6 +353,43 @@ def test_create():
 
         conn.execute_command('FT.DROP', 'idx1')
         conn.execute_command('FT.DROP', 'idx2')
+
+@skip(cluster=True)
+def test_search_ints(env:Env):
+    dim = 4
+    idx = 'idx'
+    fld = 'v'
+    dataset = {
+        'a': [40]*dim,
+        'b': [30]*dim,
+        'c': [20]*dim,
+        'd': [10]*dim,
+    }
+    expected_scores = {k: str(int(spatial.distance.sqeuclidean(np.array(v), np.zeros(dim)))) for k, v in dataset.items()}
+
+    for data_type in ['INT8', 'UINT8']:
+        env.flush()
+
+        env.cmd('FT.CREATE', idx, 'SCHEMA', fld, 'VECTOR', 'FLAT', '6', 'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2')
+        for k, v in dataset.items():
+            env.cmd('HSET', k, fld, create_np_array_typed(v, data_type).tobytes())
+
+        query_vec = create_np_array_typed([0]*dim, data_type)
+
+        expected_res = [len(dataset)]
+        for k in dataset:
+            expected_res.extend([k, ['score', expected_scores[k]]])
+        res = env.cmd('FT.SEARCH', idx, f'*=>[KNN 4 @{fld} $blob AS score]', 'DIALECT', 2,
+                      'PARAMS', 2, 'blob', query_vec.tobytes(), 'RETURN', 1, 'score')
+        env.assertEqual(res, expected_res, message=data_type)
+
+        for _ in env.reloadingIterator():
+            expected_res = [len(dataset)]
+            for k in sorted(dataset, key=lambda x: int(expected_scores[x])):
+                expected_res.extend([k, ['score', expected_scores[k]]])
+            res = env.cmd('FT.SEARCH', idx, f'*=>[KNN 4 @{fld} $blob AS score]', 'DIALECT', 2, 'SORTBY', 'score',
+                          'PARAMS', 2, 'blob', query_vec.tobytes(), 'RETURN', 1, 'score')
+            env.assertEqual(res, expected_res, message=data_type)
 
 @skip(cluster=True)
 def test_create_multiple_vector_fields():
@@ -402,48 +440,48 @@ def test_create_errors():
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6').error().contains('Expected 6 parameters but got 0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '1').error().contains('Bad number of arguments for vector similarity index: got 1 but expected even number')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '2', 'SIZE').error().contains('Bad arguments for algorithm FLAT: SIZE')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '2', 'TYPE').error().contains('Bad arguments for vector similarity FLAT index type')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '4', 'TYPE', 'FLOAT32', 'DIM').error().contains('Bad arguments for vector similarity FLAT index dim')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '2', 'TYPE').error().contains('Bad arguments for vector similarity FLAT index `TYPE`')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '4', 'TYPE', 'FLOAT32', 'DIM').error().contains('Bad arguments for vector similarity FLAT index `DIM`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '4', 'DIM', '1024', 'DISTANCE_METRIC', 'IP').error().contains('Missing mandatory parameter: cannot create FLAT index without specifying TYPE argument')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '4', 'TYPE', 'FLOAT32', 'DISTANCE_METRIC', 'IP').error().contains('Missing mandatory parameter: cannot create FLAT index without specifying DIM argument')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '4', 'TYPE', 'FLOAT32', 'DIM', '1024').error().contains('Missing mandatory parameter: cannot create FLAT index without specifying DISTANCE_METRIC argument')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC').error().contains('Bad arguments for vector similarity FLAT index metric')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC').error().contains('Bad arguments for vector similarity FLAT index `DISTANCE_METRIC`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW').error().contains('Bad arguments for vector similarity number of parameters')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6').error().contains('Expected 6 parameters but got 0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '1').error().contains('Bad number of arguments for vector similarity index: got 1 but expected even number')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '2', 'SIZE').error().contains('Bad arguments for algorithm HNSW: SIZE')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '2', 'TYPE').error().contains('Bad arguments for vector similarity HNSW index type')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '4', 'TYPE', 'FLOAT32', 'DIM').error().contains('Bad arguments for vector similarity HNSW index dim')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '2', 'TYPE').error().contains('Bad arguments for vector similarity HNSW index `TYPE`')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '4', 'TYPE', 'FLOAT32', 'DIM').error().contains('Bad arguments for vector similarity HNSW index `DIM`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '4', 'DIM', '1024', 'DISTANCE_METRIC', 'IP').error().contains('Missing mandatory parameter: cannot create HNSW index without specifying TYPE argument')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '4', 'TYPE', 'FLOAT32', 'DISTANCE_METRIC', 'IP').error().contains('Missing mandatory parameter: cannot create HNSW index without specifying DIM argument')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '4', 'TYPE', 'FLOAT32', 'DIM', '1024').error().contains('Missing mandatory parameter: cannot create HNSW index without specifying DISTANCE_METRIC argument')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC').error().contains('Bad arguments for vector similarity HNSW index metric')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC').error().contains('Bad arguments for vector similarity HNSW index `DISTANCE_METRIC`')
 
     # invalid init args
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'DOUBLE', 'DIM', '1024', 'DISTANCE_METRIC', 'IP').error().contains('Bad arguments for vector similarity HNSW index type')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', 'str', 'DISTANCE_METRIC', 'IP').error().contains('Bad arguments for vector similarity HNSW index dim')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'REDIS').error().contains('Bad arguments for vector similarity HNSW index metric')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'DOUBLE', 'DIM', '1024', 'DISTANCE_METRIC', 'IP').error().contains('Bad arguments for vector similarity HNSW index `TYPE`')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', 'str', 'DISTANCE_METRIC', 'IP').error().contains('Bad arguments for vector similarity HNSW index `DIM`')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'REDIS').error().contains('Bad arguments for vector similarity HNSW index `DISTANCE_METRIC`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'REDIS', '6', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP').error().contains('Bad arguments for vector similarity algorithm')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', 'str', 'BLOCK_SIZE', '16') \
-        .error().contains('Bad arguments for vector similarity FLAT index initial cap')
+        .error().contains('Bad arguments for vector similarity FLAT index `INITIAL_CAP`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'BLOCK_SIZE', 'str') \
-        .error().contains('Bad arguments for vector similarity FLAT index blocksize')
+        .error().contains('Bad arguments for vector similarity FLAT index `BLOCK_SIZE`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', 'str', 'M', '16', 'EF_CONSTRUCTION', '200') \
-        .error().contains('Bad arguments for vector similarity HNSW index initial cap')
+        .error().contains('Bad arguments for vector similarity HNSW index `INITIAL_CAP`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', 'str', 'EF_CONSTRUCTION', '200') \
-        .error().contains('Bad arguments for vector similarity HNSW index m')
+        .error().contains('Bad arguments for vector similarity HNSW index `M`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EF_CONSTRUCTION', 'str') \
-        .error().contains('Bad arguments for vector similarity HNSW index efConstruction')
+        .error().contains('Bad arguments for vector similarity HNSW index `EF_CONSTRUCTION`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EF_RUNTIME', 'str') \
-        .error().contains('Bad arguments for vector similarity HNSW index efRuntime')
+        .error().contains('Bad arguments for vector similarity HNSW index `EF_RUNTIME`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EF_RUNTIME', '14.3') \
-        .error().contains('Bad arguments for vector similarity HNSW index efRuntime')
+        .error().contains('Bad arguments for vector similarity HNSW index `EF_RUNTIME`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EF_RUNTIME', '-10') \
-        .error().contains('Bad arguments for vector similarity HNSW index efRuntime')
+        .error().contains('Bad arguments for vector similarity HNSW index `EF_RUNTIME`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EPSILON', 'str') \
-        .error().contains('Bad arguments for vector similarity HNSW index epsilon')
+        .error().contains('Bad arguments for vector similarity HNSW index `EPSILON`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EPSILON', '-1') \
-        .error().contains('Bad arguments for vector similarity HNSW index epsilon')
+        .error().contains('Bad arguments for vector similarity HNSW index `EPSILON`')
 
 
 def test_index_errors():
@@ -452,33 +490,29 @@ def test_index_errors():
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
                          'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
     error_count = 0
-    def index_errors():
-        return to_dict(index_info(env)['Index Errors'])
-    def field_errors():
-        return to_dict(to_dict(to_dict(index_info(env)['field statistics'][0]))['Index Errors'])
 
     # Check that the index errors are empty
-    env.assertEqual(index_errors()['indexing failures'], error_count)
-    env.assertEqual(index_errors()['last indexing error'], 'N/A')
-    env.assertEqual(index_errors()['last indexing error key'], 'N/A')
-    env.assertEqual(field_errors(), index_errors())
+    env.assertEqual(index_errors(env)['indexing failures'], error_count)
+    env.assertEqual(index_errors(env)['last indexing error'], 'N/A')
+    env.assertEqual(index_errors(env)['last indexing error key'], 'N/A')
+    assertEqual_dicts_on_intersection(env, field_errors(env), index_errors(env))
 
     for i in range(0, 5, 2):
         conn.execute_command('HSET', i, 'v', create_np_array_typed([0]).tobytes())
         error_count += 1
-        cur_index_errors = index_errors()
+        cur_index_errors = index_errors(env)
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
         env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 4 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i))
-        env.assertEqual(cur_index_errors, field_errors())
+        assertEqual_dicts_on_intersection(env, cur_index_errors, field_errors(env))
 
         conn.execute_command('HSET', i + 1, 'v', create_np_array_typed([0, 0, 0]).tobytes())
         error_count += 1
-        cur_index_errors = index_errors()
+        cur_index_errors = index_errors(env)
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
         env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 12 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i + 1))
-        env.assertEqual(cur_index_errors, field_errors())
+        assertEqual_dicts_on_intersection(env, cur_index_errors, field_errors(env))
 
 
 def test_search_errors():
@@ -513,7 +547,7 @@ def test_search_errors():
             env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @v_flat_{data_type.lower()} $b]', 'PARAMS', '2', 'b', '?' * bad_size).error(
                 ).contains(f'Error parsing vector similarity query: query vector blob size ({bad_size}) does not match index\'s expected size ({query_size}).')
 
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @t $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0]) # wrong field
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @t $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Expected a VECTOR field at offset 10 near t')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS v]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `v` already exists in schema')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS s]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `s` already exists in schema')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS t]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
@@ -557,7 +591,7 @@ def test_search_errors():
     # Invalid range queries
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefg').error().contains('Error parsing vector similarity query: query vector blob size (7) does not match index\'s expected size (8).')
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefghi').error().contains('Error parsing vector similarity query: query vector blob size (9) does not match index\'s expected size (8).')
-    env.expect('FT.SEARCH', 'idx', '@bad:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0])  # wrong field
+    env.expect('FT.SEARCH', 'idx', '@bad:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Unknown field at offset 0 near bad')
     env.expect('FT.SEARCH', 'idx', '@v:[vector 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range -1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().equal('Error parsing vector similarity query: negative radius (-1) given in a range query')
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:t}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
@@ -607,6 +641,16 @@ def test_with_fields():
         # TODO: in coordinator, the first field that indicates the number of total results in 10 when running
         #  KNN query instead of 100 (but not for range) - should be fixed
         env.assertEqual(res[1:], res_range[1:])
+
+    # MOD-7887 - bad error message
+    # Expect to get the same result when using a score field and when not, in case of a field name that does not exist in the schema
+    exp = env.expect('FT.SEARCH', 'idx', '*=>[KNN 100 @not_a_field $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).res
+    res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 100 @not_a_field $vec_param AS score]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).res
+    env.assertEqual(exp, res)
+    res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 100 @not_a_field $vec_param AS score]', 'SORTBY', 'score', 'PARAMS', 2, 'vec_param', query_data.tobytes()).res
+    env.assertEqual(exp, res)
+    res = env.expect('FT.SEARCH', 'idx', '@not_a_field:(vectors are cool)').res
+    env.assertEqual(exp, res.replace('0', '12')) # in this case the field offset is different
 
 
 def test_memory_info():
@@ -782,12 +826,12 @@ def test_hybrid_query_batches_mode_with_tags():
     env.debugPrint(f"data_type for test {env.testName}: {data_type}", force=True)
 
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
-                        'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG')
+                        'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG', 'text', 'TEXT')
 
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
         vector = create_np_array_typed([i]*dim, data_type)
-        p.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid')
+        p.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid', 'text', 'text')
     p.execute()
 
     query_data = create_np_array_typed([index_size/2]*dim, data_type)
@@ -840,7 +884,7 @@ def test_hybrid_query_batches_mode_with_tags():
         expected_res.extend([str(int(index_size/2) - 5 + i), '1'])
         expected_res.append(['__v_score', str(dim*abs(5-i)**2), 'tags', 'hybrid'])
     execute_hybrid_query(env, '(@tags:{hybrid|tag})=>[KNN 10 @v $vec_param]', query_data, 'tags',
-                            sort_by_vector=False).equal(expected_res)
+                            sort_by_vector=False, scorer='TFIDF').equal(expected_res)
 
 
 def test_hybrid_query_with_numeric():
@@ -867,7 +911,7 @@ def test_hybrid_query_with_numeric():
         expected_res.append(str(index_size-i))
         expected_res.append(['__v_score', str(dim*i**2), 'num', str(index_size-i)])
 
-    execute_hybrid_query(env, '(@num:[0 {}])=>[KNN 10 @v $vec_param]'.format(index_size), query_data, 'num').equal(expected_res)
+    execute_hybrid_query(env, f'(@num:[0 {index_size}])=>[KNN 10 @v $vec_param]', query_data, 'num').equal(expected_res)
     execute_hybrid_query(env, '(@num:[0 inf])=>[KNN 10 @v $vec_param]', query_data, 'num').equal(expected_res)
 
     # Expect that no result will pass the filter.
@@ -880,7 +924,7 @@ def test_hybrid_query_with_numeric():
         expected_res.append(str(index_size-lower_bound_num-i))
         expected_res.append(['__v_score', str(dim*(lower_bound_num+i)**2), 'num', str(index_size-lower_bound_num-i)])
     # We switch from batches to ad-hoc BF mode during the run.
-    execute_hybrid_query(env, '(@num:[-inf {}])=>[KNN 10 @v $vec_param]'.format(index_size-lower_bound_num), query_data, 'num',
+    execute_hybrid_query(env, f'(@num:[-inf {index_size - lower_bound_num}])=>[KNN 10 @v $vec_param]', query_data, 'num',
                             hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal(expected_res)
     execute_hybrid_query(env, '(@num:[-inf {}] | @num:[{} {}])=>[KNN 10 @v $vec_param]'
                             .format(lower_bound_num, index_size-2*lower_bound_num, index_size-lower_bound_num), query_data, 'num',
@@ -908,13 +952,13 @@ def test_hybrid_query_with_geo():
     index_size = 1000   # for this index size, ADHOC BF mode will always be selected by the heuristics.
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
-        vector = create_np_array_typed([i]*dim, data_type)
+        vector = create_np_array_typed([i/100]*dim, data_type)
         p.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', str(i/100)+","+str(i/100))
     p.execute()
     if not env.isCluster():
         env.assertEqual(get_vecsim_index_size(env, 'idx', 'v'), index_size)
 
-    query_data = create_np_array_typed([index_size]*dim, data_type)
+    query_data = create_np_array_typed([index_size/100]*dim, data_type)
     # Expect that ids 1-31 will pass the geo filter, and that the top 10 from these will return.
     expected_res = [10]
     for i in range(10):
@@ -1008,10 +1052,10 @@ def test_hybrid_query_non_vector_score():
                       '97', '2', ['__v_score', '1152', 't', 'text value'],
                       '98', '2', ['__v_score', '512', 't', 'text value'],
                       '99', '2', ['__v_score', '128', 't', 'text value']]
-    execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
-                         hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_1)
-    execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
-                         sort_by_non_vector_field=True, hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_1)
+    execute_hybrid_query(env, '((text ~"value")|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
+                         hybrid_mode='HYBRID_ADHOC_BF', scorer='TFIDF').equal(expected_res_1)
+    execute_hybrid_query(env, '((text ~"value")|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
+                         sort_by_non_vector_field=True, hybrid_mode='HYBRID_ADHOC_BF', scorer='TFIDF').equal(expected_res_1)
 
     # Same as above, but here we use fuzzy for 'text'
     expected_res_2 = [10,
@@ -1026,9 +1070,9 @@ def test_hybrid_query_non_vector_score():
                       '98', '1', ['__v_score', '512', 't', 'text value'],
                       '99', '1', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
-                         hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_2)
+                         hybrid_mode='HYBRID_ADHOC_BF', scorer='TFIDF').equal(expected_res_2)
     execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
-                         sort_by_non_vector_field=True, hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_2)
+                         sort_by_non_vector_field=True, hybrid_mode='HYBRID_ADHOC_BF', scorer='TFIDF').equal(expected_res_2)
 
     # use TFIDF.DOCNORM scorer
     expected_res_3 = [10,
@@ -1057,7 +1101,7 @@ def test_hybrid_query_non_vector_score():
         compare_lists(env, res, expected_res_4, delta=0.01)
 
         # use BM25STD scorer
-        expected_res_5 = [10, '100', '2.6410360891609486', ['__v_score', '0', 't', 'other'], '91', '0.005028044957743152', ['__v_score', '10368', 't', 'text value'], '92', '0.005028044957743152', ['__v_score', '8192', 't', 'text value'], '93', '0.005028044957743152', ['__v_score', '6272', 't', 'text value'], '94', '0.005028044957743152', ['__v_score', '4608', 't', 'text value'], '95', '0.005028044957743152', ['__v_score', '3200', 't', 'text value'], '96', '0.005028044957743152', ['__v_score', '2048', 't', 'text value'], '97', '0.005028044957743152', ['__v_score', '1152', 't', 'text value'], '98', '0.005028044957743152', ['__v_score', '512', 't', 'text value'], '99', '0.005028044957743152', ['__v_score', '128', 't', 'text value']]
+        expected_res_5 = [10, '100', '2.8811302846039606', ['__v_score', '0', 't', 'other'], '91', '0.005061343269334967', ['__v_score', '10368', 't', 'text value'], '92', '0.005061343269334967', ['__v_score', '8192', 't', 'text value'], '93', '0.005061343269334967', ['__v_score', '6272', 't', 'text value'], '94', '0.005061343269334967', ['__v_score', '4608', 't', 'text value'], '95', '0.005061343269334967', ['__v_score', '3200', 't', 'text value'], '96', '0.005061343269334967', ['__v_score', '2048', 't', 'text value'], '97', '0.005061343269334967', ['__v_score', '1152', 't', 'text value'], '98', '0.005061343269334967', ['__v_score', '512', 't', 'text value'], '99', '0.005061343269334967', ['__v_score', '128', 't', 'text value']]
         res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25STD', 'WITHSCORES',
                   'PARAMS', 2, 'vec_param', query_data.tobytes(),
                   'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
@@ -1312,43 +1356,6 @@ def test_hybrid_query_with_global_filters():
     expected_res = [2, str(index_size-100), ['__v_score', str(dim*100**2)], str(index_size-10), ['__v_score', str(dim*10**2)]]
     env.expect('FT.SEARCH', 'idx', '(other)=>[KNN 10 @v $vec_param]', 'INKEYS', len(inkeys), *inkeys,
                'RETURN', 1, '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
-
-    # Test legacy numeric and geo global filters
-    expected_res = [10]
-    # Expect to get top 10 ids where maximum is index_size/2 in the index (due to the numeric filter).
-    for i in range(10):
-        expected_res.append(str(int(index_size/2-i)))
-        expected_res.append(['__v_score', str(int(dim*(index_size/2+i)**2))])
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]', 'filter', 'num', 0, index_size/2, 'SORTBY', '__v_score',
-               'RETURN', 1, '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
-
-    # Expect to get top 10 ids where maximum is 31 in the index (due to the geo filter).
-    expected_res = [10]
-    for i in range(10):
-        expected_res.append(str(31-i))
-        expected_res.append(['coordinate', str((31-i)/100)+","+str((31-i)/100)])
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]', 'geofilter', 'coordinate', 0.0, 0.0, 50, 'km',
-               'SORTBY', '__v_score', 'RETURN', 1, 'coordinate',
-               'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
-
-    # Test complex query with multiple global filters - this query applies 4 global filters:
-    # 2 numeric filters - the second filter is a subset of the first one - enforces that the result ids
-    # will be between index_size/3 to index_size/2.
-    # geo filter - get all ids whose coordinates are in 50 km radius from (5.0, 5.0) - will enforce that the result ids
-    # are in the range of (index_size/2 - 31, index_size/2 + 31), according to the previous query and the fact that the
-    # coordinates of index_size/2 are (5.0, 5.0).
-    # Finally, inkeys filter enforces that only ids that multiply by 7 are valid.
-    # On top of all that, we have the hybrid query that filters out ids that multiply by 5
-    # (i.e., their text field is not 'hybrid') - and this is the reason for the expected ids
-    expected_res = ([str(i) for i in range(int(index_size/2), int(index_size/2) - 32, -1)
-                    if i % 5 != 0 and i % 7 == 0])
-    expected_res.insert(0, len(expected_res))
-
-    inkeys = [i for i in range(index_size) if i % 7 == 0]
-    env.expect('FT.SEARCH', 'idx', '(hybrid)=>[KNN 5 @v $vec_param]', 'INKEYS', len(inkeys), *inkeys,
-               'filter', 'num', 0, index_size/2, 'filter', 'num', index_size/3, index_size/2,
-               'geofilter', 'coordinate', 5.0, 5.0, 50, 'km', 'SORTBY', '__v_score',
-               'NOCONTENT', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
 
 
 def test_hybrid_query_change_policy():
@@ -1897,6 +1904,7 @@ def test_range_query_basic():
     conn = getConnectionByEnv(env)
     dim = 4
     n = 99
+    id_diff = 46
 
     for data_type in VECSIM_DATA_TYPES:
         for index in VECSIM_ALGOS:
@@ -1913,26 +1921,25 @@ def test_range_query_basic():
             # load vectors, where vector with id i is [i, i, ..., i]
             load_vectors_with_texts_into_redis(conn, 'v', dim, n, data_type)
 
-            # Expect to get the 49 docs with the highest ids.
-            dist_range = dim * 49**2
+            # Expect to get the `id_diff` docs with the highest ids.
+            dist_range = dim * id_diff**2
             query_data = create_np_array_typed([n+1]*dim, data_type)
             res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:$score_field}',
             'SORTBY', 'score', 'PARAMS', 6, 'vec_param', query_data.tobytes(), 'r', dist_range, 'score_field', 'score',
             'RETURN', 1, 'score', 'LIMIT', 0, n)
-            env.assertEqual(res[0], 49, message=msg)
+            env.assertEqual(res[0], id_diff, message=msg)
             for i, doc_id in enumerate(res[1::2]):
                 env.assertEqual(str(n-i), doc_id, message=msg)
-            for i, score in enumerate(res[2::2]):
-                env.assertEqual(['score', str(dim * (i+1)**2)], score, message=msg)
+            for i, score in enumerate(res[2::2], 1):
+                env.assertEqual(['score', str(dim * i**2)], score, message=msg)
 
             # Run again without score field
             res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]',
                                        'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', dist_range,
                                        'RETURN', 0, 'LIMIT', 0, n)
-            env.assertEqual(res[0], 49, message=msg)
-            for i, doc_id in enumerate(res[1:]):
-                env.assertEqual(str(50 + i + 1), doc_id, message=msg)  # results should be sorted by id (by default)
-
+            env.assertEqual(res[0], id_diff, message=msg)
+            for expected_id, doc_id in enumerate(res[1:], n - id_diff + 1):
+                env.assertEqual(str(expected_id), doc_id, message=msg)  # results should be sorted by id (by default)
             conn.flushall()
 
 
@@ -2056,23 +2063,20 @@ def test_range_query_complex_queries():
         # Test with global filters. Use range query with all types of global filters exists
         radius = dim * 100**2  # ids in range [index_size-100, index_size] are within the radius.
         inkeys = [i for i in range(3, index_size+1, 3)]
-        numeric_range = (index_size-100, index_size-20)
-        ids_in_numeric_range = {i for i in range(numeric_range[0], numeric_range[1]) if i % 5 != 0}
-        ids_in_geo_range = {900 + i*sign for i in range(32) for sign in {1, -1}}  # in 50 km radius around (9.0, 9.0)
         expected_res = [str(i) for i in range(index_size, index_size-100, -1)
-                        if i in inkeys and i in ids_in_numeric_range and i in ids_in_geo_range]
+                        if i in inkeys and i % 5 != 0] # i % 5 != 0 because we also search for `text` in the query
         expected_res.insert(0, len(expected_res))
         res = env.cmd('FT.SEARCH', 'idx', 'text @v:[VECTOR_RANGE $r $vec_param]=>{$yield_distance_as:dist}',
                         'INKEYS', len(inkeys), *inkeys,
-                        'filter', 'num', numeric_range[0], numeric_range[1]-1, 'geofilter', 'coordinate', 9.0, 9.0, 50,
-                        'km', 'SORTBY', 'dist', 'NOCONTENT', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius)
+                        'SORTBY', 'dist', 'NOCONTENT', 'LIMIT', 0, index_size,
+                        'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius)
         env.assertEqual(res, expected_res, message=loop_case)
 
         # Rerun with global filters, put the range query in the root this time (expect the same result set)
-        res = env.cmd('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$yield_distance_as:dist}',
+        res = env.cmd('FT.SEARCH', 'idx', 'text @v:[VECTOR_RANGE $r $vec_param]=>{$yield_distance_as:dist}',
                         'INKEYS', len(inkeys), *inkeys,
-                        'filter', 'num', numeric_range[0], numeric_range[1]-1, 'geofilter', 'coordinate', 9.0, 9.0, 50,
-                        'km', 'SORTBY', 'dist', 'NOCONTENT', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius)
+                        'SORTBY', 'dist', 'NOCONTENT', 'LIMIT', 0, index_size,
+                        'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius)
         env.assertEqual(res, expected_res, message=loop_case)
 
         # Test with tf-idf scores. for ids that are a multiplication of 5, tf_idf score is 2, while for other
@@ -2087,7 +2091,7 @@ def test_range_query_complex_queries():
             expected_res.extend([str(i), '2'])
         for i in sorted(set(range(index_size-10, index_size))-set(range(index_size-10, index_size+1, 5))):
             expected_res.extend([str(i), '1'])
-        res = env.cmd('FT.SEARCH', 'idx', '(text|other|unique) @v:[VECTOR_RANGE $r $vec_param]', 'WITHSCORES',
+        res = env.cmd('FT.SEARCH', 'idx', '(text|other|unique) @v:[VECTOR_RANGE $r $vec_param]', 'SCORER', 'TFIDF', 'WITHSCORES',
                         'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
                         'RETURN', 0, 'LIMIT', 0, 11)
         env.assertEqual(res, expected_res, message=loop_case)
@@ -2253,7 +2257,7 @@ def test_query_with_knn_substr():
                                "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes())
     env.assertEqual([to_dict(res_item) for res_item in res[1:]], expected_res)
 
-    res = conn.execute_command("FT.SEARCH", "idx", query_with_vecsim,
+    res = conn.execute_command("FT.SEARCH", "idx", query_with_vecsim, 'SORTBY', 'dist',
                                "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes(), 'RETURN', '1', 'dist')
     env.assertEqual([to_dict(res_item) for res_item in res[2::2]], expected_res)
 
@@ -2266,7 +2270,8 @@ def test_query_with_knn_substr():
     env.assertEqual([res_item[1] for res_item in res[1:]], expected_res)
 
     res = conn.execute_command("FT.SEARCH", "idx", query_without_vecsim,
-                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes(), 'nocontent')
+                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes(), 'nocontent',
+                               'LOAD', '1', '@__key', 'SORTBY', '__key')
     env.assertEqual(res[1:], expected_res)
 
 
@@ -2425,7 +2430,6 @@ def test_switch_write_mode_multiple_indexes(env):
         prefix = "::warning title=Bad scenario in test_vecsim:test_switch_write_mode_multiple_indexes::" if GHA else ''
         print(f"{prefix}All vectors were done reindex before switching back to in-place mode")
 
-
 def test_max_knn_k():
     env = Env(moduleArgs='DEFAULT_DIALECT 3')
     conn = getConnectionByEnv(env)
@@ -2441,3 +2445,34 @@ def test_max_knn_k():
                'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
                'RETURN', '1', score_name).error().contains('KNN K parameter is too large')
 
+def test_vector_index_ptr_valid(env):
+    conn = getConnectionByEnv(env)
+    # Scenerio1: Vecsim Index scheme with numeric (or non-vector type) and vector type with invalid parameter
+    #            Insert partial doc - only numeric
+    #            Update Doc
+
+    # HNSW parameters the causes an execution throw (M > UINT16_MAX)
+    UINT16_MAX = 2**16
+    M = UINT16_MAX + 1
+    dim = 4
+
+    env.expect('FT.CREATE', 'idx','SCHEMA', 'n', 'NUMERIC',
+                    'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
+
+    res = conn.execute_command('HSET', 'doc', 'n', 0)
+    env.assertEqual(res, 1)
+    # before bug fix, the following command would cause a server crash due to null pointer access to the vector index that filed to be created.
+    res = conn.execute_command('HSET', 'doc', 'n', 1)
+    env.assertEqual(res, 0)
+
+    # Sanity check - insert a vector, expect indexing failure
+    res = conn.execute_command('HSET', 'doc1', 'v', create_np_array_typed([0]*dim,'FLOAT16').tobytes())
+    env.assertEqual(res, 1)
+
+    index_errors_dict = index_errors(env, 'idx')
+    env.assertEqual(index_errors_dict['last indexing error'], "Could not open vector for indexing")
+
+    # Check FlushAll - before bug fix, the following command would cause a server crash due to the null pointer access
+    # Server will reply OK but crash afterwards, so a PING is required to verify
+    env.expect('FLUSHALL').noError()
+    env.expect('PING').noError()

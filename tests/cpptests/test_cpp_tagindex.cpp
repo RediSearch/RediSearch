@@ -1,3 +1,13 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+
 #include "tag_index.h"
 #include "gtest/gtest.h"
 
@@ -27,7 +37,7 @@ TEST_F(TagIndexTest, testCreate) {
 
   ASSERT_EQ(v.size(), idx->values->cardinality);
 
-  // expectedTotalSZ should include the memory occupied by the inverted index 
+  // expectedTotalSZ should include the memory occupied by the inverted index
   // structure and its blocks.
 
   // Buffer grows up to 1077 bytes trying to store 1000 bytes. See Buffer_Grow()
@@ -47,7 +57,7 @@ TEST_F(TagIndexTest, testCreate) {
                             sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
   ASSERT_EQ(expectedTotalSZ + last_block_size, totalSZ + sz);
 
-  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1);
+  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
   ASSERT_TRUE(it != NULL);
   RSIndexResult *r;
   t_docId n = 1;
@@ -64,6 +74,24 @@ TEST_F(TagIndexTest, testCreate) {
   // printf("%d iterations in %lldns, rate %fns/iter\n", N, ts.durationNS,
   //        TimeSampler_IterationMS(&ts) * 1000000);
   ASSERT_EQ(N + 1, n);
+  it->Free(it);
+  TagIndex_Free(idx);
+}
+
+TEST_F(TagIndexTest, testSkipToLastId) {
+  TagIndex *idx = NewTagIndex();
+  ASSERT_FALSE(idx == NULL);
+  std::vector<const char *> v{"hello"};
+  t_docId docId = 1;
+  TagIndex_Index(idx, &v[0], v.size(), docId);
+  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
+  RSIndexResult *r;
+  int rc = it->Read(it->ctx, &r);
+  ASSERT_EQ(rc, INDEXREAD_OK);
+  rc = it->SkipTo(it->ctx, docId, &r);
+  ASSERT_EQ(rc, INDEXREAD_EOF);
+  ASSERT_GE(r->docId, docId);
+  ASSERT_GE(it->LastDocId(it->ctx), docId);
   it->Free(it);
   TagIndex_Free(idx);
 }

@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "doc_table.h"
 #include <sys/param.h>
@@ -19,7 +22,7 @@
 /* increasing the ref count of the given dmd */
 /*
  * This macro is atomic and fits for single writer and multiple readers as it is used only
- * used after we locked the index spec (R/W) and we either have a writer alone or multiple readers.
+ * after we locked the index spec (R/W) and we either have a writer alone or multiple readers.
  */
 #define DMD_Incref(md)                                                        \
   ({                                                                          \
@@ -39,6 +42,7 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
       .dim = NewDocIdMap(),
   };
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
+  ret.memsize = cap * sizeof(*ret.buckets) + sizeof(DocTable);
   return ret;
 }
 
@@ -83,7 +87,7 @@ const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
   return dmd;
 }
 
-int DocTable_Exists(const DocTable *t, t_docId docId) {
+bool DocTable_Exists(const DocTable *t, t_docId docId) {
   if (!docId || docId > t->maxDocId) {
     return 0;
   }
@@ -125,6 +129,7 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
     t->cap = MIN(t->cap, t->maxSize);  // make sure we do not excised maxSize
     t->cap = MAX(t->cap, bucket + 1);  // docs[bucket] needs to be valid, so t->cap > bucket
     t->buckets = rm_realloc(t->buckets, t->cap * sizeof(DMDChain));
+    t->memsize += (t->cap - oldcap) * sizeof(DMDChain);
 
     // We clear new extra allocation to Null all list pointers
     size_t memsetSize = (t->cap - oldcap) * sizeof(DMDChain);
@@ -160,6 +165,7 @@ int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, 
     t->memsize -= dmd->payload->len;
   } else {
     dmd->payload = rm_malloc(sizeof(RSPayload));
+    t->memsize += sizeof(RSPayload);
   }
   /* Copy it... */
   dmd->payload->data = rm_calloc(1, len + 1);
@@ -207,6 +213,33 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *v) {
 
   dmd->byteOffsets = v;
   dmd->flags |= Document_HasOffsetVector;
+}
+
+void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
+  if (hasExpirationTimeInformation(dmd->flags)) {
+    TimeToLiveTable_VerifyInit(&t->ttl);
+    TimeToLiveTable_Add(t->ttl, dmd->id, ttl, sortedFieldWithExpiration);
+  }
+}
+
+bool DocTable_HasExpiration(DocTable *t, t_docId docId)
+{
+  return t->ttl && TimeToLiveTable_HasExpiration(t->ttl, docId);
+}
+
+bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint) {
+  if (!hasExpirationTimeInformation(dmd->flags)) {
+      return false;
+  }
+  RS_LOG_ASSERT(t->ttl, "Document has expiration time information but no TTL table");
+  return TimeToLiveTable_HasDocExpired(t->ttl, dmd->id, expirationPoint);
+}
+
+bool DocTable_VerifyFieldExpirationPredicate(const DocTable *t, t_docId docId, const t_fieldIndex* fieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
+  if (!t->ttl || !fieldIndices || fieldCount == 0) {
+    return true;
+  }
+  return TimeToLiveTable_VerifyDocAndFields(t->ttl, docId, fieldIndices, fieldCount, predicate, expirationPoint);
 }
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
@@ -319,6 +352,7 @@ void DocTable_Free(DocTable *t) {
     }
   }
   rm_free(t->buckets);
+  TimeToLiveTable_Destroy(&t->ttl);
   DocIdMap_Free(&t->dim);
 }
 
@@ -346,6 +380,14 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
     if (!md) {
       return NULL;
     }
+
+    if (t->ttl && hasExpirationTimeInformation(md->flags)) {
+      TimeToLiveTable_Remove(t->ttl, md->id);
+      if (TimeToLiveTable_IsEmpty(t->ttl)) {
+        TimeToLiveTable_Destroy(&t->ttl);
+      }
+    }
+
     // Assuming we already locked the spec for write, and we don't have multiple writers,
     // all the next operations don't need to be atomic
     md->flags |= Document_Deleted;
@@ -381,51 +423,11 @@ int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const c
   DocIdMap_Delete(&t->dim, from_str, from_len);
   DocIdMap_Put(&t->dim, to_str, to_len, id);
   RSDocumentMetadata *dmd = DocTable_GetOwn(t, id);
+  t->memsize -= sdsAllocSize(dmd->keyPtr);
   sdsfree(dmd->keyPtr);
   dmd->keyPtr = sdsnewlen(to_str, to_len);
+  t->memsize += sdsAllocSize(dmd->keyPtr);
   return REDISMODULE_OK;
-}
-
-void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
-
-  RedisModule_SaveUnsigned(rdb, t->size);
-
-  uint32_t elements_written = 0;
-  for (uint32_t i = 0; i < t->cap; ++i) {
-    if (DLLIST2_IS_EMPTY(&t->buckets[i].lroot)) {
-      continue;
-    }
-    DLLIST2_FOREACH(it, &t->buckets[i].lroot) {
-      const RSDocumentMetadata *dmd = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
-      RedisModule_SaveStringBuffer(rdb, dmd->keyPtr, sdslen(dmd->keyPtr));
-      RedisModule_SaveUnsigned(rdb, dmd->flags);
-      RedisModule_SaveUnsigned(rdb, dmd->maxFreq);
-      RedisModule_SaveUnsigned(rdb, dmd->len);
-      RedisModule_SaveFloat(rdb, dmd->score);
-      if (dmd->flags & Document_HasPayload) {
-        if (hasPayload(dmd->flags)) {
-          // save an extra space for the null terminator to make the payload null terminated on
-          RedisModule_SaveStringBuffer(rdb, dmd->payload->data, dmd->payload->len + 1);
-        } else {
-          RedisModule_SaveStringBuffer(rdb, "", 1);
-        }
-      }
-
-      //      if (dmd->flags & Document_HasSortVector) {
-      //        SortingVector_RdbSave(rdb, dmd->sortVector);
-      //      }
-
-      if (dmd->flags & Document_HasOffsetVector) {
-        Buffer tmp;
-        Buffer_Init(&tmp, 16);
-        RSByteOffsets_Serialize(dmd->byteOffsets, &tmp);
-        RedisModule_SaveStringBuffer(rdb, tmp.data, tmp.offset);
-        Buffer_Free(&tmp);
-      }
-      ++elements_written;
-    }
-  }
-  RS_LOG_ASSERT((elements_written + 1 == t->size), "Wrong number of written elements");
 }
 
 void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
@@ -447,9 +449,11 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
      * could still be accessed for simple queries (e.g. get, exist). Ensure
      * we don't have to rely on Set/Put to ensure the doc table array.
      */
+    t->memsize -= t->cap * sizeof(DMDChain);
     t->cap = t->maxSize;
     rm_free(t->buckets);
     t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
+    t->memsize += t->cap * sizeof(DMDChain);
   }
 
   for (size_t i = 1; i < t->size; i++) {
@@ -520,102 +524,6 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
   }
   t->size -= deletedElements;
-}
-
-void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
-  long long deletedElements = 0;
-  size_t size = RedisModule_LoadUnsigned(rdb);
-  //  t->maxDocId = RedisModule_LoadUnsigned(rdb);
-  //  if (encver >= INDEX_MIN_COMPACTED_DOCTABLE_VERSION) {
-  //    t->maxSize = RedisModule_LoadUnsigned(rdb);
-  //  } else {
-  //    t->maxSize = MIN(RSGlobalConfig.maxDocTableSize, t->maxDocId);
-  //  }
-
-  //  if (t->maxDocId > t->maxSize) {
-  //    /**
-  //     * If the maximum doc id is greater than the maximum cap size
-  //     * then it means there is a possibility that any index under maxId can
-  //     * be accessed. However, it is possible that this bucket does not have
-  //     * any documents inside it (and thus might not be populated below), but
-  //     * could still be accessed for simple queries (e.g. get, exist). Ensure
-  //     * we don't have to rely on Set/Put to ensure the doc table array.
-  //     */
-  //    t->cap = t->maxSize;
-  //    rm_free(t->buckets);
-  //    t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
-  //  }
-
-  for (size_t i = 1; i < size; i++) {
-    size_t len;
-
-    RSDocumentMetadata *dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
-    char *tmpPtr = RedisModule_LoadStringBuffer(rdb, &len);
-    if (encver < INDEX_MIN_BINKEYS_VERSION) {
-      // Previous versions would encode the NUL byte
-      len--;
-    }
-    //    dmd->id = encver < INDEX_MIN_COMPACTED_DOCTABLE_VERSION ? i :
-    //    RedisModule_LoadUnsigned(rdb);
-    dmd->keyPtr = sdsnewlen(tmpPtr, len);
-    RedisModule_Free(tmpPtr);
-
-    dmd->flags = RedisModule_LoadUnsigned(rdb);
-    dmd->maxFreq = 1;
-    dmd->len = 1;
-    if (encver > 1) {
-      dmd->maxFreq = RedisModule_LoadUnsigned(rdb);
-    }
-    if (encver >= INDEX_MIN_DOCLEN_VERSION) {
-      dmd->len = RedisModule_LoadUnsigned(rdb);
-    } else {
-      // In older versions, default the len to max freq to avoid division by zero.
-      dmd->len = dmd->maxFreq;
-    }
-
-    dmd->score = RedisModule_LoadFloat(rdb);
-    dmd->payload = NULL;
-    // read payload if set
-    if ((dmd->flags & Document_HasPayload)) {
-      if (!(dmd->flags & Document_Deleted)) {
-        dmd->payload = rm_malloc(sizeof(RSPayload));
-        dmd->payload->data = RedisModule_LoadStringBuffer(rdb, &dmd->payload->len);
-        char *buf = rm_malloc(dmd->payload->len);
-        memcpy(buf, dmd->payload->data, dmd->payload->len);
-        RedisModule_Free(dmd->payload->data);
-        dmd->payload->data = buf;
-        dmd->payload->len--;
-        t->memsize += dmd->payload->len + sizeof(RSPayload);
-      } else if ((dmd->flags & Document_Deleted) && (encver == INDEX_MIN_EXPIRE_VERSION)) {
-        RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL));  // throw this string to garbage
-      }
-    }
-    dmd->sortVector = NULL;
-    //    if (dmd->flags & Document_HasSortVector) {
-    //      dmd->sortVector = SortingVector_RdbLoad(rdb, encver);
-    //      t->sortablesSize += RSSortingVector_GetMemorySize(dmd->sortVector);
-    //    }
-
-    if (dmd->flags & Document_HasOffsetVector) {
-      size_t nTmp = 0;
-      char *tmp = RedisModule_LoadStringBuffer(rdb, &nTmp);
-      Buffer *bufTmp = Buffer_Wrap(tmp, nTmp);
-      dmd->byteOffsets = LoadByteOffsets(bufTmp);
-      rm_free(bufTmp);
-      RedisModule_Free(tmp);
-    }
-
-    if (dmd->flags & Document_Deleted) {
-      DMD_Free(dmd);
-    } else {
-      RedisModuleString *keyRedisStr =
-          RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
-      RedisModule_FreeString(NULL, keyRedisStr);
-      //      DocIdMap_Put(&t->dim, dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
-      //      DocTable_Set(t, dmd->id, dmd);
-      //      t->memsize += sizeof(RSDocumentMetadata) + len;
-    }
-  }
 }
 
 DocIdMap NewDocIdMap() {

@@ -16,7 +16,7 @@
 **
 ** The "lemon" program processes an LALR(1) input grammar file, then uses
 ** this template to construct a parser.  The "lemon" program inserts text
-** at each "%%" line.  Also, any "P-a-r-s-e" identifer prefix (without the
+** at each "%%" line.  Also, any "P-a-r-s-e" identifier prefix (without the
 ** interstitial "-" characters) contained in this template is changed into
 ** the value of the %name directive from the grammar.  Otherwise, the content
 ** of this template is copied straight through into the generate parser
@@ -35,27 +35,6 @@
 #include "util/arr.h"
 #include "rmutil/vector.h"
 #include "query_node.h"
-
-// strndup + lowercase in one pass!
-static char *strdupcase(const char *s, size_t len) {
-  char *ret = rm_strndup(s, len);
-  char *dst = ret;
-  char *src = dst;
-  while (*src) {
-      // unescape
-      if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
-          ++src;
-          continue;
-      }
-      *dst = tolower(*src);
-      ++dst;
-      ++src;
-
-  }
-  *dst = '\0';
-
-  return ret;
-}
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
@@ -1280,13 +1259,10 @@ static YYACTIONTYPE yy_reduce(
         } else {
             yylhsminor.yy75 = NewUnionNode();
             QueryNode_AddChild(yylhsminor.yy75, yymsp[-2].minor.yy75);
-            yylhsminor.yy75->opts.fieldMask |= yymsp[-2].minor.yy75->opts.fieldMask;
         }
 
         // Handle yymsp[0].minor.yy75
         QueryNode_AddChild(yylhsminor.yy75, yymsp[0].minor.yy75);
-        yylhsminor.yy75->opts.fieldMask |= yymsp[0].minor.yy75->opts.fieldMask;
-        QueryNode_SetFieldMask(yylhsminor.yy75, yylhsminor.yy75->opts.fieldMask);
     }
 }
   yymsp[-2].minor.yy75 = yylhsminor.yy75;
@@ -1390,14 +1366,14 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 17: /* expr ::= QUOTE term QUOTE */
 {
-    yymsp[-2].minor.yy75 = NewTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
+    yymsp[-2].minor.yy75 = NewTokenNode(ctx, rm_normalize(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
     yymsp[-2].minor.yy75->opts.flags |= QueryNode_Verbatim;
 
 }
         break;
       case 18: /* expr ::= term */
 {
-   yylhsminor.yy75 = NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1);
+   yylhsminor.yy75 = NewTokenNode(ctx, rm_normalize(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1);
 }
   yymsp[0].minor.yy75 = yylhsminor.yy75;
         break;
@@ -1421,15 +1397,15 @@ static YYACTIONTYPE yy_reduce(
       case 22: /* termlist ::= term term */
 {
     yylhsminor.yy75 = NewPhraseNode(0);
-    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1));
-    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, rm_normalize(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1));
+    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, rm_normalize(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
   yymsp[-1].minor.yy75 = yylhsminor.yy75;
         break;
       case 23: /* termlist ::= termlist term */
 {
     yylhsminor.yy75 = yymsp[-1].minor.yy75;
-    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, rm_normalize(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
   yymsp[-1].minor.yy75 = yylhsminor.yy75;
         break;
@@ -1524,16 +1500,22 @@ static YYACTIONTYPE yy_reduce(
     if (!yymsp[0].minor.yy75) {
         yylhsminor.yy75= NULL;
     } else {
-        // Tag field names must be case sensitive, we we can't do strdupcase
-        char *s = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-        size_t slen = unescapen((char*)s, yymsp[-2].minor.yy0.len);
-
-        yylhsminor.yy75 = NewTagNode(s, slen);
+        yylhsminor.yy75 = NewTagNode(NULL);
         QueryNode_AddChildren(yylhsminor.yy75, yymsp[0].minor.yy75->children, QueryNode_NumChildren(yymsp[0].minor.yy75));
 
         // Set the children count on yymsp[0].minor.yy75 to 0 so they won't get recursively free'd
         QueryNode_ClearChildren(yymsp[0].minor.yy75, 0);
         QueryNode_Free(yymsp[0].minor.yy75);
+
+        if (ctx->sctx->spec) {
+            // Tag field names must be case sensitive, we can't do strdupcase
+            yymsp[-2].minor.yy0.len = unescapen((char*)yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+            yylhsminor.yy75->tag.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+            if (!yylhsminor.yy75->tag.fs) {
+                QueryNode_Free(yylhsminor.yy75);
+                yylhsminor.yy75 = NULL;
+            }
+        }
     }
 }
   yymsp[-2].minor.yy75 = yylhsminor.yy75;
@@ -1571,22 +1553,34 @@ static YYACTIONTYPE yy_reduce(
       case 49: /* expr ::= modifier COLON numeric_range */
 {
     // we keep the capitalization as is
-    yymsp[0].minor.yy62->nf->fieldName = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-    yylhsminor.yy75 = NewNumericNode(yymsp[0].minor.yy62);
+    yylhsminor.yy75 = NULL;
+    const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len) : NULL;
+    if (fs) {
+        yylhsminor.yy75 = NewNumericNode(yymsp[0].minor.yy62, fs);
+    } else if (yymsp[0].minor.yy62) {
+        QueryParam_Free(yymsp[0].minor.yy62);
+        yymsp[0].minor.yy62 = NULL;
+    }
 }
   yymsp[-2].minor.yy75 = yylhsminor.yy75;
         break;
       case 50: /* numeric_range ::= LSQB num num RSQB */
 {
   yymsp[-3].minor.yy62 = NewQueryParam(QP_NUMERIC_FILTER);
-  yymsp[-3].minor.yy62->nf = NewNumericFilter(yymsp[-2].minor.yy47.num, yymsp[-1].minor.yy47.num, yymsp[-2].minor.yy47.inclusive, yymsp[-1].minor.yy47.inclusive, true);
+  yymsp[-3].minor.yy62->nf = NewNumericFilter(yymsp[-2].minor.yy47.num, yymsp[-1].minor.yy47.num, yymsp[-2].minor.yy47.inclusive, yymsp[-1].minor.yy47.inclusive, true, NULL);
 }
         break;
       case 51: /* expr ::= modifier COLON geo_filter */
 {
     // we keep the capitalization as is
-    yymsp[0].minor.yy62->gf->property = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
     yylhsminor.yy75 = NewGeofilterNode(yymsp[0].minor.yy62);
+    if (ctx->sctx->spec) {
+        yylhsminor.yy75->gn.gf->fieldSpec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+        if (!yylhsminor.yy75->gn.gf->fieldSpec) {
+            QueryNode_Free(yylhsminor.yy75);
+            yylhsminor.yy75 = NULL;
+        }
+    }
 }
   yymsp[-2].minor.yy75 = yylhsminor.yy75;
         break;
@@ -1684,8 +1678,8 @@ static void yy_syntax_error(
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 
-    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
-        "Syntax error at offset %d near %.*s",
+    QueryError_SetWithUserDataFmt(ctx->status, QUERY_ESYNTAX,
+        "Syntax error", " at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
 /************ End %syntax_error code ******************************************/
   RSQueryParser_v1_ARG_STORE /* Suppress warning about unused %extra_argument variable */

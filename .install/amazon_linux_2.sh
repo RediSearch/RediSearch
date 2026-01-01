@@ -5,6 +5,7 @@ set -e
 export DEBIAN_FRONTEND=noninteractive
 
 $MODE yum update -y
+$MODE yum install -y which
 
 if [[ $ARCH = 'x86_64' ]]
 then
@@ -16,7 +17,7 @@ then
     $MODE sed -i 's/mirrorlist=/#mirrorlist=/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo                        # Disable mirrorlist
     $MODE sed -i 's/#baseurl=http:\/\/mirror/baseurl=http:\/\/vault/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo # Enable a working baseurl
 
-    $MODE yum install -y wget git which devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make rsync python3 unzip
+    $MODE yum install -y wget git devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make rsync unzip libclang-dev clang
 
     source /opt/rh/devtoolset-11/enable
 
@@ -32,13 +33,13 @@ else
     # Enable a working baseurl
     $MODE sed -i 's/#baseurl=http:\/\/mirror.centos.org\/centos/baseurl=http:\/\/vault.centos.org\/altarch/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
 
-    $MODE yum install -y wget git which devtoolset-10-gcc devtoolset-10-gcc-c++ \
-        devtoolset-10-make rsync python3 python3-devel unzip clang
+    $MODE yum install -y wget git devtoolset-10-gcc devtoolset-10-gcc-c++ \
+        devtoolset-10-make rsync unzip clang curl  libclang-dev
 
     source /opt/rh/devtoolset-10/enable
 
     $MODE cp /opt/rh/devtoolset-10/enable /etc/profile.d/scl-devtoolset-10.sh
-    
+
     # hack gcc 10.2.1 Redhat to enable _GLIBCXX_USE_CXX11_ABI=1
     $MODE sed -i \
         -e 's/^# define _GLIBCXX_USE_DUAL_ABI 0/# define _GLIBCXX_USE_DUAL_ABI 1/g' \
@@ -47,5 +48,4 @@ else
 fi
 
 $MODE yum install -y openssl11 openssl11-devel
-$MODE ln -s `which openssl11` /usr/bin/openssl
-source install_cmake.sh $MODE
+$MODE ln -s "$(which openssl11)" /usr/bin/openssl

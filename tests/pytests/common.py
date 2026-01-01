@@ -1,4 +1,3 @@
-
 from includes import *
 try:
     from collections.abc import Iterable
@@ -13,7 +12,7 @@ import itertools
 from redis.client import NEVER_DECODE
 from redis import exceptions as redis_exceptions
 import RLTest
-from typing import Any, Callable
+from typing import Any, Callable, List
 from RLTest import Env
 from RLTest.env import Query
 import numpy as np
@@ -23,6 +22,8 @@ from deepdiff import DeepDiff
 from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
+import subprocess
+import math
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
@@ -70,7 +71,7 @@ class DialectEnv(Env):
                 message = f'Dialect {self.dialect}'
             else:
                 message = f'Dialect {self.dialect}, {message}'
-        super().assertEqual(first, second, depth=depth, message=message)
+        super().assertEqual(first, second, depth=depth+1, message=message)
 
 def getConnectionByEnv(env):
     conn = None
@@ -305,36 +306,44 @@ def collectKeys(env, pattern='*'):
         keys.extend(conn.keys(pattern))
     return sorted(keys)
 
-COORD_BUILD = any('coord-oss' in m for m in Defaults.module) or 'coord-oss' in Defaults.module
 
 def debug_cmd():
-    return '_FT.DEBUG' if COORD_BUILD else 'FT.DEBUG'
+    return '_FT.DEBUG'
 
 def config_cmd():
-    return '_FT.CONFIG' if COORD_BUILD else 'FT.CONFIG'
+    return '_FT.CONFIG'
 
+def enable_unstable_features(env):
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'yes')
 
 def run_command_on_all_shards(env, *args):
     return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
 
+def verify_command_OK_on_all_shards(env, *args):
+    res = run_command_on_all_shards(env, *args)
+    env.assertEqual(res, ['OK'] * env.shardsCount)
+
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 
-
-def forceInvokeGC(env, idx = 'idx', timeout = None):
+def forceInvokeGC(env, idx='idx', timeout=None):
     waitForRdbSaveToFinish(env)
     if timeout is not None:
-        if timeout == 0:
-            env.debugPrint("forceInvokeGC: note timeout is infinite, consider using a big timeout instead.", force=True)
+        # Note: timeout==0 means infinite (no timeout)
         env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx, timeout)
     else:
         env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx)
+
+def forceBGInvokeGC(env, idx='idx'):
+    waitForRdbSaveToFinish(env)
+    env.cmd(debug_cmd(), 'GC_FORCEBGINVOKE', idx)
+
 def no_msan(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
         if SANITIZER == 'memory':
             fname = f.__name__
-            env.debugPrint("skipping {} due to memory sanitizer".format(fname), force=True)
+            env.debugPrint(f"skipping {fname} due to memory sanitizer", force=True)
             env.skip()
             return
         return f(env, *args, **kwargs)
@@ -345,7 +354,7 @@ def unstable(f):
     def wrapper(env, *args, **kwargs):
         if UNSTABLE == True:
             fname = f.__name__
-            env.debugPrint("skipping {} because it is unstable".format(fname), force=True)
+            env.debugPrint(f"skipping {fname} because it is unstable", force=True)
             env.skip()
             return
         return f(env, *args, **kwargs)
@@ -355,7 +364,7 @@ def unstable(f):
 def skipTest(**kwargs):
     skip(**kwargs)(lambda: None)()
 
-def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False):
+def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False, **kwargs):
     def decorate(f):
         def wrapper():
             if not ((cluster is not None) or macos or asan or msan or redis_less_than or redis_greater_equal or min_shards or no_json):
@@ -508,11 +517,11 @@ def compare_lists(env, list1, list2, delta=0.01, _assert=True):
     res = compare_lists_rec(list1, list2, delta + 0.000001)
     if res:
         if _assert:
-            env.assertTrue(True, message='%s ~ %s' % (str(list1), str(list2)))
+            env.assertTrue(True, message=f'{str(list1)} ~ {str(list2)}')
         return True
     else:
         if _assert:
-            env.assertTrue(False, message='%s ~ %s' % (str(list1), str(list2)))
+            env.assertTrue(False, message=f'{str(list1)} ~ {str(list2)}')
         return False
 
 class ConditionalExpected:
@@ -652,17 +661,281 @@ def get_TLS_args():
 
     return cert_file, key_file, ca_cert_file, passphrase
 
-# Use FT.* command to make sure that the module is loaded and initialized
+# Dispatch a command to make sure that the module is loaded and initialized
+# We need to dispatch a command that will activate the topology updater, by
+# sending a command to the shards. Otherwise the cluster.refresh command will
+# not be effective, due to lazy initialization of the topology updater.
+# Thus we dispatch a command that does not have an index, as it is not stopped
+# in the coordinator level.
 def verify_shard_init(shard):
+    # One of the following errors can be raised (timing), yet they
+    # mean the same thing in this case - the command was dispatched
+    # to the shards before the connections were ready. Continue to
+    # try until success\timeout.
+    uninitialized_errors = [
+        'ERRCLUSTER Uninitialized cluster state, could not perform command',
+        'Could not distribute command'
+    ]
+    # The following error means that the cluster is initialized, as it was
+    # returned from the shards.
+    initialized_error = 'Alias does not exist'
+
     with TimeLimit(5, 'Failed to verify shard initialization'):
         while True:
             try:
-                shard.execute_command('FT.SEARCH', 'non-existing', '*')
-                raise Exception('Expected FT.SEARCH to fail')
+                shard.execute_command('FT.ALIASDEL', 'non-existing-alias')
+                break
             except redis_exceptions.ResponseError as e:
-                if 'no such index' in str(e):
+                if any([err in str(e) for err in uninitialized_errors]):
+                    continue
+                elif initialized_error in str(e):
                     break
+                # Unexpected error, raise it.
+                raise
 
 def cmd_assert(env, cmd, res, message=None):
     db_res = env.cmd(*cmd)
     env.assertEqual(db_res, res, message=message)
+
+# fields should be in capital letters
+def getInvertedIndexInitialSize(env, fields, depth=0):
+    total_size = 0
+    for field in fields:
+        if field in ['GEO', 'NUMERIC']:
+            block_size = 48
+            initial_block_cap = 6
+            inverted_index_meta_data = 40
+            total_size += (block_size + initial_block_cap + inverted_index_meta_data)
+            continue
+        env.assertTrue(field in ['TEXT', 'TAG', 'GEOMETRY', 'VECTOR'], message=f"type {field} is not supported", depth=depth+1)
+
+    return total_size
+
+# fields should be in capital letters
+def getInvertedIndexInitialSize_MB(env, fields, depth=0) -> float:
+    return getInvertedIndexInitialSize(env, fields, depth=depth+1) / float(1024 * 1024)
+
+def check_index_info(env, idx, exp_num_records, exp_inv_idx_size, msg="", depth=0):
+    d = index_info(env, idx)
+    env.assertEqual(float(d['num_records']), exp_num_records, message=msg + ", num_records", depth=depth+1)
+
+    if(exp_inv_idx_size != None):
+        env.assertEqual(float(d['inverted_sz_mb']), exp_inv_idx_size, message=msg + ", inverted_sz_mb", depth=depth+1)
+
+# Iterates items in d1 and compare their keys[value] with d2
+# asserts when a key is missing in d2
+# For simplicity, all values are compared as floats
+def compare_numeric_dicts(env, d1, d2, d1_name="d1", d2_name="d2", msg="", _assert=True, depth=0):
+    for key, value in d1.items():
+        try:
+            res = float(d2[key]) == float(value)
+            if _assert:
+                env.assertTrue(res, message=msg + " value is different in key: " + key, depth=depth+1)
+            else:
+                if res == False:
+                    return False
+        except KeyError:
+            if _assert:
+                env.assertTrue(False, message=msg + f" key {key} exists in {d1_name} but doesn't exist in {d2_name}")
+            else:
+                raise KeyError
+    return True
+
+def compare_index_info_dict(env, idx, expected_info_dict, msg="", depth=0):
+    d = index_info(env, idx)
+    compare_numeric_dicts(env, expected_info_dict, d, "expected_info_dict", "index_info", msg, depth=depth+1)
+
+# expected info for index that was initialized and *emptied*
+def check_index_info_empty(env, idx, fields, msg="after delete all and gc", depth=0):
+    expected_size = getInvertedIndexInitialSize_MB(env, fields, depth=depth+1)
+    check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)
+
+def recursive_index(lst, target):
+    for i, element in enumerate(lst):
+        if isinstance(element, list):
+            sublist_index = recursive_index(element, target)
+            if sublist_index is not -1:
+                return [i] + sublist_index
+        elif element == target:
+            return [i]
+    return -1
+
+def recursive_contains(lst, target):
+    return recursive_index(lst, target) != -1
+
+def access_nested_list(lst, index):
+    result = lst
+    for entry in index:
+        result = result[entry]
+    return result
+
+def downloadFile(env, file_name, depth=0):
+    path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
+    path_dir = os.path.dirname(path)
+    os.makedirs(path_dir, exist_ok=True)  # create dir if not exists
+    if not os.path.exists(path):
+        env.debugPrint(f"downloading {file_name}", force=True)
+        try:
+            subprocess.run(
+                [
+                    "wget",
+                    "--no-check-certificate",
+                    BASE_RDBS_URL + file_name,
+                    "-O",
+                    path,
+                    "-q",
+                ],
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            env.assertTrue(
+                False,
+                message=f"Failed to download {BASE_RDBS_URL + file_name}. Return code: {e.returncode}, output: {e.output}, stderr: {e.stderr}",
+                depth=depth + 1,
+            )
+            try:
+                os.remove(path)
+                env.debugPrint(f"Partially downloaded file {path}. Removing it.", force=True)
+            except OSError:
+                env.debugPrint(f"Failed to remove {path}", force=True)
+                pass
+            return False
+    if not os.path.exists(path):
+        env.assertTrue(
+            False,
+            message=f"{path} does not exist after download",
+            depth=depth + 1,
+        )
+        return False
+    return True
+
+
+def downloadFiles(env, rdbs=None, depth=0):
+    if rdbs is None:
+        return False
+
+    for f in rdbs:
+        if not downloadFile(env, f, depth=depth + 1):
+            return False
+    return True
+
+def index_errors(env, idx = 'idx'):
+    return to_dict(index_info(env, idx)['Index Errors'])
+def field_errors(env, idx = 'idx', fld_index = 0):
+    return to_dict(to_dict(to_dict(index_info(env, idx)['field statistics'][fld_index]))['Index Errors'])
+
+def VerifyTimeoutWarningResp3(env, res, message="", depth=0):
+    env.assertTrue(res['warning'], message=message + " expected warning", depth=depth+1)
+    if (res['warning']):
+        env.assertContains("Timeout", res["warning"][0], message=message + " expected timeout warning", depth=depth+1)
+
+def runDebugQueryCommand(env, query_cmd, debug_params):
+    return env.cmd(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params))
+
+def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, internal_only=False):
+    debug_params = ['TIMEOUT_AFTER_N', timeout_res_count]
+    if internal_only:
+        debug_params.append("INTERNAL_ONLY")
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def runDebugQueryCommandAndCrash(env, query_cmd):
+    debug_params = ['CRASH']
+    return env.expect(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)).error()
+
+def shardsConnections(env):
+  for s in range(1, env.shardsCount + 1):
+      yield env.getConnection(shardId=s)
+
+def waitForIndexFinishScan(env, idx = 'idx'):
+    # Wait for the index to finish scan
+    # Check if equals 1 for RESP3 support
+    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+        time.sleep(0.1)
+
+def bgScanCommand():
+    return debug_cmd() + ' BG_SCAN_CONTROLLER'
+
+def getDebugScannerStatus(env, idx = 'idx'):
+    return env.cmd(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
+
+def checkDebugScannerStatusError(env, idx = 'idx', expected_error = ''):
+    env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx).error() \
+        .contains(expected_error)
+
+def checkDebugScannerUpdateError(env, idx = 'idx', expected_error = ''):
+    env.expect(bgScanCommand(), 'DEBUG_SCANNER_UPDATE_CONFIG', idx).error() \
+        .contains(expected_error)
+
+def set_tight_maxmemory_for_oom(env, used_memory_ratio = 1.001):
+    # Get current memory consumption value
+    memory_usage = env.cmd('INFO', 'MEMORY')['used_memory']
+    # Set memory limit based on the current memory usage, according to the used ratio
+    required_limit = memory_usage / used_memory_ratio
+
+    env.expect('config', 'set', 'maxmemory', int(required_limit)).ok()
+
+def set_unlimited_maxmemory_for_oom(env):
+    env.expect('config', 'set', 'maxmemory', 0).ok()
+
+
+def waitForIndexStatus(env, status, idx='idx'):
+    while getDebugScannerStatus(env, idx) != status:
+        time.sleep(0.1)
+
+def waitForIndexPauseScan(env,idx = 'idx'):
+    waitForIndexStatus(env,'PAUSED', idx)
+
+def shard_getDebugScannerStatus(env, shardId, idx = 'idx'):
+    return env.getConnection(shardId).execute_command(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
+
+def shard_waitForIndexStatus(env, shardId, status, idx='idx'):
+    while shard_getDebugScannerStatus(env, shardId, idx) != status:
+        time.sleep(0.1)
+
+def shard_waitForIndexPauseScan(env, shardId, idx = 'idx'):
+    shard_waitForIndexStatus(env, shardId, 'PAUSED', idx)
+
+def allShards_waitForIndexPauseScan(env, idx = 'idx'):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_waitForIndexPauseScan(env, shardId, idx)
+
+def allShards_waitForIndexStatus(env, status, idx='idx'):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_waitForIndexStatus(env, shardId, status, idx)
+
+def shard_waitForIndexFinishScan(env, shardId, idx = 'idx'):
+    # Wait for the index to finish scan
+    # Check if equals 1 for RESP3 support
+    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+        time.sleep(0.1)
+
+def allShards_waitForIndexFinishScan(env, idx = 'idx'):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_waitForIndexFinishScan(env, shardId, idx)
+
+def shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per = 1.0):
+    # Get current memory consumption value
+    memory_usage = env.getConnection(shardId).execute_command('INFO', 'MEMORY')['used_memory']
+    # Set memory limit to less then memory limit
+    required_memory = memory_usage * (1/memory_limit_per)
+    # Round up and add 1
+    new_memory = math.ceil(required_memory) + 1
+    res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', new_memory)
+    env.assertEqual(res, 'OK')
+
+def allShards_set_tight_maxmemory_for_oom(env, memory_limit_per = 1.0):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per)
+
+def shard_set_unlimited_maxmemory_for_oom(env, shardId):
+    res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', 0)
+    env.assertEqual(res, 'OK')
+
+def allShards_set_unlimited_maxmemory_for_oom(env):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_set_unlimited_maxmemory_for_oom(env, shardId)
+
+def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
+    for k in d1:
+        if k in d2:
+            env.assertEqual(d1[k], d2[k], message=message, depth=depth+1)
