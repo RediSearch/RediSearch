@@ -247,16 +247,16 @@ endif
 run:
 	@find_module() { \
 		if [ "$(COORD)" = "rlec" ]; then \
-			MODULE_PATH=$$(find $(ROOT)/bin -path "*/coord-enterprise/$(TARGET_NAME)" | head -1); \
+			MODULE_PATH=$$(find $(ROOT)/bin -path "*/coord-rlec/$(TARGET_NAME)" | head -1); \
 		elif [ "$(COORD)" = "oss" ]; then \
-			MODULE_PATH=$$(find $(ROOT)/bin -path "*/oss-coord/$(TARGET_NAME)" | head -1); \
+			MODULE_PATH=$$(find $(ROOT)/bin -path "*/coord-oss/$(TARGET_NAME)" | head -1); \
 		elif [ "$(LITE)" = "1" ]; then \
 			MODULE_PATH=$$(find $(ROOT)/bin -path "*/search-lite/$(TARGET_NAME)" | head -1); \
 		else \
 			MODULE_PATH=$$(find $(ROOT)/bin -path "*/search/$(TARGET_NAME)" | head -1); \
 		fi; \
 		if [ -z "$$MODULE_PATH" ]; then \
-			echo "Error: module not found for $(TARGET_NAME). Please build first with 'make build"; \
+			echo "Error: module $(TARGET_NAME) was not found in the expected path. Please build first with 'make build'"; \
 			exit 1; \
 		fi; \
 		echo "Using module: $$MODULE_PATH"; \
@@ -303,16 +303,16 @@ license-check:
 pack: build
 	@echo "Creating installation packages..."
 	@if [ "$(COORD)" = "rlec" ]; then \
-		MODULE_PATH=$$(find $(ROOT)/bin -path "*/coord-enterprise/$(TARGET_NAME)" | head -1); \
+		MODULE_PATH=$$(find $(ROOT)/bin -path "*/coord-rlec/$(TARGET_NAME)" | head -1); \
 	elif [ "$(COORD)" = "oss" ]; then \
-		MODULE_PATH=$$(find $(ROOT)/bin -path "*/oss-coord/$(TARGET_NAME)" | head -1); \
+		MODULE_PATH=$$(find $(ROOT)/bin -path "*/coord-oss/$(TARGET_NAME)" | head -1); \
 	elif [ "$(LITE)" = "1" ]; then \
 		MODULE_PATH=$$(find $(ROOT)/bin -path "*/search-lite/$(TARGET_NAME)" | head -1); \
 	else \
 		MODULE_PATH=$$(find $(ROOT)/bin -path "*/search/$(TARGET_NAME)" | head -1); \
 	fi; \
 	if [ -z "$$MODULE_PATH" ]; then \
-		echo "Error: module not found for $(TARGET_NAME). Please build first with 'make build"; \
+		echo "Error: module $(TARGET_NAME) was not found in the expected path. Please build first with 'make build'"; \
 		exit 1; \
 	fi; \
 	echo "Using module: $$MODULE_PATH"; \
