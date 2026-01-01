@@ -13,7 +13,7 @@
 #include "expr/expression.h"
 #include "aggregate_plan.h"
 #include "rmutil/rm_assert.h"
-#include "rmutil/cxx/chrono-clock.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,7 +24,7 @@ extern "C" {
 typedef struct Grouper Grouper;
 
 typedef enum {
-  QEXEC_F_IS_EXTENDED = 0x01,     // Contains aggregations or projections
+  QEXEC_F_IS_AGGREGATE = 0x01,    // Is an aggregate command
   QEXEC_F_SEND_SCORES = 0x02,     // Output: Send scores with each result
   QEXEC_F_SEND_SORTKEYS = 0x04,   // Sent the key used for sorting, for each result
   QEXEC_F_SEND_NOFIELDS = 0x08,   // Don't send the contents of the fields
@@ -35,7 +35,7 @@ typedef enum {
   /** Don't use concurrent execution */
   QEXEC_F_SAFEMODE = 0x100,
 
-  /* The inverse of IS_EXTENDED. The two cannot coexist together */
+  /* The inverse of IS_AGGREGATE. The two cannot coexist together */
   QEXEC_F_IS_SEARCH = 0x200,
 
   /* Highlight/summarize options are active */
@@ -60,11 +60,15 @@ typedef enum {
   /* FT.AGGREGATE load all fields */
   QEXEC_AGG_LOAD_ALL = 0x20000,
 
+  // The query is internal (responding to a command from the coordinator)
+  QEXEC_F_INTERNAL = 0x400000,
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
+#define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
+#define IsScorerNeeded(r) ((r)->reqflags & QEXEC_F_SEND_SCORES)
 
 typedef enum {
   /* Received EOF from iterator */
@@ -121,10 +125,10 @@ typedef struct {
   unsigned int dialectVersion;
 
   /** Profile variables */
-  hires_clock_t initClock;  // Time of start. Reset for each cursor call
-  double totalTime;          // Total time. Used to accimulate cursors times
-  double parseTime;          // Time for parsing the query
-  double pipelineBuildTime;  // Time for creating the pipeline
+  rs_wall_clock initClock;  // Time of start. Reset for each cursor call
+  rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accimulate cursors times. Accumulated in nanoseconds, reported in milliseconds (double)
+  rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query. Accumulated in nanoseconds, reported in milliseconds (double)
+  rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline. Accumulated in nanoseconds, reported in milliseconds (double)
 
   const char** requiredFields;
 } AREQ;
@@ -266,7 +270,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /**
  * @brief Parse a dialect version from var args
- * 
+ *
  * @param dialect pointer to unsigned int to store the parsed value
  * @param ac ArgsCruser set to point on the dialect version position in the var args list
  * @param status QueryError struct to contain error messages

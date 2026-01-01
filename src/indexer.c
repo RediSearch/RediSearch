@@ -13,10 +13,15 @@
 #include "index.h"
 #include "redis_index.h"
 #include "suffix.h"
+#include "config.h"
 #include "rmutil/rm_assert.h"
 #include "phonetic_manager.h"
+#include "redismodule.h"
+#include "debug_commands.h"
 
 extern RedisModuleCtx *RSDummyContext;
+
+extern void IncrementYieldCounter(void);
 
 #include <unistd.h>
 static void Indexer_FreeInternal(DocumentIndexer *indexer);
@@ -165,10 +170,8 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
       // Open the inverted index:
       ForwardIndexEntry *fwent = merged->head;
 
-
-      RedisModuleKey *idxKey = NULL;
       bool isNew;
-      InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, fwent->term, fwent->len, 1, &isNew, &idxKey);
+      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, fwent->term, fwent->len, 1, &isNew);
 
       if (isNew) {
         // Add the term to the prefix trie. This only needs to be done once per term
@@ -198,10 +201,6 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
         writeIndexEntry(ctx->spec, invidx, encoder, fwent);
       }
 
-      if (idxKey) {
-        RedisModule_CloseKey(idxKey);
-      }
-
       if (isBlocked && CONCURRENT_CTX_TICK(&indexer->concCtx) && ctx->spec == NULL) {
         QueryError_SetError(&aCtx->status, QUERY_ENOINDEX, NULL);
         return -1;
@@ -227,29 +226,25 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
   const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
 
   while (entry != NULL) {
-    RedisModuleKey *idxKey = NULL;
     bool isNew;
-    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &isNew, &idxKey);
+    InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
     if (isNew) {
       IndexSpec_AddTerm(spec, entry->term, entry->len);
     }
     if (invidx) {
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
+      IndexerYieldWhileLoading(ctx->redisCtx);
       writeIndexEntry(spec, invidx, encoder, entry);
       if (Index_StoreFieldMask(spec)) {
         invidx->fieldMask |= entry->fieldMask;
       }
     }
-    
+
     if (spec->suffixMask & entry->fieldMask && entry->term[0] != STEM_PREFIX
                                             && entry->term[0] != PHONETIC_PREFIX
                                             && entry->term[0] != SYNONYM_PREFIX_CHAR) {
       addSuffixTrie(spec->suffix, entry->term, entry->len);
-    }
-
-    if (idxKey) {
-      RedisModule_CloseKey(idxKey);
     }
 
     entry = ForwardIndexIterator_Next(&it);
@@ -278,10 +273,11 @@ static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx
       if (spec->flags & Index_HasVecSim) {
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-            RedisModuleString * rmstr = RedisModule_CreateString(RSDummyContext, spec->fields[i].name, strlen(spec->fields[i].name));
-            VecSimIndex *vecsim = OpenVectorIndex(sctx, rmstr);
+            RedisModuleString *rmstr = IndexSpec_GetFormattedKey(spec, &spec->fields[i], INDEXFLD_T_VECTOR);
+            VecSimIndex *vecsim = openVectorKeysDict(spec, rmstr, false);
+            if(!vecsim)
+              continue;
             spec->stats.vectorIndexSize += VecSimIndex_DeleteVector(vecsim, dmd->id);
-            RedisModule_FreeString(RSDummyContext, rmstr);
             // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
           }
         }
@@ -340,10 +336,6 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
 static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Traverse all fields, seeing if there may be something which can be written!
-  IndexBulkData bData[SPEC_MAX_FIELDS] = {{{NULL}}};
-  IndexBulkData *activeBulks[SPEC_MAX_FIELDS];
-  size_t numActiveBulks = 0;
-
   for (RSAddDocumentCtx *cur = aCtx; cur && cur->doc->docId; cur = cur->next) {
     if (cur->stateFlags & ACTX_F_ERRORED) {
       continue;
@@ -356,23 +348,16 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs) || fdata->isNull) {
         continue;
       }
-      IndexBulkData *bulk = &bData[fs->index];
-      if (!bulk->found) {
-        bulk->found = 1;
-        activeBulks[numActiveBulks++] = bulk;
-      }
 
-      if (IndexerBulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
+      IndexerYieldWhileLoading(sctx->redisCtx);
+      if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
+        IndexError_AddError(&cur->spec->stats.indexError, cur->status.detail, doc->docKey);
+        FieldSpec_AddError(&cur->spec->fields[fs->index], cur->status.detail, doc->docKey);
+        QueryError_ClearError(&cur->status);
         cur->stateFlags |= ACTX_F_ERRORED;
       }
       cur->stateFlags |= ACTX_F_OTHERINDEXED;
     }
-  }
-
-  // Flush it!
-  for (size_t ii = 0; ii < numActiveBulks; ++ii) {
-    IndexBulkData *cur = activeBulks[ii];
-    IndexerBulkCleanup(cur, sctx);
   }
 }
 
@@ -531,6 +516,24 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 
   indexer->size++;
   return 0;
+}
+
+bool g_isLoading = false;
+
+/**
+ * Yield to Redis after a certain number of operations during indexing.
+ * This helps keep Redis responsive during long indexing operations.
+ * @param ctx The Redis context
+ */
+static void IndexerYieldWhileLoading(RedisModuleCtx *ctx) {
+  static size_t opCounter = 0;
+
+  // If server is loading, Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
+  if (RedisModule_Yield && g_isLoading && ++opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
+    opCounter = 0;
+    IncrementYieldCounter(); // Track that we called yield
+    RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

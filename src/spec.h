@@ -23,6 +23,8 @@
 #include "util/dict.h"
 #include "redisearch_api.h"
 #include "rules.h"
+#include "info/index_error.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -100,6 +102,9 @@ struct DocumentIndexer;
 // The threshold after which we move to a special encoding for wide fields
 #define SPEC_WIDEFIELD_THRESHOLD 32
 
+#define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
+#define MAX_DIALECT_VERSION 3 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
+
 extern dict *specDict_g;
 
 extern size_t pending_global_indexing_ops;
@@ -111,15 +116,14 @@ typedef struct {
   size_t numTerms;
   size_t numRecords;
   size_t invertedSize;
-  size_t invertedCap;
-  size_t skipIndexesSize;
-  size_t scoreIndexesSize;
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;
-  size_t indexingFailures;
+  IndexError indexError;
   size_t vectorIndexSize;
-  long double totalIndexTime; // usec
+  rs_wall_clock_ns_t totalIndexTime; // Accumulated in nanoseconds, reported in milliseconds (double)
+  uint32_t activeQueries;
+  uint32_t activeWrites;
 } IndexStats;
 
 typedef enum {
@@ -245,17 +249,16 @@ typedef struct IndexSpec {
   size_t nameLen;                 // Index name length
   uint64_t uniqueId;              // Id of index
   FieldSpec *fields;              // Fields in the index schema
-  int numFields;                  // Number of fields
+  int16_t numFields;              // Number of fields
+  int16_t numSortableFields;      // Number of sortable fields
 
-  IndexStats stats;               // Statistics of memory used and quantities
   IndexFlags flags;               // Flags
+  IndexStats stats;               // Statistics of memory used and quantities
 
   Trie *terms;                    // Trie of all TEXT terms. Used for GC and fuzzy queries
   Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
   t_fieldMask suffixMask;         // Mask of all fields that support contains query
   dict *keysDict;                 // Global dictionary. Contains inverted indexes of all TEXT terms
-
-  RSSortingTable *sortables;      // Contains sortable data of documents
 
   DocTable docs;                  // Contains metadata of all documents
 
@@ -315,6 +318,26 @@ typedef struct {
 extern RedisModuleType *IndexSpecType;
 extern RedisModuleType *IndexAliasType;
 
+static inline void IndexSpec_IncrActiveQueries(IndexSpec *sp) {
+  __atomic_add_fetch(&sp->stats.activeQueries, 1, __ATOMIC_RELAXED);
+}
+static inline void IndexSpec_DecrActiveQueries(IndexSpec *sp) {
+  __atomic_sub_fetch(&sp->stats.activeQueries, 1, __ATOMIC_RELAXED);
+}
+static inline uint32_t IndexSpec_GetActiveQueries(IndexSpec *sp) {
+  return __atomic_load_n(&sp->stats.activeQueries, __ATOMIC_RELAXED);
+}
+
+static inline void IndexSpec_IncrActiveWrites(IndexSpec *sp) {
+  __atomic_add_fetch(&sp->stats.activeWrites, 1, __ATOMIC_RELAXED);
+}
+static inline void IndexSpec_DecrActiveWrites(IndexSpec *sp) {
+  __atomic_sub_fetch(&sp->stats.activeWrites, 1, __ATOMIC_RELAXED);
+}
+static inline uint32_t IndexSpec_GetActiveWrites(IndexSpec *sp) {
+  return __atomic_load_n(&sp->stats.activeWrites, __ATOMIC_RELAXED);
+}
+
 /**
  * This lightweight object contains a COPY of the actual index spec.
  * This makes it safe for other modules to use for information such as
@@ -366,6 +389,12 @@ const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, siz
 
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 
+/*
+* Get a field spec by field mask.
+* Return the field spec if found, NULL if not
+*/
+const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id);
+
 /* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
  * text field */
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len);
@@ -385,10 +414,6 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm);
  */
 int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *sp, t_fieldMask fm, QueryError *status);
 
-/* Get a sortable field's sort table index by its name. return -1 if the field was not found or is
- * not sortable */
-int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len);
-
 /**
  * Get the field spec from the sortable index
  */
@@ -396,6 +421,9 @@ const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t 
 
 /* Initialize some index stats that might be useful for scoring functions */
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
+
+/* Get the number of indexing failures */
+size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
 
 /*
  * Parse an index spec from redis command arguments.
@@ -442,6 +470,16 @@ void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
  */
 void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
 #endif
+
+typedef struct {
+  size_t memory;
+  size_t marked_deleted;   // always zero in this version
+} VectorIndexStats;
+
+/**
+ * Get an index's vector index stats.
+ */
+VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp);
 
 /**
  * Gets the next text id from the index. This does not currently
@@ -553,11 +591,11 @@ void Indexes_SetTempSpecsTimers(TimerOp op);
 typedef struct IndexesScanner {
   bool global;
   IndexSpec *spec;
-  size_t scannedKeys, totalKeys;
+  size_t scannedKeys;
   bool cancelled;
 } IndexesScanner;
 
-double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp);
+double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, IndexSpec *sp);
 
 /**
  * @return the overhead used by the TAG fields in `sp`, i.e., the size of the
@@ -573,9 +611,14 @@ size_t IndexSpec_collect_text_overhead(IndexSpec *sp);
 
 /**
  * @return all memory used by the index `sp`.
- * Uses the sizes of the doc-table, tag and text overhead if they are not `0`.
+ * Uses the sizes of the doc-table, tag and text overhead if they are not `0`
+ * (otherwise compute them in-place). Vector overhead is expected to be passed in as an argument
+ * and will not be computed in-place
+ * TODO: fIx so this will account for the entire index memory, preferably by using an allocator,
+ * currently it is a best effort that account only for part of the actual memory.
  */
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead);
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead,
+  size_t text_overhead, size_t vector_overhead);
 
 //---------------------------------------------------------------------------------------------
 

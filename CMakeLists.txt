@@ -1,23 +1,81 @@
 cmake_minimum_required(VERSION 3.13)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
-include(${root}/deps/readies/cmake/main)
-
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 
+# Platform detection
+if(APPLE)
+  set(OS "macos")
+elseif(UNIX)
+  set(OS "linux")
+endif()
+message(STATUS "OS detected: ${OS}")
+
+# Always use .so extension even on macOS
+set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
+
+# Define compiler setup function
+function(setup_cc_options)
+    message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
+
+    # Common compiler flags
+    set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -Werror=incompatible-pointer-types -Werror=implicit-function-declaration -fcommon -funsigned-char" PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
+    set(CMAKE_CXX_STANDARD 20)
+    # Release/Debug/Profile specific flags
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+    elseif(PROFILE)
+        set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
+        set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
+    else()
+        # Default to Release flags
+        set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O3" PARENT_SCOPE)
+        set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O3" PARENT_SCOPE)
+    endif()
+endfunction()
+
+# Define shared object setup function
+function(setup_shared_object_target target)
+  if(APPLE)
+      set_target_properties(${target} PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+      # Force .so extension on macOS instead of .dylib
+      set_target_properties(${target} PROPERTIES SUFFIX ".so")
+  else()
+      # We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
+      # the library's own definition, rather than to a definition in another shared library or the main executable.
+      # -static-libgcc++ is required for versions that are running against redis < 8 (as of redis 8 redis is linked dynamically against libstdc++)
+      set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Wl,-Bsymbolic,-Bsymbolic-functions -static-libstdc++")
+  endif()
+  set_target_properties(${target} PROPERTIES PREFIX "")
+endfunction()
+
+# Define debug symbols extraction function
+function(extract_debug_symbols target)
+  if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" AND NOT APPLE)
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND cp $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
+        COMMAND objcopy --add-gnu-debuglink=$<TARGET_FILE:${target}>.debug $<TARGET_FILE:${target}>
+        COMMAND strip -g $<TARGET_FILE:${target}>
+        COMMENT "Extracting debug symbols from ${target}"
+    )
+  endif()
+endfunction()
+
 #----------------------------------------------------------------------------------------------
-
-option(BUILD_STATIC "Build a static library" OFF)
-# BUILD_COORDINATOR
-# BUILD_COORD_OSS
-# BUILD_COORD_RLEC
-
+# Command line options with default values
 option(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 
 option(BUILD_SEARCH_UNIT_TESTS "Build unit tests" OFF)
+option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
+option(ENABLE_ASSERT "Enable assertions" OFF)
+option(MAX_WORKER_THREADS "Override them maximum parallel worker threads allowed in thread-pool" "")
+option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
+option(BUILD_EXAMPLE_EXTENSION "Build example extension for tests" ON)
+
 
 #----------------------------------------------------------------------------------------------
-
 project(redisearch)
 
 if (NOT MODULE_NAME)
@@ -26,7 +84,53 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 
+# Configure compiler options
 setup_cc_options()
+
+# ugly hack for cpu_features::list_cpu_features coming from VecSim
+set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
+
+message(STATUS "SAN: ${SAN}")
+if(SAN)
+    if(SAN STREQUAL "address")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-omit-frame-pointer -fsanitize=address -fsanitize-recover=all")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer -fsanitize=address -fsanitize-recover=all")
+        set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fsanitize=address")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+        message(STATUS "CMAKE_C_FLAGS: ${CMAKE_C_FLAGS}")
+        message(STATUS "CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")
+        message(STATUS "CMAKE_LINKER_FLAGS: ${CMAKE_LINKER_FLAGS}")
+        message(STATUS "CMAKE_SHARED_LINKER_FLAGS: ${CMAKE_SHARED_LINKER_FLAGS}")
+    endif()
+endif()
+
+# Coverage settings
+message(STATUS "COV: ${COV}")
+if (COV)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
+    add_compile_definitions(COVERAGE=1)
+endif()
+
+# Get Git version info - to be printed in log upon loading the module
+execute_process(
+  COMMAND git describe --abbrev=7 --always
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  OUTPUT_VARIABLE GIT_VERSPEC
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_QUIET
+)
+
+execute_process(
+  COMMAND git rev-parse HEAD
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  OUTPUT_VARIABLE GIT_SHA
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_QUIET
+)
 
 # ugly hack for cpu_features::list_cpu_features coming from VecSim
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
@@ -42,7 +146,24 @@ if (USE_REDIS_ALLOCATOR)
     add_compile_definitions(REDIS_MODULE_TARGET)
 endif()
 
+# Set RS_COORDINATOR flag when building with coordinator support
+if (BUILD_COORDINATOR)
+    add_compile_definitions(RS_COORDINATOR)
+endif()
+
+if(VERBOSE_UTESTS)
+    add_compile_definitions(VERBOSE_UTESTS=1)
+endif()
+
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
+
+# On debug artifacts, enable assertions
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR ENABLE_ASSERT)
+    add_compile_definitions(ENABLE_ASSERT=1)
+endif()
+
 #----------------------------------------------------------------------------------------------
+set(CMAKE_CXX_STANDARD 20) # required to build googletest
 
 include_directories(
     ${root}/src
@@ -56,13 +177,12 @@ add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
 
-option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
 
 #----------------------------------------------------------------------------------------------
-
+# Source files for the core library
 file(GLOB SOURCES
     "src/*.c"
     "src/aggregate/*.c"
@@ -75,11 +195,12 @@ file(GLOB SOURCES
     "src/query_parser/v2/*.c"
     "src/util/*.c"
     "src/trie/*.c"
+    "src/info/*.c"
+    "src/obfuscation/*.c"
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
     "deps/miniz/*.c"
-    "deps/base64/*.c"
     "deps/thpool/*.c"
     "deps/triemap/*.c"
     "deps/geohash/*.c")
@@ -138,17 +259,18 @@ else() # OSS RediSearch
     target_link_libraries(redisearch VectorSimilarity ${CMAKE_LD_LIBS})
 
     extract_debug_symbols(redisearch)
-    
     add_dependencies(redisearch VectorSimilarity)
 endif()
 
 #----------------------------------------------------------------------------------------------
 
-if (BUILD_COORDINATOR)
+# Only override BUILD_SEARCH_UNIT_TESTS for coordinator builds if not explicitly set
+if (BUILD_COORDINATOR AND NOT DEFINED CMAKE_BUILD_SEARCH_UNIT_TESTS)
     set(BUILD_SEARCH_UNIT_TESTS OFF)
 endif()
 
-if (BUILD_SEARCH_UNIT_TESTS AND NOT BUILD_COORDINATOR AND NOT BUILD_STATIC)
+# Always build unit tests if explicitly requested
+if (BUILD_SEARCH_UNIT_TESTS)
     set(BUILD_GTEST ON CACHE BOOL "enable gtest" FORCE)
     set(BUILD_GMOCK OFF CACHE BOOL "disable gmock" FORCE)
 
@@ -156,7 +278,11 @@ if (BUILD_SEARCH_UNIT_TESTS AND NOT BUILD_COORDINATOR AND NOT BUILD_STATIC)
     add_subdirectory(tests/cpptests)
     add_subdirectory(tests/ctests)
     add_subdirectory(tests/c_utils)
-    add_subdirectory(tests/ctests/ext-example example_extension)
+
+    # Build the example extension if requested
+    if (BUILD_EXAMPLE_EXTENSION)
+        add_subdirectory(tests/ctests/ext-example example_extension)
+    endif()
     if (ENABLE_REDIS_MOCK)
         add_subdirectory(tests/cpptests/redismock)
     endif()

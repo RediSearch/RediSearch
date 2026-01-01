@@ -12,6 +12,7 @@
 #include "rmutil/rm_assert.h"
 #include "rmutil/cxx/chrono-clock.h"
 #include "util/timeout.h"
+#include "rs_wall_clock.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -75,11 +76,6 @@ typedef struct {
 static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
-
-  if (TimedOut_WithCounter(&self->timeout, &self->timeoutLimiter) == TIMED_OUT) {
-    return RS_RESULT_TIMEDOUT;
-  }
-
   // No root filter - the query has 0 results
   if (self->iiter == NULL) {
     return RS_RESULT_EOF;
@@ -91,6 +87,10 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
 
   // Read from the root filter until we have a valid result
   while (1) {
+    // check for timeout in case we are encountering a lot of deleted documents
+    if (TimedOut_WithCounter(&base->parent->sctx->timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
     rc = it->Read(it->ctx, &r);
     // This means we are done!
     switch (rc) {
@@ -540,12 +540,6 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     }
 
     int rc = RSValue_Cmp(v1, v2, qerr);
-    // printf("asc? %d Compare: \n", ascending);
-    // RSValue_Print(v1);
-    // printf(" <=> ");
-    // RSValue_Print(v2);
-    // printf("\n");
-
     if (rc != 0) return ascending ? -rc : rc;
   }
 
@@ -583,17 +577,6 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
   return RPSorter_NewByFields(maxresults, NULL, 0, 0);
-}
-
-void SortAscMap_Dump(uint64_t tt, size_t n) {
-  for (size_t ii = 0; ii < n; ++ii) {
-    if (SORTASCMAP_GETASC(tt, ii)) {
-      printf("%lu=(A), ", ii);
-    } else {
-      printf("%lu=(D)", ii);
-    }
-  }
-  printf("\n");
 }
 
 /*******************************************************************************************************************
@@ -731,13 +714,6 @@ const char *RPTypeToString(ResultProcessorType type) {
   return RPTypeLookup[type];
 }
 
-void RP_DumpChain(const ResultProcessor *rp) {
-  for (; rp; rp = rp->upstream) {
-    printf("RP(%s) @%p\n", RPTypeToString(rp->type), rp);
-    RS_LOG_ASSERT(rp->upstream != rp, "ResultProcessor should be different then upstream");
-  }
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 /// Profile RP                                                               ///
@@ -746,17 +722,17 @@ void RP_DumpChain(const ResultProcessor *rp) {
 
 typedef struct {
   ResultProcessor base;
-  double profileTime;
+  rs_wall_clock_ns_t profileTime; // Accumulated in nanoseconds, reported in milliseconds (double)
   uint64_t profileCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
 
-  hires_clock_t t0;
-  hires_clock_get(&t0);
+  rs_wall_clock t0;
+  rs_wall_clock_init(&t0);
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += hires_clock_since_msec(&t0);
+  self->profileTime += rs_wall_clock_elapsed_ns(&t0);
   self->profileCount++;
   return rc;
 }
@@ -781,7 +757,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
 
 double RPProfile_GetDurationMSec(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
-  return self->profileTime;
+  return rs_wall_clock_convert_ns_to_ms_d(self->profileTime);
 }
 
 uint64_t RPProfile_GetCount(ResultProcessor *rp) {
@@ -829,9 +805,8 @@ static int rpcountNext(ResultProcessor *base, SearchResult *res) {
   return rc;
 }
 
-/* Free impl. for scorer - frees up the scorer privdata if needed */
 static void rpcountFree(ResultProcessor *rp) {
-  RPScorer *self = (RPScorer *)rp;
+  RPCounter *self = (RPCounter *)rp;
   rm_free(self);
 }
 

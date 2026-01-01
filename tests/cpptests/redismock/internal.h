@@ -33,6 +33,10 @@ struct RedisModuleString : public std::string {
   void incref() {
     refcount++;
   }
+
+  void trim() {
+    this->shrink_to_fit();
+  }
 };
 
 class Value {
@@ -231,11 +235,15 @@ struct KVDB {
     }
   }
 
-  void erase(const std::string &key) {
+  bool erase(const std::string &key) {
     auto e = db.find(key);
+    if (e == db.end()) {
+      return false;
+    }
     Value *v = e->second;
     db.erase(e);
     v->decref();
+    return true;
   }
 
   void clear() {

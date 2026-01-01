@@ -86,8 +86,8 @@ doc_non_numeric_content = r'''{
     "attr5": null,
     "attr6": [1, 2, null, 131.42, null, "yikes" ],
     "attr7": [1, 2, null, 131.42, null, false ],
-    "attr8": [1, 2, null, 131.42, null, {"obj": "ect"} ],
-    "attr9": [1, 2, null, 131.42, null, ["no", "noo"] ],
+    "attr8": [1, 2, null, 131.42, null, {"obj": "etc"} ],
+    "attr9": [1, 2, null, 131.42, null, ["no", "none"] ],
     "attr10": [1, 2, null, 131.42, null, [7007] ]
 }
 '''

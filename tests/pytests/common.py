@@ -54,7 +54,7 @@ def getConnectionByEnv(env):
         conn = env.getConnection()
     return conn
 
-def waitForIndex(env, idx):
+def waitForIndex(env, idx = 'idx'):
     waitForRdbSaveToFinish(env)
     while True:
         res = env.execute_command('ft.info', idx)
@@ -242,17 +242,23 @@ def collectKeys(env, pattern='*'):
         keys.extend(conn.keys(pattern))
     return sorted(keys)
 
-def ftDebugCmdName(env):
-    return '_ft.debug' if env.isCluster() else 'ft.debug'
+def debug_cmd():
+    return '_ft.debug' if COORD else 'ft.debug'
+
+def run_command_on_all_shards(env, *args):
+    return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
+
+def config_cmd():
+    return '_ft.config' if COORD else 'ft.config'
 
 def forceInvokeGC(env, idx = 'idx', timeout = None):
     waitForRdbSaveToFinish(env)
     if timeout is not None:
         if timeout == 0:
             env.debugPrint("forceInvokeGC: note timeout is infinite, consider using a big timeout instead.", force=True)
-        env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx, timeout)
+        env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx, timeout)
     else:
-        env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx)
+        env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx)
 def no_msan(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
@@ -464,3 +470,8 @@ def get_TLS_args():
     passphrase = get_passphrase() if with_pass else None
 
     return cert_file, key_file, ca_cert_file, passphrase
+
+def index_errors(env, idx = 'idx'):
+    return to_dict(index_info(env, idx)['Index Errors'])
+def field_errors(env, idx = 'idx', fld_index = 0):
+    return to_dict(to_dict(to_dict(index_info(env, idx)['field statistics'][fld_index]))['Index Errors'])

@@ -21,7 +21,7 @@ do {                                                                \
   if (RedisModule_IsIOError(rdb)) {                                 \
     cleanup_exp;                                                    \
   }                                                                 \
-  RedisModule_Assert(oldbuf);                                       \
+  RS_ASSERT(oldbuf);                                                \
   ptr = rm_malloc(*tmp_len_ptr);                                    \
   memcpy(ptr, oldbuf, *tmp_len_ptr);                                \
   RedisModule_Free(oldbuf);                                         \

@@ -72,7 +72,7 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
 
   case QT_TERM:
     target_param->type = PARAM_NONE;
-    *(char**)target_value = rm_strdupcase(source->s, source->len);
+    *(char**)target_value = rm_normalize(source->s, source->len);
     if (target_len) *target_len = strlen(target_value);
     return false; // done
 
@@ -162,7 +162,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
 
     case PARAM_ANY:
     case PARAM_TERM:
-      *(char**)param->target = rm_strdupcase(val, val_len);
+      *(char**)param->target = rm_normalize(val, val_len);
       if (param->target_len) *param->target_len = strlen(*(char**)param->target);
       return 1;
 
@@ -170,7 +170,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
       *(char**)param->target = rm_calloc(1, val_len + 1);
       memcpy(*(char**)param->target, val, val_len);
       if (param->target_len) *param->target_len = val_len;
-      return 1;    
+      return 1;
 
     case PARAM_TERM_CASE:
       *(char**)param->target = rm_strdup(val);

@@ -16,7 +16,6 @@ QuantStream *NewQuantileStream(const double *quantiles, size_t numQuantiles, siz
 void QS_Insert(QuantStream *qs, double val);
 double QS_Query(QuantStream *qs, double val);
 void QS_Free(QuantStream *qs);
-void QS_Dump(const QuantStream *stream, FILE *fp);
 size_t QS_GetCount(const QuantStream *stream);
 
 #endif

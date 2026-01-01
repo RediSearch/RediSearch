@@ -69,7 +69,7 @@ void testRangeIteratorHelper(bool isMulti) {
   NumericRangeTree *t = NewNumericRangeTree();
   ASSERT_TRUE(t != NULL);
 
-  
+
   const size_t N = 100000;
   std::vector<d_arr> lookup;
   std::vector<uint8_arr> matched;
@@ -142,13 +142,13 @@ void testRangeIteratorHelper(bool isMulti) {
         }
       }
       ASSERT_NE(found_mult, -1);
-      
+
       ASSERT_EQ(res->type, RSResultType_Numeric);
       // ASSERT_EQUAL(res->agg.typeMask, RSResultType_Virtual);
       ASSERT_TRUE(!RSIndexResult_HasOffsets(res));
       ASSERT_TRUE(!RSIndexResult_IsAggregate(res));
       ASSERT_TRUE(res->docId > 0);
-      ASSERT_EQ(res->fieldMask, RS_FIELDMASK_ALL);      
+      ASSERT_EQ(res->fieldMask, RS_FIELDMASK_ALL);
     }
 
     for (int i = 1; i <= N; i++) {
@@ -163,7 +163,7 @@ void testRangeIteratorHelper(bool isMulti) {
           // Keep trying - could be found
         }
       }
-      
+
       if (missed) {
         printf("Miss: %d\n", i);
       }
@@ -187,36 +187,3 @@ TEST_F(RangeTest, testRangeIterator) {
 TEST_F(RangeTest, testRangeIteratorMulti) {
   testRangeIteratorHelper(true);
 }
-
-// int benchmarkNumericRangeTree() {
-//   NumericRangeTree *t = NewNumericRangeTree();
-//   int count = 1;
-//   for (int i = 0; i < 100000; i++) {
-
-//     count += NumericRangeTree_Add(t, i, (double)(rand() % 500000));
-//   }
-//   // printf("created %d range leaves\n", count);
-
-//   TIME_SAMPLE_RUN_LOOP(1000, {
-//     Vector *v = NumericRangeTree_Find(t, 1000, 20000);
-//     // printf("%d\n", v->top);
-//     Vector_Free(v);
-//   });
-
-//   TimeSample ts;
-
-//   NumericFilter *flt = NewNumericFilter(1000, 50000, 0, 0);
-//   IndexIterator *it = createNumericIterator(t, flt);
-//   ASSERT(it->HasNext(it->ctx));
-
-//   // ASSERT_EQUAL(it->Len(it->ctx), N);
-//   count = 0;
-
-//   RSIndexResult *res = NULL;
-
-//   it->Free(it);
-
-//   NumericRangeTree_Free(t);
-//   NumericFilter_Free(flt);
-//   return 0;
-// }

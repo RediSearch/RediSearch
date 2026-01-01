@@ -91,12 +91,12 @@ def testFlushallManyPrefixes(env):
                             'SCHEMA', 'name', 'text')
 
     # Sanity check
-    dump_trie = to_dict(env.cmd(ftDebugCmdName(env), "DUMP_PREFIX_TRIE"))
+    dump_trie = to_dict(env.cmd(debug_cmd(), "DUMP_PREFIX_TRIE"))
     env.assertEqual(dump_trie['prefixes_count'], num_indices)
 
     conn.execute_command('FLUSHALL')
     # Verify the global prefixes trie is empty
-    dump_trie = to_dict(env.cmd(ftDebugCmdName(env), "DUMP_PREFIX_TRIE"))
+    dump_trie = to_dict(env.cmd(debug_cmd(), "DUMP_PREFIX_TRIE"))
     env.assertEqual(dump_trie['prefixes_count'], 0)
     env.assertEqual(dump_trie['prefixes_trie_nodes'], 0)
 
@@ -561,7 +561,7 @@ def testEvicted(env):
             memory = int(sub[1])
 
     conn.execute_command('CONFIG', 'SET', 'MAXMEMORY-POLICY', 'ALLKEYS-RANDOM')
-    conn.execute_command('CONFIG', 'SET', 'MAXMEMORY', memory + 100000)
+    conn.execute_command('CONFIG', 'SET', 'MAXMEMORY', memory + 150000)
     for i in range(1000):
         env.expect('HSET', 'doc{}'.format(i), 'test', 'foo').equal(1)
     res = env.cmd('FT.SEARCH idx foo limit 0 0')

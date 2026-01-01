@@ -9,14 +9,38 @@ on:
         type: boolean
         description: 'Run extended benchmarks'
         default: false
+      profiler:
+        type: boolean
+        description: 'Run profiler on standalone benchmarks'
+        default: false
+      allowed_setup:
+        type: string
+        description: 'if empty allows all setups. if not, will only trigger for a specific setup'
+        default: ""
+      rejson_branch:
+        type: string
+        default: '2.4'
+        description: 'branch to use for rejson'
   workflow_call:
     inputs:
       extended:
         type: boolean
         default: false
-
+      profiler:
+        type: boolean
+        default: false
+      allowed_setup:
+        type: string
+        description: 'if empty allows all setups. if not, will only trigger for a specific setup'
+        default: ""
+      notify_failure:
+        type: boolean
+        default: false
+        description: 'if true, will notify failure on slack'
+        
 jobs:
   benchmark-search-oss-standalone:
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
     strategy:
       matrix:
         member_id: [1, 2, 3]
@@ -28,6 +52,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-vecsim-oss-standalone:
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
     strategy:
       matrix:
         member_id: [1, 2]
@@ -39,6 +64,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-02-primaries:
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries' }}
     strategy:
       matrix:
         member_id: [1, 2]
@@ -54,6 +80,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-04-primaries:
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries') }}
     strategy:
       matrix:
         member_id: [1, 2]
@@ -69,6 +96,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-08-primaries:
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-08-primaries') }}
     strategy:
       matrix:
         member_id: [1, 2, 3]
@@ -84,6 +112,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-16-primaries:
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries') }}
     strategy:
       matrix:
         member_id: [1, 2, 3]
@@ -100,7 +129,7 @@ jobs:
 
 
   benchmark-search-oss-cluster-20-primaries:
-    if: inputs.extended
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-20-primaries') }}
     strategy:
       matrix:
         member_id: [1]
@@ -117,7 +146,7 @@ jobs:
 
 
   benchmark-search-oss-cluster-24-primaries:
-    if: inputs.extended
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-24-primaries') }}
     strategy:
       matrix:
         member_id: [1]
@@ -133,6 +162,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-standalone-profiler:
+    if: ${{ inputs.profiler && (inputs.allowed_setup == '' || inputs.allowed_setup == 'standalone') }}
     strategy:
       matrix:
         member_id: [1, 2, 3]
@@ -149,6 +179,7 @@ jobs:
 
 
   benchmark-vecsim-oss-standalone-profiler:
+    if: ${{ inputs.profiler && (inputs.allowed_setup == '' || inputs.allowed_setup == 'standalone') }}
     strategy:
       matrix:
         member_id: [1, 2]
@@ -162,3 +193,28 @@ jobs:
       benchmark_glob: "vecsim*.yml"
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+
+  notify-failure:
+    needs:
+      - benchmark-search-oss-standalone
+      - benchmark-vecsim-oss-standalone
+      - benchmark-search-oss-cluster-02-primaries
+      - benchmark-search-oss-cluster-04-primaries
+      - benchmark-search-oss-cluster-08-primaries
+      - benchmark-search-oss-cluster-16-primaries
+      - benchmark-search-oss-cluster-20-primaries
+      - benchmark-search-oss-cluster-24-primaries
+      - benchmark-search-oss-standalone-profiler
+      - benchmark-vecsim-oss-standalone-profiler
+    if: ${{ failure() && inputs.notify_failure }}
+    runs-on: ${{ vars.RUNS_ON }}
+    steps:
+      - name: Notify Failure
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_BENCHMARK_FAILED }}

@@ -8,12 +8,12 @@
 #include "reply.h"
 #include "hiredis/adapters/libuv.h"
 #include "search_cluster.h"
+#include "rmutil/rm_assert.h"
 
 #include <uv.h>
 #include <signal.h>
 #include <sys/param.h>
 #include <stdio.h>
-#include <assert.h>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -32,9 +32,10 @@ static int MRConn_SendAuth(MRConn *conn);
 #define RSCONN_REAUTH_TIMEOUT 1000
 #define UNUSED(x) (void)(x)
 
-#define CONN_LOG(conn, fmt, ...)                                                \
-  fprintf(stderr, "[%p %s:%d %s]" fmt "\n", conn, conn->ep.host, conn->ep.port, \
-          MRConnState_Str((conn)->state), ##__VA_ARGS__)
+#define CONN_LOG(conn, fmt, ...)                                                      \
+  RedisModule_Log(RSDummyContext, "debug", "[%p %s:%d %s] " fmt,                      \
+                  conn, conn->ep.host, conn->ep.port, MRConnState_Str((conn)->state), \
+                  ##__VA_ARGS__)
 
 /** detaches from our redis context */
 static redisAsyncContext *detachFromConn(MRConn *conn, int shouldFree) {
@@ -140,8 +141,6 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
   if (c->state != MRConn_Connected) {
     return REDIS_ERR;
   }
-  // printf("Sending to %s:%d\n", c->ep.host, c->ep.port);
-  // MRCommand_Print(cmd);
   if (!cmd->cmd) {
     if (redisFormatSdsCommandArgv(&cmd->cmd, cmd->num, (const char **)cmd->strs, cmd->lens) == REDIS_ERR) {
       return REDIS_ERR;
@@ -161,7 +160,6 @@ int MRConnManager_Add(MRConnManager *m, const char *id, MREndpoint *ep, int conn
     MRConn *conn = pool->conns[0];
     // the node hasn't changed address, we don't need to do anything */
     if (!strcmp(conn->ep.host, ep->host) && conn->ep.port == ep->port) {
-      // fprintf(stderr, "No need to switch conn pools!\n");
       return 0;
     }
 
@@ -349,7 +347,6 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
   }
 
   /* Success! we are now connected! */
-  // fprintf(stderr, "Connected and authenticated to %s:%d\n", conn->ep.host, conn->ep.port);
   MRConn_SwitchState(conn, MRConn_Connected);
 
 cleanup:
@@ -448,7 +445,6 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     return;
   }
 
-  // fprintf(stderr, "Connect callback! status :%d\n", status);
   // if the connection is not stopped - try to reconnect
   if (status != REDIS_OK) {
     CONN_LOG(conn, "Error on connect: %s", c->errstr);
@@ -517,7 +513,6 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
     return;
   }
 
-  // fprintf(stderr, "Disconnected from %s:%d\n", conn->ep.host, conn->ep.port);
   if (conn->state != MRConn_Freeing) {
     detachFromConn(conn, 0);
     MRConn_SwitchState(conn, MRConn_Connecting);
@@ -535,8 +530,7 @@ static MRConn *MR_NewConn(MREndpoint *ep) {
 
 /* Connect to a cluster node. Return REDIS_OK if either connected, or if  */
 static int MRConn_Connect(MRConn *conn) {
-  assert(!conn->conn);
-  // fprintf(stderr, "Connectig to %s:%d\n", conn->ep.host, conn->ep.port);
+  RS_ASSERT(!conn->conn);
 
   redisOptions options = {.type = REDIS_CONN_TCP,
                           .options = REDIS_OPT_NOAUTOFREEREPLIES,

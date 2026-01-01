@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <util/arr.h>
 #include "rmutil/rm_assert.h"
+#include "module.h"
 
 static arrayof(redisearch_threadpool) threadpools_g = NULL;
 

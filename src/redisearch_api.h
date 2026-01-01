@@ -9,6 +9,8 @@
 
 #include "redismodule.h"
 #include <limits.h>
+#include "fork_gc.h"
+#include "info/indexes_info.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -352,6 +354,12 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* option
 
 MODULE_API_FUNC(size_t, RediSearch_MemUsage)(RSIndex* sp);
 
+MODULE_API_FUNC(size_t, RediSearch_TotalMemUsage)(void);
+
+MODULE_API_FUNC(TotalIndexesInfo, RediSearch_TotalInfo)(void);
+
+MODULE_API_FUNC(InfoGCStats, RediSearch_GC_total)(void);
+
 /**
  * Return an info struct
  * @param sp the index
@@ -423,7 +431,6 @@ MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo *info);
 
 #define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \
   if (RedisModule_GetApi("RediSearch_" #name, ((void**)&RediSearch_##name))) { \
-    printf("could not initialize RediSearch_" #name "\r\n");                   \
     rv__ = REDISMODULE_ERR;                                                    \
     goto rsfunc_init_end__;                                                    \
   }
