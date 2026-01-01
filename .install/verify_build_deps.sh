@@ -55,6 +55,7 @@ declare -A os_package_checkers=(
   ["alpine"]="check_package_apk"
   ["mariner"]="check_package_tdnf"
   ["azurelinux"]="check_package_tdnf"
+  ["almalinux"]="check_package_rpm"
 )
 
 # Early bailout if the OS is not supported
@@ -215,6 +216,10 @@ declare -A microsoft_dependencies=(
   ["kernel-headers"]="package"
 )
 
+declare -A almalinux_dependencies=(
+  ["openssl-devel"]="package"
+)
+
 # ============================================
 # Merge Dependencies
 # ============================================
@@ -235,6 +240,10 @@ if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
 elif [[ "$OS" == "rocky" ]]; then
   for key in "${!rocky_dependencies[@]}"; do
     dependencies["$key"]="${rocky_dependencies[$key]}"
+  done
+elif [[ "$OS" == "almalinux" ]]; then
+  for key in "${!almalinux_dependencies[@]}"; do
+    dependencies["$key"]="${almalinux_dependencies[$key]}"
   done
 elif [[ "$OS" == "amzn2" ]]; then
   for key in "${!amzn2_dependencies[@]}"; do
