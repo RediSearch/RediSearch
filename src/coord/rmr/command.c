@@ -143,15 +143,24 @@ static void extendCommandList(MRCommand *cmd, size_t toAdd) {
   cmd->lens = rm_realloc(cmd->lens, sizeof(*cmd->lens) * cmd->num);
 }
 
+static void MRCommand_updateArgIndices(MRCommand *cmd, int pos, int toAdd) {
+  RS_LOG_ASSERT(!cmd->slotsInfoArgIndex || cmd->slotsInfoArgIndex != pos, "Cannot insert between "SLOTS_STR" and its data");
+  RS_LOG_ASSERT(!cmd->dispatchTimeArgIndex || cmd->dispatchTimeArgIndex != pos, "Cannot insert between "COORD_DISPATCH_TIME_STR" and its data");
+  if (cmd->slotsInfoArgIndex && pos < cmd->slotsInfoArgIndex) {
+    cmd->slotsInfoArgIndex += toAdd;
+  }
+
+  if (cmd->dispatchTimeArgIndex && pos < cmd->dispatchTimeArgIndex) {
+    cmd->dispatchTimeArgIndex += toAdd;
+  }
+}
+
 void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n) {
   RS_ASSERT(0 <= pos && pos <= cmd->num);
   int oldNum = cmd->num;
   extendCommandList(cmd, 1);
 
-  RS_LOG_ASSERT(!cmd->slotsInfoArgIndex || cmd->slotsInfoArgIndex != pos, "Cannot insert between "SLOTS_STR" and its data");
-  if (cmd->slotsInfoArgIndex && pos < cmd->slotsInfoArgIndex) {
-    cmd->slotsInfoArgIndex++;
-  }
+  MRCommand_updateArgIndices(cmd, pos, 1);
 
   // shift right all arguments that comes after pos
   shift_right(cmd->strs, oldNum, pos, 1);

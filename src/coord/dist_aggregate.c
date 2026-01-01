@@ -166,6 +166,9 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   // Prepare command for slot info (Cluster mode)
   MRCommand_PrepareForSlotInfo(xcmd, slotsInfoPos);
 
+  // Prepare placeholder for dispatch time (will be filled in when sending to shards)
+  MRCommand_PrepareForDispatchTime(xcmd);
+
   // PARAMS was already validated at AREQ_Compile
   int loc = RMUtil_ArgIndex("PARAMS", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (loc != -1) {
@@ -210,9 +213,6 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   }
 
   MRCommand_SetPrefix(xcmd, "_FT");
-
-  // Prepare placeholder for dispatch time (will be filled in when sending to shards)
-  MRCommand_PrepareForDispatchTime(xcmd);
 
   rm_free(n_prefixes);
   array_free(tmparr);
@@ -460,9 +460,6 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   IndexSpec *sp = NULL;
   specialCaseCtx *knnCtx = NULL;
 
-  // Store coordinator start time for dispatch time tracking
-  r->coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
-
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called
   QueryError status = QueryError_Default();
@@ -472,6 +469,9 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
   // CMD, index, expr, args...
   r = &debug_req->r;
+
+  // Store coordinator start time for dispatch time tracking
+  r->coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
   AREQ_Debug_params debug_params = debug_req->debug_params;
   // Check if the index still exists, and promote the ref accordingly
   StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
