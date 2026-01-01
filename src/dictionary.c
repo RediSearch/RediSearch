@@ -14,6 +14,7 @@
 #include "rdb.h"
 #include "resp3.h"
 #include "rmutil/rm_assert.h"
+#include "util/likely.h"
 
 dict *spellCheckDicts = NULL;
 
@@ -36,7 +37,11 @@ int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   }
 
   for (int i = 0; i < len; ++i) {
-    valuesAdded += Trie_Insert(t, values[i], 1, 1, NULL);
+    // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur
+    int rc = Trie_Insert(t, values[i], 1, 1, NULL);
+    if (likely(rc == TRIE_OK_NEW)) {
+      valuesAdded++;
+    }
   }
 
   return valuesAdded;

@@ -89,6 +89,9 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight);
 /** Create a new iterator which returns no results */
 IndexIterator *NewEmptyIterator(void);
 
+/* Create a new wildcard iterator */
+IndexIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs);
+
 /** Add Profile iterator layer between iterators */
 void Profile_AddIters(IndexIterator **root);
 
