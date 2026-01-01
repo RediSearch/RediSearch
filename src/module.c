@@ -432,6 +432,7 @@ int QueryExplainCLICommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* FT.DEL {index} {doc_id}
@@ -1431,8 +1432,6 @@ static int RegisterAllDebugCommands(RedisModuleCtx* ctx, RedisModuleCommand *deb
   return RegisterCoordDebugCommands(debugCommand);
 }
 
-static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand);
-
 static int CreateSearchCommands(RedisModuleCtx *ctx, const SearchCommand *commands, size_t count) {
   for (size_t i = 0; i < count; i++) {
     const SearchCommand *command = &commands[i];
@@ -1607,7 +1606,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_PROFILE_CMD,   RSProfileCommand,         "readonly"                , SetFtProfileInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_MGET_CMD,      GetDocumentsCommand,      "readonly"                , NULL,                      NONE,                  "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_TAGVALS_CMD,   TagValsCommand,           "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_CURSOR_CMD,    NULL,                     "readonly"                , RegisterCursorCommands,    SUBSCRIBE_SUBCOMMANDS, "read",                 true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_CURSOR_CMD,    RSCursorCommand,          "readonly"                , SetFtCursorInfo,           SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "admin",                true,             indexOnlyCmdArgs, false),
     DEFINE_COMMAND(RS_SPELL_CHECK,   SpellCheckCommand,        "readonly"                , SetFtSpellcheckInfo,       SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CONFIG,        NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                true,             indexOnlyCmdArgs, false),
@@ -3463,7 +3462,11 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                                                StrongRef_Demote(spec_ref));
 }
 
-static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisModuleCmdFunc subcmd, ConcurrentCmdHandler dist_callback) {
+static void CursorCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
+  RSCursorCommand(ctx, argv, argc);
+}
+
+static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
@@ -3474,65 +3477,15 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
-    return subcmd(ctx, argv, argc);
+    return RSCursorCommand(ctx, argv, argc);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
+  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, CursorCommandInternal, ctx, argv, argc,
                                                (WeakRef){0});
 }
 
-
-#define CURSOR_SUBCOMMAND(name) \
-static void Cursor##name##CommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) { \
-  RSCursor##name##Command(ctx, argv, argc);                                                                                           \
-}                                                                                                                                     \
-int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {                                                  \
-  return CursorCommand(ctx, argv, argc, RSCursor##name##Command, Cursor##name##CommandInternal);                                      \
-}
-
-CURSOR_SUBCOMMAND(Read)
-CURSOR_SUBCOMMAND(Del)
-CURSOR_SUBCOMMAND(GC)
-
-// This function sits next to RegisterCoordCursorCommands function
-// RegisterCoordCursorCommands currently has too many dependencies to be easily moved up where CreateSubCommands is defined
-static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
-  CommandKeys keys = DEFINE_COMMAND_KEYS(0, 0, 0);
-  SubCommand subcommands[] = {
-    {.name = "READ",    .fullName = RS_CURSOR_CMD "|READ",    .flags = "readonly",
-     .handler = RSCursorReadCommand,
-     .setCommandInfo = SetFtCursorReadInfo, .position = keys},
-    {.name = "DEL",     .fullName = RS_CURSOR_CMD "|DEL",     .flags = "readonly",
-     .handler = RSCursorDelCommand,
-     .setCommandInfo = SetFtCursorDelInfo, .position = keys},
-    {.name = "PROFILE", .fullName = RS_CURSOR_CMD "|PROFILE", .flags = "readonly",
-     .handler = RSCursorProfileCommand,
-     .setCommandInfo = NULL, .position = keys},
-    {.name = "GC",      .fullName = RS_CURSOR_CMD "|GC",      .flags = "readonly",
-     .handler = RSCursorGCCommand,
-     .setCommandInfo = NULL, .position = keys}
-    };
-
-  return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
-}
-
-static int RegisterCoordCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
-  CommandKeys keys = clusterConfig.type == ClusterType_RedisLabs ? DEFINE_COMMAND_KEYS(3,1,-3) : DEFINE_COMMAND_KEYS(0,0,-1);
-  SubCommand subcommands[] = {
-    {.name = "READ",    .fullName = "FT.CURSOR|READ",    .flags = "readonly",
-     .handler = SafeCmd(CursorReadCommand),
-     .setCommandInfo = SetFtCursorReadInfo, .position = keys},
-    {.name = "DEL",     .fullName = "FT.CURSOR|DEL",     .flags = "readonly",
-     .handler = SafeCmd(CursorDelCommand),
-     .setCommandInfo = SetFtCursorDelInfo, .position = keys},
-    {.name = "GC",      .fullName = "FT.CURSOR|GC",      .flags = "readonly",
-     .handler = SafeCmd(CursorGCCommand),
-     .setCommandInfo = NULL, .position = keys}
-    };
-  return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
-}
 
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
@@ -4135,7 +4088,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const CommandKeys noCmdArgs = DEFINE_COMMAND_KEYS(0, 0, 0);
   const CommandKeys enterpriseCmdArgs = DEFINE_COMMAND_KEYS(0, 1, -2);
   SearchCommand aggregate = DEFINE_COMMAND("FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", SetFtAggregateInfo,          SET_COMMAND_INFO,      "read", true, ossCmdArgs, false);
-  SearchCommand cursor    = DEFINE_COMMAND("FT.CURSOR",    NULL,                          "readonly", RegisterCoordCursorCommands, SUBSCRIBE_SUBCOMMANDS, "read", true, ossCmdArgs, false);
+  SearchCommand cursor    = DEFINE_COMMAND("FT.CURSOR",    SafeCmd(CursorCommand),        "readonly", SetFtCursorInfo,             SET_COMMAND_INFO,      "read", true, ossCmdArgs, false);
   SearchCommand hybrid    = DEFINE_COMMAND("FT.HYBRID",    SafeCmd(DistHybridCommand),    "readonly", SetFtHybridInfo,             SET_COMMAND_INFO,      "read", true, ossCmdArgs, false);
   if (clusterConfig.type == ClusterType_RedisLabs) {
     const CommandKeys aggregateKeys = enterpriseCmdArgs;
