@@ -37,36 +37,6 @@ jobs:
       - name: Get SHA
         id: get_sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
-      - name: Verify Tag and Version
-        id: verify
-        env:
-          # Not used, but useful for debugging in case of failure. See https://github.com/actions/runner/issues/2788
-          GH_CONTEXT: ${{ toJson(github) }}
-          EVENT_BASE_REF: ${{ github.event.base_ref }}
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_TAG: ${{ inputs.tag || github.event.release.tag_name }}
-        shell: python
-        run: |
-          import os
-
-          with open("src/version.h", "r") as fp:
-            major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if l.startswith("#define REDISEARCH_VERSION_")]
-          def valid_tag(tag):
-            return tag == f"v{major}.{minor}.{patch}"
-          def valid_version_branch(branch):
-            return branch == f"{major}.{minor}"
-          tag = os.environ["INPUT_TAG"]
-          if not valid_tag(tag):
-            raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
-          version_branch = '${{ env.checkout_target }}'
-          if not valid_version_branch(version_branch) and os.environ["EVENT_NAME"] == 'release':
-            raise Exception(f"Version branch {version_branch} does not match the tag {tag}")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
-            print(f"cur_version={major}.{minor}.{patch}", file=fp)
-            print(f"next_version={major}.{minor}.{patch+1}", file=fp)
-            print(f"next_patch={patch+1}", file=fp)
-            print(f"should_bump={str(valid_version_branch(version_branch)).lower()}", file=fp)
 
   update-version:
     # Generate a PR to bump the version for the next patch (if releasing from a version branch)
