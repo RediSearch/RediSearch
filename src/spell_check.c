@@ -56,6 +56,7 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
 
   if (!incr) {
     if (!isExists) {
+      // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur.
       Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL);
     }
     return;
@@ -69,6 +70,7 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
     incr = 0;
   }
 
+  // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur.
   Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL);
 }
 
