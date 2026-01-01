@@ -1134,6 +1134,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   sp->flags |= Index_HasVecSim;
 
   memset(&fs->vectorOpts.vecSimParams, 0, sizeof(VecSimParams));
+  memset(&fs->vectorOpts.diskParams, 0, sizeof(VecSimHNSWDiskParams));
 
   // If the index is on JSON and the given path is dynamic, create a multi-value index.
   bool multi = false;
@@ -1185,6 +1186,26 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
     result = parseVectorField_hnsw(fs, params, ac, status);
+    // Build disk params if disk mode is enabled
+    if (result && sp->diskSpec) {
+      const HNSWParams *hnsw = &params->algoParams.hnswParams;
+      size_t nameLen;
+      const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
+      fs->vectorOpts.diskParams = (VecSimHNSWDiskParams){
+        .dim = hnsw->dim,
+        .type = hnsw->type,
+        .metric = hnsw->metric,
+        .M = hnsw->M,
+        .efConstruction = hnsw->efConstruction,
+        .efRuntime = hnsw->efRuntime,
+        .blockSize = hnsw->blockSize,
+        .multi = hnsw->multi,
+        .storage = sp->diskSpec,
+        .logCtx = logCtx,
+        .indexName = rm_strndup(namePtr, nameLen),
+        .indexNameLen = nameLen,
+      };
+    }
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
@@ -1271,7 +1292,6 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_GEOMETRY_STR, fs, status)) goto error;
     if (!parseGeometryField(sp, fs, ac, status)) goto error;
   } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
-    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_VECTOR_STR, fs, status)) goto error;
     if (!parseVectorField(sp, sp_ref, fs, ac, status)) goto error;
     // Skip SORTABLE and NOINDEX options
     return 1;
@@ -1391,8 +1411,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
     if (sp->diskSpec)
     {
-      if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT fields");
+      if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT/VECTOR fields");
         goto reset;
       }
       if (fs->options & FieldSpec_NotIndexable) {
@@ -1557,6 +1577,71 @@ inline static bool isSpecOnDisk(const IndexSpec *sp) {
   return SearchDisk_IsEnabled();
 }
 
+inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
+  return SearchDisk_IsEnabledForValidation();
+}
+
+// Populate diskParams for all HNSW vector fields in the spec.
+// This must be called after sp->diskSpec is set.
+static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
+  if (!sp->diskSpec) return;
+
+  for (int i = 0; i < sp->numFields; i++) {
+    FieldSpec *fs = &sp->fields[i];
+    if (!FIELD_IS(fs, INDEXFLD_T_VECTOR)) continue;
+
+    // Only HNSW indexes support disk mode (tiered with HNSW primary)
+    VecSimParams *params = &fs->vectorOpts.vecSimParams;
+    if (params->algo != VecSimAlgo_TIERED) continue;
+
+    VecSimParams *primaryParams = params->algoParams.tieredParams.primaryIndexParams;
+    if (!primaryParams || primaryParams->algo != VecSimAlgo_HNSWLIB) continue;
+
+    const HNSWParams *hnsw = &primaryParams->algoParams.hnswParams;
+    size_t nameLen;
+    const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
+
+    // Free any existing indexName to avoid memory leak
+    if (fs->vectorOpts.diskParams.indexName) {
+      rm_free((void*)fs->vectorOpts.diskParams.indexName);
+    }
+
+    fs->vectorOpts.diskParams = (VecSimHNSWDiskParams){
+      .dim = hnsw->dim,
+      .type = hnsw->type,
+      .metric = hnsw->metric,
+      .M = hnsw->M,
+      .efConstruction = hnsw->efConstruction,
+      .efRuntime = hnsw->efRuntime,
+      .blockSize = hnsw->blockSize,
+      .multi = hnsw->multi,
+      .storage = sp->diskSpec,
+      .logCtx = params->logCtx,
+      .indexName = rm_strndup(namePtr, nameLen),
+      .indexNameLen = nameLen,
+    };
+  }
+}
+
+void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status, ACArgSpec *non_flex_argopts) {
+  if (isSpecOnDiskForValidation(spec)) {
+    bool isKnownArg = false;
+    for (int i = 0; non_flex_argopts[i].name; i++) {
+      if (strcasecmp(badarg, non_flex_argopts[i].name) == 0) {
+        isKnownArg = true;
+        break;
+      }
+    }
+    if (isKnownArg) {
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
+        "Unsupported argument for Flex index:", " `%s`", badarg);
+    } else {
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
+    }
+  } else {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
+  }
+}
 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
@@ -1577,32 +1662,50 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   size_t dummy2;
   SchemaRuleArgs rule_args = {0};
   ArgsCursor rule_prefixes = {0};
-
-  ACArgSpec argopts[] = {
-      {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
-                   Index_StoreTermOffsets | Index_StoreByteOffsets)},
-      {AC_MKUNFLAG(SPEC_NOHL_STR, &spec->flags, Index_StoreByteOffsets)},
-      {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &spec->flags, Index_StoreFieldFlags)},
-      {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
-      {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
-      {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
-      {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
-
-      // For compatibility
-      {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
-      {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
-      {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
-      {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-      {.name = NULL}};
-
+  int rc = AC_OK;
   ACArgSpec *errarg = NULL;
-  int rc = AC_ParseArgSpec(&ac, argopts, &errarg);
+  bool invalid_flex_on_type = false;
+  ACArgSpec flex_argopts[] = {
+    {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
+    {.name = "FILTER", .target = &rule_args.filter_exp_str, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "LANGUAGE", .target = &rule_args.lang_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "LANGUAGE_FIELD", .target = &rule_args.lang_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "SCORE", .target = &rule_args.score_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "SCORE_FIELD", .target = &rule_args.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
+    {.name = NULL}
+  };
+  ACArgSpec non_flex_argopts[] = {
+    {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
+                Index_StoreTermOffsets | Index_StoreByteOffsets)},
+    {AC_MKUNFLAG(SPEC_NOHL_STR, &spec->flags, Index_StoreByteOffsets)},
+    {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &spec->flags, Index_StoreFieldFlags)},
+    {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
+    {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
+    {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
+    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
+
+    // For compatibility
+    {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
+    {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
+    {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
+    {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
+    {.name = NULL}
+  };
+  ACArgSpec *argopts = isSpecOnDiskForValidation(spec) ? flex_argopts : non_flex_argopts;
+  rc = AC_ParseArgSpec(&ac, argopts, &errarg);
+  invalid_flex_on_type = isSpecOnDiskForValidation(spec) && rule_args.type && (strcasecmp(rule_args.type, RULE_TYPE_HASH) != 0);
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
       goto failure;
     }
+  }
+  if (invalid_flex_on_type) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT, "Only HASH is supported as index data type for Flex indexes");
+    goto failure;
   }
 
   if (timeout != -1) {
@@ -1624,6 +1727,17 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     goto failure;
   }
 
+  // Store on disk if we're on Flex and we don't force RAM.
+  // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
+  // is available when parsing vector fields (for populating diskParams).
+  if (isSpecOnDisk(spec)) {
+    RS_ASSERT(disk_db);
+    size_t len;
+    const char* name = HiddenString_GetUnsafe(spec->specName, &len);
+    spec->diskSpec = SearchDisk_OpenIndex(name, len, spec->rule->type);
+    RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
+  }
+
   if (AC_IsInitialized(&acStopwords)) {
     if (spec->stopwords) {
       StopWordList_Unref(spec->stopwords);
@@ -1635,7 +1749,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
     if (AC_NumRemaining(&ac)) {
       const char *badarg = AC_GetStringNC(&ac, NULL);
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
+      handleBadArguments(spec, badarg, status, non_flex_argopts);
     } else {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No schema found");
     }
@@ -1648,15 +1762,6 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
 
   if (spec->rule->filter_exp) {
     SchemaRule_FilterFields(spec);
-  }
-
-  // Store on disk if we're on Flex and we don't force RAM
-  if (isSpecOnDisk(spec)) {
-    RS_ASSERT(disk_db);
-    size_t len;
-    const char* name = HiddenString_GetUnsafe(spec->specName, &len);
-    spec->diskSpec = SearchDisk_OpenIndex(name, len, spec->rule->type);
-    RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
   }
 
   return spec_ref;
@@ -3128,6 +3233,8 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
       size_t len;
       const char* name = HiddenString_GetUnsafe(sp->specName, &len);
       sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+      // Populate diskParams for vector fields now that diskSpec is available
+      IndexSpec_PopulateVectorDiskParams(sp);
     }
     IndexSpec_StartGC(spec_ref, sp);
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
@@ -3236,13 +3343,15 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   QueryError status;
   sp->rule = SchemaRule_Create(rule_args, spec_ref, &status);
 
-  if (SearchDisk_IsEnabled(NULL)) {
+  if (SearchDisk_IsEnabled()) {
     // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
     // we add the `Index_StoreInRAM` flag to the rdb file.
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
     sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+    // Populate diskParams for vector fields now that diskSpec is available
+    IndexSpec_PopulateVectorDiskParams(sp);
   }
 
   dictDelete(legacySpecRules, sp->specName);
