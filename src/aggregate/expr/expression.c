@@ -238,7 +238,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
     if (eval->err) {
       QueryError_SetWithUserDataFmt(eval->err, QUERY_ERROR_CODE_NO_PROP_VAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", e->lookupObj->name);
     }
-    RSValue_IntoNull(res);
+    RSValue_SetNull(res);
     return EXPR_EVAL_NULL;
   }
 
