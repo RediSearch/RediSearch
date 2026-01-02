@@ -153,9 +153,9 @@ void RSValue_IntoNull(struct RSValue *value);
 
 const RedisModuleString *RSValue_RedisString_Get(const struct RSValue *value);
 
-int RSValue_ToNumber(const struct RSValue *v, double *d);
+int RSValue_ToNumber(const struct RSValue *value, double *d);
 
-void RSValue_IntoNumber(struct RSValue *v, double n);
+void RSValue_IntoNumber(struct RSValue *value, double n);
 
 const char *RSValue_ConvertStringPtrLen(const struct RSValue *v,
                                         size_t *lenp,
