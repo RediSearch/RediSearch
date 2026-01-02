@@ -11,6 +11,7 @@ use crate::rlookup_id::RLookupId;
 use crate::{
     RLookupRow,
     bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache},
+    hidden_string::HiddenString,
 };
 use enumflags2::{BitFlags, bitflags, make_bitflags};
 use libc::{size_t, strlen};
@@ -1283,12 +1284,12 @@ impl<'a> RLookup<'a> {
                         let fs = &*spec.fields.add(idx);
 
                         // Safety: we received the pointer from the field spec and have to assume it is valid
-                        let (name_ptr, name_len) = hidden_string_get_unsafe(fs.fieldName);
+                            let (name_ptr, name_len) = HiddenString::new(fs.fieldName).get_unsafe();
                         let mut new_key =
                             create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty());
 
                         // Safety: we received the pointer from the field spec and have to assume it is valid
-                        let (path_ptr, _) = hidden_string_get_unsafe(fs.fieldPath);
+                            let (path_ptr, _) = HiddenString::new(fs.fieldPath).get_unsafe();
                         new_key.as_mut().path = path_ptr;
 
                         new_key
@@ -1325,15 +1326,6 @@ impl<'a> RLookup<'a> {
             rv
         }
     }
-}
-
-/// # Safety
-/// 1. value must be valid... etc
-unsafe fn hidden_string_get_unsafe(value: *const ffi::HiddenString) -> (*const c_char, usize) {
-    let mut length = 0;
-    // Safety: Ensured by caller (1.)
-    let name_ptr = unsafe { ffi::HiddenString_GetUnsafe(value, ptr::from_mut(&mut length)) };
-    (name_ptr, length)
 }
 
 fn create_redis_search_ctx_with_ctx_and_spec(
