@@ -40,7 +40,7 @@ typedef struct ForwardIndexEntry {
 
 typedef struct ForwardIndex {
   KHTable *hits;
-  uint32_t maxFreq;
+  uint32_t maxTermFreq;
   uint32_t totalFreq;
   uint32_t idxFlags;
   Stemmer *stemmer;

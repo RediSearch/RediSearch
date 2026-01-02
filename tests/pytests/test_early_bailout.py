@@ -500,8 +500,8 @@ class TestEarlyBailoutEmptyResultsCoord_Resp2:
             res = self.env.cmd('FT.PROFILE', 'not_empty', *query_params)
             empty = empty_results[' '.join(query_params)]
             # Clear time related fields from results
-            res = remove_keys_with_phrases_from_list(res, ['time', 'Warning','Iterators profile', 'Result processors profile'])
-            empty = remove_keys_with_phrases_from_list(empty, ['time', 'Warning','Iterators profile', 'Result processors profile'])
+            res = remove_keys_with_phrases_from_list(res, ['time', 'Warning','Iterators profile', 'Result processors profile', 'Shard ID'])
+            empty = remove_keys_with_phrases_from_list(empty, ['time', 'Warning','Iterators profile', 'Result processors profile', 'Shard ID'])
             self.env.assertEqual(res, empty, message = 'Failed for query params: ' + ' '.join(query_params))
 
     def test_syntax_error_not_oom_resp2(self):
@@ -676,8 +676,8 @@ class TestEarlyBailoutEmptyResultsCoord_Resp3:
             self.env.assertEqual(empty_warning , [])
 
             # Clear time related fields from results
-            res = remove_keys_with_phrases(res, ['time', 'Warning','Iterators profile', 'Result processors profile', 'Shards'])
-            empty = remove_keys_with_phrases(empty, ['time', 'Warning','Iterators profile', 'Result processors profile', 'Shards'])
+            res = remove_keys_with_phrases(res, ['time', 'Warning','Iterators profile', 'Result processors profile', 'Shards', 'Shard ID'])
+            empty = remove_keys_with_phrases(empty, ['time', 'Warning','Iterators profile', 'Result processors profile', 'Shards', 'Shard ID'])
 
             # Assert dicts equal
             self.env.assertEqual(res, empty, message = 'Failed for query params: ' + ' '.join(query_params))

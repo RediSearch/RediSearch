@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #pragma once
 
 #include "search_disk_api.h"
@@ -37,6 +46,12 @@ void SearchDisk_Close();
  * @return Pointer to the index, or NULL if it does not exist
  */
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, size_t indexNameLen, DocumentType type);
+
+/**
+ * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
+ *
+*/
+void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Close an index, **Important** must be called once and only once for every index
@@ -96,10 +111,11 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
  * @param keyLen Length of the document key
  * @param score Document score (for ranking)
  * @param flags Document flags
- * @param maxFreq Maximum term frequency in the document
+ * @param maxTermFreq Maximum frequency of any single term in the document
+ * @param totalFreq Total frequency of the document
  * @return New document ID, or 0 on error/duplicate
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxFreq);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq);
 
 /**
  * @brief Get document metadata by document ID
@@ -121,9 +137,48 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId do
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
 
 /**
+ * @brief Check if the search disk module is enabled from configuration
+ *
+ * @param ctx Redis module context
+ * @return true if enabled, false otherwise
+ */
+bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx);
+
+/**
  * @brief Check if the search disk module is enabled
  *
  * @param ctx Redis module context
  * @return true if enabled, false otherwise
  */
-bool SearchDisk_IsEnabled(RedisModuleCtx *ctx);
+bool SearchDisk_IsEnabled();
+
+/**
+ * @brief Check if the search disk module is enabled for validation.
+ * This is different because it allows to override a configuration to
+ * test some validations done only with SearchDisk
+ *
+ * @return true if enabled, false otherwise
+ */
+bool SearchDisk_IsEnabledForValidation();
+
+// Vector API wrappers
+
+/**
+ * @brief Create a disk-based vector index
+ *
+ * Creates an HNSW index that stores vectors on disk. The returned handle
+ * is a VecSimIndex* that can be used with all standard VecSimIndex_*
+ * functions (AddVector, TopKQuery, etc.) due to polymorphism.
+ *
+ * @param index Pointer to the index spec
+ * @param params Vector index parameters
+ * @return VecSimIndex* handle, or NULL on error
+ */
+void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const struct VecSimHNSWDiskParams *params);
+
+/**
+ * @brief Free a disk-based vector index
+ *
+ * @param vecIndex The vector index handle returned by SearchDisk_CreateVectorIndex
+ */
+void SearchDisk_FreeVectorIndex(void *vecIndex);

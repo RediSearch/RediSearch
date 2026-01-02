@@ -572,6 +572,7 @@ dependencies = [
  "bindgen 0.72.1",
  "build_utils",
  "cc",
+ "document",
  "enumflags2",
  "workspace_hack",
 ]
@@ -2372,6 +2373,8 @@ dependencies = [
  "c_ffi_utils",
  "ffi",
  "redis-module",
+ "redis_mock",
+ "thiserror",
  "workspace_hack",
 ]
 
@@ -2382,8 +2385,8 @@ dependencies = [
  "build_utils",
  "c_ffi_utils",
  "cbindgen",
+ "ffi",
  "libc",
- "redis-module",
  "value",
  "workspace_hack",
 ]

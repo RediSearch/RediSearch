@@ -99,6 +99,7 @@ fn main() {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
+        .blocklist_file(".*/document_rs.h")
         .allowlist_file(".*/types_rs.h")
         .generate()
         .expect("Unable to generate bindings")

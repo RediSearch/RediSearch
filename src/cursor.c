@@ -204,6 +204,23 @@ static uint64_t CursorList_GenerateId(CursorList *curlist) {
   return id;
 }
 
+static void cursorMarkASMInaccuracyCb(CursorList *cl, Cursor *cur, void *arg) {
+  if (cur->execState) {
+    cur->execState->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
+  }
+}
+
+void CursorList_MarkASMInaccuracy() {
+  CursorList *cl = getCursorList(true);
+  CursorList_Lock(cl);
+  Cursors_ForEach(cl, cursorMarkASMInaccuracyCb, NULL);
+  CursorList_Unlock(cl);
+  cl = getCursorList(false);
+  CursorList_Lock(cl);
+  Cursors_ForEach(cl, cursorMarkASMInaccuracyCb, NULL);
+  CursorList_Unlock(cl);
+}
+
 Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned interval,
                         QueryError *status) {
   CursorList_Lock(cl);

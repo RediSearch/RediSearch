@@ -327,8 +327,8 @@ def testDocTableInfo(env):
     n = env.shardsCount
 
     # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
-    #              = 72 + (1000 * 16) = 16072 bytes
-    doc_table_size_mb = 16072 / (1024 * 1024)
+    #              = 72 + (1000 * 8) = 8072 bytes
+    doc_table_size_mb = 8072 / (1024 * 1024)
 
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 0)
@@ -347,9 +347,9 @@ def testDocTableInfo(env):
     # = leanSize + sdsAllocSize(keyPtr)
     # = (sizeof(RSDocumentMetadata) - sizeof(RSPayload *))  (No payload)
     #   + (strlen(key) + 2)
-    # = (72 - 8) + 3 = 67
-    # 2 docs * 67 = 134
-    exp_doc_table_size = (n * doc_table_size_mb) + (134 / (1024 * 1024))
+    # = (64 - 8) + 3 = 59
+    # 2 docs * 59 = 118
+    exp_doc_table_size = (n * doc_table_size_mb) + (118 / (1024 * 1024))
     env.assertEqual(doctable_size1, exp_doc_table_size)
     sortable_size1 = float(d['sortable_values_size_mb'])
     env.assertGreater(sortable_size1, 0)

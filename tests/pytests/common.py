@@ -839,10 +839,8 @@ def downloadFile(env, file_name, depth=0, max_retries=3):
             ], check=True, capture_output=True, text=True)
 
         except subprocess.CalledProcessError as e:
-            env.assertTrue(False,
-                message=f"Failed to download {BASE_RDBS_URL + file_name} after {max_retries + 1} attempts. "
-                       f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}",
-                depth=depth + 1)
+            env.debugPrint(f"Failed to download {file_name} after {max_retries + 1} attempts. "
+                           f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}", force=True)
 
             # Clean up partial download
             try:
@@ -1215,3 +1213,10 @@ def shard_change_timeout_policy(env, shardId, policy):
 def allShards_change_timeout_policy(env, policy):
     for shardId in range(1, env.shardsCount + 1):
         shard_change_timeout_policy(env, shardId, policy)
+
+def get_shards_profile(env, res):
+  """Extract shard profiles from FT.PROFILE AGGREGATE response."""
+  if env.protocol == 3:
+    return res['Profile']['Shards']
+  else:
+    return [to_dict(p) for p in res[-1][1]]

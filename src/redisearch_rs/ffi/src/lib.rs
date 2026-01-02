@@ -35,6 +35,9 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 /// Access to the RediSearch Module context
 pub mod context;
 
+/// Use the Rust definition directly
+pub use document::DocumentType;
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct QueryProcessingCtx {

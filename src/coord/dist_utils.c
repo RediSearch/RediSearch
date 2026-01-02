@@ -160,8 +160,9 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
     // Check if we got timeout
     MRReply *warning = MRReply_MapElement(meta, "warning");
-    if (MRReply_Length(warning) > 0) {
-      const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, 0), NULL);
+    // Iterate over all warnings in the array and check for timeout
+    for (size_t i = 0; i < MRReply_Length(warning); i++) {
+      const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, i), NULL);
       // Set an error to be later picked up by `getCursorCommand`
       if (!strcmp(warning_str, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
         // When a shard returns timeout on RETURN policy, the profile is not returned.

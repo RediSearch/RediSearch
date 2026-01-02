@@ -27,6 +27,10 @@ on:
       beta-version:
         type: string
         description: 'Pre-generated beta version identifier for consistent versioning across builds'
+      version-suffix:
+        type: string
+        description: 'Suffix to append to version for consistent versioning across builds'
+        required: true
 
 env:
   REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
@@ -252,8 +256,10 @@ jobs:
           aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
           aws configure set region "$AWS_REGION"
       - name: Set Version identifier
-        id: beta-version
+        id: set-versions
         run: |
+          VERSION_SUFFIX="${{ inputs.version-suffix }}"
+          echo "VERSION_SUFFIX=$VERSION_SUFFIX" >> $GITHUB_OUTPUT
           # Use the pre-generated beta version if provided (master branch builds)
           # Otherwise generate regular version from version.h (non-master branch builds)
           if [[ -n "${{ inputs.beta-version }}" ]]; then
@@ -270,5 +276,6 @@ jobs:
           fi
       - name: Upload Artifacts
         env:
-          BETA_VERSION: ${{ steps.beta-version.outputs.BETA_VERSION }}
+          BETA_VERSION: ${{ steps.set-versions.outputs.BETA_VERSION }}
+          VERSION_SUFFIX: ${{ steps.set-versions.outputs.VERSION_SUFFIX }}
         run: make upload-artifacts

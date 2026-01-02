@@ -94,6 +94,7 @@ configPair_t __configPairs[] = {
   {"_MIN_TRIM_DELAY_MS",               "search-_min-trim-delay-ms"},
   {"_MAX_TRIM_DELAY_MS",               "search-_max-trim-delay-ms"},
   {"_TRIMMING_STATE_CHECK_DELAY_MS",   "search-_trimming-state-check-delay-ms"},
+  {"_SIMULATE_IN_FLEX",                "search-_simulate-in-flex"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -1165,6 +1166,10 @@ CONFIG_GETTER(getTrimmingStateCheckDelay) {
   return sdscatprintf(ss, "%u", config->trimmingStateCheckDelayMS);
 }
 
+// DEBUG_SIMULATE_IN_FLEX
+CONFIG_BOOLEAN_SETTER(setDebugSimulateInFlex, simulateInFlex)
+CONFIG_BOOLEAN_GETTER(getDebugSimulateInFlex, simulateInFlex, 0)
+
 // ON_OOM
 CONFIG_SETTER(setOnOom) {
   size_t len;
@@ -1545,6 +1550,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Delay between trimming state checks (in milliseconds)",
          .setValue = setTrimmingStateCheckDelay,
          .getValue = getTrimmingStateCheckDelay},
+        {.name = "_SIMULATE_IN_FLEX",
+         .helpText = "Simulate working under Flex conditions. This is used for testing only.",
+         .setValue = setDebugSimulateInFlex,
+         .getValue = getDebugSimulateInFlex},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -2211,6 +2220,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.enableUnstableFeatures)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-_simulate-in-flex", 0,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.simulateInFlex)
     )
   )
 

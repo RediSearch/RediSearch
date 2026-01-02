@@ -97,7 +97,7 @@ static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndex
     EXPLAIN(scrExp, "Document score is 0");
     return 0;
   }
-  uint32_t norm = normMode == NORM_MAXFREQ ? dmd->maxFreq : dmd->len;
+  uint32_t norm = normMode == NORM_MAXFREQ ? dmd->maxTermFreq : dmd->docLen;
   if (norm == 0) {
     EXPLAIN(scrExp, "Document %s is 0", normMode == NORM_MAXFREQ ? "max frequency" : "length");
     return 0;
@@ -243,7 +243,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
     // Compute IDF based on total number of docs in the index and the term's total frequency.
     RSQueryTerm *term = IndexResult_QueryTermRef(r);
     double idf = term->bm25_idf;
-    ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp,
+    ret = CalculateBM25Std(b, k1, idf, f, dmd->docLen, ctx->indexStats.avgDocLen, r->weight, scrExp,
                            term->str);
   } else if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
     // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
@@ -271,7 +271,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
     // For wildcard, score should be determined only by the weight
     // and the document's length (so we set idf and f to be 1).
     double idf = 1.0;
-    ret = CalculateBM25Std(b, k1, idf, 1, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp, "*");
+    ret = CalculateBM25Std(b, k1, idf, 1, dmd->docLen, ctx->indexStats.avgDocLen, r->weight, scrExp, "*");
   } else {
     // Record is either optional term with no match or non text token.
     // For optional term with no match - we would expect 0 contribution to the score

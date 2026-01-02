@@ -272,8 +272,8 @@ int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
       // Delete returns true/false, not RM_{OK,ERR}
       RS_LOG_ASSERT(sp->stats.numDocuments > 0, "numDocuments cannot be negative");
       sp->stats.numDocuments--;
-      RS_LOG_ASSERT(sp->stats.totalDocsLen >= md->len, "totalDocsLen is smaller than dmd->len");
-      sp->stats.totalDocsLen -= md->len;
+      RS_LOG_ASSERT(sp->stats.totalDocsLen >= md->docLen, "totalDocsLen is smaller than md->docLen");
+      sp->stats.totalDocsLen -= md->docLen;
       DMD_Return(md);
 
       if (sp->gc) {

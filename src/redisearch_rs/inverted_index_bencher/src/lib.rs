@@ -13,8 +13,6 @@
     clippy::multiple_unsafe_ops_per_block
 )]
 
-use std::ffi::c_void;
-
 pub mod benchers;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();

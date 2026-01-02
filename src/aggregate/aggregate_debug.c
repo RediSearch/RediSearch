@@ -117,11 +117,15 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     // Check if timeout should be applied only in the shard query pipeline
     if (internal_only && isClusterCoord(debug_req)) {
       if (debug_req->r.reqConfig.queryTimeoutMS == 0 && results_count == 0) {
-          RedisModule_Log(RSDummyContext, "debug",
-                          "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 "
-                          "to avoid infinite loop");
-          debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
-          SearchCtx_UpdateTime(debug_req->r.sctx, debug_req->r.reqConfig.queryTimeoutMS);
+          // In RESP3, timeout warning from empty shard replies is now propagated (MOD-12640).
+          // In RESP2, we still need to force a timeout to avoid infinite loop.
+          if (debug_req->r.protocol != 3) {
+            RedisModule_Log(RSDummyContext, "debug",
+                            "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 "
+                            "to avoid infinite loop (RESP2 only)");
+            debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
+            SearchCtx_UpdateTime(debug_req->r.sctx, debug_req->r.reqConfig.queryTimeoutMS);
+          }
       }
     } else {  // INTERNAL_ONLY was not provided, or we are not in a cluster coordinator
       // Add timeout to the pipeline

@@ -103,11 +103,11 @@ endif()
 
 
 # Define paths for the script and output files
-set(GEN_SCRIPT "${CMAKE_SOURCE_DIR}/srcutil/gen_command_info.py")
-set(COMMAND_JSON "${CMAKE_SOURCE_DIR}/commands.json")
+set(GEN_SCRIPT "${root}/srcutil/gen_command_info.py")
+set(COMMAND_JSON "${root}/commands.json")
 set(COMMAND_INFO_FILE_NAME "command_info")
 set(COMMAND_INFO_FOLDER_NAME "command_info")
-set(COMMAND_OUTPUT_FOLDER "${CMAKE_SOURCE_DIR}/src/${COMMAND_INFO_FOLDER_NAME}")
+set(COMMAND_OUTPUT_FOLDER "${root}/src/${COMMAND_INFO_FOLDER_NAME}")
 set(COMMAND_OUTPUT_FILE "${COMMAND_OUTPUT_FOLDER}/${COMMAND_INFO_FILE_NAME}")
 set(COMMAND_OUTPUT_H "${COMMAND_OUTPUT_FILE}.h")
 set(COMMAND_OUTPUT_C "${COMMAND_OUTPUT_FILE}.c")
@@ -156,7 +156,7 @@ endif()
 # Get Git version info - to be printed in log upon loading the module
 execute_process(
   COMMAND git describe --abbrev=7 --always
-  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  WORKING_DIRECTORY ${root}
   OUTPUT_VARIABLE GIT_VERSPEC
   OUTPUT_STRIP_TRAILING_WHITESPACE
   ERROR_QUIET
@@ -164,7 +164,7 @@ execute_process(
 
 execute_process(
   COMMAND git rev-parse HEAD
-  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  WORKING_DIRECTORY ${root}
   OUTPUT_VARIABLE GIT_SHA
   OUTPUT_STRIP_TRAILING_WHITESPACE
   ERROR_QUIET
