@@ -9,7 +9,7 @@
 #[cfg(debug_assertions)]
 use crate::rlookup_id::RLookupId;
 use crate::{
-    RLookupRow,
+    RLookupRow, SchemaRuleWrapper,
     bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache},
     hidden_string::HiddenString,
 };
@@ -1268,32 +1268,60 @@ impl<'a> RLookup<'a> {
 
             // TODO: Separate function? Test in isolation? (What are we doing here?)
             // Create RLookupKeys.
-            let nkeys: usize = ffi::array_len_func(*rule.filter_fields as *mut c_void)
+
+            let fields_len: usize = ffi::array_len_func(spec.fields as *mut c_void)
                 .try_into()
                 .expect("array_len must not exceed usize");
-            let mut keys = (0..nkeys)
-                .map(|i| {
-                    // TODO: Use slice.from_raw_parts() and index into it?
-                    let idx = *rule.filter_fields_index.add(i);
-                    // No match was found, we will load the field by the name provided.
+            let filter_fields_len: usize = ffi::array_len_func(rule.filter_fields as *mut c_void)
+                .try_into()
+                .expect("array_len must not exceed usize");
+            let filter_fields_index_len: usize =
+                ffi::array_len_func(rule.filter_fields_index as *mut c_void)
+                    .try_into()
+                    .expect("array_len must not exceed usize");
+
+            // TODO: Right?
+            debug_assert_eq!(
+                fields_len, filter_fields_len,
+                "fields_len must equal filter_fields_len"
+            );
+            debug_assert_eq!(
+                filter_fields_len, filter_fields_index_len,
+                "filter_fields_len must equal filter_fields_index_len"
+            );
+
+            let fields = slice::from_raw_parts(spec.fields, fields_len);
+            let filter_fields_array = slice::from_raw_parts(rule.filter_fields, filter_fields_len);
+            let filter_fields_index_array =
+                slice::from_raw_parts(rule.filter_fields_index, filter_fields_index_len);
+
+            let mut keys = filter_fields_index_array
+                .iter()
+                .enumerate()
+                .map(|(i, &idx)| {
                     const NO_MATCH: i32 = -1;
                     match idx {
                         NO_MATCH => {
-                            let name_ptr = *rule.filter_fields.add(i);
+                            // Load the field by the name provided.
+                            let name_ptr = filter_fields_array[i];
                             let name_len = strlen(name_ptr);
                             create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty())
                         }
                         _ => {
-                            let idx = idx.try_into().expect("idx must not exceed usize");
-                            let fs = &*spec.fields.add(idx);
+                            let idx: usize = idx
+                                .try_into()
+                                .expect("idx must be positive and fit into usize");
+                            let field_spec = fields[idx];
 
                             // Safety: we received the pointer from the field spec and have to assume it is valid
-                            let (name_ptr, name_len) = HiddenString::new(fs.fieldName).get_unsafe();
+                            let (name_ptr, name_len) =
+                                HiddenString::new(field_spec.fieldName).get_unsafe();
                             let mut new_key =
                                 create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty());
 
                             // Safety: we received the pointer from the field spec and have to assume it is valid
-                            let (path_ptr, _) = HiddenString::new(fs.fieldPath).get_unsafe();
+                            let (path_ptr, _) =
+                                HiddenString::new(field_spec.fieldPath).get_unsafe();
                             new_key.as_mut().path = path_ptr;
 
                             new_key
@@ -1311,7 +1339,7 @@ impl<'a> RLookup<'a> {
             let mut status = mem::transmute(QueryError::default());
             let mut options = ffi::RLookupLoadOptions {
                 keys: (*keys).as_mut_ptr(),
-                nkeys: nkeys,
+                nkeys: keys.len(),
                 sctx: &mut sctx,
                 keyPtr: key,
                 type_: rule.type_,
