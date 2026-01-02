@@ -61,12 +61,32 @@ do {                                                      \
 } while(0)
 
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
-  return sizeof(TrieNode) + numChildren * (sizeof(rune) + sizeof(TrieNode *)) + sizeof(rune) * (slen + 1);
+  // Calculate:
+  // sizeof(TrieNode) + numChildren * (sizeof(rune) + sizeof(TrieNode *))
+  // + sizeof(rune) * (slen + 1)
+  //
+  // Overflow analysis:
+  // t_len is uint16_t (max 65535), and rune is uint16_t (2 bytes) by default.
+  // Maximum possible size on 64-bit: ~21 + 65535 * (2 + 8) + 65536 * 2 ≈ 786 KB
+  // Maximum possible size on 32-bit: ~17 + 65535 * (2 + 4) + 65536 * 2 ≈ 524 KB
+  // Both are far below SIZE_MAX, so overflow is not possible with current type
+  // constraints.
+  return sizeof(TrieNode) + numChildren * (sizeof(rune) + sizeof(TrieNode *)) +
+         sizeof(rune) * (slen + 1);
+}
+
+// Check if payload length + 1 (for null terminator) overflows uint32_t
+// Returns true if overflow would occur, false otherwise
+static bool __payloadOverflow(size_t plen) {
+  uint32_t alloc_size;
+  if (__builtin_add_overflow(sizeof(TriePayload) + 1, plen, &alloc_size)) {
+    return true;  // Overflow in total allocation size
+  }
+  return false;
 }
 
 // Allocate a new trie payload struct
 static inline TriePayload *triePayload_New(const char *payload, uint32_t plen) {
-
   TriePayload *p = rm_malloc(sizeof(TriePayload) + sizeof(char) * (plen + 1));
   p->len = plen;
   memcpy(p->data, payload, sizeof(char) * plen);
@@ -91,7 +111,7 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
   n->maxChildScore = score;
   memcpy(n->str, str + offset, sizeof(rune) * (len - offset));
   if (payload != NULL && plen > 0) {
-    n->payload = triePayload_New(payload, plen);
+    n->payload = triePayload_New(payload, (uint32_t)plen);
   }
   return n;
 }
@@ -187,12 +207,11 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) 
   return merged;
 }
 
-int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
-                 TrieAddOp op, TrieFreeCallback freecb) {
+static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
+                   TrieAddOp op, TrieFreeCallback freecb) {
   if (score == 0 || len == 0) {
-    return 0;
+    return TRIE_OK_UPDATED;
   }
-
   TrieNode *n = *np;
 
   int offset = 0;
@@ -221,7 +240,7 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
         n->payload = NULL;
       }
       if (payload != NULL && payload->data != NULL && payload->len > 0) {
-        n->payload = triePayload_New(payload->data, payload->len);
+        n->payload = triePayload_New(payload->data, (uint32_t)payload->len);
       }
 
       __trieNode_children(n)[0] = newChild;
@@ -232,7 +251,7 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
       updateScore(n, score);
     }
     *np = n;
-    return 1;
+    return TRIE_OK_NEW;
   }
 
   updateScore(n, score);
@@ -257,14 +276,14 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
         triePayload_Free(n->payload, freecb);
         n->payload = NULL;
       }
-      n->payload = triePayload_New(payload->data, payload->len);
+      n->payload = triePayload_New(payload->data, (uint32_t)payload->len);
     }
     // set the node as terminal
     n->flags |= TRIENODE_TERMINAL;
     // if it was deleted, make sure it's not now
     n->flags &= ~TRIENODE_DELETED;
     *np = n;
-    return (term && !deleted) ? 0 : 1;
+    return (term && !deleted) ? TRIE_OK_UPDATED : TRIE_OK_NEW;
   }
 
   // proceed to the next child or add a new child for the current rune
@@ -274,7 +293,9 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
     const rune *childKey = __trieNode_childKey(n, idx);
     TrieNode *child = __trieNode_children(n)[idx];
     if (str[offset] == *childKey) {
-      int rc = TrieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb);
+      // Payload is validated at the entry point (TrieNode_Add), so
+      // TRIE_ERR_PAYLOAD_OVERFLOW cannot occur here.
+      int rc = __trieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb);
       *__trieNode_childKey(n, idx) = str[offset];
       __trieNode_children(n)[idx] = child;
       // In score mode, check if the order was kept and fix as necessary
@@ -301,7 +322,23 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
     idx = scoreIdx;
   }
   *np = __trie_AddChildIdx(n, str, offset, len, payload, score, idx);
-  return 1;
+  return TRIE_OK_NEW;
+}
+
+int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
+                 TrieAddOp op, TrieFreeCallback freecb) {
+  if (score == 0 || len == 0) {
+    return TRIE_OK_UPDATED;
+  }
+
+  if (payload != NULL && payload->data != NULL) {
+    // Check if payload length fits in uint32_t
+    if (__payloadOverflow(payload->len)) {
+      return TRIE_ERR_PAYLOAD_OVERFLOW;
+    }
+  }
+
+  return __trieNode_Add(np, str, len, payload, score, op, freecb);
 }
 
 TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int *offsetOut) {
