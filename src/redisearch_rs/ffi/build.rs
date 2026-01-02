@@ -78,7 +78,7 @@ fn main() {
         src.join("ttl_table").join("ttl_table.h"),
         src.join("util").join("arr").join("arr.h"),
         src.join("util").join("references.h"),
-        src.join("value").join("value.h"),
+        src.join("redisearch_rs").join("headers").join("value.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();
