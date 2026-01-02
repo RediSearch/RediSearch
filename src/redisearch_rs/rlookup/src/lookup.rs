@@ -1296,13 +1296,13 @@ impl<'a> RLookup<'a> {
 
                             // Safety: we received the pointer from the field spec and have to assume it is valid
                             let (name_ptr, name_len) =
-                                HiddenString::new(field_spec.fieldName).get_unsafe();
+                                HiddenString::from_raw(field_spec.fieldName).get_unsafe();
                             let mut new_key =
                                 create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty());
 
                             // Safety: we received the pointer from the field spec and have to assume it is valid
                             let (path_ptr, _) =
-                                HiddenString::new(field_spec.fieldPath).get_unsafe();
+                                HiddenString::from_raw(field_spec.fieldPath).get_unsafe();
                             new_key.as_mut().path = path_ptr;
 
                             new_key
