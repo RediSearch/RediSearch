@@ -1272,19 +1272,18 @@ impl<'a> RLookup<'a> {
             let fields_len: usize = ffi::array_len_func(spec.fields as *mut c_void)
                 .try_into()
                 .expect("array_len must not exceed usize");
-
             let fields = slice::from_raw_parts(spec.fields, fields_len);
 
             let mut keys = rule
                 .filter_fields_index_slice()
                 .iter()
-                .enumerate()
-                .map(|(i, &idx)| {
+                .zip(rule.filter_fields_slice())
+                .map(|(&idx, &filter_field)| {
                     const NO_MATCH: i32 = -1;
                     match idx {
                         NO_MATCH => {
                             // Load the field by the name provided.
-                            let name_ptr = rule.filter_fields_slice()[i];
+                            let name_ptr = filter_field;
                             let name_len = strlen(name_ptr);
                             create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty())
                         }
