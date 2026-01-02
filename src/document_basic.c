@@ -109,18 +109,18 @@ void Document_MakeRefOwner(Document *doc) {
 }
 
 int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError *status) {
-  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
+  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
   int rv = REDISMODULE_ERR;
-  // DvirDu: Is this even possible?
+  // This is possible if the key has expired for example in previous redis API calls in this notification flow.
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key %s does not exist or is not a hash", RedisModule_StringPtrLen(doc->docKey, NULL));
+    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Key does not exist or is not a hash", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
 
   size_t nitems = sctx->spec->numFields;
   IndexSpec *spec = sctx->spec;
   SchemaRule *rule = spec->rule;
-  assert(rule);
+  RS_ASSERT(rule);
   RedisModuleString *payload_rms = NULL;
   Document_MakeStringsOwner(doc); // TODO: necessary?
   const char *keyname = (const char *)RedisModule_StringPtrLen(doc->docKey, NULL);
@@ -175,8 +175,14 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   size_t nitems = sctx->spec->numFields;
   JSONResultsIterator jsonIter = NULL;
 
-  RedisJSON jsonRoot = japi->openKey(ctx, doc->docKey);
+  RedisJSON jsonRoot = NULL;
+  if (japi_ver >= 5) {
+    jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, REDISMODULE_OPEN_KEY_NOEFFECTS);
+  } else {
+    jsonRoot = japi->openKey(ctx, doc->docKey);
+  }
   if (!jsonRoot) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Key does not exist or is not a json", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
   Document_MakeStringsOwner(doc); // TODO: necessary??
@@ -212,7 +218,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
     if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx, status) != REDISMODULE_OK) {
-      FieldSpec_AddError(field, QueryError_GetError(status), doc->docKey);
+      FieldSpec_AddError(field, QueryError_GetDisplayableError(status, true), QueryError_GetDisplayableError(status, false), doc->docKey);
       RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
       goto done;
     }

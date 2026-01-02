@@ -11,6 +11,9 @@
 #include "concurrent_ctx.h"
 #include "util/arr.h"
 #include "geometry_index.h"
+
+extern bool g_isLoading;
+
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
   int isMulti;
@@ -47,7 +50,6 @@ typedef struct DocumentIndexer {
   ConcurrentSearchCtx concCtx;     // GIL locking. This is repopulated with the relevant key data
   RedisModuleCtx *redisCtx;        // Context for keeping the spec key
   RedisModuleString *specKeyName;  // Cached, used for opening/closing the spec key.
-  uint64_t specId;                 // Unique spec ID. Used to verify we haven't been replaced
 } DocumentIndexer;
 
 void Indexer_Free(DocumentIndexer *indexer);
@@ -81,5 +83,14 @@ typedef int (*IndexerFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const Do
 int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
                    QueryError *status);
+
+/**
+ * Yield to Redis after a certain number of operations during indexing while loading.
+ * This helps keep Redis responsive during long indexing operations.
+ * @param ctx The Redis context
+ * @param numOps Tue number of operations to count in the counter before considering RSGlobalConfig.indexerYieldEveryOpsWhileLoading. These are related to the number of fields in the document
+ * @param flags The flags to pass to RedisModule_Yield
+ */
+void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flags);
 
 #endif

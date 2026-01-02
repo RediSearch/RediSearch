@@ -14,6 +14,7 @@
 #include "src/tokenize.h"
 #include "src/varint.h"
 #include "src/hybrid_reader.h"
+#include "src/ext/default.h"
 
 #include "rmutil/alloc.h"
 #include "index_utils.h"
@@ -33,6 +34,7 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                          REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
+    RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
     return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
 
@@ -55,7 +57,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       InvertedIndex *inv_indices[percent];
       IndexReader *ind_readers[percent];
       for (size_t i = 0; i < percent; i++) {
-        InvertedIndex *w = createIndex(n, step, i);
+        InvertedIndex *w = createPopulateTermsInvIndex(n, step, i);
         inv_indices[i] = w;
         IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
         ind_readers[i] = r;
@@ -79,8 +81,8 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
                                       .query = top_k_query,
                                       .qParams = queryParams,
                                       .vectorScoreField = (char *)"__v_score",
-                                      .ignoreDocScore = true,
-                                      .childIt = ui
+                                      .canTrimDeepResults = true,
+                                      .childIt = ui,
       };
       QueryError err = {QUERY_OK};
       IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);

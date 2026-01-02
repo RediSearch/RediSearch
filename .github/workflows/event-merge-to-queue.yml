@@ -22,64 +22,23 @@ jobs:
       repo: redis/redis
       prefix: '7.4'
 
-  docs-only: # Check whether the PR is only modifying docs
-    uses: ./.github/workflows/task-check-docs.yml
-
-  # Add a matrix with the different Redis versions to test against here when needed
-  test-linux-x86_64:
-    needs: [docs-only, get-latest-redis-tag]
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
-    uses: ./.github/workflows/flow-linux-platforms.yml
+  test-matrix:
+    needs: [get-latest-redis-tag]
+    uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
+      platform: all
+      architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      architecture: x86_64
-
-  # Should only run on with latest Redis tag
-  test-linux-aarch64:
-    needs: [docs-only, get-latest-redis-tag]
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
-    uses: ./.github/workflows/flow-linux-platforms.yml
-    secrets: inherit
-    with:
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      test-config: QUICK=1
-      architecture: aarch64
-
-  # Should only run on with latest Redis tag
-  test-macos:
-    needs: [docs-only, get-latest-redis-tag]
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
-    uses: ./.github/workflows/flow-macos.yml
-    secrets: inherit
-    with:
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      test-config: QUICK=1
-
-  coverage:
-    needs: docs-only
-    if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' && needs.docs-only.outputs.only-docs-changed == 'false' }}
-    uses: ./.github/workflows/flow-coverage.yml
-    secrets: inherit
-
-  sanitize:
-    needs: docs-only
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
-    uses: ./.github/workflows/flow-sanitizer.yml
-    secrets: inherit
-    with:
-      flow-config: '' # full sanitization
+      job-test-config: '{"test": "QUICK=1", "coverage": "", "sanitize": ""}'
+      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,fail-fast,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,fail-fast,sanitize' }}
+      rejson-branch: '2.8'
 
   pr-validation:
     needs:
-      - docs-only # if the setup jobs fail, the rest of the jobs will be skipped, and we will exit with a failure
       - get-latest-redis-tag
-      - test-linux-x86_64
-      - test-linux-aarch64
-      - test-macos
-      - coverage
-      - sanitize
-    runs-on: ubuntu-latest
+      - test-matrix
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ !cancelled() }}
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

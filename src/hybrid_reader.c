@@ -107,7 +107,7 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *res,
 
 static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,
                                RSIndexResult **vec_res, double *upper_bound) {
-  if (hr->ignoreScores) {
+  if (hr->canTrimDeepResults) {
     // If we ignore the document score, insert a single node of type DISTANCE.
     insertResultToHeap_Metric(hr, child_res, vec_res, upper_bound);
   } else {
@@ -158,6 +158,10 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryReply_Iterator *ve
   IndexResult_Free(cur_vec_res);
 }
 
+// Global timeout callback for VecSim searches.
+// Need the redirection so tests can pass a mock function to test timeout behavior.
+int (*vecsimTimeoutCallback)(TimeoutCtx *ctx) = TimedOut_WithCtx;
+
 static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
   double upper_bound = INFINITY;
   VecSimQueryReply_Code rc = VecSim_QueryReply_OK;
@@ -174,7 +178,7 @@ static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
 
   VecSimTieredIndex_AcquireSharedLocks(hr->index);
   while (hr->child->Read(hr->child->ctx, &cur_child_res) != INDEXREAD_EOF) {
-    if (TimedOut_WithCtx(&hr->timeoutCtx)) {
+    if (vecsimTimeoutCallback(&hr->timeoutCtx)) {
       rc = VecSim_QueryReply_TimedOut;
       break;
     }
@@ -249,6 +253,8 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
     child_num_estimated = VecSimIndex_IndexSize(hr->index);
   }
   size_t child_upper_bound = child_num_estimated;
+  // Track maximum batch size
+  hr->maxBatchSize = hr->runtimeParams.batchSize;
   while (VecSimBatchIterator_HasNext(batch_it)) {
     hr->numIterations++;
     size_t vec_index_size = VecSimIndex_IndexSize(hr->index);
@@ -258,6 +264,11 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
     size_t batch_size = hr->runtimeParams.batchSize;
     if (batch_size == 0) {
       batch_size = n_res_left * ((float)vec_index_size / child_num_estimated) + 1;
+      // If given by the user, it's constant, otherwise update the maximum batch size.
+      if (batch_size > hr->maxBatchSize) {
+        hr->maxBatchSize = batch_size;
+        hr->maxBatchIteration = hr->numIterations - 1;  // Zero-based
+      }
     }
     VecSimQueryReply_Free(hr->reply);
     VecSimQueryReply_IteratorFree(hr->iter);
@@ -366,6 +377,8 @@ static void HR_Rewind(void *ctx) {
   HybridIterator *hr = ctx;
   hr->resultsPrepared = false;
   hr->numIterations = 0;
+  hr->maxBatchSize = 0;
+  hr->maxBatchIteration = 0;
   VecSimQueryReply_Free(hr->reply);
   VecSimQueryReply_IteratorFree(hr->iter);
   hr->reply = NULL;
@@ -407,7 +420,7 @@ void HybridIterator_Free(struct indexIterator *self) {
 IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status) {
   // If searchMode is out of the expected range.
   if (hParams.qParams.searchMode < 0 || hParams.qParams.searchMode >= VECSIM_LAST_SEARCHMODE) {
-    QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Creating new hybrid vector iterator has failed");
+    QueryError_SetError(status, QUERY_EGENERIC, "Creating new hybrid vector iterator has failed");
   }
 
   HybridIterator *hi = rm_new(HybridIterator);
@@ -427,7 +440,9 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->topResults = NULL;
   hi->returnedResults = NULL;
   hi->numIterations = 0;
-  hi->ignoreScores = hParams.ignoreDocScore;
+  hi->maxBatchSize = 0;
+  hi->maxBatchIteration = 0;
+  hi->canTrimDeepResults = hParams.canTrimDeepResults;
   hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = 0 };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
 
@@ -482,7 +497,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   } else {
     // Hybrid query - save the RSIndexResult subtree which is not the vector distance only if required.
     ri->Read = HR_ReadHybridUnsorted;
-    if (hParams.ignoreDocScore) {
+    if (hParams.canTrimDeepResults) {
       ri->current = NewMetricResult();
     } else {
       ri->current = NewHybridResult();

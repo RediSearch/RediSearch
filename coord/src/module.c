@@ -22,12 +22,16 @@
 #include "cursor.h"
 #include "build-info/info.h"
 #include "aggregate/aggregate.h"
+#include "aggregate/aggregate_debug.h"
 #include "value.h"
 #include "cluster_spell_check.h"
 #include "profile.h"
 #include "resp3.h"
 #include "debug_commands.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
+#include "util/units.h"
+#include "shard_window_ratio.h"
+#include "rs_wall_clock.h"
 
 #include "libuv/include/uv.h"
 
@@ -49,6 +53,10 @@ static int DIST_AGG_THREADPOOL = -1;
 
 // Number of shards in the cluster. Hint we can read and modify from the main thread
 size_t NumShards = 0;
+
+/* ======================= DEBUG ONLY DECLARATIONS ======================= */
+static void DEBUG_DistSearchCommandHandler(void* pd);
+/* ======================= DEBUG ONLY DECLARATIONS ======================= */
 
 static inline bool SearchCluster_Ready() {
   return NumShards != 0;
@@ -329,7 +337,7 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     req->profileArgs += 2;
-    req->profileClock = clock();
+    rs_wall_clock_init(&req->profileClock);
     if (RMUtil_ArgIndex("LIMITED", argv + 3, 1) != -1) {
       req->profileLimited = 1;
       req->profileArgs++;
@@ -424,7 +432,7 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
     QueryVectorNode queryVectorNode = queryNode->vn;
     size_t k = queryVectorNode.vq->knn.k;
     if (k > MAX_KNN_K) {
-      QueryError_SetErrorFmt(status, QUERY_ELIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
       goto cleanup;
     }
     specialCaseCtx *ctx = SpecialCaseCtx_New();
@@ -474,7 +482,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
   searchRequestCtx *req = searchRequestCtx_New();
 
-  req->initClock = clock();
+  rs_wall_clock_init(&req->initClock);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
@@ -492,8 +500,6 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   req->requiredFields = NULL;
 
   req->withSortingKeys = RMUtil_ArgExists("WITHSORTKEYS", argv, argc, argvOffset) != 0;
-  // fprintf(stderr, "Sortby: %d, asc: %d withsort: %d\n", req->withSortby, req->sortAscending,
-  //         req->withSortingKeys);
 
   // Detect "NOCONTENT"
   req->noContent = RMUtil_ArgExists("NOCONTENT", argv, argc, argvOffset) != 0;
@@ -621,9 +627,6 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
 
         // Sort by string sort keys
         cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
-        // printf("Using sortKey!! <N=%lu> %.*s vs <N=%lu> %.*s. Result=%d\n", r2->sortKeyLen,
-        //        (int)r2->sortKeyLen, r2->sortKey, r1->sortKeyLen, (int)r1->sortKeyLen, r1->sortKey,
-        //        cmp);
       } else {
         // If at least one of these has no sort key, it gets high value regardless of asc/desc
         return r2->sortKey ? 1 : -1;
@@ -631,32 +634,22 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
     }
     // in case of a tie or missing both sorting keys - compare ids
     if (!cmp) {
-      // printf("It's a tie! Comparing <N=%lu> %.*s vs <N=%lu> %.*s\n", r2->idLen, (int)r2->idLen,
-      //        r2->id, r1->idLen, (int)r1->idLen, r1->id);
       cmp = cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
     }
     return (req->sortAscending ? -cmp : cmp);
   }
 
   double s1 = r1->score, s2 = r2->score;
-  // printf("Scores: %lf vs %lf. WithSortBy: %d. SK1=%p. SK2=%p\n", s1, s2, req->withSortby,
-  //        r1->sortKey, r2->sortKey);
   if (s1 < s2) {
     return 1;
   } else if (s1 > s2) {
     return -1;
   } else {
-    // printf("Scores are tied. Will compare ID Strings instead\n");
-
     // This was reversed to be more compatible with OSS version where tie breaker was changed
     // to return the lower doc ID to reduce sorting heap work. Doc name might not be ascending
     // or decending but this still may reduce heap work.
     // Our tests are usually ascending so this will create similarity between RS and RSC.
     int rv = -cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
-
-    // printf("ID Strings: Comparing <N=%lu> %.*s vs <N=%lu> %.*s => %d\n", r2->idLen,
-    // (int)r2->idLen,
-    //        r2->id, r1->idLen, (int)r1->idLen, r1->id, rv);
     return rv;
   }
 }
@@ -712,7 +705,6 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
       res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
       RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
     }
-    // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
   }
   return res;
 }
@@ -729,6 +721,13 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
   }
 
   MRReply *result_id = MRReply_MapElement(result_j, "id");
+  if (!result_id || MRReply_Type(result_id) != MR_REPLY_STRING) {
+    // We crash in development env, and return NULL (such that an error is raised)
+    // in production.
+    RS_LOG_ASSERT_FMT(false, "Expected id %d to exist, and be a string", j);
+    res->id = NULL;
+    return res;
+  }
   res->id = (char*)MRReply_String(result_id, &res->idLen);
   if (!res->id) {
     return res;
@@ -783,7 +782,6 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
           res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
           RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
         }
-        // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
       }
     }
   }
@@ -1030,11 +1028,8 @@ static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx, 
 
   rCtx->cachedResult = NULL;
 
-  // fprintf(stderr, "Result %d Reply docId %s score: %f sortkey %f\n", i, res->id, res->score, res->sortKeyNum);
-
   // TODO: minmax_heap?
   if (heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
-    // printf("Offering result score %f\n", res->score);
     heap_offerx(rCtx->pq, res);
   } else {
     searchResult *smallest = heap_peek(rCtx->pq);
@@ -1107,8 +1102,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     rCtx->totalReplies += MRReply_Integer(MRReply_ArrayElement(arr, 0));
 
     int step = rCtx->offsets.step;
-    // fprintf(stderr, "Step %d, scoreOffset %d, fieldsOffset %d, sortKeyOffset %d\n", step,
-    //         scoreOffset, fieldsOffset, sortKeyOffset);
 
     for (int j = 1; j < len; j += step) {
       if (j + step > len) {
@@ -1194,7 +1187,20 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_Reply_SimpleString(reply, "warning"); // >warning
     if (rCtx->warning) {
-      MR_ReplyWithMRReply(reply, rCtx->warning);
+      RedisModule_Reply_Array(reply);
+      // Iterate over warning array and track warnings
+      size_t len = MRReply_Length(rCtx->warning);
+      for (size_t i = 0; i < len; ++i) {
+        // Extract warning string and track it
+        MRReply *currentWarning = MRReply_ArrayElement(rCtx->warning, i);
+        const char *warning_str = MRReply_String(currentWarning, NULL);
+        QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
+        QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
+
+        // Reply warning
+        MR_ReplyWithMRReply(reply, currentWarning);
+      }
+      RedisModule_Reply_ArrayEnd(reply);
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }
@@ -1344,7 +1350,8 @@ void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **repl
 
 static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
-                               clock_t totalTime, clock_t postProcessTime) {
+                               rs_wall_clock *totalTime,
+                               rs_wall_clock_ns_t postProcessTime) {
   bool has_map = RedisModule_HasMap(reply);
   RedisModule_Reply_Map(reply); // root
     // print results
@@ -1367,15 +1374,15 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
     if (has_map) {
       RedisModule_ReplyKV_Map(reply, "Coordinator");
         // search cmd only do the heap so there is no parsing time
-        RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
-        RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(clock() - postProcessTime) / CLOCKS_PER_MILLISEC);
+        RedisModule_ReplyKV_Double(reply, "Total Coordinator time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(totalTime)));
+        RedisModule_ReplyKV_Double(reply, "Post Processing time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_now_ns() - postProcessTime));
       RedisModule_Reply_MapEnd(reply);
     } else {
       RedisModule_Reply_SimpleString(reply, "Coordinator");
       RedisModule_Reply_Array(reply);
         // search cmd only do the heap so there is no parsing time
-        RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
-        RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(clock() - postProcessTime) / CLOCKS_PER_MILLISEC);
+        RedisModule_ReplyKV_Double(reply, "Total Coordinator time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(totalTime)));
+        RedisModule_ReplyKV_Double(reply, "Post Processing time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_now_ns() - postProcessTime));
       RedisModule_Reply_ArrayEnd(reply);
     }
 
@@ -1393,22 +1400,23 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
   return REDISMODULE_OK;
 }
 
-static bool should_return_error(MRReply *reply) {
-  // TODO: Replace third condition with a var instead of hard-coded string
-  const char *errStr = MRReply_String(reply, NULL);
-  return (!errStr
-          || RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
-          || strcmp(errStr, "Timeout limit was reached"));
+// TODO - get RequestConfig ptr as parameter instead of global config
+bool should_return_error(QueryErrorCode errCode) {
+  // Check if this is a timeout error with non-fail policy
+  if (errCode == QUERY_ETIMEDOUT) {
+    return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail;
+  }
+  // For any other error, return it
+  return true;
 }
 
 static bool should_return_timeout_error(searchRequestCtx *req) {
   return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
          && req->timeout != 0
-         && ((double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC) > req->timeout;
+         && (rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(&req->initClock))) > req->timeout;
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  clock_t postProcessTime;
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
@@ -1430,7 +1438,10 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     if (MRReply_Type(curr_rep) == MR_REPLY_ERROR) {
       rCtx.errorOccurred = true;
       rCtx.lastError = curr_rep;
-      if (should_return_error(curr_rep)) {
+      QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(curr_rep, NULL));
+      if (should_return_error(errCode)) {
+        // Track error in global statistics
+        QueryErrorsGlobalStats_UpdateError(errCode, 1, COORD_ERR_WARN);
         res = MR_ReplyWithMRReply(reply, curr_rep);
         goto cleanup;
       }
@@ -1481,6 +1492,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
     // If we timed out on strict timeout policy, return a timeout error
     if (should_return_timeout_error(req)) {
+      // Track timeout error in global statistics
+      QueryErrorsGlobalStats_UpdateError(QUERY_ETIMEDOUT, 1, COORD_ERR_WARN);
       RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
       goto cleanup;
     }
@@ -1500,10 +1513,11 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     sendSearchResults(reply, &rCtx);
     RedisModule_Reply_MapEnd(reply);
   } else {
-    profileSearchReply(reply, &rCtx, count, replies, req->profileClock, clock());
+    profileSearchReply(reply, &rCtx, count, replies, &req->profileClock, rs_wall_clock_now_ns());
   }
 
-  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, clock() - req->initClock);
+  rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
+  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, duration);
 
 cleanup:
   RedisModule_EndReply(reply);
@@ -1514,6 +1528,7 @@ cleanup:
   if (rCtx.reduceSpecialCaseCtxKnn &&
       rCtx.reduceSpecialCaseCtxKnn->knn.pq) {
     heap_destroy(rCtx.reduceSpecialCaseCtxKnn->knn.pq);
+    rCtx.reduceSpecialCaseCtxKnn->knn.pq = NULL;
   }
 
   RedisModule_BlockedClientMeasureTimeEnd(bc);
@@ -1644,7 +1659,15 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
                          struct ConcurrentCmdCtx *cmdCtx);
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+/** Debug */
+void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+  struct ConcurrentCmdCtx *cmdCtx);
+
+int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return DistAggregateCommandImp(ctx, argv, argc, false);
+}
+
+int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
@@ -1652,11 +1675,19 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
+
+  // Coord callback
+  ConcurrentCmdHandler dist_callback = RSExecDistAggregate;
+  if (isDebug) {
+    dist_callback = DEBUG_RSExecDistAggregate;
+  }
+
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
+
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
-                                               RSExecDistAggregate, ctx, argv, argc);
+                                               dist_callback, ctx, argv, argc);
 }
 
 static void CursorCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
@@ -1718,7 +1749,6 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   MRCommand_SetPrefix(&cmd, "_FT");
 
   struct MRCtx *mctx = MR_CreateCtx(ctx, 0, NULL, NumShards);
-  MR_SetCoordinationStrategy(mctx, false); // send to all shards (not just the masters)
   MR_Fanout(mctx, InfoReplyReducer, cmd, true);
   return REDISMODULE_OK;
 }
@@ -1774,48 +1804,89 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
   }
 }
 
-int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisModuleString **argv, int argc) {
-  QueryError status = {0};
-  searchRequestCtx *req = rscParseRequest(argv, argc, &status);
+static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
+  RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
+  QueryError_ReplyAndClear(clientCtx, status);
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
+  RedisModule_UnblockClient(bc, NULL);
+  RedisModule_FreeThreadSafeContext(clientCtx);
+}
 
-  if (!req) {
-    RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
-    RedisModule_ReplyWithError(clientCtx, QueryError_GetError(&status));
-    QueryError_ClearError(&status);
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, NULL);
-    RedisModule_FreeThreadSafeContext(clientCtx);
-    return REDISMODULE_OK;
+static void prepareCommand(MRCommand *cmd, searchRequestCtx *req, int protocol,
+                           RedisModuleString **argv, int argc) {
+
+  cmd->protocol = protocol;
+
+  // Handle KNN with shard ratio optimization for both multi-shard and standalone
+  if (req->specialCases) {
+    for (size_t i = 0; i < array_len(req->specialCases); ++i) {
+      if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
+        specialCaseCtx* knnCtx = req->specialCases[i];
+        KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
+        double ratio = knn_query->shardWindowRatio;
+
+        // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
+        if (ratio < MAX_SHARD_WINDOW_RATIO) {
+          // Calculate effective K based on deployment mode
+          size_t effectiveK = calculateEffectiveK(knn_query->k, ratio, NumShards);
+          // No modification needed if K values are the same
+          if (knn_query->k == effectiveK) break;
+          // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
+          modifyKNNCommand(cmd, 2 + req->profileArgs, effectiveK, knnCtx->knn.queryNode->vn.vq);
+        }
+        break; // Only handle KNN context
+      }
+    }
   }
-
-  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  cmd.protocol = protocol;
 
   // replace the LIMIT {offset} {limit} with LIMIT 0 {limit}, because we need all top N to merge
   int limitIndex = RMUtil_ArgExists("LIMIT", argv, argc, 3);
   if (limitIndex && req->limit > 0 && limitIndex < argc - 2) {
     size_t k =0;
-    MRCommand_ReplaceArg(&cmd, limitIndex + 1, "0", 1);
+    MRCommand_ReplaceArg(cmd, limitIndex + 1, "0", 1);
     char buf[32];
     snprintf(buf, sizeof(buf), "%lld", req->requestedResultsCount);
-    MRCommand_ReplaceArg(&cmd, limitIndex + 2, buf, strlen(buf));
+    MRCommand_ReplaceArg(cmd, limitIndex + 2, buf, strlen(buf));
   }
 
   /* Replace our own FT command with _FT. command */
   if (req->profileArgs == 0) {
-    MRCommand_ReplaceArg(&cmd, 0, "_FT.SEARCH", sizeof("_FT.SEARCH") - 1);
+    MRCommand_ReplaceArg(cmd, 0, "_FT.SEARCH", sizeof("_FT.SEARCH") - 1);
   } else {
-    MRCommand_ReplaceArg(&cmd, 0, "_FT.PROFILE", sizeof("_FT.PROFILE") - 1);
+    MRCommand_ReplaceArg(cmd, 0, "_FT.PROFILE", sizeof("_FT.PROFILE") - 1);
   }
 
   // adding the WITHSCORES option only if there is no SORTBY (hence the score is the default sort key)
   if (!req->withSortby) {
-    MRCommand_Insert(&cmd, 3 + req->profileArgs, "WITHSCORES", sizeof("WITHSCORES") - 1);
+    MRCommand_Insert(cmd, 3 + req->profileArgs, "WITHSCORES", sizeof("WITHSCORES") - 1);
   }
 
   if(req->specialCases) {
-    sendRequiredFields(req, &cmd);
+    sendRequiredFields(req, cmd);
   }
+}
+
+static searchRequestCtx *createReq(RedisModuleString **argv, int argc, RedisModuleBlockedClient *bc, QueryError *status) {
+  searchRequestCtx *req = rscParseRequest(argv, argc, status);
+
+  if (!req) {
+    bailOut(bc, status);
+    return NULL;
+  }
+  return req;
+}
+
+int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisModuleString **argv, int argc) {
+  QueryError status = {0};
+  searchRequestCtx *req = createReq(argv, argc, bc, &status);
+
+  if (!req) {
+    return REDISMODULE_OK;
+  }
+
+  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
+  prepareCommand(&cmd, req, protocol, argv, argc);
 
   // Here we have an unsafe read of `NumShards`. This is fine because its just a hint.
   struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
@@ -1859,7 +1930,11 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
 
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return DistSearchCommandImp(ctx, argv, argc, false);
+}
+
+int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
@@ -1869,6 +1944,14 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
+
+  // Coord callback
+  void (*dist_callback)(void *) = DistSearchCommandHandler;
+
+  if (isDebug) {
+    dist_callback = DEBUG_DistSearchCommandHandler;
+  }
+
   RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
@@ -1880,13 +1963,16 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   sCmdCtx->bc = bc;
   sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
   RedisModule_BlockedClientMeasureTimeStart(bc);
-  ConcurrentSearch_ThreadPoolRun(DistSearchCommandHandler, sCmdCtx, DIST_AGG_THREADPOOL);
+  ConcurrentSearch_ThreadPoolRun(dist_callback, sCmdCtx, DIST_AGG_THREADPOOL);
 
   return REDISMODULE_OK;
 }
 
-int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return ProfileCommandHandlerImp(ctx, argv, argc, false);
+}
+
+int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1897,10 +1983,10 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
   const char *typeStr = RedisModule_StringPtrLen(argv[2], NULL);
   if (RMUtil_ArgExists("SEARCH", argv, 3, 2)) {
-    return DistSearchCommand(ctx, argv, argc);
+    return DistSearchCommandImp(ctx, argv, argc, isDebug);
   }
   if (RMUtil_ArgExists("AGGREGATE", argv, 3, 2)) {
-    return DistAggregateCommand(ctx, argv, argc);
+    return DistAggregateCommandImp(ctx, argv, argc, isDebug);
   }
   return RedisModule_ReplyWithError(ctx, "No `SEARCH` or `AGGREGATE` provided");
 }
@@ -1963,6 +2049,10 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   MR_Init(cl, clusterConfig.timeoutMS);
 
   return REDISMODULE_OK;
+}
+
+size_t GetNumShards_UnSafe() {
+  return NumShards;
 }
 
 /** A dummy command handler, for commands that are disabled when running the module in OSS
@@ -2107,7 +2197,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RedisModule_CreateCommand(ctx, "FT._ALIASDELIFX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.ALIASUPDATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.SYNUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1));
-    RM_TRY(RedisModule_CreateCommand(ctx, "FT.SYNFORCEUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1));
   }
 
   // cluster set commands
@@ -2127,4 +2216,52 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   return REDISMODULE_OK;
+}
+
+/* ======================= DEBUG ONLY ======================= */
+
+static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisModuleString **argv, int argc) {
+  QueryError status = {0};
+  AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
+
+  if (debug_params.debug_params_count == 0) {
+    bailOut(bc, &status);
+    return REDISMODULE_OK;
+  }
+
+  int debug_argv_count = debug_params.debug_params_count + 2;
+  int base_argc = argc - debug_argv_count;
+  searchRequestCtx *req = createReq(argv, argc, bc, &status);
+
+  if (!req) {
+    return REDISMODULE_OK;
+  }
+
+  MRCommand cmd = MR_NewCommandFromRedisStrings(base_argc, argv);
+  prepareCommand(&cmd, req, protocol, argv, argc);
+
+  MRCommand_Insert(&cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
+  // insert also debug params at the end
+  for (size_t i = 0; i < debug_argv_count; i++) {
+    size_t n;
+    const char *arg = RedisModule_StringPtrLen(debug_params.debug_argv[i], &n);
+    MRCommand_Append(&cmd, arg, n);
+  }
+
+  struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
+
+  MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
+  MR_Fanout(mrctx, NULL, cmd, false);
+  return REDISMODULE_OK;
+}
+
+static void DEBUG_DistSearchCommandHandler(void* pd) {
+  SearchCmdCtx* sCmdCtx = pd;
+  // send argv not including the _FT.DEBUG
+  DEBUG_FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc);
+  for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
+    RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
+  }
+  rm_free(sCmdCtx->argv);
+  rm_free(sCmdCtx);
 }

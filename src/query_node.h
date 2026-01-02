@@ -68,7 +68,10 @@ typedef enum {
   QN_NULL,
 
   /* Missing query */
-  QN_MISSING
+  QN_MISSING,
+
+  /* Max value, should be last */
+  QN_MAX
 } QueryNodeType;
 
 /* A phrase node represents a list of nodes with intersection between them, or a phrase in the case
@@ -172,6 +175,7 @@ typedef struct {
 #define INORDER_ATTR "inorder"
 #define WEIGHT_ATTR "weight"
 #define PHONETIC_ATTR "phonetic"
+#define SHARD_K_RATIO_ATTR "shard_k_ratio"
 
 
 /* Various modifiers and options that can apply to the entire query or any sub-query of it */

@@ -12,9 +12,12 @@
 #include "reply.h"
 #include "cluster.h"
 #include "command.h"
+#include "util/references.h"
 
 struct MRCtx;
 struct RedisModuleCtx;
+
+void iterStartCb(void *p);
 
 /* Prototype for all reduce functions */
 typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
@@ -65,9 +68,6 @@ void MRCtx_Free(struct MRCtx *ctx);
  * this should be the RedisModuleCtx */
 struct MRCtx *MR_CreateCtx(struct RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc, void *privdata, int replyCap);
 
-extern void *MRITERATOR_DONE;
-
-#ifndef RMR_C__
 typedef struct MRIteratorCallbackCtx MRIteratorCallbackCtx;
 typedef struct MRIteratorCtx MRIteratorCtx;
 typedef struct MRIterator MRIterator;
@@ -80,11 +80,26 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
 
 MRReply *MRIterator_Next(MRIterator *it);
 
+/* Get the next reply from the iterator with a timeout.
+ * Parameters:
+ *   - it: the iterator
+ *   - abstime: absolute time (CLOCK_MONOTONIC) when the timeout expires. If NULL, behaves like MRIterator_Next.
+ *   - timedOut: output parameter, set to true if the function returned due to timeout
+ * Returns: the next reply, or NULL if no more replies or timed out */
+MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime, bool *timedOut);
+
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
+
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
+                                      void (*cbPrivateDataDestructor)(void *),
+                                      void (*cbPrivateDataInit)(void *, MRIterator *),
+                                      void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData);
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx);
+
+void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx);
 
 void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
@@ -94,7 +109,7 @@ void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx);
 
 void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx);
 
-int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
+void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
 
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx);
 
@@ -102,9 +117,10 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
 
-void MRIterator_Free(MRIterator *it);
+size_t MRIterator_GetChannelSize(const MRIterator *it);
 
-/* Wait until the iterators producers are all  done */
-void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle);
+size_t MRIterator_GetNumShards(const MRIterator *it);
 
-#endif // RMR_C__
+short MRIterator_GetPending(MRIterator *it);
+
+void MRIterator_Release(MRIterator *it);

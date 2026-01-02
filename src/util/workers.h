@@ -14,6 +14,10 @@
 #include <stddef.h>
 #include <assert.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // create workers thread pool
 // returns REDISMODULE_OK if thread pool created, REDISMODULE_ERR otherwise
 int workersThreadPool_CreatePool(size_t worker_count);
@@ -23,6 +27,15 @@ void workersThreadPool_SetNumWorkers(void);
 
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void);
+
+// Return the number of low priority jobs waiting to be executed.
+size_t workersThreadPool_LowPriorityPendingJobsCount(void);
+
+// Return the number of high priority jobs waiting to be executed.
+size_t workersThreadPool_HighPriorityPendingJobsCount(void);
+
+// Return the number of admin priority jobs waiting to be executed.
+size_t workersThreadPool_AdminPriorityPendingJobsCount(void);
 
 // return n_threads value.
 size_t workersThreadPool_NumThreads(void);
@@ -57,5 +70,9 @@ int workersThreadPool_resume();
 thpool_stats workersThreadPool_getStats();
 
 void workersThreadPool_wait();
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // MT_BUILD

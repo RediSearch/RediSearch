@@ -137,6 +137,8 @@ typedef struct RSValue {
 #define RSVALUE_MAP_KEYPOS(pos) ((pos) * 2)
 #define RSVALUE_MAP_VALUEPOS(pos) ((pos) * 2 + 1)
 
+#define RSVALUE_MAX_BUFFER_LEN 100
+
 /**
  * Clears the underlying storage of the value, and makes it
  * be a reference to the NULL value
@@ -426,7 +428,9 @@ typedef enum {
 /* Based on the value type, serialize the value into redis client response */
 int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);
 
-void RSValue_Print(const RSValue *v);
+// Formats the parsed expression object into a string, obfuscating the values if needed based on the obfuscate boolean
+// The returned string must be freed by the caller using sdsfree
+sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate);
 
 int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 

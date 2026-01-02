@@ -86,8 +86,8 @@ doc_non_numeric_content = r'''{
     "attr5": null,
     "attr6": [1, 2, null, 131.42, null, "yikes" ],
     "attr7": [1, 2, null, 131.42, null, false ],
-    "attr8": [1, 2, null, 131.42, null, {"obj": "ect"} ],
-    "attr9": [1, 2, null, 131.42, null, ["no", "noo"] ],
+    "attr8": [1, 2, null, 131.42, null, {"obj": "etc"} ],
+    "attr9": [1, 2, null, 131.42, null, ["no", "none"] ],
     "attr10": [1, 2, null, 131.42, null, [7007] ]
 }
 '''
@@ -325,10 +325,13 @@ def checkInfoAndGC(env, idx, doc_num, create, delete):
     forceInvokeGC(env, idx)
 
     # Cleaned up
+    expected_info = { 'num_docs': 0,
+                     'total_inverted_index_blocks': 1, # 1 block might be left
+                     # an initialized numeric tree alawys contains a range in its root
+                     'inverted_sz_mb': getInvertedIndexInitialSize_MB(env, ['NUMERIC'])
+                    }
     info = index_info(env, idx)
-    env.assertEqual(int(info['num_docs']), 0)
-    env.assertLessEqual(int(info['total_inverted_index_blocks']), 1) # 1 block might be left
-    env.assertEqual(float(info['inverted_sz_mb']), 0)
+    compare_index_info_dict(env, idx, expected_info)
 
 def printSeed(env):
     # Print the random seed for reproducibility
@@ -622,7 +625,7 @@ def testDebugRangeTree(env):
     conn.execute_command('JSON.SET', 'doc:3', '$', json.dumps({'val': [3, 4, 5]}))
 
     env.expect('FT.DEBUG', 'DUMP_NUMIDXTREE', 'idx', 'val').equal(['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0, 'emptyLeaves', 0,
-        'root', ['range', ['minVal', str(1), 'maxVal', str(5), 'unique_sum', str(0), 'invertedIndexSize [bytes]', str(109), 'card', 0, 'cardCheck', 1, 'splitCard', 16,
+        'root', ['range', ['minVal', str(1), 'maxVal', str(5), 'unique_sum', str(0), 'invertedIndexSize [bytes]', str(101), 'card', 0, 'cardCheck', 1, 'splitCard', 16,
                 'entries', ['numDocs', 3, 'numEntries', 9, 'lastId', 3, 'size', 1, 'blocks_efficiency (numEntries/size)', str(9), 'values',
                     ['value', str(1), 'docId', 1, 'value', str(2), 'docId', 1, 'value', str(3), 'docId', 1, 'value', str(1), 'docId', 2, 'value', str(2), 'docId', 2, 'value', str(3), 'docId', 2, 'value', str(3), 'docId', 3, 'value', str(4), 'docId', 3, 'value', str(5), 'docId', 3]]]],
             'Tree stats:', ['Average memory efficiency (numEntries/size)/numRanges', str(9)]])

@@ -3,6 +3,7 @@
 #include "module.h"
 #include "version.h"
 #include "common.h"
+#include "ext/default.h"
 #include "redismock/util.h"
 #include "redismock/internal.h"
 
@@ -11,11 +12,11 @@
 extern "C" {
 
 static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
   if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
+  RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
   return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
 
@@ -26,6 +27,7 @@ class MyEnvironment : public ::testing::Environment {
     const char *arguments[] = {"NOGC"};
     // No arguments..
     RMCK_Bootstrap(my_OnLoad, arguments, 1);
+    RSGlobalConfig.freeResourcesThread = false;
   }
 
   virtual void TearDown() {

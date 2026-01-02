@@ -1280,7 +1280,7 @@ def testTagAutoescaping(env):
 
     # if '$' is escaped, it is treated as a regular character, and the parameter
     # is not replaced
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*\$param*}=>{$weight:3.4}',
+    res = env.cmd('FT.SEARCH', 'idx', r'@tag:{*\$param*}=>{$weight:3.4}',
                   'PARAMS', '2', 'param', '@mail.', 'NOCONTENT')
     env.assertEqual(res, [0])
 

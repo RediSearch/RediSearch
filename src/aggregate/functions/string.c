@@ -136,7 +136,7 @@ int func_to_number(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, 
   if (!RSValue_ToNumber(argv[0], &n)) {
     size_t sz = 0;
     const char *p = RSValue_StringPtrLen(argv[0], &sz);
-    QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "to_number: cannot convert string '%s'", p);
+    QueryError_SetWithUserDataFmt(err, QUERY_EPARSEARGS, "to_number: cannot convert string", " '%s'", p);
     return EXPR_EVAL_ERR;
   }
 
@@ -154,7 +154,7 @@ int func_to_str(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, Que
 static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                              QueryError *err) {
   if (argc < 1) {
-    QERR_MKBADARGS_FMT(err, "Need at least one argument for format");
+    QueryError_SetError(err, QUERY_EPARSEARGS, "Need at least one argument for format");
     return EXPR_EVAL_ERR;
   }
   VALIDATE_ARG_ISSTRING("format", argv, 0);
@@ -172,7 +172,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
 
     if (ii == fmtsz - 1) {
       // ... %"
-      QERR_MKBADARGS_FMT(err, "Bad format string!");
+      QueryError_SetError(err, QUERY_EPARSEARGS, "Bad format string!");
       goto error;
     }
 
@@ -188,7 +188,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
     }
 
     if (argix == argc) {
-      QERR_MKBADARGS_FMT(err, "Not enough arguments for format");
+      QueryError_SetError(err, QUERY_EPARSEARGS, "Not enough arguments for format");
       goto error;
     }
 
@@ -216,7 +216,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
         out = sdscatlen(out, str, sz);
       }
     } else {
-      QERR_MKBADARGS_FMT(err, "Unknown format specifier passed");
+      QueryError_SetError(err, QUERY_EPARSEARGS, "Unknown format specifier passed");
       goto error;
     }
   }
@@ -229,7 +229,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   return EXPR_EVAL_OK;
 
 error:
-  assert(QueryError_HasError(err));
+  RS_ASSERT(QueryError_HasError(ctx->err));
   sdsfree(out);
   RSValue_MakeReference(result, RS_NullVal());
   return EXPR_EVAL_ERR;
@@ -249,7 +249,7 @@ static char *str_trim(char *s, size_t sl, const char *cset, size_t *outlen) {
 static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                             QueryError *err) {
   if (argc < 1 || argc > 3) {
-    QERR_MKBADARGS_FMT(err, "Invalid number of arguments for split");
+    QueryError_SetError(err, QUERY_EPARSEARGS, "Invalid number of arguments for split");
     return EXPR_EVAL_ERR;
   }
   VALIDATE_ARG_ISSTRING("split", argv, 0);
@@ -310,6 +310,14 @@ int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, Que
     QueryError_ClearError(ctx->err);
     result->numval = 0;
   }
+  return EXPR_EVAL_OK;
+}
+
+int func_case(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
+  // This function is never directly called for CASE expressions
+  // The actual implementation is in evalFuncCase in expression.c
+  // This is just a placeholder for function registration
+
   return EXPR_EVAL_OK;
 }
 
@@ -380,6 +388,7 @@ void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("to_number", func_to_number, RSValue_Number);
   RSFunctionRegistry_RegisterFunction("to_str", func_to_str, RSValue_String);
   RSFunctionRegistry_RegisterFunction("exists", func_exists, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("case", func_case, RSValue_Undef);
   RSFunctionRegistry_RegisterFunction("startswith", stringfunc_startswith, RSValue_Number);
   RSFunctionRegistry_RegisterFunction("contains", stringfunc_contains, RSValue_Number);
   RSFunctionRegistry_RegisterFunction("strlen", stringfunc_strlen, RSValue_Number);

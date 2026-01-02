@@ -103,10 +103,7 @@ TEST_F(ExtTest, testRegistration) {
 TEST_F(ExtTest, testDynamicLoading) {
   char *errMsg = NULL;
   int rc = Extension_LoadDynamic(getExtensionPath(), &errMsg);
-  ASSERT_EQ(rc, REDISMODULE_OK);
-  if (errMsg != NULL) {
-    FAIL() << "Error loading extension: " << errMsg;
-  }
+  ASSERT_EQ(rc, REDISMODULE_OK) << "Error loading extension: " << errMsg;
 
   ScoringFunctionArgs scxp;
   ExtScoringFunctionCtx *sx = Extensions_GetScoringFunction(&scxp, "example_scorer");
@@ -131,7 +128,7 @@ TEST_F(ExtTest, testQueryExpander_v1) {
 
   QueryError err = {QUERY_OK};
   int rc = QAST_Parse(&qast, NULL, &opts, qt, strlen(qt), 1, &err);
-  ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetError(&err);
+  ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetUserError(&err);
 
   ASSERT_EQ(qast.numTokens, 2);
   ASSERT_EQ(REDISMODULE_OK, QAST_Expand(&qast, opts.expanderName, &opts, NULL, &err));
@@ -173,7 +170,7 @@ TEST_F(ExtTest, testQueryExpander_v2) {
 
   QueryError err = {QUERY_OK};
   int rc = QAST_Parse(&qast, NULL, &opts, qt, strlen(qt), 2, &err);
-  ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetError(&err);
+  ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetUserError(&err);
 
   ASSERT_EQ(qast.numTokens, 2);
   ASSERT_EQ(REDISMODULE_OK, QAST_Expand(&qast, opts.expanderName, &opts, NULL, &err));

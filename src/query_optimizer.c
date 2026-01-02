@@ -26,7 +26,7 @@ void QOptimizer_Parse(AREQ *req) {
     if (IsSearch(req) && !opt->limit) {
       opt->limit = DEFAULT_LIMIT;
     }
-    if (arng->sortKeys) {
+    if (array_len(arng->sortKeys)) {
       const char *name = arng->sortKeys[0];
       const FieldSpec *field = IndexSpec_GetField(req->sctx->spec, name, strlen(name));
       if (field && field->types == INDEXFLD_T_NUMERIC) {
@@ -45,15 +45,15 @@ void QOptimizer_Parse(AREQ *req) {
     opt->scorerType = SCORER_TYPE_NONE;
   } else {
     const char *scorer = req->searchopts.scorerName;
-    if (!scorer) {      // default is TFIDF
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, DEFAULT_SCORER_NAME)) {  // TFIDF
+    if (!scorer || !strcmp(scorer, DEFAULT_SCORER_NAME)) {      // default is TFIDF
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, TFIDF_DOCNORM_SCORER_NAME)) {
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, DISMAX_SCORER_NAME)) {
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, BM25_SCORER_NAME)) {
+      opt->scorerType = SCORER_TYPE_TERM;
+    } else if (!strcmp(scorer, BM25_STD_SCORER_NAME)) {
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, DOCSCORE_SCORER)) {
       opt->scorerType = SCORER_TYPE_DOC;
@@ -135,7 +135,6 @@ size_t QOptimizer_EstimateLimit(size_t numDocs, size_t estimate, size_t limit) {
 
   double ratio = (double)estimate / (double)numDocs;
   size_t newEstimate = (limit / ratio) + 1;
-  // printf("numDocs %ld childEstimate %ld limit %ld required: %ld\n", numDocs, estimate, limit, newEstimate);
 
   return newEstimate;
 }
@@ -169,14 +168,18 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
       opt->nf = numSortbyNode->nn.nf;
     } else {
       // tree has only numeric range. scan range large enough for requested limit
-      opt->type = Q_OPT_PARTIAL_RANGE;
+      if (opt->type == Q_OPT_UNDECIDED) {
+        opt->type = Q_OPT_PARTIAL_RANGE;
+      }
       return;
     }
   }
 
   // there is no sorting field and scorer is required - we must check all results
   if ((!isSortby && opt->scorerReq) || (root->type == QN_VECTOR && root->vn.vq->type == VECSIM_QT_KNN)) {
-    opt->type = Q_OPT_NONE;
+    if (opt->type == Q_OPT_UNDECIDED) {
+      opt->type = Q_OPT_NONE;
+    }
     return;
   }
 
@@ -185,16 +188,19 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   // else, return after enough result found
   if (!opt->scorerReq) {
     if (isSortby) {
-      opt->type = Q_OPT_PARTIAL_RANGE;
+      if (opt->type == Q_OPT_UNDECIDED) {
+        opt->type = Q_OPT_PARTIAL_RANGE;
+      }
       return;
     } else {
-      opt->type = Q_OPT_NO_SORTER;
+      if (opt->type == Q_OPT_UNDECIDED) {
+        opt->type = Q_OPT_NO_SORTER;
+      }
       // No need for scorer, and there is no sorter. we can avoid calculating scores
       opt->scorerType = SCORER_TYPE_NONE;
       return;
     }
   }
-  opt->type = Q_OPT_UNDECIDED;
 }
 
 // creates an intersect from root and numeric
@@ -217,7 +223,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
 
   switch (opt->type) {
     case Q_OPT_HYBRID:
-      RS_LOG_ASSERT(0, "cannot be decided earlier");
+      RS_ABORT("cannot be decided earlier");
 
     // Nothing to do here
     case Q_OPT_NO_SORTER:

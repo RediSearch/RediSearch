@@ -313,7 +313,7 @@ void RLookupRow_Wipe(RLookupRow *row);
  */
 void RLookupRow_Cleanup(RLookupRow *row);
 
-void RLookupRow_Dump(const RLookupRow *row);
+sds RLookupRow_DumpSds(const RLookupRow *row, bool obfuscate);
 
 typedef enum {
   /* Use keylist (keys/nkeys) for the fields to list */

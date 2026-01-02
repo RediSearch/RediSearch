@@ -50,9 +50,15 @@ typedef struct {
 
   // position in the document - this is written to the inverted index
   uint32_t pos;
+
+  // Pointer to allocated memory that needs to be freed (if any)
+  char *allocatedTok;
 } Token;
 
-#define Token_Destroy(t) rm_free((t)->phoneticsPrimary)
+#define Token_Destroy(t) do { \
+  rm_free((t)->phoneticsPrimary); \
+  rm_free((t)->allocatedTok); \
+} while(0)
 
 // A NormalizeFunc converts a raw token to the normalized form in which it will be stored
 typedef char *(*NormalizeFunc)(char *, size_t *);
@@ -64,7 +70,8 @@ typedef struct {
   size_t len;
   StopWordList *stopwords;
   uint32_t lastOffset;
-  uint32_t options;
+  uint16_t options;
+  bool empty_input;
 } TokenizerCtx;
 
 typedef struct RSTokenizer {
@@ -72,12 +79,12 @@ typedef struct RSTokenizer {
   // read the next token. Return its position or 0 if we can't read anymore
   uint32_t (*Next)(struct RSTokenizer *self, Token *tok);
   void (*Free)(struct RSTokenizer *self);
-  void (*Start)(struct RSTokenizer *self, char *txt, size_t len, uint32_t options);
-  void (*Reset)(struct RSTokenizer *self, Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+  void (*Start)(struct RSTokenizer *self, char *txt, size_t len, uint16_t options);
+  void (*Reset)(struct RSTokenizer *self, Stemmer *stemmer, StopWordList *stopwords, uint16_t opts);
 } RSTokenizer;
 
-RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
-RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint16_t opts);
+RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint16_t opts);
 
 #define TOKENIZE_DEFAULT_OPTIONS 0x00
 // Don't modify buffer at all during tokenization.

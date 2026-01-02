@@ -165,15 +165,16 @@ def test_profile(env):
         'Total profile time': ANY,
         'Parsing time': ANY,
         'Pipeline creation time': ANY,
+        'Total GIL time': ANY,
         'Warning': 'None',
         'Iterators profile': [
-          {'Type': 'WILDCARD', 'Time': ANY, 'Counter': 2}
+          {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': 2}
         ],
         'Result processors profile': [
-          {'Type': 'Index',  'Time': ANY, 'Counter': 2},
-          {'Type': 'Scorer', 'Time': ANY, 'Counter': 2},
-          {'Type': 'Sorter', 'Time': ANY, 'Counter': 2},
-          {'Type': 'Loader', 'Time': ANY, 'Counter': 2}
+          {'Type': 'Index',  'Time': ANY, 'Results processed': 2},
+          {'Type': 'Scorer', 'Time': ANY, 'Results processed': 2},
+          {'Type': 'Sorter', 'Time': ANY, 'Results processed': 2},
+          {'Type': 'Loader', 'Time': ANY, 'Results processed': 2}
         ]
       }
     }
@@ -193,12 +194,12 @@ def test_coord_profile():
 
     # test with profile
     shards_exp = {
-      f'Shard #{i}': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
-                      'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY}],
-                      'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
-                                                    {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
-                                                    {'Type': 'Sorter', 'Time': ANY, 'Counter': ANY},
-                                                    {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]}
+      f'Shard #{i}': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Total GIL time': ANY, 'Warning': 'None',
+                      'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY}],
+                      'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},
+                                                    {'Type': 'Scorer', 'Time': ANY, 'Results processed': ANY},
+                                                    {'Type': 'Sorter', 'Time': ANY, 'Results processed': ANY},
+                                                    {'Type': 'Loader', 'Time': ANY, 'Results processed': ANY}]}
       for i in range(1, env.shardsCount + 1)
     }
     shards_exp['Coordinator'] = {'Total Coordinator time': ANY, 'Post Processing time': ANY}
@@ -406,7 +407,8 @@ def test_info():
       'Index Errors': {
           'indexing failures': 0,
           'last indexing error': 'N/A',
-          'last indexing error key': 'N/A'
+          'last indexing error key': 'N/A',
+          'background indexing status': 'OK',
           }
       }
     res = env.cmd('FT.info', 'idx1')
@@ -581,7 +583,7 @@ def test_profile_crash_mod5323():
         r.execute_command("HSET", "4", "t", "helowa")
     waitForIndex(env, 'idx')
 
-    res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT")
+    res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT") # codespell:ignore hel
     exp = {
       'warning': [],
       'attributes': [],
@@ -589,30 +591,31 @@ def test_profile_crash_mod5323():
         'Iterators profile': [
           { 'Child iterators': [
              { 'Child iterators': 'The number of iterators in the union is 3',
-               'Counter': 3,
+               'Number of reading operations': 3,
                'Query type': 'FUZZY - hell',
                'Time': ANY,
                'Type': 'UNION'
               },
               { 'Child iterators': 'The number of iterators in the union is 4',
-                'Counter': 3,
+                'Number of reading operations': 3,
                 'Query type': 'PREFIX - hel',
                 'Time': ANY,
                 'Type': 'UNION'
               }
             ],
-            'Counter': 3,
+            'Number of reading operations': 3,
             'Time': ANY,
             'Type': 'INTERSECT'
           }
         ],
         'Parsing time': ANY,
         'Pipeline creation time': ANY,
+        'Total GIL time': ANY,
         'Warning': 'None',
         'Result processors profile': [
-          { 'Counter': 3, 'Time': ANY, 'Type': 'Index' },
-          { 'Counter': 3, 'Time': ANY, 'Type': 'Scorer' },
-          { 'Counter': 3, 'Time': ANY, 'Type': 'Sorter' }
+          { 'Results processed': 3, 'Time': ANY, 'Type': 'Index' },
+          { 'Results processed': 3, 'Time': ANY, 'Type': 'Scorer' },
+          { 'Results processed': 3, 'Time': ANY, 'Type': 'Sorter' }
         ],
         'Total profile time': ANY
        },
@@ -641,10 +644,10 @@ def test_profile_child_itrerators_array():
       'profile': {
         'Iterators profile': [
           { 'Child iterators': [
-              {'Counter': 1, 'Size': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
-              {'Counter': 1, 'Size': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
+              {'Number of reading operations': 1, 'Estimated number of matches': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
+              {'Number of reading operations': 1, 'Estimated number of matches': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
             ],
-            'Counter': 2,
+            'Number of reading operations': 2,
             'Query type': 'UNION',
             'Time': ANY,
             'Type': 'UNION'
@@ -652,11 +655,12 @@ def test_profile_child_itrerators_array():
         ],
         'Parsing time': ANY,
         'Pipeline creation time': ANY,
+        'Total GIL time': ANY,
         'Warning': 'None',
         'Result processors profile': [
-          {'Counter': 2, 'Time': ANY, 'Type': 'Index'},
-          {'Counter': 2, 'Time': ANY, 'Type': 'Scorer'},
-          {'Counter': 2, 'Time': ANY, 'Type': 'Sorter'}
+          {'Results processed': 2, 'Time': ANY, 'Type': 'Index'},
+          {'Results processed': 2, 'Time': ANY, 'Type': 'Scorer'},
+          {'Results processed': 2, 'Time': ANY, 'Type': 'Sorter'}
         ],
         'Total profile time': ANY
       },
@@ -678,21 +682,22 @@ def test_profile_child_itrerators_array():
       'profile': {
         'Iterators profile': [
           { 'Child iterators': [
-              {'Counter': 1, 'Size': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
-              {'Counter': 1, 'Size': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
+              {'Number of reading operations': 1, 'Estimated number of matches': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
+              {'Number of reading operations': 1, 'Estimated number of matches': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
             ],
-            'Counter': 0,
+            'Number of reading operations': 0,
             'Time': ANY,
             'Type': 'INTERSECT'
           }
         ],
         'Parsing time': ANY,
         'Pipeline creation time': ANY,
+        'Total GIL time': ANY,
         'Warning': 'None',
         'Result processors profile': [
-          { 'Counter': 0, 'Time': ANY, 'Type': 'Index'},
-          { 'Counter': 0, 'Time': ANY, 'Type': 'Scorer'},
-          {'Counter': 0, 'Time': ANY, 'Type': 'Sorter'}
+          { 'Results processed': 0, 'Time': ANY, 'Type': 'Index'},
+          { 'Results processed': 0, 'Time': ANY, 'Type': 'Scorer'},
+          {'Results processed': 0, 'Time': ANY, 'Type': 'Sorter'}
         ],
         'Total profile time': ANY
       },
@@ -893,11 +898,11 @@ def testExpandJson():
   env.assertEqual(res, exp_string_default_dialect)
 
   # Default FORMAT is STRING
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'RETURN', *load_args, 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'STRING', 'RETURN', *load_args, 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
@@ -912,7 +917,7 @@ def testExpandJson():
   del exp_string['results'][1]['id']
 
   # Default FORMAT is STRING
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC', 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
@@ -924,7 +929,7 @@ def testExpandJson():
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND', 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC')
   env.assertEqual(res, exp_expand)
 
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'STRING', 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC', 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
@@ -1203,7 +1208,18 @@ def test_ft_info():
     env = Env(protocol=3)
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
     with env.getClusterConnectionIfNeeded() as r:
+      nodes = 1
+      if env.isCluster():
+         res = r.execute_command("cluster info")
+         nodes = float(res['cluster_known_nodes'])
+
+      # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
+      #              = 64 + (1000 * 16) = 16064 bytes
+      initial_doc_table_size_mb = 16064 / (1024 * 1024)
+      total_index_memory_sz_mb = initial_doc_table_size_mb
+
       res = order_dict(r.execute_command('ft.info', 'idx'))
+
       exp = {
         'attributes': [
           { 'WEIGHT': 1.0,
@@ -1238,7 +1254,7 @@ def test_ft_info():
           'dialect_3': 0,
           'dialect_4': 0
         },
-        'doc_table_size_mb': 0.0,
+        'doc_table_size_mb': initial_doc_table_size_mb,
         'gc_stats': {
           'average_cycle_time_ms': nan,
           'bytes_collected': 0.0,
@@ -1261,7 +1277,7 @@ def test_ft_info():
         'key_table_size_mb': 0.0,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
-        'total_index_memory_sz_mb': 0.0,
+        'total_index_memory_sz_mb': total_index_memory_sz_mb,
         'max_doc_id': 0.0,
         'num_docs': 0.0,
         'num_records': 0.0,
@@ -1280,7 +1296,8 @@ def test_ft_info():
         'Index Errors': {
               'indexing failures': 0,
               'last indexing error': 'N/A',
-              'last indexing error key': 'N/A'
+              'last indexing error key': 'N/A',
+              'background indexing status': 'OK',
         }
       }
 
@@ -1316,7 +1333,7 @@ def test_ft_info():
                           'dialect_2': 0,
                           'dialect_3': 0,
                           'dialect_4': 0},
-        'doc_table_size_mb': 0.0,
+        'doc_table_size_mb': nodes * initial_doc_table_size_mb,
         'gc_stats': {
               'average_cycle_time_ms': 0.0,
               'bytes_collected': 0.0,
@@ -1338,7 +1355,7 @@ def test_ft_info():
         'key_table_size_mb': 0.0,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
-        'total_index_memory_sz_mb': 0.0,
+        'total_index_memory_sz_mb': nodes * total_index_memory_sz_mb,
         'max_doc_id': 0,
         'num_docs': 0,
         'num_records': 0,
@@ -1356,7 +1373,8 @@ def test_ft_info():
         'Index Errors': {
               'indexing failures': 0,
               'last indexing error': 'N/A',
-              'last indexing error key': 'N/A'
+              'last indexing error key': 'N/A',
+              'background indexing status': 'OK',
         }
       }
 
@@ -1430,24 +1448,26 @@ def test_error_with_partial_results():
       conn.execute_command('HSET', f'doc{i}', 't', str(i))
 
   # `FT.AGGREGATE`
-  res = conn.execute_command(
-    'FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '1'
+  res = runDebugQueryCommandTimeoutAfterN(env,
+    ['FT.AGGREGATE', 'idx', '*'],
+    timeout_res_count=3,
   )
-
   # Assert that we got results
   env.assertGreater(len(res['results']), 0)
 
   # Assert that we got a warning
-  env.assertEqual(len(res['warning']), 1)
-  env.assertEqual(res['warning'][0], 'Timeout limit was reached')
+  VerifyTimeoutWarningResp3(env, res)
 
   # `FT.SEARCH`
-  res = conn.execute_command(
-    'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+  res = runDebugQueryCommandTimeoutAfterN(env,
+    ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs)],
+    timeout_res_count=3,
   )
 
-  env.assertEqual(len(res['warning']), 1)
-  env.assertEqual(res['warning'][0], 'Timeout limit was reached')
+  # Assert that we got results
+  env.assertGreater(len(res['results']), 0)
+  # Assert that we got a warning
+  VerifyTimeoutWarningResp3(env, res)
 
 def test_warning_maxprefixexpansions():
   env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
@@ -1474,7 +1494,7 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}])
   env.assertEqual(res['warning'], [])
   # TAG
-  res = env.cmd('FT.SEARCH', 'idx', '@t2:{fo*}', 'nocontent')
+  res = env.cmd('FT.SEARCH', 'idx', '@t2:{fo*}', 'nocontent') # codespell:ignore
   env.assertEqual(res['total_results'], 1)
   env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}])
   env.assertEqual(res['warning'], [])
@@ -1489,7 +1509,7 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['results'], [{'extra_attributes': {'t': 'foo', 't2': 'foo'}, 'values': []}])
   env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
   # TAG
-  res = env.cmd('FT.AGGREGATE', 'idx', '@t2:{fo*}', 'load', '*')
+  res = env.cmd('FT.AGGREGATE', 'idx', '@t2:{fo*}', 'load', '*') # codespell:ignore fo
   env.assertEqual(res['total_results'], 1)
   env.assertEqual(res['results'], [{'extra_attributes': {'t': 'foo', 't2': 'foo'}, 'values': []}])
   env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
@@ -1529,3 +1549,33 @@ def test_warning_maxprefixexpansions():
       if shard_response.get('Warning', 'None') == 'Max prefix expansions limit was reached':
           n_warnings += 1
     env.assertEqual(n_warnings, 1)
+
+# TODO: `total_results` is currently not accurate on cluster - to be fixed in MOD-9094
+@skip(cluster=True)
+def test_totalResults_aggregate():
+  """Tests that the `total_results` field on `FT.AGGREGATE` is correct when
+  using the RESP3 protocol"""
+
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+  conn = env.getClusterConnectionIfNeeded()
+
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  # Populate the index
+  n_docs = 15 * env.shardsCount
+  for i in range(n_docs):
+      conn.execute_command('HSET', f'doc{i}', 't', str(i))
+
+  # Test that the `total_results` field is correct
+  res = env.cmd('FT.AGGREGATE', 'idx', '*')
+  env.assertEqual(res['total_results'], n_docs)
+
+  # Test the `total_results` field for a cursor
+  res, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '5')
+  while cid:
+    env.assertEqual(res['total_results'], 5)
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+
+  # Cursor is depleted.
+  env.assertEqual(res['total_results'], 0)

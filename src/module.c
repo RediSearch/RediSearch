@@ -38,12 +38,13 @@
 #include "alias.h"
 #include "module.h"
 #include "rwlock.h"
-#include "info_command.h"
+#include "info/info_command.h"
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
 #include "reply.h"
 #include "resp3.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
+#include "util/units.h"
 
 
 /* FT.MGET {index} {key} ...
@@ -129,7 +130,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
     QueryError status = {0};
     if(parseDialect(&dialect, &ac, &status) != REDISMODULE_OK) {
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+      RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
       QueryError_ClearError(&status);
       return REDISMODULE_OK;
     }
@@ -148,7 +149,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, dialect, &status);
 
   if (rc != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     goto end;
   }
 
@@ -323,8 +324,8 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  RedisModuleString *rstr = TagIndex_FormatName(sctx, field);
-  TagIndex *idx = TagIndex_Open(sctx, rstr, 0);
+  RedisModuleString *rstr = TagIndex_FormatName(sctx->spec, field);
+  TagIndex *idx = TagIndex_Open(sctx->spec, rstr, DONT_CREATE_INDEX);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
     RedisModule_ReplyWithSetOrArray(ctx, 0);
@@ -379,7 +380,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
   if (sp == NULL) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
     return REDISMODULE_OK;
   }
@@ -621,6 +622,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
+
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
 
   bool initialScan = true;
@@ -830,29 +832,48 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc != 1) {
+  if (argc > 2) {
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  RedisModule_Reply_Set(reply);
-    dictIterator *iter = dictGetIterator(specDict_g);
-    dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
-      StrongRef ref = dictGetRef(entry);
-      IndexSpec *sp = StrongRef_Get(ref);
-      if (isUnsafeForSimpleString(sp->name)) {
-        char *escaped = escapeSimpleString(sp->name);
-        RedisModule_Reply_SimpleString(reply, escaped);
-        rm_free(escaped);
-      } else {
-        RedisModule_Reply_SimpleString(reply, sp->name);
-      }
-    }
-    dictReleaseIterator(iter);
-  RedisModule_Reply_SetEnd(reply);
-  RedisModule_EndReply(reply);
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+  Indexes_List(&_reply, false);
   return REDISMODULE_OK;
+}
+
+// Helper function to register commands that write arbitrary keys
+// Attempt to use an additional flag `touches-arbitrary-keys` and if this fails, falls back to the original flags.
+static int RMCreateArbitraryWriteSearchCommand(RedisModuleCtx *ctx, const char *name,
+                                             RedisModuleCmdFunc callback,
+                                             const char *flags,
+                                             int firstkey, int lastkey, int keystep
+                                             ) {
+  // Build flag combinations
+  char flagCombinations[2][256];
+  int flagCount = 0;
+
+  // Primary flags with touches-arbitrary-keys
+  snprintf(flagCombinations[flagCount], sizeof(flagCombinations[flagCount]), "%s touches-arbitrary-keys", flags);
+  flagCount++;
+
+  // Fallback flags (original flags only)
+  snprintf(flagCombinations[flagCount], sizeof(flagCombinations[flagCount]), "%s", flags);
+  flagCount++;
+
+  // Try each flag combination
+  for (int i = 0; i < flagCount; i++) {
+    int rc = RedisModule_CreateCommand(ctx, name, callback, flagCombinations[i],
+                                 firstkey, lastkey, keystep);
+    if (rc == REDISMODULE_OK) {
+      if (i > 0) {
+        RedisModule_Log(ctx, "notice", "Registered command %s with flags: %s",
+                       name, flagCombinations[i]);
+      }
+      return REDISMODULE_OK;
+    }
+  }
+
+  return REDISMODULE_ERR;
 }
 
 #define RM_TRY(f, ...)                                                         \
@@ -877,14 +898,14 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
     redisVersion = supportedVersion;
     return;
   }
-  RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
+  RS_ASSERT(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
   size_t len;
   const char *replyStr = RedisModule_CallReplyStringPtr(reply, &len);
 
   int n = sscanf(replyStr, "# Server\nredis_version:%d.%d.%d", &redisVersion.majorVersion,
                  &redisVersion.minorVersion, &redisVersion.patchVersion);
 
-  RedisModule_Assert(n == 3);
+  RS_ASSERT(n == 3);
 
   rlecVersion.majorVersion = -1;
   rlecVersion.minorVersion = -1;
@@ -893,7 +914,7 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
   char *enterpriseStr = strstr(replyStr, "rlec_version:");
   if (enterpriseStr) {
     n = sscanf(enterpriseStr, "rlec_version:%d.%d.%d-%d", &rlecVersion.majorVersion,
-               &rlecVersion.minorVersion, &rlecVersion.buildVersion, &rlecVersion.patchVersion);
+               &rlecVersion.minorVersion, &rlecVersion.patchVersion, &rlecVersion.buildVersion);
     if (n != 4) {
       RedisModule_Log(ctx, "warning", "Could not extract enterprise version");
     }
@@ -963,6 +984,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   if (IsEnterprise()) {
     GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
     RedisModule_Log(ctx, "notice", "Redis Enterprise version found by RedisSearch : %s", ver);
+
+    // Changing the default bg indexing oom pause time to 5 seconds as we're in enterprise.
+    RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry = 5;
   }
 
   if (CheckSupportedVestion() != REDISMODULE_OK) {
@@ -1048,17 +1072,22 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
          "write deny-oom", INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_CMD, DropIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_INDEX_CMD, DropIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS);
+  // Special cases: Register drop commands which write to arbitrary keys
+  RM_TRY(RMCreateArbitraryWriteSearchCommand, ctx, RS_DROP_CMD, DropIndexCommand,
+         "write", INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS);
+  RM_TRY(RMCreateArbitraryWriteSearchCommand, ctx, RS_DROP_INDEX_CMD, DropIndexCommand,
+         "write", INDEX_ONLY_CMD_ARGS);
+
+  RM_TRY(RMCreateArbitraryWriteSearchCommand, ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand,
+         "write", INDEX_ONLY_CMD_ARGS);
+
+  RM_TRY(RMCreateArbitraryWriteSearchCommand, ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand,
+         "write", INDEX_ONLY_CMD_ARGS);
+
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand,
+         "readonly", INDEX_ONLY_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
@@ -1187,4 +1216,6 @@ void RediSearch_CleanupModule(void) {
 
   Dictionary_Free();
   RediSearch_LockDestory();
+
+  IndexError_GlobalCleanup();
 }

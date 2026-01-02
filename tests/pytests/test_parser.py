@@ -268,14 +268,8 @@ def test_modifier_v1():
     env.expect('FT.EXPLAIN', 'idx', '@t1:hello world @t2:howdy').equal(r'''
 INTERSECT {
   @t1:INTERSECT {
-    @t1:UNION {
-      @t1:hello
-      @t1:+hello(expanded)
-    }
-    @t1:UNION {
-      @t1:world
-      @t1:+world(expanded)
-    }
+    @t1:hello
+    @t1:world
   }
   @t2:UNION {
     @t2:howdy
@@ -287,19 +281,9 @@ INTERSECT {
 
     env.expect('FT.EXPLAIN', 'idx', '@t1:(hello|world|mars)').equal(r'''
 @t1:UNION {
-  @t1:UNION {
-    @t1:hello
-    @t1:+hello(expanded)
-  }
-  @t1:UNION {
-    @t1:world
-    @t1:+world(expanded)
-  }
-  @t1:UNION {
-    @t1:mars
-    @t1:+mar(expanded)
-    @t1:mar(expanded)
-  }
+  @t1:hello
+  @t1:world
+  @t1:mars
 }
 '''[1:])
 
@@ -310,17 +294,14 @@ INTERSECT {
     env.expect('FT.EXPLAIN', 'idx', '@t1:hello world=>[KNN 10 @v $B]', 'PARAMS', 2, 'B', '#blob#').error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '@t1:(hello world)=>[KNN 10 @v $B]', 'PARAMS', 2, 'B', '#blob#').error().contains('Syntax error')
 
-def test_modifier_v2(env):
+def test_modifier_v2():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'NOSTEM', 't2', 'TEXT', 'SORTABLE', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
 
     env.expect('FT.EXPLAIN', 'idx', '@t1:hello world @t2:howdy').equal(r'''
 INTERSECT {
-  @t1:UNION {
-    @t1:hello
-    @t1:+hello(expanded)
-  }
+  @t1:hello
   UNION {
     world
     +world(expanded)
@@ -335,19 +316,9 @@ INTERSECT {
 
     env.expect('FT.EXPLAIN', 'idx', '@t1:(hello|world|mars)').equal('''
 @t1:UNION {
-  @t1:UNION {
-    @t1:hello
-    @t1:+hello(expanded)
-  }
-  @t1:UNION {
-    @t1:world
-    @t1:+world(expanded)
-  }
-  @t1:UNION {
-    @t1:mars
-    @t1:+mar(expanded)
-    @t1:mar(expanded)
-  }
+  @t1:hello
+  @t1:world
+  @t1:mars
 }
 '''[1:])
 
@@ -476,7 +447,10 @@ UNION {
   NOT{
     INTERSECT {
       world
-      again
+      UNION {
+        again
+        +again(expanded)
+      }
     }
   }
 }
@@ -494,7 +468,10 @@ INTERSECT {
     }
   }
   OPTIONAL{
-    again
+    UNION {
+      again
+      +again(expanded)
+    }
   }
 }
 '''[1:])
@@ -556,7 +533,10 @@ INTERSECT {
     }
   }
   OPTIONAL{
-    again
+    UNION {
+      again
+      +again(expanded)
+    }
   }
 }
 '''[1:])
@@ -637,3 +617,35 @@ def testModifierList(env):
   }
 }
 '''[1:])
+
+def test_intersection_v2():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT', 'NOSTEM', 'tag', 'TAG').ok()
+
+    expected = r'''
+INTERSECT {
+  foo
+  bar
+  baz
+}
+'''[1:]
+
+    # Test text intersection
+    env.expect('FT.EXPLAIN', 'idx', 'foo bar baz', 'VERBATIM').equal(expected)
+    env.expect('FT.EXPLAIN', 'idx', '(foo bar) baz', 'VERBATIM').equal(expected)
+    env.expect('FT.EXPLAIN', 'idx', 'baz (foo bar)', 'VERBATIM').equal(expected)
+
+    expected = r'''
+INTERSECT {
+  @text:foo
+  bar
+  TAG:@tag {
+    baz
+  }
+}
+'''[1:]
+    # Test combination of text and tag intersection (not text-only)
+    env.expect('FT.EXPLAIN', 'idx', '@text:foo bar @tag:{baz}', 'VERBATIM').equal(expected)
+    env.expect('FT.EXPLAIN', 'idx', '(@text:foo bar) @tag:{baz}', 'VERBATIM').equal(expected)
+    env.expect('FT.EXPLAIN', 'idx', '@tag:{baz} (@text:foo bar)', 'VERBATIM').equal(expected)

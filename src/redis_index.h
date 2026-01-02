@@ -39,10 +39,10 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen);
 #define INVERTED_INDEX_ENCVER 1
 #define INVERTED_INDEX_NOFREQFLAG_VER 0
 
-typedef int (*ScanFunc)(RedisModuleCtx *ctx, RedisModuleString *keyName, void *opaque);
+#define DONT_CREATE_INDEX false
+#define CREATE_INDEX true
 
-/* Scan the keyspace with MATCH for a prefix, and call ScanFunc for each key found */
-int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *opaque);
+typedef int (*ScanFunc)(RedisModuleCtx *ctx, RedisModuleString *keyName, void *opaque);
 
 /* Optimize the buffers of a speicif term hit */
 int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);

@@ -25,6 +25,7 @@
 #include "rules.h"
 #include <pthread.h>
 #include "info/index_error.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -117,6 +118,23 @@ struct DocumentIndexer;
 extern dict *specDict_g;
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 
+typedef enum {
+    DEBUG_INDEX_SCANNER_CODE_NEW,
+    DEBUG_INDEX_SCANNER_CODE_RUNNING,
+    DEBUG_INDEX_SCANNER_CODE_DONE,
+    DEBUG_INDEX_SCANNER_CODE_CANCELLED,
+    DEBUG_INDEX_SCANNER_CODE_PAUSED,
+    DEBUG_INDEX_SCANNER_CODE_RESUMED,
+    DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM,
+    DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RETRY,
+
+    //Insert new codes here (before COUNT)
+    DEBUG_INDEX_SCANNER_CODE_COUNT  // Helps with array size checks
+    //Do not add new codes after COUNT
+} DebugIndexScannerCode;
+
+extern const char *DEBUG_INDEX_SCANNER_STATUS_STRS[];
+
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
 extern dict *legacySpecRules;
@@ -129,7 +147,7 @@ typedef struct {
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;
-  size_t totalIndexTime;
+  rs_wall_clock_ns_t totalIndexTime;
   IndexError indexError;
   size_t totalDocsLen;
   uint32_t activeQueries;
@@ -165,6 +183,7 @@ typedef enum {
   Index_HasGeometry = 0x40000,
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
+
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -263,9 +282,10 @@ typedef struct InvertedIndex InvertedIndex;
 typedef struct IndexSpec {
   char *name;                     // Index name
   size_t nameLen;                 // Index name length
-  uint64_t uniqueId;              // Id of index
+  char *obfuscatedName;           // Index hashed name
   FieldSpec *fields;              // Fields in the index schema
-  int numFields;                  // Number of fields
+  int16_t numFields;              // Number of fields
+  int16_t numSortableFields;      // Number of sortable fields
 
   IndexFlags flags;               // Flags
   IndexStats stats;               // Statistics of memory used and quantities
@@ -274,8 +294,6 @@ typedef struct IndexSpec {
   Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
   t_fieldMask suffixMask;         // Mask of all fields that support contains query
   dict *keysDict;                 // Global dictionary. Contains inverted indexes of all TEXT TAG NUMERIC VECTOR and GEOSHAPE terms
-
-  RSSortingTable *sortables;      // Contains sortable data of documents
 
   DocTable docs;                  // Contains metadata of all documents
 
@@ -291,7 +309,8 @@ typedef struct IndexSpec {
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
   bool scan_in_progress;
-  bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
+  bool scan_failed_OOM;           // background indexing failed due to Out Of Memory
+  bool isDuplicate;               // Marks that this index is a duplicate of an existing one
 
   struct DocumentIndexer *indexer;// Indexer of fields into inverted indexes
 
@@ -498,6 +517,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 #define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
 
 void IndexesScanner_Cancel(struct IndexesScanner *scanner);
+void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
 #ifdef FTINFO_FOR_INFO_MODULES
 /**
@@ -614,30 +634,64 @@ void Indexes_SetTempSpecsTimers(TimerOp op);
 typedef struct IndexesScanner {
   bool global;
   bool cancelled;
+  bool isDebug;
+  bool scanFailedOnOOM;
   WeakRef spec_ref;
-  char *spec_name;
-  size_t scannedKeys, totalKeys;
+  char *spec_name_for_logs;
+  size_t scannedKeys;
+  RedisModuleString *OOMkey; // The key that caused the OOM
 } IndexesScanner;
 
-double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp);
+typedef struct DebugIndexesScanner {
+  IndexesScanner base;
+  int maxDocsTBscanned;
+  int maxDocsTBscannedPause;
+  bool wasPaused;
+  bool pauseOnOOM;
+  bool pauseBeforeOOMRetry;
+  int status;
+} DebugIndexesScanner;
+
+double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp);
 
 /**
  * @return the overhead used by the TAG fields in `sp`, i.e., the size of the
  * TrieMaps used for the `values` and `suffix` fields.
  */
-size_t IndexSpec_collect_tags_overhead(IndexSpec *sp);
+size_t IndexSpec_collect_tags_overhead(const IndexSpec *sp);
 
 /**
  * @return the overhead used by the TEXT fields in `sp`, i.e., the size of the
  * sp->terms and sp->suffix Tries.
  */
-size_t IndexSpec_collect_text_overhead(IndexSpec *sp);
+size_t IndexSpec_collect_text_overhead(const IndexSpec *sp);
+
+/**
+ * @return the overhead used by the NUMERIC and GEO fields in `sp`, i.e., the accumulated size of all
+ * numeric tree structs.
+ */
+size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
 
 /**
  * @return all memory used by the index `sp`.
- * Uses the sizes of the doc-table, tag and text overhead if they are not `0`.
+ * Uses the sizes of the doc-table, tag and text overhead if they are not `0`
+ * (otherwise compute them in-place). Vector overhead is expected to be passed in as an argument
+ * and will not be computed in-place
+ * TODO: fIx so this will account for the entire index memory, preferably by using an allocator,
+ * currently it is a best effort that account only for part of the actual memory.
  */
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead);
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead,
+  size_t text_overhead, size_t vector_overhead);
+
+/**
+* obfuscate argument is used to determine how we will format the index name
+* if obfuscate is true we will return the obfuscated name
+* meant to allow us and the user to use the same commands with different outputs
+* meaning we don't want to have access to the user data
+* @return the formatted name of the index
+*/
+const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
+char *IndexSpec_FormatObfuscatedName(const char *specName, size_t len);
 
 //---------------------------------------------------------------------------------------------
 
@@ -649,12 +703,16 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
                                            RedisModuleString **hashFields);
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key);
+void Indexes_List(RedisModule_Reply* reply, bool obfuscate);
 
 //---------------------------------------------------------------------------------------------
 
 void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
 size_t CleanInProgressOrPending();
+
+// Expose reindexpool for debug
+void ReindexPool_ThreadPoolDestroy();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
