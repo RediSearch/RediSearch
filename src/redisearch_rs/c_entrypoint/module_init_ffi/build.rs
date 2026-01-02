@@ -10,5 +10,5 @@
 use build_utils::run_cbinden;
 
 fn main() {
-    run_cbinden("../../headers/tracing_redismodule.h").unwrap();
+    run_cbinden("../../headers/module_init.h").unwrap();
 }
