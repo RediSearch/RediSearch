@@ -12,6 +12,8 @@ use std::{
     slice,
 };
 
+use ffi::DocumentType;
+
 use crate::RLookupKey;
 
 /// A safe wrapper around a pointer to a `SchemaRule`, the underlying pointer is non-null.
@@ -80,6 +82,10 @@ impl SchemaRule {
             .try_into()
             .expect("array_len must not exceed usize");
         unsafe { slice::from_raw_parts(self.0.filter_fields_index, len) }
+    }
+
+    pub fn type_(&self) -> DocumentType {
+        self.0.type_
     }
 }
 

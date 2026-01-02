@@ -1322,7 +1322,7 @@ impl<'a> RLookup<'a> {
                 nkeys: keys.len(),
                 sctx: &mut sctx,
                 keyPtr: key,
-                type_: rule..type_,
+                type_: rule.type_(),
                 status: &mut status,
                 forceLoad: true,
                 mode: ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
