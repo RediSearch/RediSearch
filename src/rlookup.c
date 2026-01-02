@@ -910,6 +910,7 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
 int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *spec, const char *keyptr) {
   SchemaRule *rule = spec->rule;
 
+  // TODO: Can we extract and test this? Prop test to compare C and Rust impl?
   // create rlookupkeys
   int nkeys = array_len(rule->filter_fields);
   RLookupKey **keys = rm_malloc(nkeys * sizeof(*keys));
@@ -928,6 +929,7 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
 
   // load
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = spec };
+  // TODO: Find out in git what happened here?
   struct QueryError status = QueryError_Default(); // TODO: report errors
   RLookupLoadOptions opt = {.keys = (const RLookupKey **)keys,
                             .nkeys = nkeys,
@@ -938,6 +940,7 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
                             .forceLoad = 1,
                             .mode = RLOOKUP_LOAD_KEYLIST };
   int rv = loadIndividualKeys(it, dst, &opt);
+  // TODO: Probably not needed. Check.
   QueryError_ClearError(&status);
   rm_free(keys);
   return rv;

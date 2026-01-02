@@ -15,6 +15,7 @@ use crate::{
 use enumflags2::{BitFlags, bitflags, make_bitflags};
 use libc::{size_t, strlen};
 use pin_project::pin_project;
+use query_error::QueryError;
 use std::{
     borrow::Cow,
     cell::UnsafeCell,
@@ -315,6 +316,9 @@ impl<'a> RLookupKey<'a> {
             rlookup_id: parent.id(),
         }
     }
+
+    // Maybe?
+    pub unsafe fn new_from_ptr() {}
 
     pub fn name(&self) -> &CStr {
         self._name.as_ref()
@@ -1261,6 +1265,7 @@ impl<'a> RLookup<'a> {
         unsafe {
             let rule = spec.rule.as_ref().unwrap();
 
+            // TODO: Separate function? Test in isolation? (What are we doing here?)
             // Create RLookupKeys.
             let nkeys: usize = ffi::array_len_func(*rule.filter_fields as *mut c_void)
                 .try_into()
@@ -1294,11 +1299,12 @@ impl<'a> RLookup<'a> {
                 // Move to heap.
                 .into_boxed_slice();
 
+            // use c_ffi_utils::opaque::IntoOpaque;
+
             // Load.
-            // TODO: Or just use SEARCH_CTX_STATIC()?
             let mut sctx = create_redis_search_ctx_with_ctx_and_spec(ctx, spec);
-            // TODO: Want to use QueryError::default(), but doesn't work with ffi::RLookupLoadOptions.
-            let mut status = ffi::QueryError { _0: [0; 38] };
+            // TODO: Create our QE type and call transmute() into ffi type. Add comment explaining why "for real" temp.
+            let mut status = QueryError::default(); // ffi::QueryError { _0: [0; 38] };
             let mut options = ffi::RLookupLoadOptions {
                 keys: (*keys).as_mut_ptr(),
                 nkeys: nkeys,
@@ -1363,7 +1369,6 @@ fn create_new_key<'a>(
     name_len: size_t,
     flags: RLookupKeyFlags,
 ) -> Box<RLookupKey<'a>> {
-    // TODO: How is this cast from c_char (i8) to u8 valid? (Copied from earlier in file.)
     let name_bytes = unsafe { slice::from_raw_parts(name_ptr.cast::<u8>(), name_len + 1) };
     let name = CStr::from_bytes_with_nul(name_bytes).expect("string must not be malformed");
 
