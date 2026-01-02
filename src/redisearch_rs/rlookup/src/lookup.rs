@@ -1305,12 +1305,10 @@ impl<'a> RLookup<'a> {
                 // Move to heap.
                 .into_boxed_slice();
 
-            // use c_ffi_utils::opaque::IntoOpaque;
-
             // Load.
             let mut sctx = create_redis_search_ctx_with_ctx_and_spec(ctx, spec);
-            // TODO: Create our QE type and call transmute() into ffi type. Add comment explaining why "for real" temp.
-            let mut status = QueryError::default(); // ffi::QueryError { _0: [0; 38] };
+            // TODO: Add comment explaining why "for real" temp.
+            let mut status = mem::transmute(QueryError::default());
             let mut options = ffi::RLookupLoadOptions {
                 keys: (*keys).as_mut_ptr(),
                 nkeys: nkeys,
