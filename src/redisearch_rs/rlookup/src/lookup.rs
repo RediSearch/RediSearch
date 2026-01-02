@@ -1276,7 +1276,7 @@ impl<'a> RLookup<'a> {
             let fields = slice::from_raw_parts(spec.fields, fields_len);
 
             let mut keys = rule
-                .filter_fields_index()
+                .filter_fields_index_slice()
                 .iter()
                 .enumerate()
                 .map(|(i, &idx)| {
@@ -1284,7 +1284,7 @@ impl<'a> RLookup<'a> {
                     match idx {
                         NO_MATCH => {
                             // Load the field by the name provided.
-                            let name_ptr = rule.filter_fields()[i];
+                            let name_ptr = rule.filter_fields_slice()[i];
                             let name_len = strlen(name_ptr);
                             create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty())
                         }
@@ -1323,7 +1323,7 @@ impl<'a> RLookup<'a> {
                 nkeys: keys.len(),
                 sctx: &mut sctx,
                 keyPtr: key,
-                type_: rule.type_,
+                type_: rule..type_,
                 status: &mut status,
                 forceLoad: true,
                 mode: ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
