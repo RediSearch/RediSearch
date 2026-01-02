@@ -1278,12 +1278,12 @@ impl<'a> RLookup<'a> {
                         let fs = &*spec.fields.add(idx);
 
                         // Safety: we received the pointer from the field spec and have to assume it is valid
-                        let (name_ptr, name_len) = hidden_string_to_c_char(fs.fieldName);
+                        let (name_ptr, name_len) = hidden_string_get_unsafe(fs.fieldName);
                         let mut new_key =
                             create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty());
 
                         // Safety: we received the pointer from the field spec and have to assume it is valid
-                        let (path_ptr, _) = hidden_string_to_c_char(fs.fieldPath);
+                        let (path_ptr, _) = hidden_string_get_unsafe(fs.fieldPath);
                         new_key.as_mut().path = path_ptr;
 
                         new_key
@@ -1323,7 +1323,7 @@ impl<'a> RLookup<'a> {
 
 /// # Safety
 /// 1. value must be valid... etc
-unsafe fn hidden_string_to_c_char(value: *const ffi::HiddenString) -> (*const c_char, usize) {
+unsafe fn hidden_string_get_unsafe(value: *const ffi::HiddenString) -> (*const c_char, usize) {
     let mut length = 0;
     // Safety: Ensured by caller (1.)
     let name_ptr = unsafe { ffi::HiddenString_GetUnsafe(value, ptr::from_mut(&mut length)) };
