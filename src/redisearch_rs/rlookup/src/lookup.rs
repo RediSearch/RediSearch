@@ -1283,9 +1283,12 @@ impl<'a> RLookup<'a> {
                     match idx {
                         NO_MATCH => {
                             // Load the field by the name provided.
-                            let name_ptr = filter_field;
-                            let name_len = strlen(name_ptr);
-                            create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty())
+                            create_new_key(
+                                self,
+                                filter_field,
+                                strlen(filter_field),
+                                RLookupKeyFlags::empty(),
+                            )
                         }
                         _ => {
                             let idx: usize = idx
@@ -1294,10 +1297,14 @@ impl<'a> RLookup<'a> {
                             let field_spec = fields[idx];
 
                             // Safety: we received the pointer from the field spec and have to assume it is valid
-                            let (name_ptr, name_len) =
+                            let (field_name, field_name_len) =
                                 HiddenString::from_raw(field_spec.fieldName).get_unsafe();
-                            let mut new_key =
-                                create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty());
+                            let mut new_key = create_new_key(
+                                self,
+                                field_name,
+                                field_name_len,
+                                RLookupKeyFlags::empty(),
+                            );
 
                             // Safety: we received the pointer from the field spec and have to assume it is valid
                             let (path_ptr, _) =
