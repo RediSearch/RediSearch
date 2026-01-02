@@ -1273,26 +1273,31 @@ impl<'a> RLookup<'a> {
                 .expect("array_len must not exceed usize");
             let mut keys = (0..nkeys)
                 .map(|i| {
+                    // TODO: Use slice.from_raw_parts() and index into it?
                     let idx = *rule.filter_fields_index.add(i);
                     // No match was found, we will load the field by the name provided.
-                    if (idx == -1) {
-                        let name_ptr = *rule.filter_fields.add(i);
-                        let name_len = strlen(name_ptr);
-                        create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty())
-                    } else {
-                        let idx = idx.try_into().expect("idx must not exceed usize");
-                        let fs = &*spec.fields.add(idx);
+                    const NO_MATCH: i32 = -1;
+                    match idx {
+                        NO_MATCH => {
+                            let name_ptr = *rule.filter_fields.add(i);
+                            let name_len = strlen(name_ptr);
+                            create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty())
+                        }
+                        _ => {
+                            let idx = idx.try_into().expect("idx must not exceed usize");
+                            let fs = &*spec.fields.add(idx);
 
-                        // Safety: we received the pointer from the field spec and have to assume it is valid
+                            // Safety: we received the pointer from the field spec and have to assume it is valid
                             let (name_ptr, name_len) = HiddenString::new(fs.fieldName).get_unsafe();
-                        let mut new_key =
-                            create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty());
+                            let mut new_key =
+                                create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty());
 
-                        // Safety: we received the pointer from the field spec and have to assume it is valid
+                            // Safety: we received the pointer from the field spec and have to assume it is valid
                             let (path_ptr, _) = HiddenString::new(fs.fieldPath).get_unsafe();
-                        new_key.as_mut().path = path_ptr;
+                            new_key.as_mut().path = path_ptr;
 
-                        new_key
+                            new_key
+                        }
                     }
                     .as_ref() as *const RLookupKey<'_> as *const ffi::RLookupKey
                 })
