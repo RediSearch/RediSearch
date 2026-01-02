@@ -341,7 +341,7 @@ double RSValue_Number_Get(const RSValue *v);
  * @param v The value to modify
  * @param n The numeric value to set
  */
-void RSValue_IntoNumber(RSValue *v, double n);
+void RSValue_SetNumber(RSValue *v, double n);
 
 // String getters/setters
 void RSValue_SetString(RSValue *v, char *str, size_t len);

@@ -287,12 +287,6 @@ double RSValue_Number_Get(const RSValue *v) {
   return v->_numval;
 }
 
-void RSValue_IntoNumber(RSValue *v, double n) {
-  RS_ASSERT(v);
-  v->_t = RSValueType_Number;
-  v->_numval = n;
-}
-
 // String getters/setters
 char *RSValue_String_Get(const RSValue *v, uint32_t *lenp) {
   RS_ASSERT(v && v->_t == RSValueType_String);
