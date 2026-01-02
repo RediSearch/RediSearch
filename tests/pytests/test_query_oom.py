@@ -371,5 +371,5 @@ def test_oom_verbosity_cluster_return():
     # In resp 2 the shard warnings are not detected by the coordinator
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
     # Since we don't know the order of responses, we need to count 2 errors
-    n_warnings = sum(1 for shard_res in res[1][1] if SHARD_OOM_WARNING in shard_res[9])
-    env.assertEqual(n_warnings, 2)
+    n_warnings = sum(1 for shard_res in res[1][1] if SHARD_OOM_WARNING in shard_res[11])
+    env.assertEqual(n_warnings, 2, message=f"res: {res}")

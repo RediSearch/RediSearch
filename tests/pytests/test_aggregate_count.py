@@ -54,7 +54,8 @@ def _get_cluster_RP_profile(env, res) -> list:
 
     else:
         for i in range(len(res[1][1])):
-            shard = res[1][1][i][15]
+            shard = res[1][1][i][17]
+            print(shard)
             shard_RP_and_count.append([(item[1], item[5]) for item in shard])
 
         # sort shard by the number of results processed by the first RP
