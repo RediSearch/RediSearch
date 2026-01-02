@@ -305,10 +305,10 @@ static int stringfunc_split(ExprEval *ctx, RSValue **argv, size_t argc, RSValue 
 
 int func_exists(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   if (RSValue_Type(argv[0]) != RSValueType_Null) {
-    RSValue_IntoNumber(result, 1);
+    RSValue_SetNumber(result, 1);
   } else {
     QueryError_ClearError(ctx->err);
-    RSValue_IntoNumber(result, 0);
+    RSValue_SetNumber(result, 0);
   }
   return EXPR_EVAL_OK;
 }
@@ -331,7 +331,7 @@ static int stringfunc_startswith(ExprEval *ctx, RSValue **argv, size_t argc, RSV
   const char *p_str = RSValue_StringPtrLen(str, NULL);
   size_t n;
   const char *p_pref = RSValue_StringPtrLen(pref, &n);
-  RSValue_IntoNumber(result, strncmp(p_pref, p_str, n) == 0);
+  RSValue_SetNumber(result, strncmp(p_pref, p_str, n) == 0);
   return EXPR_EVAL_OK;
 }
 
@@ -357,7 +357,7 @@ static int stringfunc_contains(ExprEval *ctx, RSValue **argv, size_t argc, RSVal
   } else {
     num = p_str_size + 1;
   }
-  RSValue_IntoNumber(result, num);
+  RSValue_SetNumber(result, num);
   return EXPR_EVAL_OK;
 }
 
@@ -368,7 +368,7 @@ static int stringfunc_strlen(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
 
   size_t n;
   const char *p_pref = (char *)RSValue_StringPtrLen(str, &n);
-  RSValue_IntoNumber(result, n);
+  RSValue_SetNumber(result, n);
   return EXPR_EVAL_OK;
 }
 
