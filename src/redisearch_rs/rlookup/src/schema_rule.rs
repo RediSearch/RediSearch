@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::{CStr, c_char};
+use std::{
+    ffi::{CStr, c_char, c_void},
+    slice,
+};
 
 use crate::RLookupKey;
 
@@ -61,6 +64,20 @@ impl SchemaRule {
         [self.lang_field(), self.score_field(), self.payload_field()]
             .into_iter()
             .any(|f| f == Some(key.name_as_cstr()))
+    }
+
+    pub fn filter_fields(&self) -> &[*mut i8] {
+        let len: usize = unsafe { ffi::array_len_func(self.0.filter_fields as *mut c_void) }
+            .try_into()
+            .expect("array_len must not exceed usize");
+        unsafe { slice::from_raw_parts(self.0.filter_fields, len) }
+    }
+
+    pub fn filter_fields_index(&self) -> &[i32] {
+        let len: usize = unsafe { ffi::array_len_func(self.0.filter_fields_index as *mut c_void) }
+            .try_into()
+            .expect("array_len must not exceed usize");
+        unsafe { slice::from_raw_parts(self.0.filter_fields_index, len) }
     }
 }
 

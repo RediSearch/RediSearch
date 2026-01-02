@@ -9,7 +9,7 @@
 #[cfg(debug_assertions)]
 use crate::rlookup_id::RLookupId;
 use crate::{
-    RLookupRow, SchemaRuleWrapper,
+    RLookupRow, SchemaRule, SchemaRuleWrapper,
     bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache},
     hidden_string::HiddenString,
 };
@@ -1264,7 +1264,7 @@ impl<'a> RLookup<'a> {
         key: *const c_char,
     ) -> i32 {
         unsafe {
-            let rule = spec.rule.as_ref().unwrap();
+            let rule = SchemaRule::from_raw(spec.rule);
 
             // TODO: Separate function? Test in isolation? (What are we doing here?)
             // Create RLookupKeys.
@@ -1272,30 +1272,11 @@ impl<'a> RLookup<'a> {
             let fields_len: usize = ffi::array_len_func(spec.fields as *mut c_void)
                 .try_into()
                 .expect("array_len must not exceed usize");
-            let filter_fields_len: usize = ffi::array_len_func(rule.filter_fields as *mut c_void)
-                .try_into()
-                .expect("array_len must not exceed usize");
-            let filter_fields_index_len: usize =
-                ffi::array_len_func(rule.filter_fields_index as *mut c_void)
-                    .try_into()
-                    .expect("array_len must not exceed usize");
-
-            // TODO: Right?
-            debug_assert_eq!(
-                fields_len, filter_fields_len,
-                "fields_len must equal filter_fields_len"
-            );
-            debug_assert_eq!(
-                filter_fields_len, filter_fields_index_len,
-                "filter_fields_len must equal filter_fields_index_len"
-            );
 
             let fields = slice::from_raw_parts(spec.fields, fields_len);
-            let filter_fields_array = slice::from_raw_parts(rule.filter_fields, filter_fields_len);
-            let filter_fields_index_array =
-                slice::from_raw_parts(rule.filter_fields_index, filter_fields_index_len);
 
-            let mut keys = filter_fields_index_array
+            let mut keys = rule
+                .filter_fields_index()
                 .iter()
                 .enumerate()
                 .map(|(i, &idx)| {
@@ -1303,7 +1284,7 @@ impl<'a> RLookup<'a> {
                     match idx {
                         NO_MATCH => {
                             // Load the field by the name provided.
-                            let name_ptr = filter_fields_array[i];
+                            let name_ptr = rule.filter_fields()[i];
                             let name_len = strlen(name_ptr);
                             create_new_key(self, name_ptr, name_len, RLookupKeyFlags::empty())
                         }
