@@ -479,7 +479,7 @@ static inline void RSValue_Replace(RSValue **destpp, RSValue *src) {
  * This clears the existing value and sets its to RSValueType_Null.
  * @param v The value to modify
  */
-void RSValue_IntoNull(RSValue *v);
+void RSValue_SetNull(RSValue *v);
 
 /**
  * Get the reference count of an RSValue.

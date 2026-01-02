@@ -88,6 +88,12 @@ RSValue *RSValue_Trio_GetRight(const RSValue *v) {
 // Setters (needed by some constructors)
 ///////////////////////////////////////////////////////////////
 
+void RSValue_SetNull(RSValue *v) {
+  RS_ASSERT(v);
+  RSValue_Clear(v);
+  v->_t = RSValueType_Null;
+}
+
 inline void RSValue_SetNumber(RSValue *v, double n) {
   v->_t = RSValueType_Number;
   v->_numval = n;
@@ -401,12 +407,6 @@ void RSValue_DecrRef(RSValue* v) {
       mempool_release(getPool(), v);
     }
   }
-}
-
-void RSValue_IntoNull(RSValue *v) {
-  RS_ASSERT(v);
-  RSValue_Clear(v);
-  v->_t = RSValueType_Null;
 }
 
 // Refcount getter
