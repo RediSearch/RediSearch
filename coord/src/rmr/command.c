@@ -176,6 +176,7 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->protocol = 0;
   cmd->depleted = false;
   cmd->forCursor = false;
+  cmd->forProfiling = false;
 }
 
 MRCommand MR_NewCommandArgv(int argc, const char **argv) {
@@ -196,6 +197,7 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
   ret.id = cmd->id;
   ret.protocol = cmd->protocol;
   ret.forCursor = cmd->forCursor;
+  ret.forProfiling = cmd->forProfiling;
   ret.rootCommand = cmd->rootCommand;
   ret.depleted = cmd->depleted;
 
@@ -381,19 +383,4 @@ int MRCommand_IsUnsharded(MRCommand *cmd) {
 
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx) {
   cmd->protocol = is_resp3(ctx) ? 3 : 2;
-}
-
-void MRCommand_Print(MRCommand *cmd) {
-  MRCommand_FPrint(stdout, cmd);
-}
-
-void MRCommand_FPrint(FILE *fd, MRCommand *cmd) {
-  for (int i = 0; i < cmd->num; i++) {
-    fprintf(fd, "%.*s ", (int)cmd->lens[i], cmd->strs[i]);
-  }
-  fprintf(fd, "\n");
-}
-
-void print_mr_cmd(MRCommand *cmd) {
-  MRCommand_FPrint(stdout, cmd);
 }

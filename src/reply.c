@@ -18,8 +18,8 @@ typedef struct RedisModule_Reply_StackEntry StackEntry;
 
 //---------------------------------------------------------------------------------------------
 
-bool RedisModule_HasMap(RedisModule_Reply *reply) {
-  return _ReplyMap(reply->ctx);
+inline bool RedisModule_HasMap(RedisModule_Reply *reply) {
+  return reply->resp3;
 }
 
 int RedisModule_Reply_LocalCount(RedisModule_Reply *reply) {
@@ -111,11 +111,11 @@ static inline void json_add_close(RedisModule_Reply *reply, const char *s) {}
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
 #ifdef REDISMODULE_REPLY_DEBUG
-  RedisModule_Reply reply = { ctx, _ReplyMap(ctx) && _ReplySet(ctx), 0, NULL, NULL };
+  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL };
   reply.json = array_new(char, 1);
   *reply.json = '\0';
 #else
-  RedisModule_Reply reply = { ctx, _ReplyMap(ctx) && _ReplySet(ctx), 0, NULL };
+  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL };
 #endif
   return reply;
 }
@@ -458,45 +458,6 @@ int RedisModule_ReplyKV_Set(RedisModule_Reply *reply, const char *key) {
   RedisModule_Reply_Set(reply);
   return REDISMODULE_OK;
 }
-
-//---------------------------------------------------------------------------------------------
-
-#ifdef REDISMODULE_REPLY_DEBUG
-
-void print_reply(RedisModule_Reply *reply) {
-  puts("");
-  printf("count: %d\n", reply->count);
-  printf("stack: ");
-  if (reply->stack) {
-    int n = array_len(reply->stack);
-    for (int i = n - 1; i >= 0; --i) {
-      printf("%d ", reply->stack[i].count);
-    }
-    puts("\n");
-  } else {
-    puts("n/a\n");
-  }
-  printf("%s", reply->json);
-  if (reply->stack) {
-    int n = array_len(reply->stack);
-    for (int i = n - 1; i >= 0; --i) {
-      switch (reply->stack[i].type) {
-      case REDISMODULE_REPLY_ARRAY:
-        printf(" ]");
-        break;
-      case REDISMODULE_REPLY_MAP:
-      case REDISMODULE_REPLY_SET:
-        printf(" }");
-        break;
-      }
-      if (i > 0)
-        printf(", ");
-    }
-  }
-  puts("\n");
-}
-
-#endif // REDISMODULE_REPLY_DEBUG
 
 //---------------------------------------------------------------------------------------------
 

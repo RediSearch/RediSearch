@@ -22,7 +22,7 @@ extern "C" {
 #define GC_THREAD_POOL_SIZE 1
 
 typedef struct GCCallbacks {
-  int (*periodicCallback)(RedisModuleCtx* ctx, void* gcCtx);
+  int  (*periodicCallback)(void* gcCtx);
   void (*renderStats)(RedisModule_Reply* reply, void* gc);
   void (*renderStatsForInfo)(RedisModuleInfoCtx* ctx, void* gc);
   void (*onDelete)(void* ctx);
@@ -32,18 +32,15 @@ typedef struct GCCallbacks {
 
 typedef struct GCContext {
   void* gcCtx;
-  RedisModuleTimerID timerID;
+  RedisModuleTimerID timerID; // Guarded by the GIL
   GCCallbacks callbacks;
 } GCContext;
 
-typedef struct GCTask {
-  GCContext* gc;
-  RedisModuleBlockedClient* bClient;
-  int debug;
-} GCTask;
-
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);
+// Start the GC periodic. Next run will be added to the job-queue after the interval
 void GCContext_Start(GCContext* gc);
+// Start the GC periodic. Next run will be added to the job-queue immediately
+void GCContext_StartNow(GCContext* gc);
 void GCContext_StopMock(GCContext* gc);
 void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* ctx);
 #ifdef FTINFO_FOR_INFO_MODULES

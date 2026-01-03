@@ -1,5 +1,8 @@
 #include "util.h"
 #include "internal.h"
+#include "config.h"
+#include "ext/default.h"
+#include "rmalloc.h"
 #include <cstring>
 
 using namespace RMCK;
@@ -63,6 +66,7 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (RedisModule_Init(ctx, "dummy", 0, REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     err = REDISMODULE_ERR;
   }
+  RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
 
   for (auto db : KVDB::dbs) delete db;
   return err;

@@ -62,8 +62,10 @@ extern "C" {
   X(QUERY_EADHOCWBATCHSIZE, "'batch size' is irrelevant for 'ADHOC_BF' policy")           \
   X(QUERY_EADHOCWEFRUNTIME, "'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")           \
   X(QUERY_ENRANGE, "range query attributes were sent for a non-range query")              \
+  X(QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM")            \
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
+#define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
 
 typedef enum {
   QUERY_OK = 0,
@@ -158,6 +160,11 @@ const char *QueryError_GetError(const QueryError *status);
  */
 QueryErrorCode QueryError_GetCode(const QueryError *status);
 
+// Extracts the query error from the error message
+// Returns the error code
+// Only checks for timeout
+QueryErrorCode QueryError_GetCodeFromMessage(const char *errorMessage);
+
 /**
  * Clear the error state, potentially releasing the embedded string
  */
@@ -171,6 +178,27 @@ static inline int QueryError_HasError(const QueryError *status) {
 }
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code);
+
+#define QUERY_XWARNS(X)                                                               \
+  X(QUERY_WARNING_CODE_TIMED_OUT, "Timeout limit was reached")                        \
+  X(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, QUERY_WMAXPREFIXEXPANSIONS)     \
+
+typedef enum {
+  QUERY_WARNING_CODE_OK = 0,
+
+#define X(N, msg) N,
+  QUERY_XWARNS(X)
+#undef X
+
+} QueryWarningCode;
+
+const char *QueryWarningCode_Strerror(QueryWarningCode code);
+
+/**
+ * Returns a [`QueryWarningCode`] given an warnings message.
+ * If the message does not match any known warning, returns `QUERY_WARNING_CODE_OK`.
+ */
+QueryWarningCode QueryWarningCode_GetCodeFromMessage(const char *message);
 
 #ifdef __cplusplus
 }

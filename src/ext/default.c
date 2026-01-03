@@ -103,6 +103,10 @@ static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndex
     return 0;
   }
   uint32_t norm = normMode == NORM_MAXFREQ ? dmd->maxFreq : dmd->len;
+  if (norm == 0) {
+    EXPLAIN(scrExp, "Document %s is 0", normMode == NORM_MAXFREQ ? "max frequency" : "length");
+    return 0;
+  }
   double rawTfidf = tfidfRecursive(h, dmd, scrExp);
   double tfidf = dmd->score * rawTfidf / norm;
   strExpCreateParent(ctx, &scrExp);
@@ -154,11 +158,11 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
   double ret = 0;
   if (r->type == RSResultType_Term) {
     double idf = (r->term.term ? r->term.term->idf : 0);
-
-    ret = idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
+    ret = r->weight * idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
     EXPLAIN(scrExp,
-            "(%.2f = IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
-            ret, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
+            "(%.2f = Weight %.2f * IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
+            ret, r->weight, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
+
   } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
     int numChildren = r->agg.numChildren;
     if (!scrExp) {
@@ -216,12 +220,12 @@ static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
  ******************************************************************************************/
 
 static double inline CalculateBM25Std(float b, float k1, double idf, double f, int doc_len,
-                                      double avg_doc_len, RSScoreExplain *scrExp, const char *term) {
-  double ret = idf * f * (k1 + 1) / (f + k1 * (1.0f - b + b * (float)doc_len/avg_doc_len));
+                                      double avg_doc_len, double weight, RSScoreExplain *scrExp, const char *term) {
+  double ret = weight * idf * f * (k1 + 1) / (f + k1 * (1.0f - b + b * (float)doc_len/avg_doc_len));
   EXPLAIN(scrExp,
-          "%s: (%.2f = IDF %.2f * (F %.2f * (k1 1.2 + 1)) / (F %.2f + k1 1.2 * (1 - b 0.5 + b 0.5 *"
+          "%s: (%.2f = Weight %.2f * IDF %.2f * (F %.2f * (k1 1.2 + 1)) / (F %.2f + k1 1.2 * (1 - b 0.5 + b 0.5 *"
           " Doc Len %d / Average Doc Len %.2f)))",
-          term, ret, idf, f, f, doc_len, avg_doc_len);
+          term, ret, weight, idf, f, f, doc_len, avg_doc_len);
   return ret;
 }
 
@@ -235,7 +239,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
   if (r->type == RSResultType_Term) {
     // Compute IDF based on total number of docs in the index and the term's total frequency.
     double idf = r->term.term->bm25_idf;
-    ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, scrExp,
+    ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp,
                            r->term.term->str);
   } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
     int numChildren = r->agg.numChildren;
@@ -256,9 +260,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
     // For wildcard, score should be determined only by the weight
     // and the document's length (so we set idf and f to be 1).
     double idf = 1.0;
-    double bm25 = CalculateBM25Std(b, k1, idf, 1, dmd->len, ctx->indexStats.avgDocLen, scrExp,
-                                   "*");
-    ret = r->weight * bm25;
+    ret = CalculateBM25Std(b, k1, idf, 1, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp, "*");
   } else {
     // Record is either optional term with no match or non text token.
     // For optional term with no match - we would expect 0 contribution to the score
@@ -355,7 +357,6 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
 /* Calculate sum(TF-IDF)*document score for each result */
 static double DisMaxScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
                            const RSDocumentMetadata *dmd, double minScore) {
-  // printf("score for %d: %f\n", h->docId, dmd->score);
   // if (dmd->score == 0 || h == NULL) return 0;
   return dismaxRecursive(ctx, h, ctx->scrExp);
 }
@@ -479,10 +480,46 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     char *dup = rm_malloc(sl + 2);
     dup[0] = STEM_PREFIX;
     memcpy(dup + 1, stemmed, sl + 1);
+
+    // Get fieldMask which includes only expandable fields
+    QueryNode *qn = *ctx->currentNode;
+    t_fieldMask orig_fm = qn->opts.fieldMask;
+    t_fieldMask expandable_fm = qn->opts.fieldMask;
+    if (orig_fm != RS_FIELDMASK_ALL) {
+      t_fieldMask fm = qn->opts.fieldMask;
+      t_fieldMask bit_mask = 1;
+      while (fm) {
+        if (fm & bit_mask) {
+            const FieldSpec *fs = IndexSpec_GetFieldByBit(ctx->handle->spec, bit_mask);
+            if (fs && FieldSpec_IsNoStem(fs)) {
+              expandable_fm &= ~bit_mask;
+            }
+        }
+        fm &= ~bit_mask;
+        bit_mask <<= 1;
+      }
+    }
+
+    /* Replace current node with a new union node if needed */
+    if (qn->type != QN_UNION) {
+      QueryNode *un = NewUnionNode();
+
+      un->opts.fieldMask = qn->opts.fieldMask;
+
+      /* Append current node to the new union node as a child */
+      QueryNode_AddChild(un, qn);
+      *ctx->currentNode = un;
+    }
+
+    // Add expanded nodes with corresponding field mask
+    qn = *ctx->currentNode;
+    qn->opts.fieldMask = expandable_fm;
     ctx->ExpandToken(ctx, dup, sl + 1, 0x0);  // TODO: Set proper flags here
     if (sl != token->len || strncmp((const char *)stemmed, token->str, token->len)) {
       ctx->ExpandToken(ctx, rm_strndup((const char *)stemmed, sl), sl, 0x0);
     }
+    // Restore field mask of UNION node
+    qn->opts.fieldMask = orig_fm;
   }
   return REDISMODULE_OK;
 }

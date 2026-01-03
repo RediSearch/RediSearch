@@ -1,6 +1,7 @@
 from common import *
 from RLTest import Env
-
+import redis
+from inspect import currentframe
 
 def info_modules_to_dict(conn):
   res = conn.execute_command('INFO MODULES')
@@ -16,6 +17,17 @@ def info_modules_to_dict(conn):
         info[section_name][data[0]] = data[1]
   return info
 
+def get_search_field_info(type: str, count: int, index_errors: int = 0, **kwargs):
+  # Base info
+  info = {
+    type: str(count),
+    'IndexErrors': str(index_errors),
+    **{key: str(value) for key, value in kwargs.items()}
+  }
+  return info
+
+def field_info_to_dict(info):
+  return {key: value for field in info.split(',') for key, value in [field.split('=')]}
 
 def testInfoModulesBasic(env):
   conn = env.getConnection()
@@ -28,13 +40,17 @@ def testInfoModulesBasic(env):
                                 'SCHEMA', 'title', 'TEXT', 'SORTABLE',
                                           'body', 'TEXT', 'NOINDEX',
                                           'id', 'NUMERIC',
-                                          'subject location', 'GEO').ok()
+                                          'subject location', 'GEO',
+                                          'geom', 'GEOSHAPE', 'SORTABLE'
+                                          ).ok()
 
   env.expect('FT.CREATE', idx2, 'LANGUAGE', 'french', 'NOOFFSETS', 'NOFREQS',
                                 'PREFIX', 2, 'TLV:', 'NY:',
                                 'SCHEMA', 't1', 'TAG', 'CASESENSITIVE', 'SORTABLE',
                                           'T2', 'AS', 't2', 'TAG',
-                                          'id', 'NUMERIC', 'NOINDEX').ok()
+                                          'id', 'NUMERIC', 'NOINDEX',
+                                          'geom', 'GEOSHAPE', 'NOINDEX'
+                                          ).ok()
 
   env.expect('FT.CREATE', idx3, 'SCHEMA', 'vec_flat', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'L2',
                                           'vec_hnsw', 'VECTOR', 'HNSW', '14', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'L2',
@@ -42,13 +58,13 @@ def testInfoModulesBasic(env):
 
   info = info_modules_to_dict(conn)
   env.assertEqual(info['search_index']['search_number_of_indexes'], '3')
-
   fieldsInfo = info['search_fields_statistics']
-  env.assertEqual(fieldsInfo['search_fields_text'], 'Text=2,Sortable=1,NoIndex=1')
-  env.assertEqual(fieldsInfo['search_fields_tag'], 'Tag=2,Sortable=1,CaseSensitive=1')
-  env.assertEqual(fieldsInfo['search_fields_numeric'], 'Numeric=2,NoIndex=1')
-  env.assertEqual(fieldsInfo['search_fields_geo'], 'Geo=1')
-  env.assertEqual(fieldsInfo['search_fields_vector'], 'Vector=2,Flat=1,HNSW=1')
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_text']), get_search_field_info('Text', 2, Sortable=1, NoIndex=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_tag']), get_search_field_info('Tag', 2, Sortable=1, CaseSensitive=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_numeric']), get_search_field_info('Numeric', 2, NoIndex=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_geo']), get_search_field_info('Geo', 1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_vector']), get_search_field_info('Vector', 2, Flat=1, HNSW=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_geoshape']), get_search_field_info('Geoshape', 2, Sortable=1 ,NoIndex=1))
 
   configInfo = info['search_runtime_configurations']
   env.assertEqual(configInfo['search_minimal_term_prefix'], '2')
@@ -72,14 +88,15 @@ def testInfoModulesAlter(env):
   idx1 = 'idx1'
 
   env.expect('FT.CREATE', idx1, 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
-  env.expect('FT.ALTER', idx1, 'SCHEMA', 'ADD', 'n', 'NUMERIC', 'NOINDEX').ok()
+  env.expect('FT.ALTER', idx1, 'SCHEMA', 'ADD', 'n', 'NUMERIC', 'NOINDEX', 'geom', 'GEOSHAPE', 'SORTABLE').ok()
 
   info = info_modules_to_dict(conn)
   env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
 
   fieldsInfo = info['search_fields_statistics']
-  env.assertEqual(fieldsInfo['search_fields_text'], 'Text=1,Sortable=1')
-  env.assertEqual(fieldsInfo['search_fields_numeric'], 'Numeric=1,NoIndex=1')
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_text']), get_search_field_info('Text', 1, Sortable=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_numeric']), get_search_field_info('Numeric', 1, NoIndex=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_geoshape']), get_search_field_info('Geoshape', 1, Sortable=1))
 
   # idx1Info = info['search_info_' + idx1]
   # env.assertEqual(idx1Info['search_field_2'], 'identifier=n,attribute=n,type=NUMERIC,NOINDEX=ON')
@@ -104,7 +121,7 @@ def testInfoModulesDrop(env):
   env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
 
   fieldsInfo = info['search_fields_statistics']
-  env.assertEqual(fieldsInfo['search_fields_text'], 'Text=2,Sortable=1')
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_text']), get_search_field_info('Text', 2, Sortable=1))
   env.assertFalse('search_fields_numeric' in fieldsInfo) # no numeric fields since we removed idx2
 
 
@@ -122,6 +139,1539 @@ def testInfoModulesAfterReload(env):
 
     fieldsInfo = info['search_fields_statistics']
     env.assertFalse('search_fields_text' in fieldsInfo) # no text fields
-    env.assertEqual(fieldsInfo['search_fields_numeric'], 'Numeric=1,Sortable=1')
-    env.assertEqual(fieldsInfo['search_fields_geo'], 'Geo=1,Sortable=1,NoIndex=1')
-    env.assertEqual(fieldsInfo['search_fields_tag'], 'Tag=1,NoIndex=1')
+    env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_numeric']), get_search_field_info('Numeric', 1, Sortable=1))
+    env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_geo']), get_search_field_info('Geo', 1, Sortable=1, NoIndex=1))
+    env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_tag']), get_search_field_info('Tag', 1, NoIndex=1))
+
+# This tests relies on shard info, which depends on the hashes in the *shard*.
+# In cluster mode, hashes might be stored in different shards, and the shard we call INFO for,
+# will not be aware of the index failures they cause.
+@skip(cluster=True)
+def test_redis_info_errors():
+
+  env = Env(moduleArgs='DEFAULT_DIALECT 2')
+  conn = getConnectionByEnv(env)
+
+  # Create two indices
+  env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'n', 'NUMERIC')
+  env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'n2', 'NUMERIC')
+
+  expected = {
+    'number_of_indexes': 2,
+    'fields_numeric_count': 2,
+    'idx1_errors': 0,
+    'idx2_errors': 0,
+  }
+
+  def validate_info_output(message):
+
+    # Call `INFO` and check that the index is there
+    res = conn.execute_command('INFO', 'MODULES')
+
+    env.assertEqual(res['search_number_of_indexes'], expected['number_of_indexes'], message=message + " failed in number of indexes")
+    env.assertEqual(res['search_fields_numeric']['Numeric'], expected['fields_numeric_count'], message=message + " failed in number of numeric fields")
+    expected_total_errors = expected['idx1_errors'] + expected['idx2_errors']
+
+    # field level errors count
+    env.assertEqual(res['search_fields_numeric']['IndexErrors'], expected_total_errors, message=message + " failed in number of numeric:IndexErrors")
+
+    # Index level errors count
+    env.assertEqual(res['search_errors_indexing_failures'], expected_total_errors, message=message + " failed in number of IndexErrors")
+    env.assertEqual(res['search_errors_for_index_with_max_failures'], max(expected['idx1_errors'], expected['idx2_errors']), message=message + " failed in max number of IndexErrors")
+
+  # Add a document we will fail to index in both indices
+  conn.execute_command('HSET', f'doc:1', 'n', f'meow', 'n2', f'meow')
+  expected['idx1_errors'] += 1
+  expected['idx2_errors'] += 1
+  validate_info_output(message='fail both indices')
+
+  # Add a document that we will fail to index in idx1, and succeed in idx2
+  conn.execute_command('HSET', f'doc:2', 'n', f'meow', 'n2', '4')
+  expected['idx1_errors'] += 1
+  validate_info_output(message='fail one index')
+
+  # Add the failing field to idx2
+  # expect that the error count will increase due to bg indexing of 2 documents with invalid numeric values.
+  conn.execute_command('FT.ALTER', 'idx2', 'SCHEMA', 'ADD', 'n', 'NUMERIC')
+  waitForIndex(env, 'idx2')
+  expected['fields_numeric_count'] += 1
+  expected['idx2_errors'] += 2
+  validate_info_output(message='add failing field to idx2')
+
+  # Drop one index and expect the errors counter to decrease
+  conn.execute_command('FT.DROPINDEX', 'idx1')
+  expected['number_of_indexes'] -= 1
+  expected['fields_numeric_count'] -= 1
+  expected['idx1_errors'] = 0
+  validate_info_output(message='drop one index')
+
+@skip(cluster=True)
+def test_redis_info_errors_json():
+
+  env = Env(moduleArgs='DEFAULT_DIALECT 2')
+  conn = getConnectionByEnv(env)
+
+  # Create two indices
+  env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.n', 'AS', 'n', 'NUMERIC')
+  env.cmd('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$.n2', 'AS', 'n2', 'NUMERIC')
+
+  expected = {
+    'number_of_indexes': 2,
+    'fields_numeric_count': 2,
+    'idx1_errors': 0,
+    'idx2_errors': 0,
+  }
+
+  def validate_info_output(message):
+
+    # Call `INFO` and check that the index is there
+    res = conn.execute_command('INFO', 'MODULES')
+
+    env.assertEqual(res['search_number_of_indexes'], expected['number_of_indexes'], message=message + " failed in number of indexes")
+    env.assertEqual(res['search_fields_numeric']['Numeric'], expected['fields_numeric_count'], message=message + " failed in number of numeric fields")
+    expected_total_errors = expected['idx1_errors'] + expected['idx2_errors']
+
+    # field level errors count
+    env.assertEqual(res['search_fields_numeric']['IndexErrors'], expected_total_errors, message=message + " failed in number of numeric:IndexErrors")
+
+    # Index level errors count
+    env.assertEqual(res['search_errors_indexing_failures'], expected_total_errors, message=message + " failed in number of IndexErrors")
+    env.assertEqual(res['search_errors_for_index_with_max_failures'], max(expected['idx1_errors'], expected['idx2_errors']), message=message + " failed in max number of IndexErrors")
+
+  # Add a document we will fail to index in both indices
+  json_val = r'{"n":"meow","n2":"meow"}'
+  env.expect('JSON.SET', 'doc:1', '$', json_val).ok()
+  expected['idx1_errors'] += 1
+  expected['idx2_errors'] += 1
+  validate_info_output(message='fail both indices')
+
+  # Add a document that we will fail to index in idx1, and succeed in idx2
+  json_val = r'{"n":"meow","n2":4}'
+  env.expect('JSON.SET', 'doc:2', '$', json_val).ok()
+  expected['idx1_errors'] += 1
+  validate_info_output(message='fail one index')
+
+  # Add the failing field to idx2
+  # expect that the error count will increase due to bg indexing of 2 documents with invalid numeric values.
+  conn.execute_command('FT.ALTER', 'idx2', 'SCHEMA', 'ADD', '$.n', 'AS', 'n', 'NUMERIC')
+  waitForIndex(env, 'idx2')
+  expected['fields_numeric_count'] += 1
+  expected['idx2_errors'] += 2
+  validate_info_output(message='add failing field to idx2')
+
+  # Drop one index and expect the errors counter to decrease
+  conn.execute_command('FT.DROPINDEX', 'idx1')
+  expected['number_of_indexes'] -= 1
+  expected['fields_numeric_count'] -= 1
+  expected['idx1_errors'] = 0
+  validate_info_output(message='drop one index')
+
+#ensure update with alter and drop index
+def test_redis_info():
+  """Tests that the Redis `INFO` command works as expected"""
+
+  env = Env(moduleArgs='DEFAULT_DIALECT 2')
+  conn = getConnectionByEnv(env)
+
+  # Create an index
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'tag', 'TAG', 'SORTABLE')
+
+  # Add some data
+  n_docs = 10000
+  for i in range(n_docs):
+    conn.execute_command('HSET', f'h{i}', 'txt', f'hello{i}', 'tag', f'tag{i}')
+
+  # Call `INFO` and check that the index is there
+  res = env.cmd('INFO', 'MODULES')
+
+  env.assertEqual(res['search_number_of_indexes'], 1)
+
+  # ========== Field statistics ==========
+  # amanzonlinux:2 install redis version '5.1.0a1' which has different output
+  if redis.__version__ >= '5.0.5' and redis.__version__ != '5.1.0a1':
+    env.assertEqual(res['search_fields_text']['Text'], 1)
+  else:
+    env.assertEqual(res['search_fields_text'], 'Text=1')
+
+  env.assertEqual(res['search_fields_tag']['Tag'], 1)
+
+  # ========== Memory statistics ==========
+  env.assertGreater(res['search_used_memory_indexes'], 0)
+  env.assertGreater(res['search_used_memory_indexes_human'], 0)
+  env.assertGreater(res['search_largest_memory_index'], 0)
+  env.assertGreater(res['search_largest_memory_index_human'], 0)
+  env.assertGreater(res['search_smallest_memory_index'], 0)
+  env.assertGreater(res['search_smallest_memory_index_human'], 0)
+  env.assertEqual(res['search_used_memory_vector_index'], 0)
+  # env.assertGreater(res['search_total_indexing_time'], 0)   # Introduces flakiness
+
+  # ========== Cursors statistics ==========
+  env.assertEqual(res['search_global_idle'], 0)
+  env.assertEqual(res['search_global_total'], 0)
+
+  # ========== GC statistics ==========
+  env.assertEqual(res['search_bytes_collected'], 0)
+  env.assertEqual(res['search_total_cycles'], 0)
+  env.assertEqual(res['search_total_ms_run'], 0)
+  env.assertEqual(res['search_total_docs_not_collected_by_gc'], 0)
+  env.assertEqual(res['search_marked_deleted_vectors'], 0)
+
+  # ========== Dialect statistics ==========
+  env.assertEqual(res['search_dialect_1'], 0)
+  env.assertEqual(res['search_dialect_2'], 0)
+  env.assertEqual(res['search_dialect_3'], 0)
+  env.assertEqual(res['search_dialect_4'], 0)
+
+  # ========== Errors statistics ==========
+  env.assertEqual(res['search_errors_indexing_failures'], 0)
+  env.assertEqual(res['search_errors_for_index_with_max_failures'], 0)
+
+  # Create a cursor
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR')
+
+  # Dispatch a query
+  env.cmd('FT.SEARCH', 'idx', '*')
+
+  # Call `INFO` and check that the data is updated accordingly
+  res = env.cmd('INFO', 'MODULES')
+  # On cluster mode, we have shard cursor on each master shard for the
+  # aggregation command, yet the `INFO` command is per-shard, so the master shard
+  # we enquery has 2 cursors (coord & shard).
+  env.assertEqual(res['search_global_idle'], 1 if not env.isCluster() else 2)
+  env.assertEqual(res['search_global_total'], 1 if not env.isCluster() else 2)
+  env.assertEqual(res['search_dialect_2'], 1)
+
+  # Delete all docs
+  for i in range(n_docs):
+    conn.execute_command('DEL', f'h{i}')
+
+  # Force-invoke the GC
+  forceInvokeGC(env)
+
+  # Call `INFO` and check that the data is updated accordingly
+  res = env.cmd('INFO', 'MODULES')
+  env.assertGreater(res['search_bytes_collected'], 0)
+  env.assertGreater(res['search_total_cycles'], 0)
+  env.assertGreater(res['search_total_ms_run'], 0)
+
+
+def test_counting_queries(env: Env):
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+  # Add some data
+  n_docs = 10
+  with env.getClusterConnectionIfNeeded() as con:
+    for i in range(n_docs):
+      con.execute_command('HSET', i, 'n', i)
+
+  # Initiate counters
+  queries_counter = 0
+  query_commands_counter = 0
+  def check_counters():
+    line_number = currentframe().f_back.f_lineno
+    info = env.cmd('INFO', 'MODULES')
+    env.assertEqual(info['search_total_queries_processed'], queries_counter, message=f'line {line_number}')
+    env.assertEqual(info['search_total_query_commands'], query_commands_counter, message=f'line {line_number}')
+
+  # Call `INFO` and check that the counters are 0
+  check_counters()
+
+  env.cmd('FT.SEARCH', 'idx', '*')
+  queries_counter += 1
+  query_commands_counter += 1
+
+  # Both counters should be updated
+  check_counters()
+
+  env.cmd('FT.AGGREGATE', 'idx', '*')
+  queries_counter += 1
+  query_commands_counter += 1
+
+  # Both counters should be updated
+  check_counters()
+
+  _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', (n_docs // 2) + 1)
+  env.assertNotEqual(cursor, 0) # Cursor is not done
+  queries_counter += 1
+  query_commands_counter += 1
+
+  # Both counters should be updated
+  check_counters()
+
+  _, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(cursor, 0) # Cursor is done
+  query_commands_counter += 1 # Another query command, but not a unique query
+
+  # Only the query commands counter should be updated
+  check_counters()
+
+  # Call commands that do not count as queries
+
+  # Search with a non-existing index
+  env.expect('FT.SEARCH', 'idx2', '*').error()
+  check_counters()
+
+  # Search with a syntax error
+  env.expect('FT.SEARCH', 'idx', '(*').error()
+  check_counters()
+
+  # Aggregate with a non-existing index
+  env.expect('FT.AGGREGATE', 'idx2', '*').error()
+  check_counters()
+
+  # Aggregate with a syntax error
+  env.expect('FT.AGGREGATE', 'idx', '(*').error()
+  check_counters()
+
+  # Cursor read with a non-existing cursor
+  env.expect('FT.CURSOR', 'READ', 'idx', '123').error()
+  check_counters()
+
+  if env.isCluster() and env.shardsCount > 1:
+    # Verify that the counters are updated correctly on a cluster
+    # We expect all the counters to sum up to the total number of queries
+
+    for i in range(1, env.shardsCount + 1):
+      env.getConnection(i).execute_command('FT.SEARCH', 'idx', '*')
+
+    queries_counter += env.shardsCount
+    query_commands_counter += env.shardsCount
+
+    actual_queries_counter = 0
+    actual_query_commands_counter = 0
+    for i in range(1, env.shardsCount + 1):
+      info = env.getConnection(i).execute_command('INFO', 'MODULES')
+      actual_queries_counter += info['search_total_queries_processed']
+      actual_query_commands_counter += info['search_total_query_commands']
+
+    env.assertEqual(actual_queries_counter, queries_counter)
+    env.assertEqual(actual_query_commands_counter, query_commands_counter)
+
+  # Validate we count the execution time of the query (with any command)
+  timeout = 300 # 5 minutes
+  total_query_execution_time = lambda: env.cmd('INFO', 'MODULES')['search_total_query_execution_time_ms']
+  with TimeLimit(timeout, 'FT.SEARCH'):
+    cur_time_count = total_query_execution_time()
+    while total_query_execution_time() == cur_time_count:
+      env.cmd('FT.SEARCH', 'idx', '*')
+
+  with TimeLimit(timeout, 'FT.AGGREGATE'):
+    cur_time_count = total_query_execution_time()
+    while total_query_execution_time() == cur_time_count:
+      env.cmd('FT.AGGREGATE', 'idx', '*')
+
+  with TimeLimit(timeout, 'FT.CURSOR READ'):
+    cursor = 0
+    cur_time_count = total_query_execution_time()
+    while total_query_execution_time() == cur_time_count:
+      if cursor == 0:
+        _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1)
+        cur_time_count = total_query_execution_time()
+      _, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+
+
+@skip(noWorkers=True)
+def test_counting_queries_BG():
+  env = Env(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL')
+  test_counting_queries(env)
+
+
+@skip(cluster=True, noWorkers=True)
+def test_redis_info_modules_vecsim():
+  env = Env(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL')
+  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  set_doc = lambda: env.expect('HSET', '1', 'vec', '????????')
+  get_field_infos = lambda: [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
+  # Busy wait until the new vector has moved completely to HNSW in both indexes.
+  def wait_for_vector_to_move_to_hnsw():
+    while True:
+      field_infos = get_field_infos()
+      # Once the frontend index is empty for ALL fields, we can continue to the test (async indexing is done).
+      if all([to_dict(f_info['FRONTEND_INDEX'])['INDEX_SIZE'] == 0 for f_info in field_infos[:2]]):
+        break
+
+  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  env.expect('FT.CREATE', 'idx3', 'SCHEMA', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+  set_doc().equal(1) # Add a document for the first time
+  wait_for_vector_to_move_to_hnsw()
+
+  info = env.cmd('INFO', 'MODULES')
+  field_infos = get_field_infos()
+  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  # Validate that vector indexes are accounted in the total index memory
+  env.assertGreater(info['search_used_memory_indexes'], info['search_used_memory_vector_index'])
+  env.assertEqual(info['search_marked_deleted_vectors'], 0)
+
+  [env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', f'idx{i}').ok() for i in range(1, 4)]   # Stop the gc
+  set_doc().equal(0) # Add (override) the document with a new one
+  wait_for_vector_to_move_to_hnsw()
+
+  info = env.cmd('INFO', 'MODULES')
+  field_infos = get_field_infos()
+  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['search_marked_deleted_vectors'], 2) # 2 vectors were marked as deleted (1 for each index)
+  env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
+  env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
+
+  [env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', f'idx{i}').ok() for i in range(1, 4)]   # resume gc
+  [forceInvokeGC(env, f'idx{i}') for i in range(1, 4)]
+
+  info = env.cmd('INFO', 'MODULES')
+  field_infos = get_field_infos()
+  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['search_marked_deleted_vectors'], 0)
+  env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+  env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+
+@skip(cluster=True)
+def test_indexes_logically_deleted_docs(env):
+  # Set these values to manually control the GC, ensuring that the GC will not run automatically since the run intervall
+  # is > 8h (5 mintues is the hard limit for a test).
+  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
+  set_doc = lambda doc_id: env.expect('HSET', doc_id, 'text', 'some text', 'tag', 'tag1', 'num', 1)
+  get_logically_deleted_docs = lambda: env.cmd('INFO', 'MODULES')['search_total_docs_not_collected_by_gc']
+
+  # Init state
+  env.assertEqual(get_logically_deleted_docs(), 0)
+
+  # Create one index and one document, then delete the document (logically)
+  num_fields = 3
+  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'text', 'TEXT', 'tag', 'TAG', 'num', 'NUMERIC').ok()
+  env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx1').ok()  # Stop GC for this index to keep the deleted docs
+  set_doc(f'doc:1').equal(num_fields)
+  env.assertEqual(get_logically_deleted_docs(), 0)
+  env.expect('DEL', 'doc:1').equal(1)
+  env.assertEqual(get_logically_deleted_docs(), 1)
+
+  # Create another index, expect that the deleted document will not be indexed.
+  env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'text', 'TEXT', 'tag', 'TAG', 'num', 'NUMERIC').ok()
+  env.assertEqual(get_logically_deleted_docs(), 1)
+
+  # Add another document that should be indexed into both indexes, then deleted it (logically) and expect
+  # it will be accounted twice.
+  set_doc(f'doc:2').equal(num_fields)
+  env.cmd('DEL', 'doc:2')
+  env.assertEqual(get_logically_deleted_docs(), 3)
+
+  # Drop first index, expect that the deleted documents in this index will not be accounted anymore when releasing the GC.
+  # We run in a transaction, to ensure that the GC will not run until the "dropindex" commmand is executed from
+  # the main thread (otherwise, we would have released the main thread between the commands and the GC could run before
+  # the dropindex command. Though it won't impact correctness, we fail to test the desired scenario)
+  env.expect('MULTI').ok()
+  env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx1')
+  env.cmd('FT.DROPINDEX', 'idx1')
+  env.expect('EXEC').equal(['OK', 'OK'])
+  env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')  # Wait for the gc to finish
+  env.assertEqual(get_logically_deleted_docs(), 1)
+
+  # Run GC, expect that the deleted document will not be accounted anymore.
+  forceInvokeGC(env, idx='idx2')
+  env.assertEqual(get_logically_deleted_docs(), 0)
+
+@skip(cluster=True)
+def test_indexing_metrics(env: Env):
+  env.cmd('HSET', 'doc:1', 'text', 'hello world')
+  n_indexes = 3
+
+  # Create indexes in a transaction, and at the end of the transaction
+  # call `info` and verify we observe that all the indexes are currently indexing
+  with env.getConnection().pipeline(transaction=True) as pipe:
+    for i in range(n_indexes):
+      pipe.execute_command('FT.CREATE', f'idx{i}', 'SCHEMA', 'text', 'TEXT')
+    pipe.execute_command('INFO', 'MODULES')
+    res = pipe.execute()
+
+  # Verify that all the indexes are currently indexing
+  env.assertEqual(res[:n_indexes], ['OK'] * n_indexes)
+
+  # Verify that the INFO command returns the correct indexing status
+  env.assertEqual(res[-1]['search_number_of_indexes'], n_indexes)
+  env.assertEqual(res[-1]['search_number_of_active_indexes'], n_indexes)
+  env.assertEqual(res[-1]['search_number_of_active_indexes_indexing'], n_indexes)
+  env.assertEqual(res[-1]['search_total_active_write_threads'], 1) # 1 write operation by the BG indexer thread
+
+SYNTAX_ERROR = "Parsing/Syntax error for query string"
+ARGS_ERROR = "Error parsing query/aggregation arguments"
+
+SEARCH_PREFIX = 'search_'
+WARN_ERR_SECTION = f'{SEARCH_PREFIX}warnings_and_errors'
+
+SEARCH_SHARD_PREFIX = 'search_shard_'
+SYNTAX_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_syntax"
+ARGS_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_arguments"
+TIMEOUT_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_timeout"
+TIMEOUT_WARNING_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_timeout"
+MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_max_prefix_expansions"
+
+COORD_WARN_ERR_SECTION = WARN_ERR_SECTION.replace(SEARCH_PREFIX, 'search_coordinator_')
+
+SEARCH_COORD_PREFIX = 'search_coord_'
+SYNTAX_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_syntax"
+ARGS_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_arguments"
+TIMEOUT_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_timeout"
+TIMEOUT_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_timeout"
+MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_max_prefix_expansions"
+
+# Expect env and conn so we can assert
+def _verify_metrics_not_changed(env, conn, prev_info_dict: dict, ignored_metrics : list):
+  info_dict = info_modules_to_dict(conn)
+  for section in [WARN_ERR_SECTION, COORD_WARN_ERR_SECTION]:
+    for metric in info_dict[section]:
+      if metric in ignored_metrics:
+        continue
+      env.assertEqual(info_dict[section][metric], prev_info_dict[section][metric], message = f"Metric {metric} changed")
+
+def _common_warnings_errors_test_scenario(env):
+  """Common setup for warnings and errors tests"""
+  # Create index
+  env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc:', 'SCHEMA', 'text', 'TEXT').ok()
+  # Create doc
+  env.expect('HSET', 'doc:1', 'text', 'hello world').equal(1)
+
+class testWarningsAndErrorsStandalone:
+  """Test class for warnings and errors metrics in standalone mode"""
+
+  def __init__(self):
+    skipTest(cluster=True)
+    self.env = Env()
+    _common_warnings_errors_test_scenario(self.env)
+    self.prev_info_dict = info_modules_to_dict(self.env)
+
+  def setUp(self):
+    self.prev_info_dict = info_modules_to_dict(self.env)
+
+  def test_syntax_errors_SA(self):
+    # Standalone shards are considered as coordinator in the info metrics
+
+    # Test syntax errors
+    self.env.expect('FT.SEARCH', 'idx', 'hello world:').error().contains('Syntax error at offset')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    syntax_error_count = info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC]
+    self.env.assertEqual(syntax_error_count, '1')
+    # Test syntax errors in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world:').error().contains('Syntax error at offset')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    syntax_error_count = info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC]
+    self.env.assertEqual(syntax_error_count, '2')
+
+    # Test other metrics not changed
+    tested_in_this_test = [SYNTAX_ERROR_COORD_METRIC]
+    _verify_metrics_not_changed(self.env, self.env, self.prev_info_dict, tested_in_this_test)
+
+  def test_args_errors_SA(self):
+    # Standalone shards are considered as coordinator in the info metrics
+
+    # Test args errors
+    self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
+    self.env.assertEqual(args_error_count, '1')
+    # Test args errors in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
+    self.env.assertEqual(args_error_count, '2')
+
+    # Test other metrics not changed
+    tested_in_this_test = [ARGS_ERROR_COORD_METRIC]
+    _verify_metrics_not_changed(self.env, self.env, self.prev_info_dict, tested_in_this_test)
+
+  def test_timeout_SA(self):
+    # Standalone shards are considered as coordinator in the info metrics
+
+    # ---------- Timeout Errors ----------
+    self.env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
+    before_info_dict_err = info_modules_to_dict(self.env)
+    base_err = int(before_info_dict_err[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+
+    # Test timeout error in FT.SEARCH
+    self.env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*',
+                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('Timeout limit was reached')
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err + 1))
+
+    # Test timeout error in FT.AGGREGATE
+    self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
+                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('Timeout limit was reached')
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err + 2))
+
+    # ---------- Timeout Warnings ----------
+    self.env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+    before_info_dict = info_modules_to_dict(self.env)
+    base_warn = int(before_info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+    # Test timeout warning in FT.SEARCH
+    self.env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*',
+                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).noError()
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC], str(base_warn + 1))
+
+    # Test timeout warning in FT.AGGREGATE
+    self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
+                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).noError()
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC], str(base_warn + 2))
+
+    # Test other metrics not changed
+    tested_in_this_test = [TIMEOUT_WARNING_COORD_METRIC, TIMEOUT_ERROR_COORD_METRIC]
+    _verify_metrics_not_changed(self.env, self.env, before_info_dict, tested_in_this_test)
+
+  def test_max_prefix_expansions_SA(self):
+    # Standalone shards are considered as coordinator in the info metrics
+
+    # ---------- Max Prefix Expansions Warnings ----------
+    # Save original config
+    original_max_prefix_expansions = self.env.cmd(config_cmd(), 'GET', 'MAXPREFIXEXPANSIONS')[0][1]
+
+    # Add more documents with different words starting with "hell" to trigger prefix expansion
+    self.env.expect('HSET', 'doc:2', 'text', 'helloworld').equal(1)
+    self.env.expect('HSET', 'doc:3', 'text', 'hellfire').equal(1)
+    self.env.expect('HSET', 'vec:3', 'vector', np.array([0.5, 0.5]).astype(np.float32).tobytes(), 'text', 'helloworld').equal(2)
+    self.env.expect('HSET', 'vec:4', 'vector', np.array([0.3, 0.7]).astype(np.float32).tobytes(), 'text', 'hellfire').equal(2)
+
+    self.env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1').ok()
+    before_info_dict = info_modules_to_dict(self.env)
+    base_warn = int(before_info_dict[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC])
+
+    # Test max prefix expansions warning in FT.SEARCH
+    # "hell*" will match "hello", "helloworld", "hellfire" - 3 terms, but limit is 1
+    self.env.expect('FT.SEARCH', 'idx', '@text:hell*').noError()
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], str(base_warn + 1))
+
+    # Test max prefix expansions warning in FT.AGGREGATE
+    # "hello*" will match "hello", "helloworld" - 2 terms, but limit is 1
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello*').noError()
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], str(base_warn + 2))
+
+    # Clean up: Remove extra documents and restore original config
+    self.env.expect('DEL', 'doc:2', 'doc:3', 'vec:3', 'vec:4').equal(4)
+    self.env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', original_max_prefix_expansions).ok()
+
+    # Test other metrics not changed
+    tested_in_this_test = [MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC]
+    _verify_metrics_not_changed(self.env, self.env, self.prev_info_dict, tested_in_this_test)
+
+  def test_no_error_queries_SA(self):
+    # Standalone shards are considered as coordinator in the info metrics
+
+    # Check no error queries not affecting any metric
+    before_info_dict = info_modules_to_dict(self.env)
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').noError()
+    after_info_dict = info_modules_to_dict(self.env)
+
+    self.env.assertEqual(before_info_dict[WARN_ERR_SECTION], after_info_dict[WARN_ERR_SECTION])
+    self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
+
+    # Test no error queries in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').noError()
+    after_info_dict = info_modules_to_dict(self.env)
+
+    self.env.assertEqual(before_info_dict[WARN_ERR_SECTION], after_info_dict[WARN_ERR_SECTION])
+    self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
+
+def _common_warnings_errors_cluster_test_scenario(env):
+  """Common setup for warnings and errors cluster tests"""
+  # Create index
+  env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc:', 'SCHEMA', 'text', 'TEXT').ok()
+  # Create doc
+  conn = getConnectionByEnv(env)
+  # Insert enough docs s.t each shard will timeout
+  docs_per_shard = 3
+  for i in range(docs_per_shard * env.shardsCount):
+    conn.execute_command('HSET', f'doc:{i}', 'text', f'hello world {i}')
+
+class testWarningsAndErrorsCluster:
+  """Test class for warnings and errors metrics in cluster mode with RESP2"""
+
+  def __init__(self):
+    skipTest(cluster=False)
+    self.env = Env()
+    _common_warnings_errors_cluster_test_scenario(self.env)
+    self.shards_prev_info_dict = {}
+    self.coord_prev_info_dict = info_modules_to_dict(self.env)
+    # Init all shards
+    for i in range(1, self.env.shardsCount + 1):
+      self.shards_prev_info_dict[i] = info_modules_to_dict(self.env.getConnection(i))
+
+  def setUp(self):
+    self.coord_prev_info_dict = info_modules_to_dict(self.env)
+    # Init all shards
+    for i in range(1, self.env.shardsCount + 1):
+      self.shards_prev_info_dict[i] = info_modules_to_dict(self.env.getConnection(i))
+
+  def _verify_metrics_not_changes_all_shards(self, ignored_metrics : list):
+    # Verify shards (coord is one of the shards as well)
+    for shardId in range(1, self.env.shardsCount + 1):
+      _verify_metrics_not_changed(self.env, self.env.getConnection(shardId), self.shards_prev_info_dict[shardId], ignored_metrics)
+
+  def test_syntax_errors_cluster(self):
+    # In cluster mode, syntax errors are only tracked at shard level
+
+    # Test syntax errors for shard level syntax error
+    self.env.expect('FT.SEARCH', 'idx', 'hello world:').error().contains('Syntax error at offset')
+    # Test counter on each shard
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(shard_conn)
+      syntax_error_count = info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC]
+      self.env.assertEqual(syntax_error_count, '1',
+                           message=f"Shard {shardId} has wrong syntax error count")
+    # Check coord metric unchanged
+    # Syntax error in FT.SEARCH are not checked on the coordinator
+    info_dict = info_modules_to_dict(self.env)
+    coord_syntax_error_count = info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC]
+    self.env.assertEqual(coord_syntax_error_count, '0')
+
+    # Test syntax errors in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world:').error().contains('Syntax error at offset')
+    # Test counter on each shard
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(shard_conn)
+      syntax_error_count = info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC]
+      self.env.assertEqual(syntax_error_count, '2',
+                           message=f"Shard {shardId} has wrong syntax error count")
+    # Check coord metric unchanged
+    # Syntax error in FT.AGGREGATE are not checked on the coordinator
+    info_dict = info_modules_to_dict(self.env)
+    coord_syntax_error_count = info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC]
+    self.env.assertEqual(coord_syntax_error_count, '0')
+
+    # Test other metrics not changed
+    tested_in_this_test = [SYNTAX_ERROR_SHARD_METRIC, SYNTAX_ERROR_COORD_METRIC]
+    self._verify_metrics_not_changes_all_shards(tested_in_this_test)
+
+  def test_args_errors_cluster(self):
+
+    # Check args error metric before adding any errors on each shard
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(shard_conn)
+      args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
+      self.env.assertEqual(args_error_count, '0',
+                           message=f"Shard {shardId} has wrong initial args error count")
+      args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
+      self.env.assertEqual(args_error_count, '0',
+                           message=f"Shard {shardId} has wrong initial args error count")
+
+    # Test args errors that are counted in the shards
+    self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 0, 10, 'MEOW').error().contains('Unknown argument')
+    # Test counter on each shard
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(shard_conn)
+      args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
+      self.env.assertEqual(args_error_count, '1',
+                           message=f"Shard {shardId} has wrong args error count")
+    # Check coord metric unchanged
+    info_dict = info_modules_to_dict(self.env)
+    coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
+    self.env.assertEqual(coord_args_error_count, '0')
+
+    #### Should fail when a bug (MOD-12465) is fixed
+    #### When fixed, should decrease the shard arg count and increase the coord arg count
+    # Test args errors that are counted in the coord
+    self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 'A', 0, 'MEOW').error().contains('Unknown argument')
+    # Test counter on each shard
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(shard_conn)
+      args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
+      self.env.assertEqual(args_error_count, '2',
+                           message=f"Shard {shardId} has wrong args error count")
+    # Check coord metric unchanged
+    info_dict = info_modules_to_dict(self.env)
+    coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
+    self.env.assertEqual(coord_args_error_count, '0')
+
+    # Test arg error that is updated only in coord
+    self.env.expect('FT.SEARCH', 'idx', 'hello world', 'DIALECT').error().contains('Need an argument for DIALECT')
+    # Test counter on each shard (should not change)
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(shard_conn)
+      args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
+      self.env.assertEqual(args_error_count, '2',
+                           message=f"Shard {shardId} has wrong args error count")
+    # Check coord metric (should change)
+    info_dict = info_modules_to_dict(self.env)
+    coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
+    self.env.assertEqual(coord_args_error_count, '1')
+
+    # Test args errors in aggregate
+    # All args errors in FT.AGGREGATE should be (de facto) counted on the coordinator
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
+    # Test counter on each shard
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(shard_conn)
+      args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
+      self.env.assertEqual(args_error_count, '2',
+                           message=f"Shard {shardId} has wrong args error count")
+    # Check coord metric
+    info_dict = info_modules_to_dict(self.env)
+    coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
+    self.env.assertEqual(coord_args_error_count, '2')
+
+    # Test other metrics not changed
+    tested_in_this_test = [ARGS_ERROR_SHARD_METRIC, ARGS_ERROR_COORD_METRIC]
+    self._verify_metrics_not_changes_all_shards(tested_in_this_test)
+
+  def test_max_prefix_expansions_cluster(self):
+    # In cluster mode, maxprefixexpansion warnings are tracked at shard level
+    # and propagated to coordinator
+
+    # ---------- Max Prefix Expansions Warnings ----------
+    # Save original config for all shards but last
+    original_max_prefix_expansions = {}
+    for shardId in range(1, self.env.shardsCount):
+      shard_conn = self.env.getConnection(shardId)
+      original_max_prefix_expansions[shardId] = shard_conn.execute_command(config_cmd(), 'GET', 'MAXPREFIXEXPANSIONS')[0][1]
+      shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+    # Insert documents so all shards have enough documents to trigger max prefix expansions warning
+    docs_per_shard = 100
+    total_docs = docs_per_shard * (self.env.shardsCount)
+    conn = getConnectionByEnv(self.env)
+    for i in range(total_docs):
+      conn.execute_command('HSET', f'doc:maxprefix:{i}', 'text', f'helloworld{i}')
+      # For vector index
+      conn.execute_command('HSET', f'vec:maxprefix:{i}', 'text', f'helloworld{i}', 'vector', np.array([0.0, 0.0]).astype(np.float32).tobytes())
+
+    # Trigger max prefix expansions warning in FT.SEARCH
+    self.env.expect('FT.SEARCH', 'idx', '@text:hell*').noError()
+    # Shards: +1 each besides last shard (which doesn't have enough docs to trigger warning)
+    for shardId in range(1, self.env.shardsCount):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC], '1',
+                          message=f"Shard {shardId} max prefix expansions warning should be +1 after FT.SEARCH")
+    # Last shard: unchanged
+    info_dict = info_modules_to_dict(self.env.getConnection(self.env.shardsCount))
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC], '0',
+                        message=f"Last shard max prefix expansions warning should not change after FT.SEARCH")
+
+    # Coord: Unchanged (Coord doesn't count warnings in ft.search since resp2 doesn't return warnings)
+    info_coord = info_modules_to_dict(self.env)
+    base_warn_coord = int(info_coord[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC])
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], str(base_warn_coord),
+                        message="Coordinator max prefix expansions warning should not change after FT.SEARCH")
+
+    # Trigger max prefix expansions warning in FT.AGGREGATE
+    self.env.expect('FT.AGGREGATE', 'idx', '@text:hell*').noError()
+    # Shards: +1 each besides last shard (which doesn't have enough docs to trigger warning)
+    for shardId in range(1, self.env.shardsCount):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC], '2',
+                          message=f"Shard {shardId} max prefix expansions warning should be +1 after FT.AGGREGATE")
+    # Last shard: unchanged
+    info_dict = info_modules_to_dict(self.env.getConnection(self.env.shardsCount))
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC], '0',
+                        message=f"Last shard max prefix expansions warning should not change after FT.AGGREGATE")
+
+    # Coord: unchanged (Coord doesn't count warnings in ft.aggregate since resp2 doesn't return warnings)
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], str(base_warn_coord),
+                          message="Coordinator max prefix expansions warning should not change after FT.AGGREGATE")
+
+    # Restore original max prefix expansions
+    for shardId in range(1, self.env.shardsCount):
+      shard_conn = self.env.getConnection(shardId)
+      shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', original_max_prefix_expansions[shardId])
+
+    # Remove test data
+    for i in range(total_docs):
+      conn.execute_command('DEL', f'doc:maxprefix:{i}')
+      conn.execute_command('DEL', f'vec:maxprefix:{i}')
+
+    # Test other metrics not changed
+    tested_in_this_test = [MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC, MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC]
+    self._verify_metrics_not_changes_all_shards(tested_in_this_test)
+
+  def test_no_error_queries_cluster(self):
+    # Check no error queries not affecting any metric on each shard
+    before_info_dicts = []
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      before_info_dicts.append(info_modules_to_dict(shard_conn))
+
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').noError()
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      after_info_dict = info_modules_to_dict(shard_conn)
+      before_warn_err = before_info_dicts[shardId - 1][WARN_ERR_SECTION]
+      after_warn_err = after_info_dict[WARN_ERR_SECTION]
+      self.env.assertEqual(before_warn_err, after_warn_err,
+                           message=f"Shard {shardId} has wrong warnings/errors section after no-error query")
+      before_coord_warn_err = before_info_dicts[shardId - 1][COORD_WARN_ERR_SECTION]
+      after_coord_warn_err = after_info_dict[COORD_WARN_ERR_SECTION]
+      self.env.assertEqual(before_coord_warn_err, after_coord_warn_err,
+                           message=f"Shard {shardId} has wrong coordinator warnings/errors section after no-error query")
+
+    # Test no error queries in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').noError()
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      after_info_dict = info_modules_to_dict(shard_conn)
+      before_warn_err = before_info_dicts[shardId - 1][WARN_ERR_SECTION]
+      after_warn_err = after_info_dict[WARN_ERR_SECTION]
+      self.env.assertEqual(before_warn_err, after_warn_err,
+                           message=f"Shard {shardId} has wrong warnings/errors section after no-error aggregate query")
+      before_coord_warn_err = before_info_dicts[shardId - 1][COORD_WARN_ERR_SECTION]
+      after_coord_warn_err = after_info_dict[COORD_WARN_ERR_SECTION]
+      self.env.assertEqual(before_coord_warn_err, after_coord_warn_err,
+                           message=f"Shard {shardId} has wrong coordinator warnings/errors section after no-error aggregate query")
+
+def test_errors_and_warnings_init(env):
+  # Verify fields in metric are initialized properly
+  info_dict = info_modules_to_dict(env)
+  for metric in [WARN_ERR_SECTION, COORD_WARN_ERR_SECTION]:
+    for field in info_dict[metric]:
+      env.assertEqual(info_dict[metric][field], '0')
+
+########
+# Multi Threaded Stats tests
+########
+
+MULTI_THREADING_SECTION = f'{SEARCH_PREFIX}multi_threading'
+ACTIVE_IO_THREADS_METRIC = f'{SEARCH_PREFIX}active_io_threads'
+ACTIVE_WORKER_THREADS_METRIC = f'{SEARCH_PREFIX}active_worker_threads'
+ACTIVE_COORD_THREADS_METRIC = f'{SEARCH_PREFIX}active_coord_threads'
+WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}workers_low_priority_pending_jobs'
+WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}workers_high_priority_pending_jobs'
+COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC = f'{SEARCH_PREFIX}coord_high_priority_pending_jobs'
+
+def test_initial_multi_threading_stats(env):
+  conn = getConnectionByEnv(env)
+  # Setup: Create index with some data
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'age', 'NUMERIC').ok()
+  for i in range(10):
+    conn.execute_command('HSET', f'doc{i}', 'name', f'name{i}', 'age', i)
+
+  info_dict = info_modules_to_dict(env)
+
+  # Verify multi_threading section exists
+  env.assertTrue(MULTI_THREADING_SECTION in info_dict,
+                 message="multi_threading section should exist in INFO MODULES")
+
+  # Verify all expected fields exist
+  env.assertTrue(ACTIVE_IO_THREADS_METRIC in info_dict[MULTI_THREADING_SECTION],
+                 message=f"{ACTIVE_IO_THREADS_METRIC} field should exist in multi_threading section")
+  env.assertTrue(ACTIVE_COORD_THREADS_METRIC in info_dict[MULTI_THREADING_SECTION],
+                 message=f"{ACTIVE_COORD_THREADS_METRIC} should exist in multi_threading section")
+  env.assertTrue(ACTIVE_WORKER_THREADS_METRIC in info_dict[MULTI_THREADING_SECTION],
+                 message=f"{ACTIVE_WORKER_THREADS_METRIC} field should exist in multi_threading section")
+  env.assertTrue(COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC in info_dict[MULTI_THREADING_SECTION],
+                 message=f"{COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC} field should exist in multi_threading section")
+
+  # Verify all fields initialized to 0.
+  env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_IO_THREADS_METRIC], '0',
+                 message=f"{ACTIVE_IO_THREADS_METRIC} should be 0 when idle")
+  env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_COORD_THREADS_METRIC], '0',
+                 message=f"{ACTIVE_COORD_THREADS_METRIC} should be 0 when idle")
+  env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_WORKER_THREADS_METRIC], '0',
+                 message=f"{ACTIVE_WORKER_THREADS_METRIC} should be 0 when idle")
+  env.assertEqual(info_dict[MULTI_THREADING_SECTION][COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC], '0',
+                 message=f"{COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC} should be 0 when idle")
+  # There's no deterministic way to test active_io_threads increases while a query is running,
+  # we test it in unit tests.
+
+# NOTE: Currently query debug pause mechanism only supports pausing one query at a time, and is not supported on cluster.
+@skip(cluster=True, noWorkers=True)
+def test_active_worker_threads():
+    env = Env(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL')
+    num_queries = 1
+    conn = getConnectionByEnv(env)
+
+    # Create index and add test data
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    for i in range(10):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+    # Verify active_worker_threads starts at 0
+    info_dict = info_modules_to_dict(conn)
+    env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_WORKER_THREADS_METRIC], '0',
+                    message=f"{ACTIVE_WORKER_THREADS_METRIC} should be 0 when idle")
+
+    # Define callback for testing a specific query type
+    def _test_query_type(query_type):
+        query_threads = []
+        query_results = []
+
+        # Launch num_queries queries in background threads, paused at Index RP
+        for i in range(num_queries):
+            result_list = []
+            query_results.append(result_list)
+            t = threading.Thread(
+                target=call_and_store,
+                args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                      (env, [query_type, 'idx', '*'], 'Index', 0),
+                      result_list),
+                daemon=True
+            )
+            query_threads.append(t)
+            t.start()
+
+        # Wait for all queries to be paused
+        with TimeLimit(120):
+            while not getIsRPPaused(env):
+                time.sleep(0.1)
+
+        # Verify active_worker_threads == num_queries
+        info_dict = info_modules_to_dict(conn)
+        env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_WORKER_THREADS_METRIC], str(num_queries),
+                        message=f"{query_type}: {ACTIVE_WORKER_THREADS_METRIC} should be {num_queries} when {num_queries} queries are paused")
+
+        # Resume all queries
+        setPauseRPResume(env)
+
+        # Wait for all query threads to complete
+        for t in query_threads:
+            t.join()
+
+        # Drain worker thread pool to ensure all jobs complete
+        env.expect(debug_cmd(), 'WORKER_THREADS', 'DRAIN').ok()
+
+        # Verify active_worker_threads returns to 0
+        info_dict = info_modules_to_dict(conn)
+        env.assertEqual(info_dict[MULTI_THREADING_SECTION][ACTIVE_WORKER_THREADS_METRIC], '0',
+                        message=f"{query_type}: active_worker_threads should return to 0 after queries complete")
+
+    # Test both query types
+    _test_query_type('FT.SEARCH')
+    _test_query_type('FT.AGGREGATE')
+
+def _test_pending_jobs_metrics(env, command_type):
+    """
+    Parameters:
+        - env: Test environment (works for both SA and cluster)
+    """
+
+    # --- STEP 1: SETUP ---
+    # assert we have enough workers configured on all shards
+    for i, conn in enumerate(env.getOSSMasterNodesConnectionList()):
+        shard_workers = int(conn.execute_command(config_cmd(), 'GET', 'WORKER_THREADS')[0][1])
+        env.assertGreaterEqual(shard_workers, 1, message=f"shard {i} has {shard_workers} worker threads, expected at least 1")
+
+    # Define variables
+    num_vectors = 10 * env.shardsCount  # Number of vectors to index (creates low priority jobs)
+    num_queries = 3   # Number of queries to execute (creates high priority jobs)
+    dim = 4
+    vector_field = DEFAULT_VECTOR_FIELD_NAME
+    index_name = 'idx'
+
+    # --- STEP 2: VERIFY INITIAL STATE (metrics = 0) ---
+    for conn in env.getOSSMasterNodesConnectionList():
+        info_dict = info_modules_to_dict(conn)
+        env.assertEqual(info_dict[MULTI_THREADING_SECTION][WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC], '0')
+        env.assertEqual(info_dict[MULTI_THREADING_SECTION][WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC], '0')
+
+    #  --- STEP 3: PAUSE WORKERS THREAD POOL ---
+    # Pause workers to prevent jobs from executing
+    run_command_on_all_shards(env, debug_cmd(), 'WORKER_THREADS', 'PAUSE')
+
+    # --- STEP 4: CREATE INDEX AND INDEX VECTORS (creates workers_low_priority_pending_jobs) ---
+    # Create index with HNSW and load vectors (HNSW creates background indexing jobs which are low priority)
+    env.expect('FT.CREATE', index_name, 'SCHEMA', vector_field, 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    load_vectors_to_redis(env, num_vectors, 0, dim, vec_field_name=vector_field)
+
+    def check_indexing_jobs_pending():
+        num_shards = env.shardsCount
+        all_shards_ready = [False] * num_shards
+        state = {
+          'indexing_jobs_pending': [0] * num_shards,
+          'expected_indexing_jobs': [0] * num_shards,
+          'workers_stats': [{}] * num_shards,
+        }
+
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+          # Expected low_priority_pending_jobs = con.dbsize() (number of vectors on this shard)
+          expected_indexing_jobs = con.execute_command('DBSIZE')
+
+          shard_stats = info_modules_to_dict(con)
+          indexing_jobs_pending = int(shard_stats[MULTI_THREADING_SECTION][WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC])
+
+          all_shards_ready[i] = (expected_indexing_jobs == indexing_jobs_pending)
+          state['expected_indexing_jobs'][i] = expected_indexing_jobs
+          state['indexing_jobs_pending'][i] = indexing_jobs_pending
+          state['workers_stats'][i] = {f'shard {i}': to_dict(con.execute_command(debug_cmd(), 'WORKER_THREADS', 'stats'))}
+        return all(all_shards_ready), state
+
+    wait_for_condition(check_indexing_jobs_pending, "wait_for_workers_low_priority_jobs_pending")
+
+    # --- STEP 5: EXECUTE QUERIES (creates high_priority_pending_jobs) ---
+    # Launch num_queries queries in background threads
+    # Queries will be queued as high-priority jobs but not executed (workers paused)
+
+    query_threads = launch_cmds_in_bg_with_exception_check(env, [f'FT.{command_type}', index_name, '*'], num_queries)
+    if query_threads is None:
+        run_command_on_all_shards(env, debug_cmd(), 'WORKER_THREADS', 'RESUME')
+        return
+
+    # --- STEP 6: WAIT FOR THREADPOOL STATS TO UPDATE (jobs queued) ---
+    # Wait for the threadpool stats to reflect the expected pending jobs
+    def check_queries_jobs_pending():
+        num_shards = env.shardsCount
+        all_shards_ready = [False] * num_shards
+        expected_queries_jobs = num_queries
+        state = {
+          'queries_jobs_pending': [0] * num_shards,
+          'expected_queries_jobs': [expected_queries_jobs] * num_shards,
+          'workers_stats': [{}] * num_shards,
+        }
+
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+
+          shard_stats = info_modules_to_dict(con)
+          queries_pending_jobs = int(shard_stats[MULTI_THREADING_SECTION][WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC])
+
+          all_shards_ready[i] = (expected_queries_jobs == queries_pending_jobs)
+          state['queries_jobs_pending'][i] = queries_pending_jobs
+          state['expected_queries_jobs'][i] = expected_queries_jobs
+          state['workers_stats'][i] = {f'shard {i}': to_dict(con.execute_command(debug_cmd(), 'WORKER_THREADS', 'stats'))}
+        return all(all_shards_ready), state
+
+    wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
+
+    # --- STEP 7: RESUME WORKERS AND DRAIN ---
+    # Resume workers:
+    run_command_on_all_shards(env, debug_cmd(), 'WORKER_THREADS', 'RESUME')
+
+    # Wait for all query threads to complete:
+    for t in query_threads:
+        t.join(timeout=30)
+
+    # Drain worker thread pool to ensure all jobs complete:
+    run_command_on_all_shards(env, debug_cmd(), 'WORKER_THREADS', 'DRAIN')
+
+    # --- STEP 8: VERIFY METRICS RETURN TO 0 ---
+    # Wait for metrics to return to 0 (job callback finished before stats update)
+    def check_reset_metrics():
+        num_shards = env.shardsCount
+        all_shards_ready = [False] * num_shards
+        state = {
+          'workers_low_priority_jobs_pending': [-1] * num_shards,
+          'workers_high_priority_jobs_pending': [-1] * num_shards,
+          'workers_stats': [{}] * num_shards,
+        }
+
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+
+          shard_stats = info_modules_to_dict(con)
+          queries_jobs_pending = int(shard_stats[MULTI_THREADING_SECTION][WORKERS_HIGH_PRIORITY_PENDING_JOBS_METRIC])
+          background_indexing_jobs_pending = int(shard_stats[MULTI_THREADING_SECTION][WORKERS_LOW_PRIORITY_PENDING_JOBS_METRIC])
+
+          all_shards_ready[i] = (queries_jobs_pending == 0 and background_indexing_jobs_pending == 0)
+          state['workers_low_priority_jobs_pending'][i] = background_indexing_jobs_pending
+          state['workers_high_priority_jobs_pending'][i] = queries_jobs_pending
+          state['workers_stats'][i] = {f'shard {i}': to_dict(con.execute_command(debug_cmd(), 'WORKER_THREADS', 'stats'))}
+        return all(all_shards_ready), state
+
+    wait_for_condition(check_reset_metrics, "wait_for_workers_pending_jobs_metric_reset")
+
+@skip(noWorkers=True)
+def test_pending_jobs_metrics_search():
+  env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 2 MT_MODE MT_MODE_FULL')
+  _test_pending_jobs_metrics(env, 'SEARCH')
+
+@skip(noWorkers=True)
+def test_pending_jobs_metrics_aggregate():
+  env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 2 MT_MODE MT_MODE_FULL')
+  _test_pending_jobs_metrics(env, 'AGGREGATE')
+
+class TestCoordHighPriorityPendingJobs(object):
+  def __init__(self):
+    self.env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    if not self.env.isCluster():
+      self.env.skip()
+    conn = getConnectionByEnv(self.env)
+    num_docs = 10 * self.env.shardsCount
+
+    # Create index with TEXT field
+    self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    waitForIndex(self.env, 'idx')
+
+    # Add documents
+    for i in range(num_docs):
+      conn.execute_command('HSET', f'doc:{i}', 't', 'hello')
+
+    # VERIFY INITIAL STATE (metric = 0)
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[MULTI_THREADING_SECTION][COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC], '0')
+
+  def tearDown(self):
+    if self.env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused'):
+      self.env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+
+  def verify_coord_high_priority_pending_jobs(self, command_type, num_commands_per_type, search_threads):
+    # --- VERIFY METRIC INCREASED ---
+    def check_coord_pending_jobs():
+      info_dict = info_modules_to_dict(self.env)
+      pending_jobs = int(info_dict[MULTI_THREADING_SECTION][COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC])
+      return (pending_jobs == num_commands_per_type), {'pending_jobs': pending_jobs, 'expected': num_commands_per_type}
+
+    wait_for_condition(check_coord_pending_jobs, f"wait_for_coord_pending_jobs_{command_type}")
+    # --- RESUME COORD_THREADS ---
+    self.env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+    # --- WAIT FOR ALL THREADS TO COMPLETE ---
+    for t in search_threads:
+        t.join(timeout=30)
+    # --- VERIFY METRIC DECREASED TO 0 ---
+    def check_coord_pending_jobs_reset():
+        info_dict = info_modules_to_dict(self.env)
+        pending_jobs = int(info_dict[MULTI_THREADING_SECTION][COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC])
+        return (pending_jobs == 0), {'pending_jobs': pending_jobs}
+
+    wait_for_condition(check_coord_pending_jobs_reset, f"wait_for_coord_pending_jobs_reset_{command_type}")
+
+  def _test_coord_high_priority_pending_jobs(self, command_type):
+    env = self.env
+    num_commands_per_type = 3  # Number of commands to execute for each command type
+
+    env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+
+    search_threads = launch_cmds_in_bg_with_exception_check(self.env, [f'FT.{command_type}', 'idx', '*'], num_commands_per_type)
+    if search_threads is None:
+      env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+      return
+
+    self.verify_coord_high_priority_pending_jobs(command_type, num_commands_per_type, search_threads)
+
+  def test_coord_high_priority_pending_jobs_search(self):
+    self._test_coord_high_priority_pending_jobs('SEARCH')
+
+  def test_coord_high_priority_pending_jobs_aggregate(self):
+    self._test_coord_high_priority_pending_jobs('AGGREGATE')
+
+  def test_coord_high_priority_pending_jobs_cursor(self):
+    # Use COUNT parameter with low value so cursor won't be depleted at first execution
+    _, cursor_id = self.env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t', 'WITHCURSOR', 'COUNT', '2')
+    self.env.assertNotEqual(cursor_id, 0, message="Cursor should not be depleted")
+    num_commands_per_type = 1  # Number of commands to execute for each command type
+
+    self.env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+    search_threads = launch_cmds_in_bg_with_exception_check(self.env, ['FT.CURSOR', 'READ', 'idx', cursor_id], num_commands_per_type)
+    if search_threads is None:
+      self.env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+      return
+
+    self.verify_coord_high_priority_pending_jobs('CURSOR', num_commands_per_type, search_threads)
+
+# Test the 'total_num_docs_in_indexes' INFO MODULES metric in standalone mode.
+# This metric counts the total number of documents indexed by all indexes,
+# with potential overlap (a doc counted once per index that indexes it).
+@skip(cluster=True)
+def test_total_docs_indexed_metric_SA(env):
+
+  conn = getConnectionByEnv(env)
+
+  # Helper to get the total_num_docs_in_indexes metric
+  def get_total_docs_indexed():
+    info = conn.execute_command('INFO', 'MODULES')
+    return info['search_total_num_docs_in_indexes']
+
+  # Baseline: no indexes, no docs indexed
+  baseline = get_total_docs_indexed()
+  env.assertEqual(baseline, 0, message="Baseline should be 0 with no indexes")
+
+  # 1. Regular flow: create index, create doc, check metric incremented
+  # Create first index with prefix 'do' (will match 'doc:*')
+  env.expect('FT.CREATE', 'idx1', 'PREFIX', 1, 'do', 'SCHEMA', 'text', 'TEXT').ok()
+  env.assertEqual(get_total_docs_indexed(), 0, message="No docs yet, metric should be 0")
+
+  # Add first document
+  conn.execute_command('HSET', 'doc:1', 'text', 'hello world')
+  # For inline indexing (foreground), the doc is indexed immediately
+  env.assertEqual(get_total_docs_indexed(), 1, message="After adding 1 doc to 1 index")
+
+  # 2. Double counting: create another index, check metric increments again
+  # Create second index with prefix 'doc' (more specific, also matches 'doc:*')
+  env.expect('FT.CREATE', 'idx2', 'PREFIX', 1, 'doc', 'SCHEMA', 'text', 'TEXT').ok()
+  # Wait for background indexing to complete
+  waitForIndex(env, 'idx2')
+
+  # The existing doc 'doc:1' should now be indexed by idx2 as well
+  env.assertEqual(get_total_docs_indexed(), 2,
+                  message="doc:1 indexed by both idx1 and idx2")
+
+  # 3. Multiple docs: add more docs, each indexed by both indexes
+  conn.execute_command('HSET', 'doc:2', 'text', 'foo bar')
+  conn.execute_command('HSET', 'doc:3', 'text', 'baz qux')
+
+  # Each doc is indexed by both indexes (inline indexing)
+  # doc:1 was indexed 2 times (by idx1 and idx2)
+  # doc:2 is indexed 2 times (by idx1 and idx2)
+  # doc:3 is indexed 2 times (by idx1 and idx2)
+  # Total = 6
+  env.assertEqual(get_total_docs_indexed(), 6,
+                  message="3 docs, each indexed by 2 indexes = 6")
+
+  # 4. Partial indexing: create a doc that only matches one index's prefix
+  # 'doar:1' matches 'do' prefix (idx1) but NOT 'doc' prefix (idx2)
+  conn.execute_command('HSET', 'doar:1', 'text', 'partial match')
+
+  # Only idx1 should index this doc
+  # Previous total was 6, now should be 7
+  env.assertEqual(get_total_docs_indexed(), 7,
+                  message="'doar:1' only indexed by idx1 (prefix 'do'), not idx2 (prefix 'doc')")
+
+  # 5. Delete doc: verify metric is updated correctly
+  # Delete doc:2 (which was indexed by both indexes)
+  conn.execute_command('DEL', 'doc:2')
+
+  # Force GC to clean up the deleted doc from both indexes
+  forceInvokeGC(env, 'idx1')
+  forceInvokeGC(env, 'idx2')
+
+  # After deletion:
+  # - doc:1 still indexed by both indexes (2)
+  # - doc:2 deleted (was 2, now 0)
+  # - doc:3 indexed by both indexes (2)
+  # - doar:1 indexed by idx1 only (1)
+  # Total = 5
+  env.assertEqual(get_total_docs_indexed(), 5,
+                  message="After deleting doc:2 (was indexed by 2 indexes)")
+
+  # 6. Delete index: verify metric is updated correctly
+  # Drop idx2 (which indexed doc:1 and doc:3)
+  conn.execute_command('FT.DROPINDEX', 'idx2')
+
+  # Wait for cleanup to complete
+  waitForNoCleanup(env, 'idx1')
+
+  # After dropping idx2:
+  # - doc:1 indexed by idx1 only (1)
+  # - doc:3 indexed by idx1 only (1)
+  # - doar:1 indexed by idx1 only (1)
+  # Total = 3
+  env.assertEqual(get_total_docs_indexed(), 3,
+                  message="After dropping idx2, only idx1 remains")
+
+# Test the 'total_indexing_ops_<field_type>_fields' INFO MODULES metrics.
+# These metrics count how many times each field type has indexed a document.
+@skip(cluster=True)
+def test_total_docs_indexed_by_field_type_SA(env):
+  conn = getConnectionByEnv(env)
+
+  # Helper to get all field-type metrics
+  def get_field_metrics():
+    info = conn.execute_command('INFO', 'MODULES')
+    return {
+      'text': info['search_total_indexing_ops_text_fields'],
+      'tag': info['search_total_indexing_ops_tag_fields'],
+      'numeric': info['search_total_indexing_ops_numeric_fields'],
+      'geo': info['search_total_indexing_ops_geo_fields'],
+      'geoshape': info['search_total_indexing_ops_geoshape_fields'],
+      'vector': info['search_total_indexing_ops_vector_fields'],
+    }
+
+  # Baseline: all metrics should be 0
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], 0, message="Baseline text should be 0")
+  env.assertEqual(metrics['tag'], 0, message="Baseline tag should be 0")
+  env.assertEqual(metrics['numeric'], 0, message="Baseline numeric should be 0")
+  env.assertEqual(metrics['geo'], 0, message="Baseline geo should be 0")
+  env.assertEqual(metrics['geoshape'], 0, message="Baseline geoshape should be 0")
+  env.assertEqual(metrics['vector'], 0, message="Baseline vector should be 0")
+
+  # 1. Test TEXT field indexing
+  env.expect('FT.CREATE', 'idx_text', 'PREFIX', 1, 'text:', 'SCHEMA', 't', 'TEXT').ok()
+
+  conn.execute_command('HSET', 'text:1', 't', 'hello world')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], 1, message="After 1 text doc")
+
+  # 2. Test TAG field indexing
+  env.expect('FT.CREATE', 'idx_tag', 'PREFIX', 1, 'tag:', 'SCHEMA', 'tag', 'TAG').ok()
+  waitForIndex(env, 'idx_tag')
+
+  conn.execute_command('HSET', 'tag:1', 'tag', 'value1,value2')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['tag'], 1, message="After 1 tag doc")
+
+  # 3. Test NUMERIC field indexing
+  env.expect('FT.CREATE', 'idx_num', 'PREFIX', 1, 'num:', 'SCHEMA', 'n', 'NUMERIC').ok()
+  waitForIndex(env, 'idx_num')
+
+  conn.execute_command('HSET', 'num:1', 'n', '42')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['numeric'], 1, message="After 1 numeric doc")
+
+  # 4. Test GEO field indexing
+  env.expect('FT.CREATE', 'idx_geo', 'PREFIX', 1, 'geo:', 'SCHEMA', 'g', 'GEO').ok()
+  waitForIndex(env, 'idx_geo')
+
+  conn.execute_command('HSET', 'geo:1', 'g', '13.361389,52.519444')  # Berlin
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['geo'], 1, message="After 1 geo doc")
+
+  # 5. Test GEOSHAPE field indexing
+  env.expect('FT.CREATE', 'idx_geoshape', 'PREFIX', 1, 'geoshape:', 'SCHEMA', 'gs', 'GEOSHAPE').ok()
+  waitForIndex(env, 'idx_geoshape')
+
+  conn.execute_command('HSET', 'geoshape:1', 'gs', 'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['geoshape'], 1, message="After 1 geoshape doc")
+
+  # 6. Test VECTOR field indexing
+  env.expect('FT.CREATE', 'idx_vec', 'PREFIX', 1, 'vec:',
+             'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
+             'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  waitForIndex(env, 'idx_vec')
+
+  vec1 = np.array([1.0, 0.0]).astype(np.float32).tobytes()
+
+  conn.execute_command('HSET', 'vec:1', 'v', vec1)
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['vector'], 1, message="After 1 vector doc")
+
+  # 7. Test multiple fields in same document (all field types at once)
+  env.expect('FT.CREATE', 'idx_multi', 'PREFIX', 1, 'multi:',
+             'SCHEMA', 't', 'TEXT', 'tag', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'gs', 'GEOSHAPE',
+             'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  waitForIndex(env, 'idx_multi')
+
+  # Store current counts
+  prev_metrics = get_field_metrics()
+
+  multi_vec = np.array([0.5, 0.5]).astype(np.float32).tobytes()
+  conn.execute_command('HSET', 'multi:1', 't', 'hello', 'tag', 'mytag', 'n', '1',
+                       'g', '13.361389,52.519444', 'gs', 'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))',
+                       'v', multi_vec)
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], prev_metrics['text'] + 1,
+                  message="Multi-field doc increments text")
+  env.assertEqual(metrics['tag'], prev_metrics['tag'] + 1,
+                  message="Multi-field doc increments tag")
+  env.assertEqual(metrics['numeric'], prev_metrics['numeric'] + 1,
+                  message="Multi-field doc increments numeric")
+  env.assertEqual(metrics['geo'], prev_metrics['geo'] + 1,
+                  message="Multi-field doc increments geo")
+  env.assertEqual(metrics['geoshape'], prev_metrics['geoshape'] + 1,
+                  message="Multi-field doc increments geoshape")
+  env.assertEqual(metrics['vector'], prev_metrics['vector'] + 1,
+                  message="Multi-field doc increments vector")
+
+  # 8. Test double counting with overlapping indexes
+  # Create another text index that will also match 'text:*' docs
+  env.expect('FT.CREATE', 'idx_text2', 'PREFIX', 1, 'text:', 'SCHEMA', 't', 'TEXT').ok()
+  waitForIndex(env, 'idx_text2')
+
+  # The 1 existing text doc (text:1) should now be re-indexed
+  metrics = get_field_metrics()
+  # Previously had 2 text docs (text:1, multi:1), now +1 from background indexing
+  env.assertEqual(metrics['text'], 3,
+                  message="After creating overlapping text index, existing docs re-indexed")
+
+  # 9. Test partial field matching (doc with only some fields)
+  prev_metrics = get_field_metrics()
+
+  # Add doc with only text field (no tag or numeric)
+  conn.execute_command('HSET', 'multi:2', 't', 'only text here')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], prev_metrics['text'] + 1,
+                  message="Partial doc increments only text")
+  env.assertEqual(metrics['tag'], prev_metrics['tag'],
+                  message="Partial doc doesn't increment tag (field not present)")
+  env.assertEqual(metrics['numeric'], prev_metrics['numeric'],
+                  message="Partial doc doesn't increment numeric (field not present)")
+
+  # 10. Test index with multiple fields of the same type
+  env.expect('FT.CREATE', 'idx_same_type', 'PREFIX', 1, 'sametype:',
+             'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()
+  waitForIndex(env, 'idx_same_type')
+
+  prev_metrics = get_field_metrics()
+
+  # Doc that matches only one text field
+  conn.execute_command('HSET', 'sametype:1', 't1', 'hello')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], prev_metrics['text'] + 1,
+                  message="Doc with one text field increments text by 1")
+
+  prev_metrics = get_field_metrics()
+
+  # Doc that contains both text fields
+  conn.execute_command('HSET', 'sametype:2', 't1', 'hello', 't2', 'world')
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], prev_metrics['text'] + 2,
+                  message="Doc with two text fields increments text by 2 (per fold, not per doc)")
+
+
+# Test the 'total_indexing_ops_<field_type>_fields' INFO MODULES metrics with multi-value JSON.
+# Multi-value JSON fields (using array paths like $[*]) should increment the metrics once per document.
+@skip(cluster=True)
+def test_total_indexing_ops_multi_value_json(env):
+  """Test that multi-value JSON indexing properly increments field metrics."""
+  conn = getConnectionByEnv(env)
+
+  def get_field_metrics():
+    info = conn.execute_command('INFO', 'MODULES')
+    return {
+      'text': info['search_total_indexing_ops_text_fields'],
+      'tag': info['search_total_indexing_ops_tag_fields'],
+      'numeric': info['search_total_indexing_ops_numeric_fields'],
+      'geo': info['search_total_indexing_ops_geo_fields'],
+      'vector': info['search_total_indexing_ops_vector_fields'],
+    }
+
+  # Baseline metrics
+  baseline = get_field_metrics()
+
+  # Create a JSON index with multi-value paths for all supported field types
+  env.expect('FT.CREATE', 'idx_json_multi', 'ON', 'JSON', 'PREFIX', 1, 'jdoc:',
+             'SCHEMA',
+             '$.texts[*]', 'AS', 't', 'TEXT',
+             '$.tags[*]', 'AS', 'tag', 'TAG',
+             '$.nums[*]', 'AS', 'n', 'NUMERIC',
+             '$.geos[*]', 'AS', 'g', 'GEO',
+             '$.vecs[*]', 'AS', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  waitForIndex(env, 'idx_json_multi')
+
+  # Add a JSON document with arrays for each field type
+  import json
+  doc = {
+    'texts': ['hello', 'world'],    # 2 text values
+    'tags': ['tag1', 'tag2'],              # 2 tag values
+    'nums': [1, 2,],                  # 2 numeric values
+    'geos': ['13.361389,52.519444', '2.349014,48.864716'],  # 2 geo values (Berlin, Paris)
+    'vecs': [[1.0, 0.0], [0.0, 1.0]]  # 2 vector values
+  }
+  conn.execute_command('JSON.SET', 'jdoc:1', '$', json.dumps(doc))
+
+  # Verify that metrics increment by 1 per field (not per value in array)
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], baseline['text'] + 1,
+                  message="Multi-value JSON text field increments by 1 per doc")
+  env.assertEqual(metrics['tag'], baseline['tag'] + 1,
+                  message="Multi-value JSON tag field increments by 1 per doc")
+  env.assertEqual(metrics['numeric'], baseline['numeric'] + 1,
+                  message="Multi-value JSON numeric field increments by 1 per doc")
+  env.assertEqual(metrics['geo'], baseline['geo'] + 1,
+                  message="Multi-value JSON geo field increments by 1 per doc")
+  env.assertEqual(metrics['vector'], baseline['vector'] + 1,
+                  message="Multi-value JSON vector field increments by 1 per doc")
+
+  # Add docs with multi geometry fields and verify that metrics doesn't change
+  # Since multi geometry fields are not supported, the doc should be ignored
+  env.expect('FT.CREATE', 'idx_json_multi_geo', 'ON', 'JSON', 'PREFIX', 1, 'jdoc:',
+             'SCHEMA', '$.geos[*]', 'AS', 'g', 'GEOSHAPE').ok()
+
+  # Add document with multi geometry field
+  doc = {
+    'geos': ['POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))', 'POLYGON((1 1, 1 2, 2 2, 2 1, 1 1))']
+  }
+  prev_metrics = get_field_metrics()
+  conn.execute_command('JSON.SET', 'jdoc:2', '$', json.dumps(doc))
+  metrics = get_field_metrics()
+  env.assertEqual(metrics, prev_metrics,
+                  message="Multi-value JSON geoshape field is not supported")

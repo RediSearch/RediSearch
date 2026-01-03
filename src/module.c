@@ -38,11 +38,13 @@
 #include "alias.h"
 #include "module.h"
 #include "rwlock.h"
-#include "info_command.h"
+#include "info/info_command.h"
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
 #include "reply.h"
 #include "resp3.h"
+#include "info/global_stats.h"
+#include "util/units.h"
 
 
 /* FT.MGET {index} {key} ...
@@ -189,7 +191,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   SET_DIALECT(sctx->spec->used_dialects, dialect);
-  SET_DIALECT(RSGlobalConfig.used_dialects, dialect);
+  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, dialect);
 
   bool fullScoreInfo = false;
   if (RMUtil_ArgExists("FULLSCOREINFO", argv, argc, 0)) {
@@ -323,7 +325,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModuleString *rstr = TagIndex_FormatName(sctx, field);
-  TagIndex *idx = TagIndex_Open(sctx, rstr, 0, NULL);
+  TagIndex *idx = TagIndex_Open(sctx, rstr, DONT_CREATE_INDEX);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
     RedisModule_ReplyWithSetOrArray(ctx, 0);
@@ -878,14 +880,14 @@ static void GetRedisVersion() {
     RedisModule_FreeThreadSafeContext(ctx);
     return;
   }
-  RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
+  RS_ASSERT(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
   size_t len;
   const char *replyStr = RedisModule_CallReplyStringPtr(reply, &len);
 
   int n = sscanf(replyStr, "# Server\nredis_version:%d.%d.%d", &redisVersion.majorVersion,
                  &redisVersion.minorVersion, &redisVersion.patchVersion);
 
-  RedisModule_Assert(n == 3);
+  RS_ASSERT(n == 3);
 
   rlecVersion.majorVersion = -1;
   rlecVersion.minorVersion = -1;
@@ -894,7 +896,7 @@ static void GetRedisVersion() {
   char *enterpriseStr = strstr(replyStr, "rlec_version:");
   if (enterpriseStr) {
     n = sscanf(enterpriseStr, "rlec_version:%d.%d.%d-%d", &rlecVersion.majorVersion,
-               &rlecVersion.minorVersion, &rlecVersion.buildVersion, &rlecVersion.patchVersion);
+               &rlecVersion.minorVersion, &rlecVersion.patchVersion, &rlecVersion.buildVersion);
     if (n != 4) {
       RedisModule_Log(NULL, "warning", "Could not extract enterprise version");
     }
@@ -965,6 +967,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   if (IsEnterprise()) {
     GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
     RedisModule_Log(ctx, "notice", "Redis Enterprise version found by RedisSearch : %s", ver);
+
+    // Changing the default bg indexing oom pause time to 5 seconds as we're in enterprise.
+    RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry = 5;
   }
 
   if (CheckSupportedVestion() != REDISMODULE_OK) {
@@ -1186,7 +1191,9 @@ void RediSearch_CleanupModule(void) {
   SchemaPrefixes_Free(SchemaPrefixes_g);
   // GeometryApi_Free();
 
-  RedisModule_FreeThreadSafeContext(RSDummyContext);
+  IndexError_GlobalCleanup();
+
   Dictionary_Free();
   RediSearch_LockDestory();
+
 }

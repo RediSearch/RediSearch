@@ -6,7 +6,6 @@
 #include "redismodule.h"
 
 #include "module.h"
-#include "version.h"
 #include "config.h"
 #include "redisearch_api.h"
 #include <assert.h>
@@ -22,12 +21,20 @@
 #include "json.h"
 #include "VecSim/vec_sim.h"
 #include "util/workers.h"
+#include "util/array.h"
+#include "cursor.h"
+#include "fork_gc.h"
+#include "info/info_command.h"
+#include "profile.h"
+#include "info/info_redis.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
-                       REDISMODULE_APIVER_1) == REDISMODULE_ERR)
+                       REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
+  }
+  RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
   return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
 #endif
@@ -53,9 +60,9 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
   // Can't execute commands on the loading context, so make a new one
   RedisModuleCallReply *reply =
       RedisModule_Call(RSDummyContext, "CONFIG", "cc", "GET", "aof-use-rdb-preamble");
-  assert(reply);
-  assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
-  assert(RedisModule_CallReplyLength(reply) == 2);
+  RS_ASSERT(reply);
+  RS_ASSERT(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
+  RS_ASSERT(RedisModule_CallReplyLength(reply) == 2);
   const char *value =
       RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(reply, 1), NULL);
 
@@ -108,51 +115,6 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   RSGlobalConfig.iteratorsConfigParams.minTermPrefix = 0;
   RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions = LONG_MAX;
   return REDISMODULE_OK;
-}
-
-void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
-  // Module version
-  RedisModule_InfoAddSection(ctx, "version");
-  char ver[64];
-  // RediSearch version
-  sprintf(ver, "%d.%d.%d", REDISEARCH_VERSION_MAJOR, REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH);
-  RedisModule_InfoAddFieldCString(ctx, "version", ver);
-  // Redis version
-  GetFormattedRedisVersion(ver, sizeof(ver));
-  RedisModule_InfoAddFieldCString(ctx, "redis_version", ver);
-  // Redis Enterprise version
-  if (IsEnterprise()) {
-    GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
-    RedisModule_InfoAddFieldCString(ctx, "redis_enterprise_version", ver);
-  }
-
-  // Numer of indexes
-  RedisModule_InfoAddSection(ctx, "index");
-  RedisModule_InfoAddFieldLongLong(ctx, "number_of_indexes", dictSize(specDict_g));
-
-  // Fields statistics
-  FieldsGlobalStats_AddToInfo(ctx);
-
-  // Dialect statistics
-  DialectsGlobalStats_AddToInfo(ctx);
-
-  // Run time configuration
-  RSConfig_AddToInfo(ctx);
-
-  #ifdef FTINFO_FOR_INFO_MODULES
-  // FT.INFO for some of the indexes
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry;
-  int count = 5;
-  while (count-- && (entry = dictNext(iter))) {
-    StrongRef ref = dictGetRef(entry);
-    IndexSpec *sp = StrongRef_Get(ref);
-    if (sp) {
-      IndexSpec_AddToInfo(ctx, sp);
-    }
-  }
-  dictReleaseIterator(iter);
-  #endif
 }
 
 static inline const char* RS_GetExtraVersion() {
@@ -269,9 +231,18 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     DO_LOG("notice", "Loaded RediSearch extension '%s'", RSGlobalConfig.extLoad);
   }
 
+  if (RSGlobalConfig.defaultScorer == NULL) {
+    RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
+  }
   // Register the default hard coded extension
   if (Extension_Load("DEFAULT", DefaultExtensionInit) == REDISEARCH_ERR) {
     DO_LOG("warning", "Could not register default extension");
+    return REDISMODULE_ERR;
+  }
+
+  ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, RSGlobalConfig.defaultScorer);
+  if (scoreCtx == NULL) {
+    DO_LOG("warning", "The scorer '%s' specified in the configuration for the default scorer is not a valid scorer", RSGlobalConfig.defaultScorer);
     return REDISMODULE_ERR;
   }
 

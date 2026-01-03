@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef UTIL_ARR_H_
 #define UTIL_ARR_H_
 /* arr.h - simple, easy to use dynamic array with fat pointers,
@@ -31,16 +33,16 @@
 #include <sys/param.h>
 #include <stdarg.h>
 #include <stdint.h>
-#include <assert.h>
 #include <stdio.h>
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* Definition of malloc & friends that can be overridden before including arr.h.
- * Alternatively you can include arr_rm_alloc.h, which wraps arr.h and sets the allcoation functions
+ * Alternatively you can include arr_rm_alloc.h, which wraps arr.h and sets the allocation functions
  * to those of the RM_ family
  */
 #ifndef array_alloc_fn
@@ -73,7 +75,7 @@ typedef void *array_t;
 #define array_sizeof(hdr) (sizeof(array_hdr_t) + (uint64_t)(hdr)->cap * (hdr)->elem_sz)
 /* Internal - get a pointer to the array header */
 #define array_hdr(arr) ((array_hdr_t *)(((char *)(arr)) - sizeof(array_hdr_t)))
-/* Interanl - get a pointer to an element inside the array at a given index */
+/* Internal - get a pointer to an element inside the array at a given index */
 #define array_elem(arr, idx) (*((void **)((char *)(arr) + ((idx)*array_hdr(arr)->elem_sz))))
 
 static inline uint32_t array_len(array_t arr);
@@ -87,9 +89,6 @@ static array_t array_new_sz(uint32_t elem_sz, uint32_t cap, uint32_t len) {
   hdr->len = len;
   return (array_t)(hdr->buf);
 }
-
-/* Functions declared as symbols for use in debugger */
-void array_debug(void *pp);
 
 /* Initialize an array for a given type T with a given capacity and zero length. The array should be
  * case to a pointer to that type. e.g.
@@ -227,11 +226,10 @@ static ARR_FORCEINLINE uint32_t array_len(array_t arr) {
 #define ARR_CAP_NOSHRINK ((uint32_t)-1)
 static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
   array_hdr_t *arr_hdr = array_hdr(arr);
-  assert(len >= 0 && "trimming len is negative");
-  //printf("array_len %d len %d\n", array_len(arr), len);
-  assert((cap == ARR_CAP_NOSHRINK || cap > 0 || len == cap) && "trimming capacity is illegal");
-  assert((cap == ARR_CAP_NOSHRINK || cap >= len) && "trimming len is greater then capacity");
-  assert((len <= arr_hdr->len) && "trimming len is greater then current len");
+  RS_LOG_ASSERT(len >= 0, "trimming len is negative");
+  RS_LOG_ASSERT((cap == ARR_CAP_NOSHRINK || cap > 0 || len == cap), "trimming capacity is illegal");
+  RS_LOG_ASSERT((cap == ARR_CAP_NOSHRINK || cap >= len), "trimming len is greater then capacity");
+  RS_LOG_ASSERT((len <= arr_hdr->len), "trimming len is greater then current len");
   arr_hdr->len = len;
   if (cap != ARR_CAP_NOSHRINK) {
     arr_hdr->cap = cap;
@@ -264,7 +262,7 @@ static void array_free(array_t arr) {
     arr;                                    \
   })
 
-/* Repeate the code in "blk" for each element in the array, and give it the name of "as".
+/* Repeat the code in "blk" for each element in the array, and give it the name of "as".
  * e.g:
  *  int *arr = array_new(int, 10);
  *  array_append(arr, 1);
@@ -291,16 +289,16 @@ static void array_free(array_t arr) {
   })
 
 /* Pop the top element from the array, reduce the size and return it */
-#define array_pop(arr)               \
-  ({                                 \
-    assert(array_hdr(arr)->len > 0); \
-    arr[--(array_hdr(arr)->len)];    \
+#define array_pop(arr)                  \
+  ({                                    \
+    RS_ASSERT(array_hdr(arr)->len > 0); \
+    arr[--(array_hdr(arr)->len)];       \
   })
 
 /* Remove a specified element from the array */
 #define array_del(arr, ix)                                                        \
   ({                                                                              \
-    assert(array_len(arr) > ix);                                                  \
+    RS_ASSERT(array_len(arr) > ix);                                               \
     if (array_len(arr) - 1 > ix) {                                                \
       memcpy(arr + ix, arr + ix + 1, sizeof(*arr) * (array_len(arr) - (ix + 1))); \
     }                                                                             \

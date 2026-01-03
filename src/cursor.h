@@ -13,6 +13,10 @@
 #include "util/array.h"
 #include "search_ctx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct CursorList;
 
 typedef struct Cursor {
@@ -35,11 +39,16 @@ typedef struct Cursor {
   /** Initial timeout interval */
   unsigned timeoutIntervalMs;
 
-  /** Position within idle list */
+  /** Position within idle list.
+   * Should only be accessed under cursor list lock */
   int pos;
 
   /** Is it an internal coordinator cursor or a user cursor*/
   bool is_coord;
+
+  /** If true, a call to `Cursor_Pause` should drop it instead.
+   *  Should only be accessed under cursor list lock */
+  bool delete_mark;
 } Cursor;
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
@@ -119,23 +128,13 @@ static inline CursorList *GetGlobalCursor(uint64_t cid) {
 void CursorList_Init(CursorList *cl, bool is_coord);
 
 /**
- * Clear the cursor list
- */
-void CursorList_Destroy(CursorList *cl);
-
-/**
  * Empty the cursor list.
- * It is assumed that this function is called from the main thread, and that
- * are are no cursors that run in the background.
+ * This function is thread-safe and handles both idle and active cursors.
+ * Idle cursors are freed immediately, while active cursors are marked for
+ * deletion and will be freed when they are next accessed.
  */
 void CursorList_Empty(CursorList *cl);
 
-/**
- * Mark all existing cursors as expired, so that they will be removed on the next GC sweep
- */
-void CursorList_Expire(CursorList *cl);
-
-#define RSCURSORS_DEFAULT_CAPACITY 128
 #define RSCURSORS_SWEEP_INTERVAL 500                /* GC Every 500 requests */
 #define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */
 
@@ -175,11 +174,22 @@ int Cursor_Pause(Cursor *cur);
 int Cursor_Free(Cursor *cl);
 
 /**
- * Locate and free the cursor with the given ID
+ * Locate and free the cursor with the given ID.
+ * If the cursor is found but not idle, it is marked for deletion.
  */
 int Cursors_Purge(CursorList *cl, uint64_t cid);
 
 int Cursors_CollectIdle(CursorList *cl);
+
+typedef struct CursorsInfoStats {
+  size_t total;
+  size_t total_idle;
+} CursorsInfoStats;
+
+/**
+ * Return the stats for the `INFO` command
+*/
+CursorsInfoStats Cursors_GetInfoStats(void);
 
 /**
  * Assumed to be called by the main thread with a valid locked spec, under the cursors lock.
@@ -191,6 +201,10 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, IndexSpec 
 #endif
 
 void Cursor_FreeExecState(void *);
-#endif
 
 #define getCursorList(coord) ((coord) ? &g_CursorsListCoord : &g_CursorsList)
+
+#ifdef __cplusplus
+}
+#endif
+#endif // CURSOR_H

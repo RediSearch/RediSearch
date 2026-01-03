@@ -14,6 +14,7 @@
 #include "expr/expression.h"
 #include "aggregate_plan.h"
 #include "reply.h"
+#include "rs_wall_clock.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -27,7 +28,7 @@ typedef struct Grouper Grouper;
 struct QOptimizer;
 
 typedef enum {
-  QEXEC_F_IS_EXTENDED = 0x01,     // Contains aggregations or projections
+  QEXEC_F_IS_AGGREGATE = 0x01,    // Is an aggregate command
   QEXEC_F_SEND_SCORES = 0x02,     // Output: Send scores with each result
   QEXEC_F_SEND_SORTKEYS = 0x04,   // Sent the key used for sorting, for each result
   QEXEC_F_SEND_NOFIELDS = 0x08,   // Don't send the contents of the fields
@@ -48,7 +49,7 @@ typedef enum {
    */
   QEXEC_F_RUN_IN_BACKGROUND = 0x100,
 
-  /* The inverse of IS_EXTENDED. The two cannot coexist together */
+  /* The inverse of IS_AGGREGATE. The two cannot coexist together */
   QEXEC_F_IS_SEARCH = 0x200,
 
   /* Highlight/summarize options are active */
@@ -82,6 +83,15 @@ typedef enum {
   // Compound values are returned serialized (RESP2 or HASH) or expanded (RESP3 w/JSON)
   QEXEC_FORMAT_DEFAULT = 0x100000,
 
+  // Set the score of the doc to an RLookupKey in the result
+  QEXEC_F_SEND_SCORES_AS_FIELD = 0x200000,
+
+  // The query is internal (responding to a command from the coordinator)
+  QEXEC_F_INTERNAL = 0x400000,
+
+  // The query is for debugging. Note that this is the last bit of uint32_t
+  QEXEC_F_DEBUG = 0x80000000,
+
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
@@ -91,6 +101,11 @@ typedef enum {
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
+#define HasLoader(r) ((r)->stateflags & QEXEC_S_HAS_LOAD)
+#define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
+#define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
+#define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
+#define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
 // Get the index search context from the result processor
 #define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 
@@ -100,8 +115,11 @@ typedef enum {
 #define RunInThread() (RSGlobalConfig.mt_mode == MT_MODE_FULL)
 #endif
 
-typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req,
-                              bool has_timedout, bool reachedMaxPrefixExpansions);
+
+// Forward declaration of ProfilePrinterCtx
+typedef struct ProfilePrinterCtx ProfilePrinterCtx;
+typedef void (*profiler_func)(RedisModule_Reply *reply, ProfilePrinterCtx *ctx);
+int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
 
 typedef enum {
   /* Received EOF from iterator */
@@ -168,10 +186,10 @@ typedef struct AREQ {
 
 
   /** Profile variables */
-  clock_t initClock;         // Time of start. Reset for each cursor call
-  clock_t totalTime;         // Total time. Used to accumulate cursors times
-  clock_t parseTime;         // Time for parsing the query
-  clock_t pipelineBuildTime; // Time for creating the pipeline
+  rs_wall_clock initClock;                      // Time of start. Reset for each cursor call
+  rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accumulate cursors times
+  rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query
+  rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline
 
   const char** requiredFields;
 
@@ -188,6 +206,13 @@ typedef struct AREQ {
   // Profiling function
   profiler_func profile;
 
+  // Indicates whether the query has timed out.
+  // Useful for query with cursor and RETURN policy
+  bool has_timedout;
+
+  // Number of cursor reads: 1 for the initial FT.AGGREGATE WITHCURSOR,
+  // plus 1 for each subsequent FT.CURSOR READ call.
+  size_t cursor_reads;
 } AREQ;
 
 /**

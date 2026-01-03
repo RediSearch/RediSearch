@@ -67,7 +67,7 @@ void pathFree(JSONPath jsonpath) {
     japi->pathFree(jsonpath);
   } else {
     // Should not attempt to free none-null path when the required API to parse is not available
-    assert(jsonpath != NULL);
+    RS_ASSERT(jsonpath != NULL);
   }
 }
 
@@ -76,7 +76,7 @@ int pathIsSingle(JSONPath jsonpath) {
     return japi->pathIsSingle(jsonpath);
   } else {
     // Should not use none-null path when the required API to parse is not available
-    assert(jsonpath != NULL);
+    RS_ASSERT(jsonpath != NULL);
   }
   return false;
 }
@@ -86,7 +86,7 @@ int pathHasDefinedOrder(JSONPath jsonpath) {
     return japi->pathHasDefinedOrder(jsonpath);
   } else {
     // Should not use none-null path when the required API to parse is not available
-    assert(jsonpath != NULL);
+    RS_ASSERT(jsonpath != NULL);
   }
   return false;
 }
@@ -518,17 +518,21 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
           break;
         case INDEXFLD_T_GEOMETRY:
           rv = REDISMODULE_ERR; // TODO: GEOMETRY = JSON_StoreGeometryInDocFieldFromArr(json, df);
+          QueryError_SetError(status, QUERY_EGENERIC, "GEOMETRY field does not support array type");
           break;
         default:
           rv = REDISMODULE_ERR;
+          QueryError_SetError(status, QUERY_EGENERIC, "Unsupported field type");
           break;
       }
       break;
     case JSONType_Object:
       rv = REDISMODULE_ERR;
+      QueryError_SetError(status, QUERY_EGENERIC, "Object type is not supported");
       break;
     case JSONType__EOF:
-      RS_LOG_ASSERT(0, "Should not happen");
+      RS_ABORT("Should not happen");
+      rv = REDISMODULE_ERR;
   }
 
   return rv;
@@ -568,6 +572,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
         break;
       default:
         rv = REDISMODULE_ERR;
+        QueryError_SetError(status, QUERY_EGENERIC, "Unsupported field type");
         break;
     }
   }
@@ -586,6 +591,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
       df->multisv = rsv;
     } else {
       rv = REDISMODULE_ERR;
+      QueryError_SetError(status, QUERY_EGENERIC, "Failed to get value from iterator");
     }
   }
   return rv;

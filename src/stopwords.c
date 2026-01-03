@@ -82,7 +82,6 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
         t[pos] = tolower(t[pos]);
       }
     }
-    // printf("Adding stopword %s\n", t);
     TrieMap_Add(sl->m, t, tlen, NULL, NULL);
     rm_free(t);
   }
@@ -186,7 +185,7 @@ void ReplyWithStopWordsList(RedisModule_Reply *reply, struct StopWordList *sl) {
       RedisModule_Reply_StringBuffer(reply, str, len);
     }
   RedisModule_Reply_ArrayEnd(reply);
-  
+
   TrieMapIterator_Free(it);
 
 }

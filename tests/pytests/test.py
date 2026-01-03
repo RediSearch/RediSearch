@@ -558,7 +558,7 @@ def testExplain(env):
     # test with hybrid query
     q = ['(@t:hello world) => [KNN $k @v $B EF_RUNTIME 100]', 'DIALECT', 2, 'PARAMS', '4', 'k', '10', 'B', b'\xa4\x21\xf5\x42\x18\x07\x00\xc7']
     res = r.execute_command('ft.explain', 'idx', *q)
-    expected = """VECTOR {\n  INTERSECT {\n    @t:hello\n    world\n  }\n} => {K=10 nearest vectors to `$B` in vector index associated with field @v, EF_RUNTIME = 100, yields distance as `__v_score`}\n"""
+    expected = """VECTOR {\n  INTERSECT {\n    @t:UNION {\n      @t:hello\n      @t:+hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n  }\n} => {K=10 nearest vectors to `$B` in vector index associated with field @v, EF_RUNTIME = 100, yields distance as `__v_score`}\n"""
     env.assertEqual(expected, res)
 
     # retest when index is not empty
@@ -623,7 +623,7 @@ def testExplain(env):
 
     _testExplain(env, 'idx', ['@g:[120.53232 12.112233 30.5 ft]'],
                     "GEO g:{120.532320,12.112233 --> 30.500000 ft}\n")
-    
+
     # test numeric ranges
     _testExplain(env, 'idx', ['@bar:[10 100]'],
                  "NUMERIC {10.000000 <= @bar <= 100.000000}\n")
@@ -642,10 +642,10 @@ def testExplain(env):
 
     _testExplain(env, 'idx', ['@bar:[(-$n $n]','PARAMS', '2', 'n', '20'],
                     "NUMERIC {-20.000000 < @bar <= 20.000000}\n")
-    
+
     _testExplain(env, 'idx', ['@bar:[(-1 -$n]','PARAMS', '2', 'n', '-10'],
                     "NUMERIC {-1.000000 < @bar <= 10.000000}\n")
-    
+
     _testExplain(env, 'idx', ['@bar:[(-22 (+$n]','PARAMS', '2', 'n', '50'],
                     "NUMERIC {-22.000000 < @bar < 50.000000}\n")
 
@@ -1861,29 +1861,139 @@ def testInfoCommandImplied(env):
     env.assertNotEqual(-1, d['index_options'].index('NOHL'))
 
 def testNoStem(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH',
-            'schema', 'body', 'text', 'name', 'text', 'nostem')
-    if not env.isCluster():
-        # todo: change it to be more generic to pass on is_cluster
-        res = env.cmd('ft.info', 'idx')
-        env.assertEqual(res[7][1][8], 'NOSTEM')
-    for _ in env.retry_with_reload():
+    conn = getConnectionByEnv(env)
+
+    env.expect('ft.create', 'idx', 'ON', 'HASH',
+            'schema', 'body', 'text', 'name', 'text', 'nostem',
+            'body2', 'text', 'name2', 'text', 'nostem').ok()
+    d = index_info(env, 'idx')
+    env.assertEqual(d['attributes'][1][8],'NOSTEM')
+    env.assertEqual(d['attributes'][3][8],'NOSTEM')
+    for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         try:
-            env.cmd('ft.del', 'idx', 'doc')
+            conn.execute_command('ft.del', 'idx', 'doc')
         except redis.ResponseError:
             pass
 
-        # Insert a document
-        env.assertCmdOk('ft.add', 'idx', 'doc', 1.0, 'fields',
-                         'body', "located",
-                         'name', "located")
+        # Insert documents
+        conn.execute_command('HSET', 'doc1', 'body', "located", 'name', "located")
+        conn.execute_command('HSET', 'doc2', 'body', "smith", 'name', "smith")
+        conn.execute_command('HSET', 'doc3', 'body', "smiths", 'name', "smiths")
+        conn.execute_command('HSET', 'doc4', 'body', "cherry")
+        conn.execute_command('HSET', 'doc5', 'body', "cherries")
+        conn.execute_command('HSET', 'doc6', 'name', "candy")
+        conn.execute_command('HSET', 'doc7', 'name', "candies")
+        conn.execute_command('HSET', 'doc8', 'body2', "cherries")
+        conn.execute_command('HSET', 'doc9', 'name2', "candies")
 
         # Now search for the fields
-        res_body = env.cmd('ft.search', 'idx', '@body:location')
-        res_name = env.cmd('ft.search', 'idx', '@name:location')
-        env.assertEqual(0, res_name[0])
+        res_body = conn.execute_command('ft.search', 'idx', '@body:location')
         env.assertEqual(1, res_body[0])
+        res_name = conn.execute_command('ft.search', 'idx', '@name:location')
+        env.assertEqual(0, res_name[0])
+
+        res_body = conn.execute_command('ft.search', 'idx', '@body:smith')
+        env.assertEqual(2, res_body[0])
+        res_name = conn.execute_command('ft.search', 'idx', '@name:smith')
+        env.assertEqual(1, res_name[0])
+
+        res_body = conn.execute_command('ft.search', 'idx', '@body:smiths')
+        env.assertEqual(2, res_body[0])
+        res_name = conn.execute_command('ft.search', 'idx', '@name:smiths')
+        env.assertEqual(1, res_name[0])
+
+        # Test modifier list
+        # 2 results are returned because 'body' field is stemming 'cherry'
+        res = conn.execute_command('ft.search', 'idx', '@body|name:cherry')
+        env.assertEqual(2, res[0])
+        res = conn.execute_command('ft.search', 'idx', '@body|name:cherries')
+        env.assertEqual(2, res[0])
+
+        # only 1 result is returned because 'name' field is not stemming
+        res = conn.execute_command('ft.search', 'idx', '@body|name:candy')
+        env.assertEqual(1, res[0])
+        res = conn.execute_command('ft.search', 'idx', '@body|name:candies')
+        env.assertEqual(1, res[0])
+
+        # 3 results are returned because 'body' field is stemming 'candy'
+        # but 'name' field is not stemming
+        res = conn.execute_command(
+            'ft.search', 'idx','@body|name:(candy|cherry)', 'dialect', 2)
+        env.assertEqual(3, res[0])
+        res2 = conn.execute_command(
+            'ft.search', 'idx','@body:(candy|cherry) | @name:(candy|cherry)',
+            'dialect', 2)
+        env.assertEqual(res, res2)
+
+        res = conn.execute_command(
+            'ft.search', 'idx', '@body|name:(candies|cherries)', 'dialect', 2)
+        env.assertEqual(3, res[0])
+        res2 = conn.execute_command(
+            'ft.search', 'idx', '@body:(candies|cherries) | @name:(candies|cherries)',
+            'dialect', 2)
+        env.assertEqual(res, res2)
+
+        # Test explaincli single field stemming
+        env.expect('ft.explain', 'idx', '@body:candy').equal(r'''
+@body:UNION {
+  @body:candy
+  @body:+candi(expanded)
+  @body:candi(expanded)
+}
+'''[1:])
+
+        # Test explaincli with modifier list fields, all fields expanded
+        env.expect('ft.explain', 'idx', '@body|body2:candy').equal(r'''
+@body|body2:UNION {
+  @body|body2:candy
+  @body|body2:+candi(expanded)
+  @body|body2:candi(expanded)
+}
+'''[1:])
+
+        # Test explaincli single field with NOSTEM
+        env.expect('ft.explain', 'idx', '@name:candy').equal(r'''
+@name:candy
+'''[1:])
+
+        # Test explaincli with modifier list NOSTEM fields
+        env.expect('ft.explain', 'idx', '@name|name2:candy').equal(r'''
+@name|name2:candy
+'''[1:])
+
+        # Mixing NOSTEM and stemming fields in the same modifier list
+        env.expect('ft.explain', 'idx', '@body|name:candy').equal(r'''
+@body|name:UNION {
+  @body|name:candy
+  @body:+candi(expanded)
+  @body:candi(expanded)
+}
+'''[1:])
+
+        env.expect('ft.explain', 'idx', '@name2|body|name:candy').equal(r'''
+@body|name|name2:UNION {
+  @body|name|name2:candy
+  @body:+candi(expanded)
+  @body:candi(expanded)
+}
+'''[1:])
+
+        env.expect('ft.explain', 'idx', '@body2|body|name:candy').equal(r'''
+@body|name|body2:UNION {
+  @body|name|body2:candy
+  @body|body2:+candi(expanded)
+  @body|body2:candi(expanded)
+}
+'''[1:])
+
+        env.expect('ft.explain', 'idx', '@body2|body|name|name2:candy').equal(r'''
+@body|name|body2|name2:UNION {
+  @body|name|body2|name2:candy
+  @body|body2:+candi(expanded)
+  @body|body2:candi(expanded)
+}
+'''[1:])
 
 def testSortbyMissingField(env):
     # GH Issue 131
@@ -3237,8 +3347,8 @@ def testIssue1184(env):
         env.expect('FT.CREATE idx ON HASH SCHEMA field ' + ft).ok()
 
         d = index_info(env, 'idx')
-        env.assertEqual(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '0')
+        env.assertEqual(d['inverted_sz_mb'], '0', message=f"failed at field type {ft}")
+        env.assertEqual(d['num_records'], '0', message=f"failed at field type {ft}")
 
         if ft == 'NUMERIC':
             value = '3.14'
@@ -3251,11 +3361,11 @@ def testIssue1184(env):
             env.expect('HSET doc%d field %s' % (i, value)).equal(1)
 
         res = env.cmd('FT.SEARCH idx * LIMIT 0 0')
-        env.assertEqual(res[0], num_docs)
+        env.assertEqual(res[0], num_docs, message=f"failed at field type {ft}")
 
         d = index_info(env, 'idx')
         env.assertGreater(d['inverted_sz_mb'], '0')
-        env.assertEqual(int(d['num_records']), num_docs)
+        env.assertEqual(int(d['num_records']), num_docs, message=f"failed at field type {ft}")
 
         for i in range(num_docs):
             env.expect('FT.DEL idx doc%d' % i).equal(1)
@@ -3263,9 +3373,10 @@ def testIssue1184(env):
         forceInvokeGC(env, 'idx')
 
         d = index_info(env, 'idx')
-        env.assertEqual(float(d['inverted_sz_mb']), 0)
-        env.assertEqual(int(d['num_records']), 0)
-        env.assertEqual(int(d['num_docs']), 0)
+        expected = getInvertedIndexInitialSize_MB(env, [ft])
+        env.assertEqual(float(d['inverted_sz_mb']), expected, message=f"failed at field type {ft}")
+        env.assertEqual(int(d['num_records']), 0, message=f"failed at field type {ft}")
+        env.assertEqual(int(d['num_docs']), 0, message=f"failed at field type {ft}")
 
         env.cmd('FT.DROP idx')
 
@@ -3768,7 +3879,7 @@ def test_RED_86036(env):
     for i in range(1000):
         env.cmd('hset', 'doc%d' % i, 't', 'foo')
     res = env.cmd('FT.PROFILE', 'idx', 'search', 'query', '*', 'INKEYS', '2', 'doc0', 'doc999')
-    res = res[1][4][1][7] # get the list iterator profile
+    res = res[1][5][1][7] # get the list iterator profile
     env.assertEqual(res[1], 'ID-LIST')
     env.assertLess(res[5], 3)
 
@@ -4039,13 +4150,13 @@ def test_timeout_non_strict_policy(env):
     num_docs = n * env.shardsCount
     res = conn.execute_command(
         'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
-        )
+    )
     env.assertTrue(len(res) < num_docs * 2 + 1)
 
     # Same for `FT.AGGREGATE`
     res = conn.execute_command(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text1', 'TIMEOUT', '1'
-        )
+    )
     env.assertTrue(len(res) < num_docs + 1)
 
 def test_timeout_strict_policy():
@@ -4090,18 +4201,42 @@ def common_with_auth(env: Env):
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'n').equal(expected_res)
 
 def test_with_password():
-    mypass = '42MySecretPassword$'
+    mypass = '42MySecretPassword$'  # Hard-coded in `sbin/get-test-certs.sh` as default password
     args = f'OSS_GLOBAL_PASSWORD {mypass}' if COORD else None
     env = Env(moduleArgs=args, password=mypass)
     common_with_auth(env)
 
 def test_with_tls():
     cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+    # Upon setting `useTLS` to `True`, RLTest also sets the `tls-cluster` config
+    # to `yes`. This results in the coordinator-shard connections being TLS as well.
     env = Env(useTLS=True,
               tlsCertFile=cert_file,
               tlsKeyFile=key_file,
               tlsCaCertFile=ca_cert_file,
               tlsPassphrase=passphrase)
+
+    common_with_auth(env)
+
+# Temporarily disabled due to flakiness
+@skip()
+# @skip(cluster=False)
+def test_with_tls_and_non_tls_ports():
+    """Tests that the coordinator-shard connections are using the correct
+    protocol (TLS vs. non-TLS) according to the redis `tls-cluster` configuration."""
+
+    cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+    env = Env(useTLS=True,
+              tlsCertFile=cert_file,
+              tlsKeyFile=key_file,
+              tlsCaCertFile=ca_cert_file,
+              tlsPassphrase=passphrase,
+              dualTLS=True)        # Sets the ports to be both TLS and regular ports.
+
+    # Upon setting `tls-cluster` to `no`, we should still be able to succeed
+    # connecting the coordinator to the shards, just not in TLS mode.
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+    time.sleep(2)
     common_with_auth(env)
 
 
@@ -4137,29 +4272,42 @@ def test_timeoutCoordSearch_Strict():
     `FT.SEARCH` path, when the timeout policy is strict"""
 
     if VALGRIND:
+        # Save some time
         unittest.SkipTest()
 
-    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+    env = Env(moduleArgs='ON_TIMEOUT FAIL DEFAULT_DIALECT 2')
 
     SkipOnNonCluster(env)
 
     # Create and populate an index
-    n_docs_pershard = 50000
+    n_docs_pershard = 80000
     n_docs = n_docs_pershard * env.shardsCount
-    populate_db(env, text=True, n_per_shard=n_docs_pershard)
+    populate_db(env, text=True, numeric=True, tag=True, n_per_shard=n_docs_pershard)
 
-    # test erroneous params
-    env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
-    env.expect('ft.search', 'idx', '* aa*', 'timeout', -1).error()
-    env.expect('ft.search', 'idx', '* aa*', 'timeout', 'STR').error()
+    # test erroneous params for `TIMEOUT`
+    env.expect('FT.SEARCH', 'idx', '*', 'TIMEOUT').error()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'TIMEOUT').error()
+    env.expect('FT.SEARCH', 'idx', '*', 'TIMEOUT', -1).error()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', -1).error()
+    env.expect('FT.SEARCH', 'idx', '*', 'TIMEOUT', 'STR').error()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', 'STR').error()
 
-    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '0')
+    # Search with no timeout limit, get all results
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'TIMEOUT', '0')
+    env.assertEqual(res[0], n_docs)
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '0')
     env.assertEqual(res[0], n_docs)
 
-    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '100000')
-    env.assertEqual(res[0], n_docs)
-
-    env.expect('ft.search', 'idx', '*', 'TIMEOUT', '1').error().contains('Timeout limit was reached')
+    # Small timeout, heavy query -> expect an error
+    env.expect('FT.SEARCH', 'idx', '(lala* | @numeric1:[5 50000]) (@tag1:{MOVIE} | @text1:lal*)', 'TIMEOUT', '1').error().contains('Timeout limit was reached')
+    env.expect(
+        'FT.AGGREGATE', 'idx', '(lala* | @numeric1:[5 50000]) (@tag1:{MOVIE} | @text1:lal*)',
+            'SORTBY', '1', '@text1',
+            'LOAD', '*',
+            'APPLY', 'upper(@text1)', 'AS', 'upper_text1',
+            'GROUPBY', '1', '@__key',
+        'TIMEOUT', '1'
+        ).error().contains('Timeout limit was reached')
 
 @skip(cluster=True)
 def test_notIterTimeout(env):
@@ -4193,3 +4341,48 @@ def test_notIterTimeout(env):
         'FT.AGGREGATE', 'idx', '-@tag1:{fantasy}', 'LOAD', '2', '@title', '@n',
         'APPLY', '@n^2 / 2', 'AS', 'new_n', 'GROUPBY', '1', '@title', 'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
+
+def _test_MOD9174(env):
+    """Tests MOD-9174 - in which we crashed/raised an error since the shard
+    pipeline was sending an empty result to the coordinator, i.e., a result
+    without a `dmd`, which the coordinator was not expecting.
+    On RESP3 we would crash, while in RESP2 we would raise an error (and log).
+    This would happen only when using `WORKERS n` with n > 1, such that the
+    safe-loader would be used.
+    The problem is only for the `FT.SEARCH` command, and not for `FT.AGGREGATE`
+    which uses a different coordinator pipeline.
+    """
+
+    conn = env.getClusterConnectionIfNeeded()
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+
+    # Populate the index
+    res = conn.execute_command('HSET', 'doc1', 'title', 'The Lord of the Rings')
+    env.assertEqual(res, 1)
+
+    # Query with `FT.SEARCH`, dialect 4 and LIMIT
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '1', 'DIALECT', '4')
+    if env.protocol == 3:
+        # RESP3 response
+        env.assertEqual(res['total_results'], 1)
+        env.assertEqual(
+            res['results'][0],
+            {'id': 'doc1', 'extra_attributes': {'title': 'The Lord of the Rings'}, 'values': []}
+        )
+    else:
+        # RESP2 response
+        env.assertEqual(res[0], 1)
+        env.assertEqual(res[1], 'doc1')
+        env.assertEqual(res[2], ['title', 'The Lord of the Rings'])
+
+def test_MOD9174_RESP2():
+    """See further description in helper body"""
+    env = Env(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2', protocol=2)
+    _test_MOD9174(env)
+
+def test_MOD9174_RESP3():
+    """See further description in helper body"""
+    env = Env(moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 2', protocol=3)
+    _test_MOD9174(env)

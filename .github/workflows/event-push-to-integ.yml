@@ -46,3 +46,5 @@ jobs:
     # if: ${{ needs.benchmark-needed.outputs.BENCHMARK_NEEDED == 'true' }}
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
+    with:
+      notify_failure: true

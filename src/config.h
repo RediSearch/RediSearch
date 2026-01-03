@@ -10,7 +10,7 @@
 #include "redismodule.h"
 #include "rmutil/sds.h"
 #include "query_error.h"
-#include "fields_global_stats.h"
+#include "reply.h"
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
@@ -95,6 +95,8 @@ typedef struct {
   const char *extLoad;
   // Path to friso.ini for chinese dictionary file
   const char *frisoIni;
+  // Default scorer name to use when no scorer is specified (default: TFIDF)
+  const char *defaultScorer;
 
   IteratorsConfig iteratorsConfigParams;
 
@@ -125,8 +127,6 @@ typedef struct {
 
   GCConfig gcConfigParams;
 
-  FieldsGlobalStats fieldsStats;
-
   // Chained configuration data
   void *chainedConfig;
 
@@ -150,8 +150,6 @@ typedef struct {
   // Can allow to control the seperation between phrases in different array slots (related to the SLOP parameter in ft.search command)
   // Default value is 100. 0 will not increment (as if all text is a continus phrase).
   unsigned int multiTextOffsetDelta;
-  // bitarray of dialects used by all indices
-  uint_least8_t used_dialects;
   // The number of iterations to run while performing background indexing
   // before we call usleep(1) (sleep for 1 micro-second) and make sure that
   // we allow redis process other commands.
@@ -159,6 +157,17 @@ typedef struct {
   // If set, we use an optimization that sorts the children of an intersection iterator in a way
   // where union iterators are being factorize by the number of their own children.
   int prioritizeIntersectUnionChildren;
+    // The number of indexing operations per field to perform before yielding to Redis during indexing while loading (so redis can be responsive)
+  unsigned int indexerYieldEveryOpsWhileLoading;
+  // Limit the number of cursors that can be created for a single index
+  long long indexCursorLimit;
+  // The maximum ratio between current memory and max memory for which background indexing is allowed
+  uint8_t indexingMemoryLimit;
+  // Enable to execute unstable features
+  bool enableUnstableFeatures;
+  // Set how much time after OOM is detected we should wait to enable the resource manager to
+  // allocate more memory. Note: has different default values for OSS and Enterprise.
+  uint32_t bgIndexingOomPauseTimeBeforeRetry;
 } RSConfig;
 
 typedef enum {
@@ -229,18 +238,18 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
+#define DEFAULT_INDEX_CURSOR_LIMIT 128
 #define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
 #define DEFAULT_MAX_SEARCH_REQUEST_RESULTS 1000000
 #define MAX_SEARCH_REQUEST_RESULTS (1ULL << 31)
 #define MAX_KNN_K (1ULL << 58)
 #define NR_MAX_DEPTH_BALANCE 2
-#define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
-#define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
-#define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
-#define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
-#define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
+#define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
+#define DEFAULT_INDEXING_MEMORY_LIMIT 100
+#define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 0 // Note: The config value default is changed to 5 in enterprise
+#define DEFAULT_UNSTABLE_FEATURES_ENABLE false
 
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG .numWorkerThreads = 0,                                                                     \
@@ -255,6 +264,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define RS_DEFAULT_CONFIG {                                                                                           \
     .concurrentMode = 0,                                                                                              \
     .extLoad = NULL,                                                                                                  \
+    .frisoIni = NULL,                                                     \
+    .defaultScorer = NULL ,                                        \
     .gcConfigParams.enableGC = 1,                                                                                                    \
     .iteratorsConfigParams.minTermPrefix = 2,                                                                                               \
     .iteratorsConfigParams.maxPrefixExpansions = 200,                                                                                       \
@@ -277,8 +288,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .gcConfigParams.forkGc.forkGcCleanThreshold = 100,                                                                                      \
     .noMemPool = 0,                                                                                                   \
     .filterCommands = 0,                                                                                              \
-    .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                                                               \
-    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,                                                         \
+    .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                                                                   \
+    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,                                                                                        \
     .iteratorsConfigParams.minUnionIterHeap = 20,                                                                                           \
     .numericCompress = false,                                                                                         \
     .numericTreeMaxDepthRange = 0,                                                                                    \
@@ -289,9 +300,13 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .requestConfigParams.dialectVersion = 1,                                                                                       \
     .vssMaxResize = 0,                                                                                                \
     .multiTextOffsetDelta = 100,                                                                                      \
-    .used_dialects = 0,                                                                                               \
     .numBGIndexingIterationsBeforeSleep = 100,                                                                        \
-    .prioritizeIntersectUnionChildren = false                                                                           \
+    .prioritizeIntersectUnionChildren = false       ,                                                                        \
+    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                                                             \
+    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE ,                \
+    .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,                                              \
+    .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                       \
+    .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY  \
   }
 
 #define REDIS_ARRAY_LIMIT 7

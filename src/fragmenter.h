@@ -227,6 +227,4 @@ void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags
                                      size_t contextSize, Array *iovBufList, size_t niovs,
                                      int order);
 
-void FragmentList_Dump(const FragmentList *fragList);
-
 #endif
