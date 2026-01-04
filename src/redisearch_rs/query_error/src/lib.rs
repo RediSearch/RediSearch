@@ -75,6 +75,7 @@ pub enum QueryErrorCode {
     FlexLimitNumberOfIndexes,
     FlexUnsupportedField,
     FlexUnsupportedFTCreateArgument,
+    DiskCreation,
 }
 
 impl Debug for QueryErrorCode {
@@ -159,6 +160,7 @@ impl QueryErrorCode {
             Self::FlexUnsupportedFTCreateArgument => {
                 c"Unsupported FT.CREATE argument for Flex index"
             }
+            Self::DiskCreation => c"Could not create disk index",
         }
     }
 }

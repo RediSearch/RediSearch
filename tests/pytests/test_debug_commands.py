@@ -65,6 +65,8 @@ class TestDebugCommands(object):
             'QUERY_CONTROLLER',
             'DUMP_SCHEMA',
             'VECSIM_MOCK_TIMEOUT',
+            'GET_MAX_DOC_ID',
+            'DUMP_DELETED_IDS',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',
@@ -1524,3 +1526,75 @@ class TestProfileDebugClusterResp3(object):
         ProfileDebugCluster.ProfileDebugTimeout(self.env, "SEARCH", 3)
     def testProfileTimeoutAggregateResp3(self):
         ProfileDebugCluster.ProfileDebugTimeout(self.env, "AGGREGATE", 3)
+
+@skip(cluster=True)
+def test_max_doc_id(env):
+    """Tests that the correct max doc id is returned by FT.DEBUG GET_MAX_DOC_ID"""
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # The first max doc id is 0 (next to be assigned)
+    env.expect(debug_cmd(), 'GET_MAX_DOC_ID', 'idx').equal(0)
+
+    # Add 10 documents
+    for i in range(10):
+        env.cmd('HSET', f'doc{i}', 't', f"hello{i}")
+
+    waitForIndex(env, 'idx')
+
+    # The max doc id is now 10
+    env.expect(debug_cmd(), 'GET_MAX_DOC_ID', 'idx').equal(10)
+
+    # Delete some documents
+    env.cmd('DEL', 'doc5', 'doc7')
+    waitForIndex(env, 'idx')
+
+    # Max doc id should still be 10 (doesn't decrease on deletion)
+    env.expect(debug_cmd(), 'GET_MAX_DOC_ID', 'idx').equal(10)
+
+    # Add more documents
+    for i in range(10, 15):
+        env.cmd('HSET', f'doc{i}', 't', f"hello{i}")
+
+    waitForIndex(env, 'idx')
+
+    # Max doc id should now be 15
+    env.expect(debug_cmd(), 'GET_MAX_DOC_ID', 'idx').equal(15)
+
+    # Test error handling - wrong arity
+    env.expect(debug_cmd(), 'GET_MAX_DOC_ID').error().contains('wrong number of arguments')
+
+    # Test error handling - non-existent index
+    env.expect(debug_cmd(), 'GET_MAX_DOC_ID', 'nonexistent').error().contains('Can not create a search ctx')
+
+@skip(cluster=True)
+def test_dump_deleted_ids(env):
+    """Tests that FT.DEBUG DUMP_DELETED_IDS returns the correct deleted ids.
+    On RAM we have no such notion, so it should always be empty"""
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Initially, no deleted IDs
+    env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'idx').equal([])
+
+    # Add some documents
+    for i in range(10):
+        env.cmd('HSET', f'doc{i}', 't', f"hello{i}")
+
+    waitForIndex(env, 'idx')
+
+    # Still no deleted IDs
+    env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'idx').equal([])
+
+    # Delete some documents
+    env.cmd('DEL', 'doc2', 'doc5', 'doc7')
+
+    # For in-memory indexes, we don't track deleted IDs, so should still be empty
+    env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'idx').equal([])
+
+    # Test error handling - wrong arity
+    env.expect(debug_cmd(), 'DUMP_DELETED_IDS').error().contains('wrong number of arguments')
+
+    # Test error handling - non-existent index
+    env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'nonexistent').error().contains('Can not create a search ctx')
