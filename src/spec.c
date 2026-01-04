@@ -2249,7 +2249,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     RedisModule_LogIOError(
         rdb, "warning", "RDB Load: Schema is limited to %d fields",
         SPEC_MAX_FIELDS);
-    return NULL;
+    goto cleanup;
   }
 
   sp->numFields = (uint16_t)numFields_u64;
@@ -2382,6 +2382,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     RedisModule_LogIOError(
         rdb, "warning", "RDB Load: Schema is limited to %d fields",
         SPEC_MAX_FIELDS);
+    IndexSpec_Free(sp);
     return NULL;
   }
 
@@ -2402,12 +2403,14 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   IndexStats_RdbLoad(rdb, &sp->stats);
 
   if (DocTable_LegacyRdbLoad(&sp->docs, rdb, encver) != REDISMODULE_OK) {
+    IndexSpec_Free(sp);
     return NULL;
   }
   /* For version 3 or up - load the generic trie */
   if (encver >= 3) {
     sp->terms = TrieType_GenericLoad(rdb, 0);
     if (sp->terms == NULL) {
+      IndexSpec_Free(sp);
       return NULL;
     }
   } else {
@@ -2417,6 +2420,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (sp->flags & Index_HasCustomStopwords) {
     sp->stopwords = StopWordList_RdbLoad(rdb, encver);
     if (sp->stopwords == NULL) {
+      IndexSpec_Free(sp);
       return NULL;
     }
   } else {
@@ -2429,6 +2433,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
     if (sp->smap == NULL) {
+      IndexSpec_Free(sp);
       return NULL;
     }
   }
