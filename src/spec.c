@@ -478,7 +478,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return NULL;
   }
   if (dictSize(specDict_g) >= maxIndexes_g) {
-    QueryError_SetWithoutUserDataFmt(
+    QueryError_SetErrorFmt(
       status, QUERY_ELIMIT,
       "Maximum number of indexes (%u) reached", maxIndexes_g);
     return NULL;
@@ -1286,7 +1286,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
 
   if (rule_prefixes.argc > 0) {
     if (rule_prefixes.argc > MAX_SCHEMA_PREFIXES) {
-      QueryError_SetWithoutUserDataFmt(
+      QueryError_SetErrorFmt(
           status, QUERY_ELIMIT,
           "Number of prefixes (%zu) exceeds maximum allowed (%d)",
           rule_prefixes.argc, MAX_SCHEMA_PREFIXES);
@@ -2593,7 +2593,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   uint64_t numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
 
   if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT,
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT,
                            "RDB Load: Schema is limited to %d fields",
                            SPEC_MAX_FIELDS);
     goto cleanup;
