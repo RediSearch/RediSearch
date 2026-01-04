@@ -30,7 +30,7 @@ TEST_F(JSONTest, testStoreTextOverflow) {
   int rv = JSON_StoreTextInDocField(overflow_len, nullptr, &df, &status);
   ASSERT_EQ(REDISMODULE_ERR, rv);
   ASSERT_EQ(QueryError_GetCode(&status), QUERY_EGENERIC);
-  const char *err_msg = QueryError_GetUserError(&status);
+  const char *err_msg = QueryError_GetError(&status);
   ASSERT_STREQ(err_msg, "Failed to allocate memory for text field");
 
   QueryError_ClearError(&status);
@@ -65,7 +65,7 @@ TEST_F(JSONTest, testStoreMultiVectorOverflow) {
   int rv = JSON_StoreMultiVectorInDocField(&fs, nullptr, overflow_len, &df, &status);
   ASSERT_EQ(REDISMODULE_ERR, rv);
   ASSERT_EQ(QueryError_GetCode(&status), QUERY_EGENERIC);
-  const char *err_msg = QueryError_GetUserError(&status);
+  const char *err_msg = QueryError_GetError(&status);
   ASSERT_STREQ(err_msg, "Failed to allocate memory for multi-vector field");
 
   QueryError_ClearError(&status);

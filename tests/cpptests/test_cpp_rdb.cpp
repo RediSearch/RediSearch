@@ -479,7 +479,7 @@ TEST_F(RdbMockTest, testSchemaPrefixesRdbLoadExceedsLimit) {
     EXPECT_TRUE(QueryError_HasError(&status)) << "Expected QueryError to be set";
 
     // Verify the error message mentions the limit
-    const char *err_msg = QueryError_GetUserError(&status);
+    const char *err_msg = QueryError_GetError(&status);
     EXPECT_TRUE(err_msg != nullptr);
     if (err_msg) {
         std::string expected = "RDB Load: Number of prefixes (" +
