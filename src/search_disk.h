@@ -77,7 +77,7 @@ void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, const RedisSearchDiskIndexS
  * index is consumed only.
  * @return true if successful, false otherwise
  */
-int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, const RedisSearchDiskIndexSpec *index);
+int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
 // Index API wrappers
 
@@ -171,7 +171,7 @@ bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
  * @param handle Handle to the document table
  * @return The maximum document ID, or 0 if the index is empty
  */
-t_docId SearchDisk_GetMaxDocId(RedisSearchDiskIndexSpec *handle);
+t_docId SearchDisk_GetMaxDocId(const RedisSearchDiskIndexSpec *handle);
 
 /**
  * @brief Get the count of deleted document IDs
@@ -179,7 +179,7 @@ t_docId SearchDisk_GetMaxDocId(RedisSearchDiskIndexSpec *handle);
  * @param handle Handle to the document table
  * @return The number of deleted document IDs
  */
-uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
+uint64_t SearchDisk_GetDeletedIdsCount(const RedisSearchDiskIndexSpec *handle);
 
 /**
  * @brief Get all deleted document IDs
@@ -192,7 +192,7 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
  * @param buffer_size Size of the buffer (number of t_docId elements)
  * @return The number of IDs written to the buffer
  */
-size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
+size_t SearchDisk_GetDeletedIds(const RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
 
 /**
  * @brief Check if the search disk module is enabled from configuration
