@@ -2084,6 +2084,41 @@ DEBUG_COMMAND(VecSimMockTimeout) {
   }
 }
 
+// Global variable defined in spec.c - maximum number of indexes allowed
+extern uint32_t maxIndexes_g;
+
+/**
+ * FT.DEBUG SET_MAX_INDEXES <value>
+ * Set the maximum number of indexes allowed (for testing only).
+ * Value must be between max(1, current number of indexes) and
+ * DEFAULT_MAX_INDEXES (200000).
+ */
+DEBUG_COMMAND(SetMaxIndexes) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  long long newMaxIndexes;
+  if (RedisModule_StringToLongLong(argv[2], &newMaxIndexes) != REDISMODULE_OK ||
+      newMaxIndexes < 1 || newMaxIndexes > DEFAULT_MAX_INDEXES) {
+    return RedisModule_ReplyWithErrorFormat(ctx,
+        "Invalid value. Must be between 1 and %d.", DEFAULT_MAX_INDEXES);
+  }
+
+  // Get current number of indexes
+  size_t numIndexes = Indexes_Count();
+  if (newMaxIndexes < numIndexes) {
+    return RedisModule_ReplyWithErrorFormat(ctx,
+        "Invalid value. Must be at least current number of indexes: %zu.", numIndexes);
+  }
+
+  maxIndexes_g = (uint32_t)newMaxIndexes;
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -2124,6 +2159,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                {"QUERY_CONTROLLER", queryController},
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
+                               {"SET_MAX_INDEXES", SetMaxIndexes},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */

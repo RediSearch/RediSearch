@@ -18,6 +18,8 @@
 extern "C" {
 #endif
 
+#define MAX_STOPWORDLIST_SIZE 1024
+
 static const char *DEFAULT_STOPWORDS[] = {
     "a",    "is",    "the",   "an",   "and",  "are", "as",  "at",   "be",   "but",  "by",   "for",
     "if",   "in",    "into",  "it",   "no",   "not", "of",  "on",   "or",   "such", "that", "their",

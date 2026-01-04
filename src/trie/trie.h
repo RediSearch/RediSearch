@@ -30,6 +30,11 @@ typedef uint16_t t_len;
 #define TRIENODE_SORTED_SCORE 1
 #define TRIENODE_SORTED_LEX 2
 
+/* TrieNode_Add return codes */
+#define TRIE_OK_NEW                1   /* Successfully added a new entry */
+#define TRIE_OK_UPDATED            0   /* Entry already existed, score/payload updated */
+#define TRIE_ERR_PAYLOAD_OVERFLOW -1   /* Payload too large or allocation overflow */
+
 typedef enum {
   Trie_Sort_Lex = 0,
   Trie_Sort_Score = 1,
@@ -118,10 +123,17 @@ typedef enum {
   ADD_REPLACE,
   ADD_INCR,
 } TrieAddOp;
-/* Add a new string to a trie. Returns 1 if the string did not exist there, or 0
- * if we just replaced
- * the score. We pass a pointer to the node because it may actually change when
- * splitting */
+/* Add a new string to a trie. We pass a pointer to the node because it may
+ * actually change when splitting.
+ *
+ * Returns:
+ *   TRIE_OK_NEW (1)                - String was added (new entry)
+ *   TRIE_OK_UPDATED (0)            - String already existed, score/payload updated
+ *   TRIE_ERR_PAYLOAD_OVERFLOW (-1) - Payload too large or allocation overflow
+ *
+ * Note: The return value is used by Trie_InsertRune to update the Trie size
+ * member (incremented only when TRIE_OK_NEW is returned).
+ */
 int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
                  float score, TrieAddOp op, TrieFreeCallback freecb);
 

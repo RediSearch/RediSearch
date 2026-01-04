@@ -12,6 +12,7 @@
 #include "util/fnv.h"
 #include "rmutil/rm_assert.h"
 #include "rdb.h"
+#include "util/likely.h"
 
 #define INITIAL_CAPACITY 2
 #define SYNONYM_PREFIX "~%s"
@@ -41,18 +42,24 @@ static bool TermData_IdExists(TermData* t_data, const char* id) {
   return false;
 }
 
-static void TermData_AddId(TermData* t_data, const char* id) {
+static SynonymMapResult TermData_AddId(TermData* t_data, const char* id) {
   if (!TermData_IdExists(t_data, id)) {
+    if (unlikely(array_len(t_data->groupIds) >= MAX_SYNONYM_GROUP_IDS)) {
+      return SYNONYM_MAP_ERR_MAX_GROUP_IDS;
+    }
     char* newId;
     rm_asprintf(&newId, SYNONYM_PREFIX, id);
     array_append(t_data->groupIds, newId);
   }
+  return SYNONYM_MAP_OK;
 }
 
 static TermData* TermData_Copy(TermData* t_data) {
   TermData* copy = TermData_New(rm_strdup(t_data->term));
   for (int i = 0; i < array_len(t_data->groupIds); ++i) {
-    TermData_AddId(copy, t_data->groupIds[i] + 1 /*we do not need the ~*/);
+    SynonymMapResult ret = TermData_AddId(copy, t_data->groupIds[i] + 1 /*we do not need the ~*/);
+    // If source is valid, copy should never fail (same number of group IDs)
+    RS_LOG_ASSERT(ret == SYNONYM_MAP_OK, "TermData_Copy: unexpected failure in TermData_AddId");
   }
   return copy;
 }
@@ -68,12 +75,21 @@ static void TermData_RdbSave(RedisModuleIO* rdb, TermData* t_data) {
 }
 
 // todo: fix
-static TermData* TermData_RdbLoad(RedisModuleIO* rdb, int encver) {
+TermData* TermData_RdbLoad(RedisModuleIO* rdb, int encver) {
   TermData *t_data = NULL;
   char* term = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
   t_data = TermData_New(rm_strdup(term));
   RedisModule_Free(term);
   uint64_t ids_len = LoadUnsigned_IOError(rdb, goto cleanup);
+
+  if (unlikely(ids_len > MAX_SYNONYM_GROUP_IDS)) {
+    RedisModule_LogIOError(
+        rdb, "warning",
+        "RDB Load: Synonym group IDs (%llu) exceeds maximum allowed (%d)",
+        ids_len, MAX_SYNONYM_GROUP_IDS);
+    goto cleanup;
+  }
+
   for (int i = 0; i < ids_len; ++i) {
     char* groupId = NULL;
     if (encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID) {
@@ -82,7 +98,9 @@ static TermData* TermData_RdbLoad(RedisModuleIO* rdb, int encver) {
     } else {
       groupId = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
     }
-    TermData_AddId(t_data, groupId);
+    SynonymMapResult ret = TermData_AddId(t_data, groupId);
+    // Should not fail since we already checked ids_len <= MAX_SYNONYM_GROUP_IDS
+    RS_LOG_ASSERT(ret == SYNONYM_MAP_OK, "TermData_RdbLoad: unexpected failure in TermData_AddId");
     rm_free(groupId);
   }
   return t_data;
@@ -132,21 +150,29 @@ static const char** SynonymMap_RedisStringArrToArr(RedisModuleString** synonyms,
   return arr;
 }
 
-void SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString** synonyms, size_t size,
+SynonymMapResult SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString** synonyms, size_t size,
                                const char* groupId) {
   const char** arr = SynonymMap_RedisStringArrToArr(synonyms, size);
-  SynonymMap_Update(smap, arr, size, groupId);
+  SynonymMapResult ret = SynonymMap_Update(smap, arr, size, groupId);
   rm_free(arr);
+  return ret;
 }
 
-void SynonymMap_Add(SynonymMap* smap, const char* groupId, const char** synonyms, size_t size) {
-  SynonymMap_Update(smap, synonyms, size, groupId);
+SynonymMapResult SynonymMap_Add(SynonymMap* smap, const char* groupId, const char** synonyms, size_t size) {
+  return SynonymMap_Update(smap, synonyms, size, groupId);
 }
 
-void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, const char* groupId) {
+SynonymMapResult SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, const char* groupId) {
   RS_LOG_ASSERT(!smap->is_read_only, "SynonymMap should not be read only");
-  int ret;
+
+  SynonymMapResult ret = SYNONYM_MAP_OK;
   for (size_t i = 0; i < size; i++) {
+    // Check if we've reached the maximum number of terms
+    if (unlikely(dictSize(smap->h_table) >= MAX_SYNONYM_TERMS)) {
+      ret = SYNONYM_MAP_ERR_MAX_TERMS;
+      break;
+    }
+
     char *lowerSynonym = rm_strdup(synonyms[i]);
     size_t len = strlen(lowerSynonym);
     char *dst = unicode_tolower(lowerSynonym, &len);
@@ -166,12 +192,16 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, con
       termData = TermData_New(lowerSynonym); //strtolower
       dictAdd(smap->h_table, lowerSynonym, termData);
     }
-    TermData_AddId(termData, groupId);
+    ret = TermData_AddId(termData, groupId);
+    if (ret != SYNONYM_MAP_OK) {
+      break;
+    }
   }
   if (smap->read_only_copy) {
     SynonymMap_Free(smap->read_only_copy);
     smap->read_only_copy = NULL;
   }
+  return ret;
 }
 
 TermData* SynonymMap_GetIdsBySynonym(SynonymMap* smap, const char* synonym, size_t len) {
@@ -245,6 +275,15 @@ void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver) {
     size_t unused = LoadUnsigned_IOError(rdb, goto cleanup);
   }
   uint64_t smap_kh_size = LoadUnsigned_IOError(rdb, goto cleanup);
+
+  if (unlikely(smap_kh_size > MAX_SYNONYM_TERMS)) {
+    RedisModule_LogIOError(
+        rdb, "warning",
+        "RDB Load: Synonym map size (%llu) exceeds maximum allowed (%d)",
+        (unsigned long long)smap_kh_size, MAX_SYNONYM_TERMS);
+    goto cleanup;
+  }
+
   for (int i = 0; i < smap_kh_size; ++i) {
     if (encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID) {
       uint64_t unudes = LoadUnsigned_IOError(rdb, goto cleanup);
