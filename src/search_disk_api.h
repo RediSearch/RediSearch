@@ -30,7 +30,7 @@ typedef struct BasicDiskAPI {
   void (*close)(RedisSearchDisk *disk);
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type);
   void (*closeIndexSpec)(RedisSearchDiskIndexSpec *index);
-  void (*indexSpecRdbSave)(RedisModuleIO *rdb, const RedisSearchDiskIndexSpec *index);
+  void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
   u_int32_t (*indexSpecRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 } BasicDiskAPI;
 
@@ -121,7 +121,7 @@ typedef struct DocTableDiskAPI {
    * @param handle Handle to the document table
    * @return The maximum document ID, or 0 if the index is empty
    */
-  t_docId (*getMaxDocId)(const RedisSearchDiskIndexSpec* handle);
+  t_docId (*getMaxDocId)(RedisSearchDiskIndexSpec* handle);
 
   /**
    * @brief Gets the count of deleted document IDs
@@ -129,7 +129,7 @@ typedef struct DocTableDiskAPI {
    * @param handle Handle to the document table
    * @return The number of deleted document IDs
    */
-  uint64_t (*getDeletedIdsCount)(const RedisSearchDiskIndexSpec* handle);
+  uint64_t (*getDeletedIdsCount)(RedisSearchDiskIndexSpec* handle);
 
   /**
    * @brief Gets all deleted document IDs (used for debugging)
@@ -142,7 +142,7 @@ typedef struct DocTableDiskAPI {
    * @param buffer_size Size of the buffer (number of t_docId elements)
    * @return The number of IDs written to the buffer
    */
-  size_t (*getDeletedIds)(const RedisSearchDiskIndexSpec* handle, t_docId* buffer, size_t buffer_size);
+  size_t (*getDeletedIds)(RedisSearchDiskIndexSpec* handle, t_docId* buffer, size_t buffer_size);
 } DocTableDiskAPI;
 
 // VecSimHNSWDiskParams is defined in VecSim/vec_sim_common.h
