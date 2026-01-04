@@ -1727,7 +1727,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     goto failure;
   }
 
-  // Store on disk if we're on Flex and we don't force RAM.
+  // Store on disk if we're on Flex.
   // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
   // is available when parsing vector fields (for populating diskParams).
   if (isSpecOnDisk(spec)) {
@@ -1735,7 +1735,10 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     size_t len;
     const char* name = HiddenString_GetUnsafe(spec->specName, &len);
     spec->diskSpec = SearchDisk_OpenIndex(name, len, spec->rule->type);
-    RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
+    if (!spec->diskSpec) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      goto failure;
+    }
   }
 
   if (AC_IsInitialized(&acStopwords)) {
@@ -3363,17 +3366,19 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->rule = SchemaRule_Create(rule_args, spec_ref, &status);
 
   if (SearchDisk_IsEnabled()) {
-    // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
-    // we add the `Index_StoreInRAM` flag to the rdb file.
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
     sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
-    // Populate diskParams for vector fields now that diskSpec is available
+    // We do not call `SearchDisk_IndexSpecRdbLoad` since there cannot be disk-related
+    // data in this version of RDB (encver).
     if (!sp->diskSpec) {
-      StrongRef_Release(spec_ref);
-      return NULL;
-    }
+      RedisModule_LogIOError(rdb, "warning",
+        "Could not open disk index");
+        StrongRef_Release(spec_ref);
+        return NULL;
+      }
+    // Populate diskParams for vector fields now that diskSpec is available
     IndexSpec_PopulateVectorDiskParams(sp);
   }
 

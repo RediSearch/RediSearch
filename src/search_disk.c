@@ -64,12 +64,12 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
     disk->basic.closeIndexSpec(index);
 }
 
-void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
+void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, const RedisSearchDiskIndexSpec *index) {
   RS_ASSERT(disk);
   disk->basic.indexSpecRdbSave(rdb, index);
 }
 
-int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
+int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb,RedisSearchDiskIndexSpec *index) {
   RS_ASSERT(disk && index);
   return disk->basic.indexSpecRdbLoad(rdb, index);
 }
@@ -105,17 +105,17 @@ bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
     return disk->docTable.isDocIdDeleted(handle, docId);
 }
 
-t_docId SearchDisk_GetMaxDocId(RedisSearchDiskIndexSpec *handle) {
+t_docId SearchDisk_GetMaxDocId(const RedisSearchDiskIndexSpec *handle) {
     RS_ASSERT(disk && handle);
     return disk->docTable.getMaxDocId(handle);
 }
 
-uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle) {
+uint64_t SearchDisk_GetDeletedIdsCount(const RedisSearchDiskIndexSpec *handle) {
     RS_ASSERT(disk && handle);
     return disk->docTable.getDeletedIdsCount(handle);
 }
 
-size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size) {
+size_t SearchDisk_GetDeletedIds(const RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size) {
     RS_ASSERT(disk && handle);
     return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
 }

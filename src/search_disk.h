@@ -67,7 +67,7 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
  * @param index Pointer to the index
  * @return true if successful, false otherwise
  */
-void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, const RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Load the disk-related data of the index from the rdb file
@@ -77,7 +77,7 @@ void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *i
  * index is consumed only.
  * @return true if successful, false otherwise
  */
-int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, const RedisSearchDiskIndexSpec *index);
 
 // Index API wrappers
 
