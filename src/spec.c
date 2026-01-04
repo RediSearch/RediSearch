@@ -1360,7 +1360,6 @@ void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
     sp->stats.numTerms++;
     sp->stats.termsSize += len;
   }
-  return isNew;
 }
 
 // For testing purposes only
