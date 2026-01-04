@@ -281,6 +281,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define BM25STD_TANH_FACTOR_MIN 1
 #define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 5
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
+#define DEFAULT_MAX_INDEXES 200000
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \

@@ -58,6 +58,7 @@ class TestDebugCommands(object):
             "INFO",
             'GET_HIDE_USER_DATA_FROM_LOGS',
             'YIELDS_ON_LOAD_COUNTER',
+            'SET_MAX_INDEXES',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',
