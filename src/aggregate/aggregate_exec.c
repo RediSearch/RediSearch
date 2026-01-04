@@ -49,6 +49,8 @@ typedef struct {
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              CommandType type, int execOptions);
+static int prepareExecutionPlan(AREQ *req, QueryError *status);
+
 typedef int (*execCommandCommonHandler)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              CommandType type, int execOptions);
 

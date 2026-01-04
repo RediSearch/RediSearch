@@ -13,6 +13,7 @@
 #include "redismodule.h"
 #include "thpool/thpool.h"
 #include "util/references.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,6 +43,13 @@ struct ConcurrentCmdCtx;
 typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
                                      struct ConcurrentCmdCtx *);
 
+// Context for concurrent search handler
+// Contains additional parameters passed to ConcurrentSearch_HandleRedisCommandEx
+typedef struct ConcurrentSearchHandlerCtx {
+  rs_wall_clock_ns_t coordStartTime;  // Time when command was received on coordinator
+  WeakRef spec_ref;                   // Weak reference to the index spec
+} ConcurrentSearchHandlerCtx;
+
 #define CMDCTX_KEEP_RCTX 0x01
 
 /**
@@ -60,10 +68,13 @@ void ConcurrentCmdCtx_KeepRedisCtx(struct ConcurrentCmdCtx *ctx);
 // Returns the WeakRef held in the context.
 WeakRef ConcurrentCmdCtx_GetWeakRef(struct ConcurrentCmdCtx *cctx);
 
+// Returns the coordinator start time held in the context.
+rs_wall_clock_ns_t ConcurrentCmdCtx_GetCoordStartTime(struct ConcurrentCmdCtx *cctx);
+
 /* Same as handleRedis command, but set flags for the concurrent context */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                          WeakRef spec_ref);
+                                          ConcurrentSearchHandlerCtx *handlerCtx);
 
 /********************************************* for debugging **********************************/
 

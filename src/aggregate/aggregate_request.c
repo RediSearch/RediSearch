@@ -26,6 +26,7 @@
 #include "vector_index.h"
 #include "slots_tracker.h"
 #include "asm_state_machine.h"
+#include "coord/rmr/command.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -415,6 +416,18 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       ASM_KeySpaceVersionTracker_IncreaseQueryCount(*papCtx->keySpaceVersion);
     }
     *papCtx->querySlots = slot_array;
+  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && AC_AdvanceIfMatch(ac, COORD_DISPATCH_TIME_STR)) {
+    // Parse coordinator dispatch time for internal commands
+    if (AC_NumRemaining(ac) < 1) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, COORD_DISPATCH_TIME_STR " missing argument");
+      return ARG_ERROR;
+    }
+    unsigned long long dispatchTime;
+    if (AC_GetUnsignedLongLong(ac, &dispatchTime, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, COORD_DISPATCH_TIME_STR " requires a numeric value");
+      return ARG_ERROR;
+    }
+    *papCtx->coordDispatchTime = dispatchTime;
   } else {
     return ARG_UNKNOWN;
   }
@@ -660,6 +673,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .maxAggregateResults = &req->maxAggregateResults,
         .querySlots = &req->querySlots,
         .keySpaceVersion = &req->keySpaceVersion,
+        .coordDispatchTime = &req->coordDispatchTime,
       };
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
@@ -1117,6 +1131,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .maxAggregateResults = &req->maxAggregateResults,
     .querySlots = &req->querySlots,
     .keySpaceVersion = &req->keySpaceVersion,
+    .coordDispatchTime = &req->coordDispatchTime,
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
     goto error;
