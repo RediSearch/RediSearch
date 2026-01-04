@@ -362,7 +362,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
 
   RS_ASSERT(MAX_SCHEMA_PREFIXES <= UINT32_MAX);
   if (unlikely(nprefixes_u64 > MAX_SCHEMA_PREFIXES)) {
-    QueryError_SetWithoutUserDataFmt(
+    QueryError_SetErrorFmt(
         status, QUERY_ELIMIT,
         "RDB Load: Number of prefixes (%llu) exceeds maximum allowed (%d)",
         (unsigned long long)nprefixes_u64, MAX_SCHEMA_PREFIXES);
