@@ -9,6 +9,7 @@
 #include <math.h>
 #include <ctype.h>
 
+#include "util/likely.h"
 #include "util/misc.h"
 #include "rmutil/vector.h"
 #include "rmutil/util.h"
@@ -44,6 +45,11 @@ static uint64_t spec_unique_ids = 1;
 
 dict *specDict_g;
 IndexesScanner *global_spec_scanner = NULL;
+
+// Maximum number of indexes that can be created.
+// Can be modified via FT.DEBUG for testing.
+uint32_t maxIndexes_g = DEFAULT_MAX_INDEXES;
+
 size_t pending_global_indexing_ops = 0;
 dict *legacySpecDict;
 dict *legacySpecRules;
@@ -321,6 +327,12 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   setMemoryInfo(ctx);
   if (dictFetchValue(specDict_g, specName)) {
     QueryError_SetCode(status, QUERY_EINDEXEXISTS);
+    return NULL;
+  }
+  if (dictSize(specDict_g) >= maxIndexes_g) {
+    QueryError_SetErrorFmt(
+      status, QUERY_ELIMIT,
+      "Maximum number of indexes (%u) reached", maxIndexes_g);
     return NULL;
   }
   IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
@@ -1075,7 +1087,14 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   spec->timeout = timeout * 1000;  // convert to ms
 
   if (rule_prefixes.argc > 0) {
-    rule_args.nprefixes = rule_prefixes.argc;
+    if (rule_prefixes.argc > MAX_SCHEMA_PREFIXES) {
+      QueryError_SetErrorFmt(
+          status, QUERY_ELIMIT,
+          "Number of prefixes (%zu) exceeds maximum allowed (%d)",
+          rule_prefixes.argc, MAX_SCHEMA_PREFIXES);
+      goto failure;
+    }
+    rule_args.nprefixes = (unsigned int)rule_prefixes.argc;
     rule_args.prefixes = (const char **)rule_prefixes.objs;
   } else {
     rule_args.nprefixes = 1;
@@ -1140,8 +1159,9 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
 
 // Assuming the spec is properly locked for writing before calling this function.
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
+  // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur
   int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
-  if (isNew) {
+  if (isNew == TRIE_OK_NEW) {
     sp->stats.numTerms++;
     sp->stats.termsSize += len;
   }
@@ -2223,7 +2243,16 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     sp->flags |= Index_StoreFreqs;
   }
 
-  sp->numFields = LoadUnsigned_IOError(rdb, goto cleanup);
+  uint64_t numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+
+  if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
+    RedisModule_LogIOError(
+        rdb, "warning", "RDB Load: Schema is limited to %d fields",
+        SPEC_MAX_FIELDS);
+    goto cleanup;
+  }
+
+  sp->numFields = (uint16_t)numFields_u64;
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
   // First, initialise fields IndexError before loading them.
   // If some fields are not loaded correctly, we will free the spec and attempt to cleanup all the fields.
@@ -2347,7 +2376,17 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     sp->flags |= Index_StoreFreqs;
   }
 
-  sp->numFields = RedisModule_LoadUnsigned(rdb);
+  uint64_t numFields_u64 = RedisModule_LoadUnsigned(rdb);
+
+  if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
+    RedisModule_LogIOError(
+        rdb, "warning", "RDB Load: Schema is limited to %d fields",
+        SPEC_MAX_FIELDS);
+    IndexSpec_Free(sp);
+    return NULL;
+  }
+
+  sp->numFields = (uint16_t)numFields_u64;
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
   int maxSortIdx = -1;
   // Since we either way clear error for all fields upon error, we must initialize all of them.
@@ -2363,16 +2402,27 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   IndexStats_RdbLoad(rdb, &sp->stats);
 
-  DocTable_LegacyRdbLoad(&sp->docs, rdb, encver);
+  if (DocTable_LegacyRdbLoad(&sp->docs, rdb, encver) != REDISMODULE_OK) {
+    IndexSpec_Free(sp);
+    return NULL;
+  }
   /* For version 3 or up - load the generic trie */
   if (encver >= 3) {
     sp->terms = TrieType_GenericLoad(rdb, 0);
+    if (sp->terms == NULL) {
+      IndexSpec_Free(sp);
+      return NULL;
+    }
   } else {
     sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   }
 
   if (sp->flags & Index_HasCustomStopwords) {
     sp->stopwords = StopWordList_RdbLoad(rdb, encver);
+    if (sp->stopwords == NULL) {
+      IndexSpec_Free(sp);
+      return NULL;
+    }
   } else {
     sp->stopwords = DefaultStopWordList();
   }
@@ -2382,6 +2432,10 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->smap = NULL;
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
+    if (sp->smap == NULL) {
+      IndexSpec_Free(sp);
+      return NULL;
+    }
   }
   if (encver < INDEX_MIN_EXPIRE_VERSION) {
     sp->timeout = -1;
@@ -2444,6 +2498,13 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   }
 
   size_t nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
+  if (unlikely(nIndexes > maxIndexes_g)) {
+    RedisModule_LogIOError(
+        rdb, "warning",
+        "RDB Load: Number of indexes (%zu) exceeds maximum allowed (%u)",
+        nIndexes, maxIndexes_g);
+    return REDISMODULE_ERR;
+  }
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   QueryError status = {0};
   for (size_t i = 0; i < nIndexes; ++i) {
@@ -2692,6 +2753,10 @@ void Indexes_Init(RedisModuleCtx *ctx) {
   specDict_g = dictCreate(&dictTypeHeapStrings, NULL);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
   SchemaPrefixes_Create();
+}
+
+size_t Indexes_Count() {
+  return dictSize(specDict_g);
 }
 
 SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
