@@ -57,7 +57,7 @@ exclude_commands:
     - search.CLUSTERREFRESH
     - search.CLUSTERINFO
 overide_command:
-     # The step field in modules is used to encodes the custom policy's requesting/replying policy:
+    # The step field in modules is used to encodes the custom policy's requesting/replying policy:
     # -1 : requesting::random_shard
     # -2 : requesting::random_shard, replying::retrieve_cursor
     # -3 : requesting::by_cursor, replying::retrieve_cursor
