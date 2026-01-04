@@ -3366,6 +3366,20 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   QueryError status;
   sp->rule = SchemaRule_Create(rule_args, spec_ref, &status);
 
+  dictDelete(legacySpecRules, sp->specName);
+  SchemaRuleArgs_Free(rule_args);
+
+  if (!sp->rule) {
+    RedisModule_LogIOError(rdb, "warning", "Failed creating rule for legacy index '%s', error='%s'",
+                           formattedIndexName, QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
+    StrongRef_Release(spec_ref);
+    return NULL;
+  }
+
+  // start the gc and add the spec to the cursor list
+  IndexSpec_StartGC(spec_ref, sp);
+  Cursors_initSpec(sp);
+
   if (SearchDisk_IsEnabled()) {
     RS_ASSERT(disk_db);
     size_t len;
@@ -3382,20 +3396,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     // Populate diskParams for vector fields now that diskSpec is available
     IndexSpec_PopulateVectorDiskParams(sp);
   }
-
-  dictDelete(legacySpecRules, sp->specName);
-  SchemaRuleArgs_Free(rule_args);
-
-  if (!sp->rule) {
-    RedisModule_LogIOError(rdb, "warning", "Failed creating rule for legacy index '%s', error='%s'",
-                           formattedIndexName, QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
-    StrongRef_Release(spec_ref);
-    return NULL;
-  }
-
-  // start the gc and add the spec to the cursor list
-  IndexSpec_StartGC(spec_ref, sp);
-  Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
   // Subscribe to keyspace notifications
