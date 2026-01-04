@@ -73,7 +73,8 @@ void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *i
  * @brief Load the disk-related data of the index from the rdb file
  *
  * @param rdb Redis module rdb file
- * @param index Pointer to the index
+ * @param index Pointer to the index. If NULL, the RDB section related to the
+ * index is consumed only.
  * @return true if successful, false otherwise
  */
 int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);

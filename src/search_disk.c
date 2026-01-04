@@ -65,7 +65,7 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
 }
 
 void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
-  RS_ASSERT(disk && index);
+  RS_ASSERT(disk);
   disk->basic.indexSpecRdbSave(rdb, index);
 }
 
