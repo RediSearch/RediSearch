@@ -2707,7 +2707,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }
-    uint64_t numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+  uint64_t numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
 
   if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT,
