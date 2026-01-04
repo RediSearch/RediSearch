@@ -2338,7 +2338,6 @@ def test_coord_dispatch_time_metric():
   env.expect('FT.CREATE', 'idx', 'SCHEMA',
              't', 'TEXT',
              'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', str(dim), 'DISTANCE_METRIC', 'L2').ok()
-  waitForIndex(env, 'idx')
 
   # Add some documents
   num_docs = 10 * env.shardsCount

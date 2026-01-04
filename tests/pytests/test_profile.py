@@ -1061,7 +1061,7 @@ def CoordDispatchTimeInProfile(env):
   pause_duration_sec = 1.0
 
   # Helper to run a profile command with paused coordinator threads and return the result
-  def run_profile_with_pause(profile_cmd):
+  def run_profile_with_pause(profile_cmd, query_cmd_type):
     """
     Pauses coordinator threads, launches profile command in background,
     waits pause_duration_sec, resumes threads, and returns the result.
@@ -1079,11 +1079,11 @@ def CoordDispatchTimeInProfile(env):
     profile_thread.join(timeout=30)
 
     env.assertEqual(len(result_holder), 1,
-      message=f"Profile command {profile_cmd[0]} did not return a result")
+      message=f"Profile command for {query_cmd_type} did not return a result")
     return result_holder[0]
 
-  # --- Test FT.AGGREGATE profile should have dispatch time ---
-  res_agg = run_profile_with_pause(('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'))
+  # --- Test AGGREGATE profile should have dispatch time ---
+  res_agg = run_profile_with_pause(('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'), 'AGGREGATE')
 
   shards_profile = get_shards_profile(env, res_agg)
   env.assertEqual(len(shards_profile), env.shardsCount,
@@ -1106,13 +1106,29 @@ def CoordDispatchTimeInProfile(env):
   env.assertGreaterEqual(float(dispatch_times[0]), min_expected_ms,
     message=f"dispatch time should be >= pause duration. all shards: {dispatch_times}")
 
-  # --- Test FT.SEARCH profile dispatch time should be 0 ---
-  res_search = run_profile_with_pause(('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'))
+  # --- Test SEARCH profile dispatch time should be 0 ---
+  res_search = run_profile_with_pause(('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'NOCONTENT'), 'SEARCH')
 
   shards_profile_search = get_shards_profile(env, res_search)
   for i, shard_profile in enumerate(shards_profile_search):
     env.assertEqual(float(shard_profile['Coordinator dispatch time']), 0.0,
       message=f"shard {i}: 'Coordinator dispatch time' should be 0. full reply: {res_search}")
+
+  # --- Test HYBRID profile dispatch time should be 0 ---
+  # Implement and remove try/except once FT.PROFILE for FT.HYBRID is implemented
+  try:
+    query_vector = np.array([0, 0], dtype=np.float32).tobytes()
+    res_hybrid = env.cmd('FT.PROFILE', 'idx', 'HYBRID', 'hello0', 'VSIM', '@v', '$BLOB',
+                                        'PARAMS', '2', 'BLOB', query_vector)
+
+    # shards_profile_hybrid = get_shards_profile(env, res_hybrid)
+    # for i, shard_profile in enumerate(shards_profile_hybrid):
+    #   env.assertEqual(float(shard_profile['Coordinator dispatch time']), 0.0,
+    #     message=f"shard {i}: 'Coordinator dispatch time' should be 0. full reply: {res_hybrid}")
+  except Exception as e:
+    env.assertIn('No `SEARCH` or `AGGREGATE` provided', str(e))
+    pass
+
 
 @skip(cluster=False)
 def testCoordDispatchTimeInProfileResp3():
@@ -1121,15 +1137,18 @@ def testCoordDispatchTimeInProfileResp3():
   conn = getConnectionByEnv(env)
   run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
 
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  dim = 2
+  env.expect('FT.CREATE', 'idx', 'SCHEMA',
+             't', 'TEXT',
+             'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', str(dim), 'DISTANCE_METRIC', 'L2').ok()
 
-  # Insert some docs
+  # Add some documents
   num_docs = 10 * env.shardsCount
   for i in range(num_docs):
-    conn.execute_command('HSET', f'doc:{i}', 't', f'hello{i}')
+    vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
+    conn.execute_command('HSET', f'doc:{i}', 't', f'hello{i}', 'v', vec)
 
   CoordDispatchTimeInProfile(env)
-
 
 @skip(cluster=False)
 def testCoordDispatchTimeInProfileResp2():
@@ -1138,11 +1157,15 @@ def testCoordDispatchTimeInProfileResp2():
   conn = getConnectionByEnv(env)
   run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
 
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  dim = 2
+  env.expect('FT.CREATE', 'idx', 'SCHEMA',
+             't', 'TEXT',
+             'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', str(dim), 'DISTANCE_METRIC', 'L2').ok()
 
-  # Insert some docs
+  # Add some documents
   num_docs = 10 * env.shardsCount
   for i in range(num_docs):
-    conn.execute_command('HSET', f'doc:{i}', 't', f'hello{i}')
+    vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
+    conn.execute_command('HSET', f'doc:{i}', 't', f'hello{i}', 'v', vec)
 
   CoordDispatchTimeInProfile(env)
