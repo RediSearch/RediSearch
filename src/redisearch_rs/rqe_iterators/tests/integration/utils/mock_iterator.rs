@@ -68,7 +68,8 @@ pub(crate) enum MockIteratorError {
     /// Simulate a timeout in the child iterator.
     ///
     /// Optionally introduce an actual delay of the specified [`Duration`].
-    /// Note that this blocks the current thread.
+    /// Note that this blocks the current thread. This delay is happening
+    /// right before the error is returned for the `skip_to` / `read` call.
     TimeoutError(Option<Duration>),
 }
 

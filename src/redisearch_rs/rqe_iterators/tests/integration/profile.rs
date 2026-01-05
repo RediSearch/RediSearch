@@ -46,7 +46,7 @@ fn profile_read() {
 }
 
 #[test]
-fn initial_read_timedout() {
+fn initial_read_timed_out() {
     let child = Mock::new([]);
     child
         .data()
