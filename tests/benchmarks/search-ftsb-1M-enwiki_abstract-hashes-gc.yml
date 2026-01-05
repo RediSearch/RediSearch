@@ -42,11 +42,11 @@ tested-groups:
 exporter:
   redistimeseries:
     metrics:
-      - "$.'ALL STATS'.'_FT.DEBUG'.'Percentile Latencies'.'p50.00'"
-      - "$.'ALL STATS'.'_FT.DEBUG'.'Percentile Latencies'.'p90.00'"
-      - "$.'ALL STATS'.'_FT.DEBUG'.'Percentile Latencies'.'p99.00'"
-      - "$.'ALL STATS'.'_FT.DEBUG'.'Average Latency'"
-      - "$.'ALL STATS'.'_FT.DEBUG'.'Min Latency'"
-      - "$.'ALL STATS'.'_FT.DEBUG'.'Max Latency'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Percentile Latencies'.'p50.00'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Percentile Latencies'.'p90.00'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Percentile Latencies'.'p99.00'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Average Latency'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Min Latency'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Max Latency'"
 
 priority: 1
