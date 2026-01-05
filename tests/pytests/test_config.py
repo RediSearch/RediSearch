@@ -55,6 +55,10 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', '_FREE_RESOURCE_ON_THREAD').res[0][0] == '_FREE_RESOURCE_ON_THREAD'
     assert env.expect('ft.config', 'get', 'BG_INDEX_SLEEP_GAP').res[0][0] == 'BG_INDEX_SLEEP_GAP'
     assert env.expect('ft.config', 'get', '_PRIORITIZE_INTERSECT_UNION_CHILDREN').res[0][0] == '_PRIORITIZE_INTERSECT_UNION_CHILDREN'
+    assert env.expect('ft.config', 'get', 'INDEX_CURSOR_LIMIT').res[0][0] == 'INDEX_CURSOR_LIMIT'
+    assert env.expect('ft.config', 'get', 'INDEXER_YIELD_EVERY_OPS').res[0][0] == 'INDEXER_YIELD_EVERY_OPS'
+    assert env.expect('ft.config', 'get', '_BG_INDEX_MEM_PCT_THR').res[0][0] == '_BG_INDEX_MEM_PCT_THR'
+    assert env.expect('ft.config', 'get', '_BG_INDEX_OOM_PAUSE_TIME').res[0][0] == '_BG_INDEX_OOM_PAUSE_TIME'
 
 '''
 
@@ -73,6 +77,11 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
     env.expect('ft.config', 'set', 'INDEX_THREADS', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'SEARCH_THREADS', 1).equal('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'BM25STD').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'TFIDF').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+    env.expect('ft.config', 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'TFIDF').ok()
+
     if MT_BUILD:
         env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'FRISOINI', 1).equal('Not modifiable at runtime')
@@ -84,6 +93,7 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect('ft.config', 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
     env.expect('ft.config', 'set', '_MAX_RESULTS_TO_UNSORTED_MODE', 1).equal('OK')
+    env.expect('ft.config', 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
 
 def testSetConfigOptionsErrors(env):
     env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 'str').equal('Not modifiable at runtime')
@@ -91,6 +101,7 @@ def testSetConfigOptionsErrors(env):
     env.expect('ft.config', 'set', 'TIMEOUT', 'str').equal('Success (not an error)')
     env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Success (not an error)')
     env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Success (not an error)')
+    env.expect('ft.config', 'set', 'INDEX_CURSOR_LIMIT', -1).contains('Value is outside acceptable bounds')
 '''
 
 @skip(cluster=True)
@@ -113,6 +124,8 @@ def testAllConfig(env):
     env.assertIn(res_dict['TIMEOUT'][0], ['500', '0'])
     env.assertEqual(res_dict['INDEX_THREADS'][0], '8')
     env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
+    env.assertEqual(res_dict['DEFAULT_SCORER'][0], 'TFIDF')
+
     if MT_BUILD:
         env.assertEqual(res_dict['WORKER_THREADS'][0], '0')
         env.assertEqual(res_dict['MT_MODE'][0], 'MT_MODE_OFF')
@@ -141,6 +154,10 @@ def testAllConfig(env):
     #env.assertEqual(res_dict['_MAX_RESULTS_TO_UNSORTED_MODE'][0], '1000')
     #env.assertEqual(res_dict['SAFEMODE'][0], 'true')
     #env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
+    env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
+    env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
+    env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
+    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
 
 @skip(cluster=True)
 def testInitConfig(env):
@@ -174,6 +191,10 @@ def testInitConfig(env):
     test_arg_num('UNION_ITERATOR_HEAP', 20)
     test_arg_num('_NUMERIC_RANGES_PARENTS', 1)
     test_arg_num('BG_INDEX_SLEEP_GAP', 15)
+    test_arg_num('INDEX_CURSOR_LIMIT', 128)
+    test_arg_num('INDEXER_YIELD_EVERY_OPS', 123)
+    test_arg_num('_BG_INDEX_MEM_PCT_THR', 90)
+    test_arg_num('_BG_INDEX_OOM_PAUSE_TIME', 10)
 
 # True/False arguments
     def test_arg_true_false(arg_name, res):
@@ -240,3 +261,39 @@ def testImmutable(env):
     env.expect('ft.config', 'set', 'UPGRADE_INDEX').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'RAW_DOCID_ENCODING').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'BG_INDEX_SLEEP_GAP').error().contains('Not modifiable at runtime')
+
+@skip(cluster=True)
+def test_setIndexingMemoryLimit_overflow(env):
+    env.expect('ft.config', 'set', '_BG_INDEX_MEM_PCT_THR', 101).error().contains("Memory limit for indexing cannot be greater then 100%")
+
+
+@skip(cluster=True)
+def testDefaultScorerConfig(env):
+    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands"""
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+    env.expect('FT.CONFIG', 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    for scorer in valid_scorers:
+        env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).equal('OK')
+        env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
+
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('Invalid default scorer')
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('Invalid default scorer value')
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'HAMMING']])  # Should still be the last valid value
+
+@skip(cluster=True)
+def testDefaultScorerConfigDisabled(env):
+    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands"""
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    for scorer in valid_scorers:
+        env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+        env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])  # Should still be the last valid value

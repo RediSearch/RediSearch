@@ -9,23 +9,7 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "vector_index.h"
-
-RSValueType fieldTypeToValueType(FieldType ft) {
-  switch (ft) {
-    case INDEXFLD_T_NUMERIC:
-      return RSValue_Number;
-
-    case INDEXFLD_T_FULLTEXT:
-    case INDEXFLD_T_TAG:
-    case INDEXFLD_T_GEO:
-      return RSValue_String;
-
-    case INDEXFLD_T_VECTOR: // TODO:
-    case INDEXFLD_T_GEOMETRY: // TODO: GEOMETRY
-      return RSValue_Null;
-  }
-  return RSValue_Null;
-}
+#include "info/global_stats.h"
 
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string
@@ -41,8 +25,6 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
   if (fs->types & INDEXFLD_T_VECTOR) {
     VecSimParams_Cleanup(&fs->vectorOpts.vecSimParams);
   }
-
-  IndexError_Clear(fs->indexError);
 }
 
 void FieldSpec_SetSortable(FieldSpec* fs) {
@@ -60,8 +42,7 @@ const char *FieldSpec_GetTypeNames(int idx) {
   case IXFLDPOS_GEOMETRY: return SPEC_GEOMETRY_STR;
 
   default:
-    RS_LOG_ASSERT(0, "oops");
-    break;
+    RS_ABORT_ALWAYS("oops");
   }
 }
 
@@ -71,4 +52,13 @@ FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
   FieldSpecInfo_SetAttribute(&info, fs->name);
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
   return info;
+}
+
+void FieldSpec_AddError(FieldSpec *fs, const char *error_message, RedisModuleString *key) {
+  IndexError_AddError(&fs->indexError, error_message, key);
+  FieldsGlobalStats_UpdateIndexError(fs->types, 1);
+}
+
+size_t FieldSpec_GetIndexErrorCount(const FieldSpec *fs) {
+  return IndexError_ErrorCount(&fs->indexError);
 }

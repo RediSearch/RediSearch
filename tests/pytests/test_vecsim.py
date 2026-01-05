@@ -455,33 +455,29 @@ def test_index_errors():
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
                          'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
     error_count = 0
-    def index_errors():
-        return to_dict(index_info(env)['Index Errors'])
-    def field_errors():
-        return to_dict(to_dict(to_dict(index_info(env)['field statistics'][0]))['Index Errors'])
 
     # Check that the index errors are empty
-    env.assertEqual(index_errors()['indexing failures'], error_count)
-    env.assertEqual(index_errors()['last indexing error'], 'N/A')
-    env.assertEqual(index_errors()['last indexing error key'], 'N/A')
-    env.assertEqual(field_errors(), index_errors())
+    env.assertEqual(index_errors(env)['indexing failures'], error_count)
+    env.assertEqual(index_errors(env)['last indexing error'], 'N/A')
+    env.assertEqual(index_errors(env)['last indexing error key'], 'N/A')
+    assertEqual_dicts_on_intersection(env, field_errors(env), index_errors(env))
 
     for i in range(0, 5, 2):
         conn.execute_command('HSET', i, 'v', create_np_array_typed([0]).tobytes())
         error_count += 1
-        cur_index_errors = index_errors()
+        cur_index_errors = index_errors(env)
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
         env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 4 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i))
-        env.assertEqual(cur_index_errors, field_errors())
+        assertEqual_dicts_on_intersection(env,cur_index_errors, field_errors(env))
 
         conn.execute_command('HSET', i + 1, 'v', create_np_array_typed([0, 0, 0]).tobytes())
         error_count += 1
-        cur_index_errors = index_errors()
+        cur_index_errors = index_errors(env)
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
         env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 12 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i + 1))
-        env.assertEqual(cur_index_errors, field_errors())
+        assertEqual_dicts_on_intersection(env,cur_index_errors, field_errors(env))
 
 
 def test_search_errors():
@@ -790,12 +786,12 @@ def test_hybrid_query_batches_mode_with_tags():
 
     for data_type in VECSIM_DATA_TYPES:
         conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
-                            'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG')
+                            'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG', 'text', 'TEXT')
 
         p = conn.pipeline(transaction=False)
         for i in range(1, index_size+1):
             vector = create_np_array_typed([i]*dim, data_type)
-            p.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid')
+            p.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid', 'text', 'text')
         p.execute()
 
         query_data = create_np_array_typed([index_size/2]*dim, data_type)
@@ -918,13 +914,13 @@ def test_hybrid_query_with_geo():
         index_size = 1000   # for this index size, ADHOC BF mode will always be selected by the heuristics.
         p = conn.pipeline(transaction=False)
         for i in range(1, index_size+1):
-            vector = create_np_array_typed([i]*dim, data_type)
+            vector = create_np_array_typed([i/100]*dim, data_type)
             p.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', str(i/100)+","+str(i/100))
         p.execute()
         if not env.isCluster():
             env.assertEqual(get_vecsim_index_size(env, 'idx', 'v'), index_size)
 
-        query_data = create_np_array_typed([index_size]*dim, data_type)
+        query_data = create_np_array_typed([index_size/100]*dim, data_type)
         # Expect that ids 1-31 will pass the geo filter, and that the top 10 from these will return.
         expected_res = [10]
         for i in range(10):
@@ -1022,9 +1018,9 @@ def test_hybrid_query_non_vector_score():
                       '97', '2', ['__v_score', '1152', 't', 'text value'],
                       '98', '2', ['__v_score', '512', 't', 'text value'],
                       '99', '2', ['__v_score', '128', 't', 'text value']]
-    execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
+    execute_hybrid_query(env, '((text ~"value")|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
                          hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_1)
-    execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
+    execute_hybrid_query(env, '((text ~"value")|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
                          sort_by_non_vector_field=True, hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_1)
 
     # Same as above, but here we use fuzzy for 'text'
@@ -1694,51 +1690,35 @@ def test_rdb_memory_limit():
 
 class TestTimeoutReached(object):
     def __init__(self):
-        if SANITIZER:
-            raise SkipTest()
         self.env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
         n_shards = self.env.shardsCount
-        self.index_sizes = {'FLAT': 80000 * n_shards, 'HNSW': 10000 * n_shards}
+        self.index_sizes = {'FLAT': 100 * n_shards, 'HNSW': 100 * n_shards}
         self.hybrid_modes = ['BATCHES', 'ADHOC_BF']
         self.dim = 10
 
-    def run_long_queries(self, n_vec, query_vec):
+    def run_timeout_tests(self, n_vec, query_vec):
+        small_k = 10
         # STANDARD KNN
         # run query with no timeout. should succeed.
         res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                   'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+                                   'PARAMS', 4, 'K', small_k, 'vec_param', query_vec.tobytes(),
                                    'TIMEOUT', 0)
-        self.env.assertEqual(res[0], n_vec)
-        # run query with 1 millisecond timeout. should fail.
-        self.env.expect(
-            'FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
-            'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', n_vec,
-            'vec_param', query_vec.tobytes(), 'TIMEOUT', 1
-        ).error().contains('Timeout limit was reached')
+        self.env.assertEqual(res[0], small_k)
 
-        # RANGE QUERY
-        # run query with no timeout. should succeed.
-        res = self.env.cmd('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                   'PARAMS', 2,  'vec_param', query_vec.tobytes(),
-                                   'TIMEOUT', 0)
-        self.env.assertEqual(res[0], n_vec)
-        # run query with 1 millisecond timeout. should fail.
-        self.env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                   'PARAMS', 2, 'vec_param', query_vec.tobytes(),
-                   'TIMEOUT', 1).error().contains('Timeout limit was reached')
+        # Enable VECSIM mock timeout to simulate timeout in the vecsim library
+        with vecsimMockTimeoutContext(self.env):
+            # run query with timeout enabled in vecsim
+            self.env.expect('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
+                           'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', small_k,
+                           'vec_param', query_vec.tobytes()).error().contains('Timeout limit was reached')
 
-        # HYBRID MODES
-        for mode in self.hybrid_modes:
-            res = self.env.cmd('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
-                               'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec, 'vec_param',
-                               query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 0)
-            self.env.assertEqual(res[0], n_vec)
-
-            self.env.expect(
-                'FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
-                'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec,
-                'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 1
-            ).error().contains('Timeout limit was reached')
+            # HYBRID MODES
+            for mode in self.hybrid_modes:
+                self.env.expect(
+                    'FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
+                    'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec,
+                    'vec_param', query_vec.tobytes(), 'hp', mode,
+                ).error().contains('Timeout limit was reached')
 
     def test_flat(self):
         for data_type in VECSIM_DATA_TYPES:
@@ -1749,7 +1729,7 @@ class TestTimeoutReached(object):
                        'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
             waitForIndex(self.env, 'idx')
 
-            self.run_long_queries(n_vec, query_vec)
+            self.run_timeout_tests(n_vec, query_vec)
             self.env.flush()
 
     def test_hnsw(self):
@@ -1761,7 +1741,7 @@ class TestTimeoutReached(object):
                             'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
             waitForIndex(self.env, 'idx')
 
-            self.run_long_queries(n_vec, query_vec)
+            self.run_timeout_tests(n_vec, query_vec)
             self.env.flush()
 
 
@@ -1915,7 +1895,8 @@ def test_range_query_basic():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 4
-    n = 999
+    n = 99
+    id_diff = 46
 
     for data_type in VECSIM_DATA_TYPES:
         for index in VECSIM_ALGOS:
@@ -1931,26 +1912,25 @@ def test_range_query_basic():
             # load vectors, where vector with id i is [i, i, ..., i]
             load_vectors_with_texts_into_redis(conn, 'v', dim, n, data_type)
 
-            # Expect to get the 499 docs with the highest ids.
-            dist_range = dim * 499**2
+            # Expect to get the `id_diff` docs with the highest ids.
+            dist_range = dim * id_diff**2
             query_data = create_np_array_typed([n+1]*dim, data_type)
             res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:$score_field}',
             'SORTBY', 'score', 'PARAMS', 6, 'vec_param', query_data.tobytes(), 'r', dist_range, 'score_field', 'score',
             'RETURN', 1, 'score', 'LIMIT', 0, n)
-            env.assertEqual(res[0], 499)
+            env.assertEqual(res[0], id_diff)
             for i, doc_id in enumerate(res[1::2]):
                 env.assertEqual(str(n-i), doc_id)
-            for i, score in enumerate(res[2::2]):
-                env.assertEqual(['score', str(dim * (i+1)**2)], score)
+            for i, score in enumerate(res[2::2], 1):
+                env.assertEqual(['score', str(dim * i**2)], score)
 
             # Run again without score field
             res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]',
                                        'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', dist_range,
                                        'RETURN', 0, 'LIMIT', 0, n)
-            env.assertEqual(res[0], 499)
-            for i, doc_id in enumerate(res[1:]):
-                env.assertEqual(str(500 + i + 1), doc_id)  # results should be sorted by id (by default)
-
+            env.assertEqual(res[0], id_diff)
+            for expected_id, doc_id in enumerate(res[1:], n - id_diff + 1):
+                env.assertEqual(str(expected_id), doc_id)  # results should be sorted by id (by default)
             conn.flushall()
 
 
@@ -2419,3 +2399,34 @@ def test_max_knn_k():
     env.expect('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB AS {score_name.lower()}]',
                'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
                'RETURN', '1', score_name).error().contains('KNN K parameter is too large')
+def test_vector_index_ptr_valid(env):
+    conn = getConnectionByEnv(env)
+    # Scenerio1: Vecsim Index scheme with numeric (or non-vector type) and vector type with invalid parameter
+    #            Insert partial doc - only numeric
+    #            Update Doc
+
+    # HNSW parameters the causes an execution throw (M > UINT16_MAX)
+    UINT16_MAX = 2**16
+    M = UINT16_MAX + 1
+    dim = 4
+
+    env.expect('FT.CREATE', 'idx','SCHEMA', 'n', 'NUMERIC',
+                    'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
+
+    res = conn.execute_command('HSET', 'doc', 'n', 0)
+    env.assertEqual(res, 1)
+    # before bug fix, the following command would cause a server crash due to null pointer access to the vector index that filed to be created.
+    res = conn.execute_command('HSET', 'doc', 'n', 1)
+    env.assertEqual(res, 0)
+
+    # Sanity check - insert a vector, expect indexing failure
+    res = conn.execute_command('HSET', 'doc1', 'v', create_np_array_typed([0]*dim,'FLOAT32').tobytes())
+    env.assertEqual(res, 1)
+
+    index_errors_dict = index_errors(env, 'idx')
+    env.assertEqual(index_errors_dict['last indexing error'], "Could not open vector for indexing")
+
+    # Check FlushAll - before bug fix, the following command would cause a server crash due to the null pointer access
+    # Server will reply OK but crash afterwards, so a PING is required to verify
+    env.expect('FLUSHALL').noError()
+    env.expect('PING').noError()

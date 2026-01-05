@@ -18,6 +18,47 @@
 #include "suffix.h"
 #include "util/workers.h"
 #include "cursor.h"
+#include "aggregate/aggregate_debug.h"
+
+DebugCTX globalDebugCtx = {0};
+
+#ifdef RS_COORDINATOR
+// Function pointer for coordinator thread pool control (set by coordinator at init)
+int (*CoordThreadPool_DebugFunc)(const char *op) = NULL;
+#endif
+
+// QueryDebugCtx API implementations
+bool QueryDebugCtx_IsPaused(void) {
+  return globalDebugCtx.query.pause;
+}
+
+void QueryDebugCtx_SetPause(bool pause) {
+  globalDebugCtx.query.pause = pause;
+}
+
+ResultProcessor* QueryDebugCtx_GetDebugRP(void) {
+  return globalDebugCtx.query.debugRP;
+}
+
+void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP) {
+  globalDebugCtx.query.debugRP = debugRP;
+}
+
+bool QueryDebugCtx_HasDebugRP(void) {
+  return globalDebugCtx.query.debugRP != NULL;
+}
+
+void validateDebugMode(DebugCTX *debugCtx) {
+  // Debug mode is enabled if any of its field is non-default
+  // Should be called after each debug command that changes the debugCtx
+  debugCtx->debugMode =
+    (debugCtx->bgIndexing.maxDocsTBscanned > 0) ||
+    (debugCtx->bgIndexing.maxDocsTBscannedPause > 0) ||
+    (debugCtx->bgIndexing.pauseBeforeScan) ||
+    (debugCtx->bgIndexing.pauseOnOOM) ||
+    (debugCtx->bgIndexing.pauseBeforeOOMretry);
+
+}
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -129,10 +170,9 @@ DEBUG_COMMAND(InvertedIndexSummary) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
-  RedisModuleKey *keyp = NULL;
   size_t len;
   const char *invIdxName = RedisModule_StringPtrLen(argv[1], &len);
-  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, invIdxName, len, 0, NULL, &keyp);
+  InvertedIndex *invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
@@ -160,9 +200,6 @@ DEBUG_COMMAND(InvertedIndexSummary) {
   RedisModule_ReplySetArrayLength(ctx, invIdxBulkLen);
 
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -172,10 +209,9 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
-  RedisModuleKey *keyp = NULL;
   size_t len;
   const char *invIdxName = RedisModule_StringPtrLen(argv[1], &len);
-  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, invIdxName, len, 0, NULL, &keyp);
+  InvertedIndex *invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
@@ -184,9 +220,6 @@ DEBUG_COMMAND(DumpInvertedIndex) {
   ReplyReaderResults(reader, sctx->redisCtx);
 
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -197,31 +230,32 @@ DEBUG_COMMAND(NumericIndexSummary) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
-  RedisModuleKey *keyp = NULL;
   RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_NUMERIC);
   if (!keyName) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
-  if (!rt) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
-    goto end;
+  NumericRangeTree rt_info = {0};
+  int root_max_depth = 0;
+
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
+  // If we failed to open the numeric index, it was not initialized yet.
+  // Else, we copy the data to a local variable.
+  if (rt) {
+    rt_info = *rt;
+    root_max_depth = rt->root->maxDepth;
   }
 
   START_POSTPONED_LEN_ARRAY(numIdxSum);
-  REPLY_WITH_LONG_LONG("numRanges", rt->numRanges, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("numEntries", rt->numEntries, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("lastDocId", rt->lastDocId, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("revisionId", rt->revisionId, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("emptyLeaves", rt->emptyLeaves, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("RootMaxDepth", rt->root->maxDepth, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("numRanges", rt_info.numRanges, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("numEntries", rt_info.numEntries, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("lastDocId", rt_info.lastDocId, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("revisionId", rt_info.revisionId, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("emptyLeaves", rt_info.emptyLeaves, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("RootMaxDepth", root_max_depth, ARRAY_LEN_VAR(numIdxSum));
   END_POSTPONED_LEN_ARRAY(numIdxSum);
 
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -232,7 +266,6 @@ DEBUG_COMMAND(DumpNumericIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
-  RedisModuleKey *keyp = NULL;
   RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_NUMERIC);
   if (!keyName) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
@@ -242,11 +275,13 @@ DEBUG_COMMAND(DumpNumericIndex) {
   // It's a debug command... lets not waste time on string comparison.
   int with_headers = argc == 3 ? true : false;
 
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
+  // If we failed to open the numeric index, it was not initialized yet.
   if (!rt) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
+    RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
     goto end;
   }
+
   NumericRangeNode *currNode;
   NumericRangeTreeIterator *iter = NumericRangeTreeIterator_New(rt);
   size_t InvertedIndexNumber = 0;
@@ -270,9 +305,6 @@ DEBUG_COMMAND(DumpNumericIndex) {
   END_POSTPONED_LEN_ARRAY(numericInvertedIndex); // end InvIdx array
   NumericRangeTreeIterator_Free(iter);
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -282,14 +314,15 @@ DEBUG_COMMAND(DumpGeometryIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
-  RedisModuleKey *keyp = NULL;
   const char *fieldName = RedisModule_StringPtrLen(argv[1], NULL);
   const FieldSpec *fs = IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName));
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const GeometryIndex *idx = OpenGeometryIndex(sctx->redisCtx, sctx->spec, &keyp, fs);
+
+  // TODO: use DONT_CREATE_INDEX and imitate the reply struct of an empty index.
+  const GeometryIndex *idx = OpenGeometryIndex(sctx->spec, fs, CREATE_INDEX);
   if (!idx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not open geoshape index");
     goto end;
@@ -298,9 +331,6 @@ DEBUG_COMMAND(DumpGeometryIndex) {
   api->dump(idx, ctx);
 
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -366,6 +396,9 @@ InvertedIndexStats NumericRange_DebugReply(RedisModuleCtx *ctx, NumericRange *r)
   return ret;
 }
 
+/**
+ * It is safe to use @param n equals to NULL.
+ */
 InvertedIndexStats NumericRangeNode_DebugReply(RedisModuleCtx *ctx, NumericRangeNode *n) {
 
   size_t len = 0;
@@ -376,7 +409,8 @@ InvertedIndexStats NumericRangeNode_DebugReply(RedisModuleCtx *ctx, NumericRange
       RedisModule_ReplyWithStringBuffer(ctx, "range", strlen("range"));
       invIdxStats.blocks_efficiency += NumericRange_DebugReply(ctx, n->range).blocks_efficiency;
       len += 2;
-    } else {
+    }
+    if (!NumericRangeNode_IsLeaf(n)) {
       REPLY_WITH_DOUBLE("value", n->value, len);
       REPLY_WITH_LONG_LONG("maxDepth", n->maxDepth, len);
 
@@ -395,6 +429,9 @@ InvertedIndexStats NumericRangeNode_DebugReply(RedisModuleCtx *ctx, NumericRange
   return invIdxStats;
 }
 
+/**
+ * It is safe to use @param rt with all fields initialized to 0, including a NULL root.
+ */
 void NumericRangeTree_DebugReply(RedisModuleCtx *ctx, NumericRangeTree *rt) {
 
   size_t len = 0;
@@ -427,24 +464,37 @@ DEBUG_COMMAND(DumpNumericIndexTree) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
-  RedisModuleKey *keyp = NULL;
   RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_NUMERIC);
   if (!keyName) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
+  NumericRangeTree dummy_rt = {0};
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
+  // If we failed to open the numeric index, it was not initialized yet,
+  // reply as if the tree is empty.
   if (!rt) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
-    goto end;
+    rt = &dummy_rt;
   }
 
   NumericRangeTree_DebugReply(sctx->redisCtx, rt);
 
   end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
+// FT.DEBUG SPEC_INVIDXES_INFO INDEX_NAME
+DEBUG_COMMAND(SpecInvertedIndexesInfo) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
   }
+  GET_SEARCH_CTX(argv[0])
+  START_POSTPONED_LEN_ARRAY(specInvertedIndexesInfo);
+	REPLY_WITH_LONG_LONG("inverted_indexes_dict_size", dictSize(sctx->spec->keysDict), ARRAY_LEN_VAR(specInvertedIndexesInfo));
+	REPLY_WITH_LONG_LONG("inverted_indexes_memory", sctx->spec->stats.invertedSize, ARRAY_LEN_VAR(specInvertedIndexesInfo));
+  END_POSTPONED_LEN_ARRAY(specInvertedIndexesInfo);
+
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -454,15 +504,16 @@ DEBUG_COMMAND(DumpTagIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
-  RedisModuleKey *keyp = NULL;
   RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_TAG);
   if (!keyName) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  TagIndex *tagIndex = TagIndex_Open(sctx, keyName, false, &keyp);
+  const TagIndex *tagIndex = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+
+  // Field was not initialized yet
   if (!tagIndex) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
+    RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
     goto end;
   }
 
@@ -485,9 +536,6 @@ DEBUG_COMMAND(DumpTagIndex) {
   TrieMapIterator_Free(iter);
 
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -531,9 +579,11 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
       goto end;
     }
-    const TagIndex *idx = TagIndex_Open(sctx, keyName, false, NULL);
+    const TagIndex *idx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+
+    // Field was not initialized yet
     if (!idx) {
-      RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
+      RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
       goto end;
     }
     if (!idx->suffix) {
@@ -672,10 +722,8 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
-  GCTask *task;
-  if (RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, (void **)&task) == REDISMODULE_OK) {
-    rm_free(task);
-  }
+  // Make sure there is no pending timer
+  RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
   // mark as stopped. This will prevent the GC from scheduling itself again if it was already running.
   sp->gc->timerID = 0;
   RedisModule_Log(ctx, "verbose", "Stopped GC %p periodic run for index %s", sp->gc, sp->name);
@@ -694,7 +742,7 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   if (sp->gc->timerID) {
     return RedisModule_ReplyWithError(ctx, "GC is already running periodically");
   }
-  GCContext_Start(sp->gc);
+  GCContext_StartNow(sp->gc);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -707,30 +755,26 @@ DEBUG_COMMAND(GCWaitForAllJobs) {
   return REDISMODULE_OK;
 }
 
+// GC_CLEAN_NUMERIC INDEX_NAME NUMERIC_FIELD_NAME
 DEBUG_COMMAND(GCCleanNumeric) {
 
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
-  RedisModuleKey *keyp = NULL;
   RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_NUMERIC);
   if (!keyName) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
   if (!rt) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
     goto end;
   }
 
   NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
 
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   SearchCtx_Free(sctx);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
@@ -787,7 +831,8 @@ DEBUG_COMMAND(ttlPause) {
   WeakRef timer_ref;
   // The timed-out callback is called from the main thread and removes the index from the global
   // dictionary, so at this point we know that the timer exists.
-  RedisModule_Assert(RedisModule_StopTimer(RSDummyContext, sp->timerId, (void**)&timer_ref) == REDISMODULE_OK);
+  int rc = RedisModule_StopTimer(RSDummyContext, sp->timerId, (void**)&timer_ref);
+  RS_ASSERT(rc == REDISMODULE_OK);
   WeakRef_Release(timer_ref);
   sp->timerId = 0;
   sp->isTimerSet = false;
@@ -876,7 +921,6 @@ DEBUG_COMMAND(InfoTagIndex) {
       {.name = "offset", .type = AC_ARGTYPE_UINT, .target = &options.offset},
       {.name = "limit", .type = AC_ARGTYPE_UINT, .target = &options.limit},
       {NULL}};
-  RedisModuleKey *keyp = NULL;
   ArgsCursor ac = {0};
   ACArgSpec *errSpec = NULL;
   ArgsCursor_InitRString(&ac, argv + 2, argc - 2);
@@ -892,9 +936,11 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(sctx, keyName, false, &keyp);
+  const TagIndex *idx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+
+  // Field was not initialized yet
   if (!idx) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
+    RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
     goto end;
   }
 
@@ -955,9 +1001,6 @@ reply_done:
   RedisModule_ReplySetArrayLength(ctx, nelem);
 
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -1039,10 +1082,10 @@ DEBUG_COMMAND(DocInfo) {
   return REDISMODULE_OK;
 }
 
-static void VecSim_Reply_Info_Iterator(RedisModuleCtx *ctx, VecSimInfoIterator *infoIter) {
-  RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
-  while(VecSimInfoIterator_HasNextField(infoIter)) {
-    VecSim_InfoField* infoField = VecSimInfoIterator_NextField(infoIter);
+static void VecSim_Reply_Info_Iterator(RedisModuleCtx *ctx, VecSimDebugInfoIterator *infoIter) {
+  RedisModule_ReplyWithArray(ctx, VecSimDebugInfoIterator_NumberOfFields(infoIter)*2);
+  while(VecSimDebugInfoIterator_HasNextField(infoIter)) {
+    VecSim_InfoField* infoField = VecSimDebugInfoIterator_NextField(infoIter);
     RedisModule_ReplyWithCString(ctx, infoField->fieldName);
     switch (infoField->fieldType) {
     case INFOFIELD_STRING:
@@ -1080,14 +1123,18 @@ DEBUG_COMMAND(VecsimInfo) {
   }
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
-  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, keyName);
+  VecSimIndex *vecsimIndex = openVectorIndex(sctx->spec, keyName, CREATE_INDEX);
+  if(!vecsimIndex) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Can't open vector index");
+  }
 
-  VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
+  VecSimDebugInfoIterator *infoIter = VecSimIndex_DebugInfoIterator(vecsimIndex);
   // Recursively reply with the info iterator
   VecSim_Reply_Info_Iterator(ctx, infoIter);
 
   // Cleanup
-  VecSimInfoIterator_Free(infoIter); // Free the iterator (and all its nested children)
+  VecSimDebugInfoIterator_Free(infoIter); // Free the iterator (and all its nested children)
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -1150,10 +1197,492 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
 }
 #endif
 
+#ifdef RS_COORDINATOR
+/**
+ * FT.DEBUG COORD_THREADS [PAUSE / RESUME / IS_PAUSED]
+ */
+DEBUG_COMMAND(CoordThreadsSwitch) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  if (!CoordThreadPool_DebugFunc) {
+    return RedisModule_ReplyWithError(ctx, "Coordinator thread pool not available");
+  }
+  const char *op = RedisModule_StringPtrLen(argv[0], NULL);
+  if (!strcasecmp(op, "is_paused")) {
+    // is_paused returns 0 (running) or 1 (paused)
+    return RedisModule_ReplyWithLongLong(ctx, CoordThreadPool_DebugFunc(op));
+  }
+  if (CoordThreadPool_DebugFunc(op) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Operation failed");
+  }
+  return RedisModule_ReplyWithCString(ctx, "OK");
+}
+#endif
+
+DEBUG_COMMAND(RSSearchCommandShard) {
+  // at least one debug_param should be provided
+  // (1)FT.SEARCH (2)<index> (3)<query> [query_options] (4)[debug_params] (5)DEBUG_PARAMS_COUNT (6)<debug_params_count>
+  if (argc < 6) {
+    return RedisModule_WrongArity(ctx);
+  }
+  return DEBUG_RSSearchCommand(ctx, argv, argc);
+}
+
+DEBUG_COMMAND(RSAggregateCommandShard) {
+  // at least one debug_param should be provided
+  // (1)FT.AGGREGATE (2)<index> (3)<query> [query_options] (4)[debug_params] (5)DEBUG_PARAMS_COUNT (6)<debug_params_count>
+  if (argc < 6) {
+    return RedisModule_WrongArity(ctx);
+  }
+  return DEBUG_RSAggregateCommand(ctx, argv, argc);
+}
+
+DEBUG_COMMAND(RSProfileCommandShard) {
+  // at least one debug_param should be provided
+  // (1) FT.PROFILE (2) <index> (3) SEARCH | AGGREGATE [LIMITED] (4) QUERY <query> [query_options] (5) [debug_params] (6) DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+  return RSProfileCommandImp(ctx, argv, argc, true);
+}
+
 typedef struct DebugCommandType {
   char *name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 } DebugCommandType;
+
+// Global counter for tracking yield calls during loading
+static size_t g_yieldCallCounter = 0;
+
+// Function to increment the yield counter (to be called from IndexerBulkAdd)
+void IncrementYieldCounter(void) {
+  g_yieldCallCounter++;
+}
+
+// Reset the yield counter
+void ResetYieldCounter(void) {
+  g_yieldCallCounter = 0;
+}
+
+/**
+ * FT.DEBUG YIELDS_ON_LOAD_COUNTER [RESET]
+ * Get or reset the counter for yields during loading operations
+ */
+DEBUG_COMMAND(YieldCounter) {
+  if (argc > 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  // Check if we need to reset the counter
+  if (argc == 1) {
+    size_t len;
+    const char *subCmd = RedisModule_StringPtrLen(argv[0], &len);
+    if (STR_EQCASE(subCmd, len, "RESET")) {
+      ResetYieldCounter();
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else {
+      return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
+    }
+  }
+
+  // Return the current counter value
+  return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_MAX_SCANNED_DOCS <max_scanned_docs>
+ */
+DEBUG_COMMAND(setMaxScannedDocs) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long max_scanned_docs;
+  if (RedisModule_StringToLongLong(argv[0], &max_scanned_docs) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_MAX_SCANNED_DOCS'");
+  }
+
+  // Negative maxDocsTBscanned represents no limit
+
+  globalDebugCtx.bgIndexing.maxDocsTBscanned = (int) max_scanned_docs;
+
+  // Check if we need to enable debug mode
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_ON_SCANNED_DOCS <pause_scanned_docs>
+ */
+DEBUG_COMMAND(setPauseOnScannedDocs) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long pause_scanned_docs;
+  if (RedisModule_StringToLongLong(argv[0], &pause_scanned_docs) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_ON_SCANNED_DOCS'");
+  }
+
+  globalDebugCtx.bgIndexing.maxDocsTBscannedPause = (int) pause_scanned_docs;
+
+  // Check if we need to enable debug mode
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_BG_INDEX_RESUME
+ */
+DEBUG_COMMAND(setBgIndexResume) {
+  if (argc != 0) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  globalDebugCtx.bgIndexing.pause = false;
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER GET_DEBUG_SCANNER_STATUS <index_name>
+ */
+DEBUG_COMMAND(getDebugScannerStatus) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[0], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  if (!sp->scanner) {
+    return RedisModule_ReplyWithError(ctx, "Scanner is not initialized");
+  }
+
+  if(!(sp->scanner->isDebug)) {
+    return RedisModule_ReplyWithError(ctx, "Debug mode enabled but scanner is not a debug scanner");
+  }
+
+  // Assuming this file is aware of spec.h, via direct or in-direct include
+  DebugIndexesScanner *dScanner = (DebugIndexesScanner*)sp->scanner;
+
+
+  return RedisModule_ReplyWithSimpleString(ctx, DEBUG_INDEX_SCANNER_STATUS_STRS[dScanner->status]);
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_BEFORE_SCAN <true/false>
+ */
+DEBUG_COMMAND(setPauseBeforeScan) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[0], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.pauseBeforeScan = true;
+  } else if (!strcasecmp(op, "false")) {
+    globalDebugCtx.bgIndexing.pauseBeforeScan = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_SCAN'");
+  }
+
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_ON_OOM <true/false>
+ */
+DEBUG_COMMAND(setPauseOnOOM) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[0], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.pauseOnOOM = true;
+  } else if (!strcasecmp(op, "false")) {
+    globalDebugCtx.bgIndexing.pauseOnOOM = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_ON_OOM'");
+  }
+
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER TERMINATE_BG_POOL
+ */
+DEBUG_COMMAND(terminateBgPool) {
+  if (argc != 0) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  ReindexPool_ThreadPoolDestroy();
+  // We do not create a new thread pool here, as it will automatically be created on the next background indexing job
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_BEFORE_OOM_RETRY <true/false>
+ */
+DEBUG_COMMAND(setPauseBeforeOOMretry) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[0], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.pauseBeforeOOMretry = true;
+  } else if (!strcasecmp(op, "false")) {
+    globalDebugCtx.bgIndexing.pauseBeforeOOMretry = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_OOM_RETRY'");
+  }
+
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER DEBUG_SCANNER_UPDATE_CONFIG <index_name>
+ */
+DEBUG_COMMAND(debugScannerUpdateConfig) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[0], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  if (!sp->scanner) {
+    return RedisModule_ReplyWithError(ctx, "Scanner is not initialized");
+  }
+
+  if(!(sp->scanner->isDebug)) {
+    return RedisModule_ReplyWithError(ctx, "Debug mode enabled but scanner is not a debug scanner");
+  }
+
+  // Assuming this file is aware of spec.h, via direct or in-direct include
+  DebugIndexesScanner *dScanner = (DebugIndexesScanner*)sp->scanner;
+  // Update the scanner with the new settings
+  dScanner->maxDocsTBscanned = globalDebugCtx.bgIndexing.maxDocsTBscanned;
+  dScanner->maxDocsTBscannedPause = globalDebugCtx.bgIndexing.maxDocsTBscannedPause;
+  dScanner->wasPaused = false;
+  dScanner->pauseOnOOM = globalDebugCtx.bgIndexing.pauseOnOOM;
+  dScanner->pauseBeforeOOMRetry = globalDebugCtx.bgIndexing.pauseBeforeOOMretry;
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER <command> [options]
+ */
+DEBUG_COMMAND(bgScanController) {
+  if (argc < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[0], NULL);
+
+  // Check here all background indexing possible commands
+  if (!strcmp("SET_MAX_SCANNED_DOCS", op)) {
+    return setMaxScannedDocs(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_PAUSE_ON_SCANNED_DOCS", op)) {
+    return setPauseOnScannedDocs(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_BG_INDEX_RESUME", op)) {
+    return setBgIndexResume(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("GET_DEBUG_SCANNER_STATUS", op)) {
+    return getDebugScannerStatus(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_PAUSE_BEFORE_SCAN", op)) {
+    return setPauseBeforeScan(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_PAUSE_ON_OOM", op)) {
+    return setPauseOnOOM(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("TERMINATE_BG_POOL", op)) {
+    return terminateBgPool(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_PAUSE_BEFORE_OOM_RETRY", op)) {
+    return setPauseBeforeOOMretry(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("DEBUG_SCANNER_UPDATE_CONFIG", op)) {
+    return debugScannerUpdateConfig(ctx, argv+1, argc-1);
+  }
+  return RedisModule_ReplyWithError(ctx, "Invalid command for 'BG_SCAN_CONTROLLER'");
+
+}
+
+// Global variable for sleep time before yielding (in microseconds)
+static unsigned int g_indexerSleepBeforeYieldMicros = 0;
+
+unsigned int GetIndexerSleepBeforeYieldMicros(void) {
+  return g_indexerSleepBeforeYieldMicros;
+}
+
+/**
+ * FT.DEBUG INDEXER_SLEEP_BEFORE_YIELD [<microseconds>]
+ * Get or set the sleep time in microseconds before yielding during indexing while loading
+ */
+DEBUG_COMMAND(IndexerSleepBeforeYieldMicros) {
+  if (argc > 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  // Check if we need to reset the counter
+  if (argc == 1) {
+    long long sleepMicros;
+    if (RedisModule_StringToLongLong(argv[0], &sleepMicros) != REDISMODULE_OK || sleepMicros < 0) {
+      return RedisModule_ReplyWithError(ctx, "Invalid sleep time. Must be a non-negative integer.");
+    }
+    g_indexerSleepBeforeYieldMicros = (unsigned int)sleepMicros;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+
+  return RedisModule_WrongArity(ctx);
+}
+
+static inline int TimedOut_Always(TimeoutCtx *ctx) {
+  (void)ctx; // Unused parameter
+  return TIMED_OUT;
+}
+
+// Global timeout callback for VecSim searches.
+// Need the redirection so tests can pass a mock function to test timeout behavior.
+// Used in hybrid_reader.c in computeDistances
+extern int (*vecsimTimeoutCallback)(TimeoutCtx *ctx);
+
+/**
+ * FT.DEBUG VECSIM_MOCK_TIMEOUT <enable|disable>
+ * Set the timeout callback for VecSim searches globally
+ * enable - will cause an immediate timeout for all VecSim searches
+ * disable - will remove the timeout callback and restore normal behavior
+ */
+DEBUG_COMMAND(VecSimMockTimeout) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[0], NULL);
+  if (!strcmp("enable", op)) {
+    vecsimTimeoutCallback = TimedOut_Always;
+    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_Always);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  } else if (!strcmp("disable", op)) {
+    vecsimTimeoutCallback = TimedOut_WithCtx;
+    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid command for 'VECSIM_MOCK_TIMEOUT'");
+  }
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_RP_RESUME
+ */
+DEBUG_COMMAND(setPauseRPResume) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!QueryDebugCtx_IsPaused()) {
+    return RedisModule_ReplyWithError(ctx, "Query is not paused");
+  }
+
+  QueryDebugCtx_SetPause(false);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_IS_RP_PAUSED
+ */
+DEBUG_COMMAND(getIsRPPaused) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithLongLong(ctx, QueryDebugCtx_IsPaused());
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER PRINT_RP_STREAM
+ */
+DEBUG_COMMAND(printRPStream) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!QueryDebugCtx_HasDebugRP()) {
+    return RedisModule_ReplyWithError(ctx, "No debug RP is set");
+  }
+
+  ResultProcessor* root = QueryDebugCtx_GetDebugRP()->parent->endProc;
+  ResultProcessor *cur = root;
+
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+
+  size_t resultSize = 0;
+
+  while (cur) {
+    if (cur->type < RP_MAX) {
+      RedisModule_ReplyWithSimpleString(ctx, RPTypeToString(cur->type));
+    }
+    else {
+      RedisModule_ReplyWithSimpleString(ctx, "DEBUG_RP");
+    }
+    cur = cur->upstream;
+    resultSize++;
+  }
+  RedisModule_ReplySetArrayLength(ctx, resultSize);
+
+  return REDISMODULE_OK;
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER <command> [options]
+ */
+DEBUG_COMMAND(queryController) {
+  if (argc < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[0], NULL);
+
+  // Check here all background indexing possible commands
+  if (!strcmp("SET_PAUSE_RP_RESUME", op)) {
+    return setPauseRPResume(ctx, argv, argc);
+  }
+  if (!strcmp("GET_IS_RP_PAUSED", op)) {
+    return getIsRPPaused(ctx, argv, argc);
+  }
+  if (!strcmp("PRINT_RP_STREAM", op)) {
+    return printRPStream(ctx, argv, argc);
+  }
+  return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");
+}
 
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
@@ -1170,6 +1699,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_TERMS", DumpTerms},
                                {"INVIDX_SUMMARY", InvertedIndexSummary}, // Print info about an inverted index and each of its blocks.
                                {"NUMIDX_SUMMARY", NumericIndexSummary}, // Quick summary of the numeric index
+                               {"SPEC_INVIDXES_INFO", SpecInvertedIndexesInfo}, // Print general information about the inverted indexes in the spec
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"GC_CLEAN_NUMERIC", GCCleanNumeric},
@@ -1182,8 +1712,22 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
+                               {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
+                               {"BG_SCAN_CONTROLLER", bgScanController},
+                               {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
+                               {"QUERY_CONTROLLER", queryController},
+                               {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
+                               /**
+                                * The following commands are for debugging search/aggregation.
+                                */
+                               {"FT.AGGREGATE", RSAggregateCommandShard},
+                               {"FT.SEARCH", RSSearchCommandShard},
+                               {"FT.PROFILE", RSProfileCommandShard},
 #ifdef MT_BUILD
                                {"WORKER_THREADS", WorkerThreadsSwitch},
+#endif
+#ifdef RS_COORDINATOR
+                               {"COORD_THREADS", CoordThreadsSwitch},
 #endif
                                {NULL, NULL}};
 
@@ -1208,7 +1752,9 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   for (DebugCommandType *c = &commands[0]; c->name != NULL; c++) {
     if (strcasecmp(c->name, subCommand) == 0) {
-      return c->callback(ctx, argv + 2, argc - 2);
+      size_t skip_args = 2;
+      if (strncasecmp("FT.", subCommand, 3) == 0) skip_args = 1; // skip only FT.DEBUG
+      return c->callback(ctx, argv + skip_args, argc - skip_args);
     }
   }
 

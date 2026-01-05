@@ -72,18 +72,10 @@ def dotestSanity(env, dialect):
       pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
       pl.execute()
 
-  env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'RETURN').ok()
+  env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
+  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
   env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
-  #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
-  #  .contains('Timeout limit was reached')
-
-  env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'FAIL').ok()
-  env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
-    .contains('Timeout limit was reached')
-  #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
-  #  .contains('Timeout limit was reached')
 
 @skip(cluster=True)
 def testSanityTag_dialect_2(env):
@@ -160,14 +152,8 @@ def dotestSanityTag(env, dialect):
       pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
       pl.execute()
 
-  env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-  env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
-    .contains('Timeout limit was reached')
-  env.expect('ft.search', index_list[1], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
-    .contains('Timeout limit was reached')
-
-  env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'FAIL').ok()
+  env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
+  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
   env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
   env.expect('ft.search', index_list[1], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
@@ -298,31 +284,31 @@ def testEscape(env):
   env.expect('FT.SEARCH', 'idx', "w'$wcq'", 'PARAMS', '2', 'wcq', "*o\\\\w*").equal([1, 'doc8', ['t', "hello\\\\world"]]) # *o\w*
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'he?lo'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - he?lo")
+  env.assertEqual(res[1][5][1][3], "WILDCARD - he?lo")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'h*?*o'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - h*?*o")
+  env.assertEqual(res[1][5][1][3], "WILDCARD - h*?*o")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'h\\*?*o'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - h*?*o")
+  env.assertEqual(res[1][5][1][3], "WILDCARD - h*?*o")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'\\h*?*o'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - h*?*o")
+  env.assertEqual(res[1][5][1][3], "WILDCARD - h*?*o")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'\\'h*?*o'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - 'h*?*o")
+  env.assertEqual(res[1][5][1][3], "WILDCARD - 'h*?*o")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'\\\\h*?*o'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - \h*?*o")
+  env.assertEqual(res[1][5][1][3], "WILDCARD - \h*?*o")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'*o\\\\w*'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - *o\\w*")
+  env.assertEqual(res[1][5][1][3], "WILDCARD - *o\\w*")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'*o\\'w*'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - *o'w*")
+  env.assertEqual(res[1][5][1][3], "WILDCARD - *o'w*")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'*o\\\'w*'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - *o'w*")
+  env.assertEqual(res[1][5][1][3], "WILDCARD - *o'w*")
 
 @skip(cluster=True)
 def testLowerUpperCase(env):

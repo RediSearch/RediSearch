@@ -9,20 +9,29 @@
 #include "reply_macros.h"
 #include "util/timeout.h"
 #include "util/strconv.h"
+#include "rmutil/rm_assert.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
 char* const NA = "N/A";
+char* const OK = "OK";
 char* const IndexError_ObjectName = "Index Errors";
 char* const IndexingFailure_String = "indexing failures";
 char* const IndexingError_String = "last indexing error";
 char* const IndexingErrorKey_String = "last indexing error key";
 char* const IndexingErrorTime_String = "last indexing error time";
+char* const BackgroundIndexingOOMfailure_String = "background indexing status";
+char* const outOfMemoryFailure = "OOM failure";
 RedisModuleString* NA_rstr = NULL;
 
 static void initDefaultKey() {
     NA_rstr = RedisModule_CreateString(RSDummyContext, NA, strlen(NA));
     RedisModule_TrimStringAllocation(NA_rstr);
+}
+
+void IndexError_RaiseBackgroundIndexFailureFlag(IndexError *error) {
+    // Change the background_indexing_OOM_failure flag to true.
+    error->background_indexing_OOM_failure = true;
 }
 
 IndexError IndexError_Init() {
@@ -31,12 +40,16 @@ IndexError IndexError_Init() {
     error.last_error = NA;  // Last error message set to NA.
     // Key of the document that caused the error set to NA.
     error.key = RedisModule_HoldString(RSDummyContext, NA_rstr);
+    if (error.key != NA_rstr) {
+        RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING,
+                        "NA_rstr was re-allocated");
+    }
     return error;
 }
 void IndexError_AddError(IndexError *error, const char *error_message, RedisModuleString *key) {
     if (!NA_rstr) initDefaultKey();
     if (!error_message) {
-        RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING,
+        RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG,
                         "Index error occurred but no index error message was set.");
     }
     if (error->last_error != NA) {
@@ -52,18 +65,16 @@ void IndexError_AddError(IndexError *error, const char *error_message, RedisModu
 }
 
 void IndexError_Clear(IndexError error) {
+    RS_ASSERT(error.last_error);
     if (!NA_rstr) initDefaultKey();
-    if (error.last_error != NA && error.last_error != NULL) {
+    if (error.last_error != NA) {
         rm_free(error.last_error);
-        error.last_error = NA;
     }
-    if (error.key != NA_rstr) {
-        RedisModule_FreeString(RSDummyContext, error.key);
-        error.key = RedisModule_HoldString(RSDummyContext, NA_rstr);
-    }
+    RS_ASSERT(error.key);
+    RedisModule_FreeString(RSDummyContext, error.key);
 }
 
-void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_timestamp) {
+void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_timestamp, bool withOOMstatus) {
     RedisModule_Reply_Map(reply);
     REPLY_KVINT(IndexingFailure_String, IndexError_ErrorCount(error));
     REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastError(error));
@@ -75,6 +86,9 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
         RedisModule_Reply_LongLong(reply, ts.tv_nsec);
         REPLY_ARRAY_END;
     }
+    // Should only be displayed in "Index Errors", and not in, for example, "Field Statistics".
+    if (withOOMstatus)
+        REPLY_KVSTR_SAFE(BackgroundIndexingOOMfailure_String, IndexError_HasBackgroundIndexingOOMFailure(error) ? outOfMemoryFailure : OK);
     RedisModule_Reply_MapEnd(reply);
 }
 
@@ -98,6 +112,17 @@ struct timespec IndexError_LastErrorTime(const IndexError *error) {
     return error->last_error_time;
 }
 
+void IndexError_GlobalCleanup() {
+    if (NA_rstr) {
+        RedisModule_FreeString(RSDummyContext, NA_rstr);
+        NA_rstr = NULL;
+    }
+}
+
+bool IndexError_HasBackgroundIndexingOOMFailure(const IndexError *error) {
+    return error->background_indexing_OOM_failure;
+}
+
 #ifdef RS_COORDINATOR
 
 void IndexError_OpPlusEquals(IndexError *error, const IndexError *other) {
@@ -114,6 +139,7 @@ void IndexError_OpPlusEquals(IndexError *error, const IndexError *other) {
     }
     // Currently `error` is not a shared object, so we don't need to use atomic add.
     error->error_count += other->error_count;
+    error->background_indexing_OOM_failure |= other->background_indexing_OOM_failure;
 }
 
 // Setters
@@ -141,39 +167,48 @@ void IndexError_SetErrorTime(IndexError *error, struct timespec error_time) {
     error->last_error_time = error_time;
 }
 
-IndexError IndexError_Deserialize(MRReply *reply) {
+IndexError IndexError_Deserialize(MRReply *reply, bool withOOMstatus) {
     IndexError error = IndexError_Init();
 
     // Validate the reply. It should be a map with 3 elements.
-    RedisModule_Assert(reply && (MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0)));
+    RS_ASSERT(reply && (MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0)));
     // Make sure the reply is a map, regardless of the protocol.
     MRReply_ArrayToMap(reply);
 
     MRReply *error_count = MRReply_MapElement(reply, IndexingFailure_String);
-    RedisModule_Assert(error_count);
-    RedisModule_Assert(MRReply_Type(error_count) == MR_REPLY_INTEGER);
+    RS_ASSERT(error_count);
+    RS_ASSERT(MRReply_Type(error_count) == MR_REPLY_INTEGER);
     IndexError_SetErrorCount(&error, MRReply_Integer(error_count));
 
     MRReply *last_error = MRReply_MapElement(reply, IndexingError_String);
-    RedisModule_Assert(last_error);
+    RS_ASSERT(last_error);
     // In hiredis with resp2 '+' is a status reply.
-    RedisModule_Assert(MRReply_Type(last_error) == MR_REPLY_STRING || MRReply_Type(last_error) == MR_REPLY_STATUS);
+    RS_ASSERT(MRReply_Type(last_error) == MR_REPLY_STRING || MRReply_Type(last_error) == MR_REPLY_STATUS);
     size_t error_len;
     const char *last_error_str = MRReply_String(last_error, &error_len);
 
     MRReply *key = MRReply_MapElement(reply, IndexingErrorKey_String);
-    RedisModule_Assert(key);
+    RS_ASSERT(key);
     // In hiredis with resp2 '+' is a status reply.
-    RedisModule_Assert(MRReply_Type(key) == MR_REPLY_STRING || MRReply_Type(key) == MR_REPLY_STATUS);
+    RS_ASSERT(MRReply_Type(key) == MR_REPLY_STRING || MRReply_Type(key) == MR_REPLY_STATUS);
     size_t key_len;
     const char *key_str = MRReply_String(key, &key_len);
 
     MRReply *last_error_time = MRReply_MapElement(reply, IndexingErrorTime_String);
-    RedisModule_Assert(last_error_time);
-    RedisModule_Assert(MRReply_Type(last_error_time) == MR_REPLY_ARRAY && MRReply_Length(last_error_time) == 2);
+    RS_ASSERT(last_error_time);
+    RS_ASSERT(MRReply_Type(last_error_time) == MR_REPLY_ARRAY && MRReply_Length(last_error_time) == 2);
     struct timespec ts = {MRReply_Integer(MRReply_ArrayElement(last_error_time, 0)),
                           MRReply_Integer(MRReply_ArrayElement(last_error_time, 1))};
     IndexError_SetErrorTime(&error, ts);
+
+    if (withOOMstatus) {
+        MRReply *oomFailure = MRReply_MapElement(reply, BackgroundIndexingOOMfailure_String);
+        RS_ASSERT(oomFailure);
+        RS_ASSERT(MRReply_Type(oomFailure) == MR_REPLY_STRING || MRReply_Type(oomFailure) == MR_REPLY_STATUS);
+        if (MRReply_StringEquals(oomFailure, outOfMemoryFailure, 1)) {
+            IndexError_RaiseBackgroundIndexFailureFlag(&error);
+        }
+    }
 
     if (!STR_EQ(last_error_str, error_len, NA)) {
         IndexError_SetLastError(&error, last_error_str);

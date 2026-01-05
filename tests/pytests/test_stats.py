@@ -6,17 +6,6 @@ from common import *
 from time import sleep, time
 from RLTest import Env
 
-##########################################################################
-
-def check_index_info(env, idx, exp_num_records, exp_inv_idx_size):
-    d = index_info(env, idx)
-    env.assertEqual(float(d['num_records']), exp_num_records)
-
-    if(exp_inv_idx_size != None):
-        env.assertEqual(float(d['inverted_sz_mb']), exp_inv_idx_size)
-
-##########################################################################
-
 def runTestWithSeed(env, s=None):
     conn = getConnectionByEnv(env)
 
@@ -36,7 +25,7 @@ def runTestWithSeed(env, s=None):
     env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
 
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
-    check_index_info(env, idx, 0, 0)
+    check_index_info(env, idx, 0, 0, "initial")
 
     value_offset = 4096
     # Each value written to the buffer will occupy 4 bytes:
@@ -45,20 +34,20 @@ def runTestWithSeed(env, s=None):
     # 2 bytes for the actual number (4096-4099)
 
     for i in range(count):
-        # write only 4 different values to get a range tree with a root node 
+        # write only 4 different values to get a range tree with a root node
         # with a left child and a right child. Each child has an inverted index.
         conn.execute_command('HSET', 'doc%d' % i, 'n', (i % num_values) + value_offset)
-    
-    # Expected inverted index size total: 606 bytes
+
+    # Expected inverted index size total: 590 bytes
     # 2 * (buffer size + inverted index structure size)
-    # 2 * (207 + 96) = 606
+    # 2 * (207 + 88) = 590
 
     # 207 is the buffer size after writing 4 bytes 50 times.
     # The buffer grows according to Buffer_Grow() in buffer.c
-    # 96 is the size of the inverted index structure without counting the
+    # 80 is the size of the inverted index structure without counting the
     # buffer capacity.
-    expected_inv_idx_size = 606 / (1024 * 1024)
-    check_index_info(env, idx, count, expected_inv_idx_size)
+    expected_inv_idx_size = 590 / (1024 * 1024)
+    check_index_info(env, idx, count, expected_inv_idx_size, "after insert")
 
     env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])
     for i in range(count):
@@ -68,14 +57,16 @@ def runTestWithSeed(env, s=None):
 
     for i in range(cleaning_loops):
         exp_num_records = count - (loop_count * i)
-        check_index_info(env, idx, exp_num_records, None)
+        check_index_info(env, idx, exp_num_records, None, f"clean loop {i}")
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         forceInvokeGC(env, 'idx')
 
     for i in range(count):
         env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i)).equal([0])
-    check_index_info(env, idx, 0, 0)
+    # An initialized numeric tree always contains an inverted index in its root node.
+    check_index_info_empty(env, 'idx', ['NUMERIC'])
+
 
     ### test random integers
     env.expect('FLUSHALL')
@@ -85,28 +76,28 @@ def runTestWithSeed(env, s=None):
         temp = int(random() * count / 10)
         conn.execute_command('HSET', 'doc%d' % i, 'n', temp)
 
-    # Test only the number of records, because the memory size depends on 
+    # Test only the number of records, because the memory size depends on
     # the random values.
-    check_index_info(env, idx, count, None)
+    check_index_info(env, idx, count, None, "after flush and insert")
 
     env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])
 
     for i in range(cleaning_loops):
         exp_num_records = count - loop_count * i
-        check_index_info(env, idx, exp_num_records, None)
+        check_index_info(env, idx, exp_num_records, None, f"clean loop {i}")
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         forceInvokeGC(env, 'idx')
-    check_index_info(env, idx, 0, 0)
+    check_index_info_empty(env, 'idx', ['NUMERIC'])
 
     for i in range(count):
         env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i)).equal([0])
-    check_index_info(env, idx, 0, 0)
+    check_index_info_empty(env, 'idx', ['NUMERIC'])
 
     ## test random floats
     env.expect('FLUSHALL')
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
-    check_index_info(env, idx, 0, 0)
+    check_index_info(env, idx, 0, 0, "after flushall")
 
     # Each value written to the buffer will occupy 10 bytes:
     # 1 byte for the header
@@ -119,17 +110,17 @@ def runTestWithSeed(env, s=None):
 
     # Check only the number of records, because the memory size depends on
     # the random values.
-    check_index_info(env, idx, count, None)
+    check_index_info(env, idx, count, None, "after flush and insert")
 
     env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])
 
     for i in range(cleaning_loops):
         exp_num_records = count - loop_count * i
-        check_index_info(env, idx, exp_num_records, None)
+        check_index_info(env, idx, exp_num_records, None, f"clean loop {i}")
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         forceInvokeGC(env, 'idx')
-    check_index_info(env, idx, 0, 0)
+    check_index_info_empty(env, 'idx', ['NUMERIC'])
 
 @skip(cluster=True, gc_no_fork=True)
 def testRandom(env):
@@ -169,7 +160,7 @@ def testMemoryAfterDrop(env):
         forceInvokeGC(env, 'idx%d' % i)
 
     for i in range(idx_count):
-        check_index_info(env, 'idx%d' % i, 0, 0)
+        check_index_info_empty(env, 'idx%d' % i, ['NUMERIC'])
 
 @skip(cluster=True, gc_no_fork=True)
 def testIssue1497(env):
@@ -184,7 +175,7 @@ def testIssue1497(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO').ok()
 
     res = env.cmd('ft.info', 'idx')
-    check_index_info(env, 'idx', 0, 0)
+    check_index_info(env, 'idx', 0, 0, "initial")
     for i in range(count):
         geo = '1.23456,' + str(float(i) / divide_by)
         env.expect('HSET', 'doc%d' % i, 't', 'hello%d' % i, 'tg', 'world%d' % i, 'n', i * 1.01, 'g', geo)
@@ -192,14 +183,16 @@ def testIssue1497(env):
     res = env.cmd('FT.SEARCH idx *')
     env.assertEqual(res[0], count)
     exp_num_records = count * number_of_fields
-    check_index_info(env, 'idx', exp_num_records, None)
+    check_index_info(env, 'idx', exp_num_records, None, "after insert")
 
     for i in range(count):
         env.expect('DEL', 'doc%d' % i)
 
     forceInvokeGC(env, 'idx')
 
-    check_index_info(env, 'idx', 0, 0)
+    # An initialized numeric tree always contains an inverted index in its root node.
+    # Here we have 2 numeric tree field - NUMERIC and GEO
+    check_index_info_empty(env, 'idx', ['NUMERIC', 'GEO'])
 
 @skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_numeric(env):
@@ -230,7 +223,8 @@ def testMemoryAfterDrop_numeric(env):
         forceInvokeGC(env, 'idx%d' % i)
 
     for i in range(idx_count):
-        check_index_info(env, 'idx%d' % i, 0, 0)
+        # An initialized numeric tree always contains an inverted index in its root node.
+        check_index_info_empty(env, 'idx%d' % i, ['NUMERIC'])
 
 @skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_geo(env):
@@ -264,7 +258,8 @@ def testMemoryAfterDrop_geo(env):
         forceInvokeGC(env, 'idx%d' % i)
 
     for i in range(idx_count):
-        check_index_info(env, 'idx%d' % i, 0, 0)
+        # An initialized numeric tree always contains an inverted index in its root node.
+        check_index_info_empty(env, 'idx%d' % i, ['NUMERIC'])
 
 @skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_text(env):
@@ -330,11 +325,16 @@ def testMemoryAfterDrop_tag(env):
 
 def testDocTableInfo(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE')
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE')
+    n = env.shardsCount
+
+    # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
+    #              = 64 + (1000 * 16) = 16064 bytes
+    doc_table_size_mb = 16064 / (1024 * 1024)
 
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 0)
-    env.assertEqual(int(d['doc_table_size_mb']), 0)
+    env.assertEqual(float(d['doc_table_size_mb']), n * doc_table_size_mb)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
 
     conn.execute_command('HSET', 'a', 'txt', 'hello')
@@ -344,7 +344,15 @@ def testDocTableInfo(env):
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 2)
     doctable_size1 = float(d['doc_table_size_mb'])
-    env.assertGreater(doctable_size1, 0)
+    # exp_doc_table_size:
+    # For each hash, the doc_table_size is increased by:
+    # = leanSize + sdsAllocSize(keyPtr)
+    # = (sizeof(RSDocumentMetadata) - sizeof(RSPayload *))  (No payload)
+    #   + (strlen(key) + 2)
+    # = (72 - 8) + 3 = 67
+    # 2 docs * 67 = 134
+    exp_doc_table_size = (n * doc_table_size_mb) + (134 / (1024 * 1024))
+    env.assertEqual(doctable_size1, exp_doc_table_size)
     sortable_size1 = float(d['sortable_values_size_mb'])
     env.assertGreater(sortable_size1, 0)
 
@@ -371,7 +379,7 @@ def testDocTableInfo(env):
     conn.execute_command('DEL', 'b')
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 0)
-    env.assertEqual(int(d['doc_table_size_mb']), 0)
+    env.assertEqual(float(d['doc_table_size_mb']), n * doc_table_size_mb)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
 
 @skip(cluster=True)

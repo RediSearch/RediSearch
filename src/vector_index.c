@@ -11,13 +11,14 @@
 #include "rdb.h"
 #include "util/workers_pool.h"
 #include "util/threadpool_api.h"
+#include "redis_index.h"
 
-static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName, int write) {
+VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index) {
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
   }
-  if (!write) {
+  if (!create_if_index) {
     return NULL;
   }
 
@@ -35,16 +36,15 @@ static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyNa
   }
 
   // create new vector data structure
+  VecSimIndex* temp = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
+  if (!temp) {
+    return NULL;
+  }
   kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->p = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
-
-  dictAdd(spec->keysDict, keyName, kdv);
+  kdv->p = temp;
   kdv->dtor = (void (*)(void *))VecSimIndex_Free;
+  dictAdd(spec->keysDict, keyName, kdv);
   return kdv->p;
-}
-
-VecSimIndex *OpenVectorIndex(IndexSpec *sp, RedisModuleString *keyName) {
-  return openVectorKeysDict(sp, keyName, 1);
 }
 
 IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, bool yields_metric) {
@@ -73,7 +73,7 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
-  VecSimIndex *vecsim = openVectorKeysDict(ctx->spec, key, 0);
+  VecSimIndex *vecsim = openVectorIndex(ctx->spec, key, DONT_CREATE_INDEX);
   RedisModule_FreeString(ctx->redisCtx, key);
   if (!vecsim) {
     return NULL;
@@ -111,7 +111,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .query = vq->knn,
                                       .qParams = qParams,
                                       .vectorScoreField = vq->scoreField,
-                                      .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
+                                      .canTrimDeepResults = q->opts->flags & Search_CanSkipRichResults,
                                       .childIt = child_it,
                                       .timeout = q->sctx->timeout,
       };
@@ -236,6 +236,23 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
     case VecSimAlgo_TIERED: return VECSIM_ALGORITHM_TIERED;
   }
   return NULL;
+}
+const char *VecSimSearchMode_ToString(VecSearchMode vecsimSearchMode) {
+    switch (vecsimSearchMode) {
+    case EMPTY_MODE:
+        return "EMPTY_MODE";
+    case STANDARD_KNN:
+        return "STANDARD_KNN";
+    case HYBRID_ADHOC_BF:
+        return "HYBRID_ADHOC_BF";
+    case HYBRID_BATCHES:
+        return "HYBRID_BATCHES";
+    case HYBRID_BATCHES_TO_ADHOC_BF:
+        return "HYBRID_BATCHES_TO_ADHOC_BF";
+    case RANGE_QUERY:
+        return "RANGE_QUERY";
+    }
+    return NULL;
 }
 
 void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
@@ -541,7 +558,7 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
           sp->fields[ii].vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
         // Get the vector index
         RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, sp->fields + ii, INDEXFLD_T_VECTOR);
-        VecSimIndex *vecsim = openVectorKeysDict(sp, vecsim_name, 0);
+        VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
         // Call the tiered index GC if the vector index is not empty
         if (vecsim) VecSimTieredIndex_GC(vecsim);
       }

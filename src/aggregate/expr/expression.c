@@ -152,7 +152,7 @@ static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *
       return RSValue_BoolTest(l) || RSValue_BoolTest(r);
 
     default:
-      RS_LOG_ASSERT(0, "invalid RSCondition");
+      RS_ABORT("invalid RSCondition");
       return 0;
   }
 }
@@ -507,12 +507,13 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
   RS_LOG_ASSERT (type == RP_PROJECTOR || type == RP_FILTER, "Error");
 
   char buf[32];
+  size_t len;
   const char *literal;
   RPEvaluator *rpEval = (RPEvaluator *)rp;
   const RSExpr *expr = rpEval->eval.root;
   switch (expr->t) {
     case RSExpr_Literal:
-      literal = RSValue_ConvertStringPtrLen(&expr->literal, NULL, buf, sizeof(buf));
+      literal = RSValue_ConvertStringPtrLen(&expr->literal, &len, buf, sizeof(buf));
       RedisModule_Reply_SimpleStringf(reply, "%s - Literal %s", typeStr, literal);
       break;
     case RSExpr_Property:
@@ -531,7 +532,7 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
       RedisModule_Reply_SimpleStringf(reply, "%s - Inverted", typeStr);
       break;
     default:
-      RS_LOG_ASSERT(0, "error");
+      RS_ABORT("error");
       break;
   }
 }

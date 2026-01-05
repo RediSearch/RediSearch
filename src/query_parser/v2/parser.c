@@ -52,35 +52,38 @@ static size_t unescapen(char *s, size_t sz) {
   return (size_t)(dst - s);
 }
 
-#define NODENN_BOTH_VALID 0
-#define NODENN_BOTH_INVALID -1
-#define NODENN_ONE_NULL 1
-// Returns:
-// 0 if a && b
-// -1 if !a && !b
-// 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out`
-static int one_not_null(void *a, void *b, void *out) {
-    if (a && b) {
-        return NODENN_BOTH_VALID;
-    } else if (a == NULL && b == NULL) {
-        return NODENN_BOTH_INVALID;
-    } if (a) {
-        *(void **)out = a;
-        return NODENN_ONE_NULL;
+// reduce B and C to a single intersection node
+// if one of them is a phrase node, we will use it as the base node and add the other as a child.
+// if some of them is Null, we will return the other one.
+static inline struct RSQueryNode* intersection_step(struct RSQueryNode* B, struct RSQueryNode* C) {
+    struct RSQueryNode* A;
+    if (B && C) {
+        struct RSQueryNode* child;
+        if (B->type == QN_PHRASE && B->pn.exact == 0 && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+            child = C;
+        } else if (C->type == QN_PHRASE && C->pn.exact == 0 && C->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = C;
+            child = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+            child = C;
+        }
+        // Handle child
+        QueryNode_AddChild(A, child);
     } else {
-        *(void **)out = b;
-        return NODENN_ONE_NULL;
+        A = B ?: C;
     }
+    return A;
 }
 
-static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode* C) {
+// reduce B and C to a single union node
+// if one of them is a union node, we will use it as the base node and add the other as a child.
+// if some of them is Null, we will return the other one.
+static inline struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode* C) {
     struct RSQueryNode* A;
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        return NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing - `A` is already assigned
-    } else {
+    if (B && C) {
         struct RSQueryNode* child;
         if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
             A = B;
@@ -91,13 +94,12 @@ static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode*
         } else {
             A = NewUnionNode();
             QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
             child = C;
         }
         // Handle child
         QueryNode_AddChild(A, child);
-        A->opts.fieldMask |= child->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    } else {
+        A = B ?: C;
     }
     return A;
 }
@@ -1624,21 +1626,7 @@ static YYACTIONTYPE yy_reduce(
       case 6: /* expr ::= expr text_expr */ yytestcase(yyruleno==6);
       case 7: /* text_expr ::= text_expr text_expr */ yytestcase(yyruleno==7);
 {
-    int rv = one_not_null(yymsp[-1].minor.yy119, yymsp[0].minor.yy119, (void**)&yylhsminor.yy119);
-    if (rv == NODENN_BOTH_INVALID) {
-        yylhsminor.yy119 = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- `out` is already assigned
-    } else {
-        if (yymsp[-1].minor.yy119 && yymsp[-1].minor.yy119->type == QN_PHRASE && yymsp[-1].minor.yy119->pn.exact == 0 &&
-            yymsp[-1].minor.yy119->opts.fieldMask == RS_FIELDMASK_ALL ) {
-            yylhsminor.yy119 = yymsp[-1].minor.yy119;
-        } else {
-            yylhsminor.yy119 = NewPhraseNode(0);
-            QueryNode_AddChild(yylhsminor.yy119, yymsp[-1].minor.yy119);
-        }
-        QueryNode_AddChild(yylhsminor.yy119, yymsp[0].minor.yy119);
-    }
+  yylhsminor.yy119 = intersection_step(yymsp[-1].minor.yy119, yymsp[0].minor.yy119);
 }
   yymsp[-1].minor.yy119 = yylhsminor.yy119;
         break;
@@ -1767,7 +1755,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 28: /* text_expr ::= QUOTE term QUOTE */
 {
-  yymsp[-2].minor.yy119 = NewTokenNode(ctx, rm_strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
+  yymsp[-2].minor.yy119 = NewTokenNode(ctx, rm_normalize(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
   yymsp[-2].minor.yy119->opts.flags |= QueryNode_Verbatim;
 }
         break;
@@ -1778,7 +1766,7 @@ static YYACTIONTYPE yy_reduce(
   char *s = rm_malloc(yymsp[-1].minor.yy0.len + 1);
   *s = '$';
   memcpy(s + 1, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  yymsp[-2].minor.yy119 = NewTokenNode(ctx, rm_strdupcase(s, yymsp[-1].minor.yy0.len + 1), -1);
+  yymsp[-2].minor.yy119 = NewTokenNode(ctx, rm_normalize(s, yymsp[-1].minor.yy0.len + 1), -1);
   rm_free(s);
   yymsp[-2].minor.yy119->opts.flags |= QueryNode_Verbatim;
 }
@@ -2137,7 +2125,8 @@ yylhsminor.yy119 = yymsp[0].minor.yy119;
     yymsp[0].minor.yy0.type = QT_PARAM_VEC;
     yylhsminor.yy119 = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
     yylhsminor.yy119->vn.vq->property = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-    RedisModule_Assert(-1 != (rm_asprintf(&yylhsminor.yy119->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy0.len, yymsp[-1].minor.yy0.s)));
+    int n_written = rm_asprintf(&yylhsminor.yy119->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy0.len, yymsp[-1].minor.yy0.s);
+    RS_ASSERT(n_written != -1);
   } else {
     reportSyntaxError(ctx->status, &yymsp[-3].minor.yy0, "Syntax error: Expecting Vector Similarity command");
     yylhsminor.yy119 = NULL;

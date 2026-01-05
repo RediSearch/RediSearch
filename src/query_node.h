@@ -16,6 +16,7 @@ struct RSQueryNode;
 struct numericFilter;
 struct geoFilter;
 struct idFilter;
+struct IndexSpec;
 
 /* The types of query nodes */
 typedef enum {
@@ -65,7 +66,10 @@ typedef enum {
   QN_WILDCARD_QUERY,
 
   /* Null term - take no action */
-  QN_NULL
+  QN_NULL,
+
+  /* Max value, should be last */
+  QN_MAX
 } QueryNodeType;
 
 /* A prhase node represents a list of nodes with intersection between them, or a phrase in the case
@@ -209,7 +213,7 @@ typedef struct RSQueryNode {
 } QueryNode;
 
 int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, QueryError *status);
-int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, bool anyField, QueryError *status);
+int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const struct IndexSpec *spec, bool anyField, QueryError *status);
 
 void QueryNode_AddChildren(QueryNode *parent, QueryNode **children, size_t n);
 void QueryNode_AddChild(QueryNode *parent, QueryNode *child);
