@@ -361,7 +361,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
-  xcmd.mrCmdCoordStartTime = r->coordStartTime;
+  xcmd.mrCmdCoordStartTime = r->reqCoordStartTime;
 
   // Build the result processor chain
   buildDistRPChain(r, &xcmd, &us, rpnetNext_Start);
@@ -421,7 +421,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   specialCaseCtx *knnCtx = NULL;
 
   // Store coordinator start time for dispatch time tracking
-  r->coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+  r->reqCoordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
   // Check if the index still exists, and promote the ref accordingly
   StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
@@ -471,7 +471,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   r = &debug_req->r;
 
   // Store coordinator start time for dispatch time tracking
-  r->coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+  r->reqCoordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
   AREQ_Debug_params debug_params = debug_req->debug_params;
   // Check if the index still exists, and promote the ref accordingly
   StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
