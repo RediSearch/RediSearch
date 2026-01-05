@@ -9,13 +9,14 @@
 
 //! Supporting types for [`Not`].
 
-use std::cmp::Ordering;
+use std::{cmp::Ordering, time::Duration};
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 
 use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
+    util::TimeoutContext,
 };
 
 /// An iterator that negates the results of its child iterator.
@@ -29,20 +30,25 @@ pub struct Not<'index, I> {
     max_doc_id: t_docId,
     /// A reusable result object to avoid allocations on each `read` call.
     result: RSIndexResult<'index>,
-    // TODO: Timeout
+    /// Tracks the execution deadline for this iterator.
+    ///
+    /// Uses an amortized check to minimize overhead in hot paths. The timeout
+    /// is absolute for the iterator's lifetime and does not reset upon rewinding.
+    timeout_ctx: TimeoutContext,
 }
 
 impl<'index, I> Not<'index, I>
 where
     I: RQEIterator<'index>,
 {
-    pub const fn new(child: I, max_doc_id: t_docId, weight: f64) -> Self {
+    pub fn new(child: I, max_doc_id: t_docId, weight: f64, timeout: Duration) -> Self {
         Self {
             child: MaybeEmpty::new(child),
             max_doc_id,
             result: RSIndexResult::virt()
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL),
+            timeout_ctx: TimeoutContext::new(timeout, 5_000),
         }
     }
 }
@@ -64,17 +70,27 @@ where
 
             match self.result.doc_id.cmp(&self.child.last_doc_id()) {
                 Ordering::Less => {
+                    if self.timeout_ctx.check_timeout() {
+                        return Err(RQEIteratorError::TimedOut);
+                    }
+
                     // Our doc_id is before child's position - it's not in the child, return it
                     return Ok(Some(&mut self.result));
                 }
                 Ordering::Equal => {
                     // We caught up with child iterator - this doc is in the child, skip it
-                    continue;
+                    if self.timeout_ctx.check_timeout() {
+                        return Err(RQEIteratorError::TimedOut);
+                    }
                 }
                 Ordering::Greater => {
                     // Our doc_id is past child's position - need to advance child
                     if let Some(result) = self.child.read()? {
                         if result.doc_id > self.result.doc_id {
+                            if self.timeout_ctx.check_timeout() {
+                                return Err(RQEIteratorError::TimedOut);
+                            }
+
                             // child skipped ahead already
                             return Ok(Some(&mut self.result));
                         }
@@ -83,6 +99,10 @@ where
                             "child read backwards without rewind"
                         );
                     } else {
+                        if self.timeout_ctx.check_timeout() {
+                            return Err(RQEIteratorError::TimedOut);
+                        }
+
                         // child EOF at read
                         return Ok(Some(&mut self.result));
                     }
@@ -117,6 +137,11 @@ where
             || (self.child.at_eof() && doc_id > self.child.last_doc_id())
         {
             self.result.doc_id = doc_id;
+
+            if self.timeout_ctx.check_timeout() {
+                return Err(RQEIteratorError::TimedOut);
+            }
+
             return Ok(Some(SkipToOutcome::Found(&mut self.result)));
         }
         // Case 2: Child is behind docId - need to check if docId is in child
@@ -129,9 +154,18 @@ where
                 None | Some(SkipToOutcome::NotFound(_)) => {
                     // Not found or EOF - return
                     self.result.doc_id = doc_id;
+
+                    if self.timeout_ctx.check_timeout() {
+                        return Err(RQEIteratorError::TimedOut);
+                    }
+
                     return Ok(Some(SkipToOutcome::Found(&mut self.result)));
                 }
             }
+        }
+
+        if self.timeout_ctx.check_timeout() {
+            return Err(RQEIteratorError::TimedOut);
         }
 
         // If we are here, Child has DocID (either already lastDocID == docId or the SkipTo returned OK)

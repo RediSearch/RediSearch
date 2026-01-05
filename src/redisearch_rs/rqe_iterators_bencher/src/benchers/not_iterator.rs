@@ -53,7 +53,7 @@ impl Bencher {
         // Rust implementation
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || Not::new(Empty, MAX_DOC_ID, 1.0),
+                || Not::new(Empty, MAX_DOC_ID, 1.0, Duration::from_mins(5)),
                 |it| {
                     while let Ok(Some(current)) = it.read() {
                         criterion::black_box(current);
@@ -92,7 +92,12 @@ impl Bencher {
                 || {
                     // Child has 1% of docs (every 100th doc)
                     let data = (1..MAX_DOC_ID).step_by(100).collect();
-                    Not::new(SortedIdList::new(data), MAX_DOC_ID, 1.0)
+                    Not::new(
+                        SortedIdList::new(data),
+                        MAX_DOC_ID,
+                        1.0,
+                        Duration::from_mins(5),
+                    )
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -133,7 +138,12 @@ impl Bencher {
                 || {
                     // Child has 99% of docs (all except every 100th doc)
                     let data = (1..MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
-                    Not::new(SortedIdList::new(data), MAX_DOC_ID, 1.0)
+                    Not::new(
+                        SortedIdList::new(data),
+                        MAX_DOC_ID,
+                        1.0,
+                        Duration::from_mins(5),
+                    )
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -172,7 +182,7 @@ impl Bencher {
         // Rust implementation
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || Not::new(Empty, MAX_DOC_ID, 1.0),
+                || Not::new(Empty, MAX_DOC_ID, 1.0, Duration::from_mins(5)),
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
                         criterion::black_box(current);
@@ -211,7 +221,12 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let data = (1..MAX_DOC_ID).step_by(100).collect();
-                    Not::new(SortedIdList::new(data), MAX_DOC_ID, 1.0)
+                    Not::new(
+                        SortedIdList::new(data),
+                        MAX_DOC_ID,
+                        1.0,
+                        Duration::from_mins(5),
+                    )
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
@@ -252,7 +267,12 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let data = (1..MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
-                    Not::new(SortedIdList::new(data), MAX_DOC_ID, 1.0)
+                    Not::new(
+                        SortedIdList::new(data),
+                        MAX_DOC_ID,
+                        1.0,
+                        Duration::from_mins(5),
+                    )
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
