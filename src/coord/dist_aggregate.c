@@ -361,7 +361,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
-  xcmd.mrCmdCoordStartTime = r->reqCoordStartTime;
+  xcmd.coordStartTime = r->coordStartTime;
 
   // Build the result processor chain
   buildDistRPChain(r, &xcmd, &us, rpnetNext_Start);

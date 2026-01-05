@@ -82,7 +82,7 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->depleted = false;
   cmd->forCursor = false;
   cmd->forProfiling = false;
-  cmd->mrCmdCoordStartTime = 0;
+  cmd->coordStartTime = 0;
 }
 
 MRCommand MR_NewCommandArgv(int argc, const char **argv) {
@@ -108,7 +108,7 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
   ret.forProfiling = cmd->forProfiling;
   ret.rootCommand = cmd->rootCommand;
   ret.depleted = cmd->depleted;
-  ret.mrCmdCoordStartTime = cmd->mrCmdCoordStartTime;
+  ret.coordStartTime = cmd->coordStartTime;
   for (int i = 0; i < cmd->num; i++) {
     copyStr(&ret, i, cmd, i);
   }
@@ -306,7 +306,7 @@ void MRCommand_SetDispatchTime(MRCommand *cmd) {
   RS_ASSERT(!strcmp(cmd->strs[cmd->dispatchTimeArgIndex - 1], COORD_DISPATCH_TIME_STR));
 
   // Calculate dispatch time from coordinator start
-  rs_wall_clock_ns_t dispatchTime = rs_wall_clock_now_ns() - cmd->mrCmdCoordStartTime;
+  rs_wall_clock_ns_t dispatchTime = rs_wall_clock_now_ns() - cmd->coordStartTime;
   char buf[32];
   int len = snprintf(buf, sizeof(buf), "%llu", (unsigned long long)dispatchTime);
 
