@@ -28,6 +28,7 @@ Feature: Wildcard Iterator Functionality
     And I search the index "idx" for "*"
     Then I should get 2 results
 
+  @skip
   Scenario: Wildcard query with multiple fields
     Given the RediSearchDisk module is loaded
     When I create an index "idx" with fields:

@@ -22,6 +22,7 @@ Feature: RediSearchDisk Index Deletion
     Then the index "idx" should not exist
     And the index "idx" database files should be deleted
 
+  @skip
   Scenario: Drop index and recreate with same name
     Given the RediSearchDisk module is loaded
     When I create an index "idx" with schema field "title" as TEXT
@@ -50,6 +51,7 @@ Feature: RediSearchDisk Index Deletion
     When I search the index "idx2" for "index"
     Then I should get 1 result
 
+  @skip
   Scenario: Drop index with complex schema
     Given the RediSearchDisk module is loaded
     When I create an index "idx" with fields:

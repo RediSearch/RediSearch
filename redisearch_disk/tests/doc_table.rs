@@ -20,7 +20,8 @@ fn get_temp_doc_table() -> DocTable {
     opts.create_if_missing(true);
     opts.create_missing_column_families(true);
 
-    let db = SpeedbMultithreadedDatabase::open_cf(&opts, path, ["doc_table"]).unwrap();
+    let db =
+        SpeedbMultithreadedDatabase::open_cf(&opts, path, ["doc_table", "reverse_lookup"]).unwrap();
 
     DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap()
 }
@@ -183,7 +184,7 @@ fn deleting_documents() {
     assert!(!doc_table.is_deleted(doc_id2));
 
     // Delete the first document
-    doc_table.delete_document(doc_id1).unwrap();
+    doc_table.delete_document_by_key(b"doc1").unwrap();
 
     // Verify the first document is deleted
     assert!(
@@ -207,17 +208,17 @@ fn deleting_documents() {
     );
 
     // Delete the second document
-    doc_table.delete_document(doc_id2).unwrap();
+    doc_table.delete_document_by_key(b"doc2").unwrap();
 
     // Verify both documents are deleted
     assert!(doc_table.is_deleted(doc_id1));
     assert!(doc_table.is_deleted(doc_id2));
 
     // Deleting a non-existent document should not panic
-    doc_table.delete_document(999).unwrap();
+    doc_table.delete_document_by_key(b"non_existent").unwrap();
     assert!(
-        doc_table.is_deleted(999),
-        "Non-existent document should not be in the table"
+        !doc_table.is_deleted(999),
+        "Non-existent document should not be in the table and should not have been marked as deleted"
     );
 }
 
@@ -281,7 +282,9 @@ fn last_document_id_recovery() {
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
 
-        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table"]).unwrap();
+        let db =
+            SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table", "reverse_lookup"])
+                .unwrap();
         let doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap();
 
         // Insert a few documents
@@ -303,7 +306,9 @@ fn last_document_id_recovery() {
         opts.create_if_missing(false);
         opts.create_missing_column_families(false);
 
-        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table"]).unwrap();
+        let db =
+            SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table", "reverse_lookup"])
+                .unwrap();
         let doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap();
 
         // Verify existing documents are still there
@@ -353,7 +358,9 @@ fn last_document_id_recovery_with_deletions() {
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
 
-        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table"]).unwrap();
+        let db =
+            SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table", "reverse_lookup"])
+                .unwrap();
         let doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap();
 
         // Insert documents
@@ -370,8 +377,8 @@ fn last_document_id_recovery_with_deletions() {
         assert_eq!(doc_id5, 5);
 
         // Delete some documents (including the last one)
-        doc_table.delete_document(doc_id2).unwrap();
-        doc_table.delete_document(doc_id5).unwrap();
+        doc_table.delete_document_by_key(b"doc2").unwrap();
+        doc_table.delete_document_by_key(b"doc5").unwrap();
 
         // doc_table and db are dropped here
     }
@@ -383,7 +390,9 @@ fn last_document_id_recovery_with_deletions() {
         opts.create_if_missing(false);
         opts.create_missing_column_families(false);
 
-        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table"]).unwrap();
+        let db =
+            SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table", "reverse_lookup"])
+                .unwrap();
         let doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap();
 
         // Insert a new document - it should get ID 5 (highest remaining doc ID was 4, so next is 5)
@@ -431,7 +440,9 @@ fn last_document_id_recovery_empty_table() {
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
 
-        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table"]).unwrap();
+        let db =
+            SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table", "reverse_lookup"])
+                .unwrap();
         let _doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default());
 
         // Don't insert any documents
@@ -444,7 +455,9 @@ fn last_document_id_recovery_empty_table() {
         opts.create_if_missing(false);
         opts.create_missing_column_families(false);
 
-        let db = SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table"]).unwrap();
+        let db =
+            SpeedbMultithreadedDatabase::open_cf(&opts, &db_path, ["doc_table", "reverse_lookup"])
+                .unwrap();
         let doc_table = DocTable::new(DocumentType::Hash, db, DeletedIdsStore::default()).unwrap();
 
         // Insert first document - should get ID 1

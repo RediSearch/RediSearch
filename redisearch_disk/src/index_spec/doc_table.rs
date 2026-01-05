@@ -7,7 +7,9 @@ pub use doc_table_reader::ReaderCreateError as DocTableReaderCreateError;
 pub use document_metadata::DocumentMetadata;
 use inverted_index::RSIndexResult;
 
-use speedb::{BlockBasedOptions, Cache, ColumnFamilyDescriptor, Options as SpeedbDbOptions};
+use speedb::{
+    BlockBasedOptions, Cache, ColumnFamilyDescriptor, Options as SpeedbDbOptions, WriteBatch,
+};
 
 use crate::{
     database::{Speedb, SpeedbMultithreadedDatabase},
@@ -22,8 +24,6 @@ use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
-
-use document_metadata::ArchivedDocumentMetadata;
 
 /// The DocTable struct represents a mapping from document IDs to the Redis key and document
 /// metadata. It is used to look up documents by their IDs and to generate new document IDs
@@ -50,6 +50,7 @@ pub struct DocTable {
 
 impl DocTable {
     const COLUMN_FAMILY_NAME: &str = "doc_table";
+    const REVERSE_LOOKUP_COLUMN_FAMILY_NAME: &str = "reverse_lookup";
 
     pub fn new(
         document_type: DocumentType,
@@ -107,10 +108,25 @@ impl DocTable {
         ColumnFamilyDescriptor::new(Self::COLUMN_FAMILY_NAME, cf_options)
     }
 
+    pub fn reverse_lookup_cf_descriptor() -> ColumnFamilyDescriptor {
+        ColumnFamilyDescriptor::new(
+            Self::REVERSE_LOOKUP_COLUMN_FAMILY_NAME,
+            SpeedbDbOptions::default(),
+        )
+    }
+
     /// Returns the Speedb column family handle for the document table.
     fn cf_handle(&self) -> Arc<BoundColumnFamily<'_>> {
         // SAFETY: we verified the column family exists in `new()`
         self.database.cf_handle(&self.cf_name).unwrap()
+    }
+
+    /// Temporary reverse lookup solution until we have a way to use the metadata api in order to store the old document id
+    fn reverse_lookup_cf_handle(&self) -> Arc<BoundColumnFamily<'_>> {
+        // SAFETY: we verified the column family exists in `new()`
+        self.database
+            .cf_handle(Self::REVERSE_LOOKUP_COLUMN_FAMILY_NAME)
+            .unwrap()
     }
 
     /// Inserts a new document to the document table to generate a new document ID.
@@ -127,15 +143,14 @@ impl DocTable {
     ) -> Result<t_docId, speedb::Error> {
         let key: Key = key.into();
 
-        if let Some(old_doc_id) = self.find_doc_id_by_key(&key) {
-            self.delete_document(old_doc_id)?;
-        }
+        // Check if document with same key exists (for update case)
+        let old_doc_id = self.find_doc_id_by_key(&key);
 
         let new_doc_id = self.last_document_id.fetch_add(1, Ordering::Relaxed);
 
         let entry_key = new_doc_id.as_key();
         let dmd_bytes = DocumentMetadata {
-            key,
+            key: key.clone(),
             score,
             flags,
             max_term_freq,
@@ -143,9 +158,30 @@ impl DocTable {
         }
         .serialize();
 
-        // If this fails we would have a gap in the doc IDs, but it's not a big deal.
-        self.database
-            .put_cf(&self.cf_handle(), entry_key, dmd_bytes)?;
+        // Use a batch write to ensure atomicity: the old document deletion (if updating),
+        // new document metadata, and reverse lookup are all written together.
+        // This prevents inconsistent state if any operation fails.
+        let mut batch = WriteBatch::default();
+
+        // If updating an existing document, delete the old doc_table entry in the same batch
+        if let Some(old_id) = old_doc_id {
+            batch.delete_cf(&self.cf_handle(), old_id.as_key());
+        }
+
+        batch.put_cf(&self.cf_handle(), entry_key, dmd_bytes);
+        batch.put_cf(
+            &self.reverse_lookup_cf_handle(),
+            <Vec<u8> as AsRef<[u8]>>::as_ref(&key),
+            new_doc_id.as_key(),
+        );
+
+        self.database.write(batch)?;
+
+        // Mark old document as deleted only after successful batch write
+        // This is safe to do outside the batch since it's an in-memory operation
+        if let Some(old_id) = old_doc_id {
+            self.deleted_ids.mark_deleted(old_id);
+        }
 
         Ok(new_doc_id)
     }
@@ -153,15 +189,13 @@ impl DocTable {
     /// Finds the document ID associated with the given document key, if it exists.
     fn find_doc_id_by_key(&self, key: &Key) -> Option<t_docId> {
         self.database
-            .iterator_cf(&self.cf_handle(), IteratorMode::Start)
-            .flat_map(|item| item.ok())
-            .find(|(_key_bytes, value_bytes)| {
-                let dmd = ArchivedDocumentMetadata::from_bytes(value_bytes);
-
-                dmd.key() == *key
-            })
-            .map(|(key_bytes, _)| {
-                t_docId::from_key(&key_bytes)
+            .get_cf(
+                &self.reverse_lookup_cf_handle(),
+                <Vec<u8> as AsRef<[u8]>>::as_ref(key),
+            )
+            .ok()?
+            .map(|doc_id_bytes| {
+                t_docId::from_key(&doc_id_bytes)
                     .expect("we control the key format, parsing the key should never fail")
             })
     }
@@ -189,6 +223,28 @@ impl DocTable {
         self.document_type
     }
 
+    /// Deletes a document by its key.
+    /// performs a lookup by key to find the old document id and then deletes the document and the key from the reverse lookup table.
+    pub fn delete_document_by_key(&self, key: impl Into<Key>) -> Result<(), speedb::Error> {
+        let key: Key = key.into();
+        if let Some(doc_id) = self.find_doc_id_by_key(&key) {
+            // Use a batch write to ensure atomicity: both the document metadata and reverse lookup
+            // are deleted together.
+            let mut batch = WriteBatch::default();
+            batch.delete_cf(&self.cf_handle(), doc_id.as_key());
+            batch.delete_cf(
+                &self.reverse_lookup_cf_handle(),
+                <Vec<u8> as AsRef<[u8]>>::as_ref(&key),
+            );
+
+            self.database.write(batch)?;
+
+            // Mark the document as deleted in the bitmap after successful database write
+            self.deleted_ids.mark_deleted(doc_id);
+        }
+        Ok(())
+    }
+
     /// Deletes a document by removing it from the document table and marking its ID
     /// as deleted.
     /// This is needed because the inverted index structure can hold the id of a document.
@@ -201,7 +257,8 @@ impl DocTable {
     /// # Returns
     /// `Ok(())` if the operation succeeded (regardless of whether the document existed),
     /// or an error if the database operation fails.
-    pub fn delete_document(&self, doc_id: t_docId) -> Result<(), speedb::Error> {
+    #[allow(dead_code)]
+    fn delete_document(&self, doc_id: t_docId) -> Result<(), speedb::Error> {
         self.database
             .delete_cf(&self.cf_handle(), doc_id.as_key())?;
 

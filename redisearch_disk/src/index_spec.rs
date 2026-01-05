@@ -91,6 +91,7 @@ impl IndexSpec {
                 Self::DOC_TABLE_CACHE_SIZE,
                 Self::DOC_TABLE_BLOOM_FILTER_BITS_PER_KEY,
             ),
+            DocTable::reverse_lookup_cf_descriptor(),
             InvertedIndex::cf_descriptor(deleted_ids.clone()),
         ];
         let database =

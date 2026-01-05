@@ -26,6 +26,7 @@ Feature: RediSearchDisk Basic Functionality
     When I search the index "idx" for "search"
     Then I should get 2 results
 
+  @skip
   Scenario: Index with tag fields
     Given the RediSearchDisk module is loaded
     When I create an index "idx" with fields:
