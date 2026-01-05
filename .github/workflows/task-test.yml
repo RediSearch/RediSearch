@@ -395,6 +395,7 @@ jobs:
           echo "CC=$CLANG_BIN" >> $GITHUB_ENV
           echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
           echo "LD=$CLANG_BIN" >> $GITHUB_ENV
+          echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
       - name: Get Redis (node20)
         if: ${{ steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
