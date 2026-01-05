@@ -391,7 +391,7 @@ fn read_propagates_child_timeout() {
     let child = Mock::new([3, 5]);
     let mut data = child.data();
     // Set child to return timeout error when it reaches EOF
-    data.set_error_at_done(Some(MockIteratorError::TimeoutError));
+    data.set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
     let mut it = Not::new(child, 6, 1.0);
 
     // Read docs that are NOT in child: [1, 2, 4, 6]
@@ -424,7 +424,7 @@ fn skip_to_propagates_child_timeout() {
     let child = Mock::new([2, 4, 6]);
     let mut data = child.data();
     // Set child to return timeout error when it reaches EOF
-    data.set_error_at_done(Some(MockIteratorError::TimeoutError));
+    data.set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
     let mut it = Not::new(child, 10, 1.0);
 
     // skip_to(7) - child has [2,4,6], child.last_doc_id()=0 < 7, so we call

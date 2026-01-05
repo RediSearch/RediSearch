@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
@@ -66,7 +66,10 @@ pub struct Mock<'index, const N: usize> {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum MockIteratorError {
     /// Simulate a timeout in the child iterator.
-    TimeoutError,
+    ///
+    /// Optionally introduce an actual delay of the specified [`Duration`].
+    /// Note that this blocks the current thread.
+    TimeoutError(Option<Duration>),
 }
 
 impl MockIteratorError {
@@ -75,9 +78,14 @@ impl MockIteratorError {
     /// This helper keeps the mock specific error type private to the
     /// test utilities while still surfacing the correct error value to
     /// production code and test assertions.
-    fn as_rqe_iterator_error(self) -> rqe_iterators::RQEIteratorError {
+    fn into_rqe_iterator_error(self) -> rqe_iterators::RQEIteratorError {
         match self {
-            Self::TimeoutError => rqe_iterators::RQEIteratorError::TimedOut,
+            Self::TimeoutError(opt_delay) => {
+                if let Some(delay) = opt_delay {
+                    std::thread::sleep(delay);
+                }
+                rqe_iterators::RQEIteratorError::TimedOut
+            }
         }
     }
 }
@@ -229,7 +237,7 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
         data.read_count += 1;
         if self.at_eof() {
             return if let Some(err) = data.error_at_done {
-                Err(err.as_rqe_iterator_error())
+                Err(err.into_rqe_iterator_error())
             } else {
                 Ok(None)
             };
@@ -257,7 +265,7 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
 
         if self.at_eof() {
             return if let Some(err) = data.error_at_done {
-                Err(err.as_rqe_iterator_error())
+                Err(err.into_rqe_iterator_error())
             } else {
                 Ok(None)
             };
