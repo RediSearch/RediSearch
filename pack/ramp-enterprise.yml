@@ -65,7 +65,6 @@ overide_command:
     # It is mandatory because during the parsing of the module.json file 
     # it is used in a python script as a direct key and get with default value is not used
     - {"command_arity": -1, "command_name": "FT.AGGREGATE", "first_key": 0, "flags": ["readonly" ], "last_key": 1, "step": -2}
-    - {"command_arity": -1, "command_name": "FT.CURSOR", "first_key": 3, "flags": ["readonly"], "last_key": 1, "step": -3}
     - {"command_arity": -2, "command_name": "FT.CURSOR", "first_key": 3, "flags": ["readonly"], "last_key": 1, "step": -3}
     - {"command_arity": -1, "command_name": "FT.HYBRID", "first_key": 0, "flags": ["readonly"], "last_key": 1, "step": -2}
     - {"command_arity": -1, "command_name": "FT.INFO", "first_key": 0, "flags": ["readonly"], "last_key": 0, "step": -1}
