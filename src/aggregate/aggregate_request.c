@@ -427,7 +427,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, COORD_DISPATCH_TIME_STR " requires a numeric value");
       return ARG_ERROR;
     }
-    *papCtx->reqCoordDispatchTime = dispatchTime;
+    *papCtx->coordDispatchTime = dispatchTime;
   } else {
     return ARG_UNKNOWN;
   }
@@ -673,7 +673,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .maxAggregateResults = &req->maxAggregateResults,
         .querySlots = &req->querySlots,
         .keySpaceVersion = &req->keySpaceVersion,
-        .reqCoordDispatchTime = &req->reqCoordDispatchTime,
+        .coordDispatchTime = &req->coordDispatchTime,
       };
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
@@ -1131,7 +1131,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .maxAggregateResults = &req->maxAggregateResults,
     .querySlots = &req->querySlots,
     .keySpaceVersion = &req->keySpaceVersion,
-    .reqCoordDispatchTime = &req->reqCoordDispatchTime,
+    .coordDispatchTime = &req->coordDispatchTime,
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
     goto error;
