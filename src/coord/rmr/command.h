@@ -66,7 +66,7 @@ typedef struct {
   sds cmd;
 
   /** Coordinator start time (for dispatch time tracking) */
-  rs_wall_clock_ns_t coordStartTime;
+  rs_wall_clock_ns_t mrCmdCoordStartTime;
 } MRCommand;
 
 /* Free the command and all its strings. Doesn't free the actual command struct, as it is usually
@@ -120,7 +120,7 @@ void MRCommand_PrepareForDispatchTime(MRCommand *cmd);
 
 /**
  * Set the actual dispatch time value in a previously prepared command.
- * This function calculates the elapsed time since coordStartTime and fills in the placeholder.
+ * This function calculates the elapsed time since mrCmdCoordStartTime and fills in the placeholder.
  *
  * Threading: Should be called from an I/O thread before sending command to a specific shard.
  *
