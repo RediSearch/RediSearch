@@ -1694,12 +1694,12 @@ extern uint32_t maxIndexes_g;
  * DEFAULT_MAX_INDEXES (200000).
  */
 DEBUG_COMMAND(SetMaxIndexes) {
-  if (argc != 3) {
+  if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
 
   long long newMaxIndexes;
-  if (RedisModule_StringToLongLong(argv[2], &newMaxIndexes) != REDISMODULE_OK ||
+  if (RedisModule_StringToLongLong(argv[0], &newMaxIndexes) != REDISMODULE_OK ||
       newMaxIndexes < 1 || newMaxIndexes > DEFAULT_MAX_INDEXES) {
     return RedisModule_ReplyWithErrorFormat(ctx,
         "Invalid value. Must be between 1 and %d.", DEFAULT_MAX_INDEXES);
