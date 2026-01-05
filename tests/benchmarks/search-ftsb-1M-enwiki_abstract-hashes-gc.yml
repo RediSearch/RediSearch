@@ -43,8 +43,8 @@ exporter:
   redistimeseries:
     metrics:
       - "$.'ALL STATS'.'_ft.debugs'.'Percentile Latencies'.'p50.00'"
-      - "$.'ALL STATS'.'_ft.debugs'.'Percentile Latencies'.'p90.00'"
       - "$.'ALL STATS'.'_ft.debugs'.'Percentile Latencies'.'p99.00'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Percentile Latencies'.'p99.90'"
       - "$.'ALL STATS'.'_ft.debugs'.'Average Latency'"
       - "$.'ALL STATS'.'_ft.debugs'.'Min Latency'"
       - "$.'ALL STATS'.'_ft.debugs'.'Max Latency'"
