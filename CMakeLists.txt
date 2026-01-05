@@ -275,6 +275,7 @@ include_directories(
     ${root}/src/obfuscation
     ${root}/src/rlookup
     ${root}/src/info/global_stats
+    ${root}/src/search_disk
     ${BOOST_DIR}
     ${root})
 
@@ -330,6 +331,8 @@ add_subdirectory(src/util/references)
 add_subdirectory(src/obfuscation)
 add_subdirectory(src/rlookup)
 add_subdirectory(src/info/global_stats)
+add_subdirectory(src/search_disk)
+
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
@@ -400,6 +403,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:obfuscation>
     $<TARGET_OBJECTS:rlookup>
     $<TARGET_OBJECTS:global_stats>
+    $<TARGET_OBJECTS:search_disk>
 )
 
 #----------------------------------------------------------------------------------------------
@@ -479,6 +483,7 @@ target_link_libraries(redisearch
         obfuscation
         rlookup
         global_stats
+        search_disk
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
         ${CMAKE_LD_LIBS})
