@@ -165,11 +165,11 @@ pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookupRow_WriteByName(
-    lookup: Option<NonNull<RLookup>>,
+pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
+    lookup: Option<NonNull<RLookup<'a>>>,
     name: *const c_char,
     name_len: size_t,
-    row: Option<NonNull<RLookupRow>>,
+    row: Option<NonNull<RLookupRow<'a>>>,
     value: Option<NonNull<ffi::RSValue>>,
 ) {
     // Safety: ensured by caller (1.)
@@ -219,11 +219,11 @@ pub unsafe extern "C" fn RLookupRow_WriteByName(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookupRow_WriteByNameOwned(
-    lookup: Option<NonNull<RLookup<'_>>>,
+pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
+    lookup: Option<NonNull<RLookup<'a>>>,
     name: *const c_char,
     name_len: size_t,
-    row: Option<NonNull<RLookupRow>>,
+    row: Option<NonNull<RLookupRow<'a>>>,
     value: Option<NonNull<ffi::RSValue>>,
 ) {
     // Safety: ensured by caller (1.)
