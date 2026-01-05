@@ -352,7 +352,7 @@ mod optional_iterator_timeout_tests {
         let child = utils::Mock::new(CHILD_DOCS);
         child
             .data()
-            .set_error_at_done(Some(utils::MockIteratorError::TimeoutError));
+            .set_error_at_done(Some(utils::MockIteratorError::TimeoutError(None)));
 
         Optional::new(MAX_DOC_ID, WEIGHT, child)
     }
