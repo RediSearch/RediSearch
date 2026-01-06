@@ -104,18 +104,18 @@ impl<'index> SearchResult<'index> {
             }
         }
 
-        // explicitly drop the DMD here to make clear we maintain the
-        // same "drop order" as the old C implementation had.
-        let _ = self._document_metadata.take();
-
         self._index_result = None;
+
+        self._flags = SearchResultFlags::empty();
 
         // Safety: we own (and therefore correctly initialized) the row data struct and have mutable access to it.
         unsafe {
             ffi::RLookupRow_Wipe(ptr::from_mut(&mut self._row_data));
         }
 
-        self._flags = SearchResultFlags::empty();
+        // explicitly drop the DMD here to make clear we maintain the
+        // same "drop order" as the old C implementation had.
+        let _ = self._document_metadata.take();
     }
 
     /// Sets the document ID of this search result.

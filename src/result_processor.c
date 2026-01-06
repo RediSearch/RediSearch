@@ -167,6 +167,7 @@ validate_current:
   SearchResult_SetDocId(res, it->lastDocId);
   SearchResult_SetIndexResult(res, it->current);
   SearchResult_SetScore(res, 0);
+  RS_LOG_ASSERT(SearchResult_GetDocumentMetadata(res) == NULL, "SearchResult already has associated document metadata");
   SearchResult_SetDocumentMetadata(res, dmd);
   RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(res), dmd->sortVector);
   return RS_RESULT_OK;

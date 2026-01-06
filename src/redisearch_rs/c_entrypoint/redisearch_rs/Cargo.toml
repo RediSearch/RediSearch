@@ -38,6 +38,7 @@ types_ffi = { path = "../types_ffi" }
 varint_ffi = { path = "../varint_ffi" }
 workspace_hack.workspace = true
 module_init_ffi = { path = "../module_init_ffi" }
+search_result_ffi = { path = "../search_result_ffi" }
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,
