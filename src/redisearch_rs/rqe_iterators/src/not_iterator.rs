@@ -48,6 +48,10 @@ where
             result: RSIndexResult::virt()
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL),
+            // The `limit` of 5_000 determines the granularity of the timeout check.
+            // Each time [`TimeoutContext::check_timeout`] is called (during `read` / `skip_to`),
+            // the internal counter goes up. When it reaches this `limit` of 5_000 it will
+            // reset that counter and do the actual (OS) expensive timeout check.
             timeout_ctx: TimeoutContext::new(timeout, 5_000),
         }
     }
