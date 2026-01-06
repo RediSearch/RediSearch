@@ -1104,7 +1104,7 @@ def CoordDispatchTimeInProfile(env):
 
   # Dispatch time should be >= pause duration (in ms)
   expected_ms = pause_duration_sec * 1000
-  env.assertGreaterEqual(dispatch_times[0], expected_ms,
+  env.assertGreaterEqual(float(dispatch_times[0]), expected_ms,
     message=f"dispatch time should be >= pause duration. all shards: {dispatch_times}")
 
   # --- Test SEARCH profile dispatch time should be 0 ---
@@ -1112,7 +1112,7 @@ def CoordDispatchTimeInProfile(env):
 
   shards_profile_search = get_shards_profile(env, res_search)
   for i, shard_profile in enumerate(shards_profile_search):
-    env.assertEqual(shard_profile['Coordinator dispatch time [ms]'], 0.0,
+    env.assertEqual(float(shard_profile['Coordinator dispatch time [ms]']), 0.0,
       message=f"shard {i}: 'Coordinator dispatch time' should be 0. full reply: {res_search}")
 
   # --- Test HYBRID profile dispatch time should be 0 ---

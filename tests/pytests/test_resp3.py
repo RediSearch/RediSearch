@@ -209,7 +209,7 @@ def test_coord_profile():
       },
       'Profile': {
         'Shards': env.shardsCount * [
-                      {'Shard ID': ANY, 'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Coordinator dispatch time': ANY, 'Warning': ['None'],
+                      {'Shard ID': ANY, 'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Coordinator dispatch time [ms]': ANY, 'Warning': ['None'],
                         'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
                         'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Scorer', 'Time': ANY, 'Results processed': ANY},
@@ -250,7 +250,7 @@ def test_coord_profile():
       'Total profile time': ANY,
       'Parsing time': ANY,
       'Pipeline creation time': ANY,
-      'Coordinator dispatch time': ANY,
+      'Coordinator dispatch time [ms]': ANY,
       'Warning': ['None'],
       'Internal cursor reads': ANY,
       'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},

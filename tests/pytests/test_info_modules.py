@@ -2350,8 +2350,11 @@ def test_coord_dispatch_time_metric():
     info = env.cmd('INFO', 'MODULES')
     return info[f'{SEARCH_PREFIX}total_coord_dispatch_time_ms']
 
+  # sleep for 10ms
+  pause_duration_sec = 0.01
+
   # Helper to run a command with paused coordinator threads and verify dispatch time behavior
-  def run_with_pause_and_verify_dispatch_time(cmd, pause_duration_sec, should_increase):
+  def run_with_pause_and_verify_dispatch_time(cmd, should_increase):
     """
     Pauses coordinator threads, launches cmd in background, waits pause_duration_sec,
     resumes threads, and verifies dispatch time changed (or not) as expected.
@@ -2392,17 +2395,13 @@ def test_coord_dispatch_time_metric():
 
     return threads
 
-  # sleep for 10ms
-  pause_duration_sec = 0.01
-
   # --- Test 1: FT.AGGREGATE should increase dispatch time ---
   initial_dispatch_time = get_dispatch_time_from_info()
   env.assertEqual(initial_dispatch_time, 0,
     message=f"Initial dispatch time should be 0. info: {info_modules_to_dict(env)}")
 
   env.assertIsNotNone(run_with_pause_and_verify_dispatch_time(
-    ['FT.AGGREGATE', 'idx', '*'],
-    pause_duration_sec, should_increase=True))
+    ['FT.AGGREGATE', 'idx', '*'], should_increase=True))
 
   # Verify that only the coordinator shard has the dispatch time metric updated.
   # Other shards should still have 0 because they didn't coordinate the command.
@@ -2441,13 +2440,12 @@ def test_coord_dispatch_time_metric():
 
   # --- Test 2: FT.SEARCH should NOT change dispatch time on any shard ---
   env.assertIsNotNone(run_with_pause_and_verify_dispatch_time(
-    ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'NOCONTENT'],
-    pause_duration_sec, should_increase=False))
+    ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'NOCONTENT'], should_increase=False))
   verify_per_shard_dispatch_times_unchanged('FT.SEARCH', dispatch_times_per_shard)
 
   # --- Test 3: FT.HYBRID should NOT change dispatch time on any shard ---
   query_vector = np.array([1.0, 1.0], dtype=np.float32).tobytes()
   env.assertIsNotNone(run_with_pause_and_verify_dispatch_time(
     ['FT.HYBRID', 'idx', 'SEARCH', 'hello0', 'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector],
-    pause_duration_sec, should_increase=False))
+    should_increase=False))
   verify_per_shard_dispatch_times_unchanged('FT.HYBRID', dispatch_times_per_shard)
