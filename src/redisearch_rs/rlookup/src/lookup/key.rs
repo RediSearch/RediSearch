@@ -298,7 +298,7 @@ impl<'a> RLookupKey<'a> {
         // This function must be kept in sync with `Self::into_ptr` above.
 
         // Safety:
-        // 1 -> This function will only ever be called through `RLookup::drop` below.
+        // 1 -> This function will only ever be called through `RLookup::drop`.
         //      We therefore know - because push_key creates pointers through `into_ptr` - that the invariant is upheld.
         // 2 -> Has to be upheld by the caller
         let b = unsafe { Box::from_raw(ptr.as_ptr()) };
@@ -317,7 +317,7 @@ impl<'a> RLookupKey<'a> {
     /// The caller *must* continue to treat the pointer as pinned.
     #[inline]
     pub(crate) unsafe fn into_ptr(me: Pin<Box<Self>>) -> NonNull<Self> {
-        // This function must be kept in sync with `Self::from_ptr` below.
+        // This function must be kept in sync with `Self::from_ptr`.
 
         // Safety: The caller promised to continue to treat the returned pointer
         // as pinned and never move out of it.
@@ -327,11 +327,11 @@ impl<'a> RLookupKey<'a> {
         unsafe { NonNull::new_unchecked(ptr) }
     }
 
-    pub fn name(&self) -> &Cow<'a, CStr> {
+    pub const fn name(&self) -> &Cow<'a, CStr> {
         &self._name
     }
 
-    pub fn path(&self) -> &Option<Cow<'a, CStr>> {
+    pub const fn path(&self) -> &Option<Cow<'a, CStr>> {
         &self._path
     }
 
@@ -341,16 +341,16 @@ impl<'a> RLookupKey<'a> {
     }
 
     pub fn is_tombstone(&self) -> bool {
-        let is_overridden = self.name.is_null();
+        let is_tombstone = self.name.is_null();
 
         #[cfg(any(debug_assertions, test))]
-        if is_overridden {
+        if is_tombstone {
             debug_assert!(self.name_len == usize::MAX);
             debug_assert!(self.path.is_null());
             debug_assert!(self.flags.contains(RLookupKeyFlag::Hidden))
         }
 
-        is_overridden
+        is_tombstone
     }
 
     /// Returns `true` if this node is currently linked to a [`List`].
