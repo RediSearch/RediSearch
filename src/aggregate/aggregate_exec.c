@@ -772,6 +772,9 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     if (sctx && sctx->spec && sctx->spec->scan_failed_OOM) {
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
     }
+    if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
+    }
 
     if (IsProfile(req)) {
       RedisModule_Reply_MapEnd(reply);  // >Results
