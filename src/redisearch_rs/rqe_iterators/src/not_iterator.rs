@@ -9,7 +9,7 @@
 
 //! Supporting types for [`Not`].
 
-use std::{cmp::Ordering, time::Duration};
+use std::time::Duration;
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
@@ -68,38 +68,25 @@ where
         while !self.at_eof() {
             self.result.doc_id += 1;
 
-            match self.result.doc_id.cmp(&self.child.last_doc_id()) {
-                Ordering::Less => {
-                    self.timeout_ctx.check_timeout()?;
+            // 1. Sync child if we've moved past its last known position
+            let child_at_eof = if self.result.doc_id > self.child.last_doc_id() {
+                self.child.read()?.is_none()
+            } else {
+                false
+            };
 
-                    // Our doc_id is before child's position - it's not in the child, return it
-                    return Ok(Some(&mut self.result));
-                }
-                Ordering::Equal => {
-                    // We caught up with child iterator - this doc is in the child, skip it
-                    self.timeout_ctx.check_timeout()?;
-                }
-                Ordering::Greater => {
-                    // Our doc_id is past child's position - need to advance child
-                    if let Some(result) = self.child.read()? {
-                        self.timeout_ctx.check_timeout()?;
+            // 2. Unified Checkpoint: Exactly one check per iteration.
+            // This occurs AFTER the child.read() and before we decide to return.
+            self.timeout_ctx.check_timeout()?;
 
-                        if result.doc_id > self.result.doc_id {
-                            // child skipped ahead already
-                            return Ok(Some(&mut self.result));
-                        }
-                        debug_assert_eq!(
-                            result.doc_id, self.result.doc_id,
-                            "child read backwards without rewind"
-                        );
-                    } else {
-                        self.timeout_ctx.check_timeout()?;
-
-                        // child EOF at read
-                        return Ok(Some(&mut self.result));
-                    }
-                }
+            // 3. Comparison Logic
+            // If child is EOF, or we haven't reached the child's position,
+            // or the child skipped past us, this document is a valid result.
+            if child_at_eof || self.result.doc_id != self.child.last_doc_id() {
+                return Ok(Some(&mut self.result));
             }
+
+            // Otherwise: doc_id == child.last_doc_id(), so we skip and loop again.
         }
 
         debug_assert!(self.at_eof());
