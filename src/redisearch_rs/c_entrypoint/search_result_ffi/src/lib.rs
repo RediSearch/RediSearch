@@ -8,16 +8,18 @@
 */
 
 use inverted_index::RSIndexResult;
-use search_result::{SearchResult, SearchResultFlags, bindings::DocumentMetadata};
+use search_result::{SearchResultFlag, SearchResultFlags, bindings::DocumentMetadata};
 use std::{
     mem,
     ptr::{self, NonNull},
 };
 
+pub type SearchResult = search_result::SearchResult<'static>;
+
 /// Construct a new [`SearchResult`].
 #[unsafe(no_mangle)]
-pub const extern "C" fn SearchResult_New() -> unsafe_tools::Size72Align8 {
-    SearchResult::new().into_mimic()
+pub const extern "C" fn SearchResult_New() -> SearchResult {
+    SearchResult::new()
 }
 
 /// Overrides the contents of `dst` with those from `src` taking ownership of `src`.
