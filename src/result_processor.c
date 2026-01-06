@@ -1804,18 +1804,18 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
  static bool hybridMergerStoreUpstreamResult(RPHybridMerger* self, SearchResult *r, size_t upstreamIndex, double score) {
   // Single shard case - use dmd->keyPtr
   RLookupRow translated = {0};
-  RLookupRow_WriteFieldsFrom(&r->rowdata,
-              self->lookupCtx->sourceLookups[upstreamIndex], &translated,
-              self->lookupCtx->tailLookup, self->lookupCtx->createMissingKeys);
-  RLookupRow_Reset(&r->rowdata);
-  r->rowdata = translated;
+  RLookupRow_WriteFieldsFrom(SearchResult_GetRowData(r),
+      self->lookupCtx->sourceLookups[upstreamIndex], &translated,
+      self->lookupCtx->tailLookup, self->lookupCtx->createMissingKeys);
+  RLookupRow_Reset(SearchResult_GetRowDataMut(r));
+  SearchResult_SetRowData(r, translated);
 
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   const char *keyPtr = dmd ? dmd->keyPtr : NULL;
   // Coordinator case - no dmd - use docKey in rlookup
   const bool fallbackToLookup = !keyPtr && self->docKey;
   if (fallbackToLookup) {
-    RSValue *docKeyValue = RLookup_GetItem(self->docKey, &r->rowdata);
+    RSValue *docKeyValue = RLookup_GetItem(self->docKey, SearchResult_GetRowData(r));
     if (docKeyValue != NULL) {
       keyPtr = RSValue_StringPtrLen(docKeyValue, NULL);
     }

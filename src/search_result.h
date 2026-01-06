@@ -25,23 +25,23 @@ extern "C" {
  * and a list of fields loaded by the chain
  */
 typedef struct {
-  t_docId docId;
+  t_docId _docId;
 
   // not all results have score - TBD
-  double score;
-  RSScoreExplain *scoreExplain;
+  double _score;
+  RSScoreExplain *_scoreExplain;
 
-  const RSDocumentMetadata *dmd;
+  const RSDocumentMetadata *_dmd;
 
   // index result should cover what you need for highlighting,
   // but we will add a method to duplicate index results to make
   // them thread safe
-  const RSIndexResult* indexResult;
+  const RSIndexResult* _indexResult;
 
   // Row data. Use RLookup_* functions to access
-  RLookupRow rowdata;
+  RLookupRow _rowdata;
 
-  uint8_t flags;
+  uint8_t _flags;
 } SearchResult;
 
 /* SearchResult flags */
@@ -81,28 +81,28 @@ void SearchResult_Override(SearchResult* dst, SearchResult* src);
  * Returns the document ID of `res`.
 */
 static inline t_docId SearchResult_GetDocId(const SearchResult* res) {
-  return res->docId;
+  return res->_docId;
 }
 
 /**
  * Sets the document ID of `res`.
  */
 static inline void SearchResult_SetDocId(SearchResult* res, t_docId docId) {
-  res->docId = docId;
+  res->_docId = docId;
 }
 
 /**
  * Returns the score of `res`.
  */
 static inline double SearchResult_GetScore(const SearchResult* res) {
-  return res->score;
+  return res->_score;
 }
 
 /**
  * Sets the score of `res`.
  */
 static inline void SearchResult_SetScore(SearchResult* res, double score) {
-  res->score = score;
+  res->_score = score;
 }
 
 /**
@@ -110,7 +110,7 @@ static inline void SearchResult_SetScore(SearchResult* res, double score) {
  * If you need to mutate the `RSScoreExplain` consider using `SearchResult_GetScoreExplainMut` instead.
  */
 static inline const RSScoreExplain* SearchResult_GetScoreExplain(const SearchResult* res) {
-  return res->scoreExplain;
+  return res->_scoreExplain;
 }
 
 /**
@@ -118,21 +118,21 @@ static inline const RSScoreExplain* SearchResult_GetScoreExplain(const SearchRes
  * If you do not need to mutate the `RSScoreExplain` consider using `SearchResult_GetScoreExplain` instead.
  */
 static inline RSScoreExplain* SearchResult_GetScoreExplainMut(SearchResult* res) {
-  return res->scoreExplain;
+  return res->_scoreExplain;
 }
 
 /**
  * Sets the `RSScoreExplain` associated with `res`.
  */
 static inline void SearchResult_SetScoreExplain(SearchResult* res, RSScoreExplain* scoreExplain) {
-  res->scoreExplain = scoreExplain;
+  res->_scoreExplain = scoreExplain;
 }
 
 /**
  * Returns an immutable pointer to the `RSDocumentMetadata` associated with `res`.
  */
 static inline const RSDocumentMetadata* SearchResult_GetDocumentMetadata(const SearchResult* res) {
-  return res->dmd;
+  return res->_dmd;
 }
 
 /**
@@ -140,28 +140,28 @@ static inline const RSDocumentMetadata* SearchResult_GetDocumentMetadata(const S
  */
 static inline void SearchResult_SetDocumentMetadata(SearchResult* res,
                                                     const RSDocumentMetadata* dmd) {
-  res->dmd = dmd;
+  res->_dmd = dmd;
 }
 
 /**
  * Returns an immutable pointer to the [RSIndexResult` associated with `res`.
  */
 static inline const RSIndexResult* SearchResult_GetIndexResult(const SearchResult* res) {
-  return res->indexResult;
+  return res->_indexResult;
 }
 
 /**
  * Returns true if `res` has an associated `RSIndexResult`.
  */
 static inline bool SearchResult_HasIndexResult(const SearchResult* res) {
-  return res->indexResult;
+  return res->_indexResult;
 }
 
 /**
  * Sets the `RSIndexResult` associated with `res`.
  */
 static inline void SearchResult_SetIndexResult(SearchResult* res, RSIndexResult* indexResult) {
-  res->indexResult = indexResult;
+  res->_indexResult = indexResult;
 }
 
 /**
@@ -169,7 +169,7 @@ static inline void SearchResult_SetIndexResult(SearchResult* res, RSIndexResult*
  * If you need to mutate the `RLookupRow` consider using `SearchResult_GetRowDataMut` instead.
  */
 static inline const RLookupRow* SearchResult_GetRowData(const SearchResult* res) {
-  return &res->rowdata;
+  return &res->_rowdata;
 }
 
 /**
@@ -177,21 +177,32 @@ static inline const RLookupRow* SearchResult_GetRowData(const SearchResult* res)
  * If you dont need to mutate the `RLookupRow` consider using `SearchResult_GetRowData` instead.
  */
 static inline RLookupRow* SearchResult_GetRowDataMut(SearchResult* res) {
-  return &res->rowdata;
+  return &res->_rowdata;
+}
+
+/**
+ * Sets the [`RLookupRow`][ffi::RLookupRow] of `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a correctly initialized [`RLookupRow`][ffi::RLookupRow].
+ */
+static inline void SearchResult_SetRowData(SearchResult *res, RLookupRow row_data) {
+    res->_rowdata = row_data;
 }
 
 /**
  * Returns the `SearchResultFlags` of `res`.
  */
 static inline uint8_t SearchResult_GetFlags(const SearchResult* res) {
-  return res->flags;
+  return res->_flags;
 }
 
 /**
  * Sets the [`SearchResultFlags`] of `res`.
  */
 static inline void SearchResult_SetFlags(SearchResult* res, uint8_t flags) {
-  res->flags = flags;
+  res->_flags = flags;
 }
 
 /**
@@ -199,7 +210,7 @@ static inline void SearchResult_SetFlags(SearchResult* res, uint8_t flags) {
  */
 static inline void SearchResult_MergeFlags(SearchResult* res, const SearchResult* other) {
   RS_ASSERT(res && other);
-  res->flags |= other->flags;
+  res->_flags |= other->_flags;
 }
 
 #ifdef __cplusplus
