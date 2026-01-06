@@ -79,104 +79,190 @@ void SearchResult_Override(SearchResult* dst, SearchResult* src);
 
 /**
  * Returns the document ID of `res`.
-*/
-static inline t_docId SearchResult_GetDocId(const SearchResult* res) {
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+static inline t_docId SearchResult_GetDocId(const SearchResult *res) {
   return res->_docId;
 }
 
 /**
  * Sets the document ID of `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline void SearchResult_SetDocId(SearchResult* res, t_docId docId) {
+static inline void SearchResult_SetDocId(SearchResult *res, t_docId docId) {
   res->_docId = docId;
 }
 
 /**
  * Returns the score of `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline double SearchResult_GetScore(const SearchResult* res) {
+static inline double SearchResult_GetScore(const SearchResult *res) {
   return res->_score;
 }
 
 /**
  * Sets the score of `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline void SearchResult_SetScore(SearchResult* res, double score) {
+static inline void SearchResult_SetScore(SearchResult *res, double score)  {
   res->_score = score;
 }
 
 /**
- * Returns an immutable pointer to the `RSScoreExplain` associated with `res`.
- * If you need to mutate the `RSScoreExplain` consider using `SearchResult_GetScoreExplainMut` instead.
+ * Returns an immutable pointer to the [`ffi::RSScoreExplain`] associated with `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline const RSScoreExplain* SearchResult_GetScoreExplain(const SearchResult* res) {
+static inline const RSScoreExplain *SearchResult_GetScoreExplain(const SearchResult *res)  {
   return res->_scoreExplain;
 }
 
 /**
  * Returns a mutable pointer to the [`ffi::RSScoreExplain`] associated with `res`.
- * If you do not need to mutate the `RSScoreExplain` consider using `SearchResult_GetScoreExplain` instead.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline RSScoreExplain* SearchResult_GetScoreExplainMut(SearchResult* res) {
+static inline RSScoreExplain *SearchResult_GetScoreExplainMut(SearchResult *res) {
   return res->_scoreExplain;
 }
 
 /**
- * Sets the `RSScoreExplain` associated with `res`.
+ * Sets the [`ffi::RSScoreExplain`] associated with `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ * 2. `score_explain` must be a [valid] pointer to a [`ffi::RSScoreExplain`].
+ * 3. `score_explain` must be [valid] for the entire lifetime of `res`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline void SearchResult_SetScoreExplain(SearchResult* res, RSScoreExplain* scoreExplain) {
+static inline void SearchResult_SetScoreExplain(SearchResult *res, RSScoreExplain *scoreExplain) {
   res->_scoreExplain = scoreExplain;
 }
 
 /**
- * Returns an immutable pointer to the `RSDocumentMetadata` associated with `res`.
+ * Returns an immutable reference to the [`ffi::RSDocumentMetadata`] associated with `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline const RSDocumentMetadata* SearchResult_GetDocumentMetadata(const SearchResult* res) {
+static inline const RSDocumentMetadata *SearchResult_GetDocumentMetadata(const SearchResult *res) {
   return res->_dmd;
 }
 
 /**
- * Sets the `RSDocumentMetadata` associated with `res`.
+ * Sets the [`ffi::RSDocumentMetadata`] associated with `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ * 2. `document_metadata` must be a [valid] pointer to a [`ffi::RSDocumentMetadata`].
+ * 3. `document_metadata` must be not be mutated for the entire lifetime of `res`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline void SearchResult_SetDocumentMetadata(SearchResult* res,
-                                                    const RSDocumentMetadata* dmd) {
-  res->_dmd = dmd;
-}
+static inline void SearchResult_SetDocumentMetadata(SearchResult *res,
+                                      const RSDocumentMetadata *documentMetadata) {
+                                        res->_dmd = documentMetadata;
+                                      }
 
 /**
- * Returns an immutable pointer to the [RSIndexResult` associated with `res`.
+ * Returns an immutable pointer to the [`RSIndexResult`] associated with `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline const RSIndexResult* SearchResult_GetIndexResult(const SearchResult* res) {
+static inline const RSIndexResult *SearchResult_GetIndexResult(const SearchResult *res) {
   return res->_indexResult;
 }
 
 /**
- * Returns true if `res` has an associated `RSIndexResult`.
+ * Sets the [`RSIndexResult`] associated with `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline bool SearchResult_HasIndexResult(const SearchResult* res) {
+static inline bool SearchResult_HasIndexResult(const SearchResult *res) {
   return res->_indexResult;
 }
 
 /**
- * Sets the `RSIndexResult` associated with `res`.
+ * Sets the [`RSIndexResult`] associated with `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ * 2. `index_result` must be a [valid] pointer to a [`ffi::RSIndexResult`].
+ * 3. `index_result` must be [valid] for the entire lifetime of `res`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline void SearchResult_SetIndexResult(SearchResult* res, RSIndexResult* indexResult) {
+static inline void SearchResult_SetIndexResult(SearchResult *res, const RSIndexResult *indexResult) {
   res->_indexResult = indexResult;
 }
 
 /**
- * Returns an immutable pointer to the [`RLookupRow`] of `res`.
- * If you need to mutate the `RLookupRow` consider using `SearchResult_GetRowDataMut` instead.
+ * Returns an immutable pointer to the [`RLookupRow`][ffi::RLookupRow] of `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline const RLookupRow* SearchResult_GetRowData(const SearchResult* res) {
+static inline const RLookupRow *SearchResult_GetRowData(const SearchResult *res) {
   return &res->_rowdata;
 }
 
 /**
- * Returns a mutable pointer to the `RLookupRow` of `res`.
- * If you dont need to mutate the `RLookupRow` consider using `SearchResult_GetRowData` instead.
+ * Returns a mutable pointer to the [`RLookupRow`][ffi::RLookupRow] of `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline RLookupRow* SearchResult_GetRowDataMut(SearchResult* res) {
+static inline RLookupRow *SearchResult_GetRowDataMut(SearchResult *res) {
   return &res->_rowdata;
 }
 
@@ -187,28 +273,47 @@ static inline RLookupRow* SearchResult_GetRowDataMut(SearchResult* res) {
  *
  * 1. `res` must be a correctly initialized [`RLookupRow`][ffi::RLookupRow].
  */
-static inline void SearchResult_SetRowData(SearchResult *res, RLookupRow row_data) {
-    res->_rowdata = row_data;
+static inline void SearchResult_SetRowData(SearchResult *res, RLookupRow rowData) {
+    res->_rowdata = rowData;
 }
 
 /**
- * Returns the `SearchResultFlags` of `res`.
+ * Returns the [`SearchResultFlags`] of `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline uint8_t SearchResult_GetFlags(const SearchResult* res) {
+static inline uint8_t SearchResult_GetFlags(const SearchResult *res) {
   return res->_flags;
 }
 
 /**
  * Sets the [`SearchResultFlags`] of `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline void SearchResult_SetFlags(SearchResult* res, uint8_t flags) {
+static inline void SearchResult_SetFlags(SearchResult *res, uint8_t flags) {
   res->_flags = flags;
 }
 
 /**
- * Merges flags (union) from `res` and `other` into `res`
+ * Merge the flags (union) `other` into `res`
+ *
+ * # Safety
+ *
+ * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+ * 2. `other` must be a [valid], non-null pointer to a [`SearchResult`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline void SearchResult_MergeFlags(SearchResult* res, const SearchResult* other) {
+static inline void SearchResult_MergeFlags(SearchResult *res, const SearchResult *other)  {
   RS_ASSERT(res && other);
   res->_flags |= other->_flags;
 }
