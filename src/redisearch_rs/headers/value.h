@@ -202,7 +202,7 @@ const struct RSValue *RSValue_Trio_GetMiddle(const struct RSValue *value);
  */
 const struct RSValue *RSValue_Trio_GetRight(const struct RSValue *value);
 
-uint64_t RSValue_Hash(const struct RSValue *v, uint64_t hval);
+uint64_t RSValue_Hash(const struct RSValue *value, uint64_t hval);
 
 /**
  * Allocates a new, uninitialized [`RSValueMap`] with space for `len` entries.
