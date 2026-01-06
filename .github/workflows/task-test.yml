@@ -395,6 +395,7 @@ jobs:
           echo "CC=$CLANG_BIN" >> $GITHUB_ENV
           echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
           echo "LD=$CLANG_BIN" >> $GITHUB_ENV
+          echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
       - name: Get Redis (node20)
         if: ${{ steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
@@ -497,6 +498,18 @@ jobs:
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
 
+      - name: Rust tests (MIRI)
+        if: inputs.san == 'address'
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: rust_unit_tests_miri
+        continue-on-error: ${{ !inputs.fail-fast }}
+        env:
+          RUN_MIRI: 1
+          LOG: 1
+          CLEAR_LOGS: 0
+          ENABLE_ASSERT: 1
+        run: make rust-tests
+
       - name: Check test logs folder size
         if: always()
         run: |
@@ -541,7 +554,13 @@ jobs:
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'true' &&
-          (failure() || steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
+          failure() || (
+            (steps.rust_unit_tests_miri.outcome == 'failure') ||
+            steps.rust_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' ||
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -556,16 +575,30 @@ jobs:
       - name: Upload Artifacts (node20 not supported) (temporarily disabled)
         if: >
           steps.node20.outputs.supported == 'false' &&
-          (failure() || steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
+          failure() || (
+            (steps.rust_unit_tests_miri.outcome == 'failure') ||
+            steps.rust_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' ||
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
         run: echo "Currently not available..."
 
       - name: Fail flow if tests failed
         # due to continue-on-error, we need to check failure() explicitly for step to run
         # otherwise github implicitly adds a success() condition to the if and the job gets skipped
-        if: failure() || steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
+        if: |
+          failure() || (
+            (steps.rust_unit_tests_miri.outcome == 'failure') ||
+            steps.rust_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' ||
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
         run: |
-          echo "Rust Unit Tests: ${{ steps.rust_unit_tests.outcome }}"
           echo "C Unit Tests: ${{ steps.c_unit_tests.outcome }}"
+          echo "Rust Unit Tests: ${{ steps.rust_unit_tests.outcome }}"
+          echo "Rust Unit Tests(Miri): ${{ steps.rust_unit_tests_miri.outcome }}"
           echo "Standalone: ${{ steps.standalone_tests.outcome }}"
           echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
           exit 1
