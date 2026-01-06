@@ -32,9 +32,10 @@ on:
 env:
   REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
   BRANCH: ${{ inputs.ref || github.ref_name }}        # Define "branch" name for pack name (used in `make pack`)
-  AWS_ACCESS_KEY_ID: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
   AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+  # NOTE: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are NOT set at workflow level
+  # to avoid interfering with OIDC-based authentication (role-to-assume).
+  # They are set at the step level only when key-based auth is used.
 
 jobs:
   # Get configuration for this specific platform and architecture
@@ -118,6 +119,9 @@ jobs:
           ref: ${{ env.REF }}
       - name: checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
         run: |
           # Execute the logic based on the detected platform
           CONTAINER="${{ needs.get-config.outputs.container }}"
@@ -126,10 +130,10 @@ jobs:
             amazonlinux:2)
 
               # Configure the safe directory
-              git config --global --add safe.directory "/__w/$GITHUB_REPOSITORY"
+              git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-              # Checkout
-              REPO_URL="https://github.com/$GITHUB_REPOSITORY.git"
+              # Checkout (using token for private repo access)
+              REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git"
 
               # Initialize a Git repository
               git init
@@ -213,19 +217,52 @@ jobs:
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
       - name: Configure AWS Credentials Using Role (node20 not supported)
         if: vars.USE_AWS_ROLE == 'true' && steps.node20.outputs.supported == 'false'
+        env:
+          ROLE_ARN: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
+          AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
         run: |
-          # Variables from the workflow
-          ROLE_ARN="${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}"
-          AWS_REGION="${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}"
-          SESSION_NAME="github-actions-session"
-
-          # Assume the AWS role and configure temporary credentials
-          ASSUME_ROLE_OUTPUT=$(aws sts assume-role --role-arn "$ROLE_ARN" --role-session-name "$SESSION_NAME" --region "$AWS_REGION")
-          if [ $? -ne 0 ]; then
-            echo "Failed to assume AWS role" && exit 1
+          # Ensure jq is installed for JSON parsing
+          if ! command -v jq &> /dev/null; then
+            echo "Error: jq is not installed. Please add 'jq' to the platform's setup script (e.g., .install/<platform>.sh)"
+            exit 1
           fi
 
-          echo "AWS credentials configured successfully."
+          # Get GitHub OIDC token
+          echo "Requesting GitHub OIDC token..."
+          OIDC_TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r '.value // empty')
+
+          if [ -z "$OIDC_TOKEN" ]; then
+            echo "Failed to get OIDC token from GitHub"
+            exit 1
+          fi
+
+          # Assume the AWS role using Web Identity (OIDC) and configure credentials
+          echo "Assuming AWS role using OIDC..."
+          CREDS_JSON=$(aws sts assume-role-with-web-identity \
+            --role-arn "$ROLE_ARN" \
+            --role-session-name "GitHubActions" \
+            --web-identity-token "$OIDC_TOKEN" \
+            --region "$AWS_REGION")
+
+          AWS_ACCESS_KEY_ID=$(echo "$CREDS_JSON" | jq -r '.Credentials.AccessKeyId')
+          AWS_SECRET_ACCESS_KEY=$(echo "$CREDS_JSON" | jq -r '.Credentials.SecretAccessKey')
+          AWS_SESSION_TOKEN=$(echo "$CREDS_JSON" | jq -r '.Credentials.SessionToken')
+
+          # Mask secrets so if they ever get echoed, logs will redact them.
+          echo "::add-mask::$AWS_ACCESS_KEY_ID"
+          echo "::add-mask::$AWS_SECRET_ACCESS_KEY"
+          echo "::add-mask::$AWS_SESSION_TOKEN"
+
+          # Export for subsequent steps in this job
+          {
+            echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID"
+            echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY"
+            echo "AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN"
+            echo "AWS_REGION=$AWS_REGION"
+          } >> "$GITHUB_ENV"
+
+          echo "AWS credentials configured successfully using OIDC."
       - name: Configure AWS Credentials Using Keys (node20)
         if: vars.USE_AWS_ROLE == 'false' && steps.node20.outputs.supported == 'true'
         uses: aws-actions/configure-aws-credentials@v4
@@ -252,6 +289,7 @@ jobs:
           aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
           aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
           aws configure set region "$AWS_REGION"
+
       - name: Set Version identifier
         id: set-versions
         run: |
