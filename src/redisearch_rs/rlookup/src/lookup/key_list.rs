@@ -404,3 +404,237 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         Some(new)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::RLookup;
+    use enumflags2::make_bitflags;
+
+    // assert that the linked list is produced and linked correctly
+    #[test]
+    fn keylist_push_consistency() {
+        let rlookup = RLookup::new();
+        let mut keylist = KeyList::new();
+
+        let foo = keylist.push(RLookupKey::new(&rlookup, c"foo", RLookupKeyFlags::empty()));
+        let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
+
+        let bar = keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
+
+        keylist.assert_valid("tests::keylist_push_consistency after insertions");
+
+        assert_eq!(keylist.head.unwrap(), foo);
+        assert_eq!(keylist.tail.unwrap(), bar);
+        unsafe {
+            assert!(foo.as_ref().has_next());
+        }
+        unsafe {
+            assert!(!bar.as_ref().has_next());
+        }
+    }
+
+    // Assert the Cursor::move_next method DOES NOT skip keys marked hidden
+    #[test]
+    fn keylist_cursor_move_next() {
+        let rlookup = RLookup::new();
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(
+            &rlookup,
+            c"foo",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(
+            &rlookup,
+            c"baz",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.assert_valid("tests::keylist_cursor_move_next after insertions");
+
+        let mut c = keylist.cursor_front();
+        assert_eq!(c.current().unwrap()._name.as_ref(), c"foo");
+        c.move_next();
+        assert_eq!(c.current().unwrap()._name.as_ref(), c"bar");
+        c.move_next();
+        assert_eq!(c.current().unwrap()._name.as_ref(), c"baz");
+        c.move_next();
+        assert!(c.current().is_none());
+    }
+
+    // Assert the CursorMut::move_next method DOES NOT skip keys marked hidden
+    #[test]
+    fn keylist_cursor_mut_move_next() {
+        let rlookup = RLookup::new();
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(
+            &rlookup,
+            c"foo",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(
+            &rlookup,
+            c"baz",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.assert_valid("tests::keylist_cursor_mut_move_next after insertions");
+
+        let mut c = keylist.cursor_front_mut();
+        assert_eq!(c.current().unwrap()._name.as_ref(), c"foo");
+        c.move_next();
+        assert_eq!(c.current().unwrap()._name.as_ref(), c"bar");
+        c.move_next();
+        assert_eq!(c.current().unwrap()._name.as_ref(), c"baz");
+        c.move_next();
+        assert!(c.current().is_none());
+    }
+
+    #[test]
+    fn keylist_find() {
+        let rlookup = RLookup::new();
+        let mut keylist = KeyList::new();
+
+        let foo = keylist.push(RLookupKey::new(&rlookup, c"foo", RLookupKeyFlags::empty()));
+        let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
+
+        let bar = keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
+
+        keylist.assert_valid("tests::keylist_find after insertions");
+
+        let found = keylist.find_by_name(c"foo").unwrap();
+        assert_eq!(NonNull::from(found.current().unwrap()), foo);
+
+        let found = keylist.find_by_name(c"bar").unwrap();
+        assert_eq!(NonNull::from(found.current().unwrap()), bar);
+
+        assert!(keylist.find_by_name(c"baz").is_none());
+    }
+
+    #[test]
+    fn keylist_find_mut() {
+        let rlookup = RLookup::new();
+        let mut keylist = KeyList::new();
+
+        let foo = keylist.push(RLookupKey::new(&rlookup, c"foo", RLookupKeyFlags::empty()));
+        let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
+
+        let bar = keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
+
+        keylist.assert_valid("tests::keylist_find_mut after insertions");
+
+        let mut found = keylist.find_by_name_mut(c"foo").unwrap();
+        assert_eq!(
+            NonNull::from(unsafe { Pin::into_inner_unchecked(found.current().unwrap()) }),
+            foo
+        );
+
+        let mut found = keylist.find_by_name_mut(c"bar").unwrap();
+        assert_eq!(
+            NonNull::from(unsafe { Pin::into_inner_unchecked(found.current().unwrap()) }),
+            bar
+        );
+
+        assert!(keylist.find_by_name(c"baz").is_none());
+    }
+
+    #[test]
+    fn keylist_override_key_find() {
+        let rlookup = RLookup::new();
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(
+            &rlookup,
+            c"foo",
+            make_bitflags!(RLookupKeyFlag::Unresolved),
+        ));
+
+        keylist
+            .cursor_front_mut()
+            .override_current(make_bitflags!(RLookupKeyFlag::Numeric));
+
+        let found = keylist
+            .find_by_name(c"foo")
+            .expect("expected to find key by name");
+
+        let found = found
+            .current()
+            .expect("cursor should have current, this is a bug");
+
+        assert_eq!(found._name.as_ref(), c"foo");
+        assert!(found._path.is_none());
+        assert_eq!(found.dstidx, 0);
+        // new key should have provided keys
+        assert!(found.flags.contains(RLookupKeyFlag::Numeric));
+        // new key should not inherit any old flags
+        assert!(!found.flags.contains(RLookupKeyFlag::Unresolved));
+    }
+
+    #[test]
+    fn keylist_override_key_iterate() {
+        let rlookup = RLookup::new();
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(
+            &rlookup,
+            c"foo",
+            make_bitflags!(RLookupKeyFlag::Unresolved),
+        ));
+        keylist
+            .cursor_front_mut()
+            .override_current(make_bitflags!(RLookupKeyFlag::Numeric));
+
+        let mut c = keylist.cursor_front();
+
+        // we expect the first item to be the tombstone of the old key
+        assert!(c.current().unwrap().is_overridden());
+
+        // and the next item to be the new key
+        c.move_next();
+        assert_eq!(c.current().unwrap()._name.as_ref(), c"foo");
+    }
+
+    #[test]
+    fn keylist_override_key_tail_handling() {
+        let rlookup = RLookup::new();
+        let mut keylist = KeyList::new();
+
+        // push two keys, so we can override one without altering the tail and another one to override it.
+        keylist.push(RLookupKey::new(
+            &rlookup,
+            c"foo",
+            make_bitflags!(RLookupKeyFlag::Unresolved),
+        ));
+        let secoond = keylist.push(RLookupKey::new(
+            &rlookup,
+            c"bar",
+            make_bitflags!(RLookupKeyFlag::Unresolved),
+        ));
+        let second = unsafe { NonNull::from(Pin::into_inner_unchecked(secoond)) };
+
+        // store first override key
+        let override1 = keylist
+            .cursor_front_mut()
+            .override_current(make_bitflags!(RLookupKeyFlag::Numeric));
+        let override1 = unsafe { NonNull::from(Pin::into_inner_unchecked(override1.unwrap())) };
+
+        // we expect the tail to be the second key still
+        assert_ne!(override1, keylist.tail.unwrap());
+        assert_eq!(second, keylist.tail.unwrap());
+
+        // now we override the second key, which is the tail
+        let mut cursor = keylist.cursor_front_mut();
+        cursor.move_next(); // move to the first override
+        cursor.move_next(); // move to the second key
+        let override2 = cursor.override_current(make_bitflags!(RLookupKeyFlag::Numeric));
+        let override2 = unsafe { NonNull::from(Pin::into_inner_unchecked(override2.unwrap())) };
+
+        // we expect the tail to be the new key
+        assert_eq!(override2, keylist.tail.unwrap());
+    }
+}
