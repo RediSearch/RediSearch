@@ -34,10 +34,12 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
 
   RedisModule_Reply_Map(reply);
   if (IndexReader_Flags(it->reader) == Index_DocIdsOnly) {
-    RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
-    if (term != NULL) {
-      printProfileType("TAG");
-      REPLY_KVSTR_SAFE("Term", term->str);
+    if (root && root->current) {
+      RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
+      if (term != NULL) {
+        printProfileType("TAG");
+        REPLY_KVSTR_SAFE("Term", term->str);
+      }
     }
   } else if (IndexReader_Flags(it->reader) & Index_StoreNumeric) {
     const NumericFilter *flt = IndexReader_NumericFilter(it->reader);
