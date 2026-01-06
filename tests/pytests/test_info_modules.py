@@ -2379,7 +2379,6 @@ def test_coord_dispatch_time_metric():
       t.join(timeout=30)
 
     after_time = get_dispatch_time_from_info()
-    print(f"before: {before_time}, after: {after_time}")
     time_increase = after_time - before_time
 
     cmd_name = cmd[0]

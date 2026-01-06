@@ -86,7 +86,7 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
 }
 
 MRCommand MR_NewCommandArgv(int argc, const char **argv) {
-  MRCommand cmd;
+  MRCommand cmd = {0};
   MRCommand_Init(&cmd, argc);
 
   for (int i = 0; i < argc; i++) {
@@ -97,7 +97,7 @@ MRCommand MR_NewCommandArgv(int argc, const char **argv) {
 
 /* Create a deep copy of a command by duplicating all strings */
 MRCommand MRCommand_Copy(const MRCommand *cmd) {
-  MRCommand ret;
+  MRCommand ret = {0};
   MRCommand_Init(&ret, cmd->num);
   ret.slotsInfoArgIndex = cmd->slotsInfoArgIndex;
   ret.dispatchTimeArgIndex = cmd->dispatchTimeArgIndex;
@@ -116,7 +116,7 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
 }
 
 MRCommand MR_NewCommand(int argc, ...) {
-  MRCommand cmd;
+  MRCommand cmd = {0};
   MRCommand_Init(&cmd, argc);
 
   va_list ap;
@@ -129,7 +129,7 @@ MRCommand MR_NewCommand(int argc, ...) {
 }
 
 MRCommand MR_NewCommandFromRedisStrings(int argc, RedisModuleString **argv) {
-  MRCommand cmd;
+  MRCommand cmd = {0};
   MRCommand_Init(&cmd, argc);
   for (int i = 0; i < argc; i++) {
     assignRstr(&cmd, i, argv[i]);
