@@ -358,6 +358,8 @@ const RedisModuleString *RSValue_RedisString_Get(const struct RsValue *value);
  */
 const char *RSValue_StringPtrLen(const struct RsValue *value, size_t *len_ptr);
 
+uint64_t RSValue_Hash(const struct RsValue *value, uint64_t hval);
+
 /**
  * Allocates a new, uninitialized [`RSValueMapBuilder`] with space for `len` entries.
  *
