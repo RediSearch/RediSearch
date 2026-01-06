@@ -9,9 +9,10 @@
 #[cfg(debug_assertions)]
 use crate::rlookup_id::RLookupId;
 use crate::{
-    RLookupRow, SchemaRule,
+    RLookupRow,
     bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache},
-    hidden_string::HiddenString,
+    field_spec::FieldSpec,
+    index_spec::IndexSpec,
 };
 use enumflags2::{BitFlags, bitflags, make_bitflags};
 use pin_project::pin_project;
@@ -324,24 +325,20 @@ impl<'a> RLookupKey<'a> {
         }
     }
 
-    pub fn new_with_path(
-        parent: &RLookup<'_>,
-        name: impl Into<Cow<'a, CStr>>,
-        // path: impl Into<Cow<'a, CStr>>,
-        path_ptr: *const c_char,
-        flags: RLookupKeyFlags,
-    ) -> Self {
-        let mut key = Self::new(parent, name, flags);
-        // TODO: What about key._path?
-        key.path = path_ptr;
-        key
-    }
-
-    // Maybe?
-    pub unsafe fn new_from_ptr() {}
-
     pub fn name(&self) -> &CStr {
         self._name.as_ref()
+    }
+
+    pub fn path(&self) -> Option<&CStr> {
+        self._path.as_ref().map(|s| &**s)
+    }
+
+    pub fn name2(&self) -> &CStr {
+        unsafe { CStr::from_ptr(self.name) }
+    }
+
+    pub fn path2(&self) -> &CStr {
+        unsafe { CStr::from_ptr(self.path) }
     }
 
     pub fn update_from_field_spec(&mut self, fs: &ffi::FieldSpec) {
@@ -1280,105 +1277,73 @@ impl<'a> RLookup<'a> {
 
     pub fn load_rule_fields(
         &mut self,
-        ctx: &mut ffi::RedisModuleCtx,
+        module_ctx: &mut ffi::RedisModuleCtx,
         dst_row: &mut RLookupRow<value::RSValueFFI>,
-        spec: &mut ffi::IndexSpec,
-        key_ptr: *const c_char,
+        index_spec: &'a IndexSpec,
+        key: &CStr,
     ) -> i32 {
-        let keys = create_keys_from_spec(self, spec);
+        let keys = create_keys_from_spec(self, index_spec);
         let pushed_keys = keys.into_iter().map(|k| self.keys.push(k)).collect();
-        load_many_keys(self, ctx, dst_row, spec, key_ptr, pushed_keys)
+        load_many_keys(self, module_ctx, dst_row, index_spec, key, pushed_keys)
     }
 }
 
-fn create_keys_from_spec<'b>(
-    lookup: &mut RLookup<'b>,
-    index_spec: &mut ffi::IndexSpec,
-) -> Vec<RLookupKey<'b>> {
-    // TODO: Test in isolation? (What are we doing here?)
-
-    // Safety: ...
-    let rule = unsafe { SchemaRule::from_raw(index_spec.rule) };
-
-    let fields_len = usize::try_from(
-        // Safety: ...
-        unsafe { ffi::array_len_func(index_spec.fields as ffi::array_t) },
-    )
-    .expect("array_len must not exceed usize");
-
-    // Safety: ...
-    let field_specs = unsafe { slice::from_raw_parts(index_spec.fields, fields_len) };
-
-    rule.filter_fields_index_slice()
+fn create_keys_from_spec<'a>(
+    lookup: &mut RLookup,
+    index_spec: &'a IndexSpec,
+) -> Vec<RLookupKey<'a>> {
+    let rule = index_spec.rule();
+    let field_specs = index_spec.field_specs();
+    rule.filter_fields_index()
         .iter()
-        .zip(rule.filter_fields_slice())
-        .map(|(&idx, &filter_field)| create_key_from_spec(lookup, idx, filter_field, field_specs))
+        .zip(rule.filter_fields())
+        .map(|(&index, filter_field)| {
+            create_key_from_data(lookup, index, filter_field, field_specs)
+        })
         .collect::<Vec<_>>()
 }
 
-fn create_key_from_spec<'b>(
-    lookup: &mut RLookup<'b>,
-    idx: i32,
-    filter_field: *const c_char,
-    field_specs: &[ffi::FieldSpec],
-) -> RLookupKey<'b> {
-    // TODO: Test in isolation? (What are we doing here?)
-
+fn create_key_from_data<'a>(
+    lookup: &mut RLookup,
+    index: i32,
+    filter_field: &'a CStr,
+    field_specs: &'a [FieldSpec],
+) -> RLookupKey<'a> {
     const NO_MATCH: i32 = -1;
-    let (name_ptr, name_len, path_ptr) = match idx {
-        NO_MATCH => (
-            filter_field as _,
-            // Safety: ...
-            unsafe { libc::strlen(filter_field) },
-            None,
-        ),
-        _ => {
-            let idx = usize::try_from(idx).expect("idx must be positive and fit into usize");
-            let field_spec = field_specs[idx];
-
-            // Safety: we received the pointer from the field spec and have to assume it is valid
-            let (field_name, field_name_len) =
-                unsafe { HiddenString::from_raw(field_spec.fieldName).get_unsafe() };
-
-            // Safety: we received the pointer from the field spec and have to assume it is valid
-            let (path_ptr, _) =
-                unsafe { HiddenString::from_raw(field_spec.fieldPath).get_unsafe() };
-
-            (field_name, field_name_len, Some(path_ptr))
-        }
-    };
-
-    // Safety: ...
-    let name_bytes = unsafe { slice::from_raw_parts(name_ptr.cast::<u8>(), name_len + 1) };
-    let name = CStr::from_bytes_with_nul(name_bytes).expect("string must not be malformed");
-
-    if let Some(path_ptr) = path_ptr {
-        RLookupKey::new_with_path(lookup, name, path_ptr, RLookupKeyFlags::empty())
+    if NO_MATCH == index {
+        RLookupKey::new(lookup, filter_field, None, RLookupKeyFlags::empty())
     } else {
-        RLookupKey::new(lookup, name, RLookupKeyFlags::empty())
+        let index = usize::try_from(index).expect("index must be positive and fit into usize");
+        let field_spec = &field_specs[index];
+        let field_name = field_spec.field_name().get_secret_value();
+        let path = field_spec.field_path().get_secret_value();
+        let path = Cow::Borrowed(path);
+
+        RLookupKey::new(lookup, field_name, Some(path), RLookupKeyFlags::empty())
     }
 }
 
-fn load_many_keys<'b>(
-    lookup: &mut RLookup<'b>,
-    ctx: &mut ffi::RedisModuleCtx,
+fn load_many_keys(
+    lookup: &mut RLookup,
+    module_ctx: &mut ffi::RedisModuleCtx,
     dst_row: &mut RLookupRow<value::RSValueFFI>,
-    spec: &mut ffi::IndexSpec,
-    key_ptr: *const c_char,
-    keys: Vec<Pin<&'b mut RLookupKey<'b>>>,
+    index_spec: &IndexSpec,
+    key: &CStr,
+    keys: Vec<Pin<&mut RLookupKey>>,
 ) -> i32 {
-    let it = ptr::from_mut(lookup) as *mut ffi::RLookup;
-    let dst = ptr::from_mut(dst_row) as *mut ffi::RLookupRow;
+    let lookup = ptr::from_mut(lookup).cast::<ffi::RLookup>();
+    let dst_row = ptr::from_mut(dst_row).cast::<ffi::RLookupRow>();
 
     let mut keys = keys
         .into_iter()
-        .map(|k| k.as_ref().get_ref() as *const RLookupKey as *const ffi::RLookupKey)
+        .map(|k| {
+            // Safety: ...
+            let k = unsafe { Pin::into_inner_unchecked(k.into_ref()) };
+            ptr::from_ref(k).cast::<ffi::RLookupKey>()
+        })
         .collect::<Vec<_>>();
 
-    let mut sctx = create_redis_search_ctx_with_ctx_and_spec(ctx, spec);
-
-    // Safety: ...
-    let rule = unsafe { SchemaRule::from_raw(spec.rule) };
+    let mut sctx = create_redis_search_ctx(module_ctx);
 
     // TODO: Add comment explaining why "for real" temp.
     // Safety: ...
@@ -1388,8 +1353,8 @@ fn load_many_keys<'b>(
         keys: keys.as_mut_ptr(),
         nkeys: keys.len(),
         sctx: &mut sctx,
-        keyPtr: key_ptr,
-        type_: rule.type_(),
+        keyPtr: key.as_ptr(),
+        type_: index_spec.rule().type_(),
         status: &mut status,
         forceLoad: true,
         mode: ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
@@ -1397,16 +1362,13 @@ fn load_many_keys<'b>(
         forceString: false,
     };
 
-    unsafe { ffi::loadIndividualKeys(it, dst, &mut options) }
+    unsafe { ffi::loadIndividualKeys(lookup, dst_row, &mut options) }
 }
 
-const fn create_redis_search_ctx_with_ctx_and_spec(
-    module_ctx: *mut ffi::RedisModuleCtx,
-    index_spec: *mut ffi::IndexSpec,
-) -> ffi::RedisSearchCtx {
+const fn create_redis_search_ctx(module_ctx: *mut ffi::RedisModuleCtx) -> ffi::RedisSearchCtx {
     ffi::RedisSearchCtx {
         redisCtx: module_ctx,
-        spec: index_spec,
+        spec: ptr::null_mut(),
         key_: ptr::null_mut(),
         time: ffi::SearchTime {
             current: ffi::timespec {
@@ -1426,14 +1388,233 @@ const fn create_redis_search_ctx_with_ctx_and_spec(
 
 #[cfg(test)]
 mod tests {
+    use crate::hidden_string::HiddenString;
+
     use super::*;
 
-    use pretty_assertions::assert_eq;
     use std::ffi::CString;
     use std::mem::MaybeUninit;
 
+    use pretty_assertions::assert_eq;
+    use rstest::rstest;
+
     #[cfg(not(miri))]
     use proptest::prelude::*;
+
+    #[rstest]
+    #[case(-1, c"ff", c"ff")]
+    #[case(0, c"fn0", c"fp0")]
+    #[case(1, c"fn1", c"fp1")]
+    fn create_key_from_data(
+        #[case] index: i32,
+        #[case] expected_name: &CStr,
+        #[case] expected_path: &CStr,
+    ) {
+        let mut lookup = RLookup::new();
+        let filter_field = c"ff";
+        let field_specs = [
+            FieldSpec::from_ffi(field_spec(c"fn0", c"fp0")),
+            FieldSpec::from_ffi(field_spec(c"fn1", c"fp1")),
+        ];
+
+        let actual = super::create_key_from_data(&mut lookup, index, filter_field, &field_specs);
+
+        assert_eq!(actual.name2(), expected_name);
+        assert_eq!(actual.path2(), expected_path);
+    }
+
+    #[test]
+    fn create_keys_from_spec() {
+        // Arrange
+        let mut lookup = RLookup::new();
+        let mut index_spec = unsafe { mem::zeroed::<ffi::IndexSpec>() };
+
+        let mut schema_rule = unsafe { mem::zeroed::<ffi::SchemaRule>() };
+        schema_rule.filter_fields_index = [-1, 0, 1].as_mut_ptr();
+        schema_rule.filter_fields = filter_fields_array(&[c"ff0", c"ff1", c"ff2"]);
+
+        index_spec.rule = ptr::from_mut(&mut schema_rule);
+
+        let mut field_specs = [
+            field_spec(c"fn0", c"fp0"),
+            field_spec(c"fn1", c"fp1"),
+            field_spec(c"fn2", c"fp2"),
+        ];
+        index_spec.fields = field_specs.as_mut_ptr();
+        index_spec.numFields = field_specs.len().try_into().unwrap();
+
+        let index_spec = IndexSpec::from_ffi(index_spec);
+
+        // Act
+        let actual = super::create_keys_from_spec(&mut lookup, &index_spec);
+
+        // Assert
+        assert_eq!(actual.len(), 3);
+
+        assert_eq!(actual[0].name2(), c"ff0");
+        assert_eq!(actual[0].path2(), c"ff0");
+        assert_eq!(actual[0].rlookup_id(), lookup.id());
+
+        assert_eq!(actual[1].name2(), c"fn0");
+        assert_eq!(actual[1].path2(), c"fp0");
+        assert_eq!(actual[1].rlookup_id(), lookup.id());
+
+        assert_eq!(actual[2].name2(), c"fn1");
+        assert_eq!(actual[2].path2(), c"fp1");
+        assert_eq!(actual[2].rlookup_id(), lookup.id());
+    }
+
+    fn filter_fields_array(filter_fields: &[&CStr]) -> *mut *mut i8 {
+        let temp = filter_fields
+            .iter()
+            .map(|ff| ff.as_ptr().cast_mut())
+            .collect::<Vec<_>>();
+
+        make_array(&temp)
+    }
+
+    fn field_spec(field_name: &CStr, field_path: &CStr) -> ffi::FieldSpec {
+        let mut res = unsafe { mem::zeroed::<ffi::FieldSpec>() };
+        res.fieldName =
+            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
+        res.fieldPath =
+            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
+        res
+    }
+
+    #[derive(Debug)]
+    #[repr(C)]
+    pub struct ArrayHdr {
+        pub len: u32,
+        pub remain_cap: u16,
+        pub elem_sz: u16,
+        // Flexible array member (`char buf[]`) exists in memory after the header.
+    }
+
+    // #[derive(Debug)]
+    // #[repr(C)]
+    // pub struct ArrayHdr_2<T: ?Sized> {
+    //     pub len: u32,
+    //     pub remain_cap: u16,
+    //     pub elem_sz: u16,
+
+    //     pub data: T,
+    // }
+
+    // fn hej() -> ArrayHdr_2<[i32]> {
+    //     let x: ArrayHdr_2<_> = ArrayHdr_2 {
+    //         len: 1,
+    //         remain_cap: 1,
+    //         elem_sz: 1,
+    //         data: [1, 2, 3],
+    //     };
+    //     // let y:
+    //     todo!()
+    // }
+
+    // fn make_array_2<T: ?Sized>(v: T) -> Box<ArrayHdr_2<T>> {
+    //     let x = ArrayHdr_2 {
+    //         len: 1,
+    //         remain_cap: 0,
+    //         elem_sz: 0,
+    //         data: v,
+    //     };
+    //     Box::new(x)
+    // }
+
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn array_len_func_2(arr: *const u8) -> u32 {
+        if arr.is_null() {
+            return 0;
+        }
+
+        let hdr_ptr = unsafe {
+            arr.cast::<u8>()
+                .sub(mem::size_of::<ArrayHdr>())
+                .cast::<ArrayHdr>()
+        };
+
+        unsafe { ptr::read_unaligned(&raw const (*hdr_ptr).len) }
+    }
+
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn array_len_func(arr: *const u8) -> u32 {
+        if arr.is_null() {
+            return 0;
+        }
+
+        let hdr_ptr = unsafe {
+            arr.cast::<u8>()
+                .sub(mem::size_of::<ArrayHdr>())
+                .cast::<ArrayHdr>()
+        };
+
+        unsafe { ptr::read_unaligned(&raw const (*hdr_ptr).len) }
+    }
+
+    fn make_array<T: Copy>(xs: &[T]) -> *mut T {
+        unsafe {
+            use core::{mem, ptr};
+            use std::alloc::{Layout, alloc};
+
+            let n = xs.len();
+            let hdr_sz = mem::size_of::<ArrayHdr>();
+            let data_sz = n * mem::size_of::<T>();
+
+            let layout = Layout::from_size_align(
+                hdr_sz + data_sz,
+                mem::align_of::<ArrayHdr>().max(mem::align_of::<T>()),
+            )
+            .unwrap();
+
+            let base = alloc(layout);
+
+            ptr::write(
+                base.cast::<ArrayHdr>(),
+                ArrayHdr {
+                    len: n as u32,
+                    remain_cap: 0,
+                    elem_sz: mem::size_of::<T>() as u16,
+                },
+            );
+
+            let data = base.add(hdr_sz).cast::<T>();
+            ptr::copy(xs.as_ptr(), data, n);
+
+            data
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(1000))]
+        #[test]
+        fn test_my_add(
+            mut a in proptest::collection::vec(1u8..=255u8, 0..=50),
+            mut b in proptest::collection::vec(1u8..=255u8, 0..=50),
+        ) {
+            unsafe {
+                a.push(0);
+                let a = CStr::from_bytes_with_nul(&a).unwrap();
+
+                b.push(0);
+                let b = CStr::from_bytes_with_nul(&b).unwrap();
+
+                let arr=[a.as_ptr().cast_mut(), b.as_ptr().cast_mut()];
+                // let arr = [c"hej".as_ptr().cast_mut(), c"hoj".as_ptr().cast_mut()];
+
+                let array = make_array(&arr);
+
+                assert_eq!(array_len_func(array as _) as usize, arr.len());
+            }
+        }
+    }
+
+    // proptest! {
+    //  // assert that a key can in the keylist can be retrieved by its name
+    //  #[test]
+    //  fn rlookup_get_key_read_found(name in "\\PC+") {
+
+    //  }}
 
     // Compile time check to ensure that `RLookupKey` can safely be re-interpreted as `RLookupKeyHeader` (has the same
     // layout at the beginning).
