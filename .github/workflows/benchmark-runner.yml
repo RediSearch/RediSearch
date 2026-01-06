@@ -48,6 +48,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      enable_lto: true
       benchmark_glob: "search*.yml"
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone
@@ -63,6 +64,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      enable_lto: true
       benchmark_glob: "search*.yml"
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone-threads-6
@@ -78,6 +80,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      enable_lto: true
       benchmark_glob: "vecsim*.yml"
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone
@@ -93,6 +96,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      enable_lto: true
       benchmark_glob: "vecsim*.yml"
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone-threads-6
@@ -108,6 +112,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      enable_lto: true
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-02-primaries
@@ -123,6 +128,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      enable_lto: true
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-04-primaries
@@ -139,6 +145,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      enable_lto: true
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-04-primaries-threads-6
@@ -154,6 +161,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      enable_lto: true
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-08-primaries
@@ -169,6 +177,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      enable_lto: true
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-16-primaries
@@ -185,6 +194,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      enable_lto: true
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-20-primaries
@@ -201,6 +211,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      enable_lto: true
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-24-primaries
@@ -216,6 +227,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      enable_lto: true
       profile_env: 1
       # TODO: change to "github-actions.profilers" when ready on grafana
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
@@ -236,6 +248,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      enable_lto: true
       profile_env: 1
       # TODO: change to "github-actions.profilers" when ready on grafana
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it

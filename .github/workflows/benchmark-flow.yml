@@ -16,6 +16,10 @@ on:
         default: bin/linux-x64-release/RedisJSON/master/rejson.so
       profile_env:
         type: number # for default of 0
+      enable_lto:
+        type: boolean
+        default: false
+        description: "Enable Rust/C LTO"
       benchmark_glob:
         type: string
         default: "*.yml"
@@ -57,7 +61,7 @@ jobs:
         run: ./install_boost.sh
 
       - name: Build RediSearch
-        run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
+        run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}} ${{ inputs.enable_lto && 'LTO=1' || ''}}
       - name: Install Python dependencies
         run: |
           pip3 install --upgrade pip
