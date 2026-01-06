@@ -773,8 +773,7 @@ def info_modules_to_dict(conn):
     return info
 
 def _test_ft_cursors_trimmed_profile_warning(env: Env):
-    for shard in env.getOSSMasterNodesConnectionList():
-        shard.execute_command('CONFIG', 'SET', 'search-_max-trim-delay-ms', 2500)
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-_max-trim-delay-ms', 2500)
 
     n_docs = 2**14
     create_and_populate_index(env, 'idx', n_docs)
@@ -785,13 +784,8 @@ def _test_ft_cursors_trimmed_profile_warning(env: Env):
     _, cursor_id = shard2.execute_command(*query)
     wait_for_migration_complete(env, shard1, shard2)
     time.sleep(5)
-    num_warnings = 0
-    while cursor_id != 0:
-        res, cursor_id = shard2.execute_command('_FT.CURSOR', 'PROFILE', 'idx', cursor_id, 'COUNT', 1)
-        if 'Warning' in res['Profile']['Shards'][0] and len(res['Profile']['Shards'][0]['Warning']) > 0:
-            env.assertContains('Results may be incomplete due to Atomic Slot Migration', res['Profile']['Shards'][0]['Warning'][0])
-            num_warnings += 1
-    env.assertGreaterEqual(num_warnings, 1)
+    res, cursor_id = shard2.execute_command('_FT.CURSOR', 'PROFILE', 'idx', cursor_id, 'COUNT', 1)
+    env.assertContains('Results may be incomplete due to Atomic Slot Migration', res['Profile']['Shards'][0]['Warning'][0])
 
 def _test_ft_cursors_trimmed(env: Env, protocol: int):
     for shard in env.getOSSMasterNodesConnectionList():

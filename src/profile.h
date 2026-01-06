@@ -67,7 +67,7 @@ typedef enum {
 
 // Compile-time assertion: ProfileWarnings is uint8_t (8 bits), so we can only have 8 warning types (bits 0-7)
 // If you add more warning types, you must increase the size of ProfileWarnings (e.g., to uint16_t)
-static_assert(PROFILE_WARNING_TYPE_BG_SCAN_OOM <= (1 << 7),
+static_assert(PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS <= (1 << 7),
                "ProfileWarningType exceeds uint8_t bitset limit (max 8 warning types)");
 
 static void ProfileWarnings_Add(ProfileWarnings *profileWarnings, ProfileWarningType code) {
