@@ -34,19 +34,18 @@ extern "C" {
 typedef enum {
   // This is the NULL/Empty value
   RSValueType_Undef = 0,
-
   RSValueType_Number = 1,
-  RSValueType_String = 3,
-  RSValueType_Null = 4,
-  RSValueType_RedisString = 5,
+  RSValueType_String = 2,
+  RSValueType_Null = 3,
+  RSValueType_RedisString = 4,
   // An array of values, that can be of any type
-  RSValueType_Array = 6,
+  RSValueType_Array = 5,
   // Reference to another value
-  RSValueType_Reference = 8,
+  RSValueType_Reference = 6,
   // Trio value
-  RSValueType_Trio = 9,
+  RSValueType_Trio = 7,
   // Map value
-  RSValueType_Map = 10,
+  RSValueType_Map = 8,
 
 } RSValueType;
 
