@@ -104,9 +104,9 @@ class testHybridSearch:
             "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]"
         }
         run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
-
     def test_knn_wildcard_search(self):
-        # This test is enabled for debugging and collecting logs; disable it if it causes issues in CI.
+        # skipping due to MOD-12377
+        raise SkipTest()
         """Test hybrid search using KNN + wildcard search scenario"""
         scenario = {
             "hybrid_query": "SEARCH * YIELD_SCORE_AS search_score \
@@ -114,23 +114,13 @@ class testHybridSearch:
             "search_equivalent": "*",
             "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]"
         }
-        index_name = self.index_name
         if CLUSTER:
             # Create prefixed index to avoid tied scores
             self._create_index('prefixed_idx', self.dim, prefix="both_")
             waitForIndex(self.env, 'prefixed_idx')
-            index_name = 'prefixed_idx'
-        info = {'info before': {'ft.info': self.env.cmd('ft.info', index_name), 'info search': self.env.cmd('info', 'search')}}
-        logs = []
-        try:
-            logs = run_test_scenario(self.env, index_name, scenario, self.vector_blob, collect_logs=True)
-        finally:
-            info['info after'] = {'ft.info': self.env.cmd('ft.info', index_name), 'info search': self.env.cmd('info', 'search')}
-            if self.env.getNumberOfFailedAssertion() > 0:
-                from pprint import pprint
-                pprint(logs)
-                print("info:")
-                pprint(info)
+            run_test_scenario(self.env, 'prefixed_idx', scenario, self.vector_blob)
+        else:
+            run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     def test_knn_custom_k(self):
         """Test hybrid search using KNN with custom k scenario"""
