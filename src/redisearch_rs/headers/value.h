@@ -122,7 +122,7 @@ struct RSValue *RSValue_NewTrio(struct RSValue *left,
                                 struct RSValue *middle,
                                 struct RSValue *right);
 
-uint64_t RSValue_Hash(const struct RSValue *v, uint64_t hval);
+uint64_t RSValue_Hash(const struct RSValue *value, uint64_t hval);
 
 /**
  * Allocates a new, uninitialized [`RSValueMap`] with space for `len` entries.
