@@ -43,10 +43,6 @@ jobs:
           rustup toolchain install nightly --component miri
           rustup default nightly
 
-      # Build the module to get the static libraries needed for the tests
-      - name: Build
-        run: ./build.sh build
-
       # Run Miri tests
       # Note: Most tests will be skipped because they use FFI (RocksDB, Redis module API)
       # Miri only tests pure Rust code for undefined behavior
