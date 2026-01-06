@@ -139,7 +139,16 @@ To build the code with debug symbols, you can use the following commands:
 make DEBUG=1
 ```
 
-## Logging from Rust
+## Logging
+
+C code uses [`RedisModule_Log`](https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#redismodule_log) to log messages
+while the Rust side uses the standard [`tracing`](https://docs.rs/tracing/latest/tracing/) crate, see below.
+
+The [`tracing_redismodule`](src/redisearch_rs/tracing_redismodule) crate provides a bridge between the two logging systems.
+It implements a tracing subscriber emitting traces and logs to the RedisModule logging system.
+This subscriber is automatically registered when the RediSearch module is loaded by the Redis server.
+
+### Logging from Rust
 
 The recommended way for Rust code to emit logs is through [`tracing`](https://docs.rs/tracing/latest/tracing/) since it allows us to produce structured logging output, but also generate performance data through spans.
  To record events to the redis log you can use the macros provided by [`tracing`]:
@@ -172,3 +181,34 @@ By default the log output will be colored to help with reading. The system alrea
 - `RUST_LOG_STYLE=never` never print color codes
 - `RUST_LOG_STYLE=always` always print color codes
 - `RUST_LOG_STYLE=auto` automatically detect when to enable or disable color codes (default)
+
+
+### Rust Tests
+
+[`tracing_redismodule`](src/redisearch_rs/tracing_redismodule) is not meant to be used in Rust tests.
+Instead, the [`redis_mock`](src/redisearch_rs/redis_mock) crate re-implements the `RedisModule_Log` so logs from C
+are emitted using `tracing`.
+
+Tests can then use the [`test-log`](https://docs.rs/test-log/latest/test_log/) crate to easily initialize `tracing`
+and receive logs from both C and Rust.
+
+```rust
+#[test_log::test]
+fn some_test() {
+}
+```
+
+The log level can be configured by setting the `RUST_LOG` environment variable when running the tests:
+
+```
+$ RUST_LOG=debug cargo test some_test -- --nocapture
+```
+
+By default, `test-log` sets this level to `info`, but this can be overridden in the test itself if its output is too verbose.
+
+```rust
+#[test_log::test]
+#[test_log(default_log_filter = "error")]
+fn some_test() {
+}
+```
