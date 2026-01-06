@@ -1518,6 +1518,7 @@ dependencies = [
  "query_error_ffi",
  "redis-module",
  "result_processor_ffi",
+ "search_result_ffi",
  "slots_tracker_ffi",
  "tracing_redismodule_ffi",
  "triemap_ffi",
@@ -1562,6 +1563,7 @@ dependencies = [
  "ffi",
  "libc",
  "pin-project",
+ "search_result",
  "workspace_hack",
 ]
 

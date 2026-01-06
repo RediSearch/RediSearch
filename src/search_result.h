@@ -14,68 +14,16 @@
 #include "types_rs.h"
 #include "rlookup.h"
 #include "index_result.h"
+#include "search_result_rs.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/*
- * SearchResult - the object all the processing chain is working on.
- * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc,
- * and a list of fields loaded by the chain
- */
-typedef struct {
-  t_docId _docId;
-
-  // not all results have score - TBD
-  double _score;
-  RSScoreExplain *_scoreExplain;
-
-  const RSDocumentMetadata *_dmd;
-
-  // index result should cover what you need for highlighting,
-  // but we will add a method to duplicate index results to make
-  // them thread safe
-  const RSIndexResult* _indexResult;
-
-  // Row data. Use RLookup_* functions to access
-  RLookupRow _rowdata;
-
-  uint8_t _flags;
-} SearchResult;
-
-/* SearchResult flags */
-static const uint8_t Result_ExpiredDoc = 1 << 0;
-
 static inline SearchResult SearchResult_New() {
     SearchResult r = {0};
     return r;
 }
-
-/**
- * Moves the contents of `r` into a newly heap-allocated SearchResult.
- * This function takes ownership of the search result, so `r` **must not** be used after this
- * function is called.
- */
-SearchResult* SearchResult_AllocateMove(SearchResult* r);
-
-/**
- * This function resets the search result, so that it may be reused again.
- * Internal caches are reset but not freed
- */
-void SearchResult_Clear(SearchResult* r);
-
-/**
- * This function clears the search result, also freeing its internals. Internal
- * caches are freed. Use this function if `r` will not be used again.
- */
-void SearchResult_Destroy(SearchResult* r);
-
-/**
- * Overwrites the contents of 'dst' with those from 'src'.
- * Ensures proper cleanup of any existing data in 'dst'.
- */
-void SearchResult_Override(SearchResult* dst, SearchResult* src);
 
 /**
  * Returns the document ID of `res`.
@@ -87,7 +35,7 @@ void SearchResult_Override(SearchResult* dst, SearchResult* src);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 static inline t_docId SearchResult_GetDocId(const SearchResult *res) {
-  return res->_docId;
+  return res->_doc_id;
 }
 
 /**
@@ -99,8 +47,8 @@ static inline t_docId SearchResult_GetDocId(const SearchResult *res) {
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline void SearchResult_SetDocId(SearchResult *res, t_docId docId) {
-  res->_docId = docId;
+static inline void SearchResult_SetDocId(SearchResult *res, t_docId doc_id) {
+  res->_doc_id = doc_id;
 }
 
 /**
@@ -139,7 +87,7 @@ static inline void SearchResult_SetScore(SearchResult *res, double score)  {
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 static inline const RSScoreExplain *SearchResult_GetScoreExplain(const SearchResult *res)  {
-  return res->_scoreExplain;
+  return res->_score_explain;
 }
 
 /**
@@ -152,7 +100,7 @@ static inline const RSScoreExplain *SearchResult_GetScoreExplain(const SearchRes
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 static inline RSScoreExplain *SearchResult_GetScoreExplainMut(SearchResult *res) {
-  return res->_scoreExplain;
+  return res->_score_explain;
 }
 
 /**
@@ -166,8 +114,8 @@ static inline RSScoreExplain *SearchResult_GetScoreExplainMut(SearchResult *res)
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline void SearchResult_SetScoreExplain(SearchResult *res, RSScoreExplain *scoreExplain) {
-  res->_scoreExplain = scoreExplain;
+static inline void SearchResult_SetScoreExplain(SearchResult *res, RSScoreExplain *score_explain) {
+  res->_score_explain = score_explain;
 }
 
 /**
@@ -180,7 +128,7 @@ static inline void SearchResult_SetScoreExplain(SearchResult *res, RSScoreExplai
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 static inline const RSDocumentMetadata *SearchResult_GetDocumentMetadata(const SearchResult *res) {
-  return res->_dmd;
+  return res->_document_metadata;
 }
 
 /**
@@ -195,8 +143,8 @@ static inline const RSDocumentMetadata *SearchResult_GetDocumentMetadata(const S
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 static inline void SearchResult_SetDocumentMetadata(SearchResult *res,
-                                      const RSDocumentMetadata *documentMetadata) {
-                                        res->_dmd = documentMetadata;
+                                      const RSDocumentMetadata *document_metadata) {
+                                        res->_document_metadata = document_metadata;
                                       }
 
 /**
@@ -209,7 +157,7 @@ static inline void SearchResult_SetDocumentMetadata(SearchResult *res,
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 static inline const RSIndexResult *SearchResult_GetIndexResult(const SearchResult *res) {
-  return res->_indexResult;
+  return res->_index_result;
 }
 
 /**
@@ -222,7 +170,7 @@ static inline const RSIndexResult *SearchResult_GetIndexResult(const SearchResul
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 static inline bool SearchResult_HasIndexResult(const SearchResult *res) {
-  return res->_indexResult;
+  return res->_index_result;
 }
 
 /**
@@ -236,8 +184,8 @@ static inline bool SearchResult_HasIndexResult(const SearchResult *res) {
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-static inline void SearchResult_SetIndexResult(SearchResult *res, const RSIndexResult *indexResult) {
-  res->_indexResult = indexResult;
+static inline void SearchResult_SetIndexResult(SearchResult *res, const RSIndexResult *index_result) {
+  res->_index_result = index_result;
 }
 
 /**
@@ -250,7 +198,7 @@ static inline void SearchResult_SetIndexResult(SearchResult *res, const RSIndexR
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 static inline const RLookupRow *SearchResult_GetRowData(const SearchResult *res) {
-  return &res->_rowdata;
+  return &res->_row_data;
 }
 
 /**
@@ -263,7 +211,7 @@ static inline const RLookupRow *SearchResult_GetRowData(const SearchResult *res)
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 static inline RLookupRow *SearchResult_GetRowDataMut(SearchResult *res) {
-  return &res->_rowdata;
+  return &res->_row_data;
 }
 
 /**
@@ -273,8 +221,8 @@ static inline RLookupRow *SearchResult_GetRowDataMut(SearchResult *res) {
  *
  * 1. `res` must be a correctly initialized [`RLookupRow`][ffi::RLookupRow].
  */
-static inline void SearchResult_SetRowData(SearchResult *res, RLookupRow rowData) {
-    res->_rowdata = rowData;
+static inline void SearchResult_SetRowData(SearchResult *res, RLookupRow row_data) {
+    res->_row_data = row_data;
 }
 
 /**
