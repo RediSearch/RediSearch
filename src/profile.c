@@ -182,7 +182,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
 
   // Print coord dispatch time if this is a shard handling a coordinator request.
   if (profile_verbose && IsInternal(req)) {
-    RedisModule_ReplyKV_Double(reply, "Coordinator dispatch time",
+    RedisModule_ReplyKV_Double(reply, "Coordinator dispatch time [ms]",
                                rs_wall_clock_convert_ns_to_ms_d(req->coordDispatchTime));
   }
 

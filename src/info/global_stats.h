@@ -72,7 +72,7 @@ typedef struct {
   size_t total_queries_processed;       // Number of successful queries. If using cursors, not counting reading from the cursor
   size_t total_query_commands;          // Number of successful query commands, including `FT.CURSOR READ`
   rs_wall_clock_ns_t total_query_execution_time;   // Total time spent on queries, aggregated in ns and reported in ms
-  rs_wall_clock_ns_t total_coord_dispatch_time;    // Total time spent in coordinator before dispatching to shards
+  rs_wall_clock_ns_t total_coord_dispatch_time;    // Total time spent in coordinator before dispatching to shards in **ns**
 
   QueryErrorsGlobalStats shard_errors;        // Shard query errors statistics
   QueryErrorsGlobalStats coord_errors;  // Coordinator query errors statistics
@@ -133,7 +133,6 @@ void TotalGlobalStats_CountQuery(uint32_t reqflags, rs_wall_clock_ns_t duration)
 
 /**
  * Add coordinator dispatch time to global stats.
- * Note that time is aggregated in nanoseconds but later converted to milliseconds.
  */
 void TotalGlobalStats_AddCoordDispatchTime(rs_wall_clock_ns_t duration);
 

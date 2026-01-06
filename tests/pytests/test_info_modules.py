@@ -2348,7 +2348,7 @@ def test_coord_dispatch_time_metric():
   # Helper to get the dispatch time metric
   def get_dispatch_time_from_info():
     info = env.cmd('INFO', 'MODULES')
-    return int(info[f'{SEARCH_PREFIX}total_coord_dispatch_time_ms'])
+    return info[f'{SEARCH_PREFIX}total_coord_dispatch_time_ms']
 
   # Helper to run a command with paused coordinator threads and verify dispatch time behavior
   def run_with_pause_and_verify_dispatch_time(cmd, pause_duration_sec, should_increase):
@@ -2379,12 +2379,13 @@ def test_coord_dispatch_time_metric():
       t.join(timeout=30)
 
     after_time = get_dispatch_time_from_info()
+    print(f"before: {before_time}, after: {after_time}")
     time_increase = after_time - before_time
 
     cmd_name = cmd[0]
     if should_increase:
-      min_expected_ms = int(pause_duration_sec * 1000)
-      env.assertGreaterEqual(time_increase, min_expected_ms,
+      expected_ms = pause_duration_sec * 1000
+      env.assertGreaterEqual(time_increase, expected_ms,
         message=f"{cmd_name}: dispatch time should increase by at least pause duration")
     else:
       env.assertEqual(before_time, after_time,
@@ -2392,7 +2393,8 @@ def test_coord_dispatch_time_metric():
 
     return threads
 
-  pause_duration_sec = 1.0
+  # sleep for 10ms
+  pause_duration_sec = 0.01
 
   # --- Test 1: FT.AGGREGATE should increase dispatch time ---
   initial_dispatch_time = get_dispatch_time_from_info()
@@ -2409,7 +2411,7 @@ def test_coord_dispatch_time_metric():
   dispatch_times_per_shard = []
   for shard_conn in shard_connections:
     info = shard_conn.execute_command('INFO', 'MODULES')
-    dispatch_time = int(info[f'{SEARCH_PREFIX}total_coord_dispatch_time_ms'])
+    dispatch_time = info[f'{SEARCH_PREFIX}total_coord_dispatch_time_ms']
     dispatch_times_per_shard.append(dispatch_time)
 
   # Exactly one shard (the coordinator) should have non-zero dispatch time
@@ -2423,8 +2425,8 @@ def test_coord_dispatch_time_metric():
             f"Per-shard values: {dispatch_times_per_shard}")
 
   # The non-zero shard should have dispatch time >= pause duration
-  min_expected_ms = int(pause_duration_sec * 1000)
-  env.assertGreaterEqual(non_zero_shards[0], min_expected_ms,
+  expected_ms = pause_duration_sec * 1000
+  env.assertGreaterEqual(non_zero_shards[0], expected_ms,
     message=f"Coordinator dispatch time should be >= pause duration. "
             f"Per-shard values: {dispatch_times_per_shard}")
 
@@ -2434,7 +2436,7 @@ def test_coord_dispatch_time_metric():
     current_times = []
     for shard_conn in shard_connections:
       info = shard_conn.execute_command('INFO', 'MODULES')
-      current_times.append(int(info[f'{SEARCH_PREFIX}total_coord_dispatch_time_ms']))
+      current_times.append(info[f'{SEARCH_PREFIX}total_coord_dispatch_time_ms'])
     env.assertEqual(current_times, expected_times,
       message=f"{cmd_name}: per-shard dispatch times should not change")
 

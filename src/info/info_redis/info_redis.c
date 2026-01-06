@@ -258,7 +258,8 @@ void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_commands", stats.total_query_commands);
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_execution_time_ms", stats.total_query_execution_time);
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_queries", total_info->total_active_queries);
-  RedisModule_InfoAddFieldULongLong(ctx, "total_coord_dispatch_time_ms", stats.total_coord_dispatch_time);
+  double total_coord_dispatch_time_ms_d = rs_wall_clock_convert_ns_to_ms_d(stats.total_coord_dispatch_time);
+  RedisModule_InfoAddFieldDouble(ctx, "total_coord_dispatch_time_ms", total_coord_dispatch_time_ms_d);
 }
 
 void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {

@@ -1058,7 +1058,8 @@ def CoordDispatchTimeInProfile(env):
   Uses COORD_THREADS pause/resume to create measurable dispatch time.
   Verifies that FT.SEARCH profile does not include dispatch time.
   """
-  pause_duration_sec = 1.0
+  # sleep for 10ms
+  pause_duration_sec = 0.01
 
   # Helper to run a profile command with paused coordinator threads and return the result
   def run_profile_with_pause(profile_cmd, query_cmd_type):
@@ -1092,9 +1093,9 @@ def CoordDispatchTimeInProfile(env):
   # Collect all dispatch times for error messages
   dispatch_times = []
   for i, shard_profile in enumerate(shards_profile):
-    env.assertContains('Coordinator dispatch time', shard_profile,
+    env.assertContains('Coordinator dispatch time [ms]', shard_profile,
                        message=f"shard {i}: 'Coordinator dispatch time' not found. full reply: {res_agg}")
-    dispatch_times.append(shard_profile['Coordinator dispatch time'])
+    dispatch_times.append(shard_profile['Coordinator dispatch time [ms]'])
 
   # All shards should have the exact same dispatch time
   for i, dispatch_time in enumerate(dispatch_times[1:], start=1):
@@ -1102,8 +1103,8 @@ def CoordDispatchTimeInProfile(env):
       message=f"shard {i} dispatch time differs from shard 0. all shards: {dispatch_times}")
 
   # Dispatch time should be >= pause duration (in ms)
-  min_expected_ms = pause_duration_sec * 1000
-  env.assertGreaterEqual(float(dispatch_times[0]), min_expected_ms,
+  expected_ms = pause_duration_sec * 1000
+  env.assertGreaterEqual(dispatch_times[0], expected_ms,
     message=f"dispatch time should be >= pause duration. all shards: {dispatch_times}")
 
   # --- Test SEARCH profile dispatch time should be 0 ---
@@ -1111,7 +1112,7 @@ def CoordDispatchTimeInProfile(env):
 
   shards_profile_search = get_shards_profile(env, res_search)
   for i, shard_profile in enumerate(shards_profile_search):
-    env.assertEqual(float(shard_profile['Coordinator dispatch time']), 0.0,
+    env.assertEqual(shard_profile['Coordinator dispatch time [ms]'], 0.0,
       message=f"shard {i}: 'Coordinator dispatch time' should be 0. full reply: {res_search}")
 
   # --- Test HYBRID profile dispatch time should be 0 ---

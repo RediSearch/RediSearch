@@ -157,7 +157,7 @@ typedef struct {
   size_t *maxAggregateResults;      // Maximum aggregate results
   const RedisModuleSlotRangeArray **querySlots; // Slots requested (referenced from AREQ)
   uint32_t *keySpaceVersion;        // Version given by the slots tracker
-  rs_wall_clock_ns_t *coordDispatchTime; // Coordinator dispatch time (for internal commands)
+  rs_wall_clock_ns_t *coordDispatchTime; // Coordinator dispatch time in ns (for internal commands)
 } ParseAggPlanContext;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
@@ -257,10 +257,10 @@ typedef struct AREQ {
 
   RequestConfig reqConfig;
 
-  /** Time when command was received on coordinator (for dispatch time tracking) */
+  /** Time when command was received on coordinator in ns (for dispatch time tracking) */
   rs_wall_clock_ns_t coordStartTime;
 
-  /** Dispatch time from coordinator to shard (for timeout adjustment) */
+  /** Dispatch time from coordinator to shard in ns (for timeout adjustment) */
   rs_wall_clock_ns_t coordDispatchTime;
 
   /** Cursor configuration */
