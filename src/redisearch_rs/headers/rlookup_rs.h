@@ -387,6 +387,12 @@ void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
  */
 void RLookup_Cleanup(struct RLookup *lookup);
 
+int32_t RLookup_LoadRuleFields(RedisModuleCtx *ctx,
+                               struct RLookup *lookup,
+                               RLookupRow *dst_row,
+                               IndexSpec *spec,
+                               const char *key_ptr);
+
 /**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
  *

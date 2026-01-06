@@ -6,13 +6,16 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-use crate::bindings::{
-    FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache,
-};
 #[cfg(debug_assertions)]
 use crate::rlookup_id::RLookupId;
+use crate::{
+    RLookupRow, SchemaRule,
+    bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache},
+    hidden_string::HiddenString,
+};
 use enumflags2::{BitFlags, bitflags, make_bitflags};
 use pin_project::pin_project;
+use query_error::QueryError;
 use std::{
     borrow::Cow,
     cell::UnsafeCell,
@@ -303,16 +306,34 @@ impl<'a> RLookupKey<'a> {
                 svidx: 0,
                 flags: flags & !TRANSIENT_FLAGS,
                 name: name.as_ptr(),
+                // TODO: Where should this knowledge reside?
                 path: name.as_ptr(),
                 name_len: name.count_bytes(),
                 next: UnsafeCell::new(None),
             },
             _name: name,
+            // TODO: Where should this knowledge reside?
             _path: None,
             #[cfg(debug_assertions)]
             rlookup_id: parent.id(),
         }
     }
+
+    pub fn new_with_path(
+        parent: &RLookup<'_>,
+        name: impl Into<Cow<'a, CStr>>,
+        // path: impl Into<Cow<'a, CStr>>,
+        path_ptr: *const c_char,
+        flags: RLookupKeyFlags,
+    ) -> Self {
+        let mut key = Self::new(parent, name, flags);
+        // TODO: What about key._path?
+        key.path = path_ptr;
+        key
+    }
+
+    // Maybe?
+    pub unsafe fn new_from_ptr() {}
 
     pub fn name(&self) -> &CStr {
         self._name.as_ref()
@@ -1249,6 +1270,151 @@ impl<'a> RLookup<'a> {
     /// The row len of the [`RLookup`] is the number of keys in its key list not counting the overridden keys.
     pub(crate) const fn get_row_len(&self) -> u32 {
         self.header.keys.rowlen
+    }
+
+    pub fn load_rule_fields(
+        &mut self,
+        ctx: &mut ffi::RedisModuleCtx,
+        dst_row: &mut RLookupRow<value::RSValueFFI>,
+        spec: &mut ffi::IndexSpec,
+        key_ptr: *const c_char,
+    ) -> i32 {
+        let keys = create_keys_from_spec(self, spec);
+        let pushed_keys = keys.into_iter().map(|k| self.keys.push(k)).collect();
+        load_many_keys(self, ctx, dst_row, spec, key_ptr, pushed_keys)
+    }
+}
+
+fn create_keys_from_spec<'b>(
+    lookup: &mut RLookup<'b>,
+    index_spec: &mut ffi::IndexSpec,
+) -> Vec<RLookupKey<'b>> {
+    // TODO: Test in isolation? (What are we doing here?)
+
+    // Safety: ...
+    let rule = unsafe { SchemaRule::from_raw(index_spec.rule) };
+
+    let fields_len = usize::try_from(
+        // Safety: ...
+        unsafe { ffi::array_len_func(index_spec.fields as ffi::array_t) },
+    )
+    .expect("array_len must not exceed usize");
+
+    // Safety: ...
+    let field_specs = unsafe { slice::from_raw_parts(index_spec.fields, fields_len) };
+
+    rule.filter_fields_index_slice()
+        .iter()
+        .zip(rule.filter_fields_slice())
+        .map(|(&idx, &filter_field)| create_key_from_spec(lookup, idx, filter_field, field_specs))
+        .collect::<Vec<_>>()
+}
+
+fn create_key_from_spec<'b>(
+    lookup: &mut RLookup<'b>,
+    idx: i32,
+    filter_field: *const c_char,
+    field_specs: &[ffi::FieldSpec],
+) -> RLookupKey<'b> {
+    // TODO: Test in isolation? (What are we doing here?)
+
+    const NO_MATCH: i32 = -1;
+    let (name_ptr, name_len, path_ptr) = match idx {
+        NO_MATCH => (
+            filter_field as _,
+            // Safety: ...
+            unsafe { libc::strlen(filter_field) },
+            None,
+        ),
+        _ => {
+            let idx = usize::try_from(idx).expect("idx must be positive and fit into usize");
+            let field_spec = field_specs[idx];
+
+            // Safety: we received the pointer from the field spec and have to assume it is valid
+            let (field_name, field_name_len) =
+                unsafe { HiddenString::from_raw(field_spec.fieldName).get_unsafe() };
+
+            // Safety: we received the pointer from the field spec and have to assume it is valid
+            let (path_ptr, _) =
+                unsafe { HiddenString::from_raw(field_spec.fieldPath).get_unsafe() };
+
+            (field_name, field_name_len, Some(path_ptr))
+        }
+    };
+
+    // Safety: ...
+    let name_bytes = unsafe { slice::from_raw_parts(name_ptr.cast::<u8>(), name_len + 1) };
+    let name = CStr::from_bytes_with_nul(name_bytes).expect("string must not be malformed");
+
+    if let Some(path_ptr) = path_ptr {
+        RLookupKey::new_with_path(lookup, name, path_ptr, RLookupKeyFlags::empty())
+    } else {
+        RLookupKey::new(lookup, name, RLookupKeyFlags::empty())
+    }
+}
+
+fn load_many_keys<'b>(
+    lookup: &mut RLookup<'b>,
+    ctx: &mut ffi::RedisModuleCtx,
+    dst_row: &mut RLookupRow<value::RSValueFFI>,
+    spec: &mut ffi::IndexSpec,
+    key_ptr: *const c_char,
+    keys: Vec<Pin<&'b mut RLookupKey<'b>>>,
+) -> i32 {
+    let it = ptr::from_mut(lookup) as *mut ffi::RLookup;
+    let dst = ptr::from_mut(dst_row) as *mut ffi::RLookupRow;
+
+    let mut keys = keys
+        .into_iter()
+        .map(|k| k.as_ref().get_ref() as *const RLookupKey as *const ffi::RLookupKey)
+        .collect::<Vec<_>>();
+
+    let mut sctx = create_redis_search_ctx_with_ctx_and_spec(ctx, spec);
+
+    // Safety: ...
+    let rule = unsafe { SchemaRule::from_raw(spec.rule) };
+
+    // TODO: Add comment explaining why "for real" temp.
+    // Safety: ...
+    let mut status = unsafe { mem::transmute(QueryError::default()) };
+
+    let mut options = ffi::RLookupLoadOptions {
+        keys: keys.as_mut_ptr(),
+        nkeys: keys.len(),
+        sctx: &mut sctx,
+        keyPtr: key_ptr,
+        type_: rule.type_(),
+        status: &mut status,
+        forceLoad: true,
+        mode: ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
+        dmd: ptr::null(),
+        forceString: false,
+    };
+
+    unsafe { ffi::loadIndividualKeys(it, dst, &mut options) }
+}
+
+const fn create_redis_search_ctx_with_ctx_and_spec(
+    module_ctx: *mut ffi::RedisModuleCtx,
+    index_spec: *mut ffi::IndexSpec,
+) -> ffi::RedisSearchCtx {
+    ffi::RedisSearchCtx {
+        redisCtx: module_ctx,
+        spec: index_spec,
+        key_: ptr::null_mut(),
+        time: ffi::SearchTime {
+            current: ffi::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+            timeout: ffi::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+        },
+        apiVersion: 0,
+        expanded: 0,
+        flags: 0,
     }
 }
 
