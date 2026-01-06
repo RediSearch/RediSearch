@@ -418,6 +418,7 @@ mod tests {
 
     use enumflags2::make_bitflags;
     use std::ffi::CString;
+    #[cfg(not(miri))]
     use std::mem::MaybeUninit;
     use std::ptr::{self, NonNull};
 

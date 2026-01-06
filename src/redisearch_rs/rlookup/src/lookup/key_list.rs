@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
- */
+*/
 
 use crate::{RLookupKey, RLookupKeyFlags};
 use std::ptr;
@@ -24,7 +24,7 @@ pub struct KeyList<'a> {
     pub(crate) rowlen: u32,
 }
 
-/// A cursor over an [`RLookup`]'s key list usable as [`Iterator`]
+/// A cursor over an [`crate::RLookup`]'s key list usable as [`Iterator`]
 ///
 /// This types `Iterator` implementation skips all hidden keys, i.e. the keys
 /// with hidden flags, also including keys that been overridden.
@@ -35,7 +35,7 @@ pub struct Cursor<'list, 'a> {
     current: Option<NonNull<RLookupKey<'a>>>,
 }
 
-/// A cursor over an [`RLookup`]s key list with editing operations.
+/// A cursor over an [`crate::RLookup`]s key list with editing operations.
 pub struct CursorMut<'list, 'a> {
     _rlookup: &'list mut KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
@@ -336,7 +336,7 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         let new = {
             let (name, path) = old.as_mut().make_tombstone();
 
-            let new = RLookupKey::from_parts(
+            RLookupKey::from_parts(
                 name,
                 path,
                 old.dstidx,
@@ -345,9 +345,7 @@ impl<'list, 'a> CursorMut<'list, 'a> {
                 flags,
                 #[cfg(debug_assertions)]
                 old.rlookup_id(),
-            );
-
-            new
+            )
         };
 
         // Safety: we treat the pointer as pinned below and only hand out a pinned mutable reference.
