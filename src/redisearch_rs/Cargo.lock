@@ -1790,7 +1790,6 @@ dependencies = [
  "enumflags2",
  "ffi",
  "inverted_index",
- "unsafe-tools",
  "workspace_hack",
 ]
 
