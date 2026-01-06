@@ -53,7 +53,7 @@ impl Bencher {
         // Rust implementation
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || Not::new(Empty, MAX_DOC_ID, 1.0, Duration::from_mins(5)),
+                || Not::new(Empty, MAX_DOC_ID, 1.0, Duration::from_secs(300)),
                 |it| {
                     while let Ok(Some(current)) = it.read() {
                         criterion::black_box(current);
@@ -96,7 +96,7 @@ impl Bencher {
                         SortedIdList::new(data),
                         MAX_DOC_ID,
                         1.0,
-                        Duration::from_mins(5),
+                        Duration::from_secs(300),
                     )
                 },
                 |it| {
@@ -142,7 +142,7 @@ impl Bencher {
                         SortedIdList::new(data),
                         MAX_DOC_ID,
                         1.0,
-                        Duration::from_mins(5),
+                        Duration::from_secs(300),
                     )
                 },
                 |it| {
@@ -182,7 +182,7 @@ impl Bencher {
         // Rust implementation
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || Not::new(Empty, MAX_DOC_ID, 1.0, Duration::from_mins(5)),
+                || Not::new(Empty, MAX_DOC_ID, 1.0, Duration::from_secs(300)),
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
                         criterion::black_box(current);
@@ -225,7 +225,7 @@ impl Bencher {
                         SortedIdList::new(data),
                         MAX_DOC_ID,
                         1.0,
-                        Duration::from_mins(5),
+                        Duration::from_secs(300),
                     )
                 },
                 |it| {
@@ -271,7 +271,7 @@ impl Bencher {
                         SortedIdList::new(data),
                         MAX_DOC_ID,
                         1.0,
-                        Duration::from_mins(5),
+                        Duration::from_secs(300),
                     )
                 },
                 |it| {
