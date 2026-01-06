@@ -138,7 +138,7 @@ impl<'a> RLookup<'a> {
         // Manually iterate through all keys including hidden ones
         let mut c = src.cursor();
         while let Some(src_key) = c.current() {
-            if !src_key.is_overridden() {
+            if !src_key.is_tombstone() {
                 // Combine caller's control flags with source key's persistent properties
                 // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
                 // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
@@ -146,7 +146,7 @@ impl<'a> RLookup<'a> {
 
                 // NB: get_key_write returns none if the key already exists and `flags` don't contain `Override`.
                 // In this case, we just want to move on to the next key
-                let _ = self.get_key_write(src_key._name.clone(), combined_flags);
+                let _ = self.get_key_write(src_key.name().clone(), combined_flags);
             }
 
             c.move_next();
@@ -381,18 +381,15 @@ impl<'a> RLookup<'a> {
             key
         } else {
             // Field not found in the schema.
-            let mut key = cursor.current().unwrap();
-            let is_borrowed = matches!(key._name, Cow::Borrowed(_));
-            let mut key = key.as_mut().project();
+            let key = cursor.current().unwrap();
+            let is_borrowed = matches!(key.name(), Cow::Borrowed(_));
 
             // We assume `field_name` is the path to load from in the document.
             if is_borrowed {
-                key.header.path = field_name.as_ptr();
-                *key._path = Some(Cow::Borrowed(field_name));
+                key.set_path(Cow::Borrowed(field_name));
             } else if name.as_ref() != field_name {
                 let field_name: Cow<'_, CStr> = Cow::Owned(field_name.to_owned());
-                key.header.path = field_name.as_ptr();
-                *key._path = Some(field_name);
+                key.set_path(field_name);
             } // else
             // If the caller requested to allocate the name, and the name is the same as the path,
             // it was already set to the same allocation for the name, so we don't need to do anything.
@@ -488,7 +485,7 @@ mod tests {
 
         // Assert that we can write a new key
         let key = rlookup.get_key_write(name.as_c_str(), flags).unwrap();
-        assert_eq!(key._name.as_ref(), name.as_c_str());
+        assert_eq!(key.name().as_ref(), name.as_c_str());
         assert_eq!(key.name, name.as_ptr());
         assert!(key.flags.contains(RLookupKeyFlag::QuerySrc));
     }
@@ -502,7 +499,7 @@ mod tests {
 
         // Assert that we can write a new key
         let key = rlookup.get_key_write(name.as_c_str(), flags).unwrap();
-        assert_eq!(key._name.as_ref(), name.as_c_str());
+        assert_eq!(key.name().as_ref(), name.as_c_str());
         assert_eq!(key.name, name.as_ptr());
         assert!(key.flags.contains(RLookupKeyFlag::QuerySrc));
 
@@ -519,14 +516,14 @@ mod tests {
         let mut rlookup = RLookup::new();
 
         let key = rlookup.get_key_write(name.as_c_str(), flags).unwrap();
-        assert_eq!(key._name.as_ref(), name.as_c_str());
+        assert_eq!(key.name().as_ref(), name.as_c_str());
         assert_eq!(key.name, name.as_ptr());
         assert!(key.flags.contains(RLookupKeyFlag::QuerySrc));
 
         let new_flags = make_bitflags!(RLookupKeyFlag::{ExplicitReturn | Override});
 
         let new_key = rlookup.get_key_write(name.as_c_str(), new_flags).unwrap();
-        assert_eq!(new_key._name.as_ref(), name.as_c_str());
+        assert_eq!(new_key.name().as_ref(), name.as_c_str());
         assert_eq!(new_key.name, name.as_ptr());
         assert!(new_key.flags.contains(RLookupKeyFlag::QuerySrc));
         assert!(new_key.flags.contains(RLookupKeyFlag::ExplicitReturn));
@@ -549,10 +546,10 @@ mod tests {
             .get_key_load(key_name, field_name, RLookupKeyFlags::empty())
             .expect("expected to find key by name");
 
-        assert_eq!(retrieved_key._name.as_ref(), key_name);
+        assert_eq!(retrieved_key.name().as_ref(), key_name);
         assert_eq!(retrieved_key.name, key_name.as_ptr());
         assert_eq!(retrieved_key.path, field_name.as_ptr());
-        assert_eq!(retrieved_key._path.as_ref().unwrap().as_ref(), field_name);
+        assert_eq!(retrieved_key.path().as_ref().unwrap().as_ref(), field_name);
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
     }
@@ -582,10 +579,10 @@ mod tests {
             )
             .expect("expected to find key by name");
 
-        assert_eq!(retrieved_key._name.as_ref(), key_name);
+        assert_eq!(retrieved_key.name().as_ref(), key_name);
         assert_eq!(retrieved_key.name, key_name.as_ptr());
         assert_eq!(retrieved_key.path, field_name.as_ptr());
-        assert_eq!(retrieved_key._path.as_ref().unwrap().as_ref(), field_name);
+        assert_eq!(retrieved_key.path().as_ref().unwrap().as_ref(), field_name);
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
     }
@@ -625,11 +622,11 @@ mod tests {
             )
             .expect("expected to find key by name");
 
-        assert_eq!(retrieved_key._name.as_ref(), key_name);
+        assert_eq!(retrieved_key.name().as_ref(), key_name);
         assert_eq!(retrieved_key.name, key_name.as_ptr());
         assert_eq!(retrieved_key.path, cache_field_name.as_ptr());
         assert_eq!(
-            retrieved_key._path.as_ref().unwrap().as_ref(),
+            retrieved_key.path().as_ref().unwrap().as_ref(),
             cache_field_name
         );
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
@@ -726,11 +723,11 @@ mod tests {
             )
             .expect("expected to find key by name");
 
-        assert_eq!(retrieved_key._name.as_ref(), key_name);
+        assert_eq!(retrieved_key.name().as_ref(), key_name);
         assert_eq!(retrieved_key.name, key_name.as_ptr());
         assert_eq!(retrieved_key.path, cache_field_name.as_ptr());
         assert_eq!(
-            retrieved_key._path.as_ref().unwrap().as_ref(),
+            retrieved_key.path().as_ref().unwrap().as_ref(),
             cache_field_name
         );
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
@@ -812,10 +809,10 @@ mod tests {
             )
             .expect("expected to find key by name");
 
-        assert_eq!(retrieved_key._name.as_ref(), key_name);
+        assert_eq!(retrieved_key.name().as_ref(), key_name);
         assert_eq!(retrieved_key.name, key_name.as_ptr());
         assert_eq!(retrieved_key.path, field_name.as_ptr());
-        assert_eq!(retrieved_key._path.as_ref().unwrap().as_ref(), field_name);
+        assert_eq!(retrieved_key.path().as_ref().unwrap().as_ref(), field_name);
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
     }
@@ -841,10 +838,10 @@ mod tests {
             )
             .expect("expected to find key by name");
 
-        assert_eq!(retrieved_key._name.as_ref(), key_name);
+        assert_eq!(retrieved_key.name().as_ref(), key_name);
         assert_eq!(retrieved_key.name, key_name.as_ptr());
         assert_eq!(retrieved_key.path, field_name.as_ptr());
-        assert_eq!(retrieved_key._path.as_ref().unwrap().as_ref(), field_name);
+        assert_eq!(retrieved_key.path().as_ref().unwrap().as_ref(), field_name);
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
     }
@@ -1106,8 +1103,8 @@ mod tests {
              let key = rlookup
                  .get_key_read(&name, RLookupKeyFlags::empty())
                  .unwrap();
-             assert_eq!(key._name.as_ref(), name.as_ref());
-             assert!(key._path.is_none());
+             assert_eq!(key.name().as_ref(), name.as_ref());
+             assert!(key.path().is_none());
          }
 
          // Assert that a key cannot be retrieved by any other string
@@ -1166,9 +1163,9 @@ mod tests {
                  .get_key_read(&name, RLookupKeyFlags::empty()).unwrap();
 
              prop_assert_eq!(key.name, name.as_ptr());
-             prop_assert_eq!(key._name.as_ref(), name.as_c_str());
+             prop_assert_eq!(key.name().as_ref(), name.as_c_str());
              prop_assert_eq!(key.path, path.as_ptr());
-             prop_assert_eq!(key._path.as_ref().unwrap().as_ref(), path.as_c_str());
+             prop_assert_eq!(key.path().as_ref().unwrap().as_ref(), path.as_c_str());
 
              // the second call will load from the keylist
              // to ensure this we zero out the cache
@@ -1178,9 +1175,9 @@ mod tests {
                  .get_key_read(&name, RLookupKeyFlags::empty())
                  .unwrap();
              prop_assert_eq!(key.name, name.as_ptr());
-             prop_assert_eq!(key._name.as_ref(), name.as_c_str());
+             prop_assert_eq!(key.name().as_ref(), name.as_c_str());
              prop_assert_eq!(key.path, path.as_ptr());
-             prop_assert_eq!(key._path.as_ref().unwrap().as_ref(), path.as_c_str());
+             prop_assert_eq!(key.path().as_ref().unwrap().as_ref(), path.as_c_str());
 
              // cleanup
              unsafe {
@@ -1276,9 +1273,9 @@ mod tests {
              let key = rlookup.get_key_read(&wrong_name, RLookupKeyFlags::empty()).unwrap();
              prop_assert!(key.flags.contains(RLookupKeyFlag::Unresolved));
              prop_assert_eq!(key.name, wrong_name.as_ptr());
-             prop_assert_eq!(key._name.as_ref(), wrong_name.as_c_str());
+             prop_assert_eq!(key.name().as_ref(), wrong_name.as_c_str());
              prop_assert_eq!(key.path, wrong_name.as_ptr());
-             prop_assert!(key._path.is_none());
+             prop_assert!(key.path().is_none());
 
              // cleanup
              unsafe {

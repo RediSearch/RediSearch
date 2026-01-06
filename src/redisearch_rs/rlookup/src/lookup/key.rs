@@ -144,12 +144,12 @@ pub struct RLookupKey<'a> {
     // so the pointers in the above header stay valid. Note that you
     // MUST NEVER MOVE THESE BEFORE THE header FIELD
     #[pin]
-    pub(crate) _name: Cow<'a, CStr>,
+    _name: Cow<'a, CStr>,
     #[pin]
-    pub(crate) _path: Option<Cow<'a, CStr>>,
+    _path: Option<Cow<'a, CStr>>,
 
     #[cfg(debug_assertions)]
-    pub(crate) rlookup_id: RLookupId,
+    rlookup_id: RLookupId,
 }
 
 #[derive(Debug)]
@@ -242,8 +242,162 @@ impl<'a> RLookupKey<'a> {
         }
     }
 
-    pub fn name(&self) -> &CStr {
-        self._name.as_ref()
+    /// Construct an `RLookupKey` from its main parts. Prefer Self::new if you are unsure which to use.
+    pub(crate) fn from_parts(
+        name: Cow<'a, CStr>,
+        path: Option<Cow<'a, CStr>>,
+        dstidx: u16,
+        flags: RLookupKeyFlags,
+        #[cfg(debug_assertions)] rlookup_id: RLookupId,
+    ) -> Self {
+        debug_assert_eq!(
+            matches!(name, Cow::Owned(_)),
+            flags.contains(RLookupKeyFlag::NameAlloc),
+            "`RLookupKeyFlag::NameAlloc` was provided, but `name` was not `Cow::Owned`"
+        );
+        if let Some(path) = &path {
+            debug_assert_eq!(
+                matches!(path, Cow::Owned(_)),
+                flags.contains(RLookupKeyFlag::NameAlloc),
+                "`RLookupKeyFlag::NameAlloc` was provided, but `path` was not `Cow::Owned`"
+            );
+        }
+
+        Self {
+            header: RLookupKeyHeader {
+                dstidx,
+                svidx: 0,
+                flags: flags & !TRANSIENT_FLAGS,
+                name: name.as_ptr(),
+                // if a separate path was provided we should set the pointer accordingly
+                // if not, we fall back to the name as usual
+                path: path.as_ref().map_or(name.as_ptr(), |path| path.as_ptr()),
+                name_len: name.count_bytes(),
+                next: UnsafeCell::new(None),
+            },
+            _name: name,
+            _path: path,
+            #[cfg(debug_assertions)]
+            rlookup_id,
+        }
+    }
+
+    /// Constructs a `Pin<Box<RLookupKey>>` from a raw pointer.
+    ///
+    /// The returned `Box` will own the raw pointer, in particular dropping the `Box`
+    /// will deallocate the `RLookupKey`. This function should only be used by [`RLookup::drop`].
+    ///
+    /// # Safety
+    ///
+    /// 1. The caller must ensure the pointer was previously created through [`Self::into_ptr`].
+    /// 2. The caller has to be careful to never call this method twice for the same pointer, otherwise a
+    ///    double-free or other memory corruptions will occur.
+    /// 3. The caller *must* also ensure that `ptr` continues to be treated as pinned.
+    #[inline]
+    pub(crate) unsafe fn from_ptr(ptr: NonNull<Self>) -> Pin<Box<Self>> {
+        // This function must be kept in sync with `Self::into_ptr` above.
+
+        // Safety:
+        // 1 -> This function will only ever be called through `RLookup::drop` below.
+        //      We therefore know - because push_key creates pointers through `into_ptr` - that the invariant is upheld.
+        // 2 -> Has to be upheld by the caller
+        let b = unsafe { Box::from_raw(ptr.as_ptr()) };
+        // Safety: 3 -> Caller has to uphold the pin contract
+        unsafe { Pin::new_unchecked(b) }
+    }
+
+    /// Converts a heap-allocated `RLookupKey` into a raw pointer.
+    ///
+    /// The caller is responsible for the memory previously managed by the `Box`, in particular
+    /// the caller should properly destroy the `RLookupKey` and deallocate the memory by calling
+    /// `Self::from_ptr`.
+    ///
+    /// # Safety
+    ///
+    /// The caller *must* continue to treat the pointer as pinned.
+    #[inline]
+    pub(crate) unsafe fn into_ptr(me: Pin<Box<Self>>) -> NonNull<Self> {
+        // This function must be kept in sync with `Self::from_ptr` below.
+
+        // Safety: The caller promised to continue to treat the returned pointer
+        // as pinned and never move out of it.
+        let ptr = Box::into_raw(unsafe { Pin::into_inner_unchecked(me) });
+
+        // Safety: we know the ptr we get from Box::into_raw is never null
+        unsafe { NonNull::new_unchecked(ptr) }
+    }
+
+    pub fn name(&self) -> &Cow<'a, CStr> {
+        &self._name
+    }
+
+    pub fn path(&self) -> &Option<Cow<'a, CStr>> {
+        &self._path
+    }
+
+    #[cfg(debug_assertions)]
+    pub const fn rlookup_id(&self) -> RLookupId {
+        self.rlookup_id
+    }
+
+    pub fn is_tombstone(&self) -> bool {
+        let is_overridden = self.name.is_null();
+
+        #[cfg(any(debug_assertions, test))]
+        if is_overridden {
+            debug_assert!(self.name_len == usize::MAX);
+            debug_assert!(self.path.is_null());
+            debug_assert!(self.flags.contains(RLookupKeyFlag::Hidden))
+        }
+
+        is_overridden
+    }
+
+    /// Returns `true` if this node is currently linked to a [`List`].
+    #[cfg(test)]
+    pub(crate) fn has_next(&self) -> bool {
+        self.next().is_some()
+    }
+
+    /// Return the next pointer in the linked list
+    #[inline]
+    pub(crate) fn next(&self) -> Option<NonNull<RLookupKey<'a>>> {
+        // Safety: RLookupKeys are created through `KeyList::push` and owned by the `List`. We
+        // can therefore assume this pointer is safe to dereference at this point.
+        unsafe { *self.next.get() }
+    }
+
+    /// Update the pointer to the next node
+    #[inline]
+    pub(crate) fn set_next(
+        self: Pin<&mut Self>,
+        next: Option<NonNull<RLookupKey<'a>>>,
+    ) -> Option<NonNull<RLookupKey<'a>>> {
+        let me = self.project();
+        mem::replace(me.header.next.get_mut(), next)
+    }
+
+    #[inline]
+    pub(crate) fn set_path(self: Pin<&mut Self>, path: Cow<'a, CStr>) {
+        let mut me = self.project();
+        me.header.path = path.as_ptr();
+        *me._path = Some(path);
+    }
+
+    pub fn make_tombstone(self: Pin<&mut Self>) -> (Cow<'a, CStr>, Option<Cow<'a, CStr>>) {
+        let mut me = self.project();
+
+        me.header.name = ptr::null();
+        me.header.name_len = usize::MAX;
+        let name = mem::take(me._name.deref_mut());
+
+        me.header.path = ptr::null();
+        let path = mem::take(me._path.deref_mut());
+
+        // this will exclude it from iteration
+        me.header.flags |= RLookupKeyFlag::Hidden;
+
+        (name, path)
     }
 
     pub fn update_from_field_spec(&mut self, fs: &ffi::FieldSpec) {
@@ -293,138 +447,6 @@ impl<'a> RLookupKey<'a> {
         }
     }
 
-    #[cfg(debug_assertions)]
-    pub const fn rlookup_id(&self) -> RLookupId {
-        self.rlookup_id
-    }
-
-    /// Construct an `RLookupKey` from its main parts. Prefer Self::new if you are unsure which to use.
-    pub(crate) fn from_parts(
-        name: Cow<'a, CStr>,
-        path: Option<Cow<'a, CStr>>,
-        dstidx: u16,
-        flags: RLookupKeyFlags,
-        #[cfg(debug_assertions)] rlookup_id: RLookupId,
-    ) -> Self {
-        debug_assert_eq!(
-            matches!(name, Cow::Owned(_)),
-            flags.contains(RLookupKeyFlag::NameAlloc),
-            "`RLookupKeyFlag::NameAlloc` was provided, but `name` was not `Cow::Owned`"
-        );
-        if let Some(path) = &path {
-            debug_assert_eq!(
-                matches!(path, Cow::Owned(_)),
-                flags.contains(RLookupKeyFlag::NameAlloc),
-                "`RLookupKeyFlag::NameAlloc` was provided, but `path` was not `Cow::Owned`"
-            );
-        }
-
-        Self {
-            header: RLookupKeyHeader {
-                dstidx,
-                svidx: 0,
-                flags: flags & !TRANSIENT_FLAGS,
-                name: name.as_ptr(),
-                // if a separate path was provided we should set the pointer accordingly
-                // if not, we fall back to the name as usual
-                path: path.as_ref().map_or(name.as_ptr(), |path| path.as_ptr()),
-                name_len: name.count_bytes(),
-                next: UnsafeCell::new(None),
-            },
-            _name: name,
-            _path: path,
-            #[cfg(debug_assertions)]
-            rlookup_id,
-        }
-    }
-
-    /// Converts a heap-allocated `RLookupKey` into a raw pointer.
-    ///
-    /// The caller is responsible for the memory previously managed by the `Box`, in particular
-    /// the caller should properly destroy the `RLookupKey` and deallocate the memory by calling
-    /// `Self::from_ptr`.
-    ///
-    /// # Safety
-    ///
-    /// The caller *must* continue to treat the pointer as pinned.
-    #[inline]
-    pub(crate) unsafe fn into_ptr(me: Pin<Box<Self>>) -> NonNull<Self> {
-        // This function must be kept in sync with `Self::from_ptr` below.
-
-        // Safety: The caller promised to continue to treat the returned pointer
-        // as pinned and never move out of it.
-        let ptr = Box::into_raw(unsafe { Pin::into_inner_unchecked(me) });
-
-        // Safety: we know the ptr we get from Box::into_raw is never null
-        unsafe { NonNull::new_unchecked(ptr) }
-    }
-
-    /// Constructs a `Pin<Box<RLookupKey>>` from a raw pointer.
-    ///
-    /// The returned `Box` will own the raw pointer, in particular dropping the `Box`
-    /// will deallocate the `RLookupKey`. This function should only be used by [`RLookup::drop`].
-    ///
-    /// # Safety
-    ///
-    /// 1. The caller must ensure the pointer was previously created through [`Self::into_ptr`].
-    /// 2. The caller has to be careful to never call this method twice for the same pointer, otherwise a
-    ///    double-free or other memory corruptions will occur.
-    /// 3. The caller *must* also ensure that `ptr` continues to be treated as pinned.
-    #[inline]
-    pub(crate) unsafe fn from_ptr(ptr: NonNull<Self>) -> Pin<Box<Self>> {
-        // This function must be kept in sync with `Self::into_ptr` above.
-
-        // Safety:
-        // 1 -> This function will only ever be called through `RLookup::drop` below.
-        //      We therefore know - because push_key creates pointers through `into_ptr` - that the invariant is upheld.
-        // 2 -> Has to be upheld by the caller
-        let b = unsafe { Box::from_raw(ptr.as_ptr()) };
-        // Safety: 3 -> Caller has to uphold the pin contract
-        unsafe { Pin::new_unchecked(b) }
-    }
-
-    pub fn is_overridden(&self) -> bool {
-        let is_overridden = self.name.is_null();
-
-        #[cfg(any(debug_assertions, test))]
-        if is_overridden {
-            debug_assert!(self.name_len == usize::MAX);
-            debug_assert!(self.path.is_null());
-            debug_assert!(self.flags.contains(RLookupKeyFlag::Hidden))
-        }
-
-        is_overridden
-    }
-
-    /// Returns `true` if this node is currently linked to a [`List`].
-    #[cfg(test)]
-    pub(crate) fn has_next(&self) -> bool {
-        self.next().is_some()
-    }
-
-    /// Return the next pointer in the linked list
-    #[inline]
-    pub(crate) fn next(&self) -> Option<NonNull<RLookupKey<'a>>> {
-        // Safety: RLookupKeys are created through `KeyList::push` and owned by the `List`. We
-        // can therefore assume this pointer is safe to dereference at this point.
-        unsafe { *self.next.get() }
-    }
-
-    /// Update the pointer to the next node
-    #[inline]
-    pub(crate) fn set_next(
-        self: Pin<&mut Self>,
-        next: Option<NonNull<RLookupKey<'a>>>,
-    ) -> Option<NonNull<RLookupKey<'a>>> {
-        let me = self.project();
-        mem::replace(me.header.next.get_mut(), next)
-    }
-
-    /// Access the name of the RLookupKey as &CStr reference
-    pub fn name_as_cstr(&self) -> &CStr {
-        self._name.as_ref()
-    }
-
     #[cfg(any(debug_assertions, test))]
     pub(crate) fn assert_valid(&self, tail: &Self, ctx: &str) {
         assert!(
@@ -433,7 +455,7 @@ impl<'a> RLookupKey<'a> {
             self.flags
         );
 
-        if !self.is_overridden() {
+        if !self.is_tombstone() {
             use std::ptr;
 
             assert!(

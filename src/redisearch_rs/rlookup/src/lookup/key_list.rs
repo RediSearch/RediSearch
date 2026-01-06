@@ -7,10 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-use crate::{RLookupKey, RLookupKeyFlag, RLookupKeyFlags};
-use std::ops::DerefMut;
+use crate::{RLookupKey, RLookupKeyFlags};
+use std::ptr;
 use std::{ffi::CStr, pin::Pin, ptr::NonNull};
-use std::{mem, ptr};
 
 #[derive(Debug)]
 #[repr(C)]
@@ -154,7 +153,7 @@ impl<'a> KeyList<'a> {
 
         let mut c = self.cursor_front();
         while let Some(key) = c.current() {
-            if key._name.as_ref() == name {
+            if key.name().as_ref() == name {
                 return Some(c);
             }
             c.move_next();
@@ -171,7 +170,7 @@ impl<'a> KeyList<'a> {
 
         let mut c = self.cursor_front_mut();
         while let Some(key) = c.current() {
-            if key._name.as_ref() == name {
+            if key.name().as_ref() == name {
                 return Some(c);
             }
             c.move_next();
@@ -349,28 +348,18 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         let mut old = self.current()?;
 
         let new = {
-            let mut old = old.as_mut().project();
-
-            old.header.name = ptr::null();
-            old.header.name_len = usize::MAX;
-            let name = mem::take(old._name.deref_mut());
-
-            old.header.path = ptr::null();
-            let path = mem::take(old._path.deref_mut());
+            let (name, path) = old.as_mut().make_tombstone();
 
             let new = RLookupKey::from_parts(
                 name,
                 path,
-                old.header.dstidx,
+                old.dstidx,
                 // NAME_ALLOC is a transient flag in Rust and must not be copied over,
                 // thus we can safely just set the provided flags here.
                 flags,
                 #[cfg(debug_assertions)]
-                *old.rlookup_id,
+                old.rlookup_id(),
             );
-
-            // Mark the old key as hidden, so it won't show up in iteration.
-            old.header.flags |= RLookupKeyFlag::Hidden;
 
             new
         };
@@ -409,6 +398,7 @@ impl<'list, 'a> CursorMut<'list, 'a> {
 mod tests {
     use super::*;
     use crate::RLookup;
+    use crate::RLookupKeyFlag;
     use enumflags2::make_bitflags;
 
     // assert that the linked list is produced and linked correctly
@@ -455,11 +445,11 @@ mod tests {
         keylist.assert_valid("tests::keylist_cursor_move_next after insertions");
 
         let mut c = keylist.cursor_front();
-        assert_eq!(c.current().unwrap()._name.as_ref(), c"foo");
+        assert_eq!(c.current().unwrap().name().as_ref(), c"foo");
         c.move_next();
-        assert_eq!(c.current().unwrap()._name.as_ref(), c"bar");
+        assert_eq!(c.current().unwrap().name().as_ref(), c"bar");
         c.move_next();
-        assert_eq!(c.current().unwrap()._name.as_ref(), c"baz");
+        assert_eq!(c.current().unwrap().name().as_ref(), c"baz");
         c.move_next();
         assert!(c.current().is_none());
     }
@@ -484,11 +474,11 @@ mod tests {
         keylist.assert_valid("tests::keylist_cursor_mut_move_next after insertions");
 
         let mut c = keylist.cursor_front_mut();
-        assert_eq!(c.current().unwrap()._name.as_ref(), c"foo");
+        assert_eq!(c.current().unwrap().name().as_ref(), c"foo");
         c.move_next();
-        assert_eq!(c.current().unwrap()._name.as_ref(), c"bar");
+        assert_eq!(c.current().unwrap().name().as_ref(), c"bar");
         c.move_next();
-        assert_eq!(c.current().unwrap()._name.as_ref(), c"baz");
+        assert_eq!(c.current().unwrap().name().as_ref(), c"baz");
         c.move_next();
         assert!(c.current().is_none());
     }
@@ -566,8 +556,8 @@ mod tests {
             .current()
             .expect("cursor should have current, this is a bug");
 
-        assert_eq!(found._name.as_ref(), c"foo");
-        assert!(found._path.is_none());
+        assert_eq!(found.name().as_ref(), c"foo");
+        assert!(found.path().is_none());
         assert_eq!(found.dstidx, 0);
         // new key should have provided keys
         assert!(found.flags.contains(RLookupKeyFlag::Numeric));
@@ -592,11 +582,11 @@ mod tests {
         let mut c = keylist.cursor_front();
 
         // we expect the first item to be the tombstone of the old key
-        assert!(c.current().unwrap().is_overridden());
+        assert!(c.current().unwrap().is_tombstone());
 
         // and the next item to be the new key
         c.move_next();
-        assert_eq!(c.current().unwrap()._name.as_ref(), c"foo");
+        assert_eq!(c.current().unwrap().name().as_ref(), c"foo");
     }
 
     #[test]
