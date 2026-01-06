@@ -47,6 +47,11 @@ typedef struct {
 /* SearchResult flags */
 static const uint8_t Result_ExpiredDoc = 1 << 0;
 
+static inline SearchResult SearchResult_New() {
+    SearchResult r = {0};
+    return r;
+}
+
 /**
  * Moves the contents of `r` into a newly heap-allocated SearchResult.
  * This function takes ownership of the search result, so `r` **must not** be used after this

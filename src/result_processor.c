@@ -445,6 +445,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     }
     // we need to allocate a new result for the next iteration
     self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
+    *self->pooledResult = SearchResult_New();
   } else {
     // find the min result
     SearchResult *minh = mmh_peek_min(self->pq);
@@ -542,6 +543,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 
   ret->pq = mmh_init_with_size(maxresults, ret->cmp, ret->cmpCtx, srDtor);
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
+  *ret->pooledResult = SearchResult_New();
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
   ret->base.type = RP_SORTER;
@@ -896,7 +898,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RedisSearchCtx *sctx = self->sctx;
   int result_status;
   uint32_t bufferLimit = rp->parent->resultLimit;
-  SearchResult resToBuffer = {0};
+  SearchResult resToBuffer = SearchResult_New();
   SearchResult *currBlock = NULL;
   // Get the next result and save it in the buffer
   while (rp->parent->resultLimit && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
@@ -905,8 +907,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     // Buffer the result.
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 
-    memset(&resToBuffer, 0, sizeof(SearchResult));
-
+    resToBuffer = SearchResult_New();
   }
   rp->parent->resultLimit = bufferLimit; // Restore the result limit
 
@@ -1267,6 +1268,7 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
 
   // we need to allocate a new result for the next iteration
   self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
+  *self->pooledResult = SearchResult_New();
   return RESULT_QUEUED;
 }
 
@@ -1284,6 +1286,7 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
  ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk) {
   RPMaxScoreNormalizer *ret = rm_calloc(1, sizeof(*ret));
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
+  *ret->pooledResult = SearchResult_New();
   ret->pool = array_new(SearchResult*, 0);
   ret->base.Next = RPMaxScoreNormalizer_Accum;
   ret->base.Free = RPMaxScoreNormalizer_Free;
@@ -1462,9 +1465,11 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
 
   // Deplete the pipeline into the `self->results` array.
   SearchResult *r = rm_calloc(1, sizeof(*r));
+  *r = SearchResult_New();
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
+    *r = SearchResult_New();
   }
   rm_free(r);
 
@@ -1838,6 +1843,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
    size_t consumed = 0;
    int rc = RS_RESULT_OK;
    SearchResult *r = rm_calloc(1, sizeof(*r));
+   *r = SearchResult_New();
    ResultProcessor *upstream = self->upstreams[upstreamIndex];
    while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
        double score = SearchResult_GetScore(r);
@@ -1847,6 +1853,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
        }
        if (hybridMergerStoreUpstreamResult(self, r, upstreamIndex, score)) {
          r = rm_calloc(1, sizeof(*r));
+         *r = SearchResult_New();
        } else {
          SearchResult_Clear(r);
          --consumed; // avoid wrong rank in RRF
