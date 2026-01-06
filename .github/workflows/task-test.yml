@@ -596,9 +596,9 @@ jobs:
             steps.coordinator_tests.outcome == 'failure'
           )
         run: |
-          echo "Rust Unit Tests(Miri): ${{ steps.rust_unit_tests_miri.outcome }}"
-          echo "Rust Unit Tests: ${{ steps.rust_unit_tests.outcome }}"
           echo "C Unit Tests: ${{ steps.c_unit_tests.outcome }}"
+          echo "Rust Unit Tests: ${{ steps.rust_unit_tests.outcome }}"
+          echo "Rust Unit Tests(Miri): ${{ steps.rust_unit_tests_miri.outcome }}"
           echo "Standalone: ${{ steps.standalone_tests.outcome }}"
           echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
           exit 1
