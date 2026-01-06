@@ -44,8 +44,7 @@ impl TimeoutContext {
     /// Increments the internal counter and, if the `limit` is reached, checks if
     /// the current time has passed the `deadline`.
     ///
-    /// Returns `true` if the deadline has been reached or exceeded.
-    /// Returns `false` otherwise, or if the counter has not yet reached the limit.
+    /// Returns error [`RQEIteratorError::TimedOut`] if the deadline has been reached or exceeded.
     #[inline(always)]
     pub fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
         self.counter += 1;
