@@ -28,7 +28,7 @@ fn insert_without_gap() {
     assert_eq!(row.num_dyn_values(), 0);
 
     // generate test key at index 0
-    let key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+    let key = RLookupKey::new(&rlookup, c"test", None, RLookupKeyFlags::empty());
 
     // insert a key at the first position
     row.write_key(&key, RSValueMock::create_num(42.0));
@@ -38,7 +38,7 @@ fn insert_without_gap() {
     assert_eq!(row.dyn_values()[0].as_ref().unwrap().as_num(), Some(42.0));
 
     // insert a key at the second position
-    let mut key = RLookupKey::new(&rlookup, c"test2", RLookupKeyFlags::empty());
+    let mut key = RLookupKey::new(&rlookup, c"test2", None, RLookupKeyFlags::empty());
     key.dstidx = 1;
     row.write_key(&key, RSValueMock::create_num(84.0));
     assert!(!row.is_empty());
@@ -57,7 +57,7 @@ fn insert_with_gap() {
     assert_eq!(row.num_dyn_values(), 0);
 
     // generate test key at index 15
-    let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+    let mut key = RLookupKey::new(&rlookup, c"test", None, RLookupKeyFlags::empty());
     key.dstidx = 15;
     row.write_key(&key, RSValueMock::create_num(42.0));
 
@@ -77,7 +77,7 @@ fn insert_non_owned() {
     assert_eq!(row.num_dyn_values(), 0);
 
     // generate test key at index 0
-    let key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+    let key = RLookupKey::new(&rlookup, c"test", None, RLookupKeyFlags::empty());
 
     // insert a key at the first position
     let mock = RSValueMock::create_num(42.0);
@@ -101,7 +101,7 @@ fn insert_overwrite() {
     assert_eq!(row.num_dyn_values(), 0);
 
     // generate test key at index 0
-    let key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+    let key = RLookupKey::new(&rlookup, c"test", None, RLookupKeyFlags::empty());
 
     // insert a key at the first position
     let mock_to_be_overwritten = RSValueMock::create_num(42.0);
@@ -169,7 +169,7 @@ fn wipe() {
 
     // create 10 entries in the row
     for i in 0..10 {
-        let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+        let mut key = RLookupKey::new(&rlookup, c"test", None, RLookupKeyFlags::empty());
         key.dstidx = i as u16;
         row.write_key(&key, RSValueMock::create_num(i as f64 * 2.5));
     }
@@ -187,7 +187,7 @@ fn wipe() {
 
     // create the same 10 entries in the row
     for i in 0..10 {
-        let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+        let mut key = RLookupKey::new(&rlookup, c"test", None, RLookupKeyFlags::empty());
         key.dstidx = i as u16;
         row.write_key(&key, RSValueMock::create_num(i as f64 * 2.5));
     }
@@ -208,7 +208,7 @@ fn reset() {
 
     // create 10 entries in the row
     for i in 0..10 {
-        let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+        let mut key = RLookupKey::new(&rlookup, c"test", None, RLookupKeyFlags::empty());
         key.dstidx = i as u16;
         row.write_key(&key, RSValueMock::create_num(i as f64 * 2.5));
     }
@@ -226,7 +226,7 @@ fn reset() {
 
     // create the same 10 entries in the row
     for i in 0..10 {
-        let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+        let mut key = RLookupKey::new(&rlookup, c"test", None, RLookupKeyFlags::empty());
         key.dstidx = i as u16;
         row.write_key(&key, RSValueMock::create_num(i as f64 * 2.5));
     }
@@ -528,7 +528,7 @@ fn create_test_key(
 ) -> RLookupKey<'static> {
     let str = format!("mock_key_{}_{}", dstidx, svidx);
     let cstring = CString::new(str).unwrap();
-    let mut key = RLookupKey::new(rlookup, cstring, flags);
+    let mut key = RLookupKey::new(rlookup, cstring, None, flags);
     key.dstidx = dstidx;
     key.svidx = svidx;
 
@@ -544,7 +544,7 @@ fn row_panics_on_foreign_lookup() {
     let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new(&rlookup_a);
 
     #[cfg_attr(debug_assertions, allow(unused_mut))]
-    let key = RLookupKey::new(&rlookup_b, c"foo", RLookupKeyFlags::empty());
+    let key = RLookupKey::new(&rlookup_b, c"foo", None, RLookupKeyFlags::empty());
 
     // This should panic, key has a different RLookupId that Row!
     row.write_key(&key, RSValueMock::create_num(42.0));
