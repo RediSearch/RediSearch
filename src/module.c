@@ -3381,6 +3381,9 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 }
 
 int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
+  // Capture start time for coordinator dispatch time tracking
+  rs_wall_clock_ns_t t0 = rs_wall_clock_now_ns();
+
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
@@ -3436,9 +3439,6 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
-
-  // Capture start time for coordinator dispatch time tracking
-  rs_wall_clock_ns_t t0 = rs_wall_clock_now_ns();
 
   ConcurrentSearchHandlerCtx handlerCtx = {
     .coordStartTime = t0,
