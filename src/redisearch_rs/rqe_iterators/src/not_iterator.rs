@@ -70,27 +70,21 @@ where
 
             match self.result.doc_id.cmp(&self.child.last_doc_id()) {
                 Ordering::Less => {
-                    if self.timeout_ctx.check_timeout() {
-                        return Err(RQEIteratorError::TimedOut);
-                    }
+                    self.timeout_ctx.check_timeout()?;
 
                     // Our doc_id is before child's position - it's not in the child, return it
                     return Ok(Some(&mut self.result));
                 }
                 Ordering::Equal => {
                     // We caught up with child iterator - this doc is in the child, skip it
-                    if self.timeout_ctx.check_timeout() {
-                        return Err(RQEIteratorError::TimedOut);
-                    }
+                    self.timeout_ctx.check_timeout()?;
                 }
                 Ordering::Greater => {
                     // Our doc_id is past child's position - need to advance child
                     if let Some(result) = self.child.read()? {
-                        if result.doc_id > self.result.doc_id {
-                            if self.timeout_ctx.check_timeout() {
-                                return Err(RQEIteratorError::TimedOut);
-                            }
+                        self.timeout_ctx.check_timeout()?;
 
+                        if result.doc_id > self.result.doc_id {
                             // child skipped ahead already
                             return Ok(Some(&mut self.result));
                         }
@@ -99,9 +93,7 @@ where
                             "child read backwards without rewind"
                         );
                     } else {
-                        if self.timeout_ctx.check_timeout() {
-                            return Err(RQEIteratorError::TimedOut);
-                        }
+                        self.timeout_ctx.check_timeout()?;
 
                         // child EOF at read
                         return Ok(Some(&mut self.result));
@@ -137,10 +129,7 @@ where
             || (self.child.at_eof() && doc_id > self.child.last_doc_id())
         {
             self.result.doc_id = doc_id;
-
-            if self.timeout_ctx.check_timeout() {
-                return Err(RQEIteratorError::TimedOut);
-            }
+            self.timeout_ctx.check_timeout()?;
 
             return Ok(Some(SkipToOutcome::Found(&mut self.result)));
         }
@@ -155,18 +144,14 @@ where
                     // Not found or EOF - return
                     self.result.doc_id = doc_id;
 
-                    if self.timeout_ctx.check_timeout() {
-                        return Err(RQEIteratorError::TimedOut);
-                    }
+                    self.timeout_ctx.check_timeout()?;
 
                     return Ok(Some(SkipToOutcome::Found(&mut self.result)));
                 }
             }
         }
 
-        if self.timeout_ctx.check_timeout() {
-            return Err(RQEIteratorError::TimedOut);
-        }
+        self.timeout_ctx.check_timeout()?;
 
         // If we are here, Child has DocID (either already lastDocID == docId or the SkipTo returned OK)
         // We need to return NOTFOUND and set the current result to the next valid docId

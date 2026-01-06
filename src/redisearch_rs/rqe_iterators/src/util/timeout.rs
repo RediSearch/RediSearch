@@ -1,5 +1,7 @@
 use std::time::{Duration, Instant};
 
+use crate::RQEIteratorError;
+
 /// A utility for performing amortized timeout checks in high-frequency loops.
 ///
 /// In "hot paths" (like index scanning or large iterations), calling the system clock
@@ -36,12 +38,15 @@ impl TimeoutContext {
     /// Returns `true` if the deadline has been reached or exceeded.
     /// Returns `false` otherwise, or if the counter has not yet reached the limit.
     #[inline(always)]
-    pub fn check_timeout(&mut self) -> bool {
+    pub fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
         self.counter += 1;
         if self.counter >= self.limit {
             self.counter = 0;
-            return Instant::now() >= self.deadline;
+            if Instant::now() >= self.deadline {
+                return Err(RQEIteratorError::TimedOut);
+            }
         }
-        false
+
+        Ok(())
     }
 }
