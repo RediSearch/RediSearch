@@ -875,7 +875,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 #[derive(Debug)]
 pub struct EntriesTrackingIndex<E> {
     /// The underlying inverted index that stores the entries.
-    index: InvertedIndex<E>,
+    pub index: InvertedIndex<E>,
 
     /// The total number of entries in the index. This is not the number of unique documents, but
     /// rather the total number of entries added to the index.
