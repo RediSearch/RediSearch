@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -e
+shopt -s extglob
 
 #-----------------------------------------------------------------------------
 # RediSearch Build Script
@@ -51,6 +52,7 @@ NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
 # Parse command-line arguments and set configuration variables
+# Requires extglob to be enabled
 #-----------------------------------------------------------------------------
 parse_arguments() {
   for arg in "$@"; do
@@ -85,7 +87,7 @@ parse_arguments() {
       COV=*)
         COV="${arg#*=}"
         ;;
-      RUN_PYTEST)
+      RUN_PYTEST?(=1))
         RUN_PYTEST=1
         ;;
       EXT=*)
