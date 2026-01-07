@@ -151,3 +151,45 @@ pub unsafe extern "C" fn RSValue_Map_GetEntry(
         panic!("Expected a map value")
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::constructors::RSValue_NewNumber;
+    use crate::getters::RSValue_Number_Get;
+    use crate::shared::RSValue_DecrRef;
+
+    #[test]
+    fn test_map() {
+        unsafe {
+            let map = RSValueMap_AllocUninit(2);
+            let key_one = RSValue_NewNumber(1.0);
+            let value_one = RSValue_NewNumber(2.0);
+            let key_two = RSValue_NewNumber(3.0);
+            let value_two = RSValue_NewNumber(4.0);
+            RSValueMap_SetEntry(map, 0, key_one, value_one);
+            RSValueMap_SetEntry(map, 1, key_two, value_two);
+
+            let map = RSValue_NewMap(map);
+
+            assert_eq!(RSValue_Map_Len(map), 2);
+
+            let mut key: *mut RsValue = std::ptr::null_mut();
+            let mut value: *mut RsValue = std::ptr::null_mut();
+
+            RSValue_Map_GetEntry(map, 0, &mut key as *mut _, &mut value as *mut _);
+            let key_num = RSValue_Number_Get(key);
+            assert_eq!(1.0, key_num);
+            let value_num = RSValue_Number_Get(value);
+            assert_eq!(2.0, value_num);
+
+            RSValue_Map_GetEntry(map, 1, &mut key as *mut _, &mut value as *mut _);
+            let key_num = RSValue_Number_Get(key);
+            assert_eq!(3.0, key_num);
+            let value_num = RSValue_Number_Get(value);
+            assert_eq!(4.0, value_num);
+
+            RSValue_DecrRef(map);
+        }
+    }
+}
