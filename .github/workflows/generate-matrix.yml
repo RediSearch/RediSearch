@@ -22,6 +22,10 @@ on:
         description: 'Include sanitize job in matrix'
         type: boolean
         default: false
+      separate-coordinator-job:
+        description: "Run coordinator tests in a separate parallel job per platform"
+        type: boolean
+        default: false
     outputs:
       matrix:
         description: "Generated matrix as JSON"
@@ -77,35 +81,41 @@ jobs:
           architecture_filter = "${{ inputs.architecture }}"
           include_coverage = "${{ inputs.include-coverage }}" == "true"
           include_sanitize = "${{ inputs.include-sanitize }}" == "true"
+          separate_coordinator = "${{ inputs.separate-coordinator-job }}" == "true"
+
+          def add_matrix_entries(items, platform, architecture, job_type):
+              """Add matrix entries, splitting by test-mode if separate_coordinator is enabled."""
+              if separate_coordinator:
+                  items.append({'platform': platform, 'architecture': architecture, 'job-type': job_type, 'test-mode': 'standalone'})
+                  items.append({'platform': platform, 'architecture': architecture, 'job-type': job_type, 'test-mode': 'coordinator'})
+              else:
+                  items.append({'platform': platform, 'architecture': architecture, 'job-type': job_type, 'test-mode': 'all'})
 
           # Parse comma-separated filters
           platform_list = [p.strip() for p in platform_filter.split(',')]
           exclude_list = [p[1:] for p in platform_list if p.startswith('!')]
 
           # Filter combinations based on inputs
-          matrix_items = [
-              {'platform': platform, 'architecture': architecture, 'job-type': 'test'}
+          filtered_combinations = [
+              (platform, architecture)
               for platform, architecture in all_combinations
               if (platform in platform_list or 'all' in platform_list) and
                  (platform not in exclude_list) and
                  (architecture == architecture_filter or architecture_filter == 'all')
           ]
 
+          # Generate matrix items
+          matrix_items = []
+          for platform, architecture in filtered_combinations:
+              add_matrix_entries(matrix_items, platform, architecture, 'test')
+
           # Add coverage job if requested (only on ubuntu:default x86_64)
           if include_coverage:
-              matrix_items.append({
-                  'platform': 'ubuntu:default',
-                  'architecture': 'x86_64',
-                  'job-type': 'coverage'
-              })
+              add_matrix_entries(matrix_items, 'ubuntu:default', 'x86_64', 'coverage')
 
           # Add sanitize job if requested (only on ubuntu:default x86_64)
           if include_sanitize:
-              matrix_items.append({
-                  'platform': 'ubuntu:default',
-                  'architecture': 'x86_64',
-                  'job-type': 'sanitize'
-              })
+              add_matrix_entries(matrix_items, 'ubuntu:default', 'x86_64', 'sanitize')
 
           # Check if matrix has any jobs
           has_jobs = len(matrix_items) > 0
