@@ -54,44 +54,44 @@ NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
 #-----------------------------------------------------------------------------
 parse_arguments() {
   for arg in "$@"; do
-    case $arg in
+    case ${arg^^} in
       COORD=*)
         COORD="${arg#*=}"
         ;;
-      DEBUG|debug)
+      DEBUG)
         DEBUG=1
         ;;
-      PROFILE|profile)
+      PROFILE)
         PROFILE=1
         ;;
-      TESTS|tests)
+      TESTS)
         BUILD_TESTS=1
         ;;
-      RUN_TESTS|run_tests)
+      RUN_TESTS)
         RUN_ALL_TESTS=1
         ;;
-      RUN_UNIT_TESTS|run_unit_tests)
+      RUN_UNIT_TESTS)
         RUN_UNIT_TESTS=1
         ;;
-      RUN_RUST_TESTS|run_rust_tests)
+      RUN_RUST_TESTS)
         RUN_RUST_TESTS=1
         ;;
-      RUN_RUST_VALGRIND|run_rust_valgrind)
+      RUN_RUST_VALGRIND)
         RUN_RUST_VALGRIND=1
         ;;
-      RUN_MICRO_BENCHMARKS|run_micro_benchmarks|RUN_MICROBENCHMARKS|run_microbenchmarks)
+      RUN_MICRO_BENCHMARKS)
         RUN_MICRO_BENCHMARKS=1
         ;;
       COV=*)
         COV="${arg#*=}"
         ;;
-      RUN_PYTEST|run_pytest)
+      RUN_PYTEST)
         RUN_PYTEST=1
         ;;
-      EXT=*|ext=*)
+      EXT=*)
         EXT="${arg#*=}"
         ;;
-      EXT_HOST=*|ext_host=*)
+      EXT_HOST=*)
         if [[ "${arg#*=}" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
           EXT_HOST="${arg#*=}"
         else
@@ -99,7 +99,7 @@ parse_arguments() {
           exit 1
         fi
         ;;
-      EXT_PORT=*|ext_port=*)
+      EXT_PORT=*)
         EXT_PORT="${arg#*=}"
         ;;
       TEST=*)
@@ -120,10 +120,10 @@ parse_arguments() {
       SAN=*)
         SAN="${arg#*=}"
         ;;
-      FORCE|force)
+      FORCE)
         FORCE=1
         ;;
-      VERBOSE|verbose)
+      VERBOSE)
         VERBOSE=1
         ;;
       QUICK=*)
