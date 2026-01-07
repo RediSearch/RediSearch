@@ -4116,10 +4116,10 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       DEFINE_COMMAND("FT.DICTDEL",        SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtDictdelInfo,               SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT.ALIASADD",       SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg),       "write deny-oom", SetFtAliasaddInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT._ALIASADDIFNX",  SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtAliasaddInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
-      DEFINE_COMMAND("FT.ALIASDEL",       SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     true,                ossCmdArgs, false),
-      DEFINE_COMMAND("FT._ALIASDELIFX",   SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     true,                ossCmdArgs, false),
-      DEFINE_COMMAND("FT.ALIASUPDATE",    SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg),       "write deny-oom", SetFtAliasupdateInfo,           SET_COMMAND_INFO,      "",                     true,                ossCmdArgs, false),
-      DEFINE_COMMAND("FT.SYNUPDATE",      SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write deny-oom", SetFtSynupdateInfo,             SET_COMMAND_INFO,      "",                     true,                ossCmdArgs, false),
+      DEFINE_COMMAND("FT.ALIASDEL",       SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
+      DEFINE_COMMAND("FT._ALIASDELIFX",   SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
+      DEFINE_COMMAND("FT.ALIASUPDATE",    SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg),       "write deny-oom", SetFtAliasupdateInfo,           SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
+      DEFINE_COMMAND("FT.SYNUPDATE",      SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write deny-oom", SetFtSynupdateInfo,             SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT.CONFIG",         NULL,                                                    "readonly",       RegisterCoordConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                !isClusterEnabled,   noKeyArgs, false),
 
       // // Deprecated OSS commands
