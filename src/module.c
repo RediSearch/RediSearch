@@ -4105,11 +4105,11 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // OSS commands (registered via proxy in Enterprise)
   if (!IsEnterpriseBuild()) {
     SearchCommand writeCommands[] = {
-      DEFINE_COMMAND("FT.CREATE",         SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     true,                ossCmdArgs, false),
-      DEFINE_COMMAND("FT._CREATEIFNX",    SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     true,                ossCmdArgs, false),
-      DEFINE_COMMAND("FT.ALTER",          SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write deny-oom", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     true,                ossCmdArgs, false),
-      DEFINE_COMMAND("FT._ALTERIFNX",     SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write deny-oom", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     true,                ossCmdArgs, false),
-      DEFINE_COMMAND("FT.DROPINDEX",      SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write",          SetFtDropindexInfo,             SET_COMMAND_INFO,      "write slow dangerous", true,                ossCmdArgs, false),
+      DEFINE_COMMAND("FT.CREATE",         SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
+      DEFINE_COMMAND("FT._CREATEIFNX",    SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
+      DEFINE_COMMAND("FT.ALTER",          SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write deny-oom", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
+      DEFINE_COMMAND("FT._ALTERIFNX",     SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write deny-oom", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
+      DEFINE_COMMAND("FT.DROPINDEX",      SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write",          SetFtDropindexInfo,             SET_COMMAND_INFO,      "write slow dangerous", true,                noKeyArgs, false),
       // TODO: Either make ALL replication commands internal (such that no need for ACL check), or add ACL check.true
       DEFINE_COMMAND("FT._DROPINDEXIFX",  SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtDropindexInfo,             SET_COMMAND_INFO,      "write slow dangerous", true,                ossCmdArgs, false),
       DEFINE_COMMAND("FT.DICTADD",        SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtDictaddInfo,               SET_COMMAND_INFO,      "",                     true,                ossCmdArgs, false),
