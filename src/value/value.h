@@ -283,25 +283,11 @@ bool RSValue_IsReference(const RSValue *v);
 bool RSValue_IsNumber(const RSValue *v);
 
 /**
- * Check if the RSValue is a string type.
- * @param v The value to check
- * @return true if the value is of type RSValueType_String, false otherwise
- */
-bool RSValue_IsString(const RSValue *v);
-
-/**
  * Check if the RSValue is an array type.
  * @param v The value to check
  * @return true if the value is of type RSValueType_Array, false otherwise
  */
 bool RSValue_IsArray(const RSValue *v);
-
-/**
- * Check if the RSValue is a Redis string type.
- * @param v The value to check
- * @return true if the value is of type RSValueType_RedisString, false otherwise
- */
-bool RSValue_IsRedisString(const RSValue *v);
 
 /**
  * Check whether the RSValue is of type RSValueType_Trio.
@@ -310,8 +296,12 @@ bool RSValue_IsRedisString(const RSValue *v);
  */
 bool RSValue_IsTrio(const RSValue *v);
 
-// Returns true if the value contains any type of string
-static inline int RSValue_IsAnyString(const RSValue *value) {
+/**
+ * Check if the RSValue is of a string type.
+ * @param v The value to check
+ * @return true if the value is of type RSValueType_String or RSValueType_RedisString, false otherwise
+ */
+static inline int RSValue_IsString(const RSValue *value) {
   return value && (value->_t == RSValueType_String || value->_t == RSValueType_RedisString);
 }
 

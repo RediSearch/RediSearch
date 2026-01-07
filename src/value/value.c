@@ -259,16 +259,8 @@ bool RSValue_IsNumber(const RSValue *v) {
   return (v && v->_t == RSValueType_Number);
 }
 
-bool RSValue_IsString(const RSValue *v) {
-  return (v && v->_t == RSValueType_String);
-}
-
 bool RSValue_IsArray(const RSValue *v) {
   return (v && v->_t == RSValueType_Array);
-}
-
-bool RSValue_IsRedisString(const RSValue *v) {
-  return (v && v->_t == RSValueType_RedisString);
 }
 
 bool RSValue_IsTrio(const RSValue *v) {
@@ -502,7 +494,7 @@ const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char
                                         size_t buflen) {
   value = RSValue_Dereference(value);
 
-  if (RSValue_IsAnyString(value)) {
+  if (RSValue_IsString(value)) {
     return RSValue_StringPtrLen(value, lenp);
   } else if (value->_t == RSValueType_Number) {
     size_t n = snprintf(buf, buflen, "%f", value->_numval);

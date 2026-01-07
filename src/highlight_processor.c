@@ -263,7 +263,7 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
   const char *fName = spec->name;
   const RSValue *fieldValue = RLookup_GetItem(spec->lookupKey, docParams->row);
 
-  if (fieldValue == NULL || !RSValue_IsAnyString(fieldValue)) {
+  if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
     return;
   }
   RSValue *v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
