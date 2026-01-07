@@ -50,6 +50,10 @@
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
+// TODO: Remove when closed-source header is used.
+/* Redis is currently loading, saving or preparing a partial RDB file that goes along with sst files. */
+#define REDISMODULE_CTX_FLAGS_SST_RDB (1<<29)
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
@@ -3113,7 +3117,12 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   }
 
   // Disk index
-  if (sp->diskSpec) {
+  // Check if we are using SST files with this RDB.
+  // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
+  // assume it was not set in when the RDB will be loaded as well
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+  bool use_sst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
+  if (sp->diskSpec && use_sst) {
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
   }
 }
@@ -3211,12 +3220,17 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     }
   }
 
-  // Load the disk-related index data, even if this is a duplicate.
+  // Check if we are using SST files with this RDB.
+  // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
+  // assume it was not set in when the RDB was saved as well.
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+
+  // Load the disk-related index data if we are on disk and the save flow used
+  // sst-files, even if this is a duplicate.
   // In the case of a duplicate, `sp->diskSpec=NULL` thus handled appropriately
-  // On the disk side.
-  if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp)) {
-    // TODO: Load the disk-related data only in case the `REDISMODULE_CTX_FLAGS_SST_RDB`
-    // context flag is set, as we wrote this data only in that case.
+  // On the disk side (RDB is depleted, without updating index fields).
+  bool use_sst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
+  if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && use_sst) {
     if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec) != REDISMODULE_OK) {
       goto cleanup;
     }
