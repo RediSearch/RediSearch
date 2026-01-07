@@ -408,7 +408,6 @@ pub(super) mod not_miri {
     use query_error::QueryError;
     use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
     use std::{
-        cell::UnsafeCell,
         ffi::CString,
         pin::Pin,
         ptr,
@@ -663,7 +662,12 @@ pub(super) mod not_miri {
     }
 
     impl TestContext {
-        fn numeric() -> Self {
+        /// Create a new [`TestContext`] with a numeric inverted index having the given doc IDs
+        /// ands records.
+        fn numeric(
+            expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+            doc_ids: &[t_docId],
+        ) -> Self {
             let ctx = ModuleCtx::new();
             // Create IndexSpec for NUMERIC field
             let (spec, sctx) = create_spec_sctx(&ctx, "SCHEMA num_field NUMERIC", "numeric_idx");
@@ -685,6 +689,20 @@ pub(super) mod not_miri {
                 unsafe { ffi::openNumericOrGeoIndex(spec.as_ptr(), fs.as_ptr(), true) };
             let numeric_range_tree =
                 ptr::NonNull::new(numeric_range_tree).expect("NumericRangeTree should not be null");
+
+            // Add numeric data to the range tree
+            for id in doc_ids.iter().copied() {
+                let record = expected_record(id);
+                let record_val = record.as_numeric().unwrap();
+                unsafe {
+                    ffi::NumericRangeTree_Add(
+                        numeric_range_tree.as_ptr(),
+                        id as t_docId,
+                        record_val,
+                        0,
+                    );
+                }
+            }
 
             Self {
                 _ctx: ctx,
@@ -801,32 +819,29 @@ pub(super) mod not_miri {
     }
 
     /// Test the revalidation of the iterator.
-    pub struct RevalidateTest<E> {
+    pub struct RevalidateTest {
         #[allow(dead_code)]
         doc_ids: Vec<t_docId>,
-        // FIXME: horrible hack so we can get a mutable reference to the InvertedIndex while holding an immutable one through the iterator.
-        // We should get rid of it once we have designed a proper way to manage concurrent access to the II.
-        pub ii: UnsafeCell<InvertedIndex<E>>,
         pub context: TestContext,
         _guard: GlobalGuard,
     }
 
-    impl<E: Encoder + DecodedBy> RevalidateTest<E> {
+    impl RevalidateTest {
         pub fn new(
             index_type: RevalidateIndexType,
             expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
             n_docs: u64,
         ) -> Self {
-            let create_record = &*expected_record;
             // Generate a set of odd document IDs for testing, starting from 1.
             let doc_ids = (0..=n_docs)
                 .map(|i| (2 * i + 1) as t_docId)
                 .collect::<Vec<_>>();
 
-            let (ii_flags, context) = match index_type {
-                RevalidateIndexType::Numeric => {
-                    (IndexFlags_Index_StoreNumeric, TestContext::numeric())
-                }
+            let (_ii_flags, context) = match index_type {
+                RevalidateIndexType::Numeric => (
+                    IndexFlags_Index_StoreNumeric,
+                    TestContext::numeric(expected_record, &doc_ids),
+                ),
                 RevalidateIndexType::Term => (
                     IndexFlags_Index_StoreFreqs
                         | IndexFlags_Index_StoreTermOffsets
@@ -836,15 +851,8 @@ pub(super) mod not_miri {
                 ),
             };
 
-            let mut ii = InvertedIndex::<E>::new(ii_flags);
-            for doc_id in doc_ids.iter() {
-                let record = create_record(*doc_id);
-                ii.add_record(&record).expect("failed to add record");
-            }
-
             Self {
                 doc_ids,
-                ii: UnsafeCell::new(ii),
                 context,
                 _guard: GlobalGuard::new(),
             }
@@ -881,9 +889,11 @@ pub(super) mod not_miri {
         }
 
         /// Remove the document with the given id from the inverted index.
-        pub fn remove_document(&self, doc_id: t_docId) {
-            let ii = unsafe { &mut *self.ii.get() };
-
+        pub fn remove_document<E: Encoder + DecodedBy>(
+            &self,
+            ii: &mut InvertedIndex<E>,
+            doc_id: t_docId,
+        ) {
             let scan_delta = ii
                 .scan_gc(
                     |d| d != doc_id,
@@ -896,8 +906,11 @@ pub(super) mod not_miri {
         }
 
         /// test revalidate returns `Moved` when the document at the iterator position is deleted from the index.
-        pub fn revalidate_after_document_deleted<'index, I>(&self, it: &mut I)
-        where
+        pub fn revalidate_after_document_deleted<'index, I, E: Encoder + DecodedBy>(
+            &self,
+            it: &mut I,
+            ii: &mut InvertedIndex<E>,
+        ) where
             I: for<'iterator> RQEIterator<'index>,
         {
             assert_eq!(
@@ -934,7 +947,7 @@ pub(super) mod not_miri {
             );
 
             // Remove an element before the current iteration position.
-            self.remove_document(self.doc_ids[0]);
+            self.remove_document(ii, self.doc_ids[0]);
             assert_eq!(
                 it.revalidate().expect("revalidate failed"),
                 RQEValidateStatus::Ok
@@ -943,7 +956,7 @@ pub(super) mod not_miri {
             assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
 
             // Remove an element after the current iteration position.
-            self.remove_document(self.doc_ids[4]);
+            self.remove_document(ii, self.doc_ids[4]);
             assert_eq!(
                 it.revalidate().expect("revalidate failed"),
                 RQEValidateStatus::Ok
@@ -953,7 +966,7 @@ pub(super) mod not_miri {
 
             // Remove the element at the current position of the iterator.
             // When validating we won't be able to skip to this element, so we should get RQEValidateStatus::Moved.
-            self.remove_document(self.doc_ids[2]);
+            self.remove_document(ii, self.doc_ids[2]);
             let res = it.revalidate().expect("revalidate failed");
             let current_doc = match res {
                 RQEValidateStatus::Moved {
@@ -986,7 +999,7 @@ pub(super) mod not_miri {
             assert_eq!(it.last_doc_id(), last_doc_id);
             assert_eq!(it.current().unwrap().doc_id, last_doc_id);
 
-            self.remove_document(last_doc_id);
+            self.remove_document(ii, last_doc_id);
             // revalidate should return Moved without current doc and be at EOF.
             let res = it.revalidate().expect("revalidate failed");
             assert!(matches!(res, RQEValidateStatus::Moved { current: None }));

@@ -339,7 +339,7 @@ mod not_miri {
     }
 
     struct NumericRevalidateTest {
-        test: RevalidateTest<inverted_index::numeric::Numeric>,
+        test: RevalidateTest,
     }
 
     impl NumericRevalidateTest {
@@ -358,19 +358,63 @@ mod not_miri {
             }
         }
 
+        fn inverted_index(
+            &self,
+        ) -> &mut inverted_index::InvertedIndex<inverted_index::numeric::Numeric> {
+            let context = &self.test.context;
+
+            // Create a numeric filter to find ranges
+            let mut filter = NumericFilter::default();
+            filter.ascending = false;
+            filter.field_spec = context.field_spec();
+
+            // Find a range that covers our data to get the inverted index
+            let ranges = unsafe {
+                ffi::NumericRangeTree_Find(
+                    context.numeric_range_tree().as_ptr(),
+                    // cast inverted_index::NumericFilter to ffi::NumericFilter
+                    &filter as *const _ as *const ffi::NumericFilter,
+                )
+            };
+            assert!(!ranges.is_null());
+            unsafe {
+                assert!(ffi::Vector_Size(ranges) > 0);
+            }
+            let mut range: *mut ffi::NumericRange = std::ptr::null_mut();
+            unsafe {
+                let range_out = &mut range as *mut *mut ffi::NumericRange;
+                assert!(ffi::Vector_Get(ranges, 0, range_out.cast()) == 1);
+            }
+            assert!(!range.is_null());
+            let range = unsafe { &*range };
+            let ii = range.entries;
+            assert!(!ii.is_null());
+            let ii: *mut inverted_index_ffi::InvertedIndex = ii.cast();
+            let ii = unsafe { &mut *ii };
+
+            unsafe {
+                ffi::Vector_Free(ranges);
+            }
+
+            match ii {
+                inverted_index_ffi::InvertedIndex::Numeric(entries) => entries.inner_mut(),
+                _ => panic!("Unexpected inverted index type"),
+            }
+        }
+
         fn create_iterator(
             &self,
         ) -> Numeric<'_, inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>>
         {
-            let reader = unsafe { (*self.test.ii.get()).reader() };
+            let ii = self.inverted_index();
             let context = &self.test.context;
             let fs = context.field_spec();
 
-            Numeric::new(
-                reader,
+            rqe_iterators::Numeric::new(
+                ii.reader(),
                 context.sctx,
                 fs.index,
-                FieldExpirationPredicate::Default,
+                field::FieldExpirationPredicate::Default,
                 context.numeric_range_tree(),
             )
         }
@@ -435,6 +479,8 @@ mod not_miri {
     fn numeric_revalidate_after_document_deleted() {
         let test = NumericRevalidateTest::new(10);
         let mut it = test.create_iterator();
-        test.test.revalidate_after_document_deleted(&mut it);
+        let ii = test.inverted_index();
+
+        test.test.revalidate_after_document_deleted(&mut it, ii);
     }
 }

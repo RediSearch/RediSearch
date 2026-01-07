@@ -1740,6 +1740,7 @@ dependencies = [
  "ffi",
  "field",
  "inverted_index",
+ "inverted_index_ffi",
  "libc",
  "pretty_assertions",
  "proptest",
