@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use crate::{RsValue, Value};
+use crate::RsValue;
 
 /// A shared RedisSearch dynamic value, backed by an `Arc<RsValue>`.
 #[derive(Clone)]
@@ -18,6 +18,13 @@ pub struct SharedRsValue {
 }
 
 impl SharedRsValue {
+    /// Create a new shared RsValue wrapping an [`RsValue`]
+    pub fn new(value: RsValue) -> Self {
+        Self {
+            inner: Arc::new(value),
+        }
+    }
+
     /// Convert a [`SharedRsValue`] into a raw `*const RsValue` pointer.
     pub fn into_raw(self) -> *const RsValue {
         Arc::into_raw(self.inner)
@@ -34,26 +41,9 @@ impl SharedRsValue {
             inner: unsafe { Arc::from_raw(ptr) },
         }
     }
-}
 
-impl Default for SharedRsValue {
-    fn default() -> Self {
-        Self::undefined()
-    }
-}
-
-impl Value for SharedRsValue {
-    fn from_value(value: RsValue) -> Self {
-        Self {
-            inner: Arc::new(value),
-        }
-    }
-
-    fn undefined() -> Self {
-        Self::from_value(RsValue::Undefined)
-    }
-
-    fn value(&self) -> &RsValue {
+    /// Get a reference to the inner [`RsValue`].
+    pub fn value(&self) -> &RsValue {
         &self.inner
     }
 }
