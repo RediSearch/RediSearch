@@ -88,11 +88,16 @@ void TotalGlobalStats_CountQuery(uint32_t reqflags, rs_wall_clock_ns_t duration)
   }
 }
 
+void TotalGlobalStats_AddCoordDispatchTime(rs_wall_clock_ns_t duration) {
+  INCR_BY(RSGlobalStats.totalStats.queries.total_coord_dispatch_time, duration);
+}
+
 QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   QueriesGlobalStats stats = {0};
   stats.total_queries_processed = READ(RSGlobalStats.totalStats.queries.total_queries_processed);
   stats.total_query_commands = READ(RSGlobalStats.totalStats.queries.total_query_commands);
   stats.total_query_execution_time = rs_wall_clock_convert_ns_to_ms(READ(RSGlobalStats.totalStats.queries.total_query_execution_time));
+  stats.total_coord_dispatch_time = READ(RSGlobalStats.totalStats.queries.total_coord_dispatch_time);
   // Errors
   stats.shard_errors.syntax = READ(RSGlobalStats.totalStats.queries.shard_errors.syntax);
   stats.shard_errors.arguments = READ(RSGlobalStats.totalStats.queries.shard_errors.arguments);

@@ -2319,3 +2319,133 @@ def test_total_indexing_ops_multi_value_json(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics, prev_metrics,
                   message="Multi-value JSON geoshape field is not supported")
+
+# Test coordinator dispatch time metric (total_coord_dispatch_time_ms)
+# This metric tracks the time from when FT.AGGREGATE is received on the coordinator
+# until it is dispatched to shards (only for cluster mode with shard count > 1).
+@skip(cluster=False)
+def test_coord_dispatch_time_metric():
+  """
+  Test that coordinator dispatch time is tracked for FT.AGGREGATE commands.
+  Uses COORD_THREADS pause/resume to create measurable dispatch time.
+  Verifies that FT.SEARCH and FT.HYBRID do not affect this metric.
+  """
+  env = Env(moduleArgs='DEFAULT_DIALECT 2', decodeResponses=False)
+  conn = getConnectionByEnv(env)
+
+  # Create index with text and vector fields for testing all command types
+  dim = 2
+  env.expect('FT.CREATE', 'idx', 'SCHEMA',
+             't', 'TEXT',
+             'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', str(dim), 'DISTANCE_METRIC', 'L2').ok()
+
+  # Add some documents
+  num_docs = 10 * env.shardsCount
+  for i in range(num_docs):
+    vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
+    conn.execute_command('HSET', f'doc:{i}', 't', f'hello{i}', 'v', vec)
+
+  # Helper to get the dispatch time metric
+  def get_dispatch_time_from_info():
+    info = env.cmd('INFO', 'MODULES')
+    return info[f'{SEARCH_PREFIX}total_coord_dispatch_time_ms']
+
+  # sleep for 10ms
+  pause_duration_sec = 0.01
+
+  # Helper to run a command with paused coordinator threads and verify dispatch time behavior
+  def run_with_pause_and_verify_dispatch_time(cmd, should_increase):
+    """
+    Pauses coordinator threads, launches cmd in background, waits pause_duration_sec,
+    resumes threads, and verifies dispatch time changed (or not) as expected.
+    Returns the threads for the caller to join if needed.
+    """
+    before_time = get_dispatch_time_from_info()
+
+    # Pause coordinator threads
+    env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+
+    # Launch command in background thread
+    threads = launch_cmds_in_bg_with_exception_check(env, cmd, 1)
+    if threads is None:
+      env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+      return None
+
+    # Sleep while command is queued
+    time.sleep(pause_duration_sec)
+
+    # Resume coordinator threads
+    env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+
+    # Wait for command to complete
+    for t in threads:
+      t.join(timeout=30)
+
+    after_time = get_dispatch_time_from_info()
+    time_increase = after_time - before_time
+
+    cmd_name = cmd[0]
+    if should_increase:
+      expected_ms = pause_duration_sec * 1000
+      env.assertGreaterEqual(time_increase, expected_ms,
+        message=f"{cmd_name}: dispatch time should increase by at least pause duration")
+    else:
+      env.assertEqual(before_time, after_time,
+        message=f"{cmd_name}: should not change dispatch time")
+
+    return threads
+
+  # --- Test 1: FT.AGGREGATE should increase dispatch time ---
+  initial_dispatch_time = get_dispatch_time_from_info()
+  env.assertEqual(initial_dispatch_time, 0,
+    message=f"Initial dispatch time should be 0. info: {info_modules_to_dict(env)}")
+
+  env.assertIsNotNone(run_with_pause_and_verify_dispatch_time(
+    ['FT.AGGREGATE', 'idx', '*'], should_increase=True))
+
+  # Verify that only the coordinator shard has the dispatch time metric updated.
+  # Other shards should still have 0 because they didn't coordinate the command.
+  shard_connections = env.getOSSMasterNodesConnectionList()
+  dispatch_times_per_shard = []
+  for shard_conn in shard_connections:
+    info = shard_conn.execute_command('INFO', 'MODULES')
+    dispatch_time = info[f'{SEARCH_PREFIX}total_coord_dispatch_time_ms']
+    dispatch_times_per_shard.append(dispatch_time)
+
+  # Exactly one shard (the coordinator) should have non-zero dispatch time
+  non_zero_shards = [t for t in dispatch_times_per_shard if t > 0]
+  zero_shards = [t for t in dispatch_times_per_shard if t == 0]
+  env.assertEqual(len(non_zero_shards), 1,
+    message=f"Exactly one shard (coordinator) should have non-zero dispatch time. "
+            f"Per-shard values: {dispatch_times_per_shard}")
+  env.assertEqual(len(zero_shards), env.shardsCount - 1,
+    message=f"All non-coordinator shards should have 0 dispatch time. "
+            f"Per-shard values: {dispatch_times_per_shard}")
+
+  # The non-zero shard should have dispatch time >= pause duration
+  expected_ms = pause_duration_sec * 1000
+  env.assertGreaterEqual(non_zero_shards[0], expected_ms,
+    message=f"Coordinator dispatch time should be >= pause duration. "
+            f"Per-shard values: {dispatch_times_per_shard}")
+
+  # Helper to verify per-shard dispatch times haven't changed
+  def verify_per_shard_dispatch_times_unchanged(cmd_name, expected_times):
+    """Verify that per-shard dispatch times are unchanged after running a command."""
+    current_times = []
+    for shard_conn in shard_connections:
+      info = shard_conn.execute_command('INFO', 'MODULES')
+      current_times.append(info[f'{SEARCH_PREFIX}total_coord_dispatch_time_ms'])
+    env.assertEqual(current_times, expected_times,
+      message=f"{cmd_name}: per-shard dispatch times should not change")
+
+  # --- Test 2: FT.SEARCH should NOT change dispatch time on any shard ---
+  env.assertIsNotNone(run_with_pause_and_verify_dispatch_time(
+    ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'NOCONTENT'], should_increase=False))
+  verify_per_shard_dispatch_times_unchanged('FT.SEARCH', dispatch_times_per_shard)
+
+  # --- Test 3: FT.HYBRID should NOT change dispatch time on any shard ---
+  query_vector = np.array([1.0, 1.0], dtype=np.float32).tobytes()
+  env.assertIsNotNone(run_with_pause_and_verify_dispatch_time(
+    ['FT.HYBRID', 'idx', 'SEARCH', 'hello0', 'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector],
+    should_increase=False))
+  verify_per_shard_dispatch_times_unchanged('FT.HYBRID', dispatch_times_per_shard)
