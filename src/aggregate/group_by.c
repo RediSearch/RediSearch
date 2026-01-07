@@ -260,7 +260,18 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   base->parent->resultLimit = UINT32_MAX; // we want to accumulate all the results
   int rc;
 
+  // In distributed mode, totalResults is set by ShardResponseBarrier after first upstream->Next().
+  // In standalone mode, it may already be set from the query.
+  // We check after each Next() call since the first call triggers the barrier wait.
+  bool preSized = false;
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
+    if (!preSized) {
+      size_t sizeHint = base->parent->totalResults;
+      if (sizeHint > kh_n_buckets(g->groups)) {
+        kh_resize(khid, g->groups, sizeHint);
+      }
+      preSized = true;
+    }
     invokeGroupReducers(g, &res->rowdata);
     SearchResult_Clear(res);
   }

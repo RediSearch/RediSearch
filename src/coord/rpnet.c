@@ -425,8 +425,11 @@ void rpnetFree(ResultProcessor *rp) {
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
 
-  // Initialize shard response barrier if WITHCOUNT is enabled
-  if (HasWithCount(nc->areq) && IsAggregate(nc->areq)) {
+  // Initialize shard response barrier if WITHCOUNT or GROUPBY is enabled.
+  // For GROUPBY, the barrier provides totalResults (sum of group counts from all shards)
+  // which is used to pre-size the coordinator's grouper hash table, avoiding expensive resizes.
+  // This has no latency cost for GROUPBY since the grouper must wait for all results anyway.
+  if ((HasWithCount(nc->areq) || HasGroupBy(nc->areq)) && IsAggregate(nc->areq)) {
     ShardResponseBarrier *barrier = shardResponseBarrier_New();
     if (!barrier) {
       return RS_RESULT_ERROR;
@@ -434,7 +437,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
     nc->shardResponseBarrier = barrier;
   }
 
-  // Pass barrier as private data to callback (only if WITHCOUNT enabled)
+  // Pass barrier as private data to callback (if WITHCOUNT or GROUPBY enabled)
   // The barrier is freed by MRIterator via shardResponseBarrier_Free destructor
   // shardResponseBarrier_Init is called from iterStartCb when numShards is known from topology
   MRIterator *it = nc->shardResponseBarrier
