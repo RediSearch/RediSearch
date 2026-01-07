@@ -29,7 +29,7 @@ pub enum RsValueType {
     Map,
 }
 
-pub(crate) trait AsRsValueType {
+pub trait AsRsValueType {
     fn as_value_type(&self) -> RsValueType;
 }
 
