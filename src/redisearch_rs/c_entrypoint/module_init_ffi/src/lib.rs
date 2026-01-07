@@ -35,3 +35,50 @@ pub extern "C" fn RustPanicHook_Init() {
         previous_hook(panic_info);
     }));
 }
+/// Add the current backtrace as a new section to the report printed
+/// by RediSearch's INFO command.
+///
+/// # Safety
+///
+/// `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
+#[unsafe(no_mangle)]
+pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<ffi::RedisModuleInfoCtx>>) {
+    use std::ffi::CString;
+
+    let Some(ctx) = ctx else {
+        return;
+    };
+
+    let backtrace = std::backtrace::Backtrace::force_capture();
+    let backtrace_str = backtrace.to_string();
+
+    // The `RedisModule_Info*` functions we need to invoke expect a valid C string.
+    // We need to ensure that the backtrace we printed doesn't contain any null bytes and
+    // is properly null-terminated.
+    //
+    // For perf purposes, we strive to avoid allocating a new string if possible—i.e.
+    // if the formatted backtrace string doesn't contain any null bytes.
+    let backtrace_cstr = match CString::new(backtrace_str) {
+        Ok(cstr) => cstr,
+        Err(err) => {
+            let mut bytes = err.into_vec();
+            for byte in &mut bytes {
+                if *byte == 0 {
+                    *byte = b'?';
+                }
+            }
+            // SAFETY: We just replaced all null bytes with '?'.
+            unsafe { CString::from_vec_unchecked(bytes) }
+        }
+    };
+
+    // SAFETY: `RedisModule_InfoAddSection` has been initialized during module load.
+    let info_add_section = unsafe { ffi::RedisModule_InfoAddSection.unwrap() };
+    // SAFETY: `RedisModule_InfoAddFieldCString` has been initialized during module load.
+    let info_add_field_cstring = unsafe { ffi::RedisModule_InfoAddFieldCString.unwrap() };
+
+    // SAFETY: `ctx` is a valid pointer to a `RedisModuleInfoCtx`.
+    unsafe { info_add_section(ctx.as_ptr(), c"rust_backtrace".as_ptr()) };
+    // SAFETY: `ctx` is a valid pointer and `backtrace_cstr` is a valid null-terminated C string.
+    unsafe { info_add_field_cstring(ctx.as_ptr(), c"backtrace".as_ptr(), backtrace_cstr.as_ptr()) };
+}
