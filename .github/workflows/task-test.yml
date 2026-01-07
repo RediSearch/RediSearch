@@ -83,6 +83,10 @@ jobs:
         with:
           submodules: recursive
       - name: Full checkout (node20 not supported)
+        env:
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         if: steps.node20.outputs.supported == 'false'
         run: |
           # Execute the logic based on the detected platform
@@ -91,10 +95,10 @@ jobs:
             amazonlinux:2)
 
               # Configure the safe directory
-              git config --global --add safe.directory /__w/${{ github.repository }}
+              git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-              # Checkout
-              REPO_URL="https://github.com/${{ github.repository }}.git"
+              # Checkout with authentication
+              REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/$GITHUB_REPO.git"
 
               # Initialize a Git repository
               git init
