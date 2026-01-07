@@ -387,6 +387,17 @@ const struct RsValue *SharedRsValue_NewParsedNumber(const char *str, uintptr_t l
 const struct RsValue *SharedRsValue_NewNumberFromInt64(int64_t dd);
 
 /**
+ * Decrement the reference count of the provided [`RsValue`] object. If this was
+ * the last available reference, it frees the data.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
+ *    `RSValue_*` function returning an owned [`RsValue`] object.
+ */
+void RSValue_DecrRef(const struct RsValue *value);
+
+/**
  * Returns the type of the given [`RsValue`].
  *
  * # Safety
