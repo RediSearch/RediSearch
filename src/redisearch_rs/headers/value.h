@@ -143,6 +143,19 @@ const struct RsValue *RSValue_Trio_GetMiddle(const struct RsValue *value);
  */
 const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
 
+void *RSValueMap_AllocUninit(uint32_t len);
+
+void RSValueMap_SetEntry(void *map, uint32_t index, struct RsValue *key, struct RsValue *value);
+
+struct RsValue *RSValue_NewMap(void *map, uint32_t len);
+
+uint32_t RSValue_Map_Len(const struct RsValue *map);
+
+void RSValue_Map_GetEntry(const struct RsValue *map,
+                          uint32_t index,
+                          struct RsValue **key,
+                          struct RsValue **value);
+
 /**
  * Converts an [`RsValue`] to a number type in-place.
  *
