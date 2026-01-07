@@ -253,6 +253,29 @@ include_directories(
     ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
     ${root}/src/ttl_table
+    ${root}/src/spec
+    ${root}/src/doc_table
+    ${root}/src/numeric_index
+    ${root}/src/redis_index
+    ${root}/src/alias
+    ${root}/src/field_spec
+    ${root}/src/vector_index
+    ${root}/src/cursor
+    ${root}/src/info/index_error
+    ${root}/src/trie
+    ${root}/src/rules
+    ${root}/src/language
+    ${root}/src/aggregate/expr
+    ${root}/src/aggregate/functions
+    ${root}/src/util/references
+    ${root}/src/util/block_alloc
+    ${root}/src/util/heap_doubles
+    ${root}/src/util/workers
+    ${root}/src/hll
+    ${root}/src/obfuscation
+    ${root}/src/rlookup
+    ${root}/src/info/global_stats
+    ${root}/src/search_disk
     ${BOOST_DIR}
     ${root})
 
@@ -261,6 +284,8 @@ add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
 add_subdirectory(deps/fast_float)
+add_subdirectory(deps/libnu)
+add_subdirectory(deps/thpool)
 
 # Configure libuv options
 set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
@@ -281,9 +306,33 @@ add_subdirectory(src/util/mempool)
 add_subdirectory(src/util/arr)
 add_subdirectory(src/util/dict)
 add_subdirectory(src/util/hash)
+add_subdirectory(src/util/block_alloc)
+add_subdirectory(src/util/heap_doubles)
+add_subdirectory(src/util/workers)
+add_subdirectory(src/hll)
 add_subdirectory(src/coord)
 add_subdirectory(src/redisearch_rs)
 add_subdirectory(src/ttl_table)
+add_subdirectory(src/spec)
+add_subdirectory(src/doc_table)
+add_subdirectory(src/numeric_index)
+add_subdirectory(src/redis_index)
+add_subdirectory(src/alias)
+add_subdirectory(src/field_spec)
+add_subdirectory(src/vector_index)
+add_subdirectory(src/cursor)
+add_subdirectory(src/info/index_error)
+add_subdirectory(src/trie)
+add_subdirectory(src/rules)
+add_subdirectory(src/language)
+add_subdirectory(src/aggregate/expr)
+add_subdirectory(src/aggregate/functions)
+add_subdirectory(src/util/references)
+add_subdirectory(src/obfuscation)
+add_subdirectory(src/rlookup)
+add_subdirectory(src/info/global_stats)
+add_subdirectory(src/search_disk)
+
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
@@ -291,30 +340,24 @@ file(GLOB SOURCES
     "src/*.c"
     "src/pipeline/*.c"
     "src/aggregate/*.c"
-    "src/aggregate/expr/*.c"
-    "src/aggregate/functions/*.c"
     "src/aggregate/reducers/*.c"
     "src/command_info/*.c"
     "src/hybrid/*.c"
     "src/hybrid/parse/*.c"
     "src/ext/*.c"
-    "src/hll/*.c"
     "src/query_parser/v1/*.c"
     "src/query_parser/v2/*.c"
     "src/util/*.c"
-    "src/trie/*.c"
     "src/info/*.c"
     "src/info/info_redis/*.c"
     "src/info/info_redis/threads/*.c"
     "src/info/info_redis/types/*.c"
     "src/module-init/*.c"
-    "src/obfuscation/*.c"
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
     "deps/miniz/*.c"
     "deps/fast_float/*.c"
-    "deps/thpool/*.c"
     "deps/geohash/*.c")
 
 #----------------------------------------------------------------------------------------------
@@ -331,13 +374,36 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:mempool>
     $<TARGET_OBJECTS:value>
     $<TARGET_OBJECTS:rscore>
-    $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
     $<TARGET_OBJECTS:metaphone>
     $<TARGET_OBJECTS:fast_float_strtod>
     $<TARGET_OBJECTS:redisearch-coord>
     $<TARGET_OBJECTS:ttl_table>
+    $<TARGET_OBJECTS:spec>
+    $<TARGET_OBJECTS:doc_table>
+    $<TARGET_OBJECTS:numeric_index>
+    $<TARGET_OBJECTS:redis_index>
+    $<TARGET_OBJECTS:alias>
+    $<TARGET_OBJECTS:field_spec>
+    $<TARGET_OBJECTS:vector_index>
+    $<TARGET_OBJECTS:cursor>
+    $<TARGET_OBJECTS:index_error>
+    $<TARGET_OBJECTS:trie>
+    $<TARGET_OBJECTS:rules>
+    $<TARGET_OBJECTS:language>
+    $<TARGET_OBJECTS:aggregate_expr>
+    $<TARGET_OBJECTS:aggregate_functions>
+    $<TARGET_OBJECTS:references>
+    $<TARGET_OBJECTS:block_alloc>
+    $<TARGET_OBJECTS:heap_doubles>
+    $<TARGET_OBJECTS:workers>
+    $<TARGET_OBJECTS:hll>
+    $<TARGET_OBJECTS:thpool>
+    $<TARGET_OBJECTS:obfuscation>
+    $<TARGET_OBJECTS:rlookup>
+    $<TARGET_OBJECTS:global_stats>
+    $<TARGET_OBJECTS:search_disk>
 )
 
 #----------------------------------------------------------------------------------------------
@@ -392,7 +458,32 @@ target_link_libraries(redisearch
         wildcard
         uv_a
         redisearch_rs
+        rmutil
         ttl_table
+        spec
+        doc_table
+        numeric_index
+        redis_index
+        alias
+        field_spec
+        vector_index
+        cursor
+        index_error
+        trie
+        rules
+        language
+        aggregate_expr
+        aggregate_functions
+        references
+        block_alloc
+        heap_doubles
+        workers
+        hll
+        thpool
+        obfuscation
+        rlookup
+        global_stats
+        search_disk
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
         ${CMAKE_LD_LIBS})

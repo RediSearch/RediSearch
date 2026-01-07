@@ -40,6 +40,8 @@ fn main() {
         let vecsim = deps.join("VectorSimilarity").join("src");
         let buffer = src.join("buffer");
         let ttl_table = src.join("ttl_table");
+        let spec = src.join("spec");
+        let doc_table = src.join("doc_table");
 
         [
             redis_modules,
@@ -50,6 +52,8 @@ fn main() {
             vecsim,
             buffer,
             ttl_table,
+            spec,
+            doc_table,
         ]
     };
 
@@ -60,24 +64,24 @@ fn main() {
             .join("redismodule.h"),
         src.join("buffer/buffer.h"),
         src.join("config.h"),
-        src.join("doc_table.h"),
+        src.join("doc_table").join("doc_table.h"),
         src.join("index_result").join("index_result.h"),
-        src.join("numeric_index.h"),
+        src.join("numeric_index").join("numeric_index.h"),
         src.join("obfuscation").join("hidden.h"),
         src.join("query.h"),
         src.join("redis_index.h"),
         src.join("redisearch.h"),
         src.join("result_processor.h"),
-        src.join("rlookup.h"),
+        src.join("rlookup").join("rlookup.h"),
         src.join("score_explain.h"),
         src.join("search_ctx.h"),
         src.join("search_disk_api.h"),
         src.join("search_result.h"),
         src.join("sortable.h"),
-        src.join("spec.h"),
+        src.join("spec").join("spec.h"),
         src.join("ttl_table").join("ttl_table.h"),
         src.join("util").join("arr").join("arr.h"),
-        src.join("util").join("references.h"),
+        src.join("util").join("references").join("references.h"),
         src.join("value").join("value.h"),
     ];
 
