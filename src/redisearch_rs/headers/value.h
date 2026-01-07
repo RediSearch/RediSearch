@@ -41,6 +41,14 @@ typedef struct RsValue RsValue;
 extern "C" {
 #endif // __cplusplus
 
+struct RsValue **RSValue_AllocateArray(uint32_t len);
+
+struct RsValue *RSValue_NewArray(struct RsValue **values, uint32_t len);
+
+uint32_t RSValue_ArrayLen(const struct RsValue *value);
+
+struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
+
 /**
  * Creates and returns a new **owned** [`RsValue`] object of type undefined.
  *
