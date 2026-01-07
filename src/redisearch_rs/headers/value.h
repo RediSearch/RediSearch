@@ -49,6 +49,19 @@ uint32_t RSValue_ArrayLen(const struct RsValue *value);
 
 struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
 
+void *RSValueMap_AllocUninit(uint32_t len);
+
+void RSValueMap_SetEntry(void *map, uint32_t index, struct RsValue *key, struct RsValue *value);
+
+struct RsValue *RSValue_NewMap(void *map, uint32_t len);
+
+uint32_t RSValue_Map_Len(const struct RsValue *map);
+
+void RSValue_Map_GetEntry(const struct RsValue *map,
+                          uint32_t index,
+                          struct RsValue **key,
+                          struct RsValue **value);
+
 /**
  * Creates a heap-allocated `RsValue` wrapping a string.
  * Doesn't duplicate the string. Use strdup if the value needs to be detached.
