@@ -25,6 +25,11 @@ impl SharedRsValue {
         }
     }
 
+    /// Get a raw pointer to the inner [`RsValue`].
+    pub fn as_ptr(&self) -> *const RsValue {
+        Arc::as_ptr(&self.inner)
+    }
+
     /// Convert a [`SharedRsValue`] into a raw `*const RsValue` pointer.
     pub fn into_raw(self) -> *const RsValue {
         Arc::into_raw(self.inner)
