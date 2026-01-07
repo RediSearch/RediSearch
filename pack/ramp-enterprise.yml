@@ -64,12 +64,12 @@ overide_command:
     # Command Arity: required by the proxy in order to validate commands before sending them to the module
     # It is mandatory because during the parsing of the module.json file 
     # it is used in a python script as a direct key and get with default value is not used
-    - {"command_arity": -1, "command_name": "FT.AGGREGATE", "first_key": 0, "flags": ["readonly" ], "last_key": 1, "step": -2}
-    - {"command_arity": -2, "command_name": "FT.CURSOR", "first_key": 3, "flags": ["readonly"], "last_key": 1, "step": -3}
-    - {"command_arity": -1, "command_name": "FT.HYBRID", "first_key": 0, "flags": ["readonly"], "last_key": 1, "step": -2}
-    - {"command_arity": -1, "command_name": "FT.INFO", "first_key": 0, "flags": ["readonly"], "last_key": 0, "step": -1}
-    - {"command_arity": -1, "command_name": "FT.MGET", "first_key": 0, "flags": ["readonly"], "last_key": 0, "step": -1}
-    - {"command_arity": -1, "command_name": "FT.PROFILE", "first_key": 0, "flags": ["readonly"], "last_key": 0, "step": -1}
-    - {"command_arity": -1, "command_name": "FT.SEARCH", "first_key": 0, "flags": ["readonly"], "last_key": 0, "step": -1}
-    - {"command_arity": -1, "command_name": "FT.SPELLCHECK", "first_key": 0, "flags": ["readonly"], "last_key": 0, "step": -1}
-    - {"command_arity": -1, "command_name": "FT.TAGVALS", "first_key": 0, "flags": ["readonly"], "last_key": 0, "step": -1}
+    - {"command_arity": -1, "command_name": "FT.AGGREGATE", "first_key": 0, "flags": ["module", "readonly" ], "last_key": 1, "step": -2}
+    - {"command_arity": -2, "command_name": "FT.CURSOR", "first_key": 3, "flags": ["module", "readonly"], "last_key": 1, "step": -3}
+    - {"command_arity": -1, "command_name": "FT.HYBRID", "first_key": 0, "flags": ["module", "readonly"], "last_key": 1, "step": -2}
+    - {"command_arity": -1, "command_name": "FT.INFO", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}
+    - {"command_arity": -1, "command_name": "FT.MGET", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}
+    - {"command_arity": -1, "command_name": "FT.PROFILE", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}
+    - {"command_arity": -1, "command_name": "FT.SEARCH", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}
+    - {"command_arity": -1, "command_name": "FT.SPELLCHECK", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}
+    - {"command_arity": -1, "command_name": "FT.TAGVALS", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}
