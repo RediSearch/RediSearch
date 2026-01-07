@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ffi::c_char, fmt::Debug, ptr::NonNull};
+use std::fmt::Debug;
 
 use crate::{
     collection::{RsValueArray, RsValueMap},
@@ -15,7 +15,6 @@ use crate::{
     strings::{ConstString, OwnedRedisString, OwnedRmAllocString, RedisStringRef, RsValueString},
     trio::RsValueTrio,
 };
-use ffi::RedisModuleString;
 
 /// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
 /// Rust port of the RSValue type.
@@ -61,169 +60,6 @@ pub enum RsValue {
     Trio(RsValueTrio),
     /// Map value
     Map(RsValueMap),
-}
-
-impl RsValue {
-    pub const fn null_const() -> Self {
-        RsValue::Null
-    }
-}
-
-impl Value for RsValue {
-    fn from_value(value: RsValue) -> Self {
-        value
-    }
-
-    fn undefined() -> Self {
-        RsValue::Undefined
-    }
-
-    fn value(&self) -> &RsValue {
-        self
-    }
-}
-
-pub trait Value: Sized {
-    /// Create a new value from an [`RsValue`]
-    fn from_value(value: RsValue) -> Self;
-
-    // Create a new, undefined value
-    fn undefined() -> Self;
-
-    // Clear this value
-    fn clear(&mut self) {
-        *self = Self::undefined();
-    }
-
-    /// Get a reference to the [`RsValue`] that is
-    /// held by this value if it is defined. Returns `None` if
-    /// the value is undefined.
-    fn value(&self) -> &RsValue;
-
-    /// Create a new, NULL value
-    fn null() -> Self {
-        Self::from_value(RsValue::Null)
-    }
-
-    /// Create a new numeric value given the passed number
-    fn number(n: f64) -> Self {
-        Self::from_value(RsValue::Number(n))
-    }
-
-    /// Create a new string value
-    fn string(s: RsValueString) -> Self {
-        Self::from_value(RsValue::String(Box::new(s)))
-    }
-
-    /// Create a new trio value
-    fn trio(left: SharedRsValue, middle: SharedRsValue, right: SharedRsValue) -> Self {
-        Self::from_value(RsValue::Trio(RsValueTrio::new(left, middle, right)))
-    }
-
-    /// Create a new string value backed by an rm_alloc'd string.
-    /// Takes ownership of the passed string.
-    ///
-    /// # Safety
-    /// See [`OwnedRmAllocString::take_unchecked`]
-    unsafe fn take_rm_alloc_string(str: NonNull<c_char>, len: u32) -> Self {
-        // Safety: caller must uphold the safety requirements of
-        // [`OwnedRmAllocString::take_unchecked`]
-        Self::from_value(RsValue::RmAllocString(unsafe {
-            OwnedRmAllocString::take_unchecked(str, len)
-        }))
-    }
-
-    /// Create a new string value backed by an rm_alloc'd string
-    /// that is copied from the passed data. Does not take ownership
-    /// of the passed string.
-    ///
-    /// # Safety
-    /// See [`OwnedRmAllocString::copy_from_string`]
-    unsafe fn copy_rm_alloc_string(str: *const c_char, len: u32) -> Self {
-        debug_assert!(!str.is_null(), "`str` must not be NULL");
-        // Safety: caller must uphold the safety requirements of
-        // [`OwnedRmAllocString::copy_from_string`].
-        Self::from_value(RsValue::RmAllocString(unsafe {
-            OwnedRmAllocString::copy_from_string(str, len)
-        }))
-    }
-
-    /// Create a new value backed by a string constant.
-    /// Does not take ownership of the string.
-    ///
-    /// # Safety
-    /// See [`ConstString::new`]
-    unsafe fn const_string(str: *const c_char, len: u32) -> Self {
-        debug_assert!(!str.is_null(), "`str` must not be NULL");
-        // Safety: caller must uphold the safety requirements of
-        // [`ConstString::new`].
-        Self::from_value(RsValue::ConstString(unsafe { ConstString::new(str, len) }))
-    }
-
-    /// Create a new value backed by a reference to a RedisModuleString.
-    /// Does not increment the reference count of the backing string.
-    ///
-    /// # Safety
-    /// See [`RedisStringRef::new_unchecked`]
-    unsafe fn borrowed_redis_string(str: NonNull<RedisModuleString>) -> Self {
-        // Safety: caller must uphold the safety requirements of
-        // [`RedisStringRef::new_unchecked`].
-        Self::from_value(RsValue::BorrowedRedisString(unsafe {
-            RedisStringRef::new_unchecked(str)
-        }))
-    }
-
-    /// Create a new value backed by a [`RedisModuleString`].
-    /// Increments the reference count of the backing string.
-    ///
-    /// # Safety
-    /// See [`OwnedRedisString::retain`]
-    unsafe fn retain_owned_redis_string(str: NonNull<RedisModuleString>) -> Self {
-        // Safety: caller must uphold the safety requirements of
-        // [`OwnedRedisString::retain`].
-        Self::from_value(RsValue::OwnedRedisString(unsafe {
-            OwnedRedisString::retain(str)
-        }))
-    }
-
-    /// Create a new value backed by a [`RedisModuleString`].
-    /// Does not increment the reference count of the backing string
-    /// and as such takes ownership.
-    ///
-    /// # Safety
-    /// See [`OwnedRedisString::take`]
-    unsafe fn take_owned_redis_string(str: NonNull<RedisModuleString>) -> Self {
-        // Safety: caller must uphold the safety requirements of
-        // [`OwnedRedisString::take`].
-        Self::from_value(RsValue::OwnedRedisString(unsafe {
-            OwnedRedisString::take(str)
-        }))
-    }
-
-    /// Create a new array value
-    fn array(arr: RsValueArray) -> Self {
-        Self::from_value(RsValue::Array(arr))
-    }
-
-    /// Create a new map value
-    fn map(map: RsValueMap) -> Self {
-        Self::from_value(RsValue::Map(map))
-    }
-
-    /// Attempt to parse the passed string as an `f64`, and wrap it
-    /// in a [`SharedRsValue`].
-    fn parse_number(s: &str) -> Result<Self, std::num::ParseFloatError> {
-        Ok(Self::number(s.parse()?))
-    }
-
-    /// Get the number value. Returns `None` if the value is not
-    /// a number.
-    fn get_number(&self) -> Option<f64> {
-        let RsValue::Number(number) = self.value() else {
-            return None;
-        };
-        Some(*number)
-    }
 }
 
 #[cfg(test)]
