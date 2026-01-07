@@ -268,7 +268,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipF
                          size_t skipFieldIndex_len, uint32_t requiredFlags, uint32_t excludeFlags,
                          SchemaRule *rule) {
   RS_LOG_ASSERT(skipFieldIndex_len >= lookup->rowlen, "'skipFieldIndex_len' should be at least equal to lookup len");
-  
+
   int i = 0;
   size_t nfields = 0;
   for (const RLookupKey *kk = lookup->head; kk; kk = kk->next, ++i) {
@@ -460,10 +460,10 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       RedisJSON value;
       RedisJSONPtr value_ptr = japi->allocJson();
 
-      RSValueMap map = RSValueMap_AllocUninit(len);
+      void *map = RSValueMap_AllocUninit(len);
       for (; (japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK); ++i) {
         value = *value_ptr;
-        RSValueMap_SetEntry(&map, i, RSValue_NewStolenRedisString(keyName),
+        RSValueMap_SetEntry(map, i, RSValue_NewStolenRedisString(keyName),
           jsonValToValueExpanded(ctx, value));
       }
       japi->freeJson(value_ptr);
@@ -471,9 +471,9 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       japi->freeKeyValuesIter(iter);
       RS_ASSERT(i == len);
 
-      ret = RSValue_NewMap(map);
+      ret = RSValue_NewMap(map, len);
     } else {
-      ret = RSValue_NewMap(RSValueMap_AllocUninit(0));
+      ret = RSValue_NewMap(RSValueMap_AllocUninit(0), 0);
     }
   } else if (type == JSONType_Array) {
     // Array
@@ -490,7 +490,8 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       ret = RSValue_NewArray(arr, len);
     } else {
       // Empty array
-      ret = RSValue_NewArray(NULL, 0);
+      RSValue **arr = RSValue_AllocateArray(0);
+      ret = RSValue_NewArray(arr, 0);
     }
   } else {
     // Scalar
@@ -516,7 +517,8 @@ RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) 
     ret = RSValue_NewArray(arr, len);
   } else {
     // Empty array
-    ret = RSValue_NewArray(NULL, 0);
+    RSValue **arr = RSValue_AllocateArray(0);
+    ret = RSValue_NewArray(arr, 0);
   }
   return ret;
 }
