@@ -349,7 +349,7 @@ impl fmt::Debug for RsValueMapEntry {
 #[cfg(test)]
 mod tests {
     use crate::{
-        Value,
+        RsValue, Value,
         collection::{RsValueCollection, RsValueMapEntry},
         shared::SharedRsValue,
     };
@@ -363,18 +363,25 @@ mod tests {
                 RsValueMapEntry { key, value }
             })
         };
+        let get_number = |value: &SharedRsValue| {
+            if let RsValue::Number(num) = value.value() {
+                Some(*num)
+            } else {
+                None
+            }
+        };
         let collection = RsValueCollection::collect_from_exact_size_iterator(entries());
         collection
             .iter()
             .zip(entries())
             .for_each(|(collection_entry, iter_entry)| {
                 assert_eq!(
-                    collection_entry.key.get_number(),
-                    iter_entry.key.get_number()
+                    get_number(&collection_entry.key),
+                    get_number(&iter_entry.key)
                 );
                 assert_eq!(
-                    collection_entry.value.get_number(),
-                    iter_entry.value.get_number()
+                    get_number(&collection_entry.value),
+                    get_number(&iter_entry.value)
                 );
             });
     }
