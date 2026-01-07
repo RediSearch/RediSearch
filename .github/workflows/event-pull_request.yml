@@ -44,7 +44,7 @@ jobs:
       separate-coordinator-job: true
 
   test-matrix:
-    name: ${{ matrix.test-mode == 'coordinator' && format('Coordinator ({0})', matrix.job-type) || matrix.job-type }}
+    name: ${{ matrix.job-type }}${{ matrix.test-mode == 'standalone' && ' (Standalone)' || (matrix.test-mode == 'coordinator' && ' (Coordinator-only)' || '') }}
     needs:
       [
         check-what-changed,
