@@ -23,6 +23,16 @@ void TracingRedisModule_Init(RedisModuleCtx *ctx);
  */
 void RustPanicHook_Init(void);
 
+/**
+ * Add the current backtrace as a new section to the report printed
+ * by RediSearch's INFO command.
+ *
+ * # Safety
+ *
+ * `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
+ */
+void AddToInfo_RustBacktrace(RedisModuleInfoCtx *ctx);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
