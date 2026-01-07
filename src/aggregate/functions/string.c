@@ -204,7 +204,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
         // write null value
         append_to_string(&out, &out_tail, &out_cap, "(null)", 6);
         continue;
-      } else if (!RSValue_IsAnyString(arg)) {
+      } else if (!RSValue_IsString(arg)) {
 
         RSValue *strval = RSValue_NewUndefined();
         RSValue_ToString(strval, arg);
