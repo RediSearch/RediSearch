@@ -281,7 +281,9 @@ jobs:
           echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
           echo "Coordinator Unit Tests: ${{ steps.coordinator_unit_tests.outcome }}"
           exit 1
-
+      - name: Import Codecov GPG public key
+        if: inputs.coverage
+        run: gpg --import .github/codecov_gpg.pub
       - name: Upload flow coverage
         if: inputs.coverage
         uses: codecov/codecov-action@v5
