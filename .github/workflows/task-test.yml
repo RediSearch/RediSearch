@@ -6,11 +6,11 @@ on:
   workflow_call:
     inputs:
       platform:
-        description: 'Platform name (e.g., ubuntu:noble, macos, sanitizer, coverage)'
+        description: "Platform name (e.g., ubuntu:noble, macos, sanitizer, coverage)"
         type: string
         required: true
       architecture:
-        description: 'Architecture (x86_64, aarch64)'
+        description: "Architecture (x86_64, aarch64)"
         type: string
         required: true
       san:
@@ -199,11 +199,11 @@ jobs:
     runs-on: ${{ needs.get-config.outputs.ec2_image_id && needs.start-runner.outputs.label || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container: ${{
       needs.get-config.outputs.container
-        && fromJSON(
-          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
-            needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
-            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared' || '')
-        )
+      && fromJSON(
+      format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+      needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
+      needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared' || '')
+      )
       || null }}
 
     defaults:
@@ -419,10 +419,10 @@ jobs:
 
       - name: Build Redis
         working-directory: redis
-        run:  ${{ steps.mode.outputs.mode }} make install
-              BUILD_TLS=yes
-              ${{ inputs.coverage && 'REDIS_CFLAGS=-DCOVERAGE_TEST' || '' }}
-              SANITIZER=${{ inputs.san }}
+        run: ${{ steps.mode.outputs.mode }} make install
+          BUILD_TLS=yes
+          ${{ inputs.coverage && 'REDIS_CFLAGS=-DCOVERAGE_TEST' || '' }}
+          SANITIZER=${{ inputs.san }}
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
@@ -607,21 +607,33 @@ jobs:
         run: gpg --import .github/codecov_gpg.pub
       - name: Upload flow coverage
         if: inputs.coverage
+
+      - name: Upload flow coverage (standalone)
+        if: inputs.coverage && inputs.standalone
         uses: codecov/codecov-action@v5
         with:
-          files: bin/flow_standalone.info,bin/flow_coordinator.info
+          files: bin/flow_standalone.info
           disable_search: true
           flags: flow
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload flow coverage (coordinator)
+        if: inputs.coverage && inputs.coordinator
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_coordinator.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
-        if: inputs.coverage
+        if: inputs.coverage && inputs.unit-tests
         uses: codecov/codecov-action@v5
         with:
           files: bin/unit.info,bin/rust_cov.info
           disable_search: true
           flags: unit
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # Stop EC2 runner for self-hosted platforms (always runs if `start-runner` succeeds, to ensure cleanup)
