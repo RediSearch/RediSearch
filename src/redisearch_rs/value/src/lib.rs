@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ffi::c_char, fmt::Debug, ptr::NonNull};
-
 use crate::{
     collection::{RsValueArray, RsValueMap},
     shared::SharedRsValue,
@@ -16,6 +14,7 @@ use crate::{
     trio::RsValueTrio,
 };
 use ffi::RedisModuleString;
+use std::{ffi::c_char, fmt::Debug, ptr::NonNull};
 
 /// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
 /// Rust port of the RSValue type.
@@ -63,23 +62,9 @@ pub enum RsValue {
     Map(RsValueMap),
 }
 
-impl RsValue {
-    pub const fn null_const() -> Self {
-        RsValue::Null
-    }
-}
-
 impl Value for RsValue {
     fn from_value(value: RsValue) -> Self {
         value
-    }
-
-    fn undefined() -> Self {
-        RsValue::Undefined
-    }
-
-    fn value(&self) -> &RsValue {
-        self
     }
 }
 
@@ -87,20 +72,12 @@ pub trait Value: Sized {
     /// Create a new value from an [`RsValue`]
     fn from_value(value: RsValue) -> Self;
 
-    // Create a new, undefined value
-    fn undefined() -> Self;
-
-    // Clear this value
-    fn clear(&mut self) {
-        *self = Self::undefined();
+    /// Create a new undefined value
+    fn undefined() -> Self {
+        Self::from_value(RsValue::Undefined)
     }
 
-    /// Get a reference to the [`RsValue`] that is
-    /// held by this value if it is defined. Returns `None` if
-    /// the value is undefined.
-    fn value(&self) -> &RsValue;
-
-    /// Create a new, NULL value
+    /// Create a new NULL value
     fn null() -> Self {
         Self::from_value(RsValue::Null)
     }
@@ -113,6 +90,11 @@ pub trait Value: Sized {
     /// Create a new string value
     fn string(s: RsValueString) -> Self {
         Self::from_value(RsValue::String(Box::new(s)))
+    }
+
+    /// Create a new reference value
+    fn reference(reference: SharedRsValue) -> Self {
+        Self::from_value(RsValue::Ref(reference))
     }
 
     /// Create a new trio value
@@ -208,21 +190,6 @@ pub trait Value: Sized {
     /// Create a new map value
     fn map(map: RsValueMap) -> Self {
         Self::from_value(RsValue::Map(map))
-    }
-
-    /// Attempt to parse the passed string as an `f64`, and wrap it
-    /// in a [`SharedRsValue`].
-    fn parse_number(s: &str) -> Result<Self, std::num::ParseFloatError> {
-        Ok(Self::number(s.parse()?))
-    }
-
-    /// Get the number value. Returns `None` if the value is not
-    /// a number.
-    fn get_number(&self) -> Option<f64> {
-        let RsValue::Number(number) = self.value() else {
-            return None;
-        };
-        Some(*number)
     }
 }
 

@@ -296,5 +296,9 @@ pub unsafe extern "C" fn SharedRsValue_Number_Get(v: *const RsValue) -> f64 {
     let v = unsafe { SharedRsValue::from_raw(v) };
     let v = ManuallyDrop::new(v);
     // Safety: caller must ensure (2).
-    unsafe { expect_unchecked!(v.get_number(), "v must be of type 'Number'") }
+    if let RsValue::Number(num) = v.value() {
+        *num
+    } else {
+        panic!("v must be of type 'Number'");
+    }
 }
