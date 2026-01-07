@@ -226,24 +226,5 @@ pub trait Value: Sized {
     }
 }
 
-pub mod opaque {
-    use c_ffi_utils::opaque::{Size, Transmute};
-
-    use super::RsValue;
-
-    /// Opaque projection of [`RsValue`], allowing the
-    /// non-FFI-safe [`RsValue`] to be passed to C
-    /// and even allow C land to place it on the stack.
-    #[repr(C, align(8))]
-    pub struct OpaqueRsValue(Size<16>);
-
-    // Safety: `OpaqueRsValue` is defined as a `MaybeUninit` slice of
-    // bytes with the same size and alignment as `RsValue`, so any valid
-    // `RsValue` has a bit pattern which is a valid `OpaqueRsValue`.
-    unsafe impl Transmute<RsValue> for OpaqueRsValue {}
-
-    c_ffi_utils::opaque!(RsValue, OpaqueRsValue);
-}
-
 #[cfg(test)]
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();

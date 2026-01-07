@@ -17,25 +17,6 @@
 
 
 /**
- * Enumeration of the types an
- * `RsValue` or a `SharedRsValue` can be of.
- */
-typedef enum RsValueType {
-  RsValueType_Undefined,
-  RsValueType_Null,
-  RsValueType_Number,
-  RsValueType_RmAllocString,
-  RsValueType_ConstString,
-  RsValueType_OwnedRedisString,
-  RsValueType_BorrowedRedisString,
-  RsValueType_String,
-  RsValueType_Array,
-  RsValueType_Ref,
-  RsValueType_Trio,
-  RsValueType_Map,
-} RsValueType;
-
-/**
  * An actual [`RsValue`] object
  */
 typedef struct RsValue RsValue;
@@ -44,20 +25,6 @@ typedef struct RsValue RsValue;
  * A shared RedisSearch dynamic value, backed by an `Arc<RsValue>`.
  */
 typedef struct SharedRsValue SharedRsValue;
-
-/**
- * A type with size `N`.
- */
-typedef uint8_t Size_16[16];
-
-/**
- * Opaque projection of [`RsValue`], allowing the
- * non-FFI-safe [`RsValue`] to be passed to C
- * and even allow C land to place it on the stack.
- */
-typedef struct ALIGNED(8) RsValue {
-  Size_16 _0;
-} RsValue;
 
 /**
  * A single entry of a [`RsValueMap`].
@@ -124,60 +91,6 @@ typedef struct RsValueCollection_SharedRsValue RsValueArray;
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
-
-/**
- * Creates a stack-allocated, undefined `RsValue`.
- * @returns a stack-allocated `RsValue` of type `RsValueType_Undef`
- */
-struct RsValue RsValue_Undefined(void);
-
-/**
- * Creates a stack-allocated `RsValue` containing a number.
- * The returned value is not allocated on the heap and should not be freed.
- * @param n The numeric value to wrap
- * @return A stack-allocated `RsValue` of type `RsValueType_Number`
- */
-struct RsValue RsValue_Number(double n);
-
-/**
- * Creates a stack-allocated `RsValue` containing a malloc'd string.
- * The returned value itself is not heap-allocated, but does take ownership of the string.
- *
- * # Safety
- * - (1) `str` must be non-null;
- * - (2) `str` must point to a valid C string that was allocated using `rm_malloc`;
- * - (3) The passed length must match the length to the string;
- * - (4) `str` must not be aliased;
- * - (5) `RedisModule_Alloc` must not be mutated for the lifetime of the
- *   `OpaqueRsValue`.
- *
- * @param str The malloc'd string to wrap (ownership is transferred)
- * @param len The length of the string
- * @return A stack-allocated `RsValue` of type `RsValueType_String` with `RSString_Malloc` subtype
- */
-struct RsValue RsValue_String(char *str, uint32_t len);
-
-/**
- * Returns a pointer to a statically allocated NULL `RsValue`.
- * This is a singleton - the same pointer is always returned.
- * DO NOT free or modify this value.
- *
- * @return A pointer to a static `RsValue` of type `RsValueType_Null`
- */
-const struct RsValue *RsValue_NullStatic(void);
-
-/**
- * Get the type of an `RsValue`.
- *
- * # Safety
- * The passed value must originate from one of the `RsValue` constructors,
- * i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
- * or [`RsValue_NullStatic`].
- *
- * @param v The value to inspect
- * @return The `RsValueType` of the value
- */
-enum RsValueType RsValue_Type(const struct RsValue *v);
 
 /**
  * Create a new, uninitialized [`RsValueMap`], reserving space for `cap`
@@ -380,37 +293,6 @@ const struct RsValue *SharedRsValue_NewArray(RsValueArray vals);
  * @return A pointer to a heap-allocated RsValue of type RsValueType_Map
  */
 const struct RsValue *SharedRsValue_NewMap(RsValueMap map);
-
-/**
- * Creates a heap-allocated `RsValue` array from NULL terminated C strings.
- *
- * # Safety
- * - (1) If `sz > 0`, `str` must be non-null;
- * - (2) If `sz > 0`, `str` must be valid for reads of `sz * size_of::<NonNull<c_char>>` bytes;
- * - (3) If `sz > 0`, `str` must be a valid pointer
- *   to a sequence if valid NULL-terminated C strings of length `sz`.
- *
- * @param strs Array of string pointers
- * @param sz Number of strings in the array
- * @return A pointer to a heap-allocated RsValue array
- */
-const struct RsValue *SharedRsValue_NewStringArray(char **strs, uint32_t sz);
-
-/**
- * Creates a heap-allocated RsValue array from NULL terminated C string constants.
- *
- * # Safety
- * - (1) If `sz > 0`, `str` must be non-null;
- * - (2) If `sz > 0`, `str` must be valid for reads of `sz * size_of::<NonNull<c_char>>` bytes;
- * - (3) If `sz > 0`, `str` must point to a sequence of valid NULL-terminated C strings of length `sz`;
- * - (4) For each of the strings `str` in `strs`, `strlen(str)` must not exceed `u32::MAX`.
- *
- * @param strs Array of string pointers
- * @param sz Number of strings in the array
- * @return A pointer to a heap-allocated RsValue array
- */
-const struct RsValue *SharedRsValue_NewConstStringArray(const char **strs,
-                                                        uint32_t sz);
 
 /**
  * Creates a heap-allocated RsValue Trio from three RsValues.
