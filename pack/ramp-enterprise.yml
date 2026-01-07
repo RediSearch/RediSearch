@@ -70,3 +70,5 @@ overide_command:
     - {"command_arity": -1, "command_name": "FT.HYBRID", "first_key": 0, "flags": ["module", "readonly"], "last_key": 1, "step": -2}
     - {"command_arity": -1, "command_name": "FT.PROFILE", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}
     - {"command_arity": -1, "command_name": "FT.SPELLCHECK", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}
+    - {"command_arity": -1, "command_name": "FT.MGET", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}
+    - {"command_arity": -1, "command_name": "FT.TAGVALS", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}

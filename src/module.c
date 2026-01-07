@@ -4086,7 +4086,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Commands that don't operate on Redis keys use (0, 0, 0).
   // The proxy gets key-spec from the RAMP file (pack/ramp-enterprise.yml).
   const CommandKeys noKeyArgs = DEFINE_COMMAND_KEYS(0, 0, 0);
-  const CommandKeys ossCmdArgs = DEFINE_COMMAND_KEYS(0, 0, -1);
 
   SearchCommand readCommands[] = {
     // read commands
