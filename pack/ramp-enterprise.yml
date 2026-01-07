@@ -72,3 +72,4 @@ overide_command:
     - {"command_arity": -1, "command_name": "FT.SPELLCHECK", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}
     - {"command_arity": -1, "command_name": "FT.MGET", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}
     - {"command_arity": -1, "command_name": "FT.TAGVALS", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}
+    - {"command_arity": -1, "command_name": "FT.INFO", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}
