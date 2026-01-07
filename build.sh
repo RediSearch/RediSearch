@@ -60,28 +60,28 @@ parse_arguments() {
       COORD=*)
         COORD="${arg#*=}"
         ;;
-      DEBUG)
+      DEBUG?(=1))
         DEBUG=1
         ;;
-      PROFILE)
+      PROFILE?(=1))
         PROFILE=1
         ;;
-      TESTS)
+      TESTS?(=1))
         BUILD_TESTS=1
         ;;
-      RUN_TESTS)
+      RUN_TESTS?(=1))
         RUN_ALL_TESTS=1
         ;;
-      RUN_UNIT_TESTS)
+      RUN_UNIT_TESTS?(=1))
         RUN_UNIT_TESTS=1
         ;;
-      RUN_RUST_TESTS)
+      RUN_RUST_TESTS?(=1))
         RUN_RUST_TESTS=1
         ;;
-      RUN_RUST_VALGRIND)
+      RUN_RUST_VALGRIND?(=1))
         RUN_RUST_VALGRIND=1
         ;;
-      RUN_MICRO_BENCHMARKS)
+      RUN_MICRO_BENCHMARKS?(=1))
         RUN_MICRO_BENCHMARKS=1
         ;;
       COV=*)
@@ -122,10 +122,10 @@ parse_arguments() {
       SAN=*)
         SAN="${arg#*=}"
         ;;
-      FORCE)
+      FORCE?(=1))
         FORCE=1
         ;;
-      VERBOSE)
+      VERBOSE?(=1))
         VERBOSE=1
         ;;
       QUICK=*)
