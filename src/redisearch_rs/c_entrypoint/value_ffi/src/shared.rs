@@ -13,7 +13,6 @@ use c_ffi_utils::expect_unchecked;
 use ffi::RedisModuleString;
 use value::{
     RsValue,
-    collection::{RsValueArray, RsValueMap},
     shared::SharedRsValue,
     strings::{ConstString, OwnedRedisString, OwnedRmAllocString, RedisStringRef},
     trio::RsValueTrio,
@@ -244,29 +243,6 @@ pub extern "C" fn SharedRsValue_NewNumber(n: f64) -> *const RsValue {
 #[unsafe(no_mangle)]
 pub extern "C" fn SharedRsValue_NewNumberFromInt64(dd: i64) -> *const RsValue {
     let shared_value = SharedRsValue::new(RsValue::Number(dd as f64));
-    shared_value.into_raw()
-}
-
-/// Creates a heap-allocated `RsValue` array from existing values.
-/// Takes ownership of the values (values will be freed when array is freed).
-///
-/// @param vals The values array to use for the array (ownership is transferred)
-/// @param len Number of values
-/// @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Array`
-#[unsafe(no_mangle)]
-pub extern "C" fn SharedRsValue_NewArray(vals: RsValueArray) -> *const RsValue {
-    let shared_value = SharedRsValue::new(RsValue::Array(vals));
-    shared_value.into_raw()
-}
-
-/// Creates a heap-allocated RsValue of type RsValue_Map from an RsValueMap.
-/// Takes ownership of the map structure and all its entries.
-///
-/// @param map The RsValueMap to wrap (ownership is transferred)
-/// @return A pointer to a heap-allocated RsValue of type RsValueType_Map
-#[unsafe(no_mangle)]
-pub extern "C" fn SharedRsValue_NewMap(map: RsValueMap) -> *const RsValue {
-    let shared_value = SharedRsValue::new(RsValue::Map(map));
     shared_value.into_raw()
 }
 

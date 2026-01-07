@@ -10,7 +10,6 @@
 use std::fmt::Debug;
 
 use crate::{
-    collection::{RsValueArray, RsValueMap},
     shared::SharedRsValue,
     strings::{ConstString, OwnedRedisString, OwnedRmAllocString, RedisStringRef, RsValueString},
     trio::RsValueTrio,
@@ -28,7 +27,6 @@ mod test_utils;
 #[cfg(feature = "test_utils")]
 pub use test_utils::RSValueMock;
 
-pub mod collection;
 pub mod shared;
 pub mod strings;
 pub mod trio;
@@ -53,13 +51,13 @@ pub enum RsValue {
     /// String value
     String(Box<RsValueString>),
     /// Array value
-    Array(RsValueArray),
+    Array(Vec<SharedRsValue>),
     /// Reference value
     Ref(SharedRsValue),
     /// Trio value
     Trio(RsValueTrio),
     /// Map value
-    Map(RsValueMap),
+    Map(Vec<(SharedRsValue, SharedRsValue)>),
 }
 
 #[cfg(test)]
