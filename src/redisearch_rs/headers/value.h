@@ -42,6 +42,14 @@ typedef struct RsValue RsValue;
 extern "C" {
 #endif // __cplusplus
 
+struct RsValue **RSValue_AllocateArray(uintptr_t len);
+
+struct RsValue *RSValue_NewArray(struct RsValue **vals, uint32_t len);
+
+uint32_t RSValue_ArrayLen(const struct RsValue *value);
+
+struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
+
 /**
  * Creates a heap-allocated `RsValue` wrapping a string.
  * Doesn't duplicate the string. Use strdup if the value needs to be detached.
