@@ -11,7 +11,7 @@ use std::fmt::Debug;
 
 use crate::{
     shared::SharedRsValue,
-    strings::{ConstString, OwnedRedisString, OwnedRmAllocString, RedisStringRef, RsValueString},
+    strings::{ConstString, RedisString, RmAllocString, RsValueString},
     trio::RsValueTrio,
 };
 
@@ -30,6 +30,7 @@ pub use test_utils::RSValueMock;
 pub mod shared;
 pub mod strings;
 pub mod trio;
+pub mod util;
 
 /// An actual [`RsValue`] object
 #[derive(Debug, Clone)]
@@ -41,15 +42,15 @@ pub enum RsValue {
     /// Numeric value
     Number(f64),
     /// String value backed by a rm_alloc'd string
-    RmAllocString(OwnedRmAllocString),
+    RmAllocString(RmAllocString),
     /// String value backed by a constant C string
     ConstString(ConstString),
     /// String value backed by an owned Redis string
-    OwnedRedisString(OwnedRedisString),
-    /// String value backed by a borrowd Redis string
-    BorrowedRedisString(RedisStringRef),
+    RedisString(RedisString),
     /// String value
     String(Box<RsValueString>),
+    /// Simpler string value
+    String2(String),
     /// Array value
     Array(Vec<SharedRsValue>),
     /// Reference value
