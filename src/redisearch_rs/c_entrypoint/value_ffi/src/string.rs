@@ -24,7 +24,7 @@ pub unsafe extern "C" fn RSValue_NewConstString(str: *const c_char, len: u32) ->
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_String_Get(value: *mut RsValue, lenp: *mut u32) -> *mut c_char {
+pub unsafe extern "C" fn RSValue_String_Get(value: *const RsValue, lenp: *mut u32) -> *mut c_char {
     let shared_value = unsafe { SharedRsValue::from_raw(value) };
     let shared_value = ManuallyDrop::new(shared_value);
     let value = shared_value.value();
