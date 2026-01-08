@@ -96,6 +96,43 @@ pub fn run_cbinden(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+/// Link all the relevant C dependencies to invoke RediSearch C symbols.
+pub fn link_redisearch_c() {
+    if cfg!(feature = "link_redisearch_c") {
+        // Link all the relevant C dependencies.
+        link_static_libraries(&[
+            ("src", "redisearch_c"),
+            ("src/libuv", "uv"),
+            ("src/VectorSimilarity/src/VecSim", "VectorSimilarity"),
+            (
+                "src/VectorSimilarity/src/VecSim/spaces",
+                "VectorSimilaritySpaces",
+            ),
+            (
+                "src/VectorSimilarity/src/VecSim/spaces",
+                "VectorSimilaritySpaces_no_optimization",
+            ),
+            ("src/geometry", "redisearch-geometry"),
+            ("src/coord", "redisearch-coord"),
+            ("hiredis", "hiredis"),
+            ("hiredis", "hiredis_ssl"),
+            ("src/util/hash", "redisearch-hash"),
+            ("_deps/spdlog-build", "spdlog"),
+            ("_deps/fmt-build", "fmt"),
+            #[cfg(target_arch = "x86_64")]
+            (
+                "src/VectorSimilarity/deps/ScalableVectorSearch",
+                "svs_x86_objects",
+            ),
+            ("_deps/cpu_features-build", "cpu_features"),
+        ]);
+    } else {
+        panic!(
+            "You must enable the 'link_redisearch_c' feature to link the RedisSearch C library."
+        );
+    }
+}
+
 /// Links static libraries
 ///
 /// This function configures the linker to include static libraries built by the main
@@ -109,7 +146,7 @@ pub fn run_cbinden(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::err
 ///
 /// # Panics
 /// Panics if any required static library is not found in the expected location.
-pub fn link_static_libraries(libs: &[(&str, &str)]) {
+fn link_static_libraries(libs: &[(&str, &str)]) {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
 
     // There may be several symbols exposed by the static library that we are trying to link
