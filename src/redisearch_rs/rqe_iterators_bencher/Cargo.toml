@@ -33,9 +33,4 @@ rqe_iterators.workspace = true
 rand.workspace = true
 workspace_hack.workspace = true
 
-query_error_ffi = { path = "../c_entrypoint/query_error_ffi" }
-slots_tracker_ffi = { path = "../c_entrypoint/slots_tracker_ffi" }
-triemap_ffi = { path = "../c_entrypoint/triemap_ffi" }
-types_ffi = { path = "../c_entrypoint/types_ffi" }
-value_ffi = { path = "../c_entrypoint/value_ffi" }
-varint_ffi = { path = "../c_entrypoint/varint_ffi" }
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs" }
