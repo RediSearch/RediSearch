@@ -148,7 +148,8 @@ set(REDISEARCH_C_DEPENDENCIES VectorSimilarity generate_command_info uv_a)
 # Build the static library containing all C code
 add_library(redisearch_c STATIC ${FINAL_OBJECTS})
 set_target_properties(redisearch_c PROPERTIES ${REDISEARCH_C_PROPERTIES})
-target_link_libraries(redisearch_c ${REDISEARCH_C_LINK_LIBS})
+# Use PUBLIC so dependencies propagate to targets that link against redisearch_c
+target_link_libraries(redisearch_c PUBLIC ${REDISEARCH_C_LINK_LIBS})
 add_dependencies(redisearch_c ${REDISEARCH_C_DEPENDENCIES})
 
 # Export FINAL_OBJECTS to parent scope for potential use
