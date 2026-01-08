@@ -9,7 +9,6 @@
 
 //! Mock implementations or stubs of C symbol that aren't provided
 //! by the static C libraries we are linking against in build.rs.
-use std::ffi::c_void;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
@@ -21,7 +20,7 @@ pub use types_ffi;
 // symbols required by the C code we need to redefine
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
-pub static mut RSGlobalConfig: *const c_void = std::ptr::null();
+pub static mut RSGlobalConfig: ffi::RSConfig = unsafe { std::mem::zeroed() };
 
 /// Define an empty stub function for each given symbols.
 /// This is used to define C functions the linker requires but which are not actually used by the tests.

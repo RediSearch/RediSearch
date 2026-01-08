@@ -3381,6 +3381,9 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 }
 
 int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
+  // Capture start time for coordinator dispatch time tracking
+  rs_wall_clock_ns_t t0 = rs_wall_clock_now_ns();
+
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
@@ -3437,8 +3440,13 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
+  ConcurrentSearchHandlerCtx handlerCtx = {
+    .coordStartTime = t0,
+    .spec_ref = StrongRef_Demote(spec_ref)
+  };
+
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
-                                               StrongRef_Demote(spec_ref));
+                                               &handlerCtx);
 }
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -3486,8 +3494,11 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
+  ConcurrentSearchHandlerCtx handlerCtx = {0};
+  handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
+
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
-                                               StrongRef_Demote(spec_ref));
+                                               &handlerCtx);
 }
 
 static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisModuleCmdFunc subcmd, ConcurrentCmdHandler dist_callback) {
@@ -3506,8 +3517,11 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
+  ConcurrentSearchHandlerCtx handlerCtx = {0};
+  handlerCtx.spec_ref = (WeakRef){0};
+
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
-                                               (WeakRef){0});
+                                               &handlerCtx);
 }
 
 
@@ -3761,7 +3775,6 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   // Return spec references, no longer needed
   IndexSpecRef_Release(strong_ref);
   WeakRef_Release(spec_ref);
-
 
   return REDISMODULE_OK;
 }
