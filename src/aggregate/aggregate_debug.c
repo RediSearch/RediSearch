@@ -8,6 +8,7 @@
 */
 #include "aggregate_debug.h"
 #include "module.h"
+#include "result_processor.h"
 
 /*  Using INTERNAL_ONLY with TIMEOUT_AFTER_N where N == 0 may result in an infinite loop in the
    coordinator. Since shard replies are always empty, the coordinator might get stuck indefinitely
@@ -52,7 +53,8 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, debug_argv, debug_params_count);
   ArgsCursor timeoutArgs = {0};
-  int crash = 0;
+  int crash_in_c = 0;
+  int crash_in_rust = 0;
   int internal_only = 0;
   ArgsCursor pauseBeforeArgs = {0};
   ArgsCursor pauseAfterArgs = {0};
@@ -62,8 +64,10 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
        .type = AC_ARGTYPE_SUBARGS_N,
        .target = &timeoutArgs,
        .slicelen = 1},
-      // crash at the start of the query
-      {.name = "CRASH", .type = AC_ARGTYPE_BOOLFLAG, .target = &crash},
+      // crash at the start of the query, in C code
+      {.name = "CRASH", .type = AC_ARGTYPE_BOOLFLAG, .target = &crash_in_c},
+      // crash at the start of the query, in Rust code
+      {.name = "CRASH_IN_RUST", .type = AC_ARGTYPE_BOOLFLAG, .target = &crash_in_rust},
       // optional arg for TIMEOUT_AFTER_N
       {.name = "INTERNAL_ONLY", .type = AC_ARGTYPE_BOOLFLAG, .target = &internal_only},
       // pause after specific RP after N results
@@ -95,16 +99,25 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   }
 
   // Handle crash
-  if (crash) {
+  if (crash_in_c) {
     // Verify internal_only is not used with CRASH
     if (internal_only) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "INTERNAL_ONLY is not supported with CRASH");
       return REDISMODULE_ERR;
     }
 
-    PipelineAddCrash(&debug_req->r);
+    PipelineAddCrash(&debug_req->r, CRASH_IN_C);
   }
 
+  if (crash_in_rust) {
+    // Verify internal_only is not used with CRASH_IN_RUST
+    if (internal_only) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "INTERNAL_ONLY is not supported with CRASH_IN_RUST");
+      return REDISMODULE_ERR;
+    }
+
+    PipelineAddCrash(&debug_req->r, CRASH_IN_RUST);
+  }
 
   // Handle timeout
   if (AC_IsInitialized(&timeoutArgs)) {
