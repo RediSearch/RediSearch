@@ -5,9 +5,15 @@ edition.workspace = true
 license-file.workspace = true
 publish.workspace = true
 
+[features]
+link_redisearch_c = ["link-cplusplus"]
+
 [dependencies]
 cbindgen.workspace = true
 bindgen.workspace = true
+# Ensure the C++ standard library is linked,
+# for consuming VecSim correctly from Rust code.
+link-cplusplus = { workspace = true, optional = true }
 workspace_hack.workspace = true
 
 [lints]

@@ -274,9 +274,13 @@ set_target_properties(redisearch
     POSITION_INDEPENDENT_CODE ON)
 setup_shared_object_target(redisearch "")
 
-# Link the final library with both C dependencies and Rust
+# Link the final library with external C dependencies and Rust library
 target_link_libraries(redisearch
-    redisearch_c
+    redisearch-geometry
+    redisearch-hash
+    VectorSimilarity
+    redisearch-coord
+    uv_a
     redisearch_rs
     ${HIREDIS_LIBS}
     ${SSL_LIBS}
