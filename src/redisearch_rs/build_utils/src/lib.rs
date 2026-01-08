@@ -96,6 +96,30 @@ pub fn run_cbinden(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+/// Returns the bin root directory for the current build configuration.
+fn get_bin_root() -> PathBuf {
+    if let Ok(bin_root) = std::env::var("BINDIR") {
+        // The directory changes depending on a variety of factors: target architecture, target OS,
+        // optimization level, coverage, etc.
+        // We rely on the top-level build coordinator to give us the correct path, rather
+        // than duplicating the whole layout logic here.
+        PathBuf::from(bin_root)
+    } else {
+        // If one is not provided (e.g. `cargo` has been invoked directly), we look
+        // for a release build of the static library in the conventional location
+        // for the bin directory.
+        let root = git_root().expect("Could not find git root for library linking");
+        let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
+        let target_arch = match env::var("CARGO_CFG_TARGET_ARCH").ok().as_deref() {
+            Some("x86_64") | None => "x64".to_owned(),
+            Some(a) => a.to_owned(),
+        };
+        root.join(format!(
+            "bin/{target_os}-{target_arch}-release/search-community/"
+        ))
+    }
+}
+
 /// Links static libraries
 ///
 /// This function configures the linker to include static libraries built by the main
@@ -123,28 +147,62 @@ pub fn link_static_libraries(libs: &[(&str, &str)]) {
         println!("cargo::rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
     }
 
-    let bin_root = if let Ok(bin_root) = std::env::var("BINDIR") {
-        // The directory changes depending on a variety of factors: target architecture, target OS,
-        // optimization level, coverage, etc.
-        // We rely on the top-level build coordinator to give us the correct path, rather
-        // than duplicating the whole layout logic here.
-        PathBuf::from(bin_root)
-    } else {
-        // If one is not provided (e.g. `cargo` has been invoked directly), we look
-        // for a release build of the static library in the conventional location
-        // for the bin directory.
-        let root = git_root().expect("Could not find git root for static library linking");
-        let target_arch = match env::var("CARGO_CFG_TARGET_ARCH").ok().as_deref() {
-            Some("x86_64") | None => "x64".to_owned(),
-            Some(a) => a.to_owned(),
-        };
-        root.join(format!(
-            "bin/{target_os}-{target_arch}-release/search-community/"
-        ))
-    };
+    let bin_root = get_bin_root();
 
     for &(lib_subdir, lib_name) in libs {
         link_static_lib(&bin_root, lib_subdir, lib_name).unwrap();
+    }
+}
+
+/// Links a dynamic library that bundles all C dependencies.
+///
+/// This function configures the linker to use a shared library (dylib/so) built by the main
+/// RediSearch build system. The shared library bundles all C dependencies into a single artifact,
+/// simplifying the linking process for Rust binaries like benchmarks and tests.
+///
+/// The shared library is built with `-undefined dynamic_lookup` (macOS) or
+/// `--allow-shlib-undefined` (Linux), allowing Redis module symbols to remain unresolved
+/// until runtime.
+///
+/// # Arguments
+/// * `lib_subdir` - Library subdirectory path relative to the build output directory
+/// * `lib_name` - Library name (without lib prefix and .dylib/.so suffix)
+///
+/// # Panics
+/// Panics if the dynamic library is not found in the expected location.
+pub fn link_dynamic_library(lib_subdir: &str, lib_name: &str) {
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
+
+    // Allow undefined symbols when linking the executable against the dylib.
+    // The dylib itself was built with undefined symbols allowed, but we also need
+    // to tell the linker to accept undefined symbols when linking the final binary.
+    if target_os == "macos" {
+        println!("cargo::rustc-link-arg=-Wl,-undefined,dynamic_lookup");
+    } else {
+        println!("cargo::rustc-link-arg=-Wl,--allow-shlib-undefined");
+    }
+
+    let bin_root = get_bin_root();
+    let lib_dir = bin_root.join(lib_subdir);
+
+    let lib_ext = if target_os == "macos" { "dylib" } else { "so" };
+    let lib = lib_dir.join(format!("lib{lib_name}.{lib_ext}"));
+
+    if std::fs::exists(&lib).unwrap_or(false) {
+        println!("cargo::rustc-link-lib=dylib={lib_name}");
+        println!("cargo::rerun-if-changed={}", lib.display());
+        println!("cargo::rustc-link-search=native={}", lib_dir.display());
+
+        // Set rpath so the executable can find the dylib at runtime
+        if target_os == "macos" {
+            println!("cargo::rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
+        } else {
+            println!("cargo::rustc-link-arg=-Wl,-rpath,$ORIGIN/{}", lib_subdir);
+            // Also add the absolute path for development builds
+            println!("cargo::rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
+        }
+    } else {
+        panic!("Dynamic library not found: {}", lib.display());
     }
 }
 

@@ -7,35 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use build_utils::{generate_c_bindings, git_root, link_static_libraries};
+use build_utils::{generate_c_bindings, git_root, link_dynamic_library};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Always link the static libraries, independent of bindgen
-    link_static_libraries(&[
-        ("src", "redisearch_c"),
-        ("src/libuv", "uv"),
-        ("src/VectorSimilarity/src/VecSim", "VectorSimilarity"),
-        (
-            "src/VectorSimilarity/src/VecSim/spaces",
-            "VectorSimilaritySpaces",
-        ),
-        (
-            "src/VectorSimilarity/src/VecSim/spaces",
-            "VectorSimilaritySpaces_no_optimization",
-        ),
-        ("src/geometry", "redisearch-geometry"),
-        ("src/coord", "redisearch-coord"),
-        ("hiredis", "hiredis"),
-        ("hiredis", "hiredis_ssl"),
-        ("src/util/hash", "redisearch-hash"),
-        ("_deps/spdlog-build", "spdlog"),
-        ("_deps/fmt-build", "fmt"),
-        (
-            "src/VectorSimilarity/deps/ScalableVectorSearch",
-            "svs_x86_objects",
-        ),
-        ("_deps/cpu_features-build", "cpu_features"),
-    ]);
+    // Link the dynamic library that bundles all C dependencies.
+    // This is simpler than linking multiple static libraries and allows
+    // undefined symbols (like RedisModule_*) to be resolved at runtime.
+    link_dynamic_library("src", "redisearch_c");
     println!("cargo:rustc-link-lib=stdc++");
 
     // Compile the wildcard iterator benchmark C file
