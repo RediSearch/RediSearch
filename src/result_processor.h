@@ -76,6 +76,7 @@ typedef enum {
   // Debug only result processors
   RP_TIMEOUT,
   RP_CRASH,
+  RP_CRASH_IN_RUST,
   RP_PAUSE,
   RP_MAX_DEBUG
 } ResultProcessorType;
@@ -355,8 +356,12 @@ void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx
  *
  * crash the at the start of the query
  *******************************************************************************************************************/
+enum CrashLocation {
+    CRASH_IN_C,
+    CRASH_IN_RUST,
+};
 ResultProcessor *RPCrash_New();
-void PipelineAddCrash(struct AREQ *r);
+void PipelineAddCrash(struct AREQ *r, enum CrashLocation location);
 
 /*******************************************************************************************************************
  *  Pause Processor - DEBUG ONLY

@@ -7,5 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub mod counter;
-pub mod crash;
+/// Intentionally trigger a crash in Rust code,
+/// to verify the crash handling mechanism.
+///
+/// Used by the crash result processor.
+#[unsafe(no_mangle)]
+pub extern "C" fn CrashInRust() {
+    panic!("Crash in Rust code");
+}
