@@ -1656,15 +1656,10 @@ dependencies = [
  "inverted_index_ffi",
  "iterators_ffi",
  "itertools 0.14.0",
- "query_error_ffi",
  "rand",
  "redis_mock",
+ "redisearch_rs",
  "rqe_iterators",
- "slots_tracker_ffi",
- "triemap_ffi",
- "types_ffi",
- "value_ffi",
- "varint_ffi",
  "workspace_hack",
 ]
 
