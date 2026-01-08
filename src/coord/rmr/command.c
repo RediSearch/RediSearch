@@ -304,15 +304,21 @@ void MRCommand_PrepareForDispatchTime(MRCommand *cmd, uint32_t pos) {
 }
 
 void MRCommand_SetDispatchTime(MRCommand *cmd) {
+  size_t cmd_pos = 0;
+  bool is_cmd_supported = false;
+#ifdef ENABLE_ASSERT
+  cmd_pos = !strcmp(cmd->strs[0], "_FT.DEBUG") ? 1 : 0;
+  is_cmd_supported = !strcmp(cmd->strs[cmd_pos], "_FT.AGGREGATE") || !strcmp(cmd->strs[cmd_pos], "_FT.SEARCH") || !strcmp(cmd->strs[cmd_pos], "_FT.PROFILE");
+#endif
   if (cmd->dispatchTimeArgIndex == 0) {
-    RS_LOG_ASSERT(cmd->rootCommand != C_AGG, "Dispatch time placeholder for AGGREGATE was not prepared");
-    return;
+    RS_LOG_ASSERT_FMT(!is_cmd_supported, "Dispatch time placeholder was not prepared for command %s", cmd->strs[cmd_pos]);
+      return;
   }
-  RS_LOG_ASSERT(cmd->rootCommand == C_AGG, "Only AGGREGATE commands support dispatch time");
+
+  RS_LOG_ASSERT_FMT(is_cmd_supported, "unexpected command for dispatch time: %s", cmd->strs[cmd_pos]);
   RS_LOG_ASSERT(cmd->dispatchTimeArgIndex > 0, "Dispatch time placeholder was not prepared");
   RS_ASSERT(cmd->dispatchTimeArgIndex < cmd->num);
   RS_ASSERT(!strcmp(cmd->strs[cmd->dispatchTimeArgIndex - 1], COORD_DISPATCH_TIME_STR));
-
   // Calculate dispatch time from coordinator start
   rs_wall_clock_ns_t dispatchTime = rs_wall_clock_now_ns() - cmd->coordStartTime;
   char buf[32];

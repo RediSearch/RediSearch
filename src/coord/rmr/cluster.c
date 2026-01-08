@@ -53,6 +53,7 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
                            void *privdata) {
   struct MRClusterTopology *topo = ioRuntime->topo;
   uint32_t slotsInfoPos = cmd->slotsInfoArgIndex; // 0 if not set, which means slot info is not needed
+  uint32_t dispatchTimePos = cmd->dispatchTimeArgIndex; // 0 if not set, which means dispatch time is not needed
   int ret = 0;
   for (size_t i = 0; i < topo->numShards; i++) {
     MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id);
@@ -60,6 +61,10 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
       if (slotsInfoPos) {
         // Update slot info for this command
         MRCommand_SetSlotInfo(cmd, topo->shards[i].slotRanges);
+      }
+      if (dispatchTimePos) {
+        // Update dispatch time for this command
+        MRCommand_SetDispatchTime(cmd);
       }
       if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {
         ret++;
