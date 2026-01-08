@@ -360,7 +360,7 @@ enum CrashLocation {
     CRASH_IN_C,
     CRASH_IN_RUST,
 };
-ResultProcessor *RPCrash_New();
+ResultProcessor *RPCrash_New(enum CrashLocation location);
 void PipelineAddCrash(struct AREQ *r, enum CrashLocation location);
 
 /*******************************************************************************************************************
