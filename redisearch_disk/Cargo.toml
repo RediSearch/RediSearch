@@ -22,6 +22,7 @@ roaring = "0.10"
 rqe_iterators = { path = "../deps/RediSearch/src/redisearch_rs/rqe_iterators" }
 rqe_iterators_interop = { path = "../deps/RediSearch/src/redisearch_rs/rqe_iterators_interop" }
 speedb = { path = "../deps/rust-speedb" }
+strum = { version = "0.27.2", features = ["derive"] }
 thiserror = "2.0.17"
 tracing = "0.1.42"
 

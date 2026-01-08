@@ -1,8 +1,7 @@
 """
 Step definitions for RediSearchDisk basic functionality tests.
 """
-from pytest_bdd import given, when, then, parsers
-
+from common import *
 
 # Given steps
 @given('the RediSearchDisk module is loaded')
@@ -125,3 +124,11 @@ def verify_first_result(request, doc_id):
     result_id = result[1].decode('utf-8') if isinstance(result[1], bytes) else result[1]
     assert result_id == doc_id, f"Expected first result to be '{doc_id}', got '{result_id}'"
 
+
+@then(parsers.parse('the index "{index_name}" should exist'))
+def verify_index_exists(redis_env, index_name):
+    """Verify that an index exists after RDB load."""
+    # Use FT.INFO to check if index exists
+    # If index doesn't exist, this will return an error
+    result = redis_env.cmd('FT.INFO', index_name)
+    assert result is not None, f"Index {index_name} should exist after RDB load"

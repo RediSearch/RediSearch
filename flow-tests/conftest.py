@@ -8,10 +8,17 @@ This module configures the RLTest environment for BDD tests:
 """
 import os
 import pytest
+from pathlib import Path
 from RLTest import Defaults, Env
+from common import configure_search_cluster_single_shard
 
-# Import all step definitions so they are registered with pytest-bdd
-pytest_plugins = ['steps.basic_steps', 'steps.drop_steps']
+# Automatically discover and import all step definition modules
+# This finds all *_steps.py files in the steps directory
+steps_dir = Path(__file__).parent / 'steps'
+pytest_plugins = [
+    f'steps.{step_file.stem}'
+    for step_file in steps_dir.glob('*_steps.py')
+]
 
 
 def pytest_configure(config):
@@ -104,7 +111,9 @@ def redis_env(request):
         f.write('bigredis-driver speedb\n')
         f.write(f'bigredis-path {bigredis_path}\n')
         f.write('loglevel debug\n')
-        f.write('enable-debug-command yes\n')
+        f.write('bigredis-use-async no\n') # Temporary, until async API is added to Speedb Rust crate.
+        f.write('enable-debug-command yes\n') # Required for _FT.DEBUG commands
+        f.write('enable-module-command yes\n') # Required for `MODULE ..` commands
         redis_config_file = f.name
 
     env = None
@@ -128,22 +137,7 @@ def redis_env(request):
         # Get the connection to execute commands
         conn = env.getConnection()
 
-        # Execute SEARCH.CLUSTERSET command to configure the cluster
-        # MYID 1: Set this node's ID to 1
-        # RANGES 1: Number of shard ranges
-        # SHARD 1: Shard ID
-        # SLOTRANGE 0 16383: This shard handles all hash slots (0-16383)
-        # ADDR password@127.0.0.1:port: Address of this node
-        # MASTER: This node is a master
-        conn.execute_command(
-            'SEARCH.CLUSTERSET',
-            'MYID', '1',
-            'RANGES', '1',
-            'SHARD', '1',
-            'SLOTRANGE', '0', '16383',
-            'ADDR', f'password@127.0.0.1:{env.port}',
-            'MASTER'
-        )
+        configure_search_cluster_single_shard(conn, env.port)
 
         yield env
 

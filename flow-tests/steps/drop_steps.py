@@ -1,22 +1,12 @@
 """
 Step definitions for RediSearchDisk index deletion tests.
 """
-import os
-from pytest_bdd import when, then, parsers
-
+from common import *
 
 @when(parsers.parse('I drop the index "{index_name}"'))
 def drop_index(redis_env, index_name):
     """Drop an index."""
     redis_env.expect('FT.DROPINDEX', index_name).ok()
-
-
-@then(parsers.parse('the index "{index_name}" should exist'))
-def index_should_exist(redis_env, index_name):
-    """Verify that an index exists."""
-    # Try to get info about the index - should succeed
-    result = redis_env.cmd('FT.INFO', index_name)
-    assert result is not None, f"Index {index_name} should exist"
 
 
 @then(parsers.parse('the index "{index_name}" should not exist'))

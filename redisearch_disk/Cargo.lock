@@ -1048,6 +1048,7 @@ dependencies = [
  "rqe_iterators",
  "rqe_iterators_interop",
  "speedb",
+ "strum",
  "tempfile",
  "thiserror",
  "tracing",

@@ -4,6 +4,7 @@ pub mod index_spec;
 pub mod key_traits;
 pub mod merge_op;
 pub mod path_prefix;
+pub mod utils;
 pub mod vecsim_disk;
 
 use crate::index_spec::IndexSpec;
@@ -13,9 +14,9 @@ use crate::vecsim_disk::{SpeeDBHandles, VecSimDisk_CreateIndex};
 use document::DocumentType;
 use ffi::{
     AllocateKeyCallback, BasicDiskAPI, DocTableDiskAPI, IndexDiskAPI,
-    IteratorType_INV_IDX_ITERATOR, QueryIterator, RSDocumentMetadata, RedisModuleCtx,
-    RedisSearchDisk, RedisSearchDiskAPI, RedisSearchDiskIndexSpec, VecSimHNSWDiskParams,
-    VectorDiskAPI, t_docId, t_fieldMask,
+    IteratorType_INV_IDX_ITERATOR, QueryIterator, REDISMODULE_ERR, REDISMODULE_OK,
+    RSDocumentMetadata, RedisModuleCtx, RedisSearchDisk, RedisSearchDiskAPI,
+    RedisSearchDiskIndexSpec, VecSimHNSWDiskParams, VectorDiskAPI, t_docId, t_fieldMask,
 };
 use rqe_iterators_interop::RQEIteratorWrapper;
 
@@ -55,12 +56,15 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut RedisSearchDiskAPI {
     static mut API: RedisSearchDiskAPI = RedisSearchDiskAPI {
         basic: BasicDiskAPI {
             open: Some(open),
+            close: Some(close),
             openIndexSpec: Some(index_spec_open),
             closeIndexSpec: Some(index_spec_close),
-            close: Some(close),
+            indexSpecRdbSave: Some(index_spec_rdb_save),
+            indexSpecRdbLoad: Some(index_spec_rdb_load),
         },
         index: IndexDiskAPI {
             indexDocument: Some(index_spec_index_doc),
+            deleteDocument: Some(index_spec_delete_document),
             newTermIterator: Some(index_spec_new_term_iterator),
             newWildcardIterator: Some(index_spec_new_wildcard_iterator),
             markToBeDeleted: Some(index_spec_mark_to_be_deleted),
@@ -69,6 +73,9 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut RedisSearchDiskAPI {
             putDocument: Some(index_spec_put_doc),
             isDocIdDeleted: Some(index_spec_is_doc_id_deleted),
             getDocumentMetadata: Some(index_spec_get_document_metadata),
+            getMaxDocId: Some(index_spec_get_max_doc_id),
+            getDeletedIdsCount: Some(index_spec_get_deleted_ids_count),
+            getDeletedIds: Some(index_spec_get_deleted_ids),
         },
         vector: VectorDiskAPI {
             createVectorIndex: Some(vector_create_index),
@@ -210,6 +217,108 @@ extern "C" fn index_spec_mark_to_be_deleted(index: *mut RedisSearchDiskIndexSpec
     }
 }
 
+/// Saves index spec's disk-related state to RDB.
+///
+/// # Safety
+/// 1. `rdb` must be a valid RedisModuleIO pointer provided by Redis in an RDB save callback.
+/// 2. `index` must have been returned from [`index_spec_open`].
+extern "C" fn index_spec_rdb_save(
+    rdb: *mut ffi::RedisModuleIO,
+    index: *mut RedisSearchDiskIndexSpec,
+) {
+    if rdb.is_null() {
+        error!("RDB handle is null");
+        return;
+    }
+
+    // Safety: see safety point 2 above.
+    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+        error!("index pointer is null");
+        return;
+    };
+
+    debug!(index_name = index.name(), "saving index spec to RDB");
+
+    // Cast ffi::RedisModuleIO to redis_module::raw::RedisModuleIO
+    // Safety: Both types are opaque pointers to the same underlying C type
+    let rdb_redis_module = rdb as *mut redis_module::raw::RedisModuleIO;
+
+    match index.save_to_rdb(rdb_redis_module) {
+        Ok(_) => {
+            debug!(
+                index_name = index.name(),
+                "successfully saved index spec to RDB"
+            );
+        }
+        Err(e) => {
+            error!(index_name = index.name(), error = %e, "failed to save index spec to RDB");
+        }
+    }
+}
+
+/// Loads index spec's disk-related state from RDB.
+/// If `index` is null, we just consume the RDB stream without creating the
+/// index-related structures. This is in order not to raise a loading error upon
+/// duplicate indexes.
+///
+/// # Safety
+/// 1. `rdb` must be a valid RedisModuleIO pointer provided by Redis in an RDB load callback.
+/// 2. If `index` is non-null, it must have been returned from [`index_spec_open`].
+///
+/// # Returns
+/// `REDISMODULE_OK` if the index spec was successfully loaded from the RDB,
+/// `REDISMODULE_ERR` otherwise.
+extern "C" fn index_spec_rdb_load(
+    rdb: *mut ffi::RedisModuleIO,
+    index: *mut RedisSearchDiskIndexSpec,
+) -> u32 {
+    if rdb.is_null() {
+        error!("RDB handle is null");
+        return REDISMODULE_ERR;
+    }
+
+    // Cast ffi::RedisModuleIO to redis_module::raw::RedisModuleIO
+    // Safety: Both types are opaque pointers to the same underlying C type
+    let rdb_redis_module = rdb as *mut redis_module::raw::RedisModuleIO;
+
+    // Get the index reference if we have a valid pointer
+    let index_ref = if !index.is_null() {
+        // Safety: see safety point 2 above.
+        let Some(idx) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+            error!("failed to convert index pointer");
+            return REDISMODULE_ERR;
+        };
+        debug!(index_name = idx.name(), "loading index spec from RDB");
+        Some(idx)
+    } else {
+        debug!("consuming RDB data without creating index (duplicate index)");
+        None
+    };
+
+    // Always call the static method which handles both cases
+    match IndexSpec::load_from_rdb_static(rdb_redis_module, index_ref.as_deref()) {
+        Ok(_) => {
+            if let Some(ref idx) = index_ref {
+                debug!(
+                    index_name = idx.name(),
+                    "successfully loaded index spec from RDB"
+                );
+            } else {
+                debug!("successfully consumed RDB data without creating index");
+            }
+            REDISMODULE_OK
+        }
+        Err(e) => {
+            if let Some(ref idx) = index_ref {
+                error!(index_name = idx.name(), error = %e, "failed to load index spec from RDB");
+            } else {
+                error!(error = %e, "failed to consume RDB data");
+            }
+            REDISMODULE_ERR
+        }
+    }
+}
+
 /// Indexes a new document.
 ///
 /// # Safety
@@ -253,6 +362,37 @@ extern "C" fn index_spec_index_doc(
             );
             false
         }
+    }
+}
+
+/// Deletes a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted in `index`.
+///
+/// # Safety
+/// 1. `index` must have been returned from [`index_spec_open`].
+/// 2. `key` must point to a valid buffer of at least `key_len` bytes.
+extern "C" fn index_spec_delete_document(
+    index: *mut RedisSearchDiskIndexSpec,
+    key: *const c_char,
+    key_len: usize,
+) {
+    if key.is_null() {
+        error!("key pointer is null");
+        return;
+    }
+
+    // Safety: see safety point 2 above.
+    let key_slice = unsafe { std::slice::from_raw_parts(key.cast::<u8>(), key_len) };
+    let key_vec = key_slice.to_vec();
+
+    // Safety: see safety point 1 above.
+    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+        error!("index pointer is null");
+        return;
+    };
+
+    // Delete the doc via the `delete_document_by_key` API
+    if let Err(e) = index.doc_table().delete_document_by_key(key_slice) {
+        error!(error = %e, key = ?key_vec, "failed to delete document");
     }
 }
 
@@ -445,6 +585,69 @@ extern "C" fn index_spec_get_document_metadata(
     dmd.set_type(doc_table.document_type());
 
     true
+}
+
+/// Gets the maximum document ID for `index`.
+///
+/// # Safety
+/// 1. `index` must have been returned from [`index_spec_open`].
+extern "C" fn index_spec_get_max_doc_id(index: *mut RedisSearchDiskIndexSpec) -> t_docId {
+    debug!("getting max doc id");
+
+    // Safety: see safety point 1 above.
+    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+        error!("index pointer is null");
+        return INVALID_DOC_ID;
+    };
+
+    index.doc_table().get_last_doc_id()
+}
+
+/// Gets the count of deleted document IDs for `index`.
+///
+/// # Safety
+/// 1. `index` must have been returned from [`index_spec_open`].
+extern "C" fn index_spec_get_deleted_ids_count(index: *mut RedisSearchDiskIndexSpec) -> u64 {
+    debug!("getting deleted ids count");
+
+    // Safety: see safety point 1 above.
+    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+        error!("index pointer is null");
+        return 0;
+    };
+
+    index.doc_table().deleted_ids_len()
+}
+
+/// Gets all deleted document IDs for `index`. Used for debugging(!)
+///
+/// # Safety
+/// 1. `index` must have been returned from [`index_spec_open`].
+/// 2. `buffer` must point to a valid buffer of at least `buffer_size` elements.
+extern "C" fn index_spec_get_deleted_ids(
+    index: *mut RedisSearchDiskIndexSpec,
+    buffer: *mut t_docId,
+    buffer_size: usize,
+) -> usize {
+    debug!(buffer_size, "getting deleted ids");
+
+    if buffer.is_null() {
+        error!("buffer pointer is null");
+        return 0;
+    }
+
+    // Safety: see safety point 2 above.
+    let buf_slice: &mut [u64] = unsafe { std::slice::from_raw_parts_mut(buffer, buffer_size) };
+
+    // Safety: see safety point 1 above.
+    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+        error!("index pointer is null");
+        return 0;
+    };
+
+    let deleted_ids = index.doc_table().collect_deleted_ids();
+
+    utils::fill_buf(buf_slice, &deleted_ids[..])
 }
 
 /// FFI methods and associated functions for converting a [`PathPrefix`] to and

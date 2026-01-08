@@ -25,6 +25,10 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
+use redis_module::raw::{RedisModuleIO, load_unsigned, save_unsigned};
+
+use super::RDBVersion;
+
 /// The DocTable struct represents a mapping from document IDs to the Redis key and document
 /// metadata. It is used to look up documents by their IDs and to generate new document IDs
 /// for documents added to the index.
@@ -57,28 +61,8 @@ impl DocTable {
         database: SpeedbMultithreadedDatabase,
         deleted_ids: DeletedIdsStore,
     ) -> Result<Self, speedb::Error> {
-        // Recover the last document ID by reading the last entry in the column family
-        let last_document_id = {
-            // Verify the column family exists and get a handle
-            let cf_handle = database
-                .cf_handle(Self::COLUMN_FAMILY_NAME)
-                .expect("Doc table column family should exist");
-
-            database
-                .iterator_cf(&cf_handle, IteratorMode::End)
-                .next()
-                .transpose()?
-                .map(|(key, _value)| {
-                    // Start from the next ID after the last one
-                    t_docId::from_key(&key)
-                        .map(|id| id + 1)
-                        .expect("we control the key format, parsing the key should never fail")
-                })
-                .unwrap_or(1) // Start from 1 if the table is empty
-        };
-
         Ok(Self {
-            last_document_id: AtomicU64::new(last_document_id),
+            last_document_id: AtomicU64::new(1),
             document_type,
             database,
             cf_name: Self::COLUMN_FAMILY_NAME.to_string(),
@@ -119,6 +103,10 @@ impl DocTable {
     fn cf_handle(&self) -> Arc<BoundColumnFamily<'_>> {
         // SAFETY: we verified the column family exists in `new()`
         self.database.cf_handle(&self.cf_name).unwrap()
+    }
+
+    pub fn collect_deleted_ids(&self) -> Vec<t_docId> {
+        self.deleted_ids.collect_all()
     }
 
     /// Temporary reverse lookup solution until we have a way to use the metadata api in order to store the old document id
@@ -223,6 +211,8 @@ impl DocTable {
         self.document_type
     }
 
+    /// Deletes a document by removing it from the document table and
+    /// adding it to the deleted-ids set.
     /// Deletes a document by its key.
     /// performs a lookup by key to find the old document id and then deletes the document and the key from the reverse lookup table.
     pub fn delete_document_by_key(&self, key: impl Into<Key>) -> Result<(), speedb::Error> {
@@ -258,7 +248,7 @@ impl DocTable {
     /// `Ok(())` if the operation succeeded (regardless of whether the document existed),
     /// or an error if the database operation fails.
     #[allow(dead_code)]
-    fn delete_document(&self, doc_id: t_docId) -> Result<(), speedb::Error> {
+    pub fn delete_document(&self, doc_id: t_docId) -> Result<(), speedb::Error> {
         self.database
             .delete_cf(&self.cf_handle(), doc_id.as_key())?;
 
@@ -281,5 +271,78 @@ impl DocTable {
         let iter = InvIndIterator::new(reader, RSIndexResult::virt().weight(weight), None);
 
         Ok(iter)
+    }
+
+    pub fn get_last_doc_id(&self) -> t_docId {
+        self.last_document_id.load(Ordering::Relaxed)
+    }
+
+    /// Returns a reference to the deleted IDs store.
+    pub fn deleted_ids_len(&self) -> u64 {
+        self.deleted_ids.len()
+    }
+
+    /// Saves the index spec disk-related state to RDB.
+    ///
+    /// Saves:
+    /// - max_doc_id: The maximum document ID that has been assigned
+    /// - deleted_ids: The set of deleted document IDs
+    ///
+    /// # Arguments
+    /// * `rdb` - The RedisModuleIO handle for RDB operations. This should only be called
+    ///   with a valid pointer provided by Redis in an RDB save callback context.
+    ///
+    /// # Errors
+    /// Returns an error if saving fails.
+    pub fn save_to_rdb(&self, rdb: *mut RedisModuleIO) -> Result<(), String> {
+        // Save max_doc_id
+        let max_doc_id = self.get_last_doc_id();
+
+        save_unsigned(rdb, max_doc_id);
+
+        // Save deleted IDs
+        self.deleted_ids.save_to_rdb(rdb)?;
+
+        Ok(())
+    }
+
+    /// Loads the doc table disk-related state from RDB.
+    ///
+    /// Loads:
+    /// - max_doc_id: The maximum document ID that has been assigned
+    /// - deleted_ids: The set of deleted document IDs
+    ///
+    /// # Arguments
+    /// * `rdb` - The RedisModuleIO handle for RDB operations
+    /// * `version` - The RDB version
+    /// * `doc_table` - Optional reference to the doc table to populate. If None,
+    ///   just consumes RDB stream
+    ///
+    /// # Errors
+    /// Returns an error if loading fails.
+    pub fn load_from_rdb_static(
+        rdb: *mut RedisModuleIO,
+        version: RDBVersion,
+        doc_table: Option<&DocTable>,
+    ) -> Result<(), String> {
+        match version {
+            RDBVersion::Initial => {
+                // Always read max_doc_id from RDB
+                let max_doc_id = load_unsigned(rdb)
+                    .map_err(|e| format!("Failed to load max_doc_id from RDB: {:?}", e))?;
+
+                // Always read deleted IDs from RDB and optionally apply to index
+                if let Some(dt) = doc_table {
+                    // Apply the loaded data to the index
+                    dt.deleted_ids.replace_from_rdb(rdb)?;
+                    dt.last_document_id.store(max_doc_id, Ordering::Relaxed);
+                } else {
+                    // Just consume the RDB stream without applying data
+                    let _deleted_ids = DeletedIdsStore::load_from_rdb(rdb)?;
+                }
+
+                Ok(())
+            }
+        }
     }
 }
