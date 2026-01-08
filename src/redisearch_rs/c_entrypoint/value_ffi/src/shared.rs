@@ -93,30 +93,6 @@ pub unsafe extern "C" fn SharedRsValue_NewConstString(
     shared_value.into_raw()
 }
 
-/// Creates a heap-allocated `RsValue` wrapping a RedisModuleString.
-/// Does not increment the refcount of the Redis string.
-/// The passed Redis string's refcount does not get decremented
-/// upon freeing the returned RsValue.
-///
-/// # Safety
-/// - (1) The passed pointer must be non-null and valid for reads.
-/// - (2) The reference count of the [`RedisModuleString`] `str` points to
-///   must be at least 1 for the lifetime of the created [`SharedRsValue`]
-///
-/// @param str The RedisModuleString to wrap
-/// @return A pointer to a heap-allocated RsValue
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn SharedRsValue_NewBorrowedRedisString(
-    str: Option<NonNull<RedisModuleString>>,
-) -> *const RsValue {
-    // Safety: caller must ensure (1).
-    let str = unsafe { expect_unchecked!(str) };
-    // Safety: the safety requirements of this function uphold those
-    // of `SharedRsValue::borrowed_redis_string`.
-    let shared_value = unsafe { SharedRsValue::borrowed_redis_string(str) };
-    shared_value.into_raw()
-}
-
 /// Creates a heap-allocated `RsValue` which increments and owns a reference to the Redis string.
 /// The RsValue will decrement the refcount when freed.
 ///
@@ -128,36 +104,14 @@ pub unsafe extern "C" fn SharedRsValue_NewBorrowedRedisString(
 /// @param str The RedisModuleString to wrap (refcount is incremented)
 /// @return A pointer to a heap-allocated RsValue
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn SharedRsValue_NewOwnedRedisString(
+pub unsafe extern "C" fn SharedRsValue_NewRedisString(
     str: Option<NonNull<RedisModuleString>>,
 ) -> *const RsValue {
     // Safety: caller must ensure (1).
     let str = unsafe { expect_unchecked!(str) };
     // Safety: the safety requirements of this function uphold those
-    // of `SharedRsValue::retain_owned_redis_string`.
-    let shared_value = unsafe { SharedRsValue::retain_owned_redis_string(str) };
-    shared_value.into_raw()
-}
-
-/// Creates a heap-allocated `RsValue` which steals a reference to the Redis string.
-/// The caller's reference is transferred to the RsValue.
-///
-/// # Safety
-/// - (1) `str` must be non-null
-/// - (2) `str` must point to a valid [`RedisModuleString`]
-///   with a reference count of at least 1.
-///
-/// @param s The RedisModuleString to wrap (ownership is transferred)
-/// @return A pointer to a heap-allocated RsValue
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn SharedRsValue_NewStolenRedisString(
-    str: Option<NonNull<RedisModuleString>>,
-) -> *const RsValue {
-    // Safety: caller must ensure (1).
-    let str = unsafe { expect_unchecked!(str) };
-    // Safety: the safety requirements of this function uphold those
-    // of `SharedRsValue::take_owned_redis_string`.
-    let shared_value = unsafe { SharedRsValue::take_owned_redis_string(str) };
+    // of `SharedRsValue::redis_string`.
+    let shared_value = unsafe { SharedRsValue::redis_string(str) };
     shared_value.into_raw()
 }
 
