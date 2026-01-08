@@ -113,9 +113,22 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:ttl_table>
 )
 
+# Export FINAL_OBJECTS to parent scope for the final redisearch target
+set(REDISEARCH_C_FINAL_OBJECTS ${FINAL_OBJECTS} PARENT_SCOPE)
+
 #----------------------------------------------------------------------------------------------
-# Common link libraries for both static and shared targets
-set(REDISEARCH_C_LINK_LIBS
+# Build a shared library for Rust benchmarks/tests to link against.
+# This bundles all C dependencies into a single dylib, allowing undefined
+# symbols (like RedisModule_*) to be resolved at runtime.
+add_library(redisearch_c SHARED ${FINAL_OBJECTS})
+
+set_target_properties(redisearch_c PROPERTIES
+    LINKER_LANGUAGE CXX
+    C_STANDARD 17
+    C_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON)
+
+target_link_libraries(redisearch_c
     redisearch-geometry
     redisearch-hash
     VectorSimilarity
@@ -134,44 +147,14 @@ set(REDISEARCH_C_LINK_LIBS
     ${SSL_LIBS}
     ${CMAKE_LD_LIBS})
 
-# Common properties for both static and shared targets
-set(REDISEARCH_C_PROPERTIES
-    LINKER_LANGUAGE CXX
-    C_STANDARD 17
-    C_STANDARD_REQUIRED ON
-    POSITION_INDEPENDENT_CODE ON)
-
-# Common dependencies for both targets
-set(REDISEARCH_C_DEPENDENCIES VectorSimilarity generate_command_info uv_a)
-
-#----------------------------------------------------------------------------------------------
-# Build the static library containing all C code
-add_library(redisearch_c STATIC ${FINAL_OBJECTS})
-set_target_properties(redisearch_c PROPERTIES ${REDISEARCH_C_PROPERTIES})
-# Use PUBLIC so dependencies propagate to targets that link against redisearch_c
-target_link_libraries(redisearch_c PUBLIC ${REDISEARCH_C_LINK_LIBS})
-add_dependencies(redisearch_c ${REDISEARCH_C_DEPENDENCIES})
-
-# Export FINAL_OBJECTS to parent scope for potential use
-set(REDISEARCH_C_FINAL_OBJECTS ${FINAL_OBJECTS} PARENT_SCOPE)
-
-#----------------------------------------------------------------------------------------------
-# Build a shared library for Rust benchmarks/tests to link against.
-# This bundles all C dependencies into a single dylib, allowing undefined
-# symbols (like RedisModule_*) to be resolved at runtime.
-add_library(redisearch_c_shared SHARED ${FINAL_OBJECTS})
-set_target_properties(redisearch_c_shared PROPERTIES
-    ${REDISEARCH_C_PROPERTIES}
-    OUTPUT_NAME "redisearch_c")
-target_link_libraries(redisearch_c_shared ${REDISEARCH_C_LINK_LIBS})
-add_dependencies(redisearch_c_shared ${REDISEARCH_C_DEPENDENCIES})
+add_dependencies(redisearch_c VectorSimilarity generate_command_info uv_a)
 
 # Platform-specific linker flags to allow undefined symbols
 if(APPLE)
-    set_target_properties(redisearch_c_shared PROPERTIES
+    set_target_properties(redisearch_c PROPERTIES
         LINK_FLAGS "-undefined dynamic_lookup"
         SUFFIX ".dylib")
 else()
-    set_target_properties(redisearch_c_shared PROPERTIES
+    set_target_properties(redisearch_c PROPERTIES
         LINK_FLAGS "-Wl,--allow-shlib-undefined")
 endif()
