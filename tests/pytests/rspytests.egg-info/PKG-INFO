@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: rspytests
+Version: 0.1.0
+Requires-Python: >=3.12
+Requires-Dist: gevent<=24.11.1
+Requires-Dist: packaging<=24.2
+Requires-Dist: deepdiff<=8.3.0
+Requires-Dist: redis<7.0.0,>=5.2.1
+Requires-Dist: RLTest@ file://../RLTest
+Requires-Dist: numpy<=2.2.4
+Requires-Dist: scipy<=1.15.2
+Requires-Dist: faker<=37.1.0
+Requires-Dist: distro<=1.9.0
+Requires-Dist: orderly-set<=5.3.0
+Requires-Dist: ml_dtypes<=0.5.3

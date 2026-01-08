@@ -1,0 +1,6 @@
+pyproject.toml
+rspytests.egg-info/PKG-INFO
+rspytests.egg-info/SOURCES.txt
+rspytests.egg-info/dependency_links.txt
+rspytests.egg-info/requires.txt
+rspytests.egg-info/top_level.txt

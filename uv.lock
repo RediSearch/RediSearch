@@ -432,8 +432,8 @@ requires-dist = [{ name = "pip" }]
 
 [[package]]
 name = "rltest"
-version = "0.7.20"
-source = { registry = "https://pypi.org/simple" }
+version = "99.99.99"
+source = { directory = "../RLTest" }
 dependencies = [
     { name = "distro" },
     { name = "progressbar2" },
@@ -442,9 +442,15 @@ dependencies = [
     { name = "pytest-cov" },
     { name = "redis" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/3a/8fe21974d449cefbd8b5b2faf264efe298402e4b18b8aa1317317ef05bc4/rltest-0.7.20.tar.gz", hash = "sha256:d29f2ce7d9b9956360d2d4e5467cd85380fc6bbcc6c31989c0352e6227a03b2b", size = 40982, upload-time = "2025-12-08T11:58:12.349Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/66/e4/a4df4833c607f84586550707a3c74afe7ac4dd1596e14d2072526fdfcc80/rltest-0.7.20-py3-none-any.whl", hash = "sha256:bcd6a6d04a2947aa868780fcd61d1bef79dded1184515b24d82a071910868b09", size = 46306, upload-time = "2025-12-08T11:58:11.434Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "distro", specifier = ">=1.5.0,<2.0.0" },
+    { name = "progressbar2", specifier = "==4.2" },
+    { name = "psutil", specifier = ">=5.9.5,<6.0.0" },
+    { name = "pytest", specifier = ">=7.4,<8.0" },
+    { name = "pytest-cov", specifier = ">=4.1.0,<5.0.0" },
+    { name = "redis", specifier = ">=5.0.0" },
 ]
 
 [[package]]
@@ -476,7 +482,7 @@ requires-dist = [
     { name = "orderly-set", specifier = "<=5.3.0" },
     { name = "packaging", specifier = "<=24.2" },
     { name = "redis", specifier = ">=5.2.1,<7.0.0" },
-    { name = "rltest", specifier = ">=0.7.18,<0.8.0" },
+    { name = "rltest", directory = "../RLTest" },
     { name = "scipy", specifier = "<=1.15.2" },
 ]
 
