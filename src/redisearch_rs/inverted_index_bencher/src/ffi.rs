@@ -9,6 +9,7 @@
 
 use std::{
     alloc::{Layout, alloc},
+    ffi::c_char,
     ptr::NonNull,
 };
 
@@ -50,11 +51,100 @@ impl TestBuffer {
     }
 }
 
-impl Drop for TestBuffer {
-    fn drop(&mut self) {
-        let layout = Layout::array::<u8>(self.0.0.cap).unwrap();
-        unsafe { std::alloc::dealloc(self.0.0.data as *mut u8, layout) };
+/// Mock implementation of Buffer_Grow
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+pub extern "C" fn Buffer_Grow(buffer: *mut ffi::Buffer, extra_len: usize) -> usize {
+    // Safety: buffer is a valid pointer to a Buffer.
+    let buffer = unsafe { &mut *buffer };
+    let old_capacity = buffer.cap;
+
+    // Double the capacity or add extra_len, whichever is greater
+    let new_capacity = std::cmp::max(buffer.cap * 2, buffer.cap + extra_len);
+
+    let layout = Layout::array::<c_char>(old_capacity).unwrap();
+    let new_data = unsafe { std::alloc::realloc(buffer.data as *mut _, layout, new_capacity) };
+    buffer.data = new_data as *mut c_char;
+    buffer.cap = new_capacity;
+
+    // Return bytes added
+    new_capacity - old_capacity
+}
+
+/// Mock implementation of BufferFree
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+pub extern "C" fn Buffer_Free(buffer: *mut ffi::Buffer) -> usize {
+    if buffer.is_null() {
+        return 0;
     }
+
+    // Safety: buffer is a valid pointer to a Buffer.
+    let buffer = unsafe { &mut *buffer };
+
+    let layout = Layout::array::<c_char>(buffer.cap).unwrap();
+    let size = layout.size();
+    unsafe {
+        std::alloc::dealloc(buffer.data as *mut u8, layout);
+    }
+
+    buffer.data = std::ptr::null_mut();
+    buffer.cap = 0;
+    size
+}
+
+/// Mock implementation of Buffer_WriteAt
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+pub extern "C" fn Buffer_WriteAt(
+    b: *mut ffi::BufferWriter,
+    offset: usize,
+    data: *const c_char,
+    len: usize,
+) -> usize {
+    // Safety: b is a valid pointer to a BufferWriter.
+    let b = unsafe { &mut *b };
+
+    // Ensure we have enough capacity
+    let required_capacity = offset + len;
+    let cap = unsafe { (*b.buf).cap };
+    if required_capacity > cap {
+        let extra_len = required_capacity - cap;
+        let _ = Buffer_Grow(b.buf as *mut ffi::Buffer, extra_len);
+    }
+
+    // Safety: data is a valid pointer to len bytes.
+    unsafe {
+        std::ptr::copy_nonoverlapping(data, (*b.buf).data.add(offset), len);
+    }
+
+    // Update the buffer length if we wrote beyond the current length
+    if required_capacity > unsafe { (*b.buf).offset } {
+        unsafe { (*b.buf).offset = required_capacity };
+    }
+
+    len
+}
+
+/// Define an empty stub function for each given symbols.
+/// This is used to define C functions the linker requires but which are not actually used by the benchmarks.
+macro_rules! stub_c_fn {
+    ($($fn_name:ident),* $(,)?) => {
+        $(
+            #[unsafe(no_mangle)]
+            pub extern "C" fn $fn_name() {
+                panic!(concat!(stringify!($fn_name), " should not be called by any of the benchmarks"));
+            }
+        )*
+    };
+}
+
+stub_c_fn! {
+    Buffer_Seek,
+    Buffer_Init,
+    Buffer_Truncate,
+    NewBufferReader,
+    NewBufferWriter,
 }
 
 impl std::fmt::Debug for TestBuffer {
