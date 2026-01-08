@@ -7,52 +7,41 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use value::{RsValue, shared::SharedRsValue};
+use value::RsValue;
 
 /// Enumeration of the types an
-/// `RsValue` or a `SharedRsValue` can be of.
+/// `RsValue` can be of.
 /// cbindgen:prefix-with-name
 #[repr(C)]
 #[derive(Debug)]
 pub enum RsValueType {
-    Undefined,
-    Null,
-    Number,
-    RmAllocString,
-    ConstString,
-    RedisString,
-    String,
-    Array,
-    Ref,
-    Trio,
-    Map,
+    Undef = 0,
+    Number = 1,
+    String = 2,
+    Null = 3,
+    RedisString = 4,
+    Array = 5,
+    Reference = 6,
+    Trio = 7,
+    Map = 8,
 }
 
-pub trait AsRsValueType {
-    fn as_value_type(&self) -> RsValueType;
-}
-
-impl AsRsValueType for RsValue {
-    fn as_value_type(&self) -> RsValueType {
+impl RsValueType {
+    pub fn for_value(value: &RsValue) -> Self {
         use RsValueType::*;
-        match self {
-            RsValue::Undefined => Undefined,
+
+        match value {
+            RsValue::Undefined => Undef,
             RsValue::Null => Null,
             RsValue::Number(_) => Number,
-            RsValue::RmAllocString(_) => RmAllocString,
-            RsValue::ConstString(_) => ConstString,
+            RsValue::RmAllocString(_) => String,
+            RsValue::ConstString(_) => String,
             RsValue::RedisString(_) => RedisString,
             RsValue::String(_) => String,
             RsValue::Array(_) => Array,
-            RsValue::Ref(_) => Ref,
+            RsValue::Ref(_) => Reference,
             RsValue::Trio(_) => Trio,
             RsValue::Map(_) => Map,
         }
-    }
-}
-
-impl AsRsValueType for SharedRsValue {
-    fn as_value_type(&self) -> RsValueType {
-        self.value().as_value_type()
     }
 }
