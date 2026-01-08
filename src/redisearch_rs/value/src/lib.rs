@@ -10,7 +10,7 @@
 use crate::{
     collection::{RsValueArray, RsValueMap},
     shared::SharedRsValue,
-    strings::{ConstString, OwnedRedisString, OwnedRmAllocString, RedisStringRef, RsValueString},
+    strings::{ConstString, RedisString, RmAllocString, RsValueString},
     trio::RsValueTrio,
 };
 use ffi::RedisModuleString;
@@ -43,13 +43,11 @@ pub enum RsValue {
     /// Numeric value
     Number(f64),
     /// String value backed by a rm_alloc'd string
-    RmAllocString(OwnedRmAllocString),
+    RmAllocString(RmAllocString),
     /// String value backed by a constant C string
     ConstString(ConstString),
-    /// String value backed by an owned Redis string
-    OwnedRedisString(OwnedRedisString),
-    /// String value backed by a borrowd Redis string
-    BorrowedRedisString(RedisStringRef),
+    /// String value backed by a Redis string
+    RedisString(RedisString),
     /// String value
     String(Box<RsValueString>),
     /// Array value
@@ -106,12 +104,12 @@ pub trait Value: Sized {
     /// Takes ownership of the passed string.
     ///
     /// # Safety
-    /// See [`OwnedRmAllocString::take_unchecked`]
+    /// See [`RmAllocString::take_unchecked`]
     unsafe fn take_rm_alloc_string(str: NonNull<c_char>, len: u32) -> Self {
         // Safety: caller must uphold the safety requirements of
-        // [`OwnedRmAllocString::take_unchecked`]
+        // [`RmAllocString::take_unchecked`]
         Self::from_value(RsValue::RmAllocString(unsafe {
-            OwnedRmAllocString::take_unchecked(str, len)
+            RmAllocString::take_unchecked(str, len)
         }))
     }
 
@@ -120,13 +118,13 @@ pub trait Value: Sized {
     /// of the passed string.
     ///
     /// # Safety
-    /// See [`OwnedRmAllocString::copy_from_string`]
+    /// See [`RmAllocString::copy_from_string`]
     unsafe fn copy_rm_alloc_string(str: *const c_char, len: u32) -> Self {
         debug_assert!(!str.is_null(), "`str` must not be NULL");
         // Safety: caller must uphold the safety requirements of
-        // [`OwnedRmAllocString::copy_from_string`].
+        // [`RmAllocString::copy_from_string`].
         Self::from_value(RsValue::RmAllocString(unsafe {
-            OwnedRmAllocString::copy_from_string(str, len)
+            RmAllocString::copy_from_string(str, len)
         }))
     }
 
@@ -142,44 +140,16 @@ pub trait Value: Sized {
         Self::from_value(RsValue::ConstString(unsafe { ConstString::new(str, len) }))
     }
 
-    /// Create a new value backed by a reference to a RedisModuleString.
-    /// Does not increment the reference count of the backing string.
-    ///
-    /// # Safety
-    /// See [`RedisStringRef::new_unchecked`]
-    unsafe fn borrowed_redis_string(str: NonNull<RedisModuleString>) -> Self {
-        // Safety: caller must uphold the safety requirements of
-        // [`RedisStringRef::new_unchecked`].
-        Self::from_value(RsValue::BorrowedRedisString(unsafe {
-            RedisStringRef::new_unchecked(str)
-        }))
-    }
-
-    /// Create a new value backed by a [`RedisModuleString`].
-    /// Increments the reference count of the backing string.
-    ///
-    /// # Safety
-    /// See [`OwnedRedisString::retain`]
-    unsafe fn retain_owned_redis_string(str: NonNull<RedisModuleString>) -> Self {
-        // Safety: caller must uphold the safety requirements of
-        // [`OwnedRedisString::retain`].
-        Self::from_value(RsValue::OwnedRedisString(unsafe {
-            OwnedRedisString::retain(str)
-        }))
-    }
-
     /// Create a new value backed by a [`RedisModuleString`].
     /// Does not increment the reference count of the backing string
     /// and as such takes ownership.
     ///
     /// # Safety
-    /// See [`OwnedRedisString::take`]
-    unsafe fn take_owned_redis_string(str: NonNull<RedisModuleString>) -> Self {
+    /// See [`RedisString::take`]
+    unsafe fn redis_string(str: NonNull<RedisModuleString>) -> Self {
         // Safety: caller must uphold the safety requirements of
-        // [`OwnedRedisString::take`].
-        Self::from_value(RsValue::OwnedRedisString(unsafe {
-            OwnedRedisString::take(str)
-        }))
+        // [`RedisString::take`].
+        Self::from_value(RsValue::RedisString(unsafe { RedisString::take(str) }))
     }
 
     /// Create a new array value
