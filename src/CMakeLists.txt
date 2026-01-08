@@ -113,16 +113,12 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:ttl_table>
 )
 
-# Export FINAL_OBJECTS to parent scope for the final redisearch target
-set(REDISEARCH_C_FINAL_OBJECTS ${FINAL_OBJECTS} PARENT_SCOPE)
-
 #----------------------------------------------------------------------------------------------
-# Build a shared library for Rust benchmarks/tests to link against.
-# This bundles all C dependencies into a single dylib, allowing undefined
-# symbols (like RedisModule_*) to be resolved at runtime.
-add_library(redisearch_c SHARED ${FINAL_OBJECTS})
+# Build the static library containing all C code
+add_library(redisearch_c STATIC ${FINAL_OBJECTS})
 
-set_target_properties(redisearch_c PROPERTIES
+set_target_properties(redisearch_c
+    PROPERTIES
     LINKER_LANGUAGE CXX
     C_STANDARD 17
     C_STANDARD_REQUIRED ON
@@ -147,14 +143,9 @@ target_link_libraries(redisearch_c
     ${SSL_LIBS}
     ${CMAKE_LD_LIBS})
 
-add_dependencies(redisearch_c VectorSimilarity generate_command_info uv_a)
+add_dependencies(redisearch_c VectorSimilarity)
+add_dependencies(redisearch_c generate_command_info)
+add_dependencies(redisearch_c uv_a)
 
-# Platform-specific linker flags to allow undefined symbols
-if(APPLE)
-    set_target_properties(redisearch_c PROPERTIES
-        LINK_FLAGS "-undefined dynamic_lookup"
-        SUFFIX ".dylib")
-else()
-    set_target_properties(redisearch_c PROPERTIES
-        LINK_FLAGS "-Wl,--allow-shlib-undefined")
-endif()
+# Export FINAL_OBJECTS to parent scope for potential use
+set(REDISEARCH_C_FINAL_OBJECTS ${FINAL_OBJECTS} PARENT_SCOPE)

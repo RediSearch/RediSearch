@@ -8,8 +8,11 @@
 */
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Link the static libraries that contain our array functions
     #[cfg(feature = "unittest")]
-    build_utils::link_redisearch_c();
+    {
+        build_utils::link_static_libraries(&[("src", "redisearch_c")]);
+    }
 
     Ok(())
 }

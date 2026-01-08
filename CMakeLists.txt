@@ -253,7 +253,7 @@ endif()
 
 option(REDISEARCH_BUILD_SHARED "Build RediSearch as shared library" OFF)
 
-# Create the final library from C object files and link with Rust and external dependencies.
+# Create library with determined type
 if(REDISEARCH_BUILD_SHARED)
     add_library(redisearch SHARED ${REDISEARCH_C_FINAL_OBJECTS})
     message(STATUS "Building RediSearch as SHARED library")
@@ -274,19 +274,16 @@ set_target_properties(redisearch
     POSITION_INDEPENDENT_CODE ON)
 setup_shared_object_target(redisearch "")
 
-# Link external dependencies and Rust library.
+# Link the final library with both C dependencies and Rust
 target_link_libraries(redisearch
-    redisearch-geometry
-    redisearch-hash
-    VectorSimilarity
-    redisearch-coord
-    uv_a
+    redisearch_c
     redisearch_rs
     ${HIREDIS_LIBS}
     ${SSL_LIBS}
     ${CMAKE_LD_LIBS})
 
 extract_debug_symbols(redisearch)
+add_dependencies(redisearch redisearch_c)
 add_dependencies(redisearch redisearch_rs)
 
 #----------------------------------------------------------------------------------------------
