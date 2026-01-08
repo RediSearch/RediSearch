@@ -46,12 +46,10 @@ jobs:
   test-matrix:
     name: ${{ matrix.job-type }}${{ matrix.test-mode == 'standalone' && ' (Standalone)' || (matrix.test-mode == 'coordinator' && ' (Coordinator-only)' || '') }}
     needs:
-      [
-        check-what-changed,
-        get-latest-redis-tag,
-        generate-basic-matrix,
-        spellcheck,
-      ]
+      - check-what-changed
+      - get-latest-redis-tag
+      - generate-basic-matrix
+      - spellcheck
     # Run if there are jobs AND (spellcheck succeeded or was skipped)
     if: ${{ needs.generate-basic-matrix.outputs.has-jobs == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     strategy:
