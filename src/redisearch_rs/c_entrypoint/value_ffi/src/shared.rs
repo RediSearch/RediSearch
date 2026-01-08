@@ -15,7 +15,7 @@ use value::{
     RsValue,
     collection::{RsValueArray, RsValueMap},
     shared::SharedRsValue,
-    strings::{ConstString, OwnedRedisString, OwnedRmAllocString, RedisStringRef},
+    strings::{ConstString, RedisString, RmAllocString},
     trio::RsValueTrio,
 };
 
@@ -44,7 +44,7 @@ pub unsafe extern "C" fn SharedRsValue_NewString(
     // Safety: caller must ensure (2), (3), (4), (5) and (6),
     // upholding the safety requirements of `SharedRsValue::take_rm_alloc_string`
     let shared_value = SharedRsValue::new(RsValue::RmAllocString(unsafe {
-        OwnedRmAllocString::take_unchecked(str, len)
+        RmAllocString::take_unchecked(str, len)
     }));
     shared_value.into_raw()
 }
@@ -98,32 +98,6 @@ pub unsafe extern "C" fn SharedRsValue_NewConstString(
     shared_value.into_raw()
 }
 
-/// Creates a heap-allocated `RsValue` wrapping a RedisModuleString.
-/// Does not increment the refcount of the Redis string.
-/// The passed Redis string's refcount does not get decremented
-/// upon freeing the returned RsValue.
-///
-/// # Safety
-/// - (1) The passed pointer must be non-null and valid for reads.
-/// - (2) The reference count of the [`RedisModuleString`] `str` points to
-///   must be at least 1 for the lifetime of the created [`SharedRsValue`]
-///
-/// @param str The RedisModuleString to wrap
-/// @return A pointer to a heap-allocated RsValue
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn SharedRsValue_NewBorrowedRedisString(
-    str: Option<NonNull<RedisModuleString>>,
-) -> *const RsValue {
-    // Safety: caller must ensure (1).
-    let str = unsafe { expect_unchecked!(str) };
-    // Safety: the safety requirements of this function uphold those
-    // of [`RedisStringRef::new_unchecked`].
-    let shared_value = SharedRsValue::new(RsValue::BorrowedRedisString(unsafe {
-        RedisStringRef::new_unchecked(str)
-    }));
-    shared_value.into_raw()
-}
-
 /// Creates a heap-allocated `RsValue` which increments and owns a reference to the Redis string.
 /// The RsValue will decrement the refcount when freed.
 ///
@@ -135,40 +109,15 @@ pub unsafe extern "C" fn SharedRsValue_NewBorrowedRedisString(
 /// @param str The RedisModuleString to wrap (refcount is incremented)
 /// @return A pointer to a heap-allocated RsValue
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn SharedRsValue_NewOwnedRedisString(
+pub unsafe extern "C" fn SharedRsValue_NewRedisString(
     str: Option<NonNull<RedisModuleString>>,
 ) -> *const RsValue {
     // Safety: caller must ensure (1).
     let str = unsafe { expect_unchecked!(str) };
     // Safety: the safety requirements of this function uphold those
-    // of [`OwnedRedisString::retain`].
-    let shared_value = SharedRsValue::new(RsValue::OwnedRedisString(unsafe {
-        OwnedRedisString::retain(str)
-    }));
-    shared_value.into_raw()
-}
-
-/// Creates a heap-allocated `RsValue` which steals a reference to the Redis string.
-/// The caller's reference is transferred to the RsValue.
-///
-/// # Safety
-/// - (1) `str` must be non-null
-/// - (2) `str` must point to a valid [`RedisModuleString`]
-///   with a reference count of at least 1.
-///
-/// @param s The RedisModuleString to wrap (ownership is transferred)
-/// @return A pointer to a heap-allocated RsValue
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn SharedRsValue_NewStolenRedisString(
-    str: Option<NonNull<RedisModuleString>>,
-) -> *const RsValue {
-    // Safety: caller must ensure (1).
-    let str = unsafe { expect_unchecked!(str) };
-    // // Safety: the safety requirements of this function uphold those
-    // of [`OwnedRedisString::take`].
-    let shared_value = SharedRsValue::new(RsValue::OwnedRedisString(unsafe {
-        OwnedRedisString::take(str)
-    }));
+    // of [`RedisString::retain`].
+    let shared_value =
+        SharedRsValue::new(RsValue::RedisString(unsafe { RedisString::retain(str) }));
     shared_value.into_raw()
 }
 
@@ -188,9 +137,9 @@ pub unsafe extern "C" fn SharedRsValue_NewCopiedString(
 ) -> *const RsValue {
     debug_assert!(!str.is_null(), "`str` must not be NULL");
     // Safety: the safety requirements of this function uphold those
-    // of [`OwnedRmAllocString::copy_from_string`].
+    // of [`RmAllocString::copy_from_string`].
     let shared_value = SharedRsValue::new(RsValue::RmAllocString(unsafe {
-        OwnedRmAllocString::copy_from_string(str, len)
+        RmAllocString::copy_from_string(str, len)
     }));
     shared_value.into_raw()
 }

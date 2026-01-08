@@ -189,22 +189,6 @@ const struct RsValue *SharedRsValue_NewString(char *str, uint32_t len);
 const struct RsValue *SharedRsValue_NewConstString(const char *str, uint32_t len);
 
 /**
- * Creates a heap-allocated `RsValue` wrapping a RedisModuleString.
- * Does not increment the refcount of the Redis string.
- * The passed Redis string's refcount does not get decremented
- * upon freeing the returned RsValue.
- *
- * # Safety
- * - (1) The passed pointer must be non-null and valid for reads.
- * - (2) The reference count of the [`RedisModuleString`] `str` points to
- *   must be at least 1 for the lifetime of the created [`SharedRsValue`]
- *
- * @param str The RedisModuleString to wrap
- * @return A pointer to a heap-allocated RsValue
- */
-const struct RsValue *SharedRsValue_NewBorrowedRedisString(RedisModuleString *str);
-
-/**
  * Creates a heap-allocated `RsValue` which increments and owns a reference to the Redis string.
  * The RsValue will decrement the refcount when freed.
  *
@@ -216,21 +200,7 @@ const struct RsValue *SharedRsValue_NewBorrowedRedisString(RedisModuleString *st
  * @param str The RedisModuleString to wrap (refcount is incremented)
  * @return A pointer to a heap-allocated RsValue
  */
-const struct RsValue *SharedRsValue_NewOwnedRedisString(RedisModuleString *str);
-
-/**
- * Creates a heap-allocated `RsValue` which steals a reference to the Redis string.
- * The caller's reference is transferred to the RsValue.
- *
- * # Safety
- * - (1) `str` must be non-null
- * - (2) `str` must point to a valid [`RedisModuleString`]
- *   with a reference count of at least 1.
- *
- * @param s The RedisModuleString to wrap (ownership is transferred)
- * @return A pointer to a heap-allocated RsValue
- */
-const struct RsValue *SharedRsValue_NewStolenRedisString(RedisModuleString *str);
+const struct RsValue *SharedRsValue_NewRedisString(RedisModuleString *str);
 
 /**
  * Creates a heap-allocated `RsValue` with a copied string.

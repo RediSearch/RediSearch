@@ -12,7 +12,7 @@ use std::fmt::Debug;
 use crate::{
     collection::{RsValueArray, RsValueMap},
     shared::SharedRsValue,
-    strings::{ConstString, OwnedRedisString, OwnedRmAllocString, RedisStringRef, RsValueString},
+    strings::{ConstString, RedisString, RmAllocString, RsValueString},
     trio::RsValueTrio,
 };
 
@@ -43,13 +43,11 @@ pub enum RsValue {
     /// Numeric value
     Number(f64),
     /// String value backed by a rm_alloc'd string
-    RmAllocString(OwnedRmAllocString),
+    RmAllocString(RmAllocString),
     /// String value backed by a constant C string
     ConstString(ConstString),
-    /// String value backed by an owned Redis string
-    OwnedRedisString(OwnedRedisString),
-    /// String value backed by a borrowd Redis string
-    BorrowedRedisString(RedisStringRef),
+    /// String value backed by a Redis string
+    RedisString(RedisString),
     /// String value
     String(Box<RsValueString>),
     /// Array value
