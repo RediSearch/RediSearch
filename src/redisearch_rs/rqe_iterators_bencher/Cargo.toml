@@ -33,4 +33,4 @@ rqe_iterators.workspace = true
 rand.workspace = true
 workspace_hack.workspace = true
 
-redisearch_rs = { path = "../c_entrypoint/redisearch_rs" }
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
