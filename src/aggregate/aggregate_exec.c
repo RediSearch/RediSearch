@@ -196,6 +196,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     // Sortkey is the first key to reply on the required fields, if we already replied it, continue to the next one.
     size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
     size_t requiredFieldsCount = array_len(req->requiredFields);
+    RSValue *rsv = NULL;
     bool need_map = has_map && currentField < requiredFieldsCount;
     if (need_map) {
       RedisModule_ReplyKV_Map(reply, "required_fields"); // >required_fields
@@ -207,12 +208,15 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         // For duo value, we use the left value here (not the right value)
         v = RSValue_Trio_GetLeft(v);
       }
-      RSValue rsv;
       if (rlk && (rlk->flags & RLOOKUP_T_NUMERIC) && v && !RSValue_IsNumber(v) && !RSValue_IsNull(v)) {
         double d;
         RSValue_ToNumber(v, &d);
-        RSValue_SetNumber(&rsv, d);
-        v = &rsv;
+        if (rsv == NULL) {
+          rsv = RSValue_NewNumber(d);
+        } else {
+          RSValue_SetNumber(rsv, d);
+        }
+        v = rsv;
       }
       if (need_map) {
         RedisModule_Reply_CString(reply, req->requiredFields[currentField]); // key name
@@ -221,6 +225,10 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     }
     if (need_map) {
       RedisModule_Reply_MapEnd(reply); // >required_fields
+    }
+    if (rsv) {
+      RSValue_DecrRef(rsv);
+      rsv = NULL;
     }
   }
 
