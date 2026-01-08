@@ -88,6 +88,14 @@ impl RmAllocString {
         Self { str: buf, len }
     }
 
+    pub fn len(&self) -> u32 {
+        self.len
+    }
+
+    pub fn as_ptr(&self) -> *const c_char {
+        self.str.as_ptr()
+    }
+
     /// Get the string's bytes as a slice of `u8`'s.
     pub const fn as_bytes(&self) -> &[u8] {
         if self.len == 0 {
@@ -176,6 +184,14 @@ impl ConstString {
         // of `slice::from_raw_parts`
         unsafe { slice::from_raw_parts(self.str as *const u8, self.len as usize) }
     }
+
+    pub fn len(&self) -> u32 {
+        self.len
+    }
+
+    pub fn as_ptr(&self) -> *const c_char {
+        self.str
+    }
 }
 
 impl fmt::Debug for ConstString {
@@ -255,6 +271,10 @@ impl RedisString {
 
         // Safety: `str_ptr` is valid for reads of `len` bytes.
         unsafe { slice::from_raw_parts(str_ptr as *const u8, len) }
+    }
+
+    pub fn as_ptr(&self) -> *const RedisModuleString {
+        self.str.as_ptr()
     }
 }
 
@@ -513,6 +533,11 @@ impl RsValueString {
 
     const fn from_data(data: RsValueStringData) -> Self {
         Self { s: Some(data) }
+    }
+
+    /// Returns the string as a `&str`.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.s.as_ref().map(|s| s.as_bytes()).unwrap_or(&[])
     }
 
     /// Returns the string as a `&str`.
