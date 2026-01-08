@@ -1727,7 +1727,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     goto failure;
   }
 
-  // Store on disk if we're on Flex and we don't force RAM.
+  // Store on disk if we're on Flex.
   // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
   // is available when parsing vector fields (for populating diskParams).
   if (isSpecOnDisk(spec)) {
@@ -1736,6 +1736,10 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     const char* name = HiddenString_GetUnsafe(spec->specName, &len);
     spec->diskSpec = SearchDisk_OpenIndex(name, len, spec->rule->type);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
+    if (!spec->diskSpec) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      goto failure;
+    }
   }
 
   if (AC_IsInitialized(&acStopwords)) {
@@ -3107,6 +3111,11 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   } else {
     RedisModule_SaveUnsigned(rdb, 0);
   }
+
+  // Disk index
+  if (sp->diskSpec) {
+    SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
+  }
 }
 
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status) {
@@ -3119,7 +3128,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
-
   // Note: indexError, fieldIdToIndex, docs, specName, obfuscatedName, terms, and monitor flags are already initialized in initializeIndexSpec
   IndexFlags flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
   // Note: monitorDocumentExpiration and monitorFieldExpiration are already set in initializeIndexSpec
@@ -3129,6 +3137,8 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   int16_t numFields = LoadUnsigned_IOError(rdb, goto cleanup);
 
   initializeIndexSpec(sp, specName, flags, numFields);
+
+  sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
 
   IndexSpec_MakeKeyless(sp);
   for (int i = 0; i < sp->numFields; i++) {
@@ -3189,6 +3199,29 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     }
   }
 
+  // Open the index on disk only if we are on Flex, and this is not a duplicate.
+  if (isSpecOnDisk(sp) && !sp->isDuplicate) {
+    RS_ASSERT(disk_db);
+    size_t len;
+    const char* name = HiddenString_GetUnsafe(sp->specName, &len);
+    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+    IndexSpec_PopulateVectorDiskParams(sp);
+    if (!sp->diskSpec) {
+      goto cleanup;
+    }
+  }
+
+  // Load the disk-related index data, even if this is a duplicate.
+  // In the case of a duplicate, `sp->diskSpec=NULL` thus handled appropriately
+  // On the disk side.
+  if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp)) {
+    // TODO: Load the disk-related data only in case the `REDISMODULE_CTX_FLAGS_SST_RDB`
+    // context flag is set, as we wrote this data only in that case.
+    if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec) != REDISMODULE_OK) {
+      goto cleanup;
+    }
+  }
+
   return sp;
 
 cleanup:
@@ -3199,7 +3232,6 @@ cleanup_no_index:
 }
 
 static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
-
   if (!sp) {
     addPendingIndexDrop();
     return REDISMODULE_ERR;
@@ -3207,18 +3239,19 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
 
   StrongRef spec_ref = sp->own_ref;
 
+  Cursors_initSpec(sp);
+
   // setting isDuplicate to true will make sure index will not be removed from aliases container.
-  const RefManager *oldSpec = dictFetchValue(specDict_g, sp->specName);
-  sp->isDuplicate = oldSpec != NULL;
+  // It may have already been set.
+  if (!sp->isDuplicate && dictFetchValue(specDict_g, sp->specName) != NULL) {
+    sp->isDuplicate = true;
+  }
+
   if (sp->isDuplicate) {
     // spec already exists, however we need to finish consuming the rdb so redis won't issue an error(expecting an eof but seeing remaining data)
     // right now this can cause nasty side effects, to avoid them we will set isDuplicate to true
     RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
-  }
 
-  Cursors_initSpec(sp);
-
-  if (sp->isDuplicate) {
     // spec already exists lets just free this one
     // Remove the new spec from the global prefixes dictionary.
     // This is the only global structure that we added the new spec to at this point
@@ -3226,16 +3259,6 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
     addPendingIndexDrop();
     StrongRef_Release(spec_ref);
   } else {
-    if (isSpecOnDisk(sp)) {
-      // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
-      // we add the `Index_StoreInRAM` flag to the rdb file.
-      RS_ASSERT(disk_db);
-      size_t len;
-      const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-      sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
-      // Populate diskParams for vector fields now that diskSpec is available
-      IndexSpec_PopulateVectorDiskParams(sp);
-    }
     IndexSpec_StartGC(spec_ref, sp);
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
 
@@ -3343,17 +3366,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   QueryError status;
   sp->rule = SchemaRule_Create(rule_args, spec_ref, &status);
 
-  if (SearchDisk_IsEnabled()) {
-    // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
-    // we add the `Index_StoreInRAM` flag to the rdb file.
-    RS_ASSERT(disk_db);
-    size_t len;
-    const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
-    // Populate diskParams for vector fields now that diskSpec is available
-    IndexSpec_PopulateVectorDiskParams(sp);
-  }
-
   dictDelete(legacySpecRules, sp->specName);
   SchemaRuleArgs_Free(rule_args);
 
@@ -3367,6 +3379,23 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   // start the gc and add the spec to the cursor list
   IndexSpec_StartGC(spec_ref, sp);
   Cursors_initSpec(sp);
+
+  if (SearchDisk_IsEnabled()) {
+    RS_ASSERT(disk_db);
+    size_t len;
+    const char* name = HiddenString_GetUnsafe(sp->specName, &len);
+    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+    // We do not call `SearchDisk_IndexSpecRdbLoad` since there cannot be disk-related
+    // data in this version of RDB (encver).
+    if (!sp->diskSpec) {
+      RedisModule_LogIOError(rdb, "warning",
+        "Could not open disk index");
+        StrongRef_Release(spec_ref);
+        return NULL;
+      }
+    // Populate diskParams for vector fields now that diskSpec is available
+    IndexSpec_PopulateVectorDiskParams(sp);
+  }
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
   // Subscribe to keyspace notifications
@@ -3637,22 +3666,34 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
-  // TODO: is this necessary?
-  RedisSearchCtx_LockSpecRead(&sctx);
-  // Get the doc ID
-  t_docId id = DocTable_GetIdR(&spec->docs, key);
-  RedisSearchCtx_UnlockSpec(&sctx);
+  if (sctx.spec->diskSpec) {
+    // TODO: Statistics handling is done in IndexSpec_DeleteDoc_Unsafe (MOD-13306).
+    size_t len;
+    const char *keyStr = RedisModule_StringPtrLen(key, &len);
+    IndexSpec_IncrActiveWrites(spec);
+    RedisSearchCtx_LockSpecWrite(&sctx);
+    SearchDisk_DeleteDocument(sctx.spec->diskSpec, keyStr, len);
+    IndexSpec_DecrActiveWrites(spec);
+    RedisSearchCtx_UnlockSpec(&sctx);
+  } else {
+    // TODO: is this necessary?
+    RedisSearchCtx_LockSpecRead(&sctx);
+    // Get the doc ID
+    t_docId id = DocTable_GetIdR(&spec->docs, key);
+    RedisSearchCtx_UnlockSpec(&sctx);
 
-  if (id == 0) {
-    // ID does not exist.
-    return REDISMODULE_ERR;
+    if (id == 0) {
+      // ID does not exist.
+      return REDISMODULE_ERR;
+    }
+
+    IndexSpec_IncrActiveWrites(spec);
+    RedisSearchCtx_LockSpecWrite(&sctx);
+    IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
+    IndexSpec_DecrActiveWrites(spec);
+    RedisSearchCtx_UnlockSpec(&sctx);
   }
 
-  RedisSearchCtx_LockSpecWrite(&sctx);
-  IndexSpec_IncrActiveWrites(spec);
-  IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
-  IndexSpec_DecrActiveWrites(spec);
-  RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
 

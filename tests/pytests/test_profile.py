@@ -1051,3 +1051,122 @@ def testConcurrentSetClusterAndProfile():
 
     for thread in threads:
         thread.join()
+
+def CoordDispatchTimeInProfile(env):
+  """
+  Tests that 'Coordinator dispatch time' field appears in shard profiles for FT.AGGREGATE.
+  Uses COORD_THREADS pause/resume to create measurable dispatch time.
+  Verifies that FT.SEARCH profile does not include dispatch time.
+  """
+  # sleep for 10ms
+  pause_duration_sec = 0.01
+
+  # Helper to run a profile command with paused coordinator threads and return the result
+  def run_profile_with_pause(profile_cmd, query_cmd_type):
+    """
+    Pauses coordinator threads, launches profile command in background,
+    waits pause_duration_sec, resumes threads, and returns the result.
+    """
+    env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+
+    result_holder = []
+    profile_thread = threading.Thread(target=call_and_store, args=(env.cmd, profile_cmd, result_holder))
+    profile_thread.start()
+
+    sleep(pause_duration_sec)
+
+    env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+
+    profile_thread.join(timeout=30)
+
+    env.assertEqual(len(result_holder), 1,
+      message=f"Profile command for {query_cmd_type} did not return a result")
+    return result_holder[0]
+
+  # --- Test AGGREGATE profile should have dispatch time ---
+  res_agg = run_profile_with_pause(('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'), 'AGGREGATE')
+
+  shards_profile = get_shards_profile(env, res_agg)
+  env.assertEqual(len(shards_profile), env.shardsCount,
+                  message=f"unexpected number of shards. full reply output: {res_agg}")
+
+  # Collect all dispatch times for error messages
+  dispatch_times = []
+  for i, shard_profile in enumerate(shards_profile):
+    env.assertContains('Coordinator dispatch time [ms]', shard_profile,
+                       message=f"shard {i}: 'Coordinator dispatch time' not found. full reply: {res_agg}")
+    dispatch_times.append(shard_profile['Coordinator dispatch time [ms]'])
+
+  # All shards should have the exact same dispatch time
+  for i, dispatch_time in enumerate(dispatch_times[1:], start=1):
+    env.assertEqual(dispatch_time, dispatch_times[0],
+      message=f"shard {i} dispatch time differs from shard 0. all shards: {dispatch_times}")
+
+  # Dispatch time should be >= pause duration (in ms)
+  expected_ms = pause_duration_sec * 1000
+  env.assertGreaterEqual(float(dispatch_times[0]), expected_ms,
+    message=f"dispatch time should be >= pause duration. all shards: {dispatch_times}")
+
+  # --- Test SEARCH profile dispatch time should be 0 ---
+  res_search = run_profile_with_pause(('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'NOCONTENT'), 'SEARCH')
+
+  shards_profile_search = get_shards_profile(env, res_search)
+  for i, shard_profile in enumerate(shards_profile_search):
+    env.assertEqual(float(shard_profile['Coordinator dispatch time [ms]']), 0.0,
+      message=f"shard {i}: 'Coordinator dispatch time' should be 0. full reply: {res_search}")
+
+  # --- Test HYBRID profile dispatch time should be 0 ---
+  # Implement and remove try/except once FT.PROFILE for FT.HYBRID is implemented
+  try:
+    query_vector = np.array([0, 0], dtype=np.float32).tobytes()
+    res_hybrid = env.cmd('FT.PROFILE', 'idx', 'HYBRID', 'hello0', 'VSIM', '@v', '$BLOB',
+                                        'PARAMS', '2', 'BLOB', query_vector)
+
+    # shards_profile_hybrid = get_shards_profile(env, res_hybrid)
+    # for i, shard_profile in enumerate(shards_profile_hybrid):
+    #   env.assertEqual(float(shard_profile['Coordinator dispatch time']), 0.0,
+    #     message=f"shard {i}: 'Coordinator dispatch time' should be 0. full reply: {res_hybrid}")
+  except Exception as e:
+    env.assertIn('No `SEARCH` or `AGGREGATE` provided', str(e))
+    pass
+
+
+@skip(cluster=False)
+def testCoordDispatchTimeInProfileResp3():
+  """Tests coordinator dispatch time in profile output - RESP3."""
+  env = Env(protocol=3)
+  conn = getConnectionByEnv(env)
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+
+  dim = 2
+  env.expect('FT.CREATE', 'idx', 'SCHEMA',
+             't', 'TEXT',
+             'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', str(dim), 'DISTANCE_METRIC', 'L2').ok()
+
+  # Add some documents
+  num_docs = 10 * env.shardsCount
+  for i in range(num_docs):
+    vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
+    conn.execute_command('HSET', f'doc:{i}', 't', f'hello{i}', 'v', vec)
+
+  CoordDispatchTimeInProfile(env)
+
+@skip(cluster=False)
+def testCoordDispatchTimeInProfileResp2():
+  """Tests coordinator dispatch time in profile output - RESP2."""
+  env = Env(protocol=2)
+  conn = getConnectionByEnv(env)
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+
+  dim = 2
+  env.expect('FT.CREATE', 'idx', 'SCHEMA',
+             't', 'TEXT',
+             'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', str(dim), 'DISTANCE_METRIC', 'L2').ok()
+
+  # Add some documents
+  num_docs = 10 * env.shardsCount
+  for i in range(num_docs):
+    vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
+    conn.execute_command('HSET', f'doc:{i}', 't', f'hello{i}', 'v', vec)
+
+  CoordDispatchTimeInProfile(env)
