@@ -8,10 +8,16 @@ edition = "2024"
 # see https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
 unittest = []
 
+# feature to use the memory allocator from Redis. We don't want tests to use this hence why it is
+# behind a feature flag
+redis_allocator = []
+
 [dependencies]
 document = { path = "../deps/RediSearch/src/redisearch_rs/document" }
 ffi = { path = "../deps/RediSearch/src/redisearch_rs/ffi" }
 inverted_index = { path = "../deps/RediSearch/src/redisearch_rs/inverted_index" }
+# Notice: The redis-module dependency should be the same as in the corresponding OSS branch.
+redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42", default-features = false }
 roaring = "0.10"
 rqe_iterators = { path = "../deps/RediSearch/src/redisearch_rs/rqe_iterators" }
 rqe_iterators_interop = { path = "../deps/RediSearch/src/redisearch_rs/rqe_iterators_interop" }

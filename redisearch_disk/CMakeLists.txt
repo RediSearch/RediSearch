@@ -35,7 +35,7 @@ set(RUST_TARGET_DIR ${CMAKE_CURRENT_SOURCE_DIR}/target)
 set(RUST_LIB_PATH ${RUST_TARGET_DIR}/${RUST_ARTIFACT_DIR}/libredisearch_disk.a)
 
 add_custom_target(redisearch-disk_build
-    COMMAND ${CMAKE_COMMAND} -E env ${RUSTC_WRAPPER_ENV} ${CARGO_EXECUTABLE} build --profile=${RUST_PROFILE}
+    COMMAND ${CMAKE_COMMAND} -E env ${RUSTC_WRAPPER_ENV} ${CARGO_EXECUTABLE} build --profile=${RUST_PROFILE} --features redis_allocator
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Building Rust crate with profile ${RUST_PROFILE}"
 )

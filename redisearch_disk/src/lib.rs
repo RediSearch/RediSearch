@@ -22,6 +22,11 @@ use rqe_iterators_interop::RQEIteratorWrapper;
 use std::ffi::{CStr, OsStr, c_char, c_void};
 use tracing::{debug, error, warn};
 
+/// Registers the Redis module allocator as the global allocator for the application.
+#[cfg(feature = "redis_allocator")]
+#[global_allocator]
+static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
+
 const INVALID_DOC_ID: t_docId = 0;
 
 /// Converts a C string pointer and length to a Rust &str.

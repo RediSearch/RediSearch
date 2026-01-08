@@ -1042,6 +1042,7 @@ dependencies = [
  "document",
  "ffi",
  "inverted_index",
+ "redis-module",
  "redis_mock",
  "roaring",
  "rqe_iterators",
