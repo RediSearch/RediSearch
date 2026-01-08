@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::mem::ManuallyDrop;
-use value::{RsValue, shared::SharedRsValue};
+use value::RsValue;
 
 /// Enumeration of the types an
 /// `RsValue` can be of.
@@ -49,9 +48,9 @@ impl RsValueType {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Type(value: *const RsValue) -> RsValueType {
-    let shared_value = unsafe { SharedRsValue::from_raw(value) };
-    let shared_value = ManuallyDrop::new(shared_value);
-    let value = shared_value.value();
+    debug_assert!(!value.is_null());
+
+    let value = unsafe { &*value };
 
     RsValueType::for_value(value)
 }
@@ -62,9 +61,9 @@ pub unsafe extern "C" fn RSValue_IsReference(value: *const RsValue) -> bool {
         return false;
     }
 
-    let shared_value = unsafe { SharedRsValue::from_raw(value) };
-    let shared_value = ManuallyDrop::new(shared_value);
-    matches!(shared_value.value(), RsValue::Ref(_))
+    let value = unsafe { &*value };
+
+    matches!(value, RsValue::Ref(_))
 }
 
 #[unsafe(no_mangle)]
@@ -73,21 +72,21 @@ pub unsafe extern "C" fn RSValue_IsNumber(value: *const RsValue) -> bool {
         return false;
     }
 
-    let shared_value = unsafe { SharedRsValue::from_raw(value) };
-    let shared_value = ManuallyDrop::new(shared_value);
-    matches!(shared_value.value(), RsValue::Number(_))
+    let value = unsafe { &*value };
+
+    matches!(value, RsValue::Number(_))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_IsString(value: *const RsValue) -> bool {
-    let shared_value = unsafe { SharedRsValue::from_raw(value) };
     if value.is_null() {
         return false;
     }
 
-    let shared_value = ManuallyDrop::new(shared_value);
+    let value = unsafe { &*value };
+
     matches!(
-        shared_value.value(),
+        value,
         RsValue::RmAllocString(_)
             | RsValue::ConstString(_)
             | RsValue::RedisString(_)
@@ -101,9 +100,9 @@ pub unsafe extern "C" fn RSValue_IsArray(value: *const RsValue) -> bool {
         return false;
     }
 
-    let shared_value = unsafe { SharedRsValue::from_raw(value) };
-    let shared_value = ManuallyDrop::new(shared_value);
-    matches!(shared_value.value(), RsValue::Array(_))
+    let value = unsafe { &*value };
+
+    matches!(value, RsValue::Array(_))
 }
 
 #[unsafe(no_mangle)]
@@ -112,9 +111,9 @@ pub unsafe extern "C" fn RSValue_IsTrio(value: *const RsValue) -> bool {
         return false;
     }
 
-    let shared_value = unsafe { SharedRsValue::from_raw(value) };
-    let shared_value = ManuallyDrop::new(shared_value);
-    matches!(shared_value.value(), RsValue::Trio(_))
+    let value = unsafe { &*value };
+
+    matches!(value, RsValue::Trio(_))
 }
 
 #[unsafe(no_mangle)]
@@ -123,8 +122,7 @@ pub unsafe extern "C" fn RSValue_IsNull(value: *const RsValue) -> bool {
         return true;
     }
 
-    let shared_value = unsafe { SharedRsValue::from_raw(value) };
-    let shared_value = ManuallyDrop::new(shared_value);
-    let value = shared_value.value();
+    let value = unsafe { &*value };
+
     matches!(value, RsValue::Null)
 }
