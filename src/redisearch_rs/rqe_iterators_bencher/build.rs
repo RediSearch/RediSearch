@@ -7,10 +7,36 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use build_utils::{generate_c_bindings, git_root, link_redisearch_c};
+use build_utils::{generate_c_bindings, git_root, link_static_libraries};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    link_redisearch_c();
+    // Always link the static libraries, independent of bindgen
+    link_static_libraries(&[
+        ("src", "redisearch_c"),
+        ("src/libuv", "uv"),
+        ("src/VectorSimilarity/src/VecSim", "VectorSimilarity"),
+        (
+            "src/VectorSimilarity/src/VecSim/spaces",
+            "VectorSimilaritySpaces",
+        ),
+        (
+            "src/VectorSimilarity/src/VecSim/spaces",
+            "VectorSimilaritySpaces_no_optimization",
+        ),
+        ("src/geometry", "redisearch-geometry"),
+        ("src/coord", "redisearch-coord"),
+        ("hiredis", "hiredis"),
+        ("hiredis", "hiredis_ssl"),
+        ("src/util/hash", "redisearch-hash"),
+        ("_deps/spdlog-build", "spdlog"),
+        ("_deps/fmt-build", "fmt"),
+        (
+            "src/VectorSimilarity/deps/ScalableVectorSearch",
+            "svs_x86_objects",
+        ),
+        ("_deps/cpu_features-build", "cpu_features"),
+    ]);
+    println!("cargo:rustc-link-lib=stdc++");
 
     // Compile the wildcard iterator benchmark C file
     let root = git_root().expect("Could not find git root");
