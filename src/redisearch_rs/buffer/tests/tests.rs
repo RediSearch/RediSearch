@@ -22,14 +22,9 @@ fn buffer_creation() {
     assert_eq!(buffer.len(), 0);
     assert_eq!(buffer.remaining_capacity(), capacity);
     assert!(buffer.is_empty());
-
-    free_test_buffer(buffer);
 }
 
 #[test]
-// `miri` will complain about leaked memory, since we don't clean up
-// the allocated buffer when the panic unwinds.
-#[cfg_attr(miri, ignore)]
 #[should_panic]
 fn reader_position_must_be_in_bounds() {
     let buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
@@ -38,9 +33,6 @@ fn reader_position_must_be_in_bounds() {
 
 #[test]
 #[cfg(debug_assertions)]
-// `miri` will complain about leaked memory, since we don't clean up
-// the allocated buffer when the panic unwinds.
-#[cfg_attr(miri, ignore)]
 #[should_panic = "The requested buffer capacity would overflow usize::MAX"]
 fn cannot_overflow_usize() {
     let mut buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
@@ -49,9 +41,6 @@ fn cannot_overflow_usize() {
 
 #[test]
 #[cfg(debug_assertions)]
-// `miri` will complain about leaked memory, since we don't clean up
-// the allocated buffer when the panic unwinds.
-#[cfg_attr(miri, ignore)]
 #[should_panic = "The requested buffer capacity would overflow isize::MAX"]
 fn cannot_overflow_isize() {
     let mut buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
@@ -69,14 +58,9 @@ fn read_from_arbitrary_position() {
 
     assert_eq!(n_bytes_read, buffer.len() - initial_position);
     assert_eq!(bytes, [3, 4, 5]);
-
-    free_test_buffer(buffer);
 }
 
 #[test]
-// `miri` will complain about leaked memory, since we don't clean up
-// the allocated buffer when the panic unwinds.
-#[cfg_attr(miri, ignore)]
 #[should_panic]
 fn writer_position_must_be_in_bounds() {
     let mut buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
@@ -91,8 +75,6 @@ fn buffer_as_slice() {
     // Check slice access
     let slice = buffer.as_slice();
     assert_eq!(slice, &test_data);
-
-    free_test_buffer(buffer);
 }
 
 #[test]
@@ -117,8 +99,6 @@ fn buffer_as_mut_slice() {
         // Verify changes
         let expected = [1, 2, 3, 4, 5];
         assert_eq!(buffer.as_slice(), &expected);
-
-        free_test_buffer(buffer);
     }
 }
 
@@ -144,8 +124,6 @@ fn buffer_advance() {
         buffer.advance(20);
         assert_eq!(buffer.len(), 30);
         assert_eq!(buffer.remaining_capacity(), 70);
-
-        free_test_buffer(buffer);
     }
 }
 
@@ -161,9 +139,6 @@ fn buffer_advance_overflow() {
         let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
             buffer.advance(capacity + 1);
         }));
-
-        // Clean up the buffer
-        free_test_buffer(buffer);
 
         // Assert that the panic occurred with the expected message
         match result {
@@ -228,8 +203,6 @@ fn buffer_reader() {
         // Try to read more than available (should just give us 0)
         let mut dest = [0u8; 1];
         assert_eq!(reader.read(&mut dest).unwrap(), 0);
-
-        free_test_buffer(buffer);
     }
 }
 
@@ -253,8 +226,6 @@ fn buffer_writer() {
     // Check the written data
     let expected = b"Hello, world!";
     assert_eq!(writer.buffer().as_slice(), expected);
-
-    free_test_buffer(buffer);
 }
 
 #[test]
@@ -284,8 +255,6 @@ fn buffer_writer_grow() {
 
     // Verify that the position is at the end of the written data.
     assert_eq!(writer.position(), 18);
-
-    free_test_buffer(buffer);
 }
 
 #[test]
@@ -333,8 +302,6 @@ fn buffer_grow_edge_cases() {
 
         // Verify that the position matches the end of the written data.
         assert_eq!(writer.position(), initial_capacity + 1 + 100);
-
-        free_test_buffer(buffer);
     }
 }
 
@@ -352,12 +319,6 @@ fn buffer_from_array<const N: usize>(a: [u8; N]) -> Buffer {
     let ptr = Box::into_raw(Box::new(a)).cast::<u8>();
     let ptr = NonNull::new(ptr).unwrap();
     unsafe { Buffer::new(ptr, N, N) }
-}
-
-// Helper function to clean up buffer after tests
-fn free_test_buffer(buffer: Buffer) {
-    let layout = Layout::array::<u8>(buffer.0.cap).unwrap();
-    unsafe { std::alloc::dealloc(buffer.0.data as *mut u8, layout) };
 }
 
 /// Mock implementation of Buffer_Grow for tests
@@ -378,4 +339,26 @@ pub extern "C" fn Buffer_Grow(buffer: *mut ffi::Buffer, extra_len: usize) -> usi
 
     // Return bytes added
     new_capacity - old_capacity
+}
+
+/// Mock implementation of BufferFree for tests
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+pub extern "C" fn Buffer_Free(buffer: *mut ffi::Buffer) -> usize {
+    if buffer.is_null() {
+        return 0;
+    }
+
+    // Safety: buffer is a valid pointer to a Buffer.
+    let buffer = unsafe { &mut *buffer };
+
+    let layout = Layout::array::<c_char>(buffer.cap).unwrap();
+    let size = layout.size();
+    unsafe {
+        std::alloc::dealloc(buffer.data as *mut u8, layout);
+    }
+
+    buffer.data = std::ptr::null_mut();
+    buffer.cap = 0;
+    size
 }
