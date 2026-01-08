@@ -498,6 +498,7 @@ done_2:
     }
     if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
     }
 
     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
@@ -565,6 +566,7 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
+    ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   }
   RedisModule_Reply_ArrayEnd(reply); // >warnings
 }
@@ -772,6 +774,12 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
       RedisModule_Reply_SimpleString(reply, warning);
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
     }
+
+    if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
+      RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
+    }
     RedisModule_Reply_ArrayEnd(reply);
 
     // Add BG_SCAN_OOM warning to profile context if applicable
@@ -819,6 +827,11 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
     if (sctx && sctx->spec && sctx->spec->scan_failed_OOM) {
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
+    }
+
+    if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
     }
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
