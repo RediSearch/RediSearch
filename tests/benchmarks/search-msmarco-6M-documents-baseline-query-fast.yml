@@ -1,6 +1,6 @@
 version: 0.5
 name: "search-msmarco-6M-documents-baseline-query-fast"
-description: "MS MARCO - Fast smoke test for single-word queries on 500K docs"
+description: "MS MARCO - Fast smoke test for single-word queries on 100K docs"
 
 metadata:
   component: "search"
@@ -21,10 +21,10 @@ dbconfig:
   - parameters:
     - workers: 64
     - reporting-period: 5s
-    - requests: 500000
-    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.SETUP.csv"
+    - requests: 100000
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.SETUP.100k.csv"
   - check:
-      keyspacelen: 500000
+      keyspacelen: 100000
 clientconfig:
   - benchmark_type: "read-only"
   - tool: ftsb_redisearch
@@ -33,5 +33,5 @@ clientconfig:
     - requests: 10000
     - reporting-period: 1s
     - duration: 60s
-    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.QUERY_BASELINE.csv"
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.BENCH.QUERY_baseline.csv"
 

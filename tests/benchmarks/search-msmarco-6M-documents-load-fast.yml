@@ -1,11 +1,11 @@
 version: 0.5
 name: "search-msmarco-6M-documents-load-fast"
-description: "MS MARCO - Fast smoke test with 500K documents"
+description: "MS MARCO - Fast smoke test with 100K documents"
 
 metadata:
   component: "search"
   dataset: "MS MARCO document-v2"
-  doc_count: 500000
+  doc_count: 100000
   use_case: "Fast validation benchmark"
 
 timeout_seconds: 600
@@ -22,6 +22,6 @@ clientconfig:
   - parameters:
     - workers: 64
     - reporting-period: 5s
-    - requests: 500000
-    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.SETUP.csv"
+    - requests: 100000
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.SETUP.100k.csv"
 
