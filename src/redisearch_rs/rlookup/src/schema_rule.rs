@@ -73,7 +73,7 @@ impl SchemaRule {
         let len = self.filter_fields_len();
         let filter_fields = unsafe { slice::from_raw_parts(self.0.filter_fields, len) };
         filter_fields
-            .into_iter()
+            .iter()
             .map(|&c| unsafe { CStr::from_ptr(c) })
             .collect::<Vec<_>>()
     }
@@ -91,7 +91,7 @@ impl SchemaRule {
             .expect("array_len must not exceed usize")
     }
 
-    pub fn type_(&self) -> DocumentType {
+    pub const fn type_(&self) -> DocumentType {
         self.0.type_
     }
 }

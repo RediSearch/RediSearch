@@ -6,11 +6,11 @@ use crate::hidden_string::HiddenString;
 pub struct FieldSpec(ffi::FieldSpec);
 
 impl FieldSpec {
-    pub unsafe fn from_raw<'a>(ptr: *const ffi::FieldSpec) -> &'a Self {
+    pub const unsafe fn from_raw<'a>(ptr: *const ffi::FieldSpec) -> &'a Self {
         unsafe { ptr.cast::<Self>().as_ref().unwrap() }
     }
 
-    pub fn to_raw(&self) -> *const ffi::FieldSpec {
+    pub const fn to_raw(&self) -> *const ffi::FieldSpec {
         ptr::from_ref(&self.0)
     }
 

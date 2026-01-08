@@ -7,11 +7,11 @@ use crate::{SchemaRule, field_spec::FieldSpec};
 pub struct IndexSpec(ffi::IndexSpec);
 
 impl IndexSpec {
-    pub unsafe fn from_raw<'a>(ptr: *const ffi::IndexSpec) -> &'a Self {
+    pub const unsafe fn from_raw<'a>(ptr: *const ffi::IndexSpec) -> &'a Self {
         unsafe { ptr.cast::<Self>().as_ref().unwrap() }
     }
 
-    pub fn to_raw(&self) -> *const ffi::IndexSpec {
+    pub const fn to_raw(&self) -> *const ffi::IndexSpec {
         ptr::from_ref(&self.0)
     }
 
@@ -20,7 +20,7 @@ impl IndexSpec {
         Self(value)
     }
 
-    pub fn rule(&self) -> &SchemaRule {
+    pub const fn rule(&self) -> &SchemaRule {
         unsafe { SchemaRule::from_raw(self.0.rule) }
     }
 
