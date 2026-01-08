@@ -93,7 +93,6 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
         rskey = RedisModule_CreateStringPrintf(outctx, "$%s", RSValue_String_Get(key, NULL));
         break;
       case RSValueType_RedisString:
-      case RSValueType_OwnRstring:
         rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
           RedisModule_StringPtrLen(RSValue_RedisString_Get(key), NULL));
         break;

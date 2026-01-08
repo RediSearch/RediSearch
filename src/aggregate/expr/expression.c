@@ -123,7 +123,7 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
     default: RS_LOG_ASSERT_FMT(0, "Invalid operator %c", op->op);
   }
 
-  RSValue_IntoNumber(result, res);
+  RSValue_SetNumber(result, res);
   rc = EXPR_EVAL_OK;
 
 cleanup:
@@ -182,7 +182,7 @@ static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
     return EXPR_EVAL_ERR;
   }
 
-  RSValue_IntoNumber(result, !RSValue_BoolTest(tmpval));
+  RSValue_SetNumber(result, !RSValue_BoolTest(tmpval));
 
   RSValue_DecrRef(tmpval);
   return EXPR_EVAL_OK;
@@ -208,10 +208,10 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
 
 success:
   if (!eval->err || QueryError_IsOk(eval->err)) {
-    RSValue_IntoNumber(result, res);
+    RSValue_SetNumber(result, res);
     rc = EXPR_EVAL_OK;
   } else {
-    RSValue_IntoUndefined(result);
+    RSValue_Clear(result);
   }
 
 cleanup:
@@ -238,7 +238,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
     if (eval->err) {
       QueryError_SetWithUserDataFmt(eval->err, QUERY_ERROR_CODE_NO_PROP_VAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", e->lookupObj->name);
     }
-    RSValue_IntoNull(res);
+    RSValue_SetNull(res);
     return EXPR_EVAL_NULL;
   }
 
