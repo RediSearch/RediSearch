@@ -109,14 +109,15 @@ void MRCommand_PrepareForSlotInfo(MRCommand *cmd, uint32_t pos);
 void MRCommand_SetSlotInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slots);
 
 /**
- * Prepare a command for dispatch time insertion by reserving space at the end.
+ * Prepare a command for dispatch time insertion by reserving space at the specified position.
  * This function allocates space for "_COORD_DISPATCH_TIME" marker and placeholder value.
  *
  * Threading: Should be called from the main/coordinator thread during command construction.
  *
  * @param cmd - The command to prepare
+ * @param pos - Position in the command where dispatch time should be inserted (0 <= pos <= cmd->num)
  */
-void MRCommand_PrepareForDispatchTime(MRCommand *cmd);
+void MRCommand_PrepareForDispatchTime(MRCommand *cmd, uint32_t pos);
 
 /**
  * Set the actual dispatch time value in a previously prepared command.

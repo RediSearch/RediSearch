@@ -285,14 +285,22 @@ void MRCommand_SetSlotInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slot
   MRCommand_ReplaceArgNoDup(cmd, cmd->slotsInfoArgIndex, serialized, serializedLen);
 }
 
-void MRCommand_PrepareForDispatchTime(MRCommand *cmd) {
+void MRCommand_PrepareForDispatchTime(MRCommand *cmd, uint32_t pos) {
+  RS_ASSERT(0 <= pos && pos <= cmd->num);
   RS_LOG_ASSERT(cmd->dispatchTimeArgIndex == 0, "Dispatch time already set for this command");
+  uint32_t oldNum = cmd->num;
+  // Make place for COORD_DISPATCH_TIME_STR + <placeholder value>
+  extendCommandList(cmd, 2);
 
-  // Append _COORD_DISPATCH_TIME marker
-  MRCommand_Append(cmd, COORD_DISPATCH_TIME_STR, sizeof(COORD_DISPATCH_TIME_STR) - 1);
-  // Append placeholder for the value (will be filled in by MRCommand_SetDispatchTime)
-  MRCommand_Append(cmd, "", 0);
-  cmd->dispatchTimeArgIndex = cmd->num - 1;
+  // shift right all arguments that come after pos
+  shift_right(cmd->strs, oldNum, pos, 2);
+  shift_right(cmd->lens, oldNum, pos, 2);
+
+  // Assign the COORD_DISPATCH_TIME_STR marker at pos
+  assignStr(cmd, pos, COORD_DISPATCH_TIME_STR, sizeof(COORD_DISPATCH_TIME_STR) - 1);
+  // Leave space for the value at pos + 1 (to be filled later by MRCommand_SetDispatchTime)
+  assignStr(cmd, pos + 1, "", 0);
+  cmd->dispatchTimeArgIndex = pos + 1;
 }
 
 void MRCommand_SetDispatchTime(MRCommand *cmd) {

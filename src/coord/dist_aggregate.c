@@ -167,7 +167,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   MRCommand_PrepareForSlotInfo(xcmd, slotsInfoPos);
 
   // Prepare placeholder for dispatch time (will be filled in when sending to shards)
-  MRCommand_PrepareForDispatchTime(xcmd);
+  MRCommand_PrepareForDispatchTime(xcmd, xcmd->num);
 
   // PARAMS was already validated at AREQ_Compile
   int loc = RMUtil_ArgIndex("PARAMS", argv + 3 + profileArgs, argc - 3 - profileArgs);
