@@ -29,8 +29,8 @@
 #include "hybrid/hybrid_request.h"
 #include "module.h"
 #include "result_processor.h"
+#include "search_result_rs.h"
 #include "reply_empty.h"
-
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,

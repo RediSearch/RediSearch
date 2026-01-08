@@ -16,7 +16,7 @@ use std::{
 
 /// Construct a new [`SearchResult`].
 #[unsafe(no_mangle)]
-pub const extern "C" fn SearchResult_New() -> unsafe_tools::Size72Align8 {
+pub const extern "C" fn SearchResult_New() -> unsafe_tools::Size80Align8 {
     SearchResult::new().into_mimic()
 }
 
@@ -81,7 +81,7 @@ pub unsafe extern "C" fn SearchResult_Destroy(res: Option<NonNull<SearchResult>>
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn SearchResult_GetDocId(res: *const SearchResult) -> ffi::t_docId {
+pub unsafe extern "C" fn SearchResult_GetDocId(res: *const SearchResult) -> ffi::t_docId {
     // Safety: ensured by caller (1.)
     let res = unsafe { res.as_ref().unwrap() };
 
@@ -96,7 +96,7 @@ pub const unsafe extern "C" fn SearchResult_GetDocId(res: *const SearchResult) -
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn SearchResult_SetDocId(
+pub unsafe extern "C" fn SearchResult_SetDocId(
     res: Option<NonNull<SearchResult>>,
     doc_id: ffi::t_docId,
 ) {
@@ -114,7 +114,7 @@ pub const unsafe extern "C" fn SearchResult_SetDocId(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn SearchResult_GetScore(res: *const SearchResult) -> f64 {
+pub unsafe extern "C" fn SearchResult_GetScore(res: *const SearchResult) -> f64 {
     // Safety: ensured by caller (1.)
     let res = unsafe { res.as_ref().unwrap() };
 
@@ -129,10 +129,7 @@ pub const unsafe extern "C" fn SearchResult_GetScore(res: *const SearchResult) -
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn SearchResult_SetScore(
-    res: Option<NonNull<SearchResult>>,
-    score: f64,
-) {
+pub unsafe extern "C" fn SearchResult_SetScore(res: Option<NonNull<SearchResult>>, score: f64) {
     // Safety: ensured by caller (1.)
     let res = unsafe { res.unwrap().as_mut() };
 
@@ -183,7 +180,7 @@ pub unsafe extern "C" fn SearchResult_GetScoreExplainMut(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn SearchResult_SetScoreExplain(
+pub unsafe extern "C" fn SearchResult_SetScoreExplain(
     res: Option<NonNull<SearchResult>>,
     score_explain: Option<NonNull<ffi::RSScoreExplain>>,
 ) {
@@ -263,7 +260,7 @@ pub unsafe extern "C" fn SearchResult_GetIndexResult(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn SearchResult_HasIndexResult(res: *const SearchResult) -> bool {
+pub unsafe extern "C" fn SearchResult_HasIndexResult(res: *const SearchResult) -> bool {
     // Safety: ensured by caller (1.)
     let res = unsafe { res.as_ref().unwrap() };
 
@@ -280,7 +277,7 @@ pub const unsafe extern "C" fn SearchResult_HasIndexResult(res: *const SearchRes
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn SearchResult_SetIndexResult(
+pub unsafe extern "C" fn SearchResult_SetIndexResult(
     res: Option<NonNull<SearchResult>>,
     index_result: *const RSIndexResult,
 ) {
@@ -293,6 +290,22 @@ pub const unsafe extern "C" fn SearchResult_SetIndexResult(
     res.set_index_result(index_result);
 }
 
+/// Sets the [`RLookupRow`][ffi::RLookupRow] of `res`.
+///
+/// # Safety
+///
+/// 1. `res` must be a correctly initialized [`RLookupRow`][ffi::RLookupRow].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn SearchResult_SetRowData(
+    res: Option<NonNull<SearchResult>>,
+    row_data: ffi::RLookupRow,
+) {
+    // Safety: ensured by caller (1.)
+    let res = unsafe { res.unwrap().as_mut() };
+
+    res.set_row_data(row_data);
+}
+
 /// Returns an immutable pointer to the [`RLookupRow`][ffi::RLookupRow] of `res`.
 ///
 /// # Safety
@@ -301,7 +314,7 @@ pub const unsafe extern "C" fn SearchResult_SetIndexResult(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn SearchResult_GetRowData(
+pub unsafe extern "C" fn SearchResult_GetRowData(
     res: *const SearchResult,
 ) -> *const ffi::RLookupRow {
     // Safety: ensured by caller (1.)

@@ -16,7 +16,7 @@
 #include <thread>
 #include <chrono>
 #include "redismock/redismock.h"
-#include "search_result.h"
+#include "search_result_rs.h"
 
 #include <thread>
 #include <chrono>

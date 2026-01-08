@@ -17,7 +17,7 @@
 #include "common.h"
 #include "module.h"
 #include "version.h"
-#include "search_result.h"
+#include "search_result_rs.h"
 
 #include <vector>
 #include <array>
