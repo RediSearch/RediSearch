@@ -142,7 +142,7 @@ struct RSValue *RSValue_NewString(char *str, uint32_t len);
 
 struct RSValue *RSValue_NewConstString(const char *str, uint32_t len);
 
-char *RSValue_String_Get(struct RSValue *value, uint32_t *lenp);
+char *RSValue_String_Get(const struct RSValue *value, uint32_t *lenp);
 
 /**
  * Get the type of an RSValue.
