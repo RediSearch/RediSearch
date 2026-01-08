@@ -50,10 +50,6 @@
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
-// TODO: Remove when closed-source header is used.
-/* Redis is currently loading, saving or preparing a partial RDB file that goes along with sst files. */
-#define REDISMODULE_CTX_FLAGS_SST_RDB (1<<29)
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
