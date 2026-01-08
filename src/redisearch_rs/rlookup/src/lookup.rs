@@ -330,7 +330,7 @@ impl<'a> RLookupKey<'a> {
     }
 
     pub fn path(&self) -> Option<&CStr> {
-        self._path.as_ref().map(|s| &**s)
+        self._path.as_deref()
     }
 
     pub fn name2(&self) -> &CStr {

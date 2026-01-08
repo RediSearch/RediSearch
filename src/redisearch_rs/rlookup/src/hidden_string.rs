@@ -5,11 +5,11 @@ use std::{ffi::CStr, ptr, slice};
 pub struct HiddenString(ffi::HiddenString);
 
 impl HiddenString {
-    pub unsafe fn from_raw<'a>(ptr: *const ffi::HiddenString) -> &'a Self {
+    pub const unsafe fn from_raw<'a>(ptr: *const ffi::HiddenString) -> &'a Self {
         unsafe { ptr.cast::<Self>().as_ref().unwrap() }
     }
 
-    pub fn to_raw(&self) -> *const ffi::HiddenString {
+    pub const fn to_raw(&self) -> *const ffi::HiddenString {
         ptr::from_ref(&self.0)
     }
 
