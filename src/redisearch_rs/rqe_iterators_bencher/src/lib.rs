@@ -16,12 +16,8 @@
 pub mod benchers;
 pub mod ffi;
 
-// Those ffi crates brings in some of the C symbols we need.
-pub use query_error_ffi;
-pub use slots_tracker_ffi;
-pub use triemap_ffi;
-pub use types_ffi;
-pub use varint_ffi;
+// Some of the missing C symbols are actually Rust-provided.
+pub use redisearch_rs;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
