@@ -269,10 +269,5 @@ macro_rules! bind_redis_alloc_symbols_to_mock_impl {
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
         pub static mut RedisModule_Free: unsafe extern "C" fn(*mut std::ffi::c_void) = rm_free_impl;
-
-        #[unsafe(no_mangle)]
-        #[allow(non_upper_case_globals)]
-        pub static mut RSDummyContext: *mut $crate::ffi::RedisModuleCtx =
-            $crate::globals::redis_module_ctx();
     };
 }

@@ -13,23 +13,17 @@
     clippy::multiple_unsafe_ops_per_block
 )]
 
-use std::ffi::c_void;
-
 pub mod benchers;
 pub mod ffi;
 
-// Need these symbols to be defined for the benchers to run
-pub use types_ffi::NewVirtualResult;
-
-// Re-export iterators_ffi to ensure the symbols are linked
-pub use iterators_ffi::id_list::NewSortedIdListIterator;
+// Those ffi crates brings in some of the C symbols we need.
+pub use query_error_ffi;
+pub use slots_tracker_ffi;
+pub use triemap_ffi;
+pub use types_ffi;
+pub use varint_ffi;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
-
-// symbols required by the C code we need to redefine
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut RSGlobalConfig: *const c_void = std::ptr::null();
 
 /// Define an empty stub function for each given symbols.
 /// This is used to define C functions the linker requires but which are not actually used by the benchers.
@@ -47,21 +41,127 @@ macro_rules! stub_c_fn {
 // Those C symbols are required for the c benchmarking code to build and run.
 // They have been added by adding them until it runs fine.
 stub_c_fn! {
-    fast_float_strtod,
-    Obfuscate_Number,
-    Obfuscate_Text,
-    QueryError_SetWithUserDataFmt,
-    RSIndexResult_IterateOffsets,
+    ClusterConfig_RegisterTriggers,
+    DEBUG_RSExecDistAggregate,
+    DetectClusterType,
+    GeometryApi_Get,
+    GeometryCoordsToName,
+    GeometryIndexFactory,
+    GetClusterConfigOptions,
+    InfoReplyReducer,
+    InitRedisTopologyUpdater,
+    MRCommand_Append,
+    MRCommand_Free,
+    MRCommand_Insert,
+    MRCommand_PrepareForSlotInfo,
+    MRCommand_ReplaceArg,
+    MRCommand_ReplaceArgSubstring,
+    MRCommand_SetPrefix,
+    MRCommand_SetProtocol,
+    MRCtx_Free,
+    MRCtx_GetBlockedClient,
+    MRCtx_GetNumReplied,
+    MRCtx_GetPrivData,
+    MRCtx_GetRedisCtx,
+    MRCtx_GetReplies,
+    MRCtx_RequestCompleted,
+    MRCtx_SetReduceFunction,
+    MRReply_ArrayElement,
+    MRReply_ArrayToMap,
+    MRReply_Double,
+    MRReply_Integer,
+    MRReply_Length,
+    MRReply_MapElement,
+    MRReply_String,
+    MRReply_StringEquals,
+    MRReply_ToDouble,
+    MRReply_Type,
+    MR_CreateCtx,
+    MR_Fanout,
+    MR_FreeCluster,
+    MR_GetLocalNodeId,
+    MR_Init,
+    MR_InitLocalNodeId,
+    MR_NewCommandFromRedisStrings,
+    MR_ReleaseLocalNodeIdReadLock,
+    MR_ReplyWithMRReply,
+    MR_SetLocalNodeId,
+    MR_UpdateTopology,
+    MR_uvReplyClusterInfo,
+    RPCounter_New,
+    RSExecDistAggregate,
+    RSExecDistHybrid,
+    RedisEnterprise_ParseTopology,
+    RedisModule_ReplyKV_MRReply,
+    RedisTopologyUpdater_StopAndRescheduleImmediately,
+    RegisterClusterModuleConfig,
+    RegisterCoordDebugCommands,
+    Sha1_Compute,
+    Sha1_FormatIntoBuffer,
+    TracingRedisModule_Init,
+    UpdateTopology,
+    VecSimBatchIterator_Free,
+    VecSimBatchIterator_HasNext,
+    VecSimBatchIterator_New,
+    VecSimBatchIterator_Next,
+    VecSimDebugInfoIterator_Free,
+    VecSimDebugInfoIterator_HasNextField,
+    VecSimDebugInfoIterator_NextField,
+    VecSimDebugInfoIterator_NumberOfFields,
+    VecSimDebug_GetElementNeighborsInHNSWGraph,
+    VecSimDebug_ReleaseElementNeighborsInHNSWGraph,
+    VecSimIndex_AddVector,
+    VecSimIndex_BasicInfo,
+    VecSimIndex_DebugInfoIterator,
+    VecSimIndex_DeleteVector,
+    VecSimIndex_EstimateElementSize,
+    VecSimIndex_EstimateInitialSize,
+    VecSimIndex_Free,
+    VecSimIndex_GetDistanceFrom_Unsafe,
+    VecSimIndex_IndexSize,
+    VecSimIndex_New,
+    VecSimIndex_PreferAdHocSearch,
+    VecSimIndex_RangeQuery,
+    VecSimIndex_ResolveParams,
+    VecSimIndex_StatsInfo,
+    VecSimIndex_TopKQuery,
+    VecSimQueryReply_Free,
+    VecSimQueryReply_GetCode,
+    VecSimQueryReply_GetIterator,
+    VecSimQueryReply_IteratorFree,
+    VecSimQueryReply_IteratorHasNext,
+    VecSimQueryReply_IteratorNext,
+    VecSimQueryReply_Len,
+    VecSimQueryResult_GetId,
+    VecSimQueryResult_GetScore,
+    VecSimTieredIndex_AcquireSharedLocks,
+    VecSimTieredIndex_GC,
+    VecSimTieredIndex_ReleaseSharedLocks,
+    VecSim_Normalize,
+    VecSim_SetLogCallbackFunction,
+    VecSim_SetMemoryFunctions,
+    VecSim_SetTimeoutCallbackFunction,
+    VecSim_SetWriteMode,
+    clusterConfig,
+    fnv_64a_buf,
+    hiredisSetAllocators,
+    parseProfileArgs,
+    processResultFormat,
+    rs_fnv_32a_buf,
+    sdsAllocSize,
     sdscat,
     sdscatfmt,
     sdscatlen,
-    isWithinRadius,
-    Redis_OpenInvertedIndex,
-    RS_dictFetchValue,
-    SearchDisk_NewWildcardIterator,
-    TagIndex_OpenIndex,
-    TimeToLiveTable_VerifyDocAndField,
-    TimeToLiveTable_VerifyDocAndFieldMask,
-    TimeToLiveTable_VerifyDocAndWideFieldMask,
-    TRIEMAP_NOTFOUND
+    sdscatprintf,
+    sdscmp,
+    sdsdup,
+    sdsempty,
+    sdsfree,
+    sdsjoin,
+    sdsnew,
+    sdsnewlen,
+    sdstolower,
+    spellCheckReducer_resp2,
+    spellCheckReducer_resp3,
+    uv_replace_allocator,
 }
