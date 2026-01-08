@@ -7,14 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use build_utils::{generate_c_bindings, git_root, link_dynamic_library};
+use build_utils::{generate_c_bindings, git_root, link_redisearch_c};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Link the dynamic library that bundles all C dependencies.
-    // This is simpler than linking multiple static libraries and allows
-    // undefined symbols (like RedisModule_*) to be resolved at runtime.
-    link_dynamic_library("src", "redisearch_c");
-    println!("cargo:rustc-link-lib=stdc++");
+    link_redisearch_c();
 
     // Compile the wildcard iterator benchmark C file
     let root = git_root().expect("Could not find git root");

@@ -120,41 +120,7 @@ fn get_bin_root() -> PathBuf {
     }
 }
 
-/// Links static libraries
-///
-/// This function configures the linker to include static libraries built by the main
-/// RediSearch build system.
-/// It's meant to be called from the `build.rs` script using `bindgen` to generate Rust bindings.
-///
-/// # Arguments
-/// * `libs` - A slice of tuples where each tuple contains:
-///   - Library subdirectory path relative to the build output directory
-///   - Library name (without lib prefix and .a suffix)
-///
-/// # Panics
-/// Panics if any required static library is not found in the expected location.
-pub fn link_static_libraries(libs: &[(&str, &str)]) {
-    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
-
-    // There may be several symbols exposed by the static library that we are trying to link
-    // that we don't actually invoke (either directly or indirectly) in our benchmarks.
-    // We will provide a definition for the ones we need (e.g. Redis' allocation functions),
-    // but we don't want to be forced to add dummy definitions for the ones we don't rely on.
-    // We prefer to fail at runtime if we try to use a symbol that's undefined.
-    if target_os == "macos" {
-        println!("cargo::rustc-link-arg=-Wl,-undefined,dynamic_lookup");
-    } else {
-        println!("cargo::rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
-    }
-
-    let bin_root = get_bin_root();
-
-    for &(lib_subdir, lib_name) in libs {
-        link_static_lib(&bin_root, lib_subdir, lib_name).unwrap();
-    }
-}
-
-/// Links a dynamic library that bundles all C dependencies.
+/// Links a dynamic library that bundles all RediSearch C dependencies.
 ///
 /// This function configures the linker to use a shared library (dylib/so) built by the main
 /// RediSearch build system. The shared library bundles all C dependencies into a single artifact,
@@ -163,6 +129,20 @@ pub fn link_static_libraries(libs: &[(&str, &str)]) {
 /// The shared library is built with `-undefined dynamic_lookup` (macOS) or
 /// `--allow-shlib-undefined` (Linux), allowing Redis module symbols to remain unresolved
 /// until runtime.
+pub fn link_redisearch_c() {
+    if cfg!(feature = "link_redisearch_c") {
+        // Link the dynamic library that bundles all C dependencies.
+        // This is simpler than linking multiple static libraries and allows
+        // undefined symbols (like RedisModule_*) to be resolved at runtime.
+        link_dynamic_library("src", "redisearch_c");
+    } else {
+        panic!(
+            "You must enable the 'link_redisearch_c' feature to link the RedisSearch C library."
+        );
+    }
+}
+
+/// Link a dynamic library, allowing symbols to remain unresolved until runtime.
 ///
 /// # Arguments
 /// * `lib_subdir` - Library subdirectory path relative to the build output directory
@@ -170,7 +150,7 @@ pub fn link_static_libraries(libs: &[(&str, &str)]) {
 ///
 /// # Panics
 /// Panics if the dynamic library is not found in the expected location.
-pub fn link_dynamic_library(lib_subdir: &str, lib_name: &str) {
+fn link_dynamic_library(lib_subdir: &str, lib_name: &str) {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
 
     // Allow undefined symbols when linking the executable against the dylib.
@@ -203,23 +183,6 @@ pub fn link_dynamic_library(lib_subdir: &str, lib_name: &str) {
         }
     } else {
         panic!("Dynamic library not found: {}", lib.display());
-    }
-}
-
-fn link_static_lib(
-    bin_root: &Path,
-    lib_subdir: &str,
-    lib_name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let lib_dir = bin_root.join(lib_subdir);
-    let lib = lib_dir.join(format!("lib{lib_name}.a"));
-    if std::fs::exists(&lib).unwrap_or(false) {
-        println!("cargo::rustc-link-lib=static={lib_name}");
-        println!("cargo::rerun-if-changed={}", lib.display());
-        println!("cargo::rustc-link-search=native={}", lib_dir.display());
-        Ok(())
-    } else {
-        Err(format!("Static library not found: {}", lib.display()).into())
     }
 }
 

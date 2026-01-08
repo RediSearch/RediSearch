@@ -184,6 +184,7 @@ version = "0.0.1"
 dependencies = [
  "bindgen 0.72.1",
  "cbindgen",
+ "link-cplusplus",
  "workspace_hack",
 ]
 
@@ -974,6 +975,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "link-cplusplus"
+version = "1.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f78c730aaa7d0b9336a299029ea49f9ee53b0ed06e9202e8cb7db9bae7b8c82"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "linkme"
 version = "0.3.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1635,6 +1645,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "redis_mock",
+ "redisearch_rs",
  "rqe_iterators",
  "thiserror",
  "types_ffi",
