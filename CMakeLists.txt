@@ -101,32 +101,6 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 
-
-# Define paths for the script and output files
-set(GEN_SCRIPT "${root}/srcutil/gen_command_info.py")
-set(COMMAND_JSON "${root}/commands.json")
-set(COMMAND_INFO_FILE_NAME "command_info")
-set(COMMAND_INFO_FOLDER_NAME "command_info")
-set(COMMAND_OUTPUT_FOLDER "${root}/src/${COMMAND_INFO_FOLDER_NAME}")
-set(COMMAND_OUTPUT_FILE "${COMMAND_OUTPUT_FOLDER}/${COMMAND_INFO_FILE_NAME}")
-set(COMMAND_OUTPUT_H "${COMMAND_OUTPUT_FILE}.h")
-set(COMMAND_OUTPUT_C "${COMMAND_OUTPUT_FILE}.c")
-
-# Add custom command to run the Python script
-add_custom_command(
-        OUTPUT ${COMMAND_OUTPUT_H} ${COMMAND_OUTPUT_C}
-        COMMAND python3 ${GEN_SCRIPT} -j ${COMMAND_JSON} -f ${COMMAND_OUTPUT_FILE} -i ${COMMAND_INFO_FOLDER_NAME}
-        DEPENDS ${GEN_SCRIPT} ${COMMAND_JSON}
-        COMMENT "Generating ${COMMAND_INFO_FILE_NAME}.h, ${COMMAND_INFO_FILE_NAME}.c"
-        VERBATIM
-)
-
-# Create a custom target that relies on the generated files
-add_custom_target(generate_command_info ALL DEPENDS ${COMMAND_OUTPUT_H} ${COMMAND_OUTPUT_C})
-
-#----------------------------------------------------------------------------------------------
-
-
 # Configure compiler options
 setup_cc_options()
 
@@ -173,7 +147,7 @@ execute_process(
 # ugly hack for cpu_features::list_cpu_features coming from VecSim
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
-# Treat all format‑string warnings as errors
+# Treat all format-string warnings as errors
 set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wformat")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
 
@@ -226,7 +200,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR ENABLE_ASSERT)
 endif()
 
 #----------------------------------------------------------------------------------------------
-# Include external dependencies
+# Include external dependencies (hiredis and boost - needed before src/)
 include(${root}/build/hiredis/hiredis.cmake)
 
 if (NOT DEFINED BOOST_DIR)
@@ -242,6 +216,8 @@ message(STATUS "BOOST_DIR: ${BOOST_DIR}")
 set(BOOST_ROOT ${BOOST_DIR})
 set(Boost_NO_WARN_NEW_VERSIONS ON)
 
+#----------------------------------------------------------------------------------------------
+# Include directories (needed by both src/ and tests/)
 include_directories(
     ${root}/src
     ${root}/src/buffer
@@ -256,95 +232,15 @@ include_directories(
     ${BOOST_DIR}
     ${root})
 
-add_subdirectory(deps/rmutil)
-add_subdirectory(deps/friso)
-add_subdirectory(deps/snowball)
-add_subdirectory(deps/phonetics)
-add_subdirectory(deps/fast_float)
+#----------------------------------------------------------------------------------------------
+# Build the C code and its dependencies
+add_subdirectory(src)
 
-# Configure libuv options
-set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
-set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
-set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE) # Force static library
-add_subdirectory(deps/libuv)
-
-option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
-
-add_subdirectory(deps/VectorSimilarity)
-add_subdirectory(src/geometry)
-add_subdirectory(src/buffer)
-add_subdirectory(src/iterators)
-add_subdirectory(src/wildcard)
-add_subdirectory(src/index_result)
-add_subdirectory(src/value)
-add_subdirectory(src/util/mempool)
-add_subdirectory(src/util/arr)
-add_subdirectory(src/util/dict)
-add_subdirectory(src/util/hash)
-add_subdirectory(src/coord)
+# Build the Rust code
 add_subdirectory(src/redisearch_rs)
-add_subdirectory(src/ttl_table)
 
 #----------------------------------------------------------------------------------------------
-# Source files for the core library
-file(GLOB SOURCES
-    "src/*.c"
-    "src/pipeline/*.c"
-    "src/aggregate/*.c"
-    "src/aggregate/expr/*.c"
-    "src/aggregate/functions/*.c"
-    "src/aggregate/reducers/*.c"
-    "src/command_info/*.c"
-    "src/hybrid/*.c"
-    "src/hybrid/parse/*.c"
-    "src/ext/*.c"
-    "src/hll/*.c"
-    "src/query_parser/v1/*.c"
-    "src/query_parser/v2/*.c"
-    "src/util/*.c"
-    "src/trie/*.c"
-    "src/info/*.c"
-    "src/info/info_redis/*.c"
-    "src/info/info_redis/threads/*.c"
-    "src/info/info_redis/types/*.c"
-    "src/module-init/*.c"
-    "src/obfuscation/*.c"
-
-    "deps/cndict/cndict_data.c"
-    "deps/libnu/*.c"
-    "deps/miniz/*.c"
-    "deps/fast_float/*.c"
-    "deps/thpool/*.c"
-    "deps/geohash/*.c")
-
-#----------------------------------------------------------------------------------------------
-
-add_library(rscore OBJECT ${SOURCES})
-
-set(FINAL_OBJECTS
-    $<TARGET_OBJECTS:arr>
-    $<TARGET_OBJECTS:buffer>
-    $<TARGET_OBJECTS:dict>
-    $<TARGET_OBJECTS:iterators>
-    $<TARGET_OBJECTS:wildcard>
-    $<TARGET_OBJECTS:index_result>
-    $<TARGET_OBJECTS:mempool>
-    $<TARGET_OBJECTS:value>
-    $<TARGET_OBJECTS:rscore>
-    $<TARGET_OBJECTS:rmutil>
-    $<TARGET_OBJECTS:friso>
-    $<TARGET_OBJECTS:snowball>
-    $<TARGET_OBJECTS:metaphone>
-    $<TARGET_OBJECTS:fast_float_strtod>
-    $<TARGET_OBJECTS:redisearch-coord>
-    $<TARGET_OBJECTS:ttl_table>
-)
-
-#----------------------------------------------------------------------------------------------
-# Build the shared library
-# Build as static library for integration with disk storage
-# Allow overriding library type via option
-
+# Build the final shared library by merging C and Rust static libraries
 
 # Default behavior: SHARED when main project, STATIC when subdirectory
 if(NOT DEFINED REDISEARCH_BUILD_SHARED)
@@ -359,10 +255,10 @@ option(REDISEARCH_BUILD_SHARED "Build RediSearch as shared library" OFF)
 
 # Create library with determined type
 if(REDISEARCH_BUILD_SHARED)
-    add_library(redisearch SHARED ${FINAL_OBJECTS})
+    add_library(redisearch SHARED ${REDISEARCH_C_FINAL_OBJECTS})
     message(STATUS "Building RediSearch as SHARED library")
 else()
-    add_library(redisearch STATIC ${FINAL_OBJECTS})
+    add_library(redisearch STATIC ${REDISEARCH_C_FINAL_OBJECTS})
     message(STATUS "Building RediSearch as STATIC library")
 endif()
 
@@ -377,30 +273,17 @@ set_target_properties(redisearch
     C_STANDARD_REQUIRED ON
     POSITION_INDEPENDENT_CODE ON)
 setup_shared_object_target(redisearch "")
+
+# Link the final library with both C dependencies and Rust
 target_link_libraries(redisearch
-        redisearch-geometry
-        redisearch-hash
-        VectorSimilarity
-        redisearch-coord
-        arr
-        buffer
-        dict
-        iterators
-        index_result
-        value
-        mempool
-        wildcard
-        uv_a
-        redisearch_rs
-        ttl_table
-        ${HIREDIS_LIBS}
-        ${SSL_LIBS}
-        ${CMAKE_LD_LIBS})
+    redisearch_c
+    redisearch_rs
+    ${HIREDIS_LIBS}
+    ${SSL_LIBS}
+    ${CMAKE_LD_LIBS})
 
 extract_debug_symbols(redisearch)
-add_dependencies(redisearch VectorSimilarity)
-add_dependencies(redisearch generate_command_info)
-add_dependencies(redisearch uv_a)
+add_dependencies(redisearch redisearch_c)
 add_dependencies(redisearch redisearch_rs)
 
 #----------------------------------------------------------------------------------------------
