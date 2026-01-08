@@ -605,9 +605,6 @@ jobs:
       - name: Import Codecov GPG public key
         if: inputs.coverage
         run: gpg --import .github/codecov_gpg.pub
-      - name: Upload flow coverage
-        if: inputs.coverage
-
       - name: Upload flow coverage (standalone)
         if: inputs.coverage && inputs.standalone
         uses: codecov/codecov-action@v5
