@@ -114,17 +114,8 @@ set(FINAL_OBJECTS
 )
 
 #----------------------------------------------------------------------------------------------
-# Build the static library containing all C code
-add_library(redisearch_c STATIC ${FINAL_OBJECTS})
-
-set_target_properties(redisearch_c
-    PROPERTIES
-    LINKER_LANGUAGE CXX
-    C_STANDARD 17
-    C_STANDARD_REQUIRED ON
-    POSITION_INDEPENDENT_CODE ON)
-
-target_link_libraries(redisearch_c
+# Common link libraries for both static and shared targets
+set(REDISEARCH_C_LINK_LIBS
     redisearch-geometry
     redisearch-hash
     VectorSimilarity
@@ -143,9 +134,22 @@ target_link_libraries(redisearch_c
     ${SSL_LIBS}
     ${CMAKE_LD_LIBS})
 
-add_dependencies(redisearch_c VectorSimilarity)
-add_dependencies(redisearch_c generate_command_info)
-add_dependencies(redisearch_c uv_a)
+# Common properties for both static and shared targets
+set(REDISEARCH_C_PROPERTIES
+    LINKER_LANGUAGE CXX
+    C_STANDARD 17
+    C_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON)
+
+# Common dependencies for both targets
+set(REDISEARCH_C_DEPENDENCIES VectorSimilarity generate_command_info uv_a)
+
+#----------------------------------------------------------------------------------------------
+# Build the static library containing all C code
+add_library(redisearch_c STATIC ${FINAL_OBJECTS})
+set_target_properties(redisearch_c PROPERTIES ${REDISEARCH_C_PROPERTIES})
+target_link_libraries(redisearch_c ${REDISEARCH_C_LINK_LIBS})
+add_dependencies(redisearch_c ${REDISEARCH_C_DEPENDENCIES})
 
 # Export FINAL_OBJECTS to parent scope for potential use
 set(REDISEARCH_C_FINAL_OBJECTS ${FINAL_OBJECTS} PARENT_SCOPE)
@@ -154,16 +158,12 @@ set(REDISEARCH_C_FINAL_OBJECTS ${FINAL_OBJECTS} PARENT_SCOPE)
 # Build a shared library for Rust benchmarks/tests to link against.
 # This bundles all C dependencies into a single dylib, allowing undefined
 # symbols (like RedisModule_*) to be resolved at runtime.
-
 add_library(redisearch_c_shared SHARED ${FINAL_OBJECTS})
-
-set_target_properties(redisearch_c_shared
-    PROPERTIES
-    OUTPUT_NAME "redisearch_c"
-    LINKER_LANGUAGE CXX
-    C_STANDARD 17
-    C_STANDARD_REQUIRED ON
-    POSITION_INDEPENDENT_CODE ON)
+set_target_properties(redisearch_c_shared PROPERTIES
+    ${REDISEARCH_C_PROPERTIES}
+    OUTPUT_NAME "redisearch_c")
+target_link_libraries(redisearch_c_shared ${REDISEARCH_C_LINK_LIBS})
+add_dependencies(redisearch_c_shared ${REDISEARCH_C_DEPENDENCIES})
 
 # Platform-specific linker flags to allow undefined symbols
 if(APPLE)
@@ -174,26 +174,3 @@ else()
     set_target_properties(redisearch_c_shared PROPERTIES
         LINK_FLAGS "-Wl,--allow-shlib-undefined")
 endif()
-
-target_link_libraries(redisearch_c_shared
-    redisearch-geometry
-    redisearch-hash
-    VectorSimilarity
-    redisearch-coord
-    arr
-    buffer
-    dict
-    iterators
-    index_result
-    value
-    mempool
-    wildcard
-    uv_a
-    ttl_table
-    ${HIREDIS_LIBS}
-    ${SSL_LIBS}
-    ${CMAKE_LD_LIBS})
-
-add_dependencies(redisearch_c_shared VectorSimilarity)
-add_dependencies(redisearch_c_shared generate_command_info)
-add_dependencies(redisearch_c_shared uv_a)
