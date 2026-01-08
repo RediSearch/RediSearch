@@ -26,33 +26,27 @@ pub enum RsValueType {
     Map = 8,
 }
 
-impl RsValueType {
-    pub fn for_value(value: &RsValue) -> Self {
-        use RsValueType::*;
-
-        match value {
-            RsValue::Undefined => Undef,
-            RsValue::Null => Null,
-            RsValue::Number(_) => Number,
-            RsValue::RmAllocString(_) => String,
-            RsValue::ConstString(_) => String,
-            RsValue::RedisString(_) => RedisString,
-            RsValue::String(_) => String,
-            RsValue::Array(_) => Array,
-            RsValue::Ref(_) => Reference,
-            RsValue::Trio(_) => Trio,
-            RsValue::Map(_) => Map,
-        }
-    }
-}
-
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Type(value: *const RsValue) -> RsValueType {
     debug_assert!(!value.is_null());
 
     let value = unsafe { &*value };
 
-    RsValueType::for_value(value)
+    use RsValueType::*;
+
+    match value {
+        RsValue::Undefined => Undef,
+        RsValue::Null => Null,
+        RsValue::Number(_) => Number,
+        RsValue::RmAllocString(_) => String,
+        RsValue::ConstString(_) => String,
+        RsValue::RedisString(_) => RedisString,
+        RsValue::String(_) => String,
+        RsValue::Array(_) => Array,
+        RsValue::Ref(_) => Reference,
+        RsValue::Trio(_) => Trio,
+        RsValue::Map(_) => Map,
+    }
 }
 
 #[unsafe(no_mangle)]
