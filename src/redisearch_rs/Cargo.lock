@@ -175,6 +175,7 @@ version = "0.0.1"
 dependencies = [
  "bindgen 0.72.1",
  "cbindgen",
+ "cc",
  "workspace_hack",
 ]
 
