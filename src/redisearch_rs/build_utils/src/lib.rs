@@ -181,6 +181,11 @@ pub fn generate_c_bindings(
 
     let includes = vec![
         root.join("deps").join("RedisModulesSDK"),
+        root.join("deps")
+            .join("RedisJSON")
+            .join("redis_json")
+            .join("src")
+            .join("include"),
         root.join("src"),
         root.join("deps"),
         root.join("src").join("redisearch_rs").join("headers"),
