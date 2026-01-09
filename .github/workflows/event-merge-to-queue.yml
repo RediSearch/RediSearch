@@ -20,6 +20,7 @@ jobs:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
       repo: redis/redis
+      prefix: '8.2'
 
   test-matrix:
     needs: [get-latest-redis-tag]
