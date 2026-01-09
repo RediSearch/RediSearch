@@ -31,7 +31,10 @@ workspace_hack.workspace = true
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
 rqe_iterators = { path = ".", features = ["unittest"] }
+
+# Crates required to invoke C symbols
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
+link-cplusplus.workspace = true
 
 [lints]
 workspace = true
