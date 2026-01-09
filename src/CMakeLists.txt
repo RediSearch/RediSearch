@@ -113,39 +113,116 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:ttl_table>
 )
 
+# Export FINAL_OBJECTS to parent scope for the top-level redisearch target
+set(REDISEARCH_C_FINAL_OBJECTS ${FINAL_OBJECTS} PARENT_SCOPE)
+
 #----------------------------------------------------------------------------------------------
-# Build the static library containing all C code
+# Build a static library from the C object files
 add_library(redisearch_c STATIC ${FINAL_OBJECTS})
+set_target_properties(redisearch_c PROPERTIES LINKER_LANGUAGE CXX)
 
-set_target_properties(redisearch_c
-    PROPERTIES
-    LINKER_LANGUAGE CXX
-    C_STANDARD 17
-    C_STANDARD_REQUIRED ON
-    POSITION_INDEPENDENT_CODE ON)
-
+# Declare dependencies for transitive linking
 target_link_libraries(redisearch_c
     redisearch-geometry
     redisearch-hash
     VectorSimilarity
     redisearch-coord
-    arr
-    buffer
-    dict
-    iterators
-    index_result
-    value
-    mempool
-    wildcard
     uv_a
     ttl_table
-    ${HIREDIS_LIBS}
-    ${SSL_LIBS}
-    ${CMAKE_LD_LIBS})
+    ${HIREDIS_LIBS})
 
 add_dependencies(redisearch_c VectorSimilarity)
 add_dependencies(redisearch_c generate_command_info)
-add_dependencies(redisearch_c uv_a)
 
-# Export FINAL_OBJECTS to parent scope for potential use
-set(REDISEARCH_C_FINAL_OBJECTS ${FINAL_OBJECTS} PARENT_SCOPE)
+#----------------------------------------------------------------------------------------------
+# Build a combined static library for Rust tests/benchmarks (only when tests are enabled)
+if(BUILD_SEARCH_UNIT_TESTS)
+    # Recursively collect all static library dependencies from a target
+    function(collect_static_libs target out_libs out_targets)
+        set(libs ${${out_libs}})
+        set(targets ${${out_targets}})
+
+        # Skip if already visited
+        if(${target} IN_LIST targets)
+            return()
+        endif()
+
+        # Check if it's a valid target
+        if(NOT TARGET ${target})
+            return()
+        endif()
+
+        # Get target type
+        get_target_property(target_type ${target} TYPE)
+
+        # Add static libraries to our list (skip INTERFACE libraries - they have no .a file)
+        if(target_type STREQUAL "STATIC_LIBRARY")
+            list(APPEND libs $<TARGET_FILE:${target}>)
+            list(APPEND targets ${target})
+        endif()
+
+        # Mark as visited (even for INTERFACE libs to avoid infinite loops)
+        if(target_type STREQUAL "INTERFACE_LIBRARY")
+            list(APPEND targets ${target})
+        endif()
+
+        # Recurse into dependencies (both LINK_LIBRARIES and INTERFACE_LINK_LIBRARIES)
+        foreach(prop LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+            get_target_property(dep_libs ${target} ${prop})
+            if(dep_libs)
+                foreach(dep IN LISTS dep_libs)
+                    # Skip generator expressions and non-targets
+                    if(NOT dep MATCHES "^\\$<" AND TARGET ${dep})
+                        collect_static_libs(${dep} libs targets)
+                    endif()
+                endforeach()
+            endif()
+        endforeach()
+
+        set(${out_libs} ${libs} PARENT_SCOPE)
+        set(${out_targets} ${targets} PARENT_SCOPE)
+    endfunction()
+
+    set(REDISEARCH_ALL_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/libredisearch_all.a")
+
+    # Automatically collect all static library dependencies from redisearch_c
+    set(LIBS_TO_MERGE "")
+    set(VISITED_TARGETS "")
+    collect_static_libs(redisearch_c LIBS_TO_MERGE VISITED_TARGETS)
+
+    # Remove duplicates while preserving order
+    list(REMOVE_DUPLICATES LIBS_TO_MERGE)
+    list(REMOVE_DUPLICATES VISITED_TARGETS)
+
+    message(STATUS "Libraries to merge into libredisearch_all.a: ${VISITED_TARGETS}")
+
+    # Create the combined library using platform-specific tools
+    if(APPLE)
+        # macOS: use libtool to merge static libraries
+        add_custom_command(
+            OUTPUT ${REDISEARCH_ALL_OUTPUT}
+            COMMAND libtool -static -o ${REDISEARCH_ALL_OUTPUT} ${LIBS_TO_MERGE}
+            DEPENDS ${VISITED_TARGETS}
+            COMMENT "Creating unified libredisearch_all.a with libtool"
+            VERBATIM
+            COMMAND_EXPAND_LISTS
+        )
+    else()
+        # Linux: extract all .o files and recombine with ar
+        set(MERGE_TEMP_DIR "${CMAKE_CURRENT_BINARY_DIR}/merge_temp")
+        add_custom_command(
+            OUTPUT ${REDISEARCH_ALL_OUTPUT}
+            COMMAND ${CMAKE_COMMAND} -E remove_directory ${MERGE_TEMP_DIR}
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${MERGE_TEMP_DIR}
+            COMMAND ${CMAKE_COMMAND} -E chdir ${MERGE_TEMP_DIR} sh -c "for lib in ${LIBS_TO_MERGE}; do ar -x $$lib; done"
+            COMMAND ar -rcs ${REDISEARCH_ALL_OUTPUT} ${MERGE_TEMP_DIR}/*.o
+            COMMAND ${CMAKE_COMMAND} -E remove_directory ${MERGE_TEMP_DIR}
+            DEPENDS ${VISITED_TARGETS}
+            COMMENT "Creating unified libredisearch_all.a with ar"
+            VERBATIM
+            COMMAND_EXPAND_LISTS
+        )
+    endif()
+
+    add_custom_target(redisearch_all ALL DEPENDS ${REDISEARCH_ALL_OUTPUT})
+endif()
