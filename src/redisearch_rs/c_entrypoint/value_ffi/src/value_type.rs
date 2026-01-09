@@ -141,11 +141,14 @@ pub const unsafe extern "C" fn RSValue_IsTrio(value: *const RsValue) -> bool {
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsNull(value: *const RsValue) -> bool {
+pub unsafe extern "C" fn RSValue_IsNull(value: *const RsValue) -> bool {
     // Safety: ensured by caller (1.)
     let Some(value) = (unsafe { value.as_ref() }) else {
         return true;
     };
+
+    // C implementation does a recursive check on reference types.
+    let value = value.fully_dereferenced();
 
     matches!(value, RsValue::Null)
 }
