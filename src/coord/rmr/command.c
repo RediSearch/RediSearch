@@ -312,7 +312,7 @@ void MRCommand_SetDispatchTime(MRCommand *cmd) {
 #endif
   if (cmd->dispatchTimeArgIndex == 0) {
     RS_LOG_ASSERT_FMT(!is_cmd_supported, "Dispatch time placeholder was not prepared for command %s", cmd->strs[cmd_pos]);
-      return;
+    return;
   }
 
   RS_LOG_ASSERT_FMT(is_cmd_supported, "unexpected command for dispatch time: %s", cmd->strs[cmd_pos]);
