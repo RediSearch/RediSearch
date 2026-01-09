@@ -18,7 +18,7 @@ harness = false
 
 [build-dependencies]
 bindgen.workspace = true
-build_utils = { path = "../build_utils", features = ["link_redisearch_c"] }
+build_utils = { path = "../build_utils" }
 
 [dependencies]
 criterion.workspace = true

@@ -102,13 +102,7 @@ pub fn run_cbinden(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::err
 /// all C code and dependencies together. The combined library is created by CMake
 /// during the build process.
 pub fn link_redisearch_c() {
-    if cfg!(feature = "link_redisearch_c") {
-        link_static_libraries(&[("src", "redisearch_all")]);
-    } else {
-        panic!(
-            "You must enable the 'link_redisearch_c' feature to link the RedisSearch C library."
-        );
-    }
+    link_static_libraries(&[("src", "redisearch_all")]);
 }
 
 /// Links static libraries
@@ -127,16 +121,16 @@ pub fn link_redisearch_c() {
 fn link_static_libraries(libs: &[(&str, &str)]) {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
 
-    // There may be several symbols exposed by the static library that we are trying to link
-    // that we don't actually invoke (either directly or indirectly) in our benchmarks.
-    // We will provide a definition for the ones we need (e.g. Redis' allocation functions),
-    // but we don't want to be forced to add dummy definitions for the ones we don't rely on.
-    // We prefer to fail at runtime if we try to use a symbol that's undefined.
+    // Require all symbols to be resolved at link time.
+    // The combined static library (redisearch_all) should contain all necessary symbols.
+    // We provide definitions for Redis allocator functions via redis_mock.
     if target_os == "macos" {
-        println!("cargo::rustc-link-arg=-Wl,-undefined,dynamic_lookup");
+        println!("cargo::rustc-link-arg=-Wl,-undefined,error");
     } else {
-        println!("cargo::rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
+        println!("cargo::rustc-link-arg=-Wl,--unresolved-symbols=report-all");
     }
+    // Link C++ standard library for VectorSimilarity and other C++ code
+    println!("cargo::rustc-link-lib=c++");
 
     let bin_root = if let Ok(bin_root) = std::env::var("BINDIR") {
         // The directory changes depending on a variety of factors: target architecture, target OS,
