@@ -210,11 +210,13 @@ if(BUILD_SEARCH_UNIT_TESTS)
     else()
         # Linux: extract all .o files and recombine with ar
         set(MERGE_TEMP_DIR "${CMAKE_CURRENT_BINARY_DIR}/merge_temp")
+        # Convert CMake list (semicolon-separated) to space-separated for shell
+        list(JOIN LIBS_TO_MERGE " " LIBS_TO_MERGE_SHELL)
         add_custom_command(
             OUTPUT ${REDISEARCH_ALL_OUTPUT}
             COMMAND ${CMAKE_COMMAND} -E remove_directory ${MERGE_TEMP_DIR}
             COMMAND ${CMAKE_COMMAND} -E make_directory ${MERGE_TEMP_DIR}
-            COMMAND ${CMAKE_COMMAND} -E chdir ${MERGE_TEMP_DIR} sh -c "for lib in ${LIBS_TO_MERGE}; do ar -x $$lib; done"
+            COMMAND ${CMAKE_COMMAND} -E chdir ${MERGE_TEMP_DIR} sh -c "for lib in ${LIBS_TO_MERGE_SHELL}; do ar -x $$lib; done"
             COMMAND ar -rcs ${REDISEARCH_ALL_OUTPUT} ${MERGE_TEMP_DIR}/*.o
             COMMAND ${CMAKE_COMMAND} -E remove_directory ${MERGE_TEMP_DIR}
             DEPENDS ${VISITED_TARGETS}
