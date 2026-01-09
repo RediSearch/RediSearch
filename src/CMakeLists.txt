@@ -214,17 +214,25 @@ if(BUILD_SEARCH_UNIT_TESTS)
         set(MERGE_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/merge_libs.cmake")
 
         # Generate a CMake script that extracts all .o files
+        # Each library is extracted into its own subdirectory to avoid filename collisions
+        # (e.g., multiple libraries may have util.o or common.o)
         file(WRITE ${MERGE_SCRIPT} "
 file(REMOVE_RECURSE \"${MERGE_TEMP_DIR}\")
 file(MAKE_DIRECTORY \"${MERGE_TEMP_DIR}\")
 set(LIBS \"${LIBS_TO_MERGE}\")
+set(LIB_INDEX 0)
 foreach(lib \${LIBS})
+    # Create a unique subdirectory for each library to avoid .o filename collisions
+    set(LIB_DIR \"${MERGE_TEMP_DIR}/lib_\${LIB_INDEX}\")
+    file(MAKE_DIRECTORY \${LIB_DIR})
     execute_process(
         COMMAND ar -x \${lib}
-        WORKING_DIRECTORY \"${MERGE_TEMP_DIR}\"
+        WORKING_DIRECTORY \${LIB_DIR}
     )
+    math(EXPR LIB_INDEX \"\${LIB_INDEX} + 1\")
 endforeach()
-file(GLOB OBJ_FILES \"${MERGE_TEMP_DIR}/*.o\")
+# Collect all .o files from all subdirectories
+file(GLOB_RECURSE OBJ_FILES \"${MERGE_TEMP_DIR}/*.o\")
 execute_process(
     COMMAND ar -rcs \"${REDISEARCH_ALL_OUTPUT}\" \${OBJ_FILES}
 )
