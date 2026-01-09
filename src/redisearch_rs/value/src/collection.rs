@@ -349,7 +349,7 @@ impl fmt::Debug for RsValueMapEntry {
 #[cfg(test)]
 mod tests {
     use crate::{
-        Value,
+        RsValue,
         collection::{RsValueCollection, RsValueMapEntry},
         shared::SharedRsValue,
     };
@@ -358,10 +358,17 @@ mod tests {
     fn test_map_create_iter_destroy() {
         let entries = || {
             std::iter::repeat_n((), 100).enumerate().map(|(i, _)| {
-                let key = SharedRsValue::number(i as f64);
-                let value = SharedRsValue::number((2 * i) as f64);
+                let key = SharedRsValue::new(RsValue::Number(i as f64));
+                let value = SharedRsValue::new(RsValue::Number((2 * i) as f64));
                 RsValueMapEntry { key, value }
             })
+        };
+        let get_number = |value: &SharedRsValue| {
+            if let RsValue::Number(num) = value.value() {
+                Some(*num)
+            } else {
+                None
+            }
         };
         let collection = RsValueCollection::collect_from_exact_size_iterator(entries());
         collection
@@ -369,12 +376,12 @@ mod tests {
             .zip(entries())
             .for_each(|(collection_entry, iter_entry)| {
                 assert_eq!(
-                    collection_entry.key.get_number(),
-                    iter_entry.key.get_number()
+                    get_number(&collection_entry.key),
+                    get_number(&iter_entry.key)
                 );
                 assert_eq!(
-                    collection_entry.value.get_number(),
-                    iter_entry.value.get_number()
+                    get_number(&collection_entry.value),
+                    get_number(&iter_entry.value)
                 );
             });
     }
@@ -393,8 +400,8 @@ mod tests {
     #[test]
     fn test_send_sync() {
         let items = std::iter::repeat_n((), 100).enumerate().map(|(i, _)| {
-            let key = SharedRsValue::number(i as f64);
-            let value = SharedRsValue::number((2 * i) as f64);
+            let key = SharedRsValue::new(RsValue::Number(i as f64));
+            let value = SharedRsValue::new(RsValue::Number((2 * i) as f64));
             RsValueMapEntry { key, value }
         });
         let map = RsValueCollection::collect_from_exact_size_iterator(items);
