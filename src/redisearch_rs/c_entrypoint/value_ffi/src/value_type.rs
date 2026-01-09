@@ -118,5 +118,7 @@ pub unsafe extern "C" fn RSValue_IsNull(value: *const RsValue) -> bool {
 
     let value = unsafe { &*value };
 
+    let value = value.fully_dereferenced();
+
     matches!(value, RsValue::Null)
 }

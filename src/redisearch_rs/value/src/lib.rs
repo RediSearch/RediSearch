@@ -59,6 +59,16 @@ pub enum RsValue {
     Map(Vec<(SharedRsValue, SharedRsValue)>),
 }
 
+impl RsValue {
+    pub fn fully_dereferenced(&self) -> &Self {
+        if let RsValue::Ref(ref_value) = self {
+            ref_value.value().fully_dereferenced()
+        } else {
+            self
+        }
+    }
+}
+
 impl Value for RsValue {
     fn from_value(value: RsValue) -> Self {
         value
