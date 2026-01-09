@@ -130,6 +130,18 @@ fn link_static_libraries(libs: &[(&str, &str)]) {
         println!("cargo::rustc-link-arg=-Wl,--unresolved-symbols=report-all");
     }
 
+    // Link the C++ standard library using the platform's default.
+    // This is needed for VectorSimilarity and other C++ code in libredisearch_all.a.
+    // We compile a dummy C++ file which causes cc to emit the appropriate link flags.
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
+    let dummy_path = std::path::Path::new(&out_dir).join("dummy.cc");
+    std::fs::write(&dummy_path, "// dummy file to link C++ stdlib\n")
+        .expect("Failed to write dummy C++ file");
+    cc::Build::new()
+        .cpp(true)
+        .file(&dummy_path)
+        .compile("link-cplusplus");
+
     let bin_root = if let Ok(bin_root) = std::env::var("BINDIR") {
         // The directory changes depending on a variety of factors: target architecture, target OS,
         // optimization level, coverage, etc.
