@@ -129,8 +129,6 @@ fn link_static_libraries(libs: &[(&str, &str)]) {
     } else {
         println!("cargo::rustc-link-arg=-Wl,--unresolved-symbols=report-all");
     }
-    // Link C++ standard library for VectorSimilarity and other C++ code
-    println!("cargo::rustc-link-lib=c++");
 
     let bin_root = if let Ok(bin_root) = std::env::var("BINDIR") {
         // The directory changes depending on a variety of factors: target architecture, target OS,

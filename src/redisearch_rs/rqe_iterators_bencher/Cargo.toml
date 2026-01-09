@@ -33,4 +33,6 @@ rqe_iterators.workspace = true
 rand.workspace = true
 workspace_hack.workspace = true
 
+# Crates required to invoke C symbols
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
+link-cplusplus.workspace = true
