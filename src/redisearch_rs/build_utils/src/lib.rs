@@ -97,35 +97,13 @@ pub fn run_cbinden(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::err
 }
 
 /// Link all the relevant C dependencies to invoke RediSearch C symbols.
+///
+/// This links a single combined static library (`libredisearch_all.a`) that bundles
+/// all C code and dependencies together. The combined library is created by CMake
+/// during the build process.
 pub fn link_redisearch_c() {
     if cfg!(feature = "link_redisearch_c") {
-        // Link all the relevant C dependencies.
-        link_static_libraries(&[
-            ("src", "redisearch_c"),
-            ("src/libuv", "uv"),
-            ("src/VectorSimilarity/src/VecSim", "VectorSimilarity"),
-            (
-                "src/VectorSimilarity/src/VecSim/spaces",
-                "VectorSimilaritySpaces",
-            ),
-            (
-                "src/VectorSimilarity/src/VecSim/spaces",
-                "VectorSimilaritySpaces_no_optimization",
-            ),
-            ("src/geometry", "redisearch-geometry"),
-            ("src/coord", "redisearch-coord"),
-            ("hiredis", "hiredis"),
-            ("hiredis", "hiredis_ssl"),
-            ("src/util/hash", "redisearch-hash"),
-            ("_deps/spdlog-build", "spdlog"),
-            ("_deps/fmt-build", "fmt"),
-            #[cfg(target_arch = "x86_64")]
-            (
-                "src/VectorSimilarity/deps/ScalableVectorSearch",
-                "svs_x86_objects",
-            ),
-            ("_deps/cpu_features-build", "cpu_features"),
-        ]);
+        link_static_libraries(&[("src", "redisearch_all")]);
     } else {
         panic!(
             "You must enable the 'link_redisearch_c' feature to link the RedisSearch C library."
