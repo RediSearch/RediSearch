@@ -120,6 +120,7 @@ jobs:
       pre-steps-script: ${{ matrix.pre-deps }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      version-suffix: ${{ needs.setup.outputs.version-suffix }}
 
   build-linux-arm:
     needs: [decide-linux, setup]
@@ -137,6 +138,7 @@ jobs:
       pre-steps-script: ${{ matrix.pre-deps }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      version-suffix: ${{ needs.setup.outputs.version-suffix }}
 
   build-macos:
     needs: [decide-macos, setup]
