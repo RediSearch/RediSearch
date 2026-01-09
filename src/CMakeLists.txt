@@ -216,10 +216,12 @@ if(BUILD_SEARCH_UNIT_TESTS)
         # Generate a CMake script that extracts all .o files
         # Each library is extracted into its own subdirectory to avoid filename collisions
         # (e.g., multiple libraries may have util.o or common.o)
-        file(WRITE ${MERGE_SCRIPT} "
+        # Use file(GENERATE) instead of file(WRITE) to evaluate generator expressions at build time
+        string(REPLACE ";" "\\;" LIBS_TO_MERGE_ESCAPED "${LIBS_TO_MERGE}")
+        file(GENERATE OUTPUT ${MERGE_SCRIPT} CONTENT "
 file(REMOVE_RECURSE \"${MERGE_TEMP_DIR}\")
 file(MAKE_DIRECTORY \"${MERGE_TEMP_DIR}\")
-set(LIBS \"${LIBS_TO_MERGE}\")
+set(LIBS \"${LIBS_TO_MERGE_ESCAPED}\")
 set(LIB_INDEX 0)
 foreach(lib \${LIBS})
     # Create a unique subdirectory for each library to avoid .o filename collisions
