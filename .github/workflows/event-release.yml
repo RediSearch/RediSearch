@@ -196,12 +196,14 @@ jobs:
           oss_dir = "redisearch-oss"
           ent_dir = "redisearch"
 
-          # Suffix pattern: .{SOURCE}.{TIMESTAMP}.{WORKFLOW_NUM}.zip
-          # Example: .2.10.20231228.123456.123.zip
-          # Pattern matches: .+.{SOURCE}. followed by timestamp (YYYYMMDD.HHMMSS) and workflow number
-          suffix_pattern = re.compile(rf"(.+)\.{re.escape(os.environ['SOURCE'])}\.\d{{8}}\.\d{{6}}\.\d+\.zip$")
-          new_suffix = rf"\1.{os.environ['CUR_VERSION']}.zip"
           expected_sha = os.environ["EXPECTED_SHA"]
+          expected_short_sha = expected_sha[:7]
+
+          # Suffix pattern: .{SOURCE}.{TIMESTAMP}.{GIT_SHA}.zip
+          # Example: .2.10.20231228.123456.abc1234.zip
+          # Pattern matches: .+.{SOURCE}. followed by timestamp (YYYYMMDD.HHMMSS) and the expected git SHA (7 chars)
+          suffix_pattern = re.compile(rf"(.+)\.{re.escape(os.environ['SOURCE'])}\.\d{{8}}\.\d{{6}}\.{re.escape(expected_short_sha)}\.zip$")
+          new_suffix = rf"\1.{os.environ['CUR_VERSION']}.zip"
 
           client = boto3.client("s3")
 
@@ -232,7 +234,8 @@ jobs:
           # new location is outside snapshots/ directory and with the new suffix
           # Remove snapshots/ directory and replace the suffix pattern with the new suffix
           def get_target_name(name):
-              name_without_snapshots = name.replace("snapshots/", "", 1)
+              # release into a dummy dir for test
+              name_without_snapshots = name.replace("snapshots/", "staging_test/", 1)
               return suffix_pattern.sub(new_suffix, name_without_snapshots)
 
           def group_print(title, args):
