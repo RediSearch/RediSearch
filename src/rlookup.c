@@ -987,8 +987,8 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
     if (!dest_key) {
       // Key doesn't exist in destination - create it on demand.
       // This can happen with LOAD * where keys are created dynamically.
-      // Preserve HIDDEN flag so internal fields like __vector_score stay hidden.
-      uint32_t flags = src_key->flags & RLOOKUP_F_HIDDEN;
+      // Inherit non-transient flags from source.
+      uint32_t flags = src_key->flags & ~RLOOKUP_TRANSIENT_FLAGS;
       dest_key = RLookup_GetKey_Write(destLookup, src_key->name, flags);
     }
     // Write fields to destination (increments refcount, shares ownership)
