@@ -235,7 +235,7 @@ jobs:
           # Remove snapshots/ directory and replace the suffix pattern with the new suffix
           def get_target_name(name):
               # release into a dummy dir for test
-              name_without_snapshots = name.replace("snapshots/", "staging_test/", 1)
+              name_without_snapshots = name.replace("snapshots/", "", 1)
               return suffix_pattern.sub(new_suffix, name_without_snapshots)
 
           def group_print(title, args):
