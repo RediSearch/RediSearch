@@ -7,8 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use build_utils::run_cbinden;
-
-fn main() {
-    run_cbinden("../../headers/tracing_redismodule.h").unwrap();
+/// Intentionally trigger a crash in Rust code,
+/// to verify the crash handling mechanism.
+///
+/// Used by the crash result processor.
+#[unsafe(no_mangle)]
+pub extern "C" fn CrashInRust() {
+    panic!("Crash in Rust code");
 }

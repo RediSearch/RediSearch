@@ -56,6 +56,7 @@ use std::cell::RefCell;
 use std::env::{self, VarError};
 use std::error::Error;
 use std::ffi::{CStr, c_char};
+use std::io::IsTerminal;
 use std::ptr::NonNull;
 use std::{io, ptr};
 use tracing::Level;
@@ -131,7 +132,6 @@ fn should_print_colors() -> bool {
         Ok("auto") | Err(VarError::NotPresent) => {
             // Attempt a "best guess" based on the terminal configuration and env vars
             // adapted from https://github.com/rust-cli/anstyle
-
             let clicolor = anstyle_query::clicolor();
             let clicolor_enabled = clicolor.unwrap_or(false);
             let clicolor_disabled = !clicolor.unwrap_or(true);
@@ -139,7 +139,10 @@ fn should_print_colors() -> bool {
                 false
             } else if anstyle_query::clicolor_force() {
                 true
-            } else if clicolor_disabled {
+            } else if clicolor_disabled ||
+                // Don't use colors in non-interactive environments
+                !std::io::stderr().is_terminal()
+            {
                 false
             } else {
                 anstyle_query::term_supports_color() || clicolor_enabled || anstyle_query::is_ci()

@@ -74,7 +74,7 @@
 #include "util/redis_mem_info.h"
 #include "notifications.h"
 #include "aggregate/reply_empty.h"
-#include "tracing_redismodule.h"
+#include "module_init.h"
 #include "asm_state_machine.h"
 #include "search_disk_utils.h"
 
@@ -4131,6 +4131,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   TracingRedisModule_Init(ctx);
+  RustPanicHook_Init();
 
   setHiredisAllocators();
   uv_replace_allocator(rm_malloc, rm_realloc, rm_calloc, rm_free);

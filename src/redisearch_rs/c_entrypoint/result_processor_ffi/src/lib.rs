@@ -8,3 +8,4 @@
 */
 
 pub mod counter;
+pub mod crash;
