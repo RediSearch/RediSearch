@@ -202,12 +202,14 @@ jobs:
           oss_dir = "redisearch-oss"
           ent_dir = "redisearch"
 
-          # Suffix pattern: .{SOURCE}.{TIMESTAMP}.{WORKFLOW_NUM}.zip
-          # Example: .2.10.20231228.123456.123.zip
-          # Pattern matches: .+.{SOURCE}. followed by timestamp (YYYYMMDD.HHMMSS) and workflow number
-          suffix_pattern = re.compile(rf"(.+)\.{re.escape(os.environ['SOURCE'])}\.\d{{8}}\.\d{{6}}\.\d+\.zip$")
-          new_suffix = rf"\1.{os.environ['CUR_VERSION']}.zip"
           expected_sha = os.environ["EXPECTED_SHA"]
+          expected_short_sha = expected_sha[:7]
+
+          # Suffix pattern: .{SOURCE}.{TIMESTAMP}.{GIT_SHA}.zip
+          # Example: .2.10.20231228.123456.abc1234.zip
+          # Pattern matches: .+.{SOURCE}. followed by timestamp (YYYYMMDD.HHMMSS) and the expected git SHA (7 chars)
+          suffix_pattern = re.compile(rf"(.+)\.{re.escape(os.environ['SOURCE'])}\.\d{{8}}\.\d{{6}}\.{re.escape(expected_short_sha)}\.zip$")
+          new_suffix = rf"\1.{os.environ['CUR_VERSION']}.zip"
 
           client = boto3.client("s3")
 
@@ -261,7 +263,8 @@ jobs:
           sha_list = list(sha_list)
 
           # Include only files that match the expected SHA
-          include_list = [f for f, sha in zip(files, sha_list) if sha == expected_sha]
+          exclude_list = [(f, sha) for f, sha in zip(files, sha_list) if sha != expected_sha]
+          include_list = [f for f in files if f not in [x for x, _ in exclude_list]]
 
           if not include_list:
               raise Exception(f"::error title=No artifacts found with expected SHA {expected_sha}!")
@@ -286,9 +289,17 @@ jobs:
           dest_files = [get_target_name(f) for f in include_list]
 
           # Log files
+          group_print("Excluded Files", exclude_list)
           group_print("Included Files", include_list)
-          group_print("New Files", dest_files)
-
+          group_print("Unexpected SHAs", set([sha for _, sha in exclude_list]))
+          
           # Copy included files to new location
           for src, dst in zip(include_list, dest_files):
               client.copy_object(Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src}, ACL="public-read")
+
+          group_print("New Files", dest_files)
+
+          if len(exclude_list) > 0:
+              print("::warning title=Unexpected Files::The workflow has encountered files that do not match the "
+                    "expected git sha. These files will not be included in the release artifacts. Look for the "
+                    "`Excluded Files` section above for more details.")
