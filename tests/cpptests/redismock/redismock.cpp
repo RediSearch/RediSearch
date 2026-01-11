@@ -758,7 +758,9 @@ void *RMCK_LoadDataTypeFromStringEncver(const RedisModuleString *str,
                                         int encver) {
   RedisModuleIO io{};
   io.buffer.insert(io.buffer.end(), str->c_str(), str->c_str() + str->size());
-  return mt->typemeths.rdb_load(&io, encver);
+  void *ret = mt->typemeths.rdb_load(&io, encver);
+  RMCK_FreeRdbIO(&io);
+  return ret;
 }
 
 RedisModuleString *RMCK_SaveDataTypeToString(RedisModuleCtx *ctx,
@@ -766,6 +768,7 @@ RedisModuleString *RMCK_SaveDataTypeToString(RedisModuleCtx *ctx,
                                              const RedisModuleType *mt) {
   RedisModuleIO io{};
   mt->typemeths.rdb_save(&io, data);
+  RMCK_FreeRdbIO(&io);
   if (io.error_flag) {
     return nullptr;
   }
