@@ -25,7 +25,6 @@ static void AccumulateDiskMetrics(DiskColumnFamilyMetrics *dest, const DiskColum
   dest->num_immutable_memtables_flushed += src->num_immutable_memtables_flushed;
   dest->mem_table_flush_pending += src->mem_table_flush_pending;
   dest->active_memtable_size += src->active_memtable_size;
-  dest->all_memtables_size += src->all_memtables_size;
   dest->size_all_mem_tables += src->size_all_mem_tables;
   dest->num_entries_active_memtable += src->num_entries_active_memtable;
   dest->num_entries_imm_memtables += src->num_entries_imm_memtables;
@@ -48,6 +47,18 @@ static void AccumulateDiskMetrics(DiskColumnFamilyMetrics *dest, const DiskColum
 
   // Memory usage
   dest->estimate_table_readers_mem += src->estimate_table_readers_mem;
+}
+
+// Updates the total_mem field of the `TotalIndexesInfo` struct, according to
+// a `DiskColumnFamilyMetrics`.
+// We add the mem-tables' size, along with the estimate of the tables' readers
+// memory, and the live sst files' size.
+// TODO: Add memory used for the deleted-ids set (relevant for doc-table only).
+static inline void updateTotalMemFromDiskMetrics(TotalIndexesInfo *info, DiskColumnFamilyMetrics *diskMetrics) {
+  info->total_mem +=
+    diskMetrics->size_all_mem_tables +
+    diskMetrics->estimate_table_readers_mem +
+    diskMetrics->live_sst_files_size;
 }
 
 // Assuming the GIL is held by the caller
@@ -118,6 +129,8 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       DiskColumnFamilyMetrics doc_table_metrics = {0};
       if (SearchDisk_CollectDocTableMetrics(sp->diskSpec, &doc_table_metrics)) {
         AccumulateDiskMetrics(&info.disk_doc_table, &doc_table_metrics);
+        // Update info.total_mem with disk related objects.
+        updateTotalMemFromDiskMetrics(&info, &doc_table_metrics);
       } else {
         RedisModule_Log(RSDummyContext, "warning", "Could not collect disk related info for index %s", HiddenString_GetUnsafe(sp->specName, NULL));
       }
@@ -125,6 +138,8 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       DiskColumnFamilyMetrics inverted_index_metrics = {0};
       if (SearchDisk_CollectTextInvertedIndexMetrics(sp->diskSpec, &inverted_index_metrics)) {
         AccumulateDiskMetrics(&info.disk_inverted_index, &inverted_index_metrics);
+        // Update info.total_mem with disk related objects.
+        updateTotalMemFromDiskMetrics(&info, &doc_table_metrics);
       } else {
         RedisModule_Log(RSDummyContext, "warning", "Could not collect disk related info for index %s", HiddenString_GetUnsafe(sp->specName, NULL));
       }

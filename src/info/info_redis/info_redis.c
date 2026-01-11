@@ -433,68 +433,48 @@ void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx) {
   AddCursorsToInfo(ctx, blockedQueries);
 }
 
+/**
+ * @brief Adds disk column family metrics to Redis INFO output
+ *
+ * @param ctx Redis module info context
+ * @param metrics Disk metrics structure to report
+ */
+static void addDiskColumnFamilyMetrics(RedisModuleInfoCtx *ctx, const DiskColumnFamilyMetrics *metrics) {
+  // Memtable metrics
+  RedisModule_InfoAddFieldULongLong(ctx, "num_immutable_memtables", metrics->num_immutable_memtables);
+  RedisModule_InfoAddFieldULongLong(ctx, "num_immutable_memtables_flushed", metrics->num_immutable_memtables_flushed);
+  RedisModule_InfoAddFieldULongLong(ctx, "mem_table_flush_pending", metrics->mem_table_flush_pending);
+  RedisModule_InfoAddFieldULongLong(ctx, "active_memtable_size", metrics->active_memtable_size);
+  RedisModule_InfoAddFieldULongLong(ctx, "size_all_mem_tables", metrics->size_all_mem_tables);
+  RedisModule_InfoAddFieldULongLong(ctx, "num_entries_active_memtable", metrics->num_entries_active_memtable);
+  RedisModule_InfoAddFieldULongLong(ctx, "num_entries_imm_memtables", metrics->num_entries_imm_memtables);
+  RedisModule_InfoAddFieldULongLong(ctx, "num_deletes_active_memtable", metrics->num_deletes_active_memtable);
+  RedisModule_InfoAddFieldULongLong(ctx, "num_deletes_imm_memtables", metrics->num_deletes_imm_memtables);
+
+  // Compaction metrics
+  RedisModule_InfoAddFieldULongLong(ctx, "compaction_pending", metrics->compaction_pending);
+  RedisModule_InfoAddFieldULongLong(ctx, "num_running_compactions", metrics->num_running_compactions);
+  RedisModule_InfoAddFieldULongLong(ctx, "num_running_flushes", metrics->num_running_flushes);
+  RedisModule_InfoAddFieldULongLong(ctx, "estimate_pending_compaction_bytes", metrics->estimate_pending_compaction_bytes);
+
+  // Data size estimates
+  RedisModule_InfoAddFieldULongLong(ctx, "estimate_num_keys", metrics->estimate_num_keys);
+  RedisModule_InfoAddFieldULongLong(ctx, "estimate_live_data_size", metrics->estimate_live_data_size);
+  RedisModule_InfoAddFieldULongLong(ctx, "live_sst_files_size", metrics->live_sst_files_size);
+
+  // Version tracking
+  RedisModule_InfoAddFieldULongLong(ctx, "num_live_versions", metrics->num_live_versions);
+
+  // Memory usage
+  RedisModule_InfoAddFieldULongLong(ctx, "estimate_table_readers_mem", metrics->estimate_table_readers_mem);
+}
+
 void AddToInfo_Disk(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   // Doc table metrics
   RedisModule_InfoAddSection(ctx, "disk_doc_table");
-
-  // Memtable metrics
-  RedisModule_InfoAddFieldULongLong(ctx, "num_immutable_memtables", total_info->disk_doc_table.num_immutable_memtables);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_immutable_memtables_flushed", total_info->disk_doc_table.num_immutable_memtables_flushed);
-  RedisModule_InfoAddFieldULongLong(ctx, "mem_table_flush_pending", total_info->disk_doc_table.mem_table_flush_pending);
-  RedisModule_InfoAddFieldULongLong(ctx, "active_memtable_size", total_info->disk_doc_table.active_memtable_size);
-  RedisModule_InfoAddFieldULongLong(ctx, "all_memtables_size", total_info->disk_doc_table.all_memtables_size);
-  RedisModule_InfoAddFieldULongLong(ctx, "size_all_mem_tables", total_info->disk_doc_table.size_all_mem_tables);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_entries_active_memtable", total_info->disk_doc_table.num_entries_active_memtable);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_entries_imm_memtables", total_info->disk_doc_table.num_entries_imm_memtables);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_deletes_active_memtable", total_info->disk_doc_table.num_deletes_active_memtable);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_deletes_imm_memtables", total_info->disk_doc_table.num_deletes_imm_memtables);
-
-  // Compaction metrics
-  RedisModule_InfoAddFieldULongLong(ctx, "compaction_pending", total_info->disk_doc_table.compaction_pending);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_running_compactions", total_info->disk_doc_table.num_running_compactions);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_running_flushes", total_info->disk_doc_table.num_running_flushes);
-  RedisModule_InfoAddFieldULongLong(ctx, "estimate_pending_compaction_bytes", total_info->disk_doc_table.estimate_pending_compaction_bytes);
-
-  // Data size estimates
-  RedisModule_InfoAddFieldULongLong(ctx, "estimate_num_keys", total_info->disk_doc_table.estimate_num_keys);
-  RedisModule_InfoAddFieldULongLong(ctx, "estimate_live_data_size", total_info->disk_doc_table.estimate_live_data_size);
-  RedisModule_InfoAddFieldULongLong(ctx, "live_sst_files_size", total_info->disk_doc_table.live_sst_files_size);
-
-  // Version tracking
-  RedisModule_InfoAddFieldULongLong(ctx, "num_live_versions", total_info->disk_doc_table.num_live_versions);
-
-  // Memory usage
-  RedisModule_InfoAddFieldULongLong(ctx, "estimate_table_readers_mem", total_info->disk_doc_table.estimate_table_readers_mem);
+  addDiskColumnFamilyMetrics(ctx, &total_info->disk_doc_table);
 
   // Inverted index metrics
-  RedisModule_InfoAddSection(ctx, "disk_inverted_index");
-
-  // Memtable metrics
-  RedisModule_InfoAddFieldULongLong(ctx, "num_immutable_memtables", total_info->disk_inverted_index.num_immutable_memtables);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_immutable_memtables_flushed", total_info->disk_inverted_index.num_immutable_memtables_flushed);
-  RedisModule_InfoAddFieldULongLong(ctx, "mem_table_flush_pending", total_info->disk_inverted_index.mem_table_flush_pending);
-  RedisModule_InfoAddFieldULongLong(ctx, "active_memtable_size", total_info->disk_inverted_index.active_memtable_size);
-  RedisModule_InfoAddFieldULongLong(ctx, "all_memtables_size", total_info->disk_inverted_index.all_memtables_size);
-  RedisModule_InfoAddFieldULongLong(ctx, "size_all_mem_tables", total_info->disk_inverted_index.size_all_mem_tables);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_entries_active_memtable", total_info->disk_inverted_index.num_entries_active_memtable);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_entries_imm_memtables", total_info->disk_inverted_index.num_entries_imm_memtables);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_deletes_active_memtable", total_info->disk_inverted_index.num_deletes_active_memtable);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_deletes_imm_memtables", total_info->disk_inverted_index.num_deletes_imm_memtables);
-
-  // Compaction metrics
-  RedisModule_InfoAddFieldULongLong(ctx, "compaction_pending", total_info->disk_inverted_index.compaction_pending);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_running_compactions", total_info->disk_inverted_index.num_running_compactions);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_running_flushes", total_info->disk_inverted_index.num_running_flushes);
-  RedisModule_InfoAddFieldULongLong(ctx, "estimate_pending_compaction_bytes", total_info->disk_inverted_index.estimate_pending_compaction_bytes);
-
-  // Data size estimates
-  RedisModule_InfoAddFieldULongLong(ctx, "estimate_num_keys", total_info->disk_inverted_index.estimate_num_keys);
-  RedisModule_InfoAddFieldULongLong(ctx, "estimate_live_data_size", total_info->disk_inverted_index.estimate_live_data_size);
-  RedisModule_InfoAddFieldULongLong(ctx, "live_sst_files_size", total_info->disk_inverted_index.live_sst_files_size);
-
-  // Version tracking
-  RedisModule_InfoAddFieldULongLong(ctx, "num_live_versions", total_info->disk_inverted_index.num_live_versions);
-
-  // Memory usage
-  RedisModule_InfoAddFieldULongLong(ctx, "estimate_table_readers_mem", total_info->disk_inverted_index.estimate_table_readers_mem);
+  RedisModule_InfoAddSection(ctx, "disk_text_inverted_index");
+  addDiskColumnFamilyMetrics(ctx, &total_info->disk_inverted_index);
 }

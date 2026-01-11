@@ -183,7 +183,6 @@ typedef struct DiskColumnFamilyMetrics {
   uint64_t num_immutable_memtables_flushed;
   uint64_t mem_table_flush_pending;
   uint64_t active_memtable_size;
-  uint64_t all_memtables_size;
   uint64_t size_all_mem_tables;
   uint64_t num_entries_active_memtable;
   uint64_t num_entries_imm_memtables;
@@ -206,6 +205,8 @@ typedef struct DiskColumnFamilyMetrics {
 
   // Memory usage
   uint64_t estimate_table_readers_mem;
+
+  // TODO: Add field for deleted-ids.
 } DiskColumnFamilyMetrics;
 
 typedef struct MetricsDiskAPI {
