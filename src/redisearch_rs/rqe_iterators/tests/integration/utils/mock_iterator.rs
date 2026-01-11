@@ -120,6 +120,7 @@ impl MockData {
             validation_count: 0,
             read_count: 0,
             error_at_done: None,
+            delays: Vec::new(),
         })))
     }
 
@@ -143,6 +144,19 @@ impl MockData {
     /// If `maybe_err` is `None`, end of input is reported as `Ok(None)`.
     pub fn set_error_at_done(&mut self, maybe_err: Option<MockIteratorError>) -> &mut Self {
         self.0.borrow_mut().error_at_done = maybe_err;
+        self
+    }
+
+    /// Configure a delay that should be introduced since the given index,
+    /// either in a [`RQEIterator::read`] or [`RQEIterator::skip_to`] call
+    /// for the [`Mock`] iterator.
+    pub fn add_delay_since_index(&mut self, index: t_docId, delay: Duration) -> &mut Self {
+        {
+            let mut data = self.0.borrow_mut();
+            data.delays.push((index, delay));
+            data.delays.sort_by_cached_key(|(idx, _delay)| *idx);
+        }
+
         self
     }
 
@@ -176,6 +190,21 @@ struct MockDataInternal {
     validation_count: usize,
     read_count: usize,
     error_at_done: Option<MockIteratorError>,
+    delays: Vec<(t_docId, Duration)>,
+}
+
+impl MockDataInternal {
+    fn delay_if_index_limit_reached(&mut self, idx: t_docId) {
+        // assumes that these delays are sorted in ascending order,
+        // as guaranteed by the [`MockData::add_delay_since_index`] method.
+
+        if let Some((limit, delay)) = self.delays.get(0).copied()
+            && idx >= limit
+        {
+            self.delays.remove(0);
+            std::thread::sleep(delay);
+        }
+    }
 }
 
 /// Result configured through [`MockData`] that controls what
@@ -247,6 +276,8 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
         self.result.doc_id = self.doc_ids[self.next_index];
         self.next_index += 1;
 
+        data.delay_if_index_limit_reached(self.result.doc_id);
+
         Ok(Some(&mut self.result))
     }
 
@@ -273,6 +304,7 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
         }
 
         while self.next_index < N && self.doc_ids[self.next_index] < doc_id {
+            data.delay_if_index_limit_reached(self.doc_ids[self.next_index]);
             self.next_index += 1;
         }
 

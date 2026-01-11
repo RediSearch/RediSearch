@@ -23,6 +23,8 @@ pub mod optional;
 pub mod profile;
 pub mod wildcard;
 
+pub mod util;
+
 pub use empty::Empty;
 pub use id_list::IdList;
 pub use intersection::Intersection;
