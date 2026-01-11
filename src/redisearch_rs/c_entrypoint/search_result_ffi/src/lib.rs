@@ -8,14 +8,11 @@
 */
 
 use inverted_index::RSIndexResult;
-use search_result::{SearchResultFlags, bindings::DocumentMetadata};
+use search_result::{SearchResult, SearchResultFlags, bindings::DocumentMetadata};
 use std::{
     mem,
     ptr::{self, NonNull},
 };
-
-/// cbindgen:ignore
-pub type SearchResult = search_result::SearchResult<'static>;
 
 /// Construct a new [`SearchResult`].
 #[unsafe(no_mangle)]
@@ -251,7 +248,7 @@ pub unsafe extern "C" fn SearchResult_SetDocumentMetadata(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SearchResult_GetIndexResult(
     res: *const SearchResult,
-) -> *const RSIndexResult<'static> {
+) -> *const RSIndexResult {
     // Safety: ensured by caller (1.)
     let res = unsafe { res.as_ref().unwrap() };
 
@@ -285,7 +282,7 @@ pub const unsafe extern "C" fn SearchResult_HasIndexResult(res: *const SearchRes
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn SearchResult_SetIndexResult(
     res: Option<NonNull<SearchResult>>,
-    index_result: *const RSIndexResult<'static>,
+    index_result: *const RSIndexResult,
 ) {
     // Safety: ensured by caller (1.)
     let res = unsafe { res.unwrap().as_mut() };

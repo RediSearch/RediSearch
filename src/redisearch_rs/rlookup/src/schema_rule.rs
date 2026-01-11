@@ -7,13 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
-
-use std::ffi::CStr;
+use std::ffi::{CStr, c_char};
 
 use crate::RLookupKey;
 
-/// A safe wrapper around a pointer to a `SchemaRule`, the underlying pointer is [NonNull].
+/// A safe wrapper around a pointer to a `SchemaRule`, the underlying pointer is non-null.
 ///
 /// # Safety
 ///
@@ -26,79 +24,69 @@ use crate::RLookupKey;
 /// 2. If `score_field` is non-null, it points to a valid C string.
 /// 3. If `payload_field` is non-null, it points to a valid C string.
 #[repr(transparent)]
-pub struct SchemaRuleWrapper(NonNull<ffi::SchemaRule>);
+pub struct SchemaRule(ffi::SchemaRule);
 
-impl SchemaRuleWrapper {
-    /// Create a SchemaRuleWrapper from a non-null pointer.
+impl SchemaRule {
+    /// Create a SchemaRule from a non-null pointer.
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the given pointer upholds the safety invariants described on the type documentation.
-    pub const unsafe fn from_non_null(ptr: NonNull<ffi::SchemaRule>) -> Self {
-        SchemaRuleWrapper(ptr)
+    /// 1. The caller must ensure that the given pointer upholds the safety invariants described on the type documentation.
+    pub const unsafe fn from_raw<'a>(ptr: *const ffi::SchemaRule) -> &'a Self {
+        // Safety: ensured by caller (1.)
+        unsafe { ptr.cast::<Self>().as_ref().unwrap() }
     }
 
-    /// Access the underlying SchemaRule pointer.
-    ///
-    /// Used for dropping memory in test code as the tests create SchemaRuleWrapper instances in [`Box`]es.
-    #[cfg(test)]
-    pub const fn inner(&self) -> NonNull<ffi::SchemaRule> {
-        self.0
-    }
-
-    /// Access the underlying SchemaRule reference.
-    ///
-    /// # Safety
-    /// The caller must ensure that the underlying pointer is valid, also see safety comments on type documentation.
-    const fn as_ref(&self) -> &ffi::SchemaRule {
-        // Safety: During object creation the caller must ensure that the underlying pointer is valid.
-        unsafe { self.0.as_ref() }
-    }
-
-    /// Convert a raw C string pointer to an Option<&CStr>, returning None if the pointer is null.
-    ///
-    /// # Safety
-    ///
-    /// 1. The caller must ensure that if the is associated with `self`, as the returned reference's lifetime is tied to `self`.
-    /// 2. The type invariants described on the type documentation is uphold if an external caller complies to the safety requirements of `from_raw`.
-    const unsafe fn field_as_cstr(&self, ffi_field: *mut ::std::ffi::c_char) -> Option<&CStr> {
-        if ffi_field.is_null() {
-            None
-        } else {
-            // Safety: The caller must ensure (1), and (2), by using `from_raw` to create `self` and upholding `from_raw`'s safety requirements.
-            Some(unsafe { CStr::from_ptr(ffi_field) })
-        }
-    }
-
-    /// Get the language field CStr, if present.
+    /// Get the language field [`CStr`], if present.
     pub const fn lang_field(&self) -> Option<&CStr> {
-        // Safety: (1) due to creation with `SchemaRule::from_raw` it field pointers are valid or null, (2) lifetime tied to `self.0.lang_field`.
-        unsafe { self.field_as_cstr(self.as_ref().lang_field) }
+        // Safety: (1) due to creation with `SchemaRule::from_raw` its field pointers are valid or null, (2) lifetime tied to `self.0.lang_field`.
+        unsafe { maybe_cstr_from_ptr(self.0.lang_field) }
     }
 
-    /// Get the score field CStr, if present.
+    /// Get the score field [`CStr`], if present.
     pub const fn score_field(&self) -> Option<&CStr> {
-        // Safety: (1) due to creation with `SchemaRule::from_raw` it field pointers are valid or null, (2) lifetime tied to `self.0.score_field`.
-        unsafe { self.field_as_cstr(self.as_ref().score_field) }
+        // Safety: (1) due to creation with `SchemaRule::from_raw` its field pointers are valid or null, (2) lifetime tied to `self.0.score_field`.
+        unsafe { maybe_cstr_from_ptr(self.0.score_field) }
     }
 
-    /// Get the payload field CStr, if present.
+    /// Get the payload field [`CStr`], if present.
     pub const fn payload_field(&self) -> Option<&CStr> {
-        // Safety: (1) due to creation with `SchemaRule::from_raw` it field pointers are valid or null, (2) lifetime tied to `self.0.payload_field`.
-        unsafe { self.field_as_cstr(self.as_ref().payload_field) }
+        // Safety: (1) due to creation with `SchemaRule::from_raw` its field pointers are valid or null, (2) lifetime tied to `self.0.payload_field`.
+        unsafe { maybe_cstr_from_ptr(self.0.payload_field) }
     }
 
-    /// Tests if the given [`crate::lookup::RLookupKey`] is a special key (lang, score, or payload field) in respect to this schema rule.
+    /// Tests if the given [`crate::lookup::RLookupKey`] is a special key (lang, score, or payload field) with respect to this schema rule.
     pub fn is_special_key(&self, key: &RLookupKey) -> bool {
-        // check if the key is one of the special fields
-        let key_is_lang_field = self.lang_field().is_some_and(|lf| lf == key.name_as_cstr());
-        let key_is_score_field = self
-            .score_field()
-            .is_some_and(|sf| sf == key.name_as_cstr());
-        let key_is_payload_field = self
-            .payload_field()
-            .is_some_and(|p| p == key.name_as_cstr());
+        // Check if the key is one of the special fields
+        [self.lang_field(), self.score_field(), self.payload_field()]
+            .into_iter()
+            .any(|f| f == Some(key.name_as_cstr()))
+    }
+}
 
-        key_is_lang_field || key_is_score_field || key_is_payload_field
+/// Convert a raw C string pointer to an `Option<&CStr>`, returning `None` if the pointer is null.
+///
+/// # Safety
+///
+/// 1. The memory pointed to by ptr must contain a valid nul terminator at the end of the string.
+/// 2. ptr must be valid for reads of bytes up to and including the nul terminator.
+///    This means in particular:
+///    a. The entire memory range of this CStr must be contained within a single allocation!
+/// 3. The memory referenced by the returned CStr must not be mutated for the duration of lifetime 'a.
+/// 4. The nul terminator must be within isize::MAX from ptr
+///
+/// # Caveat
+///
+/// The lifetime for the returned slice is inferred from its usage.
+/// To prevent accidental misuse, it’s suggested to tie the lifetime to whichever source lifetime is safe in the context,
+/// such as by providing a helper function taking the lifetime of a host value for the slice, or by explicit annotation.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+const unsafe fn maybe_cstr_from_ptr<'a>(ffi_field: *mut c_char) -> Option<&'a CStr> {
+    if ffi_field.is_null() {
+        None
+    } else {
+        // Safety: Ensured by caller (1., 2., 3., 4.). Non-nullness is ensured by the call to is_null() above.
+        Some(unsafe { CStr::from_ptr(ffi_field) })
     }
 }
