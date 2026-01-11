@@ -16,11 +16,14 @@ use rqe_iterators::{
 
 use crate::utils::{Mock, MockIteratorError, MockRevalidateResult};
 
+/// Duration chosen to be big enough such that it will not be reached.
+const NOT_ITERATOR_LARGE_TIMEOUT: Duration = Duration::from_secs(300);
+
 // Basic iterator invariants before any read.
 #[test]
 fn initial_state() {
     let child = SortedIdList::new(vec![2, 4, 6]);
-    let it = Not::new(child, 10, 1.0, Duration::from_secs(300));
+    let it = Not::new(child, 10, 1.0, NOT_ITERATOR_LARGE_TIMEOUT);
 
     // Before first read, cursor is at 0 and we are not at EOF.
     assert_eq!(it.last_doc_id(), 0);
@@ -37,7 +40,7 @@ fn read_skips_child_docs() {
         SortedIdList::new(child_ids),
         10,
         1.0,
-        Duration::from_secs(300),
+        NOT_ITERATOR_LARGE_TIMEOUT,
     );
 
     // Child has [2, 4, 7]; complement in [1..=10] is [1, 3, 5, 6, 8, 9, 10].
@@ -63,7 +66,7 @@ fn read_skips_child_docs() {
 #[test]
 fn read_with_empty_child_behaves_like_wildcard() {
     // When the child is empty, NOT should yield all doc IDs in [1, max_doc_id]
-    let mut it = Not::new(SortedIdList::new(vec![]), 5, 1.0, Duration::from_secs(300));
+    let mut it = Not::new(SortedIdList::new(vec![]), 5, 1.0, NOT_ITERATOR_LARGE_TIMEOUT);
 
     for expected_id in 1u64..=5 {
         let result = it.read();
@@ -87,7 +90,7 @@ fn read_with_child_covering_full_range_yields_no_docs() {
         SortedIdList::new(vec![1, 2, 3, 4, 5]),
         5,
         1.0,
-        Duration::from_secs(300),
+        NOT_ITERATOR_LARGE_TIMEOUT,
     );
 
     // Child already produces 1..=5, so there is no doc left for NOT to return.
@@ -107,7 +110,7 @@ fn skip_to_honours_child_membership() {
         SortedIdList::new(vec![2, 4, 7]),
         10,
         1.0,
-        Duration::from_secs(300),
+        NOT_ITERATOR_LARGE_TIMEOUT,
     );
 
     // 5 is not in child {2, 4, 7}, so NOT must return Found(5).
@@ -151,7 +154,7 @@ fn skip_to_child_doc_at_max_docid_returns_none() {
         SortedIdList::new(vec![2, 5, 10]),
         10,
         1.0,
-        Duration::from_secs(300),
+        NOT_ITERATOR_LARGE_TIMEOUT,
     );
 
     // Read first to position before the skip
@@ -174,7 +177,7 @@ fn skip_to_child_ahead_returns_found() {
         SortedIdList::new(vec![5, 10]),
         15,
         1.0,
-        Duration::from_secs(300),
+        NOT_ITERATOR_LARGE_TIMEOUT,
     );
 
     // Read once to advance child to doc_id=5
@@ -200,7 +203,7 @@ fn skip_to_child_at_eof_returns_found() {
         SortedIdList::new(vec![1, 2]),
         10,
         1.0,
-        Duration::from_secs(300),
+        NOT_ITERATOR_LARGE_TIMEOUT,
     );
 
     // Exhaust the child by reading past its docs
@@ -229,7 +232,7 @@ fn skip_to_child_last_doc_when_at_eof_excludes_it() {
         SortedIdList::new(vec![5, 10]),
         15,
         1.0,
-        Duration::from_secs(300),
+        NOT_ITERATOR_LARGE_TIMEOUT,
     );
 
     // Read up to doc 9 to exhaust the child
@@ -261,7 +264,7 @@ fn skip_to_past_max_docid_returns_none_and_sets_eof() {
         SortedIdList::new(vec![2, 4, 7]),
         10,
         1.0,
-        Duration::from_secs(300),
+        NOT_ITERATOR_LARGE_TIMEOUT,
     );
 
     // 11 > max_doc_id=10, so there is no valid target and we end at EOF.
@@ -280,7 +283,7 @@ fn rewind_resets_state() {
         SortedIdList::new(vec![2, 4, 7]),
         10,
         1.0,
-        Duration::from_secs(300),
+        NOT_ITERATOR_LARGE_TIMEOUT,
     );
 
     // For child [2, 4, 7] and max_doc_id=10, the first two NOT results are 1 and 3.
@@ -305,7 +308,7 @@ fn rewind_resets_state() {
 #[test]
 fn revalidate_child_ok_preserves_exclusions() {
     let child = Mock::new([2, 4]);
-    let mut it = Not::new(child, 5, 1.0, Duration::from_secs(300));
+    let mut it = Not::new(child, 5, 1.0, NOT_ITERATOR_LARGE_TIMEOUT);
 
     let status = it.revalidate().expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
@@ -325,7 +328,7 @@ fn revalidate_child_aborted_replaces_child_with_empty() {
     let child = Mock::new([2, 4]);
     let mut data = child.data();
     data.set_revalidate_result(MockRevalidateResult::Abort);
-    let mut it = Not::new(child, 5, 1.0, Duration::from_secs(300));
+    let mut it = Not::new(child, 5, 1.0, NOT_ITERATOR_LARGE_TIMEOUT);
 
     let status = it.revalidate().expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
@@ -345,7 +348,7 @@ fn revalidate_child_moved_on_fresh_iterator() {
     let child = Mock::new([2, 4]);
     let mut data = child.data();
     data.set_revalidate_result(MockRevalidateResult::Move);
-    let mut it = Not::new(child, 5, 1.0, Duration::from_secs(300));
+    let mut it = Not::new(child, 5, 1.0, NOT_ITERATOR_LARGE_TIMEOUT);
 
     // Revalidate before any read/skip_to - both iterators at doc_id = 0
     let status = it.revalidate().expect("revalidate() failed");
@@ -366,7 +369,7 @@ fn revalidate_child_moved_on_fresh_iterator() {
 fn revalidate_child_moved_after_read_with_child_ahead() {
     let child = Mock::new([5, 10]);
     let mut data = child.data();
-    let mut it = Not::new(child, 15, 1.0, Duration::from_secs(300));
+    let mut it = Not::new(child, 15, 1.0, NOT_ITERATOR_LARGE_TIMEOUT);
 
     // Read first doc (1) - child will be at 5, NOT at 1
     let doc = it.read().expect("read() failed").expect("expected doc");
@@ -397,7 +400,7 @@ fn revalidate_child_moved_after_read_with_child_ahead() {
 fn revalidate_child_moved_after_skip_to_with_child_ahead() {
     let child = Mock::new([8, 15]);
     let mut data = child.data();
-    let mut it = Not::new(child, 20, 1.0, Duration::from_secs(300));
+    let mut it = Not::new(child, 20, 1.0, NOT_ITERATOR_LARGE_TIMEOUT);
 
     // Skip to 3 - child will be at 8, NOT at 3
     let outcome = it
@@ -439,7 +442,7 @@ fn read_propagates_child_timeout() {
     let mut data = child.data();
     // Set child to return timeout error when it reaches EOF
     data.set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
-    let mut it = Not::new(child, 6, 1.0, Duration::from_secs(300));
+    let mut it = Not::new(child, 6, 1.0, NOT_ITERATOR_LARGE_TIMEOUT);
 
     // Read docs that are NOT in child: [1, 2, 4, 6]
     // Child has [3, 5]. When NOT reads doc 6, child.read() is called to check
@@ -472,7 +475,7 @@ fn skip_to_propagates_child_timeout() {
     let mut data = child.data();
     // Set child to return timeout error when it reaches EOF
     data.set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
-    let mut it = Not::new(child, 10, 1.0, Duration::from_secs(300));
+    let mut it = Not::new(child, 10, 1.0, NOT_ITERATOR_LARGE_TIMEOUT);
 
     // skip_to(7) - child has [2,4,6], child.last_doc_id()=0 < 7, so we call
     // child.skip_to(7) which will go past child's last doc (6) and hit EOF,
