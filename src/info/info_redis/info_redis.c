@@ -460,20 +460,8 @@ void AddToInfo_Disk(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "estimate_live_data_size", total_info->disk_doc_table.estimate_live_data_size);
   RedisModule_InfoAddFieldULongLong(ctx, "live_sst_files_size", total_info->disk_doc_table.live_sst_files_size);
 
-  // Level information
-  RedisModule_InfoAddFieldULongLong(ctx, "base_level", total_info->disk_doc_table.base_level);
-
-  // Write control
-  RedisModule_InfoAddFieldULongLong(ctx, "actual_delayed_write_rate", total_info->disk_doc_table.actual_delayed_write_rate);
-  RedisModule_InfoAddFieldULongLong(ctx, "is_write_stopped", total_info->disk_doc_table.is_write_stopped);
-
   // Version tracking
   RedisModule_InfoAddFieldULongLong(ctx, "num_live_versions", total_info->disk_doc_table.num_live_versions);
-  RedisModule_InfoAddFieldULongLong(ctx, "current_super_version_number", total_info->disk_doc_table.current_super_version_number);
-
-  // Snapshot info
-  RedisModule_InfoAddFieldULongLong(ctx, "oldest_snapshot_time", total_info->disk_doc_table.oldest_snapshot_time);
-  RedisModule_InfoAddFieldULongLong(ctx, "oldest_snapshot_sequence", total_info->disk_doc_table.oldest_snapshot_sequence);
 
   // Memory usage
   RedisModule_InfoAddFieldULongLong(ctx, "estimate_table_readers_mem", total_info->disk_doc_table.estimate_table_readers_mem);
@@ -504,20 +492,8 @@ void AddToInfo_Disk(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "estimate_live_data_size", total_info->disk_inverted_index.estimate_live_data_size);
   RedisModule_InfoAddFieldULongLong(ctx, "live_sst_files_size", total_info->disk_inverted_index.live_sst_files_size);
 
-  // Level information
-  RedisModule_InfoAddFieldULongLong(ctx, "base_level", total_info->disk_inverted_index.base_level);
-
-  // Write control
-  RedisModule_InfoAddFieldULongLong(ctx, "actual_delayed_write_rate", total_info->disk_inverted_index.actual_delayed_write_rate);
-  RedisModule_InfoAddFieldULongLong(ctx, "is_write_stopped", total_info->disk_inverted_index.is_write_stopped);
-
   // Version tracking
   RedisModule_InfoAddFieldULongLong(ctx, "num_live_versions", total_info->disk_inverted_index.num_live_versions);
-  RedisModule_InfoAddFieldULongLong(ctx, "current_super_version_number", total_info->disk_inverted_index.current_super_version_number);
-
-  // Snapshot info
-  RedisModule_InfoAddFieldULongLong(ctx, "oldest_snapshot_time", total_info->disk_inverted_index.oldest_snapshot_time);
-  RedisModule_InfoAddFieldULongLong(ctx, "oldest_snapshot_sequence", total_info->disk_inverted_index.oldest_snapshot_sequence);
 
   // Memory usage
   RedisModule_InfoAddFieldULongLong(ctx, "estimate_table_readers_mem", total_info->disk_inverted_index.estimate_table_readers_mem);

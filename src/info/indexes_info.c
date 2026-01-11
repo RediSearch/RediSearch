@@ -103,20 +103,8 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
         info.disk_doc_table.estimate_live_data_size += doc_table_metrics.estimate_live_data_size;
         info.disk_doc_table.live_sst_files_size += doc_table_metrics.live_sst_files_size;
 
-        // Level information
-        info.disk_doc_table.base_level += doc_table_metrics.base_level;
-
-        // Write control
-        info.disk_doc_table.actual_delayed_write_rate += doc_table_metrics.actual_delayed_write_rate;
-        info.disk_doc_table.is_write_stopped += doc_table_metrics.is_write_stopped;
-
         // Version tracking
         info.disk_doc_table.num_live_versions += doc_table_metrics.num_live_versions;
-        info.disk_doc_table.current_super_version_number += doc_table_metrics.current_super_version_number;
-
-        // Snapshot info
-        info.disk_doc_table.oldest_snapshot_time += doc_table_metrics.oldest_snapshot_time;
-        info.disk_doc_table.oldest_snapshot_sequence += doc_table_metrics.oldest_snapshot_sequence;
 
         // Memory usage
         info.disk_doc_table.estimate_table_readers_mem += doc_table_metrics.estimate_table_readers_mem;
@@ -147,20 +135,8 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
         info.disk_inverted_index.estimate_live_data_size += inverted_index_metrics.estimate_live_data_size;
         info.disk_inverted_index.live_sst_files_size += inverted_index_metrics.live_sst_files_size;
 
-        // Level information
-        info.disk_inverted_index.base_level += inverted_index_metrics.base_level;
-
-        // Write control
-        info.disk_inverted_index.actual_delayed_write_rate += inverted_index_metrics.actual_delayed_write_rate;
-        info.disk_inverted_index.is_write_stopped += inverted_index_metrics.is_write_stopped;
-
         // Version tracking
         info.disk_inverted_index.num_live_versions += inverted_index_metrics.num_live_versions;
-        info.disk_inverted_index.current_super_version_number += inverted_index_metrics.current_super_version_number;
-
-        // Snapshot info
-        info.disk_inverted_index.oldest_snapshot_time += inverted_index_metrics.oldest_snapshot_time;
-        info.disk_inverted_index.oldest_snapshot_sequence += inverted_index_metrics.oldest_snapshot_sequence;
 
         // Memory usage
         info.disk_inverted_index.estimate_table_readers_mem += inverted_index_metrics.estimate_table_readers_mem;
