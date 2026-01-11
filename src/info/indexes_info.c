@@ -13,6 +13,43 @@
 #include "search_disk.h"
 #include <string.h>  // Add this for strerror
 
+/**
+ * @brief Accumulates disk column family metrics from source to destination
+ *
+ * @param dest Destination metrics structure to accumulate into
+ * @param src Source metrics structure to accumulate from
+ */
+static void AccumulateDiskMetrics(TotalDiskColumnFamilyMetrics *dest, const DiskColumnFamilyMetrics *src) {
+  // Memtable metrics
+  dest->num_immutable_memtables += src->num_immutable_memtables;
+  dest->num_immutable_memtables_flushed += src->num_immutable_memtables_flushed;
+  dest->mem_table_flush_pending += src->mem_table_flush_pending;
+  dest->active_memtable_size += src->active_memtable_size;
+  dest->all_memtables_size += src->all_memtables_size;
+  dest->size_all_mem_tables += src->size_all_mem_tables;
+  dest->num_entries_active_memtable += src->num_entries_active_memtable;
+  dest->num_entries_imm_memtables += src->num_entries_imm_memtables;
+  dest->num_deletes_active_memtable += src->num_deletes_active_memtable;
+  dest->num_deletes_imm_memtables += src->num_deletes_imm_memtables;
+
+  // Compaction metrics
+  dest->compaction_pending += src->compaction_pending;
+  dest->num_running_compactions += src->num_running_compactions;
+  dest->num_running_flushes += src->num_running_flushes;
+  dest->estimate_pending_compaction_bytes += src->estimate_pending_compaction_bytes;
+
+  // Data size estimates
+  dest->estimate_num_keys += src->estimate_num_keys;
+  dest->estimate_live_data_size += src->estimate_live_data_size;
+  dest->live_sst_files_size += src->live_sst_files_size;
+
+  // Version tracking
+  dest->num_live_versions += src->num_live_versions;
+
+  // Memory usage
+  dest->estimate_table_readers_mem += src->estimate_table_readers_mem;
+}
+
 // Assuming the GIL is held by the caller
 TotalIndexesInfo IndexesInfo_TotalInfo() {
   TotalIndexesInfo info = {0};
@@ -80,66 +117,12 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     if (sp->diskSpec) {
       DiskColumnFamilyMetrics doc_table_metrics = {0};
       if (SearchDisk_CollectDocTableMetrics(sp->diskSpec, &doc_table_metrics)) {
-        // Memtable metrics
-        info.disk_doc_table.num_immutable_memtables += doc_table_metrics.num_immutable_memtables;
-        info.disk_doc_table.num_immutable_memtables_flushed += doc_table_metrics.num_immutable_memtables_flushed;
-        info.disk_doc_table.mem_table_flush_pending += doc_table_metrics.mem_table_flush_pending;
-        info.disk_doc_table.active_memtable_size += doc_table_metrics.active_memtable_size;
-        info.disk_doc_table.all_memtables_size += doc_table_metrics.all_memtables_size;
-        info.disk_doc_table.size_all_mem_tables += doc_table_metrics.size_all_mem_tables;
-        info.disk_doc_table.num_entries_active_memtable += doc_table_metrics.num_entries_active_memtable;
-        info.disk_doc_table.num_entries_imm_memtables += doc_table_metrics.num_entries_imm_memtables;
-        info.disk_doc_table.num_deletes_active_memtable += doc_table_metrics.num_deletes_active_memtable;
-        info.disk_doc_table.num_deletes_imm_memtables += doc_table_metrics.num_deletes_imm_memtables;
-
-        // Compaction metrics
-        info.disk_doc_table.compaction_pending += doc_table_metrics.compaction_pending;
-        info.disk_doc_table.num_running_compactions += doc_table_metrics.num_running_compactions;
-        info.disk_doc_table.num_running_flushes += doc_table_metrics.num_running_flushes;
-        info.disk_doc_table.estimate_pending_compaction_bytes += doc_table_metrics.estimate_pending_compaction_bytes;
-
-        // Data size estimates
-        info.disk_doc_table.estimate_num_keys += doc_table_metrics.estimate_num_keys;
-        info.disk_doc_table.estimate_live_data_size += doc_table_metrics.estimate_live_data_size;
-        info.disk_doc_table.live_sst_files_size += doc_table_metrics.live_sst_files_size;
-
-        // Version tracking
-        info.disk_doc_table.num_live_versions += doc_table_metrics.num_live_versions;
-
-        // Memory usage
-        info.disk_doc_table.estimate_table_readers_mem += doc_table_metrics.estimate_table_readers_mem;
+        AccumulateDiskMetrics(&info.disk_doc_table, &doc_table_metrics);
       }
 
       DiskColumnFamilyMetrics inverted_index_metrics = {0};
       if (SearchDisk_CollectTextInvertedIndexMetrics(sp->diskSpec, &inverted_index_metrics)) {
-        // Memtable metrics
-        info.disk_inverted_index.num_immutable_memtables += inverted_index_metrics.num_immutable_memtables;
-        info.disk_inverted_index.num_immutable_memtables_flushed += inverted_index_metrics.num_immutable_memtables_flushed;
-        info.disk_inverted_index.mem_table_flush_pending += inverted_index_metrics.mem_table_flush_pending;
-        info.disk_inverted_index.active_memtable_size += inverted_index_metrics.active_memtable_size;
-        info.disk_inverted_index.all_memtables_size += inverted_index_metrics.all_memtables_size;
-        info.disk_inverted_index.size_all_mem_tables += inverted_index_metrics.size_all_mem_tables;
-        info.disk_inverted_index.num_entries_active_memtable += inverted_index_metrics.num_entries_active_memtable;
-        info.disk_inverted_index.num_entries_imm_memtables += inverted_index_metrics.num_entries_imm_memtables;
-        info.disk_inverted_index.num_deletes_active_memtable += inverted_index_metrics.num_deletes_active_memtable;
-        info.disk_inverted_index.num_deletes_imm_memtables += inverted_index_metrics.num_deletes_imm_memtables;
-
-        // Compaction metrics
-        info.disk_inverted_index.compaction_pending += inverted_index_metrics.compaction_pending;
-        info.disk_inverted_index.num_running_compactions += inverted_index_metrics.num_running_compactions;
-        info.disk_inverted_index.num_running_flushes += inverted_index_metrics.num_running_flushes;
-        info.disk_inverted_index.estimate_pending_compaction_bytes += inverted_index_metrics.estimate_pending_compaction_bytes;
-
-        // Data size estimates
-        info.disk_inverted_index.estimate_num_keys += inverted_index_metrics.estimate_num_keys;
-        info.disk_inverted_index.estimate_live_data_size += inverted_index_metrics.estimate_live_data_size;
-        info.disk_inverted_index.live_sst_files_size += inverted_index_metrics.live_sst_files_size;
-
-        // Version tracking
-        info.disk_inverted_index.num_live_versions += inverted_index_metrics.num_live_versions;
-
-        // Memory usage
-        info.disk_inverted_index.estimate_table_readers_mem += inverted_index_metrics.estimate_table_readers_mem;
+        AccumulateDiskMetrics(&info.disk_inverted_index, &inverted_index_metrics);
       }
     }
 
