@@ -10,6 +10,7 @@
 #include "util/dict.h"
 #include "spec.h"
 #include "field_spec_info.h"
+#include "search_disk.h"
 #include <string.h>  // Add this for strerror
 
 // Assuming the GIL is held by the caller
@@ -74,6 +75,97 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       info.max_indexing_failures = index_error_count;
     }
     info.background_indexing_failures_OOM += sp->scan_failed_OOM;
+
+    // Collect disk metrics if disk API is enabled (otherwise all are `0`s).
+    if (sp->diskSpec) {
+      DiskColumnFamilyMetrics doc_table_metrics = {0};
+      if (SearchDisk_CollectDocTableMetrics(sp->diskSpec, &doc_table_metrics)) {
+        // Memtable metrics
+        info.disk_doc_table.num_immutable_memtables += doc_table_metrics.num_immutable_memtables;
+        info.disk_doc_table.num_immutable_memtables_flushed += doc_table_metrics.num_immutable_memtables_flushed;
+        info.disk_doc_table.mem_table_flush_pending += doc_table_metrics.mem_table_flush_pending;
+        info.disk_doc_table.active_memtable_size += doc_table_metrics.active_memtable_size;
+        info.disk_doc_table.all_memtables_size += doc_table_metrics.all_memtables_size;
+        info.disk_doc_table.size_all_mem_tables += doc_table_metrics.size_all_mem_tables;
+        info.disk_doc_table.num_entries_active_memtable += doc_table_metrics.num_entries_active_memtable;
+        info.disk_doc_table.num_entries_imm_memtables += doc_table_metrics.num_entries_imm_memtables;
+        info.disk_doc_table.num_deletes_active_memtable += doc_table_metrics.num_deletes_active_memtable;
+        info.disk_doc_table.num_deletes_imm_memtables += doc_table_metrics.num_deletes_imm_memtables;
+
+        // Compaction metrics
+        info.disk_doc_table.compaction_pending += doc_table_metrics.compaction_pending;
+        info.disk_doc_table.num_running_compactions += doc_table_metrics.num_running_compactions;
+        info.disk_doc_table.num_running_flushes += doc_table_metrics.num_running_flushes;
+        info.disk_doc_table.estimate_pending_compaction_bytes += doc_table_metrics.estimate_pending_compaction_bytes;
+
+        // Data size estimates
+        info.disk_doc_table.estimate_num_keys += doc_table_metrics.estimate_num_keys;
+        info.disk_doc_table.estimate_live_data_size += doc_table_metrics.estimate_live_data_size;
+        info.disk_doc_table.live_sst_files_size += doc_table_metrics.live_sst_files_size;
+
+        // Level information
+        info.disk_doc_table.base_level += doc_table_metrics.base_level;
+
+        // Write control
+        info.disk_doc_table.actual_delayed_write_rate += doc_table_metrics.actual_delayed_write_rate;
+        info.disk_doc_table.is_write_stopped += doc_table_metrics.is_write_stopped;
+
+        // Version tracking
+        info.disk_doc_table.num_live_versions += doc_table_metrics.num_live_versions;
+        info.disk_doc_table.current_super_version_number += doc_table_metrics.current_super_version_number;
+
+        // Snapshot info
+        info.disk_doc_table.oldest_snapshot_time += doc_table_metrics.oldest_snapshot_time;
+        info.disk_doc_table.oldest_snapshot_sequence += doc_table_metrics.oldest_snapshot_sequence;
+
+        // Memory usage
+        info.disk_doc_table.estimate_table_readers_mem += doc_table_metrics.estimate_table_readers_mem;
+      }
+
+      DiskColumnFamilyMetrics inverted_index_metrics = {0};
+      if (SearchDisk_CollectTextInvertedIndexMetrics(sp->diskSpec, &inverted_index_metrics)) {
+        // Memtable metrics
+        info.disk_inverted_index.num_immutable_memtables += inverted_index_metrics.num_immutable_memtables;
+        info.disk_inverted_index.num_immutable_memtables_flushed += inverted_index_metrics.num_immutable_memtables_flushed;
+        info.disk_inverted_index.mem_table_flush_pending += inverted_index_metrics.mem_table_flush_pending;
+        info.disk_inverted_index.active_memtable_size += inverted_index_metrics.active_memtable_size;
+        info.disk_inverted_index.all_memtables_size += inverted_index_metrics.all_memtables_size;
+        info.disk_inverted_index.size_all_mem_tables += inverted_index_metrics.size_all_mem_tables;
+        info.disk_inverted_index.num_entries_active_memtable += inverted_index_metrics.num_entries_active_memtable;
+        info.disk_inverted_index.num_entries_imm_memtables += inverted_index_metrics.num_entries_imm_memtables;
+        info.disk_inverted_index.num_deletes_active_memtable += inverted_index_metrics.num_deletes_active_memtable;
+        info.disk_inverted_index.num_deletes_imm_memtables += inverted_index_metrics.num_deletes_imm_memtables;
+
+        // Compaction metrics
+        info.disk_inverted_index.compaction_pending += inverted_index_metrics.compaction_pending;
+        info.disk_inverted_index.num_running_compactions += inverted_index_metrics.num_running_compactions;
+        info.disk_inverted_index.num_running_flushes += inverted_index_metrics.num_running_flushes;
+        info.disk_inverted_index.estimate_pending_compaction_bytes += inverted_index_metrics.estimate_pending_compaction_bytes;
+
+        // Data size estimates
+        info.disk_inverted_index.estimate_num_keys += inverted_index_metrics.estimate_num_keys;
+        info.disk_inverted_index.estimate_live_data_size += inverted_index_metrics.estimate_live_data_size;
+        info.disk_inverted_index.live_sst_files_size += inverted_index_metrics.live_sst_files_size;
+
+        // Level information
+        info.disk_inverted_index.base_level += inverted_index_metrics.base_level;
+
+        // Write control
+        info.disk_inverted_index.actual_delayed_write_rate += inverted_index_metrics.actual_delayed_write_rate;
+        info.disk_inverted_index.is_write_stopped += inverted_index_metrics.is_write_stopped;
+
+        // Version tracking
+        info.disk_inverted_index.num_live_versions += inverted_index_metrics.num_live_versions;
+        info.disk_inverted_index.current_super_version_number += inverted_index_metrics.current_super_version_number;
+
+        // Snapshot info
+        info.disk_inverted_index.oldest_snapshot_time += inverted_index_metrics.oldest_snapshot_time;
+        info.disk_inverted_index.oldest_snapshot_sequence += inverted_index_metrics.oldest_snapshot_sequence;
+
+        // Memory usage
+        info.disk_inverted_index.estimate_table_readers_mem += inverted_index_metrics.estimate_table_readers_mem;
+      }
+    }
 
     pthread_rwlock_unlock(&sp->rwlock);
   }

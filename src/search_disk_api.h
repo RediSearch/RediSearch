@@ -169,11 +169,83 @@ typedef struct VectorDiskAPI {
   void (*freeVectorIndex)(void* vecIndex);
 } VectorDiskAPI;
 
+/**
+ * @brief Column family metrics for RocksDB/SpeeDB
+ *
+ * All metrics are non-string (integer) properties that can be queried efficiently.
+ * These metrics are specific to individual column families (doc_table or inverted_index).
+ */
+typedef struct DiskColumnFamilyMetrics {
+  // Memtable metrics
+  uint64_t num_immutable_memtables;
+  uint64_t num_immutable_memtables_flushed;
+  uint64_t mem_table_flush_pending;
+  uint64_t active_memtable_size;
+  uint64_t all_memtables_size;
+  uint64_t size_all_mem_tables;
+  uint64_t num_entries_active_memtable;
+  uint64_t num_entries_imm_memtables;
+  uint64_t num_deletes_active_memtable;
+  uint64_t num_deletes_imm_memtables;
+
+  // Compaction metrics
+  uint64_t compaction_pending;
+  uint64_t num_running_compactions;
+  uint64_t num_running_flushes;
+  uint64_t estimate_pending_compaction_bytes;
+
+  // Data size estimates
+  uint64_t estimate_num_keys;
+  uint64_t estimate_live_data_size;
+  uint64_t live_sst_files_size;
+
+  // Level information
+  uint64_t base_level;
+
+  // Write control
+  uint64_t actual_delayed_write_rate;
+  uint64_t is_write_stopped;
+
+  // Version tracking
+  uint64_t num_live_versions;
+  uint64_t current_super_version_number;
+
+  // Snapshot info
+  uint64_t oldest_snapshot_time;
+  uint64_t oldest_snapshot_sequence;
+
+  // Memory usage
+  uint64_t estimate_table_readers_mem;
+} DiskColumnFamilyMetrics;
+
+typedef struct MetricsDiskAPI {
+  /**
+   * @brief Collect metrics for the doc_table column family
+   *
+   * @param index Pointer to the index spec
+   * @param metrics Pointer to the metrics structure to populate
+   * @return true if successful, false on error
+   */
+  bool (*collectDocTableMetrics)(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics);
+
+  /**
+   * @brief Collect metrics for the inverted_index (fulltext) column family
+   *
+   * @param index Pointer to the index spec
+   * @param metrics Pointer to the metrics structure to populate
+   * @return true if successful, false on error
+   */
+  bool (*collectTextInvertedIndexMetrics)(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics);
+
+  // TODO: Add db-level metrics exposure (num-snapshots etc..)
+} MetricsDiskAPI;
+
 typedef struct RedisSearchDiskAPI {
   BasicDiskAPI basic;
   IndexDiskAPI index;
   DocTableDiskAPI docTable;
   VectorDiskAPI vector;
+  MetricsDiskAPI metrics;
 } RedisSearchDiskAPI;
 
 #ifdef __cplusplus
