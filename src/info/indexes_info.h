@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include "fork_gc.h"
 #include "rs_wall_clock.h"
+#include "search_disk_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,37 +21,6 @@ typedef struct {
   size_t total_vector_idx_mem;        // Total memory used by the vector index
   size_t total_mark_deleted_vectors;  // Number of vectors marked as deleted
 } TotalIndexesFieldsInfo;
-
-typedef struct {
-  // Memtable metrics
-  uint64_t num_immutable_memtables;
-  uint64_t num_immutable_memtables_flushed;
-  uint64_t mem_table_flush_pending;
-  uint64_t active_memtable_size;
-  uint64_t all_memtables_size;
-  uint64_t size_all_mem_tables;
-  uint64_t num_entries_active_memtable;
-  uint64_t num_entries_imm_memtables;
-  uint64_t num_deletes_active_memtable;
-  uint64_t num_deletes_imm_memtables;
-
-  // Compaction metrics
-  uint64_t compaction_pending;
-  uint64_t num_running_compactions;
-  uint64_t num_running_flushes;
-  uint64_t estimate_pending_compaction_bytes;
-
-  // Data size estimates
-  uint64_t estimate_num_keys;
-  uint64_t estimate_live_data_size;
-  uint64_t live_sst_files_size;
-
-  // Version tracking
-  uint64_t num_live_versions;
-
-  // Memory usage
-  uint64_t estimate_table_readers_mem;
-} TotalDiskColumnFamilyMetrics;
 
 typedef struct {
   // Memory
@@ -81,8 +51,8 @@ typedef struct {
   size_t total_active_queries;         // Total number of active queries (reads)
 
   // Disk metrics
-  TotalDiskColumnFamilyMetrics disk_doc_table;      // Aggregated doc_table metrics
-  TotalDiskColumnFamilyMetrics disk_inverted_index; // Aggregated inverted_index metrics
+  DiskColumnFamilyMetrics disk_doc_table;      // Aggregated doc_table metrics
+  DiskColumnFamilyMetrics disk_inverted_index; // Aggregated inverted_index metrics
 } TotalIndexesInfo;
 
 // Returns an aggregated statistics of all the currently existing indexes

@@ -10,11 +10,13 @@
 
 #include "redismodule.h"
 #include "redisearch.h"
-#include "iterators/iterator_api.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Forward declarations to avoid circular dependencies
+typedef struct QueryIterator QueryIterator;
 
 // Helper opaque types for the disk API
 typedef const void* RedisSearchDisk;
@@ -198,9 +200,6 @@ typedef struct DiskColumnFamilyMetrics {
   uint64_t estimate_num_keys;
   uint64_t estimate_live_data_size;
   uint64_t live_sst_files_size;
-
-  // Level information
-  uint64_t base_level;
 
   // Version tracking
   uint64_t num_live_versions;

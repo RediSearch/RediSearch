@@ -19,7 +19,7 @@
  * @param dest Destination metrics structure to accumulate into
  * @param src Source metrics structure to accumulate from
  */
-static void AccumulateDiskMetrics(TotalDiskColumnFamilyMetrics *dest, const DiskColumnFamilyMetrics *src) {
+static void AccumulateDiskMetrics(DiskColumnFamilyMetrics *dest, const DiskColumnFamilyMetrics *src) {
   // Memtable metrics
   dest->num_immutable_memtables += src->num_immutable_memtables;
   dest->num_immutable_memtables_flushed += src->num_immutable_memtables_flushed;
@@ -118,11 +118,15 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       DiskColumnFamilyMetrics doc_table_metrics = {0};
       if (SearchDisk_CollectDocTableMetrics(sp->diskSpec, &doc_table_metrics)) {
         AccumulateDiskMetrics(&info.disk_doc_table, &doc_table_metrics);
+      } else {
+        RedisModule_Log(RSDummyContext, "warning", "Could not collect disk related info for index %s", HiddenString_GetUnsafe(sp->specName, NULL));
       }
 
       DiskColumnFamilyMetrics inverted_index_metrics = {0};
       if (SearchDisk_CollectTextInvertedIndexMetrics(sp->diskSpec, &inverted_index_metrics)) {
         AccumulateDiskMetrics(&info.disk_inverted_index, &inverted_index_metrics);
+      } else {
+        RedisModule_Log(RSDummyContext, "warning", "Could not collect disk related info for index %s", HiddenString_GetUnsafe(sp->specName, NULL));
       }
     }
 
