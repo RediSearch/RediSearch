@@ -3113,7 +3113,8 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   }
 
   // Disk index
-  // Check if we are using SST files with this RDB.
+  // Check if we are using SST files with this RDB. If so, we save the disk-related
+  // RAM-based data-structures to the RDB.
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
