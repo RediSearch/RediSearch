@@ -202,17 +202,8 @@ typedef struct DiskColumnFamilyMetrics {
   // Level information
   uint64_t base_level;
 
-  // Write control
-  uint64_t actual_delayed_write_rate;
-  uint64_t is_write_stopped;
-
   // Version tracking
   uint64_t num_live_versions;
-  uint64_t current_super_version_number;
-
-  // Snapshot info
-  uint64_t oldest_snapshot_time;
-  uint64_t oldest_snapshot_sequence;
 
   // Memory usage
   uint64_t estimate_table_readers_mem;
