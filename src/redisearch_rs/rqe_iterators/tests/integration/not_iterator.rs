@@ -66,7 +66,12 @@ fn read_skips_child_docs() {
 #[test]
 fn read_with_empty_child_behaves_like_wildcard() {
     // When the child is empty, NOT should yield all doc IDs in [1, max_doc_id]
-    let mut it = Not::new(SortedIdList::new(vec![]), 5, 1.0, NOT_ITERATOR_LARGE_TIMEOUT);
+    let mut it = Not::new(
+        SortedIdList::new(vec![]),
+        5,
+        1.0,
+        NOT_ITERATOR_LARGE_TIMEOUT,
+    );
 
     for expected_id in 1u64..=5 {
         let result = it.read();
