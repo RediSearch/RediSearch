@@ -69,7 +69,7 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).collect();
+                    let data: Vec<_> = (1..1_000_000).collect();
                     IdListSorted::new(data)
                 },
                 |it| {
@@ -85,7 +85,7 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).map(|x| x * 1000).collect();
+                    let data: Vec<_> = (1..1_000_000).map(|x| x * 1000).collect();
                     IdListSorted::new(data)
                 },
                 |it| {
@@ -103,7 +103,7 @@ impl Bencher {
             let step = 100;
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).collect();
+                    let data: Vec<_> = (1..1_000_000).collect();
                     IdListSorted::new(data)
                 },
                 |it| {
@@ -120,7 +120,7 @@ impl Bencher {
             let step = 100;
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).map(|x| x * 1000).collect();
+                    let data: Vec<_> = (1..1_000_000).map(|x| x * 1000).collect();
                     IdListSorted::new(data)
                 },
                 |it| {

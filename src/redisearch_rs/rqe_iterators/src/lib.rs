@@ -21,6 +21,7 @@ pub mod metric;
 pub mod not_iterator;
 pub mod optional;
 pub mod profile;
+pub mod utils;
 pub mod wildcard;
 
 pub use empty::Empty;

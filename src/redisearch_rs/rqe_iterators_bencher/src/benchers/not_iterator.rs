@@ -91,7 +91,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     // Child has 1% of docs (every 100th doc)
-                    let data = (1..MAX_DOC_ID).step_by(100).collect();
+                    let data: Vec<_> = (1..MAX_DOC_ID).step_by(100).collect();
                     Not::new(IdListSorted::new(data), MAX_DOC_ID, 1.0)
                 },
                 |it| {
@@ -132,7 +132,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     // Child has 99% of docs (all except every 100th doc)
-                    let data = (1..MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
+                    let data: Vec<_> = (1..MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
                     Not::new(IdListSorted::new(data), MAX_DOC_ID, 1.0)
                 },
                 |it| {
@@ -210,7 +210,7 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..MAX_DOC_ID).step_by(100).collect();
+                    let data: Vec<_> = (1..MAX_DOC_ID).step_by(100).collect();
                     Not::new(IdListSorted::new(data), MAX_DOC_ID, 1.0)
                 },
                 |it| {
@@ -251,7 +251,7 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
+                    let data: Vec<_> = (1..MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
                     Not::new(IdListSorted::new(data), MAX_DOC_ID, 1.0)
                 },
                 |it| {

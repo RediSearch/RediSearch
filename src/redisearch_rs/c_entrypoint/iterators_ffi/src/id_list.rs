@@ -9,10 +9,10 @@
 
 use ffi::{
     IteratorType_ID_LIST_SORTED_ITERATOR, IteratorType_ID_LIST_UNSORTED_ITERATOR, QueryIterator,
-    RedisModule_Free, t_docId,
+    t_docId,
 };
 use inverted_index::RSIndexResult;
-use rqe_iterators::id_list::IdList;
+use rqe_iterators::{id_list::IdList, utils::OwnedSlice};
 use rqe_iterators_interop::RQEIteratorWrapper;
 
 #[unsafe(no_mangle)]
@@ -26,7 +26,7 @@ use rqe_iterators_interop::RQEIteratorWrapper;
 /// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
 pub unsafe extern "C" fn NewSortedIdListIterator(
-    ids: *const t_docId,
+    ids: *mut t_docId,
     num: u64,
     weight: f64,
 ) -> *mut QueryIterator {
@@ -44,7 +44,7 @@ pub unsafe extern "C" fn NewSortedIdListIterator(
 /// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
 pub unsafe extern "C" fn NewUnsortedIdListIterator(
-    ids: *const t_docId,
+    ids: *mut t_docId,
     num: u64,
     weight: f64,
 ) -> *mut QueryIterator {
@@ -59,33 +59,28 @@ pub unsafe extern "C" fn NewUnsortedIdListIterator(
 /// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
 unsafe fn new_id_list_iterator<const SORTED: bool>(
-    ids: *const t_docId,
+    ids: *mut t_docId,
     num: u64,
     weight: f64,
 ) -> *mut QueryIterator {
-    // TODO: Figure out a mechanism to avoid re-allocating ids on the Rust side.
-    let mut vec = Vec::with_capacity(num as usize);
-    // We assume that `num` is the number of elements in `ids`.
-    if !ids.is_null() {
-        // SAFETY: Safe thanks to 1. + 2.
-        let slice = unsafe { std::slice::from_raw_parts(ids, num as usize) };
-        vec.extend_from_slice(slice);
-        // SAFETY: The free function has been initialized at this stage.
-        let free_fn = unsafe { RedisModule_Free.unwrap() };
-        // SAFETY: Safe thanks to 3.
-        unsafe { free_fn(ids as *mut std::ffi::c_void) };
+    let ids_list = if !ids.is_null() {
+        // SAFETY: Safe thanks to 1
+        unsafe { OwnedSlice::from_c(ids, num as usize) }
     } else {
+        // SAFETY thanks to 2
         debug_assert_eq!(
             num, 0,
             "The pointer to the array of IDs is null, but the number of IDs is non-zero."
         );
-    }
+        OwnedSlice::default()
+    };
+
     RQEIteratorWrapper::boxed_new(
         if SORTED {
             IteratorType_ID_LIST_SORTED_ITERATOR
         } else {
             IteratorType_ID_LIST_UNSORTED_ITERATOR
         },
-        IdList::<SORTED>::with_result(vec, RSIndexResult::virt().weight(weight)),
+        IdList::<SORTED>::with_result(ids_list, RSIndexResult::virt().weight(weight)),
     )
 }
