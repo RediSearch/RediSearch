@@ -157,3 +157,13 @@ void SearchDisk_FreeVectorIndex(void *vecIndex) {
     RS_ASSERT(!vecIndex || disk->vector.freeVectorIndex);
     disk->vector.freeVectorIndex(vecIndex);
 }
+
+bool SearchDisk_CollectDocTableMetrics(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics) {
+  RS_ASSERT(disk && index && metrics);
+  return disk->metrics.collectDocTableMetrics(index, metrics);
+}
+
+bool SearchDisk_CollectTextInvertedIndexMetrics(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics) {
+  RS_ASSERT(index && metrics);
+  return disk->metrics.collectTextInvertedIndexMetrics(index, metrics);
+}
