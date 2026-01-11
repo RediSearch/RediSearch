@@ -756,24 +756,25 @@ int RMCK_IsIOError(RedisModuleIO *io) {
 void *RMCK_LoadDataTypeFromStringEncver(const RedisModuleString *str,
                                         const RedisModuleType *mt,
                                         int encver) {
-  RedisModuleIO io{};
-  io.buffer.insert(io.buffer.end(), str->c_str(), str->c_str() + str->size());
-  void *ret = mt->typemeths.rdb_load(&io, encver);
-  RMCK_FreeRdbIO(&io);
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  io->buffer.insert(io->buffer.end(), str->c_str(), str->c_str() + str->size());
+  void *ret = mt->typemeths.rdb_load(io, encver);
+  RMCK_FreeRdbIO(io);
   return ret;
 }
 
 RedisModuleString *RMCK_SaveDataTypeToString(RedisModuleCtx *ctx,
                                              void *data,
                                              const RedisModuleType *mt) {
-  RedisModuleIO io{};
-  mt->typemeths.rdb_save(&io, data);
-  RMCK_FreeRdbIO(&io);
-  if (io.error_flag) {
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  mt->typemeths.rdb_save(io, data);
+  if (io->error_flag) {
+    RMCK_FreeRdbIO(io);
     return nullptr;
   }
-  RedisModuleString *rms = new RedisModuleString(std::string(io.buffer.begin(), io.buffer.end()));
+  RedisModuleString *rms = new RedisModuleString(std::string(io->buffer.begin(), io->buffer.end()));
   if (ctx) ctx->addPointer(rms);
+  RMCK_FreeRdbIO(io);
   return rms;
 }
 
