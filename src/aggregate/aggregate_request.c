@@ -568,8 +568,12 @@ err:
   return REDISMODULE_ERR;
 }
 
-static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *hasEmptyFilterValue, QueryError *status) {
+static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *hasEmptyFilterValue, QueryError *status, bool isftSearchOnDisk) {
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
+    if (isftSearchOnDisk) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FILTER is not supported by FT.SEARCH ON DISK");
+      return ARG_ERROR;
+    }
     // Numeric filter
     LegacyNumericFilter **curpp = array_ensure_tail(&options->legacy.filters, LegacyNumericFilter *);
     *curpp = NumericFilter_LegacyParse(ac, hasEmptyFilterValue, status);
@@ -577,6 +581,10 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
+    if (isftSearchOnDisk) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "GEOFILTER is not supported by FT.SEARCH ON DISK");
+      return ARG_ERROR;
+    }
     LegacyGeoFilter *cur_gf = rm_new(*cur_gf);
     array_ensure_append_1(options->legacy.geo_filters, cur_gf);
     if (GeoFilter_LegacyParse(cur_gf, ac, hasEmptyFilterValue, status) != REDISMODULE_OK) {
@@ -620,7 +628,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     {NULL}
   };
 
-  ACArgSpec SearchInFlexArgs[] = {
+  ACArgSpec searchOnFlexArgs[] = {
     {.name = "INKEYS", .type = AC_ARGTYPE_SUBARGS, .target = &inKeys},
     {.name = "RETURN", .type = AC_ARGTYPE_SUBARGS, .target = &returnFields},
     {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr},
@@ -632,7 +640,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     {NULL}
   };
   bool isftSearchOnDisk = (SearchDisk_IsEnabledForValidation() && (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH));
-  ACArgSpec *querySpecs = isftSearchOnDisk ? SearchInFlexArgs : globalSearchArgs;
+  ACArgSpec *querySpecs = isftSearchOnDisk ? searchOnFlexArgs : globalSearchArgs;
 
   AREQ_AddRequestFlags(req, QEXEC_FORMAT_DEFAULT);
   bool optimization_specified = false;
@@ -682,7 +690,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       AREQ_AddRequestFlags(req, QEXEC_F_SEND_HIGHLIGHT);
 
     } else if ((AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH) &&
-               ((rv = parseQueryLegacyArgs(ac, searchOpts, &hasEmptyFilterValue, status)) != ARG_UNKNOWN)) {
+               ((rv = parseQueryLegacyArgs(ac, searchOpts, &hasEmptyFilterValue, status, isftSearchOnDisk)) != ARG_UNKNOWN)) {
       if (rv == ARG_ERROR) {
         return REDISMODULE_ERR;
       }
