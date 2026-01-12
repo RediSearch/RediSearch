@@ -62,7 +62,7 @@ overide_command:
     # -2 : requesting::random_shard, replying::retrieve_cursor
     # -3 : requesting::by_cursor, replying::retrieve_cursor
     # We only specify a custom policy if the command could cause a bottleneck and should be spread across the cluster
-    # If a policy is not specified the same shard would be preferred
+    # If a routing policy is not specified the proxy default routing logic will be used
     # Command Arity: required by the proxy in order to validate commands before sending them to the module
     # It is mandatory because during the parsing of the module.json file 
     # it is used in a python script as a direct key and get with default value is not used
