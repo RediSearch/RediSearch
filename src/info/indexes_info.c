@@ -49,16 +49,16 @@ static void AccumulateDiskMetrics(DiskColumnFamilyMetrics *dest, const DiskColum
   dest->estimate_table_readers_mem += src->estimate_table_readers_mem;
 }
 
-// Updates the total_mem field of the `TotalIndexesInfo` struct, according to
-// a `DiskColumnFamilyMetrics`.
-// We add the mem-tables' size, along with the estimate of the tables' readers
-// memory, and the live sst files' size.
+// Returns the total memory used by the disk components of the index.
+// We currently take into account:
+//  1. The mem-tables' size
+//  2. The estimate of the tables' readers memory
+//  3. SST files' size.
 // TODO: Add memory used for the deleted-ids set (relevant for doc-table only).
-static inline void updateTotalMemFromDiskMetrics(TotalIndexesInfo *info, DiskColumnFamilyMetrics *diskMetrics) {
-  info->total_mem +=
-    diskMetrics->size_all_mem_tables +
-    diskMetrics->estimate_table_readers_mem +
-    diskMetrics->live_sst_files_size;
+static inline size_t updateTotalMemFromDiskMetrics(TotalIndexesInfo *info, DiskColumnFamilyMetrics *diskMetrics) {
+  return diskMetrics->size_all_mem_tables +
+         diskMetrics->estimate_table_readers_mem +
+         diskMetrics->live_sst_files_size;
 }
 
 // Assuming the GIL is held by the caller
@@ -92,10 +92,9 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.fields_stats.total_mark_deleted_vectors += vec_info.marked_deleted;
 
     size_t cur_mem = IndexSpec_TotalMemUsage(sp, 0, 0, 0, vec_info.memory);
+    size_t prev_total_mem = info.total_mem;
     info.total_mem += cur_mem;
 
-    if (info.min_mem > cur_mem) info.min_mem = cur_mem;
-    if (info.max_mem < cur_mem) info.max_mem = cur_mem;
     info.indexing_time += sp->stats.totalIndexTime;
 
     if (sp->gc) {
@@ -130,7 +129,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       if (SearchDisk_CollectDocTableMetrics(sp->diskSpec, &doc_table_metrics)) {
         AccumulateDiskMetrics(&info.disk_doc_table, &doc_table_metrics);
         // Update info.total_mem with disk related objects.
-        updateTotalMemFromDiskMetrics(&info, &doc_table_metrics);
+        info.total_mem += updateTotalMemFromDiskMetrics(&info, &doc_table_metrics);
       } else {
         RedisModule_Log(RSDummyContext, "warning", "Could not collect disk related info for index %s", HiddenString_GetUnsafe(sp->specName, NULL));
       }
@@ -139,11 +138,17 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       if (SearchDisk_CollectTextInvertedIndexMetrics(sp->diskSpec, &inverted_index_metrics)) {
         AccumulateDiskMetrics(&info.disk_inverted_index, &inverted_index_metrics);
         // Update info.total_mem with disk related objects.
-        updateTotalMemFromDiskMetrics(&info, &doc_table_metrics);
+        info.total_mem += updateTotalMemFromDiskMetrics(&info, &inverted_index_metrics);
       } else {
         RedisModule_Log(RSDummyContext, "warning", "Could not collect disk related info for index %s", HiddenString_GetUnsafe(sp->specName, NULL));
       }
     }
+
+    size_t total_index_mem = info.total_mem - prev_total_mem;
+
+    // Update min_mem and max_mem with total memory including disk storage
+    if (info.min_mem > total_index_mem) info.min_mem = total_index_mem;
+    if (info.max_mem < total_index_mem) info.max_mem = total_index_mem;
 
     pthread_rwlock_unlock(&sp->rwlock);
   }
