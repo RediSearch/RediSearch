@@ -43,7 +43,7 @@ impl DerefMut for RSSortingVector {
 /// Safety:
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_Get(
+pub unsafe extern "C" fn RSSortingVector_Get(
     vec: *const RSSortingVector,
     idx: size_t,
 ) -> *mut ffi::RSValue {
@@ -70,7 +70,7 @@ unsafe extern "C" fn RSSortingVector_Get(
 /// Safety:
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or null.
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> size_t {
+pub unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> size_t {
     assert!(
         !vec.is_null(),
         "RSSortingVector_Length called with null pointer",
@@ -88,7 +88,7 @@ unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> size
 /// Safety:
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_GetMemorySize(
+pub unsafe extern "C" fn RSSortingVector_GetMemorySize(
     vector: Option<NonNull<RSSortingVector>>,
 ) -> size_t {
     assert!(
@@ -108,7 +108,7 @@ unsafe extern "C" fn RSSortingVector_GetMemorySize(
 /// Safety:
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_PutNum(
+pub unsafe extern "C" fn RSSortingVector_PutNum(
     vec: Option<NonNull<RSSortingVector>>,
     idx: size_t,
     num: f64,
@@ -137,7 +137,7 @@ unsafe extern "C" fn RSSortingVector_PutNum(
 /// 2. The `str` pointer must point to a valid C string (null-terminated).
 /// 3. The `str` pointer must be normalized (lowercase and utf normalization).
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_PutStr(
+pub unsafe extern "C" fn RSSortingVector_PutStr(
     vec: Option<NonNull<RSSortingVector>>,
     idx: size_t,
     str: *const c_char,
@@ -175,7 +175,7 @@ unsafe extern "C" fn RSSortingVector_PutStr(
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
 /// 2. The `val` pointer must point to a valid `RSValue` instance.
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_PutRSVal(
+pub unsafe extern "C" fn RSSortingVector_PutRSVal(
     vec: Option<NonNull<RSSortingVector>>,
     idx: size_t,
     val: Option<NonNull<ffi::RSValue>>,
@@ -208,7 +208,10 @@ unsafe extern "C" fn RSSortingVector_PutRSVal(
 /// Safety:
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_PutNull(vec: Option<NonNull<RSSortingVector>>, idx: size_t) {
+pub unsafe extern "C" fn RSSortingVector_PutNull(
+    vec: Option<NonNull<RSSortingVector>>,
+    idx: size_t,
+) {
     assert!(
         vec.is_some(),
         "RSSortingVector_PutNull called with null pointer"
@@ -225,7 +228,7 @@ unsafe extern "C" fn RSSortingVector_PutNull(vec: Option<NonNull<RSSortingVector
 
 /// Creates a new `RSSortingVector` with the given length. If the length is greater than `RS_SORTABLES_MAX`=`1024`, it returns a null pointer.
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_New(len: size_t) -> *mut RSSortingVector {
+pub unsafe extern "C" fn RSSortingVector_New(len: size_t) -> *mut RSSortingVector {
     assert!(
         len <= RS_SORTABLES_MAX,
         "RSSortingVector_New called with length greater than RS_SORTABLES_MAX ({RS_SORTABLES_MAX})"
@@ -244,7 +247,7 @@ unsafe extern "C" fn RSSortingVector_New(len: size_t) -> *mut RSSortingVector {
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
 /// 2. The pointer must not have been freed before this call to avoid double free.
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_Free(vector: *mut RSSortingVector) {
+pub unsafe extern "C" fn RSSortingVector_Free(vector: *mut RSSortingVector) {
     // We allow null in free as this is C standard behavior and used in RediSearch codebase.
     if vector.is_null() {
         return;

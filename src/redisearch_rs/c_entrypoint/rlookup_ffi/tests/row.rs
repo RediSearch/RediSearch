@@ -107,7 +107,7 @@ fn rlookuprow_writebynameowned() {
 
 /// Mock implementation of `RSValue_IncrRef` for testing purposes
 #[unsafe(no_mangle)]
-extern "C" fn RSValue_IncrRef(v: Option<NonNull<ffi::RSValue>>) -> *mut ffi::RSValue {
+pub extern "C" fn RSValue_IncrRef(v: Option<NonNull<ffi::RSValue>>) -> *mut ffi::RSValue {
     const MAX_REFCOUNT: u16 = (i16::MAX) as u16;
 
     let v = v.unwrap();
@@ -125,7 +125,7 @@ extern "C" fn RSValue_IncrRef(v: Option<NonNull<ffi::RSValue>>) -> *mut ffi::RSV
 
 /// Mock implementation of `RSValue_DecrRef` for testing purposes
 #[unsafe(no_mangle)]
-extern "C" fn RSValue_DecrRef(v: Option<NonNull<ffi::RSValue>>) {
+pub extern "C" fn RSValue_DecrRef(v: Option<NonNull<ffi::RSValue>>) {
     let v = v.unwrap();
     let refcount_ptr = unsafe {
         v.byte_add(offset_of!(ffi::RSValue, _refcount))
@@ -139,7 +139,7 @@ extern "C" fn RSValue_DecrRef(v: Option<NonNull<ffi::RSValue>>) {
 
 /// Mock implementation of `RSValue_NewNumber` for testing purposes
 #[unsafe(no_mangle)]
-extern "C" fn RSValue_NewNumber(numval: f64) -> *mut ffi::RSValue {
+pub extern "C" fn RSValue_NewNumber(numval: f64) -> *mut ffi::RSValue {
     Box::into_raw(Box::new(ffi::RSValue {
         __bindgen_anon_1: ffi::RSValue__bindgen_ty_1 { _numval: numval },
         _bitfield_align_1: [0u8; 0],
@@ -161,7 +161,7 @@ struct UserString {
 
 /// Mock implementation of `HiddenString_GetUnsafe` from obfuscation/hidden.h for testing purposes
 #[unsafe(no_mangle)]
-extern "C" fn HiddenString_GetUnsafe(
+pub extern "C" fn HiddenString_GetUnsafe(
     value: *const ffi::HiddenString,
     length: *mut usize,
 ) -> *const c_char {
@@ -180,7 +180,7 @@ extern "C" fn HiddenString_GetUnsafe(
 /// - a negative value if left is less than right
 /// - a positive value if left is greater than right
 #[unsafe(no_mangle)]
-extern "C" fn HiddenString_CompareC(
+pub extern "C" fn HiddenString_CompareC(
     left: Option<NonNull<ffi::HiddenString>>,
     right: *const c_char,
     right_length: usize,
@@ -230,7 +230,7 @@ extern "C" fn HiddenString_CompareC(
 
 /// Mock implementation of `IndexSpecCache_Decref` from spec.h for testing purposes
 #[unsafe(no_mangle)]
-extern "C" fn IndexSpecCache_Decref(s: Option<NonNull<ffi::IndexSpecCache>>) {
+pub extern "C" fn IndexSpecCache_Decref(s: Option<NonNull<ffi::IndexSpecCache>>) {
     let s = s.unwrap();
     let refcount = unsafe {
         s.byte_add(offset_of!(ffi::IndexSpecCache, refcount))
