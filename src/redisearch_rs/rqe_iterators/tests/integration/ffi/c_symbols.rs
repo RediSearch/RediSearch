@@ -11,5 +11,4 @@
 //! by the static C libraries we are linking against in build.rs.
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
-#[expect(unused_imports)]
-pub use redisearch_rs;
+extern crate redisearch_rs;
