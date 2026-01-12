@@ -141,6 +141,7 @@ jobs:
           import boto3
           import os
           import json
+          import re
           from concurrent.futures import ThreadPoolExecutor
           from zipfile import ZipFile
 
@@ -148,20 +149,25 @@ jobs:
           oss_dir = "redisearch-oss"
           ent_dir = "redisearch"
 
-          suffix = ".${{ env.SOURCE }}.zip"
-          new_suffix = ".${{ needs.validate-tag.outputs.cur_version }}.zip"
           expected_sha = "${{ needs.validate-tag.outputs.expected_sha }}"
+          expected_short_sha = expected_sha[:7]
+
+          # Suffix pattern: .{SOURCE}.{TIMESTAMP}.{GIT_SHA}.zip
+          # Example: .8.0.20231228.123456.abc1234.zip
+          # Pattern matches: .+.{SOURCE}. followed by timestamp (YYYYMMDD.HHMMSS) and the expected git SHA (7 chars)
+          suffix_pattern = re.compile(rf"(.+)\.{re.escape('${{ env.SOURCE }}')}\.\d{{8}}\.\d{{6}}\.{re.escape(expected_short_sha)}\.zip$")
+          new_suffix = rf"\1.${{ needs.validate-tag.outputs.cur_version }}.zip"
 
           client = boto3.client("s3")
 
           ########################### Helper Functions ###########################
 
-          # List all file in `bucket`, with suffix `suffix` and the given prefix (path)
+          # List all file in `bucket`, matching suffix_pattern and the given prefix (path)
           def list_files_by_branch(prefix):
               paginator = client.get_paginator("list_objects_v2")
               for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
                   for obj in page.get("Contents", []):
-                      if obj["Key"].endswith(suffix):
+                      if suffix_pattern.search(obj["Key"]):
                           yield obj["Key"]
 
           def list_snapshots_by_branch(dir, package):
@@ -179,9 +185,10 @@ jobs:
                       return sha[2:-1] if sha[:2] in ['b"', "b'"] else sha
 
           # new location is outside snapshots/ directory and with the new suffix
-          # Only called on files we know end with `suffix` and have a `snapshot` directory in the path
+          # Remove snapshots/ directory and replace the suffix pattern with the new suffix
           def get_target_name(name):
-              return name.replace("snapshots/", "", 1)[:-len(suffix)] + new_suffix
+              name_without_snapshots = name.replace("snapshots/", "", 1)
+              return suffix_pattern.sub(new_suffix, name_without_snapshots)
 
           def group_print(title, args):
               print(f"::group::{title} ({len(args)})")
