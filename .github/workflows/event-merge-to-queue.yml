@@ -6,11 +6,12 @@ run-name: Validate ${{ github.ref_name }}
 on:
   merge_group:
     types: [checks_requested]
+  workflow_dispatch:
 
 concurrency:
-  # This group identifies the PR by the tree ID of the head commit.
-  # TODO: Replace with PR number of branch name once GH adds it to the event context
-  group: ${{ github.workflow }}-${{ github.event.merge_group.head_commit.tree_id }}
+  # This group identifies the PR by the tree ID of the head commit (merge_group) or ref (workflow_dispatch)
+  # TODO: Replace with PR number or branch name once GH adds it to the event context
+  group: ${{ github.workflow }}-${{ github.event.merge_group.head_commit.tree_id || github.ref }}
   cancel-in-progress: true
 
 # TODO: Use RedisJSON's `${{ vars.DEFAULT_REDISJSON_REF }}` branch when testing on nightly
