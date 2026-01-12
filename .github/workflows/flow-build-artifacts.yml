@@ -64,9 +64,10 @@ jobs:
           echo "Building from branch: $BRANCH_NAME"
           # Generate timestamp at workflow start for consistent versioning across all builds
           TIMESTAMP=$(date -u +"%Y%m%d.%H%M%S")
-          # Add workflow number to ensure the version is unique (if multiple workflows started at the same time)
-          WORKFLOW_NUM=${{ github.run_number }}
-          VERSION_SUFFIX=".${TIMESTAMP}.${WORKFLOW_NUM}"
+          # Use git SHA for version suffix to ensure uniqueness
+          GIT_SHA="${{ steps.set-sha.outputs.sha }}"
+          SHORT_SHA="${GIT_SHA:0:7}"
+          VERSION_SUFFIX=".${TIMESTAMP}.${SHORT_SHA}"
           echo VERSION_SUFFIX=$VERSION_SUFFIX >> $GITHUB_OUTPUT
       - name: Validate Reference
         shell: python
