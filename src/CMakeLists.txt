@@ -135,9 +135,12 @@ add_dependencies(redisearch_c VectorSimilarity)
 add_dependencies(redisearch_c generate_command_info)
 
 #----------------------------------------------------------------------------------------------
-# Build a combined static library for Rust tests/benchmarks (only when tests are enabled)
+# Build a static library that combines all symbols defined in C/C++,
+# by RediSearch or by one of its dependencies (either direct or transitive).
+# This static library will be linked by Rust tests and benchmarks whenever
+# they have to invoke a foreign symbol.
 if(BUILD_SEARCH_UNIT_TESTS)
-    # Recursively collect all static library dependencies from a target.
+    # A helper function to recursively collect all static library dependencies from a target.
     # Accumulates results in _COLLECT_LIBS (library paths) and _COLLECT_TARGETS (target names).
     function(_collect_static_libs_recurse target)
         # Skip if already visited or not a valid target
@@ -209,24 +212,24 @@ if(BUILD_SEARCH_UNIT_TESTS)
         endforeach()
     endfunction()
 
-    # Collect all static library dependencies from a target into output variables.
-    macro(collect_static_libs target out_libs out_targets)
+    macro(collect_static_libs target out_libs)
         set(_COLLECT_LIBS "")
         set(_COLLECT_TARGETS "")
         _collect_static_libs_recurse(${target})
         set(${out_libs} ${_COLLECT_LIBS})
-        set(${out_targets} ${_COLLECT_TARGETS})
     endmacro()
 
     set(REDISEARCH_ALL_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/libredisearch_all.a")
 
     # Collect all static library dependencies from redisearch_c
     set(LIBS_TO_MERGE "")
-    set(VISITED_TARGETS "")
-    collect_static_libs(redisearch_c LIBS_TO_MERGE VISITED_TARGETS)
+    collect_static_libs(redisearch_c LIBS_TO_MERGE)
 
-    # On Linux, SVS is fetched via FetchContent and its IMPORTED targets aren't
-    # visible from this scope. Add SVS static libraries from the known path.
+    # On Linux, SVS may be precompiled and fetched via FetchContent.
+    # As a consequence, its IMPORTED targets aren't visible from this scope and won't
+    # be picked up by `collect_static_libs`, causing undefined symbol errors at link
+    # time when building Rust tests.
+    # To fix the issue, we add SVS and its dependencies using their known path.
     set(_svs_lib_dir "${CMAKE_BINARY_DIR}/_deps/svs-src/lib")
     if(EXISTS "${_svs_lib_dir}")
         file(GLOB _svs_static_libs "${_svs_lib_dir}/*.a")
@@ -237,7 +240,6 @@ if(BUILD_SEARCH_UNIT_TESTS)
     endif()
 
     list(REMOVE_DUPLICATES LIBS_TO_MERGE)
-    list(REMOVE_DUPLICATES VISITED_TARGETS)
     message(STATUS "Static libraries for libredisearch_all.a: ${LIBS_TO_MERGE}")
 
     # Create the combined library using platform-specific tools
@@ -253,7 +255,7 @@ if(BUILD_SEARCH_UNIT_TESTS)
         )
     else()
         # Linux: use ar with MRI script to merge static libraries
-        # Generate MRI script with library paths (one ADDLIB per line)
+        # The MRI script has one ADDLIB for each library to be merged
         set(MRI_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/merge_libs.mri")
         string(REPLACE ";" "\nADDLIB " ADDLIB_COMMANDS "${LIBS_TO_MERGE}")
         file(GENERATE OUTPUT ${MRI_SCRIPT} CONTENT
