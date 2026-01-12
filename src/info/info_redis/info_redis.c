@@ -471,6 +471,7 @@ static void addDiskColumnFamilyMetrics(RedisModuleInfoCtx *ctx, const DiskColumn
 
 void AddToInfo_Disk(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   // Doc table metrics
+  RedisModule_InfoAddSection(ctx, "disk");
   RedisModule_InfoBeginDictField(ctx, "disk_doc_table");
   addDiskColumnFamilyMetrics(ctx, &total_info->disk_doc_table);
   RedisModule_InfoEndDictField(ctx);
