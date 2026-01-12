@@ -208,44 +208,15 @@ if(BUILD_SEARCH_UNIT_TESTS)
             COMMAND_EXPAND_LISTS
         )
     else()
-        # Linux: extract all .o files and recombine with ar
-        # We generate a CMake script to avoid shell escaping issues with VERBATIM
-        set(MERGE_TEMP_DIR "${CMAKE_CURRENT_BINARY_DIR}/merge_temp")
-        set(MERGE_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/merge_libs.cmake")
-
-        # Generate a CMake script that extracts all .o files
-        # Each library is extracted into its own subdirectory to avoid filename collisions
-        # (e.g., multiple libraries may have util.o or common.o)
-        # Use file(GENERATE) instead of file(WRITE) to evaluate generator expressions at build time
-        string(REPLACE ";" "\\;" LIBS_TO_MERGE_ESCAPED "${LIBS_TO_MERGE}")
-        file(GENERATE OUTPUT ${MERGE_SCRIPT} CONTENT "
-file(REMOVE_RECURSE \"${MERGE_TEMP_DIR}\")
-file(MAKE_DIRECTORY \"${MERGE_TEMP_DIR}\")
-set(LIBS \"${LIBS_TO_MERGE_ESCAPED}\")
-set(LIB_INDEX 0)
-foreach(lib \${LIBS})
-    # Create a unique subdirectory for each library to avoid .o filename collisions
-    set(LIB_DIR \"${MERGE_TEMP_DIR}/lib_\${LIB_INDEX}\")
-    file(MAKE_DIRECTORY \${LIB_DIR})
-    execute_process(
-        COMMAND ar -x \${lib}
-        WORKING_DIRECTORY \${LIB_DIR}
-    )
-    math(EXPR LIB_INDEX \"\${LIB_INDEX} + 1\")
-endforeach()
-# Collect all .o files from all subdirectories
-file(GLOB_RECURSE OBJ_FILES \"${MERGE_TEMP_DIR}/*.o\")
-execute_process(
-    COMMAND ar -rcs \"${REDISEARCH_ALL_OUTPUT}\" \${OBJ_FILES}
-)
-file(REMOVE_RECURSE \"${MERGE_TEMP_DIR}\")
-")
+        # Linux: use ar with thin archive to combine static libraries directly
         add_custom_command(
             OUTPUT ${REDISEARCH_ALL_OUTPUT}
-            COMMAND ${CMAKE_COMMAND} -P ${MERGE_SCRIPT}
+            COMMAND ${CMAKE_COMMAND} -E rm -f ${REDISEARCH_ALL_OUTPUT}
+            COMMAND ar -qcT ${REDISEARCH_ALL_OUTPUT} ${LIBS_TO_MERGE}
             DEPENDS ${VISITED_TARGETS}
             COMMENT "Creating unified libredisearch_all.a with ar"
             VERBATIM
+            COMMAND_EXPAND_LISTS
         )
     endif()
 
