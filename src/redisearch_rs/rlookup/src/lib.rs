@@ -10,6 +10,7 @@
 mod bindings;
 mod field_spec;
 mod hidden_string;
+mod index_spec;
 mod lookup;
 #[cfg(test)]
 mod mock;
@@ -19,6 +20,7 @@ mod row;
 mod schema_rule;
 
 pub use bindings::IndexSpecCache;
+pub use index_spec::IndexSpec;
 pub use lookup::{
     Cursor, CursorMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOption,
     RLookupOptions,
