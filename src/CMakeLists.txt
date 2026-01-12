@@ -208,15 +208,23 @@ if(BUILD_SEARCH_UNIT_TESTS)
             COMMAND_EXPAND_LISTS
         )
     else()
-        # Linux: use ar with thin archive to combine static libraries directly
+        # Linux: use ar with MRI script to merge static libraries
+        # Generate MRI script with library paths (one ADDLIB per line)
+        set(MRI_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/merge_libs.mri")
+        string(REPLACE ";" "\nADDLIB " ADDLIB_COMMANDS "${LIBS_TO_MERGE}")
+        file(GENERATE OUTPUT ${MRI_SCRIPT} CONTENT
+"CREATE ${REDISEARCH_ALL_OUTPUT}
+ADDLIB ${ADDLIB_COMMANDS}
+SAVE
+END
+")
         add_custom_command(
             OUTPUT ${REDISEARCH_ALL_OUTPUT}
             COMMAND ${CMAKE_COMMAND} -E rm -f ${REDISEARCH_ALL_OUTPUT}
-            COMMAND ar -qcT ${REDISEARCH_ALL_OUTPUT} ${LIBS_TO_MERGE}
-            DEPENDS ${VISITED_TARGETS}
+            COMMAND ar -M < ${MRI_SCRIPT}
+            DEPENDS ${VISITED_TARGETS} ${MRI_SCRIPT}
             COMMENT "Creating unified libredisearch_all.a with ar"
             VERBATIM
-            COMMAND_EXPAND_LISTS
         )
     endif()
 
