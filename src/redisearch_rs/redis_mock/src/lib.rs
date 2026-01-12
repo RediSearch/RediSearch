@@ -217,6 +217,21 @@ pub fn init_redis_module_mock() {
     }
 }
 
+/// Define an empty stub function for the given list of C symbols.
+/// This is used to define C functions the linker requires but which are not actually used by Rust
+/// benches or tests.
+#[macro_export]
+macro_rules! stub_c_fn {
+    ($($fn_name:ident),* $(,)?) => {
+        $(
+            #[unsafe(no_mangle)]
+            pub extern "C" fn $fn_name() {
+                panic!(concat!(stringify!($fn_name), " should not be called by any of the benchmarks"));
+            }
+        )*
+    };
+}
+
 #[macro_export]
 /// A macro to define Redis' allocation symbols in terms of Rust's global allocator.
 ///
@@ -269,5 +284,34 @@ macro_rules! bind_redis_alloc_symbols_to_mock_impl {
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
         pub static mut RedisModule_Free: unsafe extern "C" fn(*mut std::ffi::c_void) = rm_free_impl;
+
+        // Those C symbols are required for the C code to link correctly, but they are never invoked in
+        // our tests or benchmarks.
+        ::redis_mock::stub_c_fn! {
+          ERR_clear_error,
+          ERR_peek_last_error,
+          ERR_reason_error_string,
+          SSL_connect,
+          SSL_ctrl,
+          SSL_CTX_ctrl,
+          SSL_CTX_free,
+          SSL_CTX_load_verify_locations,
+          SSL_CTX_new,
+          SSL_CTX_set_default_passwd_cb,
+          SSL_CTX_set_default_passwd_cb_userdata,
+          SSL_CTX_set_default_verify_paths,
+          SSL_CTX_set_options,
+          SSL_CTX_set_verify,
+          SSL_CTX_use_certificate_chain_file,
+          SSL_CTX_use_PrivateKey_file,
+          SSL_free,
+          SSL_get_error,
+          SSL_new,
+          SSL_read,
+          SSL_set_connect_state,
+          SSL_set_fd,
+          SSL_write,
+          TLS_client_method,
+        }
     };
 }
