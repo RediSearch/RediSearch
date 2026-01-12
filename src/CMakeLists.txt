@@ -137,145 +137,108 @@ add_dependencies(redisearch_c generate_command_info)
 #----------------------------------------------------------------------------------------------
 # Build a combined static library for Rust tests/benchmarks (only when tests are enabled)
 if(BUILD_SEARCH_UNIT_TESTS)
-    # Recursively collect all static library dependencies from a target
-    # Uses global variables _COLLECT_LIBS and _COLLECT_TARGETS for accumulation
-    function(collect_static_libs_impl target)
-        # Skip if already visited
-        if(${target} IN_LIST _COLLECT_TARGETS)
+    # Recursively collect all static library dependencies from a target.
+    # Accumulates results in _COLLECT_LIBS (library paths) and _COLLECT_TARGETS (target names).
+    function(_collect_static_libs_recurse target)
+        # Skip if already visited or not a valid target
+        if(target IN_LIST _COLLECT_TARGETS OR NOT TARGET ${target})
             return()
         endif()
 
-        # Check if it's a valid target
-        if(NOT TARGET ${target})
-            return()
-        endif()
+        # Mark as visited immediately to avoid cycles
+        list(APPEND _COLLECT_TARGETS ${target})
+        set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
 
-        # Get target type and check if it's imported
+        # Get target properties
         get_target_property(target_type ${target} TYPE)
         get_target_property(is_imported ${target} IMPORTED)
 
-        # Handle static libraries (both regular and IMPORTED)
+        # Try to get library file path for static libraries
+        set(lib_path "")
         if(target_type STREQUAL "STATIC_LIBRARY")
             if(is_imported)
-                # IMPORTED static library - get the actual file location
-                get_target_property(location ${target} IMPORTED_LOCATION)
-                if(NOT location)
-                    # Try config-specific locations
-                    get_target_property(location ${target} IMPORTED_LOCATION_RELEASE)
+                # Try various IMPORTED_LOCATION properties
+                foreach(loc_prop IMPORTED_LOCATION IMPORTED_LOCATION_RELEASE IMPORTED_LOCATION_NOCONFIG)
+                    get_target_property(lib_path ${target} ${loc_prop})
+                    if(lib_path)
+                        break()
+                    endif()
+                endforeach()
+            else()
+                set(lib_path $<TARGET_FILE:${target}>)
+            endif()
+        elseif(target_type STREQUAL "UNKNOWN_LIBRARY")
+            # IMPORTED target with unknown type - check if it's a static library
+            foreach(loc_prop IMPORTED_LOCATION IMPORTED_LOCATION_RELEASE)
+                get_target_property(lib_path ${target} ${loc_prop})
+                if(lib_path)
+                    break()
                 endif()
-                if(NOT location)
-                    get_target_property(location ${target} IMPORTED_LOCATION_NOCONFIG)
+            endforeach()
+        endif()
+
+        # Add to collection if we found a static library
+        if(lib_path AND (lib_path MATCHES "\\.(a|lib)$" OR NOT is_imported))
+            list(APPEND _COLLECT_LIBS ${lib_path})
+            set(_COLLECT_LIBS ${_COLLECT_LIBS} PARENT_SCOPE)
+        endif()
+
+        # Recurse into link dependencies
+        foreach(prop LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+            get_target_property(deps ${target} ${prop})
+            if(NOT deps)
+                continue()
+            endif()
+            foreach(dep IN LISTS deps)
+                # Skip generator expressions
+                if(dep MATCHES "^\\$<")
+                    continue()
                 endif()
-                if(location AND location MATCHES "\\.(a|lib)$")
-                    message(STATUS "  Found IMPORTED static library: ${target} -> ${location}")
-                    list(APPEND _COLLECT_LIBS ${location})
-                    list(APPEND _COLLECT_TARGETS ${target})
+                # Recurse if it's a valid target
+                if(TARGET ${dep})
+                    # Resolve ALIAS targets to their real name
+                    get_target_property(aliased ${dep} ALIASED_TARGET)
+                    if(aliased)
+                        set(dep ${aliased})
+                    endif()
+                    _collect_static_libs_recurse(${dep})
                     set(_COLLECT_LIBS ${_COLLECT_LIBS} PARENT_SCOPE)
                     set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
                 endif()
-            else()
-                # Regular static library - use generator expression
-                message(STATUS "  Found static library: ${target}")
-                list(APPEND _COLLECT_LIBS $<TARGET_FILE:${target}>)
-                list(APPEND _COLLECT_TARGETS ${target})
-                set(_COLLECT_LIBS ${_COLLECT_LIBS} PARENT_SCOPE)
-                set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
-            endif()
-        elseif(target_type STREQUAL "UNKNOWN_LIBRARY")
-            # IMPORTED targets with unknown type - check if they're static libraries
-            get_target_property(location ${target} IMPORTED_LOCATION)
-            if(NOT location)
-                get_target_property(location ${target} IMPORTED_LOCATION_RELEASE)
-            endif()
-            if(location AND location MATCHES "\\.(a|lib)$")
-                message(STATUS "  Found UNKNOWN_LIBRARY static: ${target} -> ${location}")
-                list(APPEND _COLLECT_LIBS ${location})
-                list(APPEND _COLLECT_TARGETS ${target})
-                set(_COLLECT_LIBS ${_COLLECT_LIBS} PARENT_SCOPE)
-                set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
-            endif()
-        elseif(target_type STREQUAL "INTERFACE_LIBRARY")
-            # Mark as visited to avoid infinite loops (no .a file)
-            message(STATUS "  Found INTERFACE library: ${target}")
-            list(APPEND _COLLECT_TARGETS ${target})
-            set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
-        else()
-            # Mark other types as visited
-            list(APPEND _COLLECT_TARGETS ${target})
-            set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
-        endif()
-
-        # Recurse into dependencies (both LINK_LIBRARIES and INTERFACE_LINK_LIBRARIES)
-        foreach(prop LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
-            get_target_property(dep_libs ${target} ${prop})
-            if(dep_libs)
-                message(STATUS "    ${target} ${prop}: ${dep_libs}")
-                foreach(dep IN LISTS dep_libs)
-                    # Skip generator expressions
-                    if(dep MATCHES "^\\$<")
-                        continue()
-                    endif()
-
-                    # Check if it's a target (resolve ALIAS if needed)
-                    if(TARGET ${dep})
-                        # Resolve ALIAS targets to their real name
-                        get_target_property(aliased ${dep} ALIASED_TARGET)
-                        if(aliased)
-                            message(STATUS "      Resolving ALIAS: ${dep} -> ${aliased}")
-                            set(dep ${aliased})
-                        endif()
-                        collect_static_libs_impl(${dep})
-                        # Propagate changes back up
-                        set(_COLLECT_LIBS ${_COLLECT_LIBS} PARENT_SCOPE)
-                        set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
-                    else()
-                        message(STATUS "      Skipping non-target: ${dep}")
-                    endif()
-                endforeach()
-            endif()
+            endforeach()
         endforeach()
     endfunction()
 
-    # Wrapper function that initializes and returns results
+    # Collect all static library dependencies from a target into output variables.
     macro(collect_static_libs target out_libs out_targets)
         set(_COLLECT_LIBS "")
         set(_COLLECT_TARGETS "")
-        collect_static_libs_impl(${target})
+        _collect_static_libs_recurse(${target})
         set(${out_libs} ${_COLLECT_LIBS})
         set(${out_targets} ${_COLLECT_TARGETS})
     endmacro()
 
     set(REDISEARCH_ALL_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/libredisearch_all.a")
 
-    # Debug: check if SVS targets exist
-    if(TARGET svs::svs)
-        message(STATUS "DEBUG: svs::svs exists")
-        get_target_property(_svs_type svs::svs TYPE)
-        message(STATUS "DEBUG: svs::svs TYPE = ${_svs_type}")
-        get_target_property(_svs_aliased svs::svs ALIASED_TARGET)
-        message(STATUS "DEBUG: svs::svs ALIASED_TARGET = ${_svs_aliased}")
-    else()
-        message(STATUS "DEBUG: svs::svs does NOT exist")
-    endif()
-    if(TARGET svs::svs_static_library)
-        message(STATUS "DEBUG: svs::svs_static_library exists")
-        get_target_property(_svs_static_type svs::svs_static_library TYPE)
-        message(STATUS "DEBUG: svs::svs_static_library TYPE = ${_svs_static_type}")
-    else()
-        message(STATUS "DEBUG: svs::svs_static_library does NOT exist")
-    endif()
-
-    # Automatically collect all static library dependencies from redisearch_c
-    message(STATUS "Collecting static libraries for libredisearch_all.a...")
+    # Collect all static library dependencies from redisearch_c
     set(LIBS_TO_MERGE "")
     set(VISITED_TARGETS "")
     collect_static_libs(redisearch_c LIBS_TO_MERGE VISITED_TARGETS)
 
-    # Remove duplicates while preserving order
+    # On Linux, SVS is fetched via FetchContent and its IMPORTED targets aren't
+    # visible from this scope. Add SVS static libraries from the known path.
+    set(_svs_lib_dir "${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity/_deps/svs-src/lib")
+    if(EXISTS "${_svs_lib_dir}")
+        file(GLOB _svs_static_libs "${_svs_lib_dir}/*.a")
+        list(APPEND LIBS_TO_MERGE ${_svs_static_libs})
+        message(STATUS "SVS static libraries found: ${_svs_static_libs}")
+    else()
+        message(STATUS "SVS lib directory not found: ${_svs_lib_dir}")
+    endif()
+
     list(REMOVE_DUPLICATES LIBS_TO_MERGE)
     list(REMOVE_DUPLICATES VISITED_TARGETS)
-
-    message(STATUS "Libraries to merge into libredisearch_all.a: ${VISITED_TARGETS}")
+    message(STATUS "Static libraries for libredisearch_all.a: ${VISITED_TARGETS}")
 
     # Create the combined library using platform-specific tools
     if(APPLE)
@@ -302,8 +265,6 @@ END
         add_custom_command(
             OUTPUT ${REDISEARCH_ALL_OUTPUT}
             COMMAND ${CMAKE_COMMAND} -E rm -f ${REDISEARCH_ALL_OUTPUT}
-            COMMAND ${CMAKE_COMMAND} -E echo "Merging libraries from MRI script:"
-            COMMAND ${CMAKE_COMMAND} -E cat ${MRI_SCRIPT}
             COMMAND ar -M < ${MRI_SCRIPT}
             DEPENDS ${VISITED_TARGETS} ${MRI_SCRIPT}
             COMMENT "Creating unified libredisearch_all.a with ar"
