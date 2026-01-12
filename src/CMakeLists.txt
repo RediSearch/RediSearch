@@ -211,13 +211,24 @@ if(BUILD_SEARCH_UNIT_TESTS)
             if(dep_libs)
                 message(STATUS "    ${target} ${prop}: ${dep_libs}")
                 foreach(dep IN LISTS dep_libs)
-                    # Skip generator expressions and non-targets
-                    if(NOT dep MATCHES "^\\$<" AND TARGET ${dep})
+                    # Skip generator expressions
+                    if(dep MATCHES "^\\$<")
+                        continue()
+                    endif()
+
+                    # Check if it's a target (resolve ALIAS if needed)
+                    if(TARGET ${dep})
+                        # Resolve ALIAS targets to their real name
+                        get_target_property(aliased ${dep} ALIASED_TARGET)
+                        if(aliased)
+                            message(STATUS "      Resolving ALIAS: ${dep} -> ${aliased}")
+                            set(dep ${aliased})
+                        endif()
                         collect_static_libs_impl(${dep})
                         # Propagate changes back up
                         set(_COLLECT_LIBS ${_COLLECT_LIBS} PARENT_SCOPE)
                         set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
-                    elseif(NOT dep MATCHES "^\\$<")
+                    else()
                         message(STATUS "      Skipping non-target: ${dep}")
                     endif()
                 endforeach()
@@ -235,6 +246,24 @@ if(BUILD_SEARCH_UNIT_TESTS)
     endmacro()
 
     set(REDISEARCH_ALL_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/libredisearch_all.a")
+
+    # Debug: check if SVS targets exist
+    if(TARGET svs::svs)
+        message(STATUS "DEBUG: svs::svs exists")
+        get_target_property(_svs_type svs::svs TYPE)
+        message(STATUS "DEBUG: svs::svs TYPE = ${_svs_type}")
+        get_target_property(_svs_aliased svs::svs ALIASED_TARGET)
+        message(STATUS "DEBUG: svs::svs ALIASED_TARGET = ${_svs_aliased}")
+    else()
+        message(STATUS "DEBUG: svs::svs does NOT exist")
+    endif()
+    if(TARGET svs::svs_static_library)
+        message(STATUS "DEBUG: svs::svs_static_library exists")
+        get_target_property(_svs_static_type svs::svs_static_library TYPE)
+        message(STATUS "DEBUG: svs::svs_static_library TYPE = ${_svs_static_type}")
+    else()
+        message(STATUS "DEBUG: svs::svs_static_library does NOT exist")
+    endif()
 
     # Automatically collect all static library dependencies from redisearch_c
     message(STATUS "Collecting static libraries for libredisearch_all.a...")
