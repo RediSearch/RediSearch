@@ -56,7 +56,9 @@ NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
 #-----------------------------------------------------------------------------
 parse_arguments() {
   for arg in "$@"; do
-    case ${arg^^} in
+    # MacOS only has bash 3.2 built-in, which doesn't support the more modern ${arg^^} syntax.
+    upper_arg=$(printf '%s' "$arg" | tr '[:lower:]' '[:upper:]')
+    case $upper_arg in
       COORD=*)
         COORD="${arg#*=}"
         ;;
