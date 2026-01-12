@@ -107,8 +107,6 @@ static FFI_LINK_GUARD: [FfiSymbol; {count}] = [
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let out_path = Path::new(&out_dir).join("link_guard.rs");
     fs::write(&out_path, generated).unwrap();
-
-    build_utils::link_redisearch_c();
 }
 
 struct FfiVisitor<'a> {
@@ -128,7 +126,7 @@ impl<'ast> Visit<'ast> for FfiVisitor<'ast> {
         });
         let is_extern_c = matches!(
             &node.sig.abi,
-            Some(Abi { name: Some(lit), .. }) if lit.value() == "C"
+            Some(Abi { name: Some(lit), .. }) if lit.value() == "C" || lit.value() == "C-unwind"
         );
 
         if is_no_mangle && is_extern_c {
