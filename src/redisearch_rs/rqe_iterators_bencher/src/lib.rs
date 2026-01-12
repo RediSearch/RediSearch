@@ -17,6 +17,5 @@ pub mod benchers;
 pub mod ffi;
 
 // Some of the missing C symbols are actually Rust-provided.
-pub use redisearch_rs;
-
+extern crate redisearch_rs;
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
