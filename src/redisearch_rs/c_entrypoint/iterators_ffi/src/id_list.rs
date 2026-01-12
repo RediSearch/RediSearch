@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{IteratorType_ID_LIST_ITERATOR, QueryIterator, RedisModule_Free, t_docId};
+use ffi::{
+    IteratorType_SORTED_ID_LIST_ITERATOR, IteratorType_UNSORTED_ID_LIST_ITERATOR, QueryIterator,
+    RedisModule_Free, t_docId,
+};
 use inverted_index::RSIndexResult;
 use rqe_iterators::id_list::IdList;
 use rqe_iterators_interop::RQEIteratorWrapper;
@@ -78,7 +81,11 @@ unsafe fn new_id_list_iterator<const SORTED: bool>(
         );
     }
     RQEIteratorWrapper::boxed_new(
-        IteratorType_ID_LIST_ITERATOR,
+        if SORTED {
+            IteratorType_SORTED_ID_LIST_ITERATOR
+        } else {
+            IteratorType_UNSORTED_ID_LIST_ITERATOR
+        },
         IdList::<SORTED>::with_result(vec, RSIndexResult::virt().weight(weight)),
     )
 }

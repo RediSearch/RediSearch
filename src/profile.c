@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "profile.h"
+#include "iterators/iterator_api.h"
 #include "iterators/profile_iterator.h"
 #include "iterators/inverted_index_iterator.h"
 #include "iterators/not_iterator.h"
@@ -322,8 +323,10 @@ void Profile_AddIters(QueryIterator **root) {
     case WILDCARD_ITERATOR:
     case INV_IDX_ITERATOR:
     case EMPTY_ITERATOR:
-    case ID_LIST_ITERATOR:
-    case METRIC_ITERATOR:
+    case SORTED_ID_LIST_ITERATOR:
+    case UNSORTED_ID_LIST_ITERATOR:
+    case METRIC_SORTED_BY_ID_ITERATOR:
+    case METRIC_SORTED_BY_SCORE_ITERATOR:
       break;
     // LCOV_EXCL_START
     case PROFILE_ITERATOR:
@@ -515,20 +518,22 @@ void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, Profile
 
   switch (root->type) {
     // Reader
-    case INV_IDX_ITERATOR:    { printInvIdxIt(reply, root, counters, cpuTime, config);                     break; }
+    case INV_IDX_ITERATOR:                  { printInvIdxIt(reply, root, counters, cpuTime, config);                     break; }
     // Multi values
-    case UNION_ITERATOR:      { printUnionIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
-    case INTERSECT_ITERATOR:  { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);  break; }
+    case UNION_ITERATOR:                    { printUnionIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
+    case INTERSECT_ITERATOR:                { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);  break; }
     // Single value
-    case NOT_ITERATOR:        { printNotIt(reply, root, counters, cpuTime, depth, limited, config);        break; }
-    case OPTIONAL_ITERATOR:   { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);   break; }
-    case WILDCARD_ITERATOR:   { printWildcardIt(reply, root, counters, cpuTime, depth, limited, config);   break; }
-    case EMPTY_ITERATOR:      { printEmptyIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
-    case ID_LIST_ITERATOR:    { printIdListIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
-    case PROFILE_ITERATOR:    { printProfileIt(reply, root, 0, 0, depth, limited, config);                 break; }
-    case HYBRID_ITERATOR:     { printHybridIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
-    case METRIC_ITERATOR:     { printMetricIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
-    case OPTIMUS_ITERATOR:    { printOptimusIt(reply, root, counters, cpuTime, depth, limited, config);    break; }
-    case MAX_ITERATOR:        { RS_ABORT("nope");   break; } // LCOV_EXCL_LINE
+    case NOT_ITERATOR:                      { printNotIt(reply, root, counters, cpuTime, depth, limited, config);        break; }
+    case OPTIONAL_ITERATOR:                 { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);   break; }
+    case WILDCARD_ITERATOR:                 { printWildcardIt(reply, root, counters, cpuTime, depth, limited, config);   break; }
+    case EMPTY_ITERATOR:                    { printEmptyIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
+    case SORTED_ID_LIST_ITERATOR:
+    case UNSORTED_ID_LIST_ITERATOR:         { printIdListIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
+    case PROFILE_ITERATOR:                  { printProfileIt(reply, root, 0, 0, depth, limited, config);                 break; }
+    case HYBRID_ITERATOR:                   { printHybridIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
+    case METRIC_SORTED_BY_ID_ITERATOR:
+    case METRIC_SORTED_BY_SCORE_ITERATOR:   { printMetricIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
+    case OPTIMUS_ITERATOR:                  { printOptimusIt(reply, root, counters, cpuTime, depth, limited, config);    break; }
+    case MAX_ITERATOR:                      { RS_ABORT("nope");   break; } // LCOV_EXCL_LINE
   }
 }
