@@ -8,6 +8,7 @@
 */
 
 mod bindings;
+mod field_spec;
 mod hidden_string;
 mod lookup;
 #[cfg(test)]
