@@ -8,6 +8,7 @@
 */
 
 mod bindings;
+mod hidden_string;
 mod lookup;
 #[cfg(test)]
 mod mock;
