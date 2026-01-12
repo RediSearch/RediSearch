@@ -571,7 +571,7 @@ err:
 static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *hasEmptyFilterValue, QueryError *status, bool isftSearchOnDisk) {
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
     if (isftSearchOnDisk) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FILTER is not supported by FT.SEARCH ON DISK");
+      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_SEARCH_ARGUMENT, "FILTER is not supported on FT.SEARCH in Flex indexes");
       return ARG_ERROR;
     }
     // Numeric filter
@@ -582,7 +582,7 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *
     }
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
     if (isftSearchOnDisk) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "GEOFILTER is not supported by FT.SEARCH ON DISK");
+      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_SEARCH_ARGUMENT, "GEOFILTER is not supported on FT.SEARCH in Flex indexes");
       return ARG_ERROR;
     }
     LegacyGeoFilter *cur_gf = rm_new(*cur_gf);

@@ -213,3 +213,11 @@ def test_unsupported_ft_search_arguments(env):
     # WITHOUTCOUNT is not supported
     env.expect('FT.SEARCH', 'flex_idx', '*', 'WITHOUTCOUNT') \
         .error().contains('WITHOUTCOUNT is not supported on FT.SEARCH in Flex indexes')
+
+    # FILTER is not supported
+    env.expect('FT.SEARCH', 'flex_idx', '*', 'FILTER', 'title', '1', '10') \
+        .error().contains('FILTER is not supported on FT.SEARCH in Flex indexes')
+
+    # GEOFILTER is not supported
+    env.expect('FT.SEARCH', 'flex_idx', '*', 'GEOFILTER', 'location', '1.0', '2.0', '10', 'km') \
+        .error().contains('GEOFILTER is not supported on FT.SEARCH in Flex indexes')
