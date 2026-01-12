@@ -1674,6 +1674,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     {.name = "SCORE", .target = &rule_args.score_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
     {.name = "SCORE_FIELD", .target = &rule_args.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
     {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
+    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
     {.name = NULL}
   };
   ACArgSpec non_flex_argopts[] = {
@@ -1766,6 +1767,11 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
 
   if (spec->rule->filter_exp) {
     SchemaRule_FilterFields(spec);
+  }
+
+  if (isSpecOnDiskForValidation(spec) && !(spec->flags & Index_SkipInitialScan)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT, "Flex index requires SKIPINITIALSCAN argument");
+    goto failure;
   }
 
   return spec_ref;
