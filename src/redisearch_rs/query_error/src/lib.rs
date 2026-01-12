@@ -160,10 +160,10 @@ impl QueryErrorCode {
             Self::FlexUnsupportedField => c"Unsupported field for Flex index",
             Self::FlexUnsupportedFTCreateArgument => {
                 c"Unsupported FT.CREATE argument for Flex index"
-            },
+            }
             Self::DiskCreation => c"Could not create disk index",
             Self::FlexUnsupportedFTSearchArgument => {
-              c"Unsupported FT.SEARCH argument for Flex index"
+                c"Unsupported FT.SEARCH argument for Flex index"
             }
         }
     }
