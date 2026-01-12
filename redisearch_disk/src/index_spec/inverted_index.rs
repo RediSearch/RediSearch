@@ -40,7 +40,7 @@ pub struct InvertedIndex {
 
 /// Key structure for inverted index entries
 struct InvertedIndexKey<'term> {
-    term: &'term str,
+    prefix: &'term str,
     last_doc_id: Option<t_docId>,
 }
 
@@ -48,9 +48,9 @@ impl<'term> AsKeyExt for InvertedIndexKey<'term> {
     fn as_key(&self) -> Vec<u8> {
         let key = if let Some(last_doc_id) = self.last_doc_id {
             let last_doc_id: DocumentIdKey = last_doc_id.into();
-            format!("{}{}{}", self.term, KEY_DELIMETER_STR, last_doc_id)
+            format!("{}{}{}", self.prefix, KEY_DELIMETER_STR, last_doc_id)
         } else {
-            format!("{}{}", self.term, KEY_DELIMETER_STR)
+            format!("{}{}", self.prefix, KEY_DELIMETER_STR)
         };
 
         key.as_bytes().to_vec()
@@ -239,8 +239,11 @@ impl InvertedIndex {
         self.database.cf_handle(&self.cf_name).unwrap()
     }
 
-    fn term_and_doc_key(term: &str, last_doc_id: Option<t_docId>) -> InvertedIndexKey<'_> {
-        InvertedIndexKey { term, last_doc_id }
+    fn term_and_doc_key(prefix: &str, last_doc_id: Option<t_docId>) -> InvertedIndexKey<'_> {
+        InvertedIndexKey {
+            prefix,
+            last_doc_id,
+        }
     }
 
     /// Inserts a document ID into the postings list for the given term and for
