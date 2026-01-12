@@ -715,7 +715,7 @@ void Indexes_Init(RedisModuleCtx *ctx);
 /*
  * Free all indexes.
  * @param deleteDiskData - delete the disk data
-*/ 
+*/
 void Indexes_Free(dict *d, bool deleteDiskData);
 size_t Indexes_Count();
 void Indexes_Propagate(RedisModuleCtx *ctx);
