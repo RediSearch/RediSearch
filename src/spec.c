@@ -559,7 +559,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // spec
   Initialize_KeyspaceNotifications();
 
-  if (!(sp->flags & Index_SkipInitialScan)) {
+  if (!(sp->flags & Index_SkipInitialScan) && !SearchDisk_IsEnabled()) {
     IndexSpec_ScanAndReindex(ctx, spec_ref);
   }
   return sp;
