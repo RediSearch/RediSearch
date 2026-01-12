@@ -11,6 +11,7 @@
 
 #include "hiredis/sds.h"
 #include "redismodule.h"
+#include "rs_wall_clock.h"
 
 #include <assert.h>
 #include <stdbool.h>
@@ -20,6 +21,9 @@ extern "C" {
 #endif
 
 typedef enum { C_READ = 0, C_DEL = 1, C_AGG = 2, C_PROFILE = 3 } MRRootCommand;
+
+// Marker string for coordinator dispatch time in distributed commands
+#define COORD_DISPATCH_TIME_STR "_COORD_DISPATCH_TIME"
 
 /* A redis command is represented with all its arguments and its flags as MRCommand */
 typedef struct {
@@ -32,6 +36,9 @@ typedef struct {
 
   /* Slots info offset - 0 if not set (first argument is always the command) */
   uint32_t slotsInfoArgIndex;
+
+  /* Dispatch time arg offset - 0 if not set */
+  uint32_t dispatchTimeArgIndex;
 
   /* if not NULL, this value indicate to which shard the command should be sent.*/
   char *targetShard;
@@ -57,6 +64,9 @@ typedef struct {
   MRRootCommand rootCommand;
 
   sds cmd;
+
+  /** Coordinator start time (for dispatch time tracking) */
+  rs_wall_clock_ns_t coordStartTime;
 } MRCommand;
 
 /* Free the command and all its strings. Doesn't free the actual command struct, as it is usually
@@ -97,6 +107,26 @@ void MRCommand_PrepareForSlotInfo(MRCommand *cmd, uint32_t pos);
  * @param slots - The slot ranges to insert (specific to the target shard)
  */
 void MRCommand_SetSlotInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slots);
+
+/**
+ * Prepare a command for dispatch time insertion by reserving space at the end.
+ * This function allocates space for "_COORD_DISPATCH_TIME" marker and placeholder value.
+ *
+ * Threading: Should be called from the main/coordinator thread during command construction.
+ *
+ * @param cmd - The command to prepare
+ */
+void MRCommand_PrepareForDispatchTime(MRCommand *cmd);
+
+/**
+ * Set the actual dispatch time value in a previously prepared command.
+ * This function calculates the elapsed time since coordStartTime and fills in the placeholder.
+ *
+ * Threading: Should be called from an I/O thread before sending command to a specific shard.
+ *
+ * @param cmd - The command with prepared dispatch time space
+ */
+void MRCommand_SetDispatchTime(MRCommand *cmd);
 
 static inline const char *MRCommand_ArgStringPtrLen(const MRCommand *cmd, size_t idx, size_t *len) {
   // assert(idx < cmd->num);

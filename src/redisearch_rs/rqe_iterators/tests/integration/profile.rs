@@ -7,7 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::time::Duration;
+
 use rqe_iterators::{RQEIterator, Wildcard, profile::Profile};
+
+use crate::utils::{Mock, MockIteratorError};
 
 #[test]
 fn initial_state() {
@@ -42,6 +46,25 @@ fn profile_read() {
 }
 
 #[test]
+fn initial_read_timed_out() {
+    let child = Mock::new([]);
+    child
+        .data()
+        .set_error_at_done(Some(MockIteratorError::TimeoutError(Some(
+            Duration::from_secs(1),
+        ))));
+
+    let mut profile = Profile::new(child);
+
+    assert!(matches!(
+        profile.read(),
+        Err(rqe_iterators::RQEIteratorError::TimedOut),
+    ));
+
+    assert!(profile.wall_time_ns() >= 1_000_000_000);
+}
+
+#[test]
 fn profile_skip_to() {
     let child = Wildcard::new(10, 1.0);
     let mut profile = Profile::new(child);
@@ -56,6 +79,25 @@ fn profile_skip_to() {
     assert!(result.is_none());
     assert_eq!(profile.counters().skip_to, 2);
     assert!(profile.counters().eof);
+}
+
+#[test]
+fn initial_skip_to_timedout() {
+    let child = Mock::new([]);
+    child
+        .data()
+        .set_error_at_done(Some(MockIteratorError::TimeoutError(Some(
+            Duration::from_secs(1),
+        ))));
+
+    let mut profile = Profile::new(child);
+
+    assert!(matches!(
+        profile.skip_to(1),
+        Err(rqe_iterators::RQEIteratorError::TimedOut),
+    ));
+
+    assert!(profile.wall_time_ns() >= 1_000_000_000);
 }
 
 #[test]

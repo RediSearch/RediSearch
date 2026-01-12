@@ -27,9 +27,11 @@ typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 
 typedef struct BasicDiskAPI {
   RedisSearchDisk *(*open)(RedisModuleCtx *ctx, const char *path);
+  void (*close)(RedisSearchDisk *disk);
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type);
   void (*closeIndexSpec)(RedisSearchDiskIndexSpec *index);
-  void (*close)(RedisSearchDisk *disk);
+  void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+  u_int32_t (*indexSpecRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
@@ -53,6 +55,15 @@ typedef struct IndexDiskAPI {
    * @return true if the write was successful, false otherwise
    */
   bool (*indexDocument)(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask);
+
+  /**
+   * @brief Deletes a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
+   *
+   * @param handle Handle to the document table
+   * @param key Document key
+   * @param keyLen Length of the document key
+   */
+  void (*deleteDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen);
 
    /**
    * @brief Creates a new iterator for the inverted index
@@ -103,12 +114,66 @@ typedef struct DocTableDiskAPI {
   bool (*isDocIdDeleted)(RedisSearchDiskIndexSpec* handle, t_docId docId);
 
   bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocateKey);
+
+  /**
+   * @brief Gets the maximum document ID assigned in the index
+   *
+   * @param handle Handle to the document table
+   * @return The maximum document ID, or 0 if the index is empty
+   */
+  t_docId (*getMaxDocId)(RedisSearchDiskIndexSpec* handle);
+
+  /**
+   * @brief Gets the count of deleted document IDs
+   *
+   * @param handle Handle to the document table
+   * @return The number of deleted document IDs
+   */
+  uint64_t (*getDeletedIdsCount)(RedisSearchDiskIndexSpec* handle);
+
+  /**
+   * @brief Gets all deleted document IDs (used for debugging)
+   *
+   * Fills the provided buffer with deleted document IDs. The caller must ensure
+   * the buffer is large enough to hold all deleted IDs (use getDeletedIdsCount first).
+   *
+   * @param handle Handle to the document table
+   * @param buffer Buffer to fill with deleted document IDs
+   * @param buffer_size Size of the buffer (number of t_docId elements)
+   * @return The number of IDs written to the buffer
+   */
+  size_t (*getDeletedIds)(RedisSearchDiskIndexSpec* handle, t_docId* buffer, size_t buffer_size);
 } DocTableDiskAPI;
+
+// VecSimHNSWDiskParams is defined in VecSim/vec_sim_common.h
+struct VecSimHNSWDiskParams;
+
+typedef struct VectorDiskAPI {
+  /**
+   * @brief Creates a disk-based vector index.
+   *
+   * The returned handle is a VecSimIndex* that can be used with all standard
+   * VecSimIndex_* functions (AddVector, TopKQuery, etc.) due to polymorphism.
+   *
+   * @param index Pointer to the index spec (provides storage context)
+   * @param params Vector index parameters
+   * @return VecSimIndex* handle, or NULL on error
+   */
+  void* (*createVectorIndex)(RedisSearchDiskIndexSpec* index, const struct VecSimHNSWDiskParams* params);
+
+  /**
+   * @brief Frees a disk-based vector index.
+   *
+   * @param vecIndex The vector index handle returned by createVectorIndex
+   */
+  void (*freeVectorIndex)(void* vecIndex);
+} VectorDiskAPI;
 
 typedef struct RedisSearchDiskAPI {
   BasicDiskAPI basic;
   IndexDiskAPI index;
   DocTableDiskAPI docTable;
+  VectorDiskAPI vector;
 } RedisSearchDiskAPI;
 
 #ifdef __cplusplus

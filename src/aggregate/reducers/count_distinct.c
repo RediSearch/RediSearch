@@ -169,7 +169,7 @@ static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   hllSumCtx *ctr = ctx;
   const RSValue *val = RLookup_GetItem(r->srckey, srcrow);
 
-  if (val == NULL || !RSValue_IsAnyString(val)) {
+  if (val == NULL || !RSValue_IsString(val)) {
     // Not a string!
     return 0;
   }

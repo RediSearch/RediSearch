@@ -16,6 +16,7 @@
 #include "numeric_index.h"
 #include "info/global_stats.h"
 #include "obfuscation/obfuscation_api.h"
+#include "search_disk.h"
 
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string
@@ -31,8 +32,16 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
   if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
     VecSimParams_Cleanup(&fs->vectorOpts.vecSimParams);
     if (fs->vectorOpts.vecSimIndex) {
-      VecSimIndex_Free(fs->vectorOpts.vecSimIndex);
+      if (fs->vectorOpts.diskParams.storage) {
+        SearchDisk_FreeVectorIndex(fs->vectorOpts.vecSimIndex);
+      } else {
+        VecSimIndex_Free(fs->vectorOpts.vecSimIndex);
+      }
       fs->vectorOpts.vecSimIndex = NULL;
+    }
+    if (fs->vectorOpts.diskParams.indexName) {
+      rm_free((void *)fs->vectorOpts.diskParams.indexName);
+      fs->vectorOpts.diskParams.indexName = NULL;
     }
   }
   if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {

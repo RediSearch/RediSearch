@@ -508,6 +508,10 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   t->size -= deletedElements;
 }
 
+t_docId DocTable_GetMaxDocId(const DocTable *t) {
+  return t->maxDocId;
+}
+
 DocIdMap NewDocIdMap() {
 
   TrieMap *m = NewTrieMap();

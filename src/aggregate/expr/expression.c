@@ -19,21 +19,21 @@ static void setReferenceValue(RSValue *dst, RSValue *src) {
   RSValue_MakeReference(dst, src);
 }
 
-extern int func_exists(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result);
-extern int func_case(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result);
+extern int func_exists(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result);
+extern int func_case(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result);
 
 static int evalFuncCase(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   // Evaluate the condition
-  RSValue condVal = RSValue_Undefined();
-  int rc = evalInternal(eval, f->args->args[0], &condVal);
+  RSValue *condVal = RSValue_NewUndefined();
+  int rc = evalInternal(eval, f->args->args[0], condVal);
   if (rc != EXPR_EVAL_OK) {
-    RSValue_Clear(&condVal);
+    RSValue_DecrRef(condVal);
     return rc;
   }
 
   // Determine which branch to evaluate based on the condition
-  int condition = RSValue_BoolTest(&condVal);
-  RSValue_Clear(&condVal);
+  int condition = RSValue_BoolTest(condVal);
+  RSValue_DecrRef(condVal);
 
   // Evaluate only the branch we need
   int branchIndex = condition ? 1 : 2;
@@ -52,14 +52,16 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   }
 
   /** First, evaluate every argument */
-  size_t nusedargs = 0;
+  size_t nallocdargs = 0;
   size_t nargs = f->args->len;
-  RSValue args[nargs];
+  RSValue *args[nargs];
 
   // Normal function evaluation
   for (size_t ii = 0; ii < nargs; ii++) {
-    args[ii] = RSValue_Undefined();
-    int internalRes = evalInternal(eval, f->args->args[ii], &args[ii]);
+    args[ii] = RSValue_NewUndefined();
+    nallocdargs++;
+
+    int internalRes = evalInternal(eval, f->args->args[ii], args[ii]);
 
     // Handle NULL values:
     // 1. For func_exists, always allow NULL values
@@ -68,31 +70,30 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
         (internalRes == EXPR_EVAL_NULL && f->Call != func_exists)) {
       goto cleanup;
     }
-    nusedargs++;
   }
 
   rc = f->Call(eval, args, nargs, result);
 
 cleanup:
-  for (size_t ii = 0; ii < nusedargs; ii++) {
-    RSValue_Clear(&args[ii]);
+  for (size_t ii = 0; ii < nallocdargs; ii++) {
+    RSValue_DecrRef(args[ii]);
   }
   return rc;
 }
 
 static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
-  RSValue l = RSValue_Undefined(), r = RSValue_Undefined();
+  RSValue *l = RSValue_NewUndefined(), *r = RSValue_NewUndefined();
   int rc = EXPR_EVAL_ERR;
 
-  if (evalInternal(eval, op->left, &l) != EXPR_EVAL_OK) {
+  if (evalInternal(eval, op->left, l) != EXPR_EVAL_OK) {
     goto cleanup;
   }
-  if (evalInternal(eval, op->right, &r) != EXPR_EVAL_OK) {
+  if (evalInternal(eval, op->right, r) != EXPR_EVAL_OK) {
     goto cleanup;
   }
 
   double n1, n2;
-  if (!RSValue_ToNumber(&l, &n1) || !RSValue_ToNumber(&r, &n2)) {
+  if (!RSValue_ToNumber(l, &n1) || !RSValue_ToNumber(r, &n2)) {
 
     QueryError_SetError(eval->err, QUERY_ERROR_CODE_NOT_NUMERIC, NULL);
     rc = EXPR_EVAL_ERR;
@@ -122,12 +123,12 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
     default: RS_LOG_ASSERT_FMT(0, "Invalid operator %c", op->op);
   }
 
-  RSValue_IntoNumber(result, res);
+  RSValue_SetNumber(result, res);
   rc = EXPR_EVAL_OK;
 
 cleanup:
-  RSValue_Clear(&l);
-  RSValue_Clear(&r);
+  RSValue_DecrRef(l);
+  RSValue_DecrRef(r);
   return rc;
 }
 
@@ -175,46 +176,47 @@ static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *
 }
 
 static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
-  RSValue tmpval = RSValue_Undefined();
-  if (evalInternal(eval, vv->child, &tmpval) != EXPR_EVAL_OK) {
+  RSValue *tmpval = RSValue_NewUndefined();
+  if (evalInternal(eval, vv->child, tmpval) != EXPR_EVAL_OK) {
+    RSValue_DecrRef(tmpval);
     return EXPR_EVAL_ERR;
   }
 
-  RSValue_IntoNumber(result, !RSValue_BoolTest(&tmpval));
+  RSValue_SetNumber(result, !RSValue_BoolTest(tmpval));
 
-  RSValue_Clear(&tmpval);
+  RSValue_DecrRef(tmpval);
   return EXPR_EVAL_OK;
 }
 
 static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *result) {
   int res;
-  RSValue l = RSValue_Undefined(), r = RSValue_Undefined();
+  RSValue *l = RSValue_NewUndefined(), *r = RSValue_NewUndefined();
   int rc = EXPR_EVAL_ERR;
-  if (evalInternal(eval, pred->left, &l) != EXPR_EVAL_OK) {
+  if (evalInternal(eval, pred->left, l) != EXPR_EVAL_OK) {
     goto cleanup;
-  } else if (pred->cond == RSCondition_Or && RSValue_BoolTest(&l)) {
+  } else if (pred->cond == RSCondition_Or && RSValue_BoolTest(l)) {
     res = 1;
     goto success;
-  } else if (pred->cond == RSCondition_And && !RSValue_BoolTest(&l)) {
+  } else if (pred->cond == RSCondition_And && !RSValue_BoolTest(l)) {
     res = 0;
     goto success;
-  } else if (evalInternal(eval, pred->right, &r) != EXPR_EVAL_OK) {
+  } else if (evalInternal(eval, pred->right, r) != EXPR_EVAL_OK) {
     goto cleanup;
   }
 
-  res = getPredicateBoolean(eval, &l, &r, pred->cond);
+  res = getPredicateBoolean(eval, l, r, pred->cond);
 
 success:
   if (!eval->err || QueryError_IsOk(eval->err)) {
-    RSValue_IntoNumber(result, res);
+    RSValue_SetNumber(result, res);
     rc = EXPR_EVAL_OK;
   } else {
-    RSValue_IntoUndefined(result);
+    RSValue_Clear(result);
   }
 
 cleanup:
-  RSValue_Clear(&l);
-  RSValue_Clear(&r);
+  RSValue_DecrRef(l);
+  RSValue_DecrRef(r);
   return rc;
 }
 
@@ -236,7 +238,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
     if (eval->err) {
       QueryError_SetWithUserDataFmt(eval->err, QUERY_ERROR_CODE_NO_PROP_VAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", e->lookupObj->name);
     }
-    RSValue_IntoNull(res);
+    RSValue_SetNull(res);
     return EXPR_EVAL_NULL;
   }
 
@@ -250,7 +252,7 @@ static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res) {
     case RSExpr_Property:
       return evalProperty(eval, &e->property, res);
     case RSExpr_Literal:
-      RSValue_MakeReference(res, (RSValue *)&e->literal);
+      RSValue_MakeReference(res, e->literal);
       return EXPR_EVAL_OK;
     case RSExpr_Function:
       return evalFunc(eval, &e->func, res);
@@ -338,7 +340,7 @@ EvalCtx *EvalCtx_Create() {
   r->ee.srcrow = &r->row;
   r->ee.err = &r->status;
 
-  r->res = *RSValue_NullStatic();
+  r->res = RSValue_NewNull();
 
   r->_expr = NULL;
 
@@ -371,6 +373,7 @@ error:
 }
 
 void EvalCtx_Destroy(EvalCtx *r) {
+  RSValue_DecrRef(r->res);
   if (r->_expr && r->_own_expr) {
     ExprAST_Free((RSExpr *) r->_expr);
   }
@@ -389,7 +392,7 @@ int EvalCtx_Eval(EvalCtx *r) {
   if (ExprAST_GetLookupKeys((RSExpr *) r->ee.root, (RLookup *) r->ee.lookup, r->ee.err) != EXPR_EVAL_OK) {
     return REDISMODULE_ERR;
   }
-  return ExprEval_Eval(&r->ee, &r->res);
+  return ExprEval_Eval(&r->ee, r->res);
 }
 
 int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr) {
@@ -531,7 +534,7 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
   const RSExpr *expr = rpEval->eval.root;
   switch (expr->t) {
     case RSExpr_Literal:
-      literal = RSValue_ConvertStringPtrLen(&expr->literal, &len, buf, sizeof(buf));
+      literal = RSValue_ConvertStringPtrLen(expr->literal, &len, buf, sizeof(buf));
       RedisModule_Reply_SimpleStringf(reply, "%s - Literal %s", typeStr, literal);
       break;
     case RSExpr_Property:
