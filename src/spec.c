@@ -1674,6 +1674,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     {.name = "SCORE", .target = &rule_args.score_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
     {.name = "SCORE_FIELD", .target = &rule_args.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
     {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
+    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
     {.name = NULL}
   };
   ACArgSpec non_flex_argopts[] = {
@@ -1766,6 +1767,11 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
 
   if (spec->rule->filter_exp) {
     SchemaRule_FilterFields(spec);
+  }
+
+  if (isSpecOnDiskForValidation(spec) && !(spec->flags & Index_SkipInitialScan)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT, "Flex index requires SKIPINITIALSCAN argument");
+    goto failure;
   }
 
   return spec_ref;
@@ -3113,7 +3119,13 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   }
 
   // Disk index
-  if (sp->diskSpec) {
+  // Check if we are using SST files with this RDB. If so, we save the disk-related
+  // RAM-based data-structures to the RDB.
+  // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
+  // assume it was not set in when the RDB will be loaded as well
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+  bool useSst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
+  if (sp->diskSpec && useSst) {
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
   }
 }
@@ -3211,12 +3223,17 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     }
   }
 
-  // Load the disk-related index data, even if this is a duplicate.
+  // Check if we are using SST files with this RDB.
+  // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
+  // assume it was not set in when the RDB was saved as well.
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+
+  // Load the disk-related index data if we are on disk and the save flow used
+  // sst-files, even if this is a duplicate.
   // In the case of a duplicate, `sp->diskSpec=NULL` thus handled appropriately
-  // On the disk side.
-  if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp)) {
-    // TODO: Load the disk-related data only in case the `REDISMODULE_CTX_FLAGS_SST_RDB`
-    // context flag is set, as we wrote this data only in that case.
+  // On the disk side (RDB is depleted, without updating index fields).
+  bool useSst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
+  if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && useSst) {
     if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec) != REDISMODULE_OK) {
       goto cleanup;
     }

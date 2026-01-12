@@ -956,6 +956,12 @@ impl<'a> RLookup<'a> {
         self.index_spec_cache = spcache;
     }
 
+    pub fn find_field_in_spec_cache(&self, name: &CStr) -> Option<&ffi::FieldSpec> {
+        self.index_spec_cache
+            .as_ref()
+            .and_then(|c| c.find_field(name))
+    }
+
     /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
     /// and return a [`Cursor`] pointing to the key if found.
     // FIXME [MOD-10315] replace with more efficient search
@@ -965,15 +971,15 @@ impl<'a> RLookup<'a> {
 
     /// Add all non-overridden keys from `src` to `self`.
     ///
-    /// For each key in src, check if it already exists *by name*.
-    /// - If it does the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
-    /// - If it doesn't a new key will ne created.
+    /// For each key in `src`, check if it already exists *by name*.
+    /// - If it does, the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
+    /// - If it doesn't, a new key will be created.
     ///
     /// Flag handling:
-    ///  * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
-    ///  * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
-    ///  * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
-    ///  * - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+    /// - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+    /// - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+    /// - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+    /// - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
     pub fn add_keys_from(&mut self, src: &RLookup<'a>, flags: RLookupKeyFlags) {
         // Manually iterate through all keys including hidden ones
         let mut c = src.cursor();
