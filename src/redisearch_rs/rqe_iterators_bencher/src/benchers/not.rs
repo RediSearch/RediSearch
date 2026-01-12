@@ -12,7 +12,7 @@
 use std::time::Duration;
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
-use rqe_iterators::{RQEIterator, empty::Empty, id_list::SortedIdList, not_iterator::Not};
+use rqe_iterators::{RQEIterator, empty::Empty, id_list::SortedIdList, not::Not};
 
 use crate::ffi::{IteratorStatus_ITERATOR_OK, QueryIterator};
 

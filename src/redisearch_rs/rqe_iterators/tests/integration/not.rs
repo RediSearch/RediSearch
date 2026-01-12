@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use rqe_iterators::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::SortedIdList,
-    not_iterator::Not,
+    not::Not,
 };
 
 use crate::utils::{Mock, MockIteratorError, MockRevalidateResult};
