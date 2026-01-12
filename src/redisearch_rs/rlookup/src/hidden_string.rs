@@ -36,6 +36,7 @@ impl HiddenString {
         // - `len` is a local variable that we just allocated and is not being referenced anywhere else.
         // - `self.0` is a valid non-null pointer to an `ffi::HiddenString` due to creation with `HiddenString::from_raw`
         let data = unsafe { ffi::HiddenString_GetUnsafe(value_ptr, len_ptr) };
+        debug_assert!(!data.is_null(), "data must not be null");
 
         // The length doesn't include the nul terminator so we need to add one.
         // Safety: must be ensured by the implementation of `ffi::HiddenString_GetUnsafe` above

@@ -76,6 +76,10 @@ impl SchemaRule {
     /// Expose the underlying `filter_fields` as a [`Vec`] of &[`CStr`].
     pub fn filter_fields(&self) -> Vec<&CStr> {
         let len = self.filter_fields_len();
+        debug_assert!(
+            !self.0.filter_fields.is_null(),
+            "filter_fields must not be null"
+        );
         // Safety: (4.) due to creation with `SchemaRule::from_raw`
         let filter_fields = unsafe { slice::from_raw_parts(self.0.filter_fields, len) };
         filter_fields
@@ -89,6 +93,10 @@ impl SchemaRule {
     /// Expose the underlying `filter_fields_index` as a slice of ints.
     pub fn filter_fields_index(&self) -> &[i32] {
         let len = self.filter_fields_len();
+        debug_assert!(
+            !self.0.filter_fields_index.is_null(),
+            "filter_fields_index must not be null"
+        );
         // Safety: (5., 6.) due to creation with `SchemaRule::from_raw`
         unsafe { slice::from_raw_parts(self.0.filter_fields_index, len) }
     }
