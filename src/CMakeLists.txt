@@ -227,7 +227,7 @@ if(BUILD_SEARCH_UNIT_TESTS)
 
     # On Linux, SVS is fetched via FetchContent and its IMPORTED targets aren't
     # visible from this scope. Add SVS static libraries from the known path.
-    set(_svs_lib_dir "${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity/_deps/svs-src/lib")
+    set(_svs_lib_dir "${CMAKE_BINARY_DIR}/_deps/svs-src/lib")
     if(EXISTS "${_svs_lib_dir}")
         file(GLOB _svs_static_libs "${_svs_lib_dir}/*.a")
         list(APPEND LIBS_TO_MERGE ${_svs_static_libs})
@@ -238,7 +238,7 @@ if(BUILD_SEARCH_UNIT_TESTS)
 
     list(REMOVE_DUPLICATES LIBS_TO_MERGE)
     list(REMOVE_DUPLICATES VISITED_TARGETS)
-    message(STATUS "Static libraries for libredisearch_all.a: ${VISITED_TARGETS}")
+    message(STATUS "Static libraries for libredisearch_all.a: ${LIBS_TO_MERGE}")
 
     # Create the combined library using platform-specific tools
     if(APPLE)
@@ -246,7 +246,7 @@ if(BUILD_SEARCH_UNIT_TESTS)
         add_custom_command(
             OUTPUT ${REDISEARCH_ALL_OUTPUT}
             COMMAND libtool -static -o ${REDISEARCH_ALL_OUTPUT} ${LIBS_TO_MERGE}
-            DEPENDS ${VISITED_TARGETS}
+            DEPENDS ${LIBS_TO_MERGE}
             COMMENT "Creating unified libredisearch_all.a with libtool"
             VERBATIM
             COMMAND_EXPAND_LISTS
@@ -266,7 +266,7 @@ END
             OUTPUT ${REDISEARCH_ALL_OUTPUT}
             COMMAND ${CMAKE_COMMAND} -E rm -f ${REDISEARCH_ALL_OUTPUT}
             COMMAND ar -M < ${MRI_SCRIPT}
-            DEPENDS ${VISITED_TARGETS} ${MRI_SCRIPT}
+            DEPENDS ${LIBS_TO_MERGE} ${MRI_SCRIPT}
             COMMENT "Creating unified libredisearch_all.a with ar"
             VERBATIM
         )
