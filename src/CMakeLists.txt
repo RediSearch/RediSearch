@@ -152,17 +152,45 @@ if(BUILD_SEARCH_UNIT_TESTS)
             return()
         endif()
 
-        # Get target type
+        # Get target type and check if it's imported
         get_target_property(target_type ${target} TYPE)
+        get_target_property(is_imported ${target} IMPORTED)
 
-        # Add static libraries to our list (skip INTERFACE libraries - they have no .a file)
+        # Handle static libraries (both regular and IMPORTED)
         if(target_type STREQUAL "STATIC_LIBRARY")
-            list(APPEND libs $<TARGET_FILE:${target}>)
-            list(APPEND targets ${target})
-        endif()
-
-        # Mark as visited (even for INTERFACE libs to avoid infinite loops)
-        if(target_type STREQUAL "INTERFACE_LIBRARY")
+            if(is_imported)
+                # IMPORTED static library - get the actual file location
+                get_target_property(location ${target} IMPORTED_LOCATION)
+                if(NOT location)
+                    # Try config-specific locations
+                    get_target_property(location ${target} IMPORTED_LOCATION_RELEASE)
+                endif()
+                if(NOT location)
+                    get_target_property(location ${target} IMPORTED_LOCATION_NOCONFIG)
+                endif()
+                if(location AND location MATCHES "\\.(a|lib)$")
+                    message(STATUS "  Found IMPORTED static library: ${target} -> ${location}")
+                    list(APPEND libs ${location})
+                    list(APPEND targets ${target})
+                endif()
+            else()
+                # Regular static library - use generator expression
+                list(APPEND libs $<TARGET_FILE:${target}>)
+                list(APPEND targets ${target})
+            endif()
+        elseif(target_type STREQUAL "UNKNOWN_LIBRARY")
+            # IMPORTED targets with unknown type - check if they're static libraries
+            get_target_property(location ${target} IMPORTED_LOCATION)
+            if(NOT location)
+                get_target_property(location ${target} IMPORTED_LOCATION_RELEASE)
+            endif()
+            if(location AND location MATCHES "\\.(a|lib)$")
+                message(STATUS "  Found UNKNOWN_LIBRARY static: ${target} -> ${location}")
+                list(APPEND libs ${location})
+                list(APPEND targets ${target})
+            endif()
+        elseif(target_type STREQUAL "INTERFACE_LIBRARY")
+            # Mark as visited to avoid infinite loops (no .a file)
             list(APPEND targets ${target})
         endif()
 
