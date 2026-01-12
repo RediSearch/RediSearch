@@ -36,7 +36,7 @@ impl IndexSpec {
         unsafe { SchemaRule::from_raw(self.0.rule) }
     }
 
-    pub fn field_specs<'a>(&self) -> &'a [FieldSpec] {
+    pub fn field_specs(&self) -> &[FieldSpec] {
         let data = self.0.fields.cast::<FieldSpec>();
         let len = self
             .0
