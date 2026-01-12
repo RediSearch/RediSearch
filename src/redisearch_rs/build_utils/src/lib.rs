@@ -96,52 +96,29 @@ pub fn run_cbinden(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-/// Link all the relevant C dependencies to invoke RediSearch C symbols.
+/// Link all the relevant C dependencies to allow Rust (testing) code to invoke
+/// RediSearch C symbols.
 ///
 /// This links a single combined static library (`libredisearch_all.a`) that bundles
 /// all C code and dependencies together. The combined library is created by CMake
 /// during the build process.
-pub fn link_redisearch_c() {
-    link_static_libraries(&[("src", "redisearch_all")]);
+pub fn bind_redisearch_c_symbols() {
+    force_link_time_symbol_resolution();
+    link_redisearch_all();
+    link_c_plusplus();
 }
 
-/// Links static libraries
-///
-/// This function configures the linker to include static libraries built by the main
-/// RediSearch build system.
-/// It's meant to be called from the `build.rs` script using `bindgen` to generate Rust bindings.
-///
-/// # Arguments
-/// * `libs` - A slice of tuples where each tuple contains:
-///   - Library subdirectory path relative to the build output directory
-///   - Library name (without lib prefix and .a suffix)
-///
-/// # Panics
-/// Panics if any required static library is not found in the expected location.
-fn link_static_libraries(libs: &[(&str, &str)]) {
+/// Require all symbols to be resolved at link time.
+fn force_link_time_symbol_resolution() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
-
-    // Require all symbols to be resolved at link time.
-    // The combined static library (redisearch_all) should contain all necessary symbols.
-    // We provide definitions for Redis allocator functions via redis_mock.
     if target_os == "macos" {
         println!("cargo::rustc-link-arg=-Wl,-undefined,error");
     } else {
         println!("cargo::rustc-link-arg=-Wl,--unresolved-symbols=report-all");
     }
+}
 
-    // Link the C++ standard library using the platform's default.
-    // This is needed for VectorSimilarity and other C++ code in libredisearch_all.a.
-    // We compile a dummy C++ file which causes cc to emit the appropriate link flags.
-    let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
-    let dummy_path = std::path::Path::new(&out_dir).join("dummy.cc");
-    std::fs::write(&dummy_path, "// dummy file to link C++ stdlib\n")
-        .expect("Failed to write dummy C++ file");
-    cc::Build::new()
-        .cpp(true)
-        .file(&dummy_path)
-        .compile("link-cplusplus");
-
+fn link_redisearch_all() {
     let bin_root = if let Ok(bin_root) = std::env::var("BINDIR") {
         // The directory changes depending on a variety of factors: target architecture, target OS,
         // optimization level, coverage, etc.
@@ -157,14 +134,29 @@ fn link_static_libraries(libs: &[(&str, &str)]) {
             Some("x86_64") | None => "x64".to_owned(),
             Some(a) => a.to_owned(),
         };
+        let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
         root.join(format!(
             "bin/{target_os}-{target_arch}-release/search-community/"
         ))
     };
 
-    for &(lib_subdir, lib_name) in libs {
-        link_static_lib(&bin_root, lib_subdir, lib_name).unwrap();
-    }
+    link_static_lib(&bin_root, "src", "redisearch_all").unwrap();
+}
+
+/// Link the C++ standard library using the platform's default.
+///
+/// This is needed for VectorSimilarity and other C++ code that RediSearch depends on.
+/// We compile a dummy C++ file which causes cc to emit the appropriate link flags,
+/// using the same approach as the `link-c-plusplus` crate.
+fn link_c_plusplus() {
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
+    let dummy_path = std::path::Path::new(&out_dir).join("dummy.cc");
+    std::fs::write(&dummy_path, "// dummy file to link C++ stdlib\n")
+        .expect("Failed to write dummy C++ file");
+    cc::Build::new()
+        .cpp(true)
+        .file(&dummy_path)
+        .compile("link-cplusplus");
 }
 
 fn link_static_lib(

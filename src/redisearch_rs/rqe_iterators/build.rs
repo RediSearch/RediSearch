@@ -9,5 +9,5 @@
 
 fn main() {
     #[cfg(feature = "unittest")]
-    build_utils::link_redisearch_c();
+    build_utils::bind_redisearch_c_symbols();
 }
