@@ -8,7 +8,7 @@
 */
 
 use ffi::{
-    IteratorType_SORTED_ID_LIST_ITERATOR, IteratorType_UNSORTED_ID_LIST_ITERATOR, QueryIterator,
+    IteratorType_ID_LIST_SORTED_ITERATOR, IteratorType_ID_LIST_UNSORTED_ITERATOR, QueryIterator,
     RedisModule_Free, t_docId,
 };
 use inverted_index::RSIndexResult;
@@ -82,9 +82,9 @@ unsafe fn new_id_list_iterator<const SORTED: bool>(
     }
     RQEIteratorWrapper::boxed_new(
         if SORTED {
-            IteratorType_SORTED_ID_LIST_ITERATOR
+            IteratorType_ID_LIST_SORTED_ITERATOR
         } else {
-            IteratorType_UNSORTED_ID_LIST_ITERATOR
+            IteratorType_ID_LIST_UNSORTED_ITERATOR
         },
         IdList::<SORTED>::with_result(vec, RSIndexResult::virt().weight(weight)),
     )

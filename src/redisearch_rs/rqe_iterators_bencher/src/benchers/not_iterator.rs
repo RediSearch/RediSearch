@@ -12,7 +12,7 @@
 use std::time::Duration;
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
-use rqe_iterators::{RQEIterator, empty::Empty, id_list::SortedIdList, not_iterator::Not};
+use rqe_iterators::{RQEIterator, empty::Empty, id_list::IdListSorted, not_iterator::Not};
 
 use crate::ffi::{IteratorStatus_ITERATOR_OK, QueryIterator};
 
@@ -92,7 +92,7 @@ impl Bencher {
                 || {
                     // Child has 1% of docs (every 100th doc)
                     let data = (1..MAX_DOC_ID).step_by(100).collect();
-                    Not::new(SortedIdList::new(data), MAX_DOC_ID, 1.0)
+                    Not::new(IdListSorted::new(data), MAX_DOC_ID, 1.0)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -133,7 +133,7 @@ impl Bencher {
                 || {
                     // Child has 99% of docs (all except every 100th doc)
                     let data = (1..MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
-                    Not::new(SortedIdList::new(data), MAX_DOC_ID, 1.0)
+                    Not::new(IdListSorted::new(data), MAX_DOC_ID, 1.0)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -211,7 +211,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let data = (1..MAX_DOC_ID).step_by(100).collect();
-                    Not::new(SortedIdList::new(data), MAX_DOC_ID, 1.0)
+                    Not::new(IdListSorted::new(data), MAX_DOC_ID, 1.0)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
@@ -252,7 +252,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let data = (1..MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
-                    Not::new(SortedIdList::new(data), MAX_DOC_ID, 1.0)
+                    Not::new(IdListSorted::new(data), MAX_DOC_ID, 1.0)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {

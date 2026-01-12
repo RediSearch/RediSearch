@@ -4069,7 +4069,7 @@ def test_RED_86036(env):
         env.cmd('hset', f"doc{i}", 't', 'foo')
     res = env.cmd('FT.PROFILE', 'idx', 'search', 'query', '*', 'INKEYS', '2', 'doc0', 'doc999')
     res = res[1][1][0][9] # get the list iterator profile
-    env.assertEqual(res[1], 'ID-LIST')
+    env.assertEqual(res[1], 'ID-LIST-SORTED')
     env.assertLess(res[5], 3)
 
 def test_MOD_4290(env):
