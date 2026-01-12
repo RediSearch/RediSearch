@@ -7,10 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use build_utils::{generate_c_bindings, git_root, link_redisearch_c};
+use build_utils::{bind_redisearch_c_symbols, generate_c_bindings, git_root};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    link_redisearch_c();
+    bind_redisearch_c_symbols();
 
     // Compile the wildcard iterator benchmark C file
     let root = git_root().expect("Could not find git root");
