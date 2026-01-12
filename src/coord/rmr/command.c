@@ -12,12 +12,15 @@
 #include "rmalloc.h"
 #include "resp3.h"
 #include "slot_ranges.h"
+#include "rs_wall_clock.h"
+#include "src/info/global_stats.h"
 
 #include "version.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stdio.h>
 
 #define shift_right(arr, len, start, by) \
   memmove((arr) + (start) + (by), (arr) + (start), ((len) - (start)) * sizeof(*(arr)));
@@ -71,6 +74,7 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->strs = rm_malloc(sizeof(*cmd->strs) * len);
   cmd->lens = rm_malloc(sizeof(*cmd->lens) * len);
   cmd->slotsInfoArgIndex = 0;
+  cmd->dispatchTimeArgIndex = 0;
   cmd->targetShard = NULL;
   cmd->targetShardIdx = 0;
   cmd->cmd = NULL;
@@ -78,10 +82,11 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->depleted = false;
   cmd->forCursor = false;
   cmd->forProfiling = false;
+  cmd->coordStartTime = 0;
 }
 
 MRCommand MR_NewCommandArgv(int argc, const char **argv) {
-  MRCommand cmd;
+  MRCommand cmd = {0};
   MRCommand_Init(&cmd, argc);
 
   for (int i = 0; i < argc; i++) {
@@ -92,9 +97,10 @@ MRCommand MR_NewCommandArgv(int argc, const char **argv) {
 
 /* Create a deep copy of a command by duplicating all strings */
 MRCommand MRCommand_Copy(const MRCommand *cmd) {
-  MRCommand ret;
+  MRCommand ret = {0};
   MRCommand_Init(&ret, cmd->num);
   ret.slotsInfoArgIndex = cmd->slotsInfoArgIndex;
+  ret.dispatchTimeArgIndex = cmd->dispatchTimeArgIndex;
   ret.targetShard = cmd->targetShard ? rm_strdup(cmd->targetShard) : NULL;
   ret.targetShardIdx = cmd->targetShardIdx;
   ret.protocol = cmd->protocol;
@@ -102,6 +108,7 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
   ret.forProfiling = cmd->forProfiling;
   ret.rootCommand = cmd->rootCommand;
   ret.depleted = cmd->depleted;
+  ret.coordStartTime = cmd->coordStartTime;
   for (int i = 0; i < cmd->num; i++) {
     copyStr(&ret, i, cmd, i);
   }
@@ -109,7 +116,7 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
 }
 
 MRCommand MR_NewCommand(int argc, ...) {
-  MRCommand cmd;
+  MRCommand cmd = {0};
   MRCommand_Init(&cmd, argc);
 
   va_list ap;
@@ -122,7 +129,7 @@ MRCommand MR_NewCommand(int argc, ...) {
 }
 
 MRCommand MR_NewCommandFromRedisStrings(int argc, RedisModuleString **argv) {
-  MRCommand cmd;
+  MRCommand cmd = {0};
   MRCommand_Init(&cmd, argc);
   for (int i = 0; i < argc; i++) {
     assignRstr(&cmd, i, argv[i]);
@@ -136,15 +143,24 @@ static void extendCommandList(MRCommand *cmd, size_t toAdd) {
   cmd->lens = rm_realloc(cmd->lens, sizeof(*cmd->lens) * cmd->num);
 }
 
+static void MRCommand_updateArgIndices(MRCommand *cmd, int pos, int toAdd) {
+  RS_LOG_ASSERT(!cmd->slotsInfoArgIndex || cmd->slotsInfoArgIndex != pos, "Cannot insert between "SLOTS_STR" and its data");
+  RS_LOG_ASSERT(!cmd->dispatchTimeArgIndex || cmd->dispatchTimeArgIndex != pos, "Cannot insert between "COORD_DISPATCH_TIME_STR" and its data");
+  if (cmd->slotsInfoArgIndex && pos < cmd->slotsInfoArgIndex) {
+    cmd->slotsInfoArgIndex += toAdd;
+  }
+
+  if (cmd->dispatchTimeArgIndex && pos < cmd->dispatchTimeArgIndex) {
+    cmd->dispatchTimeArgIndex += toAdd;
+  }
+}
+
 void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n) {
   RS_ASSERT(0 <= pos && pos <= cmd->num);
   int oldNum = cmd->num;
   extendCommandList(cmd, 1);
 
-  RS_LOG_ASSERT(!cmd->slotsInfoArgIndex || cmd->slotsInfoArgIndex != pos, "Cannot insert between "SLOTS_STR" and its data");
-  if (cmd->slotsInfoArgIndex && pos < cmd->slotsInfoArgIndex) {
-    cmd->slotsInfoArgIndex++;
-  }
+  MRCommand_updateArgIndices(cmd, pos, 1);
 
   // shift right all arguments that comes after pos
   shift_right(cmd->strs, oldNum, pos, 1);
@@ -267,4 +283,34 @@ void MRCommand_SetSlotInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slot
   char *serialized = SlotRangesArray_Serialize(slots);
   size_t serializedLen = SlotRangeArray_SizeOf(slots->num_ranges);
   MRCommand_ReplaceArgNoDup(cmd, cmd->slotsInfoArgIndex, serialized, serializedLen);
+}
+
+void MRCommand_PrepareForDispatchTime(MRCommand *cmd) {
+  RS_LOG_ASSERT(cmd->dispatchTimeArgIndex == 0, "Dispatch time already set for this command");
+
+  // Append _COORD_DISPATCH_TIME marker
+  MRCommand_Append(cmd, COORD_DISPATCH_TIME_STR, sizeof(COORD_DISPATCH_TIME_STR) - 1);
+  // Append placeholder for the value (will be filled in by MRCommand_SetDispatchTime)
+  MRCommand_Append(cmd, "", 0);
+  cmd->dispatchTimeArgIndex = cmd->num - 1;
+}
+
+void MRCommand_SetDispatchTime(MRCommand *cmd) {
+  if (cmd->dispatchTimeArgIndex == 0) {
+    RS_LOG_ASSERT(cmd->rootCommand != C_AGG, "Dispatch time placeholder for AGGREGATE was not prepared");
+    return;
+  }
+  RS_LOG_ASSERT(cmd->rootCommand == C_AGG, "Only AGGREGATE commands support dispatch time");
+  RS_LOG_ASSERT(cmd->dispatchTimeArgIndex > 0, "Dispatch time placeholder was not prepared");
+  RS_ASSERT(cmd->dispatchTimeArgIndex < cmd->num);
+  RS_ASSERT(!strcmp(cmd->strs[cmd->dispatchTimeArgIndex - 1], COORD_DISPATCH_TIME_STR));
+
+  // Calculate dispatch time from coordinator start
+  rs_wall_clock_ns_t dispatchTime = rs_wall_clock_now_ns() - cmd->coordStartTime;
+  char buf[32];
+  int len = snprintf(buf, sizeof(buf), "%llu", (unsigned long long)dispatchTime);
+
+  // Replace the placeholder with the actual value
+  MRCommand_ReplaceArg(cmd, cmd->dispatchTimeArgIndex, buf, len);
+  TotalGlobalStats_AddCoordDispatchTime(dispatchTime);
 }

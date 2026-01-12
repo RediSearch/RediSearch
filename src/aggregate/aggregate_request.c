@@ -27,6 +27,7 @@
 #include "slots_tracker.h"
 #include "asm_state_machine.h"
 #include "search_disk.h"
+#include "coord/rmr/command.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -437,6 +438,18 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       ASM_KeySpaceVersionTracker_IncreaseQueryCount(*papCtx->keySpaceVersion);
     }
     *papCtx->querySlots = slot_array;
+  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && AC_AdvanceIfMatch(ac, COORD_DISPATCH_TIME_STR)) {
+    // Parse coordinator dispatch time for internal commands
+    if (AC_NumRemaining(ac) < 1) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, COORD_DISPATCH_TIME_STR " missing argument");
+      return ARG_ERROR;
+    }
+    unsigned long long dispatchTime;
+    if (AC_GetUnsignedLongLong(ac, &dispatchTime, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, COORD_DISPATCH_TIME_STR " requires a numeric value");
+      return ARG_ERROR;
+    }
+    *papCtx->coordDispatchTime = dispatchTime;
   } else {
     return ARG_UNKNOWN;
   }
@@ -555,8 +568,12 @@ err:
   return REDISMODULE_ERR;
 }
 
-static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *hasEmptyFilterValue, QueryError *status) {
+static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *hasEmptyFilterValue, QueryError *status, bool isftSearchOnDisk) {
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
+    if (isftSearchOnDisk) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FILTER is not supported by FT.SEARCH ON DISK");
+      return ARG_ERROR;
+    }
     // Numeric filter
     LegacyNumericFilter **curpp = array_ensure_tail(&options->legacy.filters, LegacyNumericFilter *);
     *curpp = NumericFilter_LegacyParse(ac, hasEmptyFilterValue, status);
@@ -564,6 +581,10 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
+    if (isftSearchOnDisk) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "GEOFILTER is not supported by FT.SEARCH ON DISK");
+      return ARG_ERROR;
+    }
     LegacyGeoFilter *cur_gf = rm_new(*cur_gf);
     array_ensure_append_1(options->legacy.geo_filters, cur_gf);
     if (GeoFilter_LegacyParse(cur_gf, ac, hasEmptyFilterValue, status) != REDISMODULE_OK) {
@@ -607,7 +628,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     {NULL}
   };
 
-  ACArgSpec SearchInFlexArgs[] = {
+  ACArgSpec searchOnFlexArgs[] = {
     {.name = "INKEYS", .type = AC_ARGTYPE_SUBARGS, .target = &inKeys},
     {.name = "RETURN", .type = AC_ARGTYPE_SUBARGS, .target = &returnFields},
     {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr},
@@ -619,7 +640,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     {NULL}
   };
   bool isftSearchOnDisk = (SearchDisk_IsEnabledForValidation() && (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH));
-  ACArgSpec *querySpecs = isftSearchOnDisk ? SearchInFlexArgs : globalSearchArgs;
+  ACArgSpec *querySpecs = isftSearchOnDisk ? searchOnFlexArgs : globalSearchArgs;
 
   AREQ_AddRequestFlags(req, QEXEC_FORMAT_DEFAULT);
   bool optimization_specified = false;
@@ -669,7 +690,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       AREQ_AddRequestFlags(req, QEXEC_F_SEND_HIGHLIGHT);
 
     } else if ((AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH) &&
-               ((rv = parseQueryLegacyArgs(ac, searchOpts, &hasEmptyFilterValue, status)) != ARG_UNKNOWN)) {
+               ((rv = parseQueryLegacyArgs(ac, searchOpts, &hasEmptyFilterValue, status, isftSearchOnDisk)) != ARG_UNKNOWN)) {
       if (rv == ARG_ERROR) {
         return REDISMODULE_ERR;
       }
@@ -710,6 +731,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .maxAggregateResults = &req->maxAggregateResults,
         .querySlots = &req->querySlots,
         .keySpaceVersion = &req->keySpaceVersion,
+        .coordDispatchTime = &req->coordDispatchTime,
       };
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
@@ -1070,9 +1092,6 @@ AREQ *AREQ_New(void) {
   req->optimizer = QOptimizer_New();
   req->profile = Profile_PrintDefault;
   req->prefixesOffset = 0;
-  req->has_timedout = false;
-  req->cursor_reads = 0;
-  req->stateflags = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
   return req;
@@ -1171,6 +1190,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .maxAggregateResults = &req->maxAggregateResults,
     .querySlots = &req->querySlots,
     .keySpaceVersion = &req->keySpaceVersion,
+    .coordDispatchTime = &req->coordDispatchTime,
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
     goto error;

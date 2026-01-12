@@ -209,7 +209,7 @@ def test_coord_profile():
       },
       'Profile': {
         'Shards': env.shardsCount * [
-                      {'Shard ID': ANY, 'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': ['None'],
+                      {'Shard ID': ANY, 'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Coordinator dispatch time [ms]': ANY, 'Warning': ['None'],
                         'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
                         'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Scorer', 'Time': ANY, 'Results processed': ANY},
@@ -250,6 +250,7 @@ def test_coord_profile():
       'Total profile time': ANY,
       'Parsing time': ANY,
       'Pipeline creation time': ANY,
+      'Coordinator dispatch time [ms]': ANY,
       'Warning': ['None'],
       'Internal cursor reads': ANY,
       'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
@@ -1620,14 +1621,10 @@ def test_multiple_warnings():
   env.assertEqual(len(shards_profile), env.shardsCount, message=f"unexpected shard count: {res}")
   for shard_profile in shards_profile:
     env.assertContains('Timeout limit was reached', shard_profile['Warning'])
+    env.assertContains('Max prefix expansions limit was reached', shard_profile['Warning'])
+    # Verify internal cursor reads (In resp3 timeout is detected and we stop after 1 read)
     if env.isCluster():
-        # MOD-12984: In cluster mode, warnings are not persisted across cursor reads,
-        # so only the timeout warning is present.
-        # Once MOD-12984 is fixed, remove this branch and keep only the assertContains below.
-        env.assertEqual(len(shard_profile['Warning']), 1, message=f"full reply output: {res}")
-    else:
-        # In standalone mode, both warnings should be present
-        env.assertContains('Max prefix expansions limit was reached', shard_profile['Warning'])
+      env.assertEqual(shard_profile['Internal cursor reads'], 1)
 
 # TODO: `total_results` is currently not  on cluster - to be fixed in MOD-9094
 @skip(cluster=True)

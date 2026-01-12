@@ -64,6 +64,16 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
     disk->basic.closeIndexSpec(index);
 }
 
+void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && index);
+  disk->basic.indexSpecRdbSave(rdb, index);
+}
+
+int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk);
+  return disk->basic.indexSpecRdbLoad(rdb, index);
+}
+
 // Index API wrappers
 bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask) {
     RS_ASSERT(disk && index);
@@ -95,6 +105,26 @@ bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
     return disk->docTable.isDocIdDeleted(handle, docId);
 }
 
+t_docId SearchDisk_GetMaxDocId(RedisSearchDiskIndexSpec *handle) {
+    RS_ASSERT(disk && handle);
+    return disk->docTable.getMaxDocId(handle);
+}
+
+uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle) {
+    RS_ASSERT(disk && handle);
+    return disk->docTable.getDeletedIdsCount(handle);
+}
+
+size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size) {
+    RS_ASSERT(disk && handle);
+    return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
+}
+
+void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen) {
+    RS_ASSERT(disk && handle);
+    disk->index.deleteDocument(handle, key, keyLen);
+}
+
 bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx) {
   bool isFlexConfigured = false;
   char *isFlexEnabledStr = getRedisConfigValue(ctx, "bigredis-enabled");
@@ -111,4 +141,19 @@ bool SearchDisk_IsEnabled() {
 
 bool SearchDisk_IsEnabledForValidation() {
   return isFlex || RSGlobalConfig.simulateInFlex;
+}
+
+// Vector API wrappers
+void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const struct VecSimHNSWDiskParams *params) {
+    RS_ASSERT(disk && index && params);
+    RS_ASSERT(disk->vector.createVectorIndex);
+    return disk->vector.createVectorIndex(index, params);
+}
+
+void SearchDisk_FreeVectorIndex(void *vecIndex) {
+    RS_ASSERT(disk);
+    // Assert that if vecIndex is not NULL, the free function must be set
+    // to avoid silent memory leaks from partially implemented API
+    RS_ASSERT(!vecIndex || disk->vector.freeVectorIndex);
+    disk->vector.freeVectorIndex(vecIndex);
 }

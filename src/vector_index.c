@@ -15,6 +15,7 @@
 #include "util/workers_pool.h"
 #include "util/threadpool_api.h"
 #include "redis_index.h"
+#include "search_disk.h"
 
 
 #if defined(__x86_64__) && defined(__GLIBC__)
@@ -43,14 +44,20 @@ bool isLVQSupported() {
   return false; // In which case we know that LVQ not supported.
 }
 
-VecSimIndex *openVectorIndex(FieldSpec *spec, bool create_if_missing) {
-  RS_ASSERT(FIELD_IS(spec, INDEXFLD_T_VECTOR));
+VecSimIndex *openVectorIndex(FieldSpec *fieldSpec, bool create_if_missing) {
+  RS_ASSERT(FIELD_IS(fieldSpec, INDEXFLD_T_VECTOR));
 
-  if (!spec->vectorOpts.vecSimIndex && create_if_missing) {
-    // create new vector index
-    spec->vectorOpts.vecSimIndex = VecSimIndex_New(&spec->vectorOpts.vecSimParams);
+  if (!fieldSpec->vectorOpts.vecSimIndex && create_if_missing) {
+    if (fieldSpec->vectorOpts.diskParams.storage) {
+      // Disk path - create disk-based HNSW index
+      fieldSpec->vectorOpts.vecSimIndex = SearchDisk_CreateVectorIndex(
+        fieldSpec->vectorOpts.diskParams.storage, &fieldSpec->vectorOpts.diskParams);
+    } else {
+      // RAM path - use standard VectorSimilarity
+      fieldSpec->vectorOpts.vecSimIndex = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
+    }
   }
-  return spec->vectorOpts.vecSimIndex;
+  return fieldSpec->vectorOpts.vecSimIndex;
 }
 
 QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, const bool yields_metric, const bool sorted_by_id) {

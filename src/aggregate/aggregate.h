@@ -22,6 +22,8 @@
 #include "vector_index.h"
 #include "hybrid/vector_query_utils.h"
 #include "slot_ranges.h"
+#include "profile.h"
+#include "rs_wall_clock.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -154,7 +156,8 @@ typedef struct {
   size_t *maxSearchResults;         // Maximum search results
   size_t *maxAggregateResults;      // Maximum aggregate results
   const RedisModuleSlotRangeArray **querySlots; // Slots requested (referenced from AREQ)
-  uint32_t *keySpaceVersion;                       // Version given by the slots tracker
+  uint32_t *keySpaceVersion;        // Version given by the slots tracker
+  rs_wall_clock_ns_t *coordDispatchTime; // Coordinator dispatch time in ns (for internal commands)
 } ParseAggPlanContext;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
@@ -254,6 +257,12 @@ typedef struct AREQ {
 
   RequestConfig reqConfig;
 
+  /** Time when command was received on coordinator in ns (for dispatch time tracking) */
+  rs_wall_clock_ns_t coordStartTime;
+
+  /** Dispatch time from coordinator to shard in ns (for timeout adjustment) */
+  rs_wall_clock_ns_t coordDispatchTime;
+
   /** Cursor configuration */
   CursorConfig cursorConfig;
 
@@ -281,14 +290,7 @@ typedef struct AREQ {
   // The offset of the prefixes in the command
   size_t prefixesOffset;
 
-  // Indicates whether the query has timed out.
-  // Useful for query with cursor and RETURN policy
-  bool has_timedout;
-
-  // Number of cursor reads: 1 for the initial FT.AGGREGATE WITHCURSOR,
-  // plus 1 for each subsequent FT.CURSOR READ call.
-  size_t cursor_reads;
-
+  ProfilePrinterCtx profileCtx;
 } AREQ;
 
 /**
@@ -383,6 +385,10 @@ static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
   return &req->pipeline.qctx;
 }
 
+static inline ProfilePrinterCtx *AREQ_ProfilePrinterCtx(AREQ *req) {
+  return &req->profileCtx;
+}
+
 static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
   return req->sctx;
 }
@@ -446,7 +452,6 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
-int prepareExecutionPlan(AREQ *req, QueryError *status);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
 void AREQ_Free(AREQ *req);

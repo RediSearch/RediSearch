@@ -17,6 +17,7 @@
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
 #include "coord/config.h"
+#include "rs_wall_clock.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -623,6 +624,10 @@ void iterStartCb(void *p) {
 
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
+
+  // Set the dispatch time value in the prepared placeholder
+  MRCommand_SetDispatchTime(cmd);
+
   for (size_t targetShardIdx = 1; targetShardIdx < numShards; targetShardIdx++) {
     it->cbxs[targetShardIdx].it = it;
     it->cbxs[targetShardIdx].cmd = MRCommand_Copy(cmd);

@@ -410,7 +410,7 @@ void ClearOwnedField(DocumentField *field) {
           array_free(field->arrNumval);
         }
     if (field->multisv) {
-      RSValue_Free(field->multisv);
+      RSValue_DecrRef(field->multisv);
     }
     break;
     case FLD_VAR_T_BLOB_ARRAY:

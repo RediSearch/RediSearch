@@ -135,12 +135,13 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
 }
 
 void Profile_Print(RedisModule_Reply *reply, void *ctx) {
-  ProfilePrinterCtx *profileCtx = ctx;
-  AREQ *req = profileCtx->req;
-  bool timedout = profileCtx->timedout;
-  bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
-  bool bgScanOOM = profileCtx->bgScanOOM;
-  bool queryOOM = profileCtx->queryOOM;
+  AREQ *req = ctx;
+  ProfilePrinterCtx *profileCtx = AREQ_ProfilePrinterCtx(req);
+  bool timedout = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
+  bool reachedMaxPrefixExpansions = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
+  bool bgScanOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
+  bool queryOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
+  bool asmTrimmingDelayTimeout = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
@@ -180,8 +181,14 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
     }
   }
 
+  // Print coord dispatch time if this is a shard handling a coordinator request.
+  if (profile_verbose && IsInternal(req)) {
+    RedisModule_ReplyKV_Double(reply, "Coordinator dispatch time [ms]",
+                               rs_wall_clock_convert_ns_to_ms_d(req->coordDispatchTime));
+  }
+
   // Print whether a warning was raised throughout command execution
-  bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions;
+  bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions || asmTrimmingDelayTimeout;
   RedisModule_ReplyKV_Array(reply, "Warning");
   if (!warningRaised) {
     RedisModule_Reply_SimpleString(reply, "None");
@@ -199,6 +206,9 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
     if (reachedMaxPrefixExpansions) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
+    if (asmTrimmingDelayTimeout) {
+      RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
+    }
   }
   RedisModule_Reply_ArrayEnd(reply); // >warnings
 
@@ -206,7 +216,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   if (IsCursor(req)) {
     // Only internal requests can use profile with cursor.
     RS_ASSERT(IsInternal(req));
-    RedisModule_ReplyKV_LongLong(reply, "Internal cursor reads", req->cursor_reads);
+    RedisModule_ReplyKV_LongLong(reply, "Internal cursor reads", profileCtx->cursor_reads);
   }
 
   // Print profile of iterators

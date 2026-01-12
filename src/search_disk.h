@@ -60,6 +60,25 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
  */
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
 
+/**
+ * @brief Save the disk-related data of the index to the rdb file
+ *
+ * @param rdb Redis module rdb file
+ * @param index Pointer to the index
+ * @return true if successful, false otherwise
+ */
+void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+
+/**
+ * @brief Load the disk-related data of the index from the rdb file
+ *
+ * @param rdb Redis module rdb file
+ * @param index Pointer to the index. If NULL, the RDB section related to the
+ * index is consumed only.
+ * @return true if successful, false otherwise
+ */
+int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+
 // Index API wrappers
 
 /**
@@ -73,6 +92,15 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
  * @return true if successful, false otherwise
  */
 bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask);
+
+/**
+ * @brief Delete a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
+ *
+ * @param handle Handle to the document table
+ * @param key Document key
+ * @param keyLen Length of the document key
+ */
+void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
@@ -104,7 +132,8 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
 // DocTable API wrappers
 
 /**
- * @brief Add a new document to the table
+ * @brief Add a new document to the table, and delete the previously existing
+ * document associated with the key.
  *
  * @param handle Handle to the document table
  * @param key Document key
@@ -137,6 +166,35 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId do
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
 
 /**
+ * @brief Get the maximum document ID of the index (next to be assigned)
+ *
+ * @param handle Handle to the document table
+ * @return The maximum document ID, or 0 if the index is empty
+ */
+t_docId SearchDisk_GetMaxDocId(RedisSearchDiskIndexSpec *handle);
+
+/**
+ * @brief Get the count of deleted document IDs
+ *
+ * @param handle Handle to the document table
+ * @return The number of deleted document IDs
+ */
+uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
+
+/**
+ * @brief Get all deleted document IDs
+ *
+ * Fills the provided buffer with deleted document IDs. The caller must ensure
+ * the buffer is large enough to hold all deleted IDs (use SearchDisk_GetDeletedIdsCount first).
+ *
+ * @param handle Handle to the document table
+ * @param buffer Buffer to fill with deleted document IDs
+ * @param buffer_size Size of the buffer (number of t_docId elements)
+ * @return The number of IDs written to the buffer
+ */
+size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
+
+/**
  * @brief Check if the search disk module is enabled from configuration
  *
  * @param ctx Redis module context
@@ -160,3 +218,25 @@ bool SearchDisk_IsEnabled();
  * @return true if enabled, false otherwise
  */
 bool SearchDisk_IsEnabledForValidation();
+
+// Vector API wrappers
+
+/**
+ * @brief Create a disk-based vector index
+ *
+ * Creates an HNSW index that stores vectors on disk. The returned handle
+ * is a VecSimIndex* that can be used with all standard VecSimIndex_*
+ * functions (AddVector, TopKQuery, etc.) due to polymorphism.
+ *
+ * @param index Pointer to the index spec
+ * @param params Vector index parameters
+ * @return VecSimIndex* handle, or NULL on error
+ */
+void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const struct VecSimHNSWDiskParams *params);
+
+/**
+ * @brief Free a disk-based vector index
+ *
+ * @param vecIndex The vector index handle returned by SearchDisk_CreateVectorIndex
+ */
+void SearchDisk_FreeVectorIndex(void *vecIndex);

@@ -348,7 +348,7 @@ def translate_hybrid_query(hybrid_query, vector_blob, index_name):
 # TEST EXECUTION
 # =============================================================================
 
-def run_test_scenario(env, index_name, scenario, vector_blob, collect_logs=False):
+def run_test_scenario(env, index_name, scenario, vector_blob):
     """
     Run a test scenario from dict
 
@@ -361,18 +361,13 @@ def run_test_scenario(env, index_name, scenario, vector_blob, collect_logs=False
         To get the search_score and vector score of hybrid printed in case of error,
         add YIELD_SCORE_AS to the search and vector subqueries in the scenario.
     """
-    if collect_logs:
-        logs = []
-    else:
-        logs = None
+
     conn = getConnectionByEnv(env)
 
     # Execute search query
     search_cmd = translate_search_query(scenario['search_equivalent'], index_name)
     search_results_raw = conn.execute_command(*search_cmd)
-    if collect_logs:
-        logs.append(f"Search command: {search_cmd}")
-        logs.append(f"Search response: {search_results_raw}")
+
     # Process search results
     search_results = _process_search_response(search_results_raw)
 
@@ -381,9 +376,7 @@ def run_test_scenario(env, index_name, scenario, vector_blob, collect_logs=False
                     scenario['vector_equivalent'], vector_blob,
                     index_name, scenario.get('vector_suffix', ''))
     vector_results_raw = conn.execute_command(*vector_cmd)
-    if collect_logs:
-        logs.append(f"Vector command: {vector_cmd}")
-        logs.append(f"Vector response: {vector_results_raw}")
+
     # Process vector results
     vector_results = _process_vector_response(vector_results_raw)
 
@@ -394,9 +387,6 @@ def run_test_scenario(env, index_name, scenario, vector_blob, collect_logs=False
     hybrid_cmd = translate_hybrid_query(
                 scenario['hybrid_query'], vector_blob, index_name)
     hybrid_results_raw = env.cmd(*hybrid_cmd)
-    if collect_logs:
-        logs.append(f"Hybrid command: {hybrid_cmd}")
-        logs.append(f"Hybrid response: {hybrid_results_raw}")
 
     hybrid_results, score_info = _process_hybrid_response(hybrid_results_raw)
     _sort_adjacent_same_scores(hybrid_results)
@@ -407,4 +397,4 @@ def run_test_scenario(env, index_name, scenario, vector_blob, collect_logs=False
 
     # Assert with detailed comparison table on failure
     _validate_results(env, hybrid_results, expected_rrf, comparison_table)
-    return logs
+    return True
