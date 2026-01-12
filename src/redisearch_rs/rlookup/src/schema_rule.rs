@@ -146,7 +146,8 @@ mod test {
     fn fields_and_indices() {
         let mut schema_rule = unsafe { mem::zeroed::<ffi::SchemaRule>() };
         schema_rule.filter_fields = filter_fields_array(&[c"aaa", c"bbb"]);
-        schema_rule.filter_fields_index = [10, 20].as_mut_ptr();
+        let mut filter_fields_index = [10, 20];
+        schema_rule.filter_fields_index = filter_fields_index.as_mut_ptr();
         let sut = unsafe { SchemaRule::from_raw(ptr::from_ref(&schema_rule)) };
 
         let ff = sut.filter_fields();
@@ -156,7 +157,7 @@ mod test {
         assert_eq!(ff[0], c"aaa");
         assert_eq!(ff[1], c"bbb");
         assert_eq!(ffi.len(), 2);
-        assert_eq!(ffi, [10, 20]);
+        assert_eq!(ffi, filter_fields_index);
     }
 
     fn filter_fields_array(filter_fields: &[&CStr]) -> *mut *mut i8 {
