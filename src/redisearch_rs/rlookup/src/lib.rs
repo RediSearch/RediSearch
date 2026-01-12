@@ -8,6 +8,7 @@
 */
 
 mod bindings;
+mod hidden_string;
 mod load_document;
 mod lookup;
 #[cfg(test)]
