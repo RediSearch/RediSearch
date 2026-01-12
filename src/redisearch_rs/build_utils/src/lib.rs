@@ -102,7 +102,7 @@ pub fn run_cbinden(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::err
 /// This links a single combined static library (`libredisearch_all.a`) that bundles
 /// all C code and dependencies together. The combined library is created by CMake
 /// during the build process.
-pub fn bind_redisearch_c_symbols() {
+pub fn bind_foreign_c_symbols() {
     force_link_time_symbol_resolution();
     link_redisearch_all();
     link_c_plusplus();

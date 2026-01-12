@@ -13,6 +13,55 @@ use std::path::Path;
 use syn::{Abi, ItemFn, Visibility, visit::Visit};
 use walkdir::WalkDir;
 
+/// This build script ensures that all `extern "C"` functions defined in our `*_ffi` crates
+/// are included in the final test and benchmark binaries, even when they're not directly
+/// called from Rust code.
+///
+/// # The Problem
+///
+/// Our `*_ffi` crates define `#[unsafe(no_mangle)] pub extern "C" fn` functions that are meant to be
+/// called by C code. From Rust's perspective, these functions are never used—no Rust code
+/// calls them. This creates two issues:
+///
+/// 1. **LLVM dead code elimination**: The compiler may remove "unused" functions entirely.
+/// 2. **Linker garbage collection**: Even if the functions survive compilation, the linker
+///    (with `-dead_strip` on macOS or `--gc-sections` on Linux) will remove symbols that
+///    nothing references.
+///
+/// In production, this isn't an issue. We compile `redisearch_rs` as a `staticlib`, which
+/// preserves all symbols unconditionally.
+///
+/// We have issues when it comes to tests and benchmarks.
+/// Some of our tests and benchmarks need to invoke C-defined symbols, which are provided by
+/// the `redisearch_all` static library. Those C-defined symbols may in turn call back into Rust-defined FFI
+/// symbols. `cargo` isn't able to see this relationship: `redisearch_rs` is consumed
+/// as a regular Rust dependency (an `rlib`) by our tests and benchmarks, and the FFI symbols it
+/// defines are stripped out as unused. This in turn causes the `redisearch_all` static library to fail linking,
+/// since the Rust-provided symbols it needs are missing.
+///
+/// # Obvious Solutions That Don't Work
+///
+/// - **`extern crate`**: Adding `extern crate fnv_ffi;` ensures the crate is linked, but
+///   doesn't prevent the linker from stripping unused symbols within that crate.
+///
+/// - **`#[used]` on functions**: This would be the ideal solution, but `#[used]` is only
+///   stable for `static` items. Using it on functions requires the unstable
+///   `#![feature(used_linker)]`.
+///
+/// # The Solution
+///
+/// We use a multi-pronged approach:
+///
+/// 1. **Parse the `*_ffi` crates** to discover all `#[no_mangle] pub extern "C" fn` symbols.
+///    We only scan crates listed as dependencies in this crate's `Cargo.toml` to avoid
+///    pulling in symbols from crates that are not yet integrated in the C project.
+///
+/// 2. **Generate a `#[used]` static array** containing pointers to all FFI functions.
+///    The `#[used]` attribute prevents the linker from eliminating the static, and since it
+///    references all our FFI functions, they're kept alive through compilation.
+///
+/// This ensures that when the C static library calls these functions, the symbols are
+/// present in the final test/benchmark binary.
 fn main() {
     let manifest_path = Path::new("Cargo.toml");
     let manifest_content = fs::read_to_string(manifest_path).expect("Failed to read Cargo.toml");

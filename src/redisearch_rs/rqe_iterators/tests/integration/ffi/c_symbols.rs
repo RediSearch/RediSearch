@@ -10,5 +10,5 @@
 //! Mock implementations of C symbol that aren't provided
 //! by the static C libraries we are linking against in build.rs.
 
-redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
 extern crate redisearch_rs;
