@@ -5,7 +5,6 @@ use crate::{SchemaRule, field_spec::FieldSpec};
 /// A safe wrapper around a pointer to a `IndexSpec`, the underlying pointer is non-null.
 ///
 /// We wrap the `IndexSpec` C implementation here.
-#[derive(Debug)]
 #[repr(transparent)]
 pub struct IndexSpec(ffi::IndexSpec);
 
