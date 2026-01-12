@@ -138,12 +138,10 @@ add_dependencies(redisearch_c generate_command_info)
 # Build a combined static library for Rust tests/benchmarks (only when tests are enabled)
 if(BUILD_SEARCH_UNIT_TESTS)
     # Recursively collect all static library dependencies from a target
-    function(collect_static_libs target out_libs out_targets)
-        set(libs ${${out_libs}})
-        set(targets ${${out_targets}})
-
+    # Uses global variables _COLLECT_LIBS and _COLLECT_TARGETS for accumulation
+    function(collect_static_libs_impl target)
         # Skip if already visited
-        if(${target} IN_LIST targets)
+        if(${target} IN_LIST _COLLECT_TARGETS)
             return()
         endif()
 
@@ -170,13 +168,18 @@ if(BUILD_SEARCH_UNIT_TESTS)
                 endif()
                 if(location AND location MATCHES "\\.(a|lib)$")
                     message(STATUS "  Found IMPORTED static library: ${target} -> ${location}")
-                    list(APPEND libs ${location})
-                    list(APPEND targets ${target})
+                    list(APPEND _COLLECT_LIBS ${location})
+                    list(APPEND _COLLECT_TARGETS ${target})
+                    set(_COLLECT_LIBS ${_COLLECT_LIBS} PARENT_SCOPE)
+                    set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
                 endif()
             else()
                 # Regular static library - use generator expression
-                list(APPEND libs $<TARGET_FILE:${target}>)
-                list(APPEND targets ${target})
+                message(STATUS "  Found static library: ${target}")
+                list(APPEND _COLLECT_LIBS $<TARGET_FILE:${target}>)
+                list(APPEND _COLLECT_TARGETS ${target})
+                set(_COLLECT_LIBS ${_COLLECT_LIBS} PARENT_SCOPE)
+                set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
             endif()
         elseif(target_type STREQUAL "UNKNOWN_LIBRARY")
             # IMPORTED targets with unknown type - check if they're static libraries
@@ -186,34 +189,55 @@ if(BUILD_SEARCH_UNIT_TESTS)
             endif()
             if(location AND location MATCHES "\\.(a|lib)$")
                 message(STATUS "  Found UNKNOWN_LIBRARY static: ${target} -> ${location}")
-                list(APPEND libs ${location})
-                list(APPEND targets ${target})
+                list(APPEND _COLLECT_LIBS ${location})
+                list(APPEND _COLLECT_TARGETS ${target})
+                set(_COLLECT_LIBS ${_COLLECT_LIBS} PARENT_SCOPE)
+                set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
             endif()
         elseif(target_type STREQUAL "INTERFACE_LIBRARY")
             # Mark as visited to avoid infinite loops (no .a file)
-            list(APPEND targets ${target})
+            message(STATUS "  Found INTERFACE library: ${target}")
+            list(APPEND _COLLECT_TARGETS ${target})
+            set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
+        else()
+            # Mark other types as visited
+            list(APPEND _COLLECT_TARGETS ${target})
+            set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
         endif()
 
         # Recurse into dependencies (both LINK_LIBRARIES and INTERFACE_LINK_LIBRARIES)
         foreach(prop LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
             get_target_property(dep_libs ${target} ${prop})
             if(dep_libs)
+                message(STATUS "    ${target} ${prop}: ${dep_libs}")
                 foreach(dep IN LISTS dep_libs)
                     # Skip generator expressions and non-targets
                     if(NOT dep MATCHES "^\\$<" AND TARGET ${dep})
-                        collect_static_libs(${dep} libs targets)
+                        collect_static_libs_impl(${dep})
+                        # Propagate changes back up
+                        set(_COLLECT_LIBS ${_COLLECT_LIBS} PARENT_SCOPE)
+                        set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
+                    elseif(NOT dep MATCHES "^\\$<")
+                        message(STATUS "      Skipping non-target: ${dep}")
                     endif()
                 endforeach()
             endif()
         endforeach()
-
-        set(${out_libs} ${libs} PARENT_SCOPE)
-        set(${out_targets} ${targets} PARENT_SCOPE)
     endfunction()
+
+    # Wrapper function that initializes and returns results
+    macro(collect_static_libs target out_libs out_targets)
+        set(_COLLECT_LIBS "")
+        set(_COLLECT_TARGETS "")
+        collect_static_libs_impl(${target})
+        set(${out_libs} ${_COLLECT_LIBS})
+        set(${out_targets} ${_COLLECT_TARGETS})
+    endmacro()
 
     set(REDISEARCH_ALL_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/libredisearch_all.a")
 
     # Automatically collect all static library dependencies from redisearch_c
+    message(STATUS "Collecting static libraries for libredisearch_all.a...")
     set(LIBS_TO_MERGE "")
     set(VISITED_TARGETS "")
     collect_static_libs(redisearch_c LIBS_TO_MERGE VISITED_TARGETS)
@@ -249,6 +273,8 @@ END
         add_custom_command(
             OUTPUT ${REDISEARCH_ALL_OUTPUT}
             COMMAND ${CMAKE_COMMAND} -E rm -f ${REDISEARCH_ALL_OUTPUT}
+            COMMAND ${CMAKE_COMMAND} -E echo "Merging libraries from MRI script:"
+            COMMAND ${CMAKE_COMMAND} -E cat ${MRI_SCRIPT}
             COMMAND ar -M < ${MRI_SCRIPT}
             DEPENDS ${VISITED_TARGETS} ${MRI_SCRIPT}
             COMMENT "Creating unified libredisearch_all.a with ar"
