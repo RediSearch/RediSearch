@@ -212,18 +212,20 @@ if(BUILD_SEARCH_UNIT_TESTS)
         endforeach()
     endfunction()
 
-    macro(collect_static_libs target out_libs)
+    macro(collect_static_libs target out_libs out_targets)
         set(_COLLECT_LIBS "")
         set(_COLLECT_TARGETS "")
         _collect_static_libs_recurse(${target})
         set(${out_libs} ${_COLLECT_LIBS})
+        set(${out_targets} ${_COLLECT_TARGETS})
     endmacro()
 
     set(REDISEARCH_ALL_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/libredisearch_all.a")
 
     # Collect all static library dependencies from redisearch_c
     set(LIBS_TO_MERGE "")
-    collect_static_libs(redisearch_c LIBS_TO_MERGE)
+    set(VISITED_TARGETS "")
+    collect_static_libs(redisearch_c LIBS_TO_MERGE VISITED_TARGETS)
 
     # On Linux, SVS may be precompiled and fetched via FetchContent.
     # As a consequence, its IMPORTED targets aren't visible from this scope and won't
@@ -240,7 +242,12 @@ if(BUILD_SEARCH_UNIT_TESTS)
     endif()
 
     list(REMOVE_DUPLICATES LIBS_TO_MERGE)
+    list(REMOVE_DUPLICATES VISITED_TARGETS)
     message(STATUS "Static libraries for libredisearch_all.a: ${LIBS_TO_MERGE}")
+
+    # Combine targets and library paths for DEPENDS
+    set(MERGE_DEPENDS ${VISITED_TARGETS} ${LIBS_TO_MERGE})
+    list(REMOVE_DUPLICATES MERGE_DEPENDS)
 
     # Create the combined library using platform-specific tools
     if(APPLE)
@@ -248,14 +255,13 @@ if(BUILD_SEARCH_UNIT_TESTS)
         add_custom_command(
             OUTPUT ${REDISEARCH_ALL_OUTPUT}
             COMMAND libtool -static -o ${REDISEARCH_ALL_OUTPUT} ${LIBS_TO_MERGE}
-            DEPENDS ${LIBS_TO_MERGE}
+            DEPENDS ${MERGE_DEPENDS}
             COMMENT "Creating unified libredisearch_all.a with libtool"
             VERBATIM
             COMMAND_EXPAND_LISTS
         )
     else()
         # Linux: use ar with MRI script to merge static libraries
-        # The MRI script has one ADDLIB for each library to be merged
         set(MRI_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/merge_libs.mri")
         string(REPLACE ";" "\nADDLIB " ADDLIB_COMMANDS "${LIBS_TO_MERGE}")
         file(GENERATE OUTPUT ${MRI_SCRIPT} CONTENT
@@ -268,7 +274,7 @@ END
             OUTPUT ${REDISEARCH_ALL_OUTPUT}
             COMMAND ${CMAKE_COMMAND} -E rm -f ${REDISEARCH_ALL_OUTPUT}
             COMMAND ar -M < ${MRI_SCRIPT}
-            DEPENDS ${LIBS_TO_MERGE} ${MRI_SCRIPT}
+            DEPENDS ${MERGE_DEPENDS} ${MRI_SCRIPT}
             COMMENT "Creating unified libredisearch_all.a with ar"
             VERBATIM
         )
