@@ -30,7 +30,7 @@
 #include "module.h"
 #include "result_processor.h"
 #include "reply_empty.h"
-
+#include "search_disk.h"
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
@@ -1009,6 +1009,10 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     AREQ_AddRequestFlags(*r, QEXEC_F_IS_SEARCH);
   }
   else if (type == COMMAND_AGGREGATE) {
+    if (SearchDisk_IsEnabledForValidation()) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_AGGREGATE, "FT.AGGREGATE is not supported on Flex indexes");
+      goto done;
+    }
     AREQ_AddRequestFlags(*r, QEXEC_F_IS_AGGREGATE);
   }
 

@@ -213,3 +213,16 @@ def test_unsupported_ft_search_arguments(env):
     # WITHOUTCOUNT is not supported
     env.expect('FT.SEARCH', 'flex_idx', '*', 'WITHOUTCOUNT') \
         .error().contains('WITHOUTCOUNT is not supported on FT.SEARCH in Flex indexes')
+
+@skip(cluster=True)
+def test_ft_aggregate_not_supported_in_flex(env):
+    """Test that FT.AGGREGATE is completely blocked in Flex mode"""
+    # Set the simulate-in-flex configuration to true
+    env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
+
+    # Create a valid Flex index for testing
+    env.expect('FT.CREATE', 'flex_idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'content', 'TEXT').ok()
+
+    # FT.AGGREGATE should be completely blocked in Flex mode
+    env.expect('FT.AGGREGATE', 'flex_idx', '*') \
+        .error().contains('FT.AGGREGATE is not supported on Flex indexes')
