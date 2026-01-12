@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -90,6 +99,7 @@ fn main() {
 #[allow(unused)]
 struct FfiSymbol(*const ());
 
+/// Safety: It's only needed to force the linker to keep symbols around.
 unsafe impl Sync for FfiSymbol {{}}
 
 unsafe extern "C" {{

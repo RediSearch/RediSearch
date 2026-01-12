@@ -40,7 +40,7 @@ impl DerefMut for RSSortingVector {
 
 /// Gets a RSValue from the sorting vector at the given index. If a out of bounds occurs it returns a nullptr.
 ///
-/// Safety:
+/// # Safety
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSSortingVector_Get(
@@ -67,7 +67,7 @@ pub unsafe extern "C" fn RSSortingVector_Get(
 
 /// Returns the length of the sorting vector. For nullptr it returns 0.
 ///
-/// Safety:
+/// # Safety
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> size_t {
@@ -85,7 +85,7 @@ pub unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> 
 
 /// Returns the memory size of the sorting vector.
 ///
-/// Safety:
+/// # Safety
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSSortingVector_GetMemorySize(
@@ -105,7 +105,7 @@ pub unsafe extern "C" fn RSSortingVector_GetMemorySize(
 
 /// Puts a number (double) at the given index in the sorting vector. If a out of bounds occurs it returns silently.
 ///
-/// Safety:
+/// # Safety
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSSortingVector_PutNum(
@@ -132,7 +132,7 @@ pub unsafe extern "C" fn RSSortingVector_PutNum(
 ///
 /// This function will normalize the string to lowercase and use utf normalization for sorting if `is_normalized` is true.
 ///
-/// Safety:
+/// # Safety
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
 /// 2. The `str` pointer must point to a valid C string (null-terminated).
 /// 3. The `str` pointer must be normalized (lowercase and utf normalization).
@@ -171,7 +171,7 @@ pub unsafe extern "C" fn RSSortingVector_PutStr(
 
 /// Puts a value at the given index in the sorting vector. If a out of bounds occurs it returns silently.
 ///
-/// Safety:
+/// # Safety
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
 /// 2. The `val` pointer must point to a valid `RSValue` instance.
 #[unsafe(no_mangle)]
@@ -205,7 +205,7 @@ pub unsafe extern "C" fn RSSortingVector_PutRSVal(
 
 /// Puts a null at the given index in the sorting vector.  If a out of bounds occurs it returns silently.
 ///
-/// Safety:
+/// # Safety
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSSortingVector_PutNull(
@@ -228,7 +228,7 @@ pub unsafe extern "C" fn RSSortingVector_PutNull(
 
 /// Creates a new `RSSortingVector` with the given length. If the length is greater than `RS_SORTABLES_MAX`=`1024`, it returns a null pointer.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSSortingVector_New(len: size_t) -> *mut RSSortingVector {
+pub extern "C" fn RSSortingVector_New(len: size_t) -> *mut RSSortingVector {
     assert!(
         len <= RS_SORTABLES_MAX,
         "RSSortingVector_New called with length greater than RS_SORTABLES_MAX ({RS_SORTABLES_MAX})"
@@ -243,7 +243,7 @@ pub unsafe extern "C" fn RSSortingVector_New(len: size_t) -> *mut RSSortingVecto
 /// Reduces the refcount of every `RSValue` and frees the memory allocated for an `RSSortingVector`.
 /// Called by the C code to deallocate the vector.
 ///
-/// Safety:
+/// # Safety
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
 /// 2. The pointer must not have been freed before this call to avoid double free.
 #[unsafe(no_mangle)]
