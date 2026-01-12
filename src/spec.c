@@ -3005,10 +3005,6 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
   size_t nkeys = RedisModule_DbSize(ctx);
   if (nkeys > 0) {
-    if (SearchDisk_IsEnabled()) {
-      RedisModule_Log(ctx, "notice", "Background indexing is not supported when Search Disk is enabled");
-      return;
-    }
     IndexSpec_ScanAndReindexAsync(spec_ref);
   }
 }
