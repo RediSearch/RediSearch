@@ -16,22 +16,22 @@ impl<S: VecCapacity> Header<S> {
     }
 
     #[inline]
-    pub(crate) fn len(&self) -> usize {
-        self.len.to_usize()
+    pub(crate) fn len(&self) -> S {
+        self.len
     }
 
     #[inline]
-    pub(crate) fn capacity(&self) -> usize {
-        self.cap.to_usize()
+    pub(crate) fn capacity(&self) -> S {
+        self.cap
     }
 
     #[inline]
-    pub(crate) fn set_capacity(&mut self, cap: usize) {
+    pub(crate) fn set_capacity(&mut self, cap: S) {
         assert!(
-            cap >= self.len.to_usize(),
+            cap >= self.len,
             "Capacity must be greater than or equal to the current length"
         );
-        self.cap = S::from_usize(cap);
+        self.cap = cap;
     }
 
     #[inline]

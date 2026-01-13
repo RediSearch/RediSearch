@@ -109,8 +109,8 @@ pub use header::Header;
 ///
 /// Panics if the required size overflows `isize::MAX` or if the capacity
 /// exceeds the maximum representable by the size type `S`.
-fn allocate_for_capacity<T, S: VecCapacity>(cap: usize) -> NonNull<Header<S>> {
-    debug_assert!(cap > 0);
+fn allocate_for_capacity<T, S: VecCapacity>(cap: S) -> NonNull<Header<S>> {
+    debug_assert!(cap > S::ZERO);
 
     // If `T` is a zero-sized type, we won't ever need to increase the size of
     // the allocation. Its values take no space in memory!
@@ -120,10 +120,6 @@ fn allocate_for_capacity<T, S: VecCapacity>(cap: usize) -> NonNull<Header<S>> {
     } else {
         cap
     };
-
-    // Validate capacity once, before allocating to avoid memory leaks on panic.
-    // This will panic with an appropriate message if capacity > S::MAX.
-    let cap_sized = S::from_usize(cap);
 
     let layout = allocation_layout::<T, S>(cap);
     let header = {
@@ -146,9 +142,9 @@ fn allocate_for_capacity<T, S: VecCapacity>(cap: usize) -> NonNull<Header<S>> {
     // - The destination and the value are properly aligned,
     //   since the allocation was performed against a type layout
     //   that begins with a header field.
-    // - len is 0, which is always <= cap_sized.
+    // - len is 0, which is always <= cap.
     unsafe {
-        header.write(Header::for_capacity(cap_sized));
+        header.write(Header::for_capacity(cap));
     }
     header
 }
@@ -301,6 +297,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
         if cap == 0 {
             LowMemoryThinVec::new()
         } else {
+            let cap = S::from_usize(cap);
             let ptr = allocate_for_capacity::<T, S>(cap);
             LowMemoryThinVec {
                 ptr,
@@ -340,7 +337,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
             // `dangling` special case.
             mem::align_of::<Header<S>>() >= mem::align_of::<T>() && header_field_padding == 0;
 
-        if !singleton_header_is_aligned && self.header_ref().capacity() == 0 {
+        if !singleton_header_is_aligned && self.header_ref().capacity() == S::ZERO {
             NonNull::dangling().as_ptr()
         } else {
             // This could technically result in overflow, but padding
@@ -380,7 +377,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// assert_eq!(a.len(), 3);
     /// ```
     pub fn len(&self) -> usize {
-        self.header_ref().len()
+        self.header_ref().len().to_usize()
     }
 
     /// Returns `true` if the vector contains no elements.
@@ -412,7 +409,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// assert_eq!(vec.capacity(), 10);
     /// ```
     pub fn capacity(&self) -> usize {
-        self.header_ref().capacity()
+        self.header_ref().capacity().to_usize()
     }
 
     /// Returns the memory usage of the vector on the heap in bytes,
@@ -435,7 +432,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
         if !self.has_allocated() {
             return 0;
         }
-        allocation_layout::<T, S>(self.capacity()).size()
+        allocation_layout::<T, S>(self.header_ref().capacity()).size()
     }
 
     /// Returns `true` if the vector has allocated any memory via the global
@@ -1041,7 +1038,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
         } else {
             old_cap.saturating_mul(2)
         };
-        let new_cap = max(min_cap, double_cap);
+        let new_cap = S::from_usize(max(min_cap, double_cap));
         // SAFETY:
         // `new_cap` is at least `min_cap`, which is at least `len + additional`,
         // so greater than `len`.
@@ -1062,6 +1059,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
             .expect("capacity overflow");
         let old_cap = self.capacity();
         if new_cap > old_cap {
+            let new_cap = S::from_usize(new_cap);
             // SAFETY:
             // `new_cap` is at least `len + additional`, which is at least `len`.
             unsafe {
@@ -1087,10 +1085,10 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// assert!(vec.capacity() >= 3);
     /// ```
     pub fn shrink_to_fit(&mut self) {
-        let old_cap = self.capacity();
-        let new_cap = self.len();
+        let old_cap = self.header_ref().capacity();
+        let new_cap = self.header_ref().len();
         if new_cap < old_cap {
-            if new_cap == 0 {
+            if new_cap == S::ZERO {
                 // No need to allocate memory for an empty vector.
                 *self = LowMemoryThinVec::new();
             } else {
@@ -1231,14 +1229,14 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Safety
     ///
     /// You must ensure that the new capacity is greater than the current length.
-    unsafe fn reallocate(&mut self, new_cap: usize) {
-        debug_assert!(new_cap > 0);
+    unsafe fn reallocate(&mut self, new_cap: S) {
+        debug_assert!(new_cap > S::ZERO);
         debug_assert!(
-            new_cap >= self.len(),
+            new_cap >= self.header_ref().len(),
             "New capacity is smaller than the current length"
         );
         if self.has_allocated() {
-            let old_cap = self.capacity();
+            let old_cap = self.header_ref().capacity();
             let new_layout = allocation_layout::<T, S>(new_cap);
             // SAFETY:
             // - `self.ptr` was allocated via the same global allocator.
@@ -1431,7 +1429,7 @@ impl<T, S: VecCapacity> Drop for LowMemoryThinVec<T, S> {
             unsafe {
                 dealloc(
                     self.ptr.as_ptr() as *mut u8,
-                    allocation_layout::<T, S>(self.capacity()),
+                    allocation_layout::<T, S>(self.header_ref().capacity()),
                 )
             }
         }

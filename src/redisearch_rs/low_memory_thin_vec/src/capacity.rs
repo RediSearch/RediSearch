@@ -12,9 +12,11 @@ mod private {
 /// Trait for types that can be used as the size/capacity type for [`LowMemoryThinVec`].
 ///
 /// This trait is sealed and can only be implemented for u8, u16, u32, and u64.
-pub trait VecCapacity: private::Sealed + Copy + Default + 'static {
+pub trait VecCapacity:
+    private::Sealed + Copy + PartialEq + PartialOrd + Eq + Ord + 'static
+{
     /// The maximum value representable by this type.
-    const MAX: usize;
+    const MAX: Self;
 
     /// The zero value for this type.
     const ZERO: Self;
@@ -33,13 +35,13 @@ pub trait VecCapacity: private::Sealed + Copy + Default + 'static {
 }
 
 impl VecCapacity for u8 {
-    const MAX: usize = u8::MAX as usize;
+    const MAX: u8 = u8::MAX;
     const ZERO: Self = 0;
     const TYPE_NAME: &'static str = "8-bit";
 
     #[inline]
     fn from_usize(val: usize) -> Self {
-        if val > <Self as VecCapacity>::MAX {
+        if val > <Self as VecCapacity>::MAX as usize {
             panic!(
                 "LowMemoryThinVec size may not exceed the capacity of an {} sized int",
                 Self::TYPE_NAME
@@ -60,13 +62,13 @@ impl VecCapacity for u8 {
 }
 
 impl VecCapacity for u16 {
-    const MAX: usize = u16::MAX as usize;
+    const MAX: u16 = u16::MAX;
     const ZERO: Self = 0;
     const TYPE_NAME: &'static str = "16-bit";
 
     #[inline]
     fn from_usize(val: usize) -> Self {
-        if val > <Self as VecCapacity>::MAX {
+        if val > <Self as VecCapacity>::MAX as usize {
             panic!(
                 "LowMemoryThinVec size may not exceed the capacity of a {} sized int",
                 Self::TYPE_NAME
@@ -87,13 +89,13 @@ impl VecCapacity for u16 {
 }
 
 impl VecCapacity for u32 {
-    const MAX: usize = u32::MAX as usize;
+    const MAX: u32 = u32::MAX;
     const ZERO: Self = 0;
     const TYPE_NAME: &'static str = "32-bit";
 
     #[inline]
     fn from_usize(val: usize) -> Self {
-        if val > <Self as VecCapacity>::MAX {
+        if val > <Self as VecCapacity>::MAX as usize {
             panic!(
                 "LowMemoryThinVec size may not exceed the capacity of a {} sized int",
                 Self::TYPE_NAME
@@ -114,7 +116,7 @@ impl VecCapacity for u32 {
 }
 
 impl VecCapacity for u64 {
-    const MAX: usize = u64::MAX as usize;
+    const MAX: u64 = u64::MAX;
     const ZERO: Self = 0;
     const TYPE_NAME: &'static str = "64-bit";
 

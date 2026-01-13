@@ -3,7 +3,20 @@ use crate::{VecCapacity, header::Header};
 use std::alloc::Layout;
 
 /// Gets the layout of the allocated memory for a `LowMemoryThinVec<T, S>` with the given capacity.
-pub(crate) const fn allocation_layout<T, S: VecCapacity>(cap: usize) -> Layout {
+pub(crate) fn allocation_layout<T, S: VecCapacity>(cap: S) -> Layout {
+    _allocation_layout::<T, S>(cap.to_usize())
+}
+
+/// Gets the layout of the allocated memory for a `LowMemoryThinVec<T, S>` with the given `usize` capacity.
+///
+/// # Implementation details
+///
+/// This function doesn't check that the capacity is lower or equal to `S::MAX`.
+/// We keep this function around for performance reasons: `S::to_usize` can't be made a `const` function
+/// since it's a trait method, but we really don't want to pay a runtime cost when computing
+/// the layout alignment in [`allocation_alignment`].
+/// By having this (private) helper function, we can accommodate both without duplicating logic around.
+const fn _allocation_layout<T, S: VecCapacity>(cap: usize) -> Layout {
     let mut vec = Layout::new::<Header<S>>();
     let Ok(elements) = Layout::array::<T>(cap) else {
         // The panic message must be known at compile-time if we want `allocation_layout` to be a `const fn`.
@@ -36,7 +49,7 @@ pub(crate) const fn allocation_alignment<T, S: VecCapacity>() -> usize {
     // we can mark `alloc_align` as `const` and be sure that `alloc_align` will be
     // computed at compile time for any `T` that may end up being used in our
     // program as a type for the elements within `LowMemoryThinVec<T, S>`.
-    allocation_layout::<T, S>(1).align()
+    _allocation_layout::<T, S>(1).align()
 }
 
 /// Gets the padding that must be inserted between the end of the header field

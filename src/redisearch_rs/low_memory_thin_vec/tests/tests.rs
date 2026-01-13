@@ -299,6 +299,28 @@ fn test_reserve() {
 }
 
 #[test]
+#[should_panic(
+    expected = "LowMemoryThinVec size may not exceed the capacity of an 8-bit sized int"
+)]
+fn test_reserve_beyond_max_capacity() {
+    let mut v: LowMemoryThinVec<i32, u8> = LowMemoryThinVec::new();
+    assert_eq!(v.capacity(), 0);
+
+    v.reserve(u8::MAX as usize + 1);
+}
+
+#[test]
+#[should_panic(
+    expected = "LowMemoryThinVec size may not exceed the capacity of an 8-bit sized int"
+)]
+fn test_reserve_exact_beyond_max_capacity() {
+    let mut v: LowMemoryThinVec<i32, u8> = LowMemoryThinVec::new();
+    assert_eq!(v.capacity(), 0);
+
+    v.reserve_exact(u8::MAX as usize + 1);
+}
+
+#[test]
 fn test_extend() {
     let mut v = LowMemoryThinVec::<usize>::new();
     let mut w: LowMemoryThinVec<usize> = LowMemoryThinVec::new();
