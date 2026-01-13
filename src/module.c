@@ -663,6 +663,9 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   CurrentThread_SetIndexSpec(global_ref);
 
+  // Save the index name for logging (before the index is freed)
+  char *indexName = rm_strdup(IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
+
   if (sp->diskSpec) {
     SearchDisk_MarkIndexForDeletion(sp->diskSpec);
   }
@@ -687,7 +690,8 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Log index deletion
-  RedisModule_Log(ctx, "notice", "Successfully dropped index %s", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
+  RedisModule_Log(ctx, "notice", "Successfully dropped index %s", indexName);
+  rm_free(indexName);
 
   RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "sc", argv[1], "_FORCEKEEPDOCS");
 
