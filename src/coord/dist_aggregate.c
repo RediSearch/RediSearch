@@ -29,11 +29,14 @@
 #include "info/global_stats.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
-  for (const RLookupKey *kk = nc->lookup->head; kk; kk = kk->next) {
-    if (!strcmp(kk->name, s)) {
+  RLookupIterator iter = RLookup_Iter(&nc->lookup);
+  const RLookupKey* kk;
+  while (RLookupIterator_Next(&iter, &kk)) {
+    if (!strcmp(RLookupKey_GetName(kk), s)) {
       return kk;
     }
   }
+
   return NULL;
 }
 
