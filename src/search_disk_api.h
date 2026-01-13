@@ -159,7 +159,7 @@ typedef struct VectorDiskAPI {
    * @param params Vector index parameters
    * @return VecSimIndex* handle, or NULL on error
    */
-  void* (*createVectorIndex)(RedisSearchDiskIndexSpec* index, const struct VecSimParamsDisk* params);
+  void* (*createVectorIndex)(RedisSearchDiskIndexSpec* index, const VecSimParamsDisk* params);
 
   /**
    * @brief Frees a disk-based vector index.
