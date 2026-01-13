@@ -274,3 +274,8 @@ pub mod opaque {
 
 #[cfg(test)]
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
+#[cfg(test)]
+#[allow(non_upper_case_globals)]
+#[unsafe(no_mangle)]
+pub static mut RSDummyContext: *mut redis_mock::ffi::RedisModuleCtx =
+    redis_mock::globals::redis_module_ctx();
