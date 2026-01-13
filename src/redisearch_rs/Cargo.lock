@@ -2533,6 +2533,7 @@ dependencies = [
  "cbindgen",
  "ffi",
  "libc",
+ "query_error",
  "value",
  "workspace_hack",
 ]

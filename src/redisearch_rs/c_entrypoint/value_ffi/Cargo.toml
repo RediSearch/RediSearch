@@ -16,5 +16,6 @@ build_utils = { path = "../../build_utils" }
 c_ffi_utils.workspace = true
 ffi.workspace = true
 libc.workspace = true
+query_error.workspace = true
 value.workspace = true
 workspace_hack.workspace = true
