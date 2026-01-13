@@ -1,0 +1,60 @@
+    1  make clean
+    2  ./build.sh CLEAN
+    3  ll
+    4  ls
+    5  pwd
+    6  cd /code
+    7  ll
+    8  make clean
+    9  ./build.sh
+   10  SAN=address ENABLE_ASSERT=1 REJSON=1 VERBOSE_UTESTS=1 COV=0 RUST_BACKTRACE=full BUILD_INTEL_SVS_OPT=yes make rust-tests
+   11  rustc --version
+   12  rustc +nightly --version
+   13  make rust-tests
+   14  SAN=address ENABLE_ASSERT=1 REJSON=1 VERBOSE_UTESTS=1 COV=0 RUST_BACKTRACE=full BUILD_INTEL_SVS_OPT=yes make rust-tests
+   15  SAN=address make rust-tests
+   16  clear
+   17  ./build.sh DEBUG
+   18  SAN=address make rust-tests
+   19  ./build.sh DEBUG
+   20  SAN=address make rust-tests
+   21  ./build.sh FORCE DEBUG
+   22  SAN=address make rust-tests
+   23  make clean
+   24  SAN=address make rust-tests
+   25  rustup component add rust-src --toolchain nightly-2026-01-05
+   26  SAN=address make rust-tests
+   27  make clean
+   28  SAN=address make rust-tests
+   29  SAN=address make rust-tests FORCE=1
+   30  make rust-tests
+   31  SAN=address make rust-tests FORCE=1
+   32  SAN=address make rust-tests
+   33  SAN=address make rust-tests FORCE
+   34  make clean
+   35  SAN=address make rust-tests
+   36  objdump --syms > syms.txt
+   37  objdump --help
+   38  ll
+   39  ll bin
+   40  ll bin/linux-aarch64-debug-asan/
+   41  ll bin/linux-aarch64-debug-asan/search-community/
+   42  ll bin
+   43  make clean
+   44  ll bin
+   45  cargo install cargo-valgrind
+   46  cargo valgrind test
+   47  ll
+   48  cd src/redisearch_rs
+   49  cargo valgrind test
+   50  ..
+   51  cd ../..
+   52  make rust-tests
+   53  ./build.sh
+   54  cd src/redisearch_rs
+   55  cargo valgrind test
+   56  sudo apt-get install valgrind
+   57  apt-get install valgrind
+   58  cargo valgrind test
+   59  cargo valgrind nextest run
+   60  history

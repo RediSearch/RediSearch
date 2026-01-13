@@ -6,11 +6,11 @@ on:
   workflow_call:
     inputs:
       platform:
-        description: 'Platform name (e.g., ubuntu:noble, macos, sanitizer, coverage)'
+        description: "Platform name (e.g., ubuntu:noble, macos, sanitizer, coverage)"
         type: string
         required: true
       architecture:
-        description: 'Architecture (x86_64, aarch64)'
+        description: "Architecture (x86_64, aarch64)"
         type: string
         required: true
       san:
@@ -199,11 +199,11 @@ jobs:
     runs-on: ${{ needs.get-config.outputs.ec2_image_id && needs.start-runner.outputs.label || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container: ${{
       needs.get-config.outputs.container
-        && fromJSON(
-          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
-            needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
-            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared' || '')
-        )
+      && fromJSON(
+      format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+      needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
+      needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared' || '')
+      )
       || null }}
 
     defaults:
@@ -419,10 +419,10 @@ jobs:
 
       - name: Build Redis
         working-directory: redis
-        run:  ${{ steps.mode.outputs.mode }} make install
-              BUILD_TLS=yes
-              ${{ inputs.coverage && 'REDIS_CFLAGS=-DCOVERAGE_TEST' || '' }}
-              SANITIZER=${{ inputs.san }}
+        run: ${{ steps.mode.outputs.mode }} make install
+          BUILD_TLS=yes
+          ${{ inputs.coverage && 'REDIS_CFLAGS=-DCOVERAGE_TEST' || '' }}
+          SANITIZER=${{ inputs.san }}
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
