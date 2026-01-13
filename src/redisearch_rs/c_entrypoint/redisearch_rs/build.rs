@@ -46,7 +46,7 @@ use walkdir::WalkDir;
 ///
 /// - **`#[used]` on functions**: This would be the ideal solution, but `#[used]` is only
 ///   stable for `static` items. Using it on functions requires the unstable
-///   `#![feature(used_linker)]`.
+///   `#![feature(used_linker)]` ([Tracking issue](https://github.com/rust-lang/rust/issues/93798)).
 ///
 /// # The Solution
 ///
