@@ -16,12 +16,12 @@ impl<S: VecCapacity> Header<S> {
     }
 
     #[inline]
-    pub(crate) fn len(&self) -> S {
+    pub(crate) const fn len(&self) -> S {
         self.len
     }
 
     #[inline]
-    pub(crate) fn capacity(&self) -> S {
+    pub(crate) const fn capacity(&self) -> S {
         self.cap
     }
 

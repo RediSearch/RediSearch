@@ -309,7 +309,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     // Accessor conveniences
 
     /// Return a reference to the header.
-    fn header_ref(&self) -> &Header<S> {
+    const fn header_ref(&self) -> &Header<S> {
         // SAFETY:
         // Guaranteed by the invariants on the `ptr` field.
         // Check out [`LowMemoryThinVec::ptr`] for more details.
@@ -355,7 +355,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Safety
     ///
     /// The header pointer must not point to the empty header singleton.
-    unsafe fn header_mut(&mut self) -> &mut Header<S> {
+    const unsafe fn header_mut(&mut self) -> &mut Header<S> {
         // SAFETY:
         // We know that `self.ptr` can be safely converted to a `&Header<S>`,
         // thanks to the its documented invariants (see [`Self::ptr`] docs).
