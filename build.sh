@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -e
+shopt -s extglob
 
 #-----------------------------------------------------------------------------
 # RediSearch Build Script
@@ -51,47 +52,50 @@ NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
 # Parse command-line arguments and set configuration variables
+# Requires extglob to be enabled
 #-----------------------------------------------------------------------------
 parse_arguments() {
   for arg in "$@"; do
-    case $arg in
+    # MacOS only has bash 3.2 built-in, which doesn't support the more modern ${arg^^} syntax.
+    upper_arg=$(printf '%s' "$arg" | tr '[:lower:]' '[:upper:]')
+    case $upper_arg in
       COORD=*)
         COORD="${arg#*=}"
         ;;
-      DEBUG|debug)
+      DEBUG?(=1))
         DEBUG=1
         ;;
-      PROFILE|profile)
+      PROFILE?(=1))
         PROFILE=1
         ;;
-      TESTS|tests)
+      TESTS?(=1))
         BUILD_TESTS=1
         ;;
-      RUN_TESTS|run_tests)
+      RUN_TESTS?(=1))
         RUN_ALL_TESTS=1
         ;;
-      RUN_UNIT_TESTS|run_unit_tests)
+      RUN_UNIT_TESTS?(=1))
         RUN_UNIT_TESTS=1
         ;;
-      RUN_RUST_TESTS|run_rust_tests)
+      RUN_RUST_TESTS?(=1))
         RUN_RUST_TESTS=1
         ;;
-      RUN_RUST_VALGRIND|run_rust_valgrind)
+      RUN_RUST_VALGRIND?(=1))
         RUN_RUST_VALGRIND=1
         ;;
-      RUN_MICRO_BENCHMARKS|run_micro_benchmarks|RUN_MICROBENCHMARKS|run_microbenchmarks)
+      RUN_MICRO_BENCHMARKS?(=1))
         RUN_MICRO_BENCHMARKS=1
         ;;
       COV=*)
         COV="${arg#*=}"
         ;;
-      RUN_PYTEST|run_pytest)
+      RUN_PYTEST?(=1))
         RUN_PYTEST=1
         ;;
-      EXT=*|ext=*)
+      EXT=*)
         EXT="${arg#*=}"
         ;;
-      EXT_HOST=*|ext_host=*)
+      EXT_HOST=*)
         if [[ "${arg#*=}" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
           EXT_HOST="${arg#*=}"
         else
@@ -99,7 +103,7 @@ parse_arguments() {
           exit 1
         fi
         ;;
-      EXT_PORT=*|ext_port=*)
+      EXT_PORT=*)
         EXT_PORT="${arg#*=}"
         ;;
       TEST=*)
@@ -120,10 +124,10 @@ parse_arguments() {
       SAN=*)
         SAN="${arg#*=}"
         ;;
-      FORCE|force)
+      FORCE?(=1))
         FORCE=1
         ;;
-      VERBOSE|verbose)
+      VERBOSE?(=1))
         VERBOSE=1
         ;;
       QUICK=*)
