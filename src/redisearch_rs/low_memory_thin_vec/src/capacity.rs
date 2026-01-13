@@ -24,20 +24,26 @@ pub trait VecCapacity:
     /// A human-readable name for this type, used in panic messages.
     const TYPE_NAME: &'static str;
 
+    /// Reference to a static empty header for this size type.
+    const EMPTY_HEADER: &'static Header<Self>;
+
     /// Convert from usize, panicking if out of range.
     fn from_usize(val: usize) -> Self;
 
     /// Convert to usize.
     fn to_usize(self) -> usize;
-
-    /// Reference to a static empty header for this size type.
-    fn empty_header() -> &'static Header<Self>;
 }
 
+static EMPTY_U8: Header<u8> = Header::for_capacity(0);
+static EMPTY_U16: Header<u16> = Header::for_capacity(0);
+static EMPTY_U32: Header<u32> = Header::for_capacity(0);
+static EMPTY_U64: Header<u64> = Header::for_capacity(0);
+
 impl VecCapacity for u8 {
-    const MAX: u8 = u8::MAX;
+    const MAX: Self = u8::MAX;
     const ZERO: Self = 0;
     const TYPE_NAME: &'static str = "8-bit";
+    const EMPTY_HEADER: &'static Header<Self> = &EMPTY_U8;
 
     #[inline]
     fn from_usize(val: usize) -> Self {
@@ -54,17 +60,13 @@ impl VecCapacity for u8 {
     fn to_usize(self) -> usize {
         self as usize
     }
-
-    fn empty_header() -> &'static Header<Self> {
-        static EMPTY: Header<u8> = Header::for_capacity(0);
-        &EMPTY
-    }
 }
 
 impl VecCapacity for u16 {
-    const MAX: u16 = u16::MAX;
+    const MAX: Self = u16::MAX;
     const ZERO: Self = 0;
     const TYPE_NAME: &'static str = "16-bit";
+    const EMPTY_HEADER: &'static Header<Self> = &EMPTY_U16;
 
     #[inline]
     fn from_usize(val: usize) -> Self {
@@ -81,17 +83,13 @@ impl VecCapacity for u16 {
     fn to_usize(self) -> usize {
         self as usize
     }
-
-    fn empty_header() -> &'static Header<Self> {
-        static EMPTY: Header<u16> = Header::for_capacity(0);
-        &EMPTY
-    }
 }
 
 impl VecCapacity for u32 {
-    const MAX: u32 = u32::MAX;
+    const MAX: Self = u32::MAX;
     const ZERO: Self = 0;
     const TYPE_NAME: &'static str = "32-bit";
+    const EMPTY_HEADER: &'static Header<Self> = &EMPTY_U32;
 
     #[inline]
     fn from_usize(val: usize) -> Self {
@@ -108,17 +106,13 @@ impl VecCapacity for u32 {
     fn to_usize(self) -> usize {
         self as usize
     }
-
-    fn empty_header() -> &'static Header<Self> {
-        static EMPTY: Header<u32> = Header::for_capacity(0);
-        &EMPTY
-    }
 }
 
 impl VecCapacity for u64 {
-    const MAX: u64 = u64::MAX;
+    const MAX: Self = u64::MAX;
     const ZERO: Self = 0;
     const TYPE_NAME: &'static str = "64-bit";
+    const EMPTY_HEADER: &'static Header<Self> = &EMPTY_U64;
 
     #[inline]
     fn from_usize(val: usize) -> Self {
@@ -132,10 +126,5 @@ impl VecCapacity for u64 {
         // On 32-bit platforms, this could truncate, but in practice
         // we never store more than usize::MAX elements.
         self as usize
-    }
-
-    fn empty_header() -> &'static Header<Self> {
-        static EMPTY: Header<u64> = Header::for_capacity(0);
-        &EMPTY
     }
 }

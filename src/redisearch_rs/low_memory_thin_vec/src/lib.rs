@@ -228,13 +228,13 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// Creates a new empty LowMemoryThinVec.
     ///
     /// This will not allocate.
-    pub fn new() -> LowMemoryThinVec<T, S> {
+    pub const fn new() -> LowMemoryThinVec<T, S> {
         // SAFETY:
         // The pointer is not null since it comes from a (static) reference.
         let ptr = unsafe {
             // TODO: Use [NonNull::from_ref](https://doc.rust-lang.org/std/ptr/struct.NonNull.html#method.from_ref)
             //   when it stabilizes
-            NonNull::new_unchecked(S::empty_header() as *const Header<S> as *mut Header<S>)
+            NonNull::new_unchecked(S::EMPTY_HEADER as *const Header<S> as *mut Header<S>)
         };
         LowMemoryThinVec {
             ptr,
@@ -1273,7 +1273,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
 
     #[inline]
     fn is_singleton(&self) -> bool {
-        self.ptr.as_ptr() as *const Header<S> == S::empty_header()
+        self.ptr.as_ptr() as *const Header<S> == S::EMPTY_HEADER
     }
 }
 
