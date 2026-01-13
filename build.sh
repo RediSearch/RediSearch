@@ -355,10 +355,38 @@ prepare_cmake_arguments() {
       exit 1
     fi
 
+    # Default to clang/clang++/lld if CC/CXX/LD are not set
+    C_COMPILER="${CC:-clang}"
+    CXX_COMPILER="${CXX:-clang++}"
+    LINKER="${LD:-lld}"
+
+    # Verify that the compiler is clang-based (required for LTO)
+    if [[ ! "$C_COMPILER" =~ ^clang ]]; then
+        echo "Error: LTO requires clang as the C compiler"
+        echo "Current CC: $C_COMPILER"
+        echo "Please set CC to a clang-based compiler (e.g., clang, clang-21)"
+        exit 1
+    fi
+
+    if [[ ! "$CXX_COMPILER" =~ ^clang ]]; then
+        echo "Error: LTO requires clang++ as the C++ compiler"
+        echo "Current CXX: $CXX_COMPILER"
+        echo "Please set CXX to a clang-based compiler (e.g., clang++, clang++-21)"
+        exit 1
+    fi
+
+    # Verify that the linker is lld (required for LTO)
+    if [[ ! "$LINKER" =~ ^lld ]]; then
+        echo "Error: LTO requires lld as the linker"
+        echo "Current LD: $LINKER"
+        echo "Please set LD to lld or a versioned lld (e.g., lld, lld-21)"
+        exit 1
+    fi
+
     # Enable Rust/C LTO by using clang and lld
     # Check LLVM version compatibility between Rust and Clang
     RUSTC_LLVM_VERSION=$(rustc --version --verbose | grep "LLVM version" | awk '{print $3}' | cut -d. -f1)
-    CLANG_LLVM_VERSION=$(clang --version | head -n1 | grep -oP 'version \K[0-9]+' | head -n1)
+    CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | grep -oP 'version \K[0-9]+' | head -n1)
 
     if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" ]]; then
         echo "Error: Could not detect LLVM versions for Rust and Clang."
@@ -371,7 +399,7 @@ prepare_cmake_arguments() {
     if [[ "$RUSTC_LLVM_VERSION" != "$CLANG_LLVM_VERSION" ]]; then
         echo "Error: LLVM version mismatch between Rust and Clang"
         echo "Rust uses LLVM $RUSTC_LLVM_VERSION (from: rustc --version --verbose)"
-        echo "Clang uses LLVM $CLANG_LLVM_VERSION (from: clang --version)"
+        echo "Clang uses LLVM $CLANG_LLVM_VERSION (from: $C_COMPILER --version)"
         echo ""
         echo "Cross-language LTO requires matching LLVM major versions."
         echo "Please either:"
@@ -381,7 +409,7 @@ prepare_cmake_arguments() {
     fi
 
     echo "Enabling C/Rust LTO"
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=$C_COMPILER -DCMAKE_CXX_COMPILER=$CXX_COMPILER -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
   fi
 
   if [[ "$BUILD_TESTS" == "1" ]]; then
@@ -457,7 +485,10 @@ prepare_cmake_arguments() {
 
   if [[ "$LTO" == "1" ]]; then
     # Include LLVM bitcode information for cross-language LTO
-    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C linker-plugin-lto -C linker=clang -C link-arg=-fuse-ld=lld"
+    # Use CC and LD from environment, defaulting to clang and lld if not set
+    LINKER_COMPILER="${CC:-clang}"
+    LINKER_LD="${LD:-lld}"
+    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C linker-plugin-lto -C linker=$LINKER_COMPILER -C link-arg=-fuse-ld=$LINKER_LD"
   fi
 
   # Export RUSTFLAGS so it's available to the Rust build process
