@@ -97,9 +97,10 @@ impl RmAllocString {
     }
 
     /// Get the string's bytes as a slice of `u8`'s.
-    pub const fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         if self.len == 0 {
-            return &[];
+            // return &[];
+            return &b"\0"[..0];
         }
 
         // Safety: `self.str` lives as long as `self`, and
@@ -175,9 +176,10 @@ impl ConstString {
     }
 
     /// Get the string's bytes as a slice of `u8`'s.
-    pub const fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         if self.len == 0 {
-            return &[];
+            // return &[];
+            return &b"\0"[..0];
         }
 
         // Safety: invariants (1) and (2) uphold the safety requirements
