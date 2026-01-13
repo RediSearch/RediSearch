@@ -127,7 +127,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
                 break;
             };
 
-            let will_increment_idx = !key.is_overridden();
+            let will_increment_idx = !key.is_tombstone();
             let key_matches_flag_requirements =
                 key.flags.contains(required_flags) && !key.flags.intersects(excluded_flags);
             let key_has_associated_value = self.get(key).is_some();
@@ -292,7 +292,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         let mut c = src_lookup.cursor();
 
         while let Some(src_key) = c.current() {
-            if !src_key.is_overridden()
+            if !src_key.is_tombstone()
                 && let Some(value) = src_row.get(src_key)
             {
                 // Find corresponding key in destination lookup
