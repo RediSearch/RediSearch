@@ -2377,6 +2377,7 @@ dependencies = [
  "ffi",
  "fnv",
  "libc",
+ "query_error",
  "value",
  "workspace_hack",
 ]

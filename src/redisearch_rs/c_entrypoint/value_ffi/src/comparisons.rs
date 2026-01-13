@@ -1,4 +1,4 @@
-use ffi::QueryError;
+use query_error::{QueryError, QueryErrorCode};
 use std::mem::ManuallyDrop;
 use std::{cmp::Ordering, ffi::c_int};
 use value::{RsValue, shared::SharedRsValue};
@@ -17,10 +17,22 @@ pub unsafe extern "C" fn RSValue_Cmp(
     let v1 = shared_v1.fully_dereferenced_value();
     let v2 = shared_v2.fully_dereferenced_value();
 
-    match cmp(v1, v2) {
-        Ordering::Less => -1,
-        Ordering::Equal => 0,
-        Ordering::Greater => 1,
+    match compare(v1, v2, status.is_null()) {
+        Ok(Ordering::Less) => -1,
+        Ok(Ordering::Equal) => 0,
+        Ok(Ordering::Greater) => 1,
+        Err(CompareError::NaNNumber) => 0,
+        Err(CompareError::MapComparison) => 0,
+        Err(CompareError::IncompatibleTypes) => 0,
+        Err(CompareError::NoNumberToStringFallback) => {
+            // SAFETY: Only returned if status is not null.
+            let query_error = unsafe { status.as_mut().unwrap() };
+            // dbg!(query_error.is_ok());
+            // if QueryError_HasError
+            let message = c"Error converting string".to_owned();
+            query_error.set_code_and_message(QueryErrorCode::NotNumeric, Some(message));
+            0
+        }
     }
 }
 
@@ -38,9 +50,14 @@ pub unsafe extern "C" fn RSValue_Equal(
     let v1 = shared_v1.fully_dereferenced_value();
     let v2 = shared_v2.fully_dereferenced_value();
 
-    match cmp(v1, v2) {
-        Ordering::Equal => 1,
-        _ => 0,
+    match compare(v1, v2, false) {
+        Ok(Ordering::Less) => 0,
+        Ok(Ordering::Equal) => 1,
+        Ok(Ordering::Greater) => 0,
+        Err(CompareError::NaNNumber) => 1,
+        Err(CompareError::MapComparison) => 1,
+        Err(CompareError::IncompatibleTypes) => 1,
+        Err(CompareError::NoNumberToStringFallback) => 0,
     }
 }
 
@@ -62,61 +79,79 @@ pub unsafe extern "C" fn RSValue_BoolTest(value: *const RsValue) -> c_int {
     result as c_int
 }
 
-fn cmp(v1: &RsValue, v2: &RsValue) -> Ordering {
+#[derive(Debug)]
+enum CompareError {
+    NaNNumber,
+    NoNumberToStringFallback,
+    MapComparison,
+    IncompatibleTypes,
+}
+
+// Compares two values.
+// num_to_str_cmp_fallback is only enabled when called from RSValue_Cmp if a QueryError is provided.
+// num_to_str_cmp_fallback is always disabled when called from RSValue_Equal, regardless of the provided QueryError.
+fn compare(
+    v1: &RsValue,
+    v2: &RsValue,
+    num_to_str_cmp_fallback: bool,
+) -> Result<Ordering, CompareError> {
     match (v1, v2) {
-        (RsValue::Null, RsValue::Null) => Ordering::Equal,
-        (RsValue::Null, _) => Ordering::Less,
-        (_, RsValue::Null) => Ordering::Greater,
-        (RsValue::Number(n1), RsValue::Number(n2)) => cmp_float(*n1, *n2),
+        (RsValue::Null, RsValue::Null) => Ok(Ordering::Equal),
+        (RsValue::Null, _) => Ok(Ordering::Less),
+        (_, RsValue::Null) => Ok(Ordering::Greater),
+        (RsValue::Number(n1), RsValue::Number(n2)) => {
+            n1.partial_cmp(n2).ok_or(CompareError::NaNNumber)
+        }
         (RsValue::Number(n1), right) if crate::util::rsvalue_any_str(right) => {
-            let slice = crate::util::rsvalue_as_byte_slice(right).unwrap();
-            if let Some(n2) = crate::util::rsvalue_str_to_float(slice) {
-                cmp_float(*n1, n2)
-            } else {
-                crate::util::rsvalue_num_to_str(*n1).as_bytes().cmp(slice)
-            }
+            compare_number_to_string(*n1, right, num_to_str_cmp_fallback)
         }
         (left, RsValue::Number(n2)) if crate::util::rsvalue_any_str(left) => {
-            let slice = crate::util::rsvalue_as_byte_slice(left).unwrap();
-            if let Some(n1) = crate::util::rsvalue_str_to_float(slice) {
-                cmp_float(n1, *n2)
-            } else {
-                slice.cmp(crate::util::rsvalue_num_to_str(*n2).as_bytes())
-            }
+            compare_number_to_string(*n2, left, num_to_str_cmp_fallback).map(Ordering::reverse)
         }
         (left, right)
             if crate::util::rsvalue_any_str(left) && crate::util::rsvalue_any_str(right) =>
         {
             let slice1 = crate::util::rsvalue_as_byte_slice(left).unwrap();
             let slice2 = crate::util::rsvalue_as_byte_slice(right).unwrap();
-            slice1.cmp(slice2)
+            Ok(slice1.cmp(slice2))
         }
-        (RsValue::Trio(t1), RsValue::Trio(t2)) => cmp(t1.left().value(), t2.left().value()),
+        (RsValue::Trio(t1), RsValue::Trio(t2)) => compare(
+            t1.left().value(),
+            t2.left().value(),
+            num_to_str_cmp_fallback,
+        ),
         (RsValue::Array(a1), RsValue::Array(a2)) => {
-            let len = std::cmp::min(a1.len(), a2.len());
             for (i1, i2) in a1.iter().zip(a2) {
-                let cmp = cmp(i1.value(), i2.value());
-                if cmp != Ordering::Equal {
+                let cmp = compare(i1.value(), i2.value(), num_to_str_cmp_fallback);
+                if matches!(cmp, Ok(Ordering::Equal)) {
                     return cmp;
                 }
             }
-            a1.len().cmp(&a2.len())
+            Ok(a1.len().cmp(&a2.len()))
         }
-        (RsValue::Map(m1), RsValue::Map(m2)) => Ordering::Equal, // can't compare maps ATM
-        _ => unimplemented!("RSValue cmp (v1: {:?}, v2: {:?})", v1, v2),
+        (RsValue::Map(m1), RsValue::Map(m2)) => Err(CompareError::MapComparison),
+        _ => Err(CompareError::IncompatibleTypes),
     }
 }
 
-fn cmp_float(n1: f64, n2: f64) -> Ordering {
-    // C version: v1 > v2 ? 1 : (v1 < v2 ? -1 : 0);
-    // DISCUSS: In the C version any one side with a NaN is always 'equal' regardless of the other side.
-    //          But NaN is never greater/less/equal to any other value, not even to another NaN.
-    if n1 > n2 {
-        Ordering::Greater
-    } else if n1 < n2 {
-        Ordering::Less
+fn compare_number_to_string(
+    number: f64,
+    string: &RsValue,
+    num_to_str_cmp_fallback: bool,
+) -> Result<Ordering, CompareError> {
+    let slice = crate::util::rsvalue_as_byte_slice(string).unwrap();
+    // first try to convert the string to a number for comparison
+    if let Some(other_number) = crate::util::rsvalue_str_to_float(slice) {
+        number
+            .partial_cmp(&other_number)
+            .ok_or(CompareError::NaNNumber)
+    // else only if num_to_str_cmp_fallback is enabled, convert the number to a string for comparison
+    } else if num_to_str_cmp_fallback {
+        Ok(crate::util::rsvalue_num_to_str(number)
+            .as_bytes()
+            .cmp(slice))
     } else {
-        Ordering::Equal
+        Err(CompareError::NoNumberToStringFallback)
     }
 }
 
