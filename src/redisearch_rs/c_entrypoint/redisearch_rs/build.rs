@@ -63,6 +63,7 @@ use walkdir::WalkDir;
 /// This ensures that when the C static library calls these functions, the symbols are
 /// present in the final test/benchmark binary.
 fn main() {
+    println!("cargo:rerun-if-changed=Cargo.toml");
     let manifest_path = Path::new("Cargo.toml");
     let manifest_content = fs::read_to_string(manifest_path).expect("Failed to read Cargo.toml");
     let manifest: toml::Table = manifest_content
