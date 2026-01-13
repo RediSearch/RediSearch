@@ -7,10 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
+use build_utils::run_cbinden;
 
-/// Initializes a global subscriber that reports Rust `tracing` traces through `redismodule` logging.
-#[unsafe(no_mangle)]
-pub extern "C" fn TracingRedisModule_Init(ctx: Option<NonNull<ffi::RedisModuleCtx>>) {
-    tracing_redismodule::init(ctx);
+fn main() {
+    run_cbinden("../../headers/module_init.h").unwrap();
 }
