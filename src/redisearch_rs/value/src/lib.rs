@@ -164,4 +164,4 @@ pub trait Value: Sized {
 }
 
 #[cfg(test)]
-redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
