@@ -41,7 +41,7 @@ def test_create_hnsw_disk_index(redis_env):
     conn = redis_env.getConnection()
 
     result = conn.execute_command(
-        'FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+        'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
         'vec', 'VECTOR', 'HNSW', '10',
         'TYPE', 'FLOAT32',
         'DIM', '4',
@@ -67,7 +67,7 @@ def test_add_vectors_and_knn_query(redis_env):
 
     # Create index
     conn.execute_command(
-        'FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+        'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
         'vec', 'VECTOR', 'HNSW', '10',
         'TYPE', 'FLOAT32',
         'DIM', '4',
@@ -113,7 +113,7 @@ def test_delete_vector_and_requery(redis_env):
 
     # Create index
     conn.execute_command(
-        'FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+        'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
         'vec', 'VECTOR', 'HNSW', '10',
         'TYPE', 'FLOAT32',
         'DIM', '4',
@@ -155,7 +155,7 @@ def test_drop_index(redis_env):
 
     # Create index
     conn.execute_command(
-        'FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+        'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
         'vec', 'VECTOR', 'HNSW', '6',
         'TYPE', 'FLOAT32',
         'DIM', '4',
@@ -165,4 +165,3 @@ def test_drop_index(redis_env):
     # Drop index with DD (delete documents)
     result = conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
     assert result == b'OK', f"FT.DROPINDEX failed: {result}"
-
