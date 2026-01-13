@@ -144,7 +144,7 @@ bool SearchDisk_IsEnabledForValidation() {
 }
 
 // Vector API wrappers
-void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const struct VecSimHNSWDiskParams *params) {
+void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const struct VecSimParamsDisk *params) {
     RS_ASSERT(disk && index && params);
     RS_ASSERT(disk->vector.createVectorIndex);
     return disk->vector.createVectorIndex(index, params);

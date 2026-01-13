@@ -1134,7 +1134,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   sp->flags |= Index_HasVecSim;
 
   memset(&fs->vectorOpts.vecSimParams, 0, sizeof(VecSimParams));
-  memset(&fs->vectorOpts.diskParams, 0, sizeof(VecSimHNSWDiskParams));
+  memset(&fs->vectorOpts.diskCtx, 0, sizeof(VecSimDiskContext));
 
   // If the index is on JSON and the given path is dynamic, create a multi-value index.
   bool multi = false;
@@ -1188,20 +1188,10 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     result = parseVectorField_hnsw(fs, params, ac, status);
     // Build disk params if disk mode is enabled
     if (result && sp->diskSpec) {
-      const HNSWParams *hnsw = &params->algoParams.hnswParams;
       size_t nameLen;
       const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
-      fs->vectorOpts.diskParams = (VecSimHNSWDiskParams){
-        .dim = hnsw->dim,
-        .type = hnsw->type,
-        .metric = hnsw->metric,
-        .M = hnsw->M,
-        .efConstruction = hnsw->efConstruction,
-        .efRuntime = hnsw->efRuntime,
-        .blockSize = hnsw->blockSize,
-        .multi = hnsw->multi,
+      fs->vectorOpts.diskCtx = (VecSimDiskContext){
         .storage = sp->diskSpec,
-        .logCtx = logCtx,
         .indexName = rm_strndup(namePtr, nameLen),
         .indexNameLen = nameLen,
       };
@@ -1581,7 +1571,7 @@ inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
   return SearchDisk_IsEnabledForValidation();
 }
 
-// Populate diskParams for all HNSW vector fields in the spec.
+// Populate diskCtx for all HNSW vector fields in the spec.
 // This must be called after sp->diskSpec is set.
 static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
   if (!sp->diskSpec) return;
@@ -1602,21 +1592,12 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
     const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
 
     // Free any existing indexName to avoid memory leak
-    if (fs->vectorOpts.diskParams.indexName) {
-      rm_free((void*)fs->vectorOpts.diskParams.indexName);
+    if (fs->vectorOpts.diskCtx.indexName) {
+      rm_free((void*)fs->vectorOpts.diskCtx.indexName);
     }
 
-    fs->vectorOpts.diskParams = (VecSimHNSWDiskParams){
-      .dim = hnsw->dim,
-      .type = hnsw->type,
-      .metric = hnsw->metric,
-      .M = hnsw->M,
-      .efConstruction = hnsw->efConstruction,
-      .efRuntime = hnsw->efRuntime,
-      .blockSize = hnsw->blockSize,
-      .multi = hnsw->multi,
+    fs->vectorOpts.diskCtx = (VecSimDiskContext){
       .storage = sp->diskSpec,
-      .logCtx = params->logCtx,
       .indexName = rm_strndup(namePtr, nameLen),
       .indexNameLen = nameLen,
     };
@@ -1729,7 +1710,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
 
   // Store on disk if we're on Flex.
   // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
-  // is available when parsing vector fields (for populating diskParams).
+  // is available when parsing vector fields (for populating diskCtx).
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
     size_t len;
@@ -3393,7 +3374,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
         StrongRef_Release(spec_ref);
         return NULL;
       }
-    // Populate diskParams for vector fields now that diskSpec is available
+    // Populate diskCtx for vector fields now that diskSpec is available
     IndexSpec_PopulateVectorDiskParams(sp);
   }
 
