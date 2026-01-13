@@ -151,7 +151,8 @@ fn link_redisearch_all() {
 fn link_c_plusplus() {
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
     let dummy_path = std::path::Path::new(&out_dir).join("dummy.cc");
-    std::fs::write(&dummy_path, "// dummy file to link C++ stdlib\n")
+    // Define a symbol to avoid "empty archive" warnings from ranlib
+    std::fs::write(&dummy_path, "void __link_cplusplus_dummy() {}\n")
         .expect("Failed to write dummy C++ file");
     cc::Build::new()
         .cpp(true)
