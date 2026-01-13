@@ -2778,6 +2778,7 @@ dependencies = [
  "ffi",
  "fnv",
  "libc",
+ "query_error",
  "redis_mock",
  "value",
  "workspace_hack",
