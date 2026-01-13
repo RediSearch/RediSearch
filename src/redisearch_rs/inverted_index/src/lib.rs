@@ -254,6 +254,7 @@ pub trait TermDecoder: Decoder {}
 
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
+#[derive(Debug)]
 pub struct InvertedIndex<E> {
     /// The blocks of the index. Each block contains a set of entries for a specific range of
     /// document IDs. The entries and blocks themselves are ordered by document ID, so the first
@@ -871,6 +872,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
 /// A wrapper around the inverted index to track the total number of entries in the index.
 /// Unlike [`InvertedIndex::unique_docs()`], this counts all entries, including duplicates.
+#[derive(Debug)]
 pub struct EntriesTrackingIndex<E> {
     /// The underlying inverted index that stores the entries.
     index: InvertedIndex<E>,
@@ -1008,6 +1010,7 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
 
 /// A wrapper around the inverted index which tracks the fields for all the records in the index
 /// using a mask. This makes is easy to know if the index has any records for a specific field.
+#[derive(Debug)]
 pub struct FieldMaskTrackingIndex<E> {
     /// The underlying inverted index that stores the records.
     index: InvertedIndex<E>,
