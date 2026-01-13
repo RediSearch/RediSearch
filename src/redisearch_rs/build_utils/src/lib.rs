@@ -96,7 +96,7 @@ pub fn run_cbinden(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-/// Link all the relevant C dependencies to allow Rust (testing) code to invoke
+/// Link all the relevant C dependencies to allow Rust (testing and benchmarking) code to invoke
 /// RediSearch C symbols.
 ///
 /// This links a single combined static library (`libredisearch_all.a`) that bundles
