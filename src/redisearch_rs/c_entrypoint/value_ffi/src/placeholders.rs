@@ -288,9 +288,13 @@ pub unsafe extern "C" fn RSValue_StringPtrLen(
     }
 
     let (ptr, len) = string_ptr_len(value);
+    tracing::info!("StringPtrLen ret: {ptr:?}, {len}");
+
+    // let slice: () = unsafe { std::slice::from_raw_parts(ptr, len) };
     if let Some(len_ptr) = unsafe { len_ptr.as_mut() } {
         *len_ptr = len;
     }
+
     ptr
 }
 

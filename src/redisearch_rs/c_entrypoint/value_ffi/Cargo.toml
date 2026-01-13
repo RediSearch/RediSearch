@@ -17,5 +17,6 @@ c_ffi_utils.workspace = true
 ffi.workspace = true
 fnv.workspace = true
 libc.workspace = true
+tracing.workspace = true
 value.workspace = true
 workspace_hack.workspace = true

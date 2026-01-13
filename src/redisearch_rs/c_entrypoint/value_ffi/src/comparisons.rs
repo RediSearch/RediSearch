@@ -17,7 +17,7 @@ pub unsafe extern "C" fn RSValue_Cmp(
     let v1 = shared_v1.fully_dereferenced_value();
     let v2 = shared_v2.fully_dereferenced_value();
 
-    match cmp(v1, v2) {
+    match cmp(v1, v2, status.is_null()) {
         Ordering::Less => -1,
         Ordering::Equal => 0,
         Ordering::Greater => 1,
@@ -38,7 +38,7 @@ pub unsafe extern "C" fn RSValue_Equal(
     let v1 = shared_v1.fully_dereferenced_value();
     let v2 = shared_v2.fully_dereferenced_value();
 
-    match cmp(v1, v2) {
+    match cmp(v1, v2, status.is_null()) {
         Ordering::Equal => 1,
         _ => 0,
     }
@@ -62,7 +62,7 @@ pub unsafe extern "C" fn RSValue_BoolTest(value: *const RsValue) -> c_int {
     result as c_int
 }
 
-fn cmp(v1: &RsValue, v2: &RsValue) -> Ordering {
+fn cmp(v1: &RsValue, v2: &RsValue, str_cmp_fallback: bool) -> Ordering {
     match (v1, v2) {
         (RsValue::Null, RsValue::Null) => Ordering::Equal,
         (RsValue::Null, _) => Ordering::Less,
@@ -72,16 +72,22 @@ fn cmp(v1: &RsValue, v2: &RsValue) -> Ordering {
             let slice = crate::util::rsvalue_as_byte_slice(right).unwrap();
             if let Some(n2) = crate::util::rsvalue_str_to_float(slice) {
                 cmp_float(*n1, n2)
-            } else {
+            } else if str_cmp_fallback {
                 crate::util::rsvalue_num_to_str(*n1).as_bytes().cmp(slice)
+            } else {
+                panic!("str_cmp_fallback not allowed")
             }
         }
         (left, RsValue::Number(n2)) if crate::util::rsvalue_any_str(left) => {
             let slice = crate::util::rsvalue_as_byte_slice(left).unwrap();
             if let Some(n1) = crate::util::rsvalue_str_to_float(slice) {
                 cmp_float(n1, *n2)
+            // } else if str_cmp_fallback {
             } else {
                 slice.cmp(crate::util::rsvalue_num_to_str(*n2).as_bytes())
+            // } else {
+                // panic!("str_cmp_fallback not allowed")
+                // Ordering::Equal
             }
         }
         (left, right)
@@ -91,11 +97,11 @@ fn cmp(v1: &RsValue, v2: &RsValue) -> Ordering {
             let slice2 = crate::util::rsvalue_as_byte_slice(right).unwrap();
             slice1.cmp(slice2)
         }
-        (RsValue::Trio(t1), RsValue::Trio(t2)) => cmp(t1.left().value(), t2.left().value()),
+        (RsValue::Trio(t1), RsValue::Trio(t2)) => cmp(t1.left().value(), t2.left().value(), str_cmp_fallback),
         (RsValue::Array(a1), RsValue::Array(a2)) => {
             let len = std::cmp::min(a1.len(), a2.len());
             for (i1, i2) in a1.iter().zip(a2) {
-                let cmp = cmp(i1.value(), i2.value());
+                let cmp = cmp(i1.value(), i2.value(), str_cmp_fallback);
                 if cmp != Ordering::Equal {
                     return cmp;
                 }
@@ -110,7 +116,7 @@ fn cmp(v1: &RsValue, v2: &RsValue) -> Ordering {
 fn cmp_float(n1: f64, n2: f64) -> Ordering {
     // C version: v1 > v2 ? 1 : (v1 < v2 ? -1 : 0);
     // DISCUSS: Any one side with a NaN is always 'equal',
-    //          irregardless of the other side, and stupidly wrong.
+    //          regardless of the other side, and stupidly wrong.
     if n1 > n2 {
         Ordering::Greater
     } else if n1 < n2 {
