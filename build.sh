@@ -146,7 +146,7 @@ parse_arguments() {
       BUILD_INTEL_SVS_OPT=*)
         BUILD_INTEL_SVS_OPT="${arg#*=}"
         ;;
-      LTO|lto)
+      LTO?(=1))
         LTO=1
         ;;
       *)
