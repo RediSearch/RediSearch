@@ -860,6 +860,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "module_init_ffi"
+version = "0.0.1"
+dependencies = [
+ "cbindgen",
+ "ffi",
+ "tracing",
+ "tracing_redismodule",
+]
+
+[[package]]
 name = "never-say-never"
 version = "6.6.666"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1225,8 +1235,8 @@ version = "0.0.1"
 dependencies = [
  "buffer",
  "encode_decode",
+ "module_init_ffi",
  "redis-module",
- "tracing_redismodule_ffi",
  "triemap_ffi",
  "types_ffi",
 ]
@@ -1675,15 +1685,6 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "tracing_redismodule_ffi"
-version = "0.0.1"
-dependencies = [
- "cbindgen",
- "ffi",
- "tracing_redismodule",
 ]
 
 [[package]]
