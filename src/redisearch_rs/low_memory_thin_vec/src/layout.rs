@@ -10,7 +10,7 @@ pub(crate) const fn allocation_layout<T, S: VecCapacity>(cap: usize) -> Layout {
         // Therefore we can't capture the error (nor the faulty capacity value) in the panic message.
         panic!(
             "The size of the array of elements within `LowMemoryThinVec<T>` would exceed `isize::MAX`, \
-                        which is the maximum size that can be allocated."
+            which is the maximum size that can be allocated."
         )
     };
     vec = match vec.extend(elements) {

@@ -123,9 +123,9 @@ fn allocate_for_capacity<T, S: VecCapacity>(cap: usize) -> NonNull<Header<S>> {
 
     // Validate capacity once, before allocating to avoid memory leaks on panic.
     // This will panic with an appropriate message if capacity > S::MAX.
-    let cap = S::from_usize(cap);
+    let cap_sized = S::from_usize(cap);
 
-    let layout = allocation_layout::<T, S>(S::to_usize(cap));
+    let layout = allocation_layout::<T, S>(cap);
     let header = {
         debug_assert!(layout.size() > 0);
         // SAFETY:
@@ -146,10 +146,9 @@ fn allocate_for_capacity<T, S: VecCapacity>(cap: usize) -> NonNull<Header<S>> {
     // - The destination and the value are properly aligned,
     //   since the allocation was performed against a type layout
     //   that begins with a header field.
-    // - capacity_s has been validated to fit in S via S::from_usize above.
-    // - len is 0, which is always <= capacity_s.
+    // - len is 0, which is always <= cap_sized.
     unsafe {
-        header.write(Header::for_capacity(cap));
+        header.write(Header::for_capacity(cap_sized));
     }
     header
 }
