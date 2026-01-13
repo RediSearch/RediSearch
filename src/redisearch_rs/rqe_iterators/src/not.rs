@@ -69,6 +69,7 @@ where
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
         let result = self.timeout_ctx.check_timeout();
         if matches!(result, Err(RQEIteratorError::TimedOut)) {
+            // NOTE: this is not done for optimized version of NOT iterator in C
             self.forced_eof = true;
         }
         result

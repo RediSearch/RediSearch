@@ -513,10 +513,33 @@ fn read_timeout_via_timeout_ctx() {
         )
     }
 
+    assert!(!it.at_eof(), "did not yet expect to EOF");
+
     assert!(
         matches!(it.read(), Err(RQEIteratorError::TimedOut)),
         "expected timeout due to timeout context in Not iterator triggered"
     );
+
+    assert!(
+        it.at_eof(),
+        "iterator is expected to EOF once timed out via timeout context"
+    );
+
+    it.rewind();
+    assert!(
+        !it.at_eof(),
+        "rewind should have also cleared the force EOF"
+    );
+    assert_eq!(
+        1,
+        it.read()
+            .expect("rewind should have allowed reading once again")
+            .expect("as such we expect a result here")
+            .doc_id,
+        "rewind should have allowed us to start reading again from start, despites earlier timeout"
+    )
+    // that said... internal timeout context is _not_ resetted,
+    // so it is bound to timeout once you make the required amount of read/skip_to calls...
 }
 
 #[test]
@@ -541,8 +564,31 @@ fn skip_to_timeout_via_timeout_ctx() {
         }
     }
 
+    assert!(!it.at_eof(), "did not yet expect to EOF");
+
     assert!(
         matches!(it.skip_to(6_000), Err(RQEIteratorError::TimedOut)),
         "expected timeout due to timeout context in Not iterator triggered"
     );
+
+    assert!(
+        it.at_eof(),
+        "iterator is expected to EOF once timed out via timeout context"
+    );
+
+    it.rewind();
+    assert!(
+        !it.at_eof(),
+        "rewind should have also cleared the force EOF"
+    );
+    assert_eq!(
+        1,
+        it.read()
+            .expect("rewind should have allowed reading once again")
+            .expect("as such we expect a result here")
+            .doc_id,
+        "rewind should have allowed us to start reading again from start, despites earlier timeout"
+    )
+    // that said... internal timeout context is _not_ resetted,
+    // so it is bound to timeout once you make the required amount of read/skip_to calls...
 }
