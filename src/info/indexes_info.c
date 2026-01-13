@@ -55,7 +55,7 @@ static void AccumulateDiskMetrics(DiskColumnFamilyMetrics *dest, const DiskColum
 //  2. The estimate of the tables' readers memory
 //  3. SST files' size.
 // TODO: Add memory used for the deleted-ids set (relevant for doc-table only).
-static inline size_t updateTotalMemFromDiskMetrics(TotalIndexesInfo *info, DiskColumnFamilyMetrics *diskMetrics) {
+static inline size_t updateTotalMemFromDiskMetrics(DiskColumnFamilyMetrics *diskMetrics) {
   return diskMetrics->size_all_mem_tables +
          diskMetrics->estimate_table_readers_mem +
          diskMetrics->live_sst_files_size;
@@ -129,7 +129,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       if (SearchDisk_CollectDocTableMetrics(sp->diskSpec, &doc_table_metrics)) {
         AccumulateDiskMetrics(&info.disk_doc_table, &doc_table_metrics);
         // Update info.total_mem with disk related objects.
-        info.total_mem += updateTotalMemFromDiskMetrics(&info, &doc_table_metrics);
+        info.total_mem += updateTotalMemFromDiskMetrics(&doc_table_metrics);
       } else {
         RedisModule_Log(RSDummyContext, "warning", "Could not collect disk related info for index %s", HiddenString_GetUnsafe(sp->specName, NULL));
       }
@@ -138,7 +138,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       if (SearchDisk_CollectTextInvertedIndexMetrics(sp->diskSpec, &inverted_index_metrics)) {
         AccumulateDiskMetrics(&info.disk_inverted_index, &inverted_index_metrics);
         // Update info.total_mem with disk related objects.
-        info.total_mem += updateTotalMemFromDiskMetrics(&info, &inverted_index_metrics);
+        info.total_mem += updateTotalMemFromDiskMetrics(&inverted_index_metrics);
       } else {
         RedisModule_Log(RSDummyContext, "warning", "Could not collect disk related info for index %s", HiddenString_GetUnsafe(sp->specName, NULL));
       }

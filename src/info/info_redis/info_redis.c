@@ -86,7 +86,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   AddToInfo_RSConfig(ctx);
 
   // Disk metrics, on Flex only.
-  if (isFlex) {
+  if (SearchDisk_IsEnabled()) {
     AddToInfo_Disk(ctx, &total_info);
   }
 
