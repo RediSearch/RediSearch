@@ -72,11 +72,6 @@ fn main() {
         src.join("score_explain.h"),
         src.join("search_ctx.h"),
         src.join("search_disk_api.h"),
-        root.join("deps")
-            .join("VectorSimilarity")
-            .join("src")
-            .join("VecSim")
-            .join("vec_sim_common.h"),
         src.join("search_result.h"),
         src.join("sortable.h"),
         src.join("spec.h"),

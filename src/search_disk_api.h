@@ -145,9 +145,6 @@ typedef struct DocTableDiskAPI {
   size_t (*getDeletedIds)(RedisSearchDiskIndexSpec* handle, t_docId* buffer, size_t buffer_size);
 } DocTableDiskAPI;
 
-// VecSimParamsDisk is defined in VecSim/vec_sim_common.h
-// struct VecSimParamsDisk;
-
 typedef struct VectorDiskAPI {
   /**
    * @brief Creates a disk-based vector index.
