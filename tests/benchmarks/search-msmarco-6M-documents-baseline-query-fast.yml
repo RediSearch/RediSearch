@@ -22,7 +22,7 @@ dbconfig:
     - workers: 64
     - reporting-period: 5s
     - requests: 100000
-    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.SETUP.100k.csv"
+    - input: "s3://benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.SETUP.100k.csv"
   - check:
       keyspacelen: 100000
 clientconfig:
@@ -33,5 +33,4 @@ clientconfig:
     - requests: 10000
     - reporting-period: 1s
     - duration: 60s
-    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.BENCH.QUERY_baseline.csv"
-
+    - input: "s3://benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.BENCH.QUERY_baseline.csv"

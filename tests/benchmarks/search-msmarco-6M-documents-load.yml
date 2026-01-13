@@ -23,5 +23,4 @@ clientconfig:
   - parameters:
     - workers: 64
     - reporting-period: 5s
-    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.SETUP.csv"
-
+    - input: "s3://benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.SETUP.csv"
