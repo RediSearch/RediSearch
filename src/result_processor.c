@@ -6,7 +6,6 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "4.0/redismodule.h"
 #include "aggregate/aggregate.h"
 #include "result_processor.h"
 #include "query.h"
