@@ -320,7 +320,8 @@ void MRCommand_SetDispatchTime(MRCommand *cmd) {
   RS_ASSERT(cmd->dispatchTimeArgIndex < cmd->num);
   RS_ASSERT(!strcmp(cmd->strs[cmd->dispatchTimeArgIndex - 1], COORD_DISPATCH_TIME_STR));
   // Calculate dispatch time from coordinator start
-  rs_wall_clock_ns_t dispatchTime = rs_wall_clock_now_ns() - cmd->coordStartTime;
+  // Add 1ns as epsilon value so we can verify that the dispatch time is greater than 0.
+  rs_wall_clock_ns_t dispatchTime = rs_wall_clock_now_ns() - cmd->coordStartTime + 1;
   char buf[32];
   int len = snprintf(buf, sizeof(buf), "%llu", (unsigned long long)dispatchTime);
 
