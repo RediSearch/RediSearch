@@ -164,6 +164,8 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     }
     RSByteOffsets_ReserveFields(aCtx->byteOffsets, numTextIndexable);
   }
+
+  aCtx->numTextFields = numTextIndexable;
   return 0;
 }
 
@@ -464,9 +466,6 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     // Decrease the last increment
     aCtx->tokenizer->ctx.lastOffset -= multiTextOffsetDelta;
   }
-
-  // Since we are here, the indexing was successful, update the global statistics.
-  FieldsGlobalStats_UpdateFieldDocsIndexed(fs, 1);
 
   return 0;
 }

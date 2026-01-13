@@ -293,6 +293,7 @@ typedef struct RSAddDocumentCtx {
   struct FieldIndexerData *fdatas;
   QueryError status;     // Error message is placed here if there is an error during processing
   uint32_t totalTokens;  // Number of tokens, used for offset vector
+  uint32_t numTextFields; // Number of fulltext fields in the document
   uint32_t specFlags;    // Cached index flags
   uint8_t options;       // Indexing options - i.e. DOCUMENT_ADD_xxx
   uint8_t stateFlags;    // Indexing state, ACTX_F_xxx

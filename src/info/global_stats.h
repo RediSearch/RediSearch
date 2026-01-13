@@ -181,6 +181,10 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats();
 // Increase the number of documents indexed by the given field type by `toAdd`.
 void FieldsGlobalStats_UpdateFieldDocsIndexed(const FieldSpec *fs, int toAdd);
 
+// Increase the number of documents indexed for fulltext fields by `toAdd`.
+// This is a convenience wrapper that doesn't require a FieldSpec.
+void FieldsGlobalStats_UpdateTextFieldDocsIndexed(int toAdd);
+
 #ifdef __cplusplus
 }
 #endif

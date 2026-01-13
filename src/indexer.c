@@ -388,6 +388,11 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   // Handle FULLTEXT indexes
   if ((aCtx->fwIdx && (aCtx->stateFlags & ACTX_F_ERRORED) == 0)) {
     writeCurEntries(aCtx, &ctx);
+
+    // Update global statistics for fulltext fields after successful indexing
+    if (aCtx->numTextFields > 0) {
+      FieldsGlobalStats_UpdateTextFieldDocsIndexed(aCtx->numTextFields);
+    }
   }
 
   if (!(aCtx->stateFlags & ACTX_F_OTHERINDEXED)) {
