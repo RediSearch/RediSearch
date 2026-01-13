@@ -1,6 +1,6 @@
 use core::mem::size_of;
 use core::usize;
-use low_memory_thin_vec::{Header, LowMemoryThinVec, SizeType, low_memory_thin_vec};
+use low_memory_thin_vec::{Header, LowMemoryThinVec, VecCapacity, low_memory_thin_vec};
 use std::format;
 use std::vec;
 
@@ -833,7 +833,8 @@ fn test_capacity_overflow_size_mul1() {
     expected = "The size of the array of elements within `LowMemoryThinVec<T>` would exceed `isize::MAX`, which is the maximum size that can be allocated."
 )]
 fn test_capacity_overflow_size_mul2() {
-    let vec: LowMemoryThinVec<u16, u64> = LowMemoryThinVec::with_capacity(isize::MAX as usize / 2 + 1);
+    let vec: LowMemoryThinVec<u16, u64> =
+        LowMemoryThinVec::with_capacity(isize::MAX as usize / 2 + 1);
     assert!(vec.capacity() > 0);
 }
 
@@ -859,7 +860,7 @@ fn test_header_sizes() {
 }
 
 /// Generic test helper that runs basic operations for any size type
-fn test_basic_operations_generic<S: SizeType>() {
+fn test_basic_operations_generic<S: VecCapacity>() {
     // Test new and has_allocated
     let mut v: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
     assert!(!v.has_allocated());
@@ -923,7 +924,7 @@ fn test_basic_operations_u64() {
 }
 
 /// Test that each size type's empty header singleton works correctly
-fn test_empty_singleton_generic<S: SizeType>() {
+fn test_empty_singleton_generic<S: VecCapacity>() {
     let v1: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
     let v2: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
 
@@ -957,7 +958,7 @@ fn test_empty_singleton_u64() {
 }
 
 /// Test iterator operations for all size types
-fn test_iterator_generic<S: SizeType>() {
+fn test_iterator_generic<S: VecCapacity>() {
     let mut v: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
     v.push(1);
     v.push(2);
@@ -1003,7 +1004,7 @@ fn test_iterator_u64() {
 }
 
 /// Test clone for all size types
-fn test_clone_generic<S: SizeType>() {
+fn test_clone_generic<S: VecCapacity>() {
     let mut v: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
     v.push(1);
     v.push(2);
@@ -1074,7 +1075,7 @@ fn test_u32_large_capacity() {
 }
 
 // Test drop behavior with different size types
-fn test_drop_generic<S: SizeType>() {
+fn test_drop_generic<S: VecCapacity>() {
     static mut DROP_COUNT: u32 = 0;
 
     struct DropTracker;
@@ -1139,7 +1140,7 @@ fn test_from_vec_different_sizes() {
 }
 
 // Test extend for different size types
-fn test_extend_generic<S: SizeType>() {
+fn test_extend_generic<S: VecCapacity>() {
     let mut v: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
     v.extend(vec![1, 2, 3]);
     v.extend(4..7);
@@ -1168,7 +1169,7 @@ fn test_extend_u64() {
 }
 
 // Test split_off for different size types
-fn test_split_off_generic<S: SizeType>() {
+fn test_split_off_generic<S: VecCapacity>() {
     let mut v: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
     v.extend(1..=6);
 

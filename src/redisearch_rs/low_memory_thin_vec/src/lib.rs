@@ -96,10 +96,12 @@ use std::{fmt, mem, ptr, slice};
 
 use layout::*;
 
+mod capacity;
 pub mod header;
 pub(crate) mod layout;
 
-pub use header::{Header, SizeType};
+pub use capacity::VecCapacity;
+pub use header::Header;
 
 /// Allocates a header (and array) for a `LowMemoryThinVec<T, S>` with the given capacity.
 ///
@@ -107,23 +109,23 @@ pub use header::{Header, SizeType};
 ///
 /// Panics if the required size overflows `isize::MAX` or if the capacity
 /// exceeds the maximum representable by the size type `S`.
-fn allocate_for_capacity<T, S: SizeType>(cap: usize) -> NonNull<Header<S>> {
+fn allocate_for_capacity<T, S: VecCapacity>(cap: usize) -> NonNull<Header<S>> {
     debug_assert!(cap > 0);
 
     // If `T` is a zero-sized type, we won't ever need to increase the size of
     // the allocation. Its values take no space in memory!
     // Therefore it's safe to set the capacity to `S::MAX`.
-    let capacity = if mem::size_of::<T>() == 0 {
+    let cap = if mem::size_of::<T>() == 0 {
         S::MAX
     } else {
         cap
     };
 
-    // Validate capacity ONCE, BEFORE allocating to avoid memory leaks on panic.
+    // Validate capacity once, before allocating to avoid memory leaks on panic.
     // This will panic with an appropriate message if capacity > S::MAX.
-    let capacity_s = S::from_usize(capacity);
+    let cap = S::from_usize(cap);
 
-    let layout = allocation_layout::<T, S>(cap);
+    let layout = allocation_layout::<T, S>(S::to_usize(cap));
     let header = {
         debug_assert!(layout.size() > 0);
         // SAFETY:
@@ -147,14 +149,14 @@ fn allocate_for_capacity<T, S: SizeType>(cap: usize) -> NonNull<Header<S>> {
     // - capacity_s has been validated to fit in S via S::from_usize above.
     // - len is 0, which is always <= capacity_s.
     unsafe {
-        header.write(Header::from_size_type(S::default(), capacity_s));
+        header.write(Header::for_capacity(cap));
     }
     header
 }
 
 /// See the crate's top level documentation for a description of this type.
 #[repr(C)]
-pub struct LowMemoryThinVec<T, S: SizeType = u16> {
+pub struct LowMemoryThinVec<T, S: VecCapacity = u16> {
     // # Invariants
     //
     // It is always safe to convert this pointer to a `&Header<S>`,
@@ -186,13 +188,13 @@ pub struct LowMemoryThinVec<T, S: SizeType = u16> {
 // `LowMemoryThinVec<T, S>` is, for all `Send` intents and purposes, equivalent to a `Vec<T>`.
 // This `Send` implementation is therefore safe for the same reasons as the one
 // provided by `Vec<T>` when `T` is `Send`.
-unsafe impl<T: Send, S: SizeType> Send for LowMemoryThinVec<T, S> {}
+unsafe impl<T: Send, S: VecCapacity> Send for LowMemoryThinVec<T, S> {}
 
 // SAFETY:
 // `LowMemoryThinVec<T, S>` is, for all `Sync` intents and purposes, equivalent to a `Vec<T>`.
 // This `Sync` implementation is therefore safe for the same reasons as the one
 // provided by `Vec<T>` when `T` is `Sync`.
-unsafe impl<T: Sync, S: SizeType> Sync for LowMemoryThinVec<T, S> {}
+unsafe impl<T: Sync, S: VecCapacity> Sync for LowMemoryThinVec<T, S> {}
 
 /// Creates a `LowMemoryThinVec` containing the arguments.
 ///
@@ -227,7 +229,7 @@ macro_rules! low_memory_thin_vec {
     ($($x:expr,)*) => (low_memory_thin_vec![$($x),*]);
 }
 
-impl<T, S: SizeType> LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// Creates a new empty LowMemoryThinVec.
     ///
     /// This will not allocate.
@@ -1278,7 +1280,7 @@ impl<T, S: SizeType> LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T: Clone, S: SizeType> LowMemoryThinVec<T, S> {
+impl<T: Clone, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// Resizes the `Vec` in-place so that `len()` is equal to `new_len`.
     ///
     /// If `new_len` is greater than `len()`, the `Vec` is extended by the
@@ -1362,7 +1364,7 @@ impl<T: Clone, S: SizeType> LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T: Copy + std::fmt::Debug, S: SizeType> LowMemoryThinVec<T, S> {
+impl<T: Copy + std::fmt::Debug, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// Reserves capacity to fit the given `prefix` slice,
     /// moves the current elements back to make room for the prefix
     /// and copies the prefix to the front of the vector.
@@ -1409,7 +1411,7 @@ impl<T: Copy + std::fmt::Debug, S: SizeType> LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T, S: SizeType> Drop for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> Drop for LowMemoryThinVec<T, S> {
     #[inline]
     fn drop(&mut self) {
         if !self.is_singleton() {
@@ -1437,7 +1439,7 @@ impl<T, S: SizeType> Drop for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T, S: SizeType> Deref for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> Deref for LowMemoryThinVec<T, S> {
     type Target = [T];
 
     fn deref(&self) -> &[T] {
@@ -1445,31 +1447,31 @@ impl<T, S: SizeType> Deref for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T, S: SizeType> DerefMut for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> DerefMut for LowMemoryThinVec<T, S> {
     fn deref_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
     }
 }
 
-impl<T, S: SizeType> Borrow<[T]> for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> Borrow<[T]> for LowMemoryThinVec<T, S> {
     fn borrow(&self) -> &[T] {
         self.as_slice()
     }
 }
 
-impl<T, S: SizeType> BorrowMut<[T]> for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> BorrowMut<[T]> for LowMemoryThinVec<T, S> {
     fn borrow_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
     }
 }
 
-impl<T, S: SizeType> AsRef<[T]> for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> AsRef<[T]> for LowMemoryThinVec<T, S> {
     fn as_ref(&self) -> &[T] {
         self.as_slice()
     }
 }
 
-impl<T, S: SizeType> Extend<T> for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> Extend<T> for LowMemoryThinVec<T, S> {
     #[inline]
     fn extend<I>(&mut self, iter: I)
     where
@@ -1486,13 +1488,13 @@ impl<T, S: SizeType> Extend<T> for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T: fmt::Debug, S: SizeType> fmt::Debug for LowMemoryThinVec<T, S> {
+impl<T: fmt::Debug, S: VecCapacity> fmt::Debug for LowMemoryThinVec<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.as_slice(), f)
     }
 }
 
-impl<T, S: SizeType> Hash for LowMemoryThinVec<T, S>
+impl<T, S: VecCapacity> Hash for LowMemoryThinVec<T, S>
 where
     T: Hash,
 {
@@ -1504,7 +1506,7 @@ where
     }
 }
 
-impl<T, S: SizeType> PartialOrd for LowMemoryThinVec<T, S>
+impl<T, S: VecCapacity> PartialOrd for LowMemoryThinVec<T, S>
 where
     T: PartialOrd,
 {
@@ -1514,7 +1516,7 @@ where
     }
 }
 
-impl<T, S: SizeType> Ord for LowMemoryThinVec<T, S>
+impl<T, S: VecCapacity> Ord for LowMemoryThinVec<T, S>
 where
     T: Ord,
 {
@@ -1524,7 +1526,7 @@ where
     }
 }
 
-impl<A, B, S: SizeType> PartialEq<LowMemoryThinVec<B, S>> for LowMemoryThinVec<A, S>
+impl<A, B, S: VecCapacity> PartialEq<LowMemoryThinVec<B, S>> for LowMemoryThinVec<A, S>
 where
     A: PartialEq<B>,
 {
@@ -1534,7 +1536,7 @@ where
     }
 }
 
-impl<A, B, S: SizeType> PartialEq<Vec<B>> for LowMemoryThinVec<A, S>
+impl<A, B, S: VecCapacity> PartialEq<Vec<B>> for LowMemoryThinVec<A, S>
 where
     A: PartialEq<B>,
 {
@@ -1544,7 +1546,7 @@ where
     }
 }
 
-impl<A, B, S: SizeType> PartialEq<[B]> for LowMemoryThinVec<A, S>
+impl<A, B, S: VecCapacity> PartialEq<[B]> for LowMemoryThinVec<A, S>
 where
     A: PartialEq<B>,
 {
@@ -1554,7 +1556,7 @@ where
     }
 }
 
-impl<'a, A, B, S: SizeType> PartialEq<&'a [B]> for LowMemoryThinVec<A, S>
+impl<'a, A, B, S: VecCapacity> PartialEq<&'a [B]> for LowMemoryThinVec<A, S>
 where
     A: PartialEq<B>,
 {
@@ -1564,7 +1566,7 @@ where
     }
 }
 
-impl<const N: usize, A, B, S: SizeType> PartialEq<[B; N]> for LowMemoryThinVec<A, S>
+impl<const N: usize, A, B, S: VecCapacity> PartialEq<[B; N]> for LowMemoryThinVec<A, S>
 where
     A: PartialEq<B>,
 {
@@ -1574,7 +1576,7 @@ where
     }
 }
 
-impl<'a, const N: usize, A, B, S: SizeType> PartialEq<&'a [B; N]> for LowMemoryThinVec<A, S>
+impl<'a, const N: usize, A, B, S: VecCapacity> PartialEq<&'a [B; N]> for LowMemoryThinVec<A, S>
 where
     A: PartialEq<B>,
 {
@@ -1584,9 +1586,9 @@ where
     }
 }
 
-impl<T, S: SizeType> Eq for LowMemoryThinVec<T, S> where T: Eq {}
+impl<T, S: VecCapacity> Eq for LowMemoryThinVec<T, S> where T: Eq {}
 
-impl<T, S: SizeType> IntoIterator for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> IntoIterator for LowMemoryThinVec<T, S> {
     type Item = T;
     type IntoIter = IntoIter<T, S>;
 
@@ -1598,7 +1600,7 @@ impl<T, S: SizeType> IntoIterator for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<'a, T, S: SizeType> IntoIterator for &'a LowMemoryThinVec<T, S> {
+impl<'a, T, S: VecCapacity> IntoIterator for &'a LowMemoryThinVec<T, S> {
     type Item = &'a T;
     type IntoIter = slice::Iter<'a, T>;
 
@@ -1607,7 +1609,7 @@ impl<'a, T, S: SizeType> IntoIterator for &'a LowMemoryThinVec<T, S> {
     }
 }
 
-impl<'a, T, S: SizeType> IntoIterator for &'a mut LowMemoryThinVec<T, S> {
+impl<'a, T, S: VecCapacity> IntoIterator for &'a mut LowMemoryThinVec<T, S> {
     type Item = &'a mut T;
     type IntoIter = slice::IterMut<'a, T>;
 
@@ -1616,7 +1618,7 @@ impl<'a, T, S: SizeType> IntoIterator for &'a mut LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T, S: SizeType> Clone for LowMemoryThinVec<T, S>
+impl<T, S: VecCapacity> Clone for LowMemoryThinVec<T, S>
 where
     T: Clone,
 {
@@ -1624,7 +1626,7 @@ where
     fn clone(&self) -> LowMemoryThinVec<T, S> {
         #[cold]
         #[inline(never)]
-        fn clone_non_singleton<T: Clone, S: SizeType>(
+        fn clone_non_singleton<T: Clone, S: VecCapacity>(
             this: &LowMemoryThinVec<T, S>,
         ) -> LowMemoryThinVec<T, S> {
             this.iter().cloned().collect()
@@ -1638,13 +1640,13 @@ where
     }
 }
 
-impl<T, S: SizeType> Default for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> Default for LowMemoryThinVec<T, S> {
     fn default() -> LowMemoryThinVec<T, S> {
         LowMemoryThinVec::new()
     }
 }
 
-impl<T, S: SizeType> FromIterator<T> for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> FromIterator<T> for LowMemoryThinVec<T, S> {
     #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> LowMemoryThinVec<T, S> {
         let mut vec = LowMemoryThinVec::new();
@@ -1653,7 +1655,7 @@ impl<T, S: SizeType> FromIterator<T> for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T: Clone, S: SizeType> From<&[T]> for LowMemoryThinVec<T, S> {
+impl<T: Clone, S: VecCapacity> From<&[T]> for LowMemoryThinVec<T, S> {
     /// Allocate a `LowMemoryThinVec<T, S>` and fill it by cloning `s`'s items.
     ///
     /// # Examples
@@ -1670,7 +1672,7 @@ impl<T: Clone, S: SizeType> From<&[T]> for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T: Clone, S: SizeType> From<&mut [T]> for LowMemoryThinVec<T, S> {
+impl<T: Clone, S: VecCapacity> From<&mut [T]> for LowMemoryThinVec<T, S> {
     /// Allocate a `LowMemoryThinVec<T, S>` and fill it by cloning `s`'s items.
     ///
     /// # Examples
@@ -1687,7 +1689,7 @@ impl<T: Clone, S: SizeType> From<&mut [T]> for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T, S: SizeType, const N: usize> From<[T; N]> for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity, const N: usize> From<[T; N]> for LowMemoryThinVec<T, S> {
     /// Allocate a `LowMemoryThinVec<T, S>` and move `s`'s items into it.
     ///
     /// # Examples
@@ -1704,7 +1706,7 @@ impl<T, S: SizeType, const N: usize> From<[T; N]> for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T, S: SizeType> From<Box<[T]>> for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> From<Box<[T]>> for LowMemoryThinVec<T, S> {
     /// Convert a boxed slice into a vector by transferring ownership of
     /// the existing heap allocation.
     ///
@@ -1727,7 +1729,7 @@ impl<T, S: SizeType> From<Box<[T]>> for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T, S: SizeType> From<Vec<T>> for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> From<Vec<T>> for LowMemoryThinVec<T, S> {
     /// Convert a `std::Vec` into a `LowMemoryThinVec`.
     ///
     /// **NOTE:** this must reallocate to change the layout!
@@ -1747,7 +1749,7 @@ impl<T, S: SizeType> From<Vec<T>> for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T, S: SizeType> From<LowMemoryThinVec<T, S>> for Vec<T> {
+impl<T, S: VecCapacity> From<LowMemoryThinVec<T, S>> for Vec<T> {
     /// Convert a `LowMemoryThinVec` into a `std::Vec`.
     ///
     /// **NOTE:** this must reallocate to change the layout!
@@ -1765,7 +1767,7 @@ impl<T, S: SizeType> From<LowMemoryThinVec<T, S>> for Vec<T> {
     }
 }
 
-impl<T, S: SizeType> From<LowMemoryThinVec<T, S>> for Box<[T]> {
+impl<T, S: VecCapacity> From<LowMemoryThinVec<T, S>> for Box<[T]> {
     /// Convert a vector into a boxed slice.
     ///
     /// If `v` has excess capacity, its items will be moved into a
@@ -1789,7 +1791,7 @@ impl<T, S: SizeType> From<LowMemoryThinVec<T, S>> for Box<[T]> {
     }
 }
 
-impl<S: SizeType> From<&str> for LowMemoryThinVec<u8, S> {
+impl<S: VecCapacity> From<&str> for LowMemoryThinVec<u8, S> {
     /// Allocate a `LowMemoryThinVec<u8, S>` and fill it with a UTF-8 string.
     ///
     /// # Examples
@@ -1806,7 +1808,7 @@ impl<S: SizeType> From<&str> for LowMemoryThinVec<u8, S> {
     }
 }
 
-impl<T, S: SizeType, const N: usize> TryFrom<LowMemoryThinVec<T, S>> for [T; N] {
+impl<T, S: VecCapacity, const N: usize> TryFrom<LowMemoryThinVec<T, S>> for [T; N] {
     type Error = LowMemoryThinVec<T, S>;
 
     /// Gets the entire contents of the `LowMemoryThinVec<T, S>` as an array,
@@ -1881,12 +1883,12 @@ impl<T, S: SizeType, const N: usize> TryFrom<LowMemoryThinVec<T, S>> for [T; N] 
 /// let v: LowMemoryThinVec<i32> = low_memory_thin_vec![0, 1, 2];
 /// let iter: low_memory_thin_vec::IntoIter<i32> = v.into_iter();
 /// ```
-pub struct IntoIter<T, S: SizeType = u16> {
+pub struct IntoIter<T, S: VecCapacity = u16> {
     vec: LowMemoryThinVec<T, S>,
     start: usize,
 }
 
-impl<T, S: SizeType> IntoIter<T, S> {
+impl<T, S: VecCapacity> IntoIter<T, S> {
     /// Returns the remaining items of this iterator as a slice.
     ///
     /// # Examples
@@ -1954,7 +1956,7 @@ impl<T, S: SizeType> IntoIter<T, S> {
     }
 }
 
-impl<T, S: SizeType> Iterator for IntoIter<T, S> {
+impl<T, S: VecCapacity> Iterator for IntoIter<T, S> {
     type Item = T;
     fn next(&mut self) -> Option<T> {
         if self.start == self.vec.len() {
@@ -1981,7 +1983,7 @@ impl<T, S: SizeType> Iterator for IntoIter<T, S> {
     }
 }
 
-impl<T, S: SizeType> DoubleEndedIterator for IntoIter<T, S> {
+impl<T, S: VecCapacity> DoubleEndedIterator for IntoIter<T, S> {
     fn next_back(&mut self) -> Option<T> {
         if self.start == self.vec.len() {
             None
@@ -1991,16 +1993,16 @@ impl<T, S: SizeType> DoubleEndedIterator for IntoIter<T, S> {
     }
 }
 
-impl<T, S: SizeType> ExactSizeIterator for IntoIter<T, S> {}
+impl<T, S: VecCapacity> ExactSizeIterator for IntoIter<T, S> {}
 
-impl<T, S: SizeType> core::iter::FusedIterator for IntoIter<T, S> {}
+impl<T, S: VecCapacity> core::iter::FusedIterator for IntoIter<T, S> {}
 
-impl<T, S: SizeType> Drop for IntoIter<T, S> {
+impl<T, S: VecCapacity> Drop for IntoIter<T, S> {
     #[inline]
     fn drop(&mut self) {
         #[cold]
         #[inline(never)]
-        fn drop_non_singleton<T, S: SizeType>(this: &mut IntoIter<T, S>) {
+        fn drop_non_singleton<T, S: VecCapacity>(this: &mut IntoIter<T, S>) {
             // We need to take ownership of the vector to avoid dropping its elements twice
             let mut vec = mem::take(&mut this.vec);
             // SAFETY:
@@ -2024,19 +2026,19 @@ impl<T, S: SizeType> Drop for IntoIter<T, S> {
     }
 }
 
-impl<T: fmt::Debug, S: SizeType> fmt::Debug for IntoIter<T, S> {
+impl<T: fmt::Debug, S: VecCapacity> fmt::Debug for IntoIter<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("IntoIter").field(&self.as_slice()).finish()
     }
 }
 
-impl<T, S: SizeType> AsRef<[T]> for IntoIter<T, S> {
+impl<T, S: VecCapacity> AsRef<[T]> for IntoIter<T, S> {
     fn as_ref(&self) -> &[T] {
         self.as_slice()
     }
 }
 
-impl<T: Clone, S: SizeType> Clone for IntoIter<T, S> {
+impl<T: Clone, S: VecCapacity> Clone for IntoIter<T, S> {
     #[allow(clippy::into_iter_on_ref)]
     fn clone(&self) -> Self {
         // Just create a new `LowMemoryThinVec` from the remaining elements and IntoIter it
@@ -2051,7 +2053,7 @@ impl<T: Clone, S: SizeType> Clone for IntoIter<T, S> {
 /// Write is implemented for `LowMemoryThinVec<u8, S>` by appending to the vector.
 /// The vector will grow as needed.
 /// This implementation is identical to the one for `Vec<u8>`.
-impl<S: SizeType> std::io::Write for LowMemoryThinVec<u8, S> {
+impl<S: VecCapacity> std::io::Write for LowMemoryThinVec<u8, S> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.extend_from_slice(buf);

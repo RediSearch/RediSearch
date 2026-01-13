@@ -1,9 +1,9 @@
 //! Utilities for computing the layout of allocations.
-use crate::header::{Header, SizeType};
+use crate::{VecCapacity, header::Header};
 use std::alloc::Layout;
 
 /// Gets the layout of the allocated memory for a `LowMemoryThinVec<T, S>` with the given capacity.
-pub(crate) const fn allocation_layout<T, S: SizeType>(cap: usize) -> Layout {
+pub(crate) const fn allocation_layout<T, S: VecCapacity>(cap: usize) -> Layout {
     let mut vec = Layout::new::<Header<S>>();
     let Ok(elements) = Layout::array::<T>(cap) else {
         // The panic message must be known at compile-time if we want `allocation_layout` to be a `const fn`.
@@ -28,7 +28,7 @@ pub(crate) const fn allocation_layout<T, S: SizeType>(cap: usize) -> Layout {
 }
 
 /// Gets the alignment for the allocation owned by `LowMemoryThinVec<T, S>`.
-pub(crate) const fn allocation_alignment<T, S: SizeType>() -> usize {
+pub(crate) const fn allocation_alignment<T, S: VecCapacity>() -> usize {
     // Alignment doesn't change with capacity, so we can use an arbitrary value.
     // Since:
     // - the capacity value is known at compile-time
@@ -47,7 +47,7 @@ pub(crate) const fn allocation_alignment<T, S: SizeType>() -> usize {
 /// This value will be computed at compile time for any `T` and `S` that may end up being used in our
 /// program as types within `LowMemoryThinVec<T, S>`, since the function is `const`
 /// and takes no runtime arguments.
-pub(crate) const fn header_field_padding<T, S: SizeType>() -> usize {
+pub(crate) const fn header_field_padding<T, S: VecCapacity>() -> usize {
     let alloc_align = allocation_alignment::<T, S>();
     let header_size = std::mem::size_of::<Header<S>>();
     alloc_align.saturating_sub(header_size)
