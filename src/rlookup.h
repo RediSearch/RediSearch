@@ -58,29 +58,63 @@ typedef enum {
  * the sorting vector.
  */
 typedef struct RLookupKey {
-  /** The index into the array where the value resides */
-  uint16_t dstidx;
+  /** DO NOT ACCESS DIRECTLY. USE RLookupKey_DstIdx INSTEAD! */
+  uint16_t _dstidx;
 
-  /**
-   * If the source of this value points to a sort vector, then this is the
-   * index within the sort vector that the value is located
+  /**DO NOT ACCESS DIRECTLY. USE RLookupKey_GetSvIdx INSTEAD! */
+  uint16_t _svidx;
+
+  /** DO NOT ACCESS DIRECTLY. USE RLookupKey_GetFlags INSTEAD! */
+  uint32_t _flags;
+
+  /** DO NOT ACCESS DIRECTLY. USE RLookupKey_GetPath INSTEAD! */
+  const char *_path;
+  /** DO NOT ACCESS DIRECTLY. USE RLookupKey_GetName INSTEAD! */
+  const char *_name;
+  /** DO NOT ACCESS DIRECTLY. USE RLookupKey_GetNameLen INSTEAD! */
+  size_t _name_len;
+
+  /** Pointer to next field in the list.
+   * DO NOT ACCESS DIRECTLY. USE RLookup_Iter or RLookup_IterMut INSTEAD!
    */
-  uint16_t svidx;
-
-  /**
-   * Can be F_SVSRC which means the target array is a sorting vector)
-   */
-  uint32_t flags;
-
-  /** Path and name of this field
-   *  path AS name */
-  const char *path;
-  const char *name;
-  size_t name_len;
-
-  /** Pointer to next field in the list */
-  struct RLookupKey *next;
+  struct RLookupKey *_next;
 } RLookupKey;
+
+/** The index into the array where the value resides  */
+static inline uint16_t RLookupKey_GetDstIdx(const RLookupKey* key) {
+    return key->_dstidx;
+}
+
+/**
+ * If the source of this value points to a sort vector, then this is the
+ * index within the sort vector that the value is located
+ */
+static inline uint16_t RLookupKey_GetSvIdx(const RLookupKey* key) {
+    return key->_svidx;
+}
+
+/** The name of this field. */
+static inline const char * RLookupKey_GetName(const RLookupKey* key) {
+    return key->_name;
+}
+
+/** The path of this field. */
+static inline const char * RLookupKey_GetPath(const RLookupKey* key) {
+    return key->_path;
+}
+
+/** The length of the name field in bytes. */
+static inline size_t RLookupKey_GetNameLen(const RLookupKey* key) {
+    return key->_name_len;
+}
+
+/**
+ * Indicate the type and other attributes
+ * Can be F_SVSRC which means the target array is a sorting vector)
+ */
+static inline uint32_t RLookupKey_GetFlags(const RLookupKey* key) {
+    return key->_flags;
+}
 
 typedef struct RLookup {
   RLookupKey *head;
@@ -97,6 +131,66 @@ typedef struct RLookup {
   // the existing list of keys.
   IndexSpecCache *spcache;
 } RLookup;
+
+/** An iterator over the keys in an `RLookup` returning immutable pointers. */
+typedef struct RLookupIterator {
+    const struct RLookupKey *current;
+} RLookupIterator;
+
+/**
+ * Advances the iterator to the next key places a pointer to it into `key`.
+ *
+ * Returns `true` while there are more keys or `false` to indicate the
+ * last key ways returned and the caller should not call this function anymore.
+ */
+static inline int RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** key) {
+    const RLookupKey *current = iterator->current;
+    if (current == NULL) {
+        return 0;
+    } else {
+        *key = current;
+        iterator->current = current->_next;
+
+        return 1;
+    }
+}
+
+/** A iterator over the keys in an `RLookup` returning mutable pointers. */
+typedef struct RLookupIteratorMut {
+    struct RLookupKey *current;
+} RLookupIteratorMut;
+
+/**
+ * Advances the iterator to the next key places a pointer to it into `key`.
+ *
+ * Returns `true` while there are more keys or `false` to indicate the
+ * last key ways returned and the caller should not call this function anymore.
+ */
+static inline bool RLookupIteratorMut_Next(RLookupIteratorMut* iterator, RLookupKey** key) {
+    RLookupKey *current = iterator->current;
+    if (current == NULL) {
+        return false;
+    } else {
+        *key = current;
+        iterator->current = current->_next;
+
+        return true;
+    }
+}
+
+/** Returns an immutable iterator over the keys in this RLookup */
+static inline RLookupIterator RLookup_Iter(const RLookup* rlookup) {
+    RLookupIterator iter = { 0 };
+    iter.current = rlookup->head;
+    return iter;
+}
+
+/** Returns an mutable iterator over the keys in this RLookup */
+static inline RLookupIteratorMut RLookup_IterMut(const RLookup* rlookup) {
+    RLookupIteratorMut iter = { 0 };
+    iter.current = rlookup->head;
+    return iter;
+}
 
 // If the key cannot be found, do not mark it as an error, but create it and
 // mark it as F_UNRESOLVED
@@ -301,14 +395,14 @@ void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RL
 static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
 
   RSValue *ret = NULL;
-  if (row->dyn && array_len(row->dyn) > key->dstidx) {
-    ret = row->dyn[key->dstidx];
+  if (row->dyn && array_len(row->dyn) > RLookupKey_GetDstIdx(key)) {
+    ret = row->dyn[RLookupKey_GetDstIdx(key)];
   }
   if (!ret) {
-    if (key->flags & RLOOKUP_F_SVSRC) {
+    if (RLookupKey_GetFlags(key) & RLOOKUP_F_SVSRC) {
       const RSSortingVector* sv = RLookupRow_GetSortingVector(row);
-      if (sv && RSSortingVector_Length(sv) > key->svidx) {
-        ret = RSSortingVector_Get(sv, key->svidx);
+      if (sv && RSSortingVector_Length(sv) > RLookupKey_GetSvIdx(key)) {
+        ret = RSSortingVector_Get(sv, RLookupKey_GetSvIdx(key));
         if (ret != NULL && ret == RSValue_NullStatic()) {
           ret = NULL;
         }

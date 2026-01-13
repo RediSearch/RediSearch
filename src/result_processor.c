@@ -13,6 +13,7 @@
 #include <util/minmax_heap.h>
 #include "ext/default.h"
 #include "result_processor_rs.h"
+#include "rlookup.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
@@ -1022,7 +1023,7 @@ static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
 
 ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags) {
   if (RSGlobalConfig.enableUnstableFeatures) {
-    if (nkeys == 1 && !strcmp(keys[0]->path, UNDERSCORE_KEY)) {
+    if (nkeys == 1 && !strcmp(RLookupKey_GetPath(keys[0]), UNDERSCORE_KEY)) {
       // Return a thin RP that doesn't actually loads anything or access to the key space
       // Returning without turning on the `QEXEC_S_HAS_LOAD` flag
       return RPKeyNameLoader_New(keys[0]);
