@@ -146,7 +146,7 @@ typedef struct DocTableDiskAPI {
 } DocTableDiskAPI;
 
 // VecSimParamsDisk is defined in VecSim/vec_sim_common.h
-struct VecSimParamsDisk;
+// struct VecSimParamsDisk;
 
 typedef struct VectorDiskAPI {
   /**
