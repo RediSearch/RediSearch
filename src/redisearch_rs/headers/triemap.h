@@ -46,18 +46,10 @@ typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
 typedef void (*freeCB)(void*);
 
 /**
- * The header of a `LowMemoryThinVec`.
- */
-typedef struct Header_u16 {
-  uint16_t len;
-  uint16_t cap;
-} Header_u16;
-
-/**
  * See the crate's top level documentation for a description of this type.
  */
 typedef struct LowMemoryThinVecCVoid {
-  struct Header_u16 *ptr;
+  Header_u16 *ptr;
 } LowMemoryThinVecCVoid;
 
 /**
