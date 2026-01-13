@@ -239,6 +239,16 @@ impl Drop for DropCounter<'_> {
     }
 }
 
+/// A drop tracker that increments a shared counter when dropped.
+/// Safe to use in parallel tests unlike `static mut`.
+struct DropTracker(std::rc::Rc<std::cell::Cell<u32>>);
+
+impl Drop for DropTracker {
+    fn drop(&mut self) {
+        self.0.set(self.0.get() + 1);
+    }
+}
+
 #[test]
 fn test_small_vec_struct() {
     assert!(size_of::<LowMemoryThinVec<u8>>() == size_of::<usize>());
@@ -561,23 +571,22 @@ fn test_remove_out_of_bounds() {
 
 #[test]
 fn test_vec_truncate_drop() {
-    static mut DROPS: u32 = 0;
-    struct Elem(#[allow(dead_code)] i32);
-    impl Drop for Elem {
-        fn drop(&mut self) {
-            unsafe {
-                DROPS += 1;
-            }
-        }
-    }
+    use std::cell::Cell;
+    use std::rc::Rc;
 
-    let mut v: LowMemoryThinVec<Elem> =
-        low_memory_thin_vec![Elem(1), Elem(2), Elem(3), Elem(4), Elem(5)];
-    assert_eq!(unsafe { DROPS }, 0);
+    let drops = Rc::new(Cell::new(0u32));
+    let mut v: LowMemoryThinVec<DropTracker> = low_memory_thin_vec![
+        DropTracker(Rc::clone(&drops)),
+        DropTracker(Rc::clone(&drops)),
+        DropTracker(Rc::clone(&drops)),
+        DropTracker(Rc::clone(&drops)),
+        DropTracker(Rc::clone(&drops)),
+    ];
+    assert_eq!(drops.get(), 0);
     v.truncate(3);
-    assert_eq!(unsafe { DROPS }, 2);
+    assert_eq!(drops.get(), 2);
     v.truncate(0);
-    assert_eq!(unsafe { DROPS }, 5);
+    assert_eq!(drops.get(), 5);
 }
 
 #[test]
@@ -1098,29 +1107,19 @@ fn test_u32_large_capacity() {
 
 // Test drop behavior with different size types
 fn test_drop_generic<S: VecCapacity>() {
-    static mut DROP_COUNT: u32 = 0;
+    use std::cell::Cell;
+    use std::rc::Rc;
 
-    struct DropTracker;
-    impl Drop for DropTracker {
-        fn drop(&mut self) {
-            unsafe {
-                DROP_COUNT += 1;
-            }
-        }
-    }
-
-    unsafe {
-        DROP_COUNT = 0;
-    }
+    let drops = Rc::new(Cell::new(0u32));
 
     {
         let mut v: LowMemoryThinVec<DropTracker, S> = LowMemoryThinVec::new();
-        v.push(DropTracker);
-        v.push(DropTracker);
-        v.push(DropTracker);
+        v.push(DropTracker(Rc::clone(&drops)));
+        v.push(DropTracker(Rc::clone(&drops)));
+        v.push(DropTracker(Rc::clone(&drops)));
     }
 
-    assert_eq!(unsafe { DROP_COUNT }, 3);
+    assert_eq!(drops.get(), 3);
 }
 
 #[test]
