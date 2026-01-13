@@ -6,12 +6,8 @@ from common import *
 @when('I restart Redis and reload the RDB')
 def restart_and_reload(redis_env):
     """Restart Redis to reload from RDB file."""
-    # RLTest's restartAndReload() will:
-    # 1. Save current state to RDB
-    # 2. Stop Redis
-    # 3. Start Redis again (which loads from RDB)
-    # 4. Wait for the module to be ready
-    redis_env.restartAndReload()
+    # Reload using SST files (so the correct context-flags are set)
+    redis_env.cmd('DEBUG', 'RELOAD', 'HOT')
 
     # Configure search cluster settings
     # Get the connection to execute commands
