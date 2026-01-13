@@ -104,7 +104,10 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     // if it didn't then it will be marked as unresolved
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     const RLookupKey *docKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
-    HybridLookupContext *lookupCtx = HybridLookupContext_New(req->requests, tailLookup);
+    // Pass whether LOAD * is active so RLookupRow_WriteFieldsFrom knows whether
+    // to create missing keys
+    bool createMissingKeys = (req->reqflags & QEXEC_AGG_LOAD_ALL) != 0;
+    HybridLookupContext *lookupCtx = HybridLookupContext_New(req->requests, tailLookup, createMissingKeys);
     ResultProcessor *merger = RPHybridMerger_New(params->aggregationParams.common.sctx,
                                                  params->scoringCtx, upstreams, req->nrequests,
                                                  docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);

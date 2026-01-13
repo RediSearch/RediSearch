@@ -128,6 +128,27 @@ def test_load_docs_without_vector_or_text(env):
     env.assertEqual(res[3], [expected_doc4])
 
 
+def test_load_docs_with_text(env):
+    """Test `LOAD *` functionality, all docs with text fields"""
+    setup_basic_index(env)
+    hybrid_cmd = (
+            'FT.HYBRID', 'idx',
+            'SEARCH', '@text:(one|three)',
+            'VSIM', '@vector', '$BLOB', 'FILTER', '@text:(one|three)',
+            'LOAD', '*',
+            'PARAMS', '2', 'BLOB', QUERY_VECTOR,
+    )
+    # Use NEVER_DECODE to handle binary vector data in response
+    response = env.cmd(*hybrid_cmd, **{NEVER_DECODE: []})
+    env.assertEqual(response[1], 2)
+    # Verify all documents are returned in any order
+    results = response[3]
+    expected_results = [expected_doc1, expected_doc3]
+    set_of_tuples = set(tuple(sorted(lst)) for lst in results)
+    expected_set = set(tuple(sorted(lst)) for lst in expected_results)
+    env.assertEqual(set_of_tuples, expected_set)
+
+
 def test_load_all_docs(env):
     """Test `LOAD *` functionality, all docs"""
     setup_basic_index(env)
