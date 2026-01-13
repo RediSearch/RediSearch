@@ -1,99 +1,262 @@
-/// The header of a LowMemoryThinVec.
-#[repr(C)]
-pub struct Header {
-    len: SizeType,
-    cap: SizeType,
+/// Private module to seal the `SizeType` trait.
+mod private {
+    pub trait Sealed {}
+    impl Sealed for u8 {}
+    impl Sealed for u16 {}
+    impl Sealed for u32 {}
+    impl Sealed for u64 {}
 }
 
-/// The type used to represent the capacity of a `LowMemoryThinVec`.
-pub(crate) type SizeType = u16;
+/// Trait for types that can be used as the size/capacity type for `LowMemoryThinVec`.
+///
+/// This trait is sealed and can only be implemented for u8, u16, u32, and u64.
+pub trait SizeType: private::Sealed + Copy + Default + 'static {
+    /// The maximum value representable by this type.
+    const MAX: usize;
 
-/// The maximum capacity of a `LowMemoryThinVec`.
-pub(crate) const MAX_CAP: usize = SizeType::MAX as usize;
+    /// A human-readable name for this type, used in panic messages.
+    const TYPE_NAME: &'static str;
 
-#[inline(always)]
-/// Convert a `usize` to a [`SizeType`], panicking if the value is too large to fit.
-pub(crate) const fn assert_size(x: usize) -> SizeType {
-    if x > MAX_CAP {
-        panic!("LowMemoryThinVec size may not exceed the capacity of a 16-bit sized int");
+    /// Convert from usize, panicking if out of range.
+    fn from_usize(val: usize) -> Self;
+
+    /// Convert to usize.
+    fn to_usize(self) -> usize;
+
+    /// Reference to a static empty header for this size type.
+    fn empty_header() -> &'static Header<Self>;
+}
+
+impl SizeType for u8 {
+    const MAX: usize = u8::MAX as usize;
+    const TYPE_NAME: &'static str = "8-bit";
+
+    #[inline]
+    fn from_usize(val: usize) -> Self {
+        if val > <Self as SizeType>::MAX {
+            panic!(
+                "LowMemoryThinVec size may not exceed the capacity of an {} sized int",
+                Self::TYPE_NAME
+            );
+        }
+        val as u8
     }
-    x as SizeType
+
+    #[inline]
+    fn to_usize(self) -> usize {
+        self as usize
+    }
+
+    fn empty_header() -> &'static Header<Self> {
+        static EMPTY: Header<u8> = Header::from_size_type(0, 0);
+        &EMPTY
+    }
 }
 
-impl Header {
+impl SizeType for u16 {
+    const MAX: usize = u16::MAX as usize;
+    const TYPE_NAME: &'static str = "16-bit";
+
+    #[inline]
+    fn from_usize(val: usize) -> Self {
+        if val > <Self as SizeType>::MAX {
+            panic!(
+                "LowMemoryThinVec size may not exceed the capacity of a {} sized int",
+                Self::TYPE_NAME
+            );
+        }
+        val as u16
+    }
+
+    #[inline]
+    fn to_usize(self) -> usize {
+        self as usize
+    }
+
+    fn empty_header() -> &'static Header<Self> {
+        static EMPTY: Header<u16> = Header::from_size_type(0, 0);
+        &EMPTY
+    }
+}
+
+impl SizeType for u32 {
+    const MAX: usize = u32::MAX as usize;
+    const TYPE_NAME: &'static str = "32-bit";
+
+    #[inline]
+    fn from_usize(val: usize) -> Self {
+        if val > <Self as SizeType>::MAX {
+            panic!(
+                "LowMemoryThinVec size may not exceed the capacity of a {} sized int",
+                Self::TYPE_NAME
+            );
+        }
+        val as u32
+    }
+
+    #[inline]
+    fn to_usize(self) -> usize {
+        self as usize
+    }
+
+    fn empty_header() -> &'static Header<Self> {
+        static EMPTY: Header<u32> = Header::from_size_type(0, 0);
+        &EMPTY
+    }
+}
+
+impl SizeType for u64 {
+    const MAX: usize = u64::MAX as usize;
+    const TYPE_NAME: &'static str = "64-bit";
+
+    #[inline]
+    fn from_usize(val: usize) -> Self {
+        // On 64-bit platforms, usize::MAX == u64::MAX, so no overflow check needed.
+        // On 32-bit platforms, usize fits in u64.
+        val as u64
+    }
+
+    #[inline]
+    fn to_usize(self) -> usize {
+        // On 32-bit platforms, this could truncate, but in practice
+        // we never store more than usize::MAX elements.
+        self as usize
+    }
+
+    fn empty_header() -> &'static Header<Self> {
+        static EMPTY: Header<u64> = Header::from_size_type(0, 0);
+        &EMPTY
+    }
+}
+
+/// The header of a `LowMemoryThinVec`.
+#[repr(C)]
+pub struct Header<S: SizeType> {
+    len: S,
+    cap: S,
+}
+
+impl<S: SizeType> Header<S> {
+    /// Creates a new header directly from size type values.
+    ///
+    /// This is a const fn that takes validated size type values directly,
+    /// bypassing the trait method calls for use in static initialization and
+    /// after explicit validation. Since the inputs are already of type S,
+    /// no bounds checking is needed.
+    ///
+    /// The caller must ensure len <= cap.
+    pub(crate) const fn from_size_type(len: S, cap: S) -> Self {
+        Self { len, cap }
+    }
+
     /// Creates a new header with the given length and capacity.
     ///
     /// # Panics
     ///
-    /// Panics if the length is greater than the capacity.
-    pub(crate) const fn new(len: usize, cap: usize) -> Self {
+    /// Panics if the length is greater than the capacity, or if either value
+    /// exceeds the maximum for the size type.
+    pub(crate) fn new(len: usize, cap: usize) -> Self {
         assert!(len <= cap, "Length must be less than or equal to capacity");
         Self {
-            len: assert_size(len),
-            cap: assert_size(cap),
+            len: S::from_usize(len),
+            cap: S::from_usize(cap),
         }
     }
 
     #[inline]
-    pub(crate) const fn len(&self) -> usize {
-        self.len as usize
+    pub(crate) fn len(&self) -> usize {
+        self.len.to_usize()
     }
 
     #[inline]
-    pub(crate) const fn capacity(&self) -> usize {
-        self.cap as usize
+    pub(crate) fn capacity(&self) -> usize {
+        self.cap.to_usize()
     }
 
     #[inline]
-    pub(crate) const fn set_capacity(&mut self, cap: usize) {
+    pub(crate) fn set_capacity(&mut self, cap: usize) {
         assert!(
-            cap >= self.len as usize,
+            cap >= self.len.to_usize(),
             "Capacity must be greater than or equal to the current length"
         );
-        self.cap = assert_size(cap);
+        self.cap = S::from_usize(cap);
     }
 
     #[inline]
-    pub(crate) const fn set_len(&mut self, len: usize) {
+    pub(crate) fn set_len(&mut self, len: usize) {
         assert!(
-            len <= self.cap as usize,
+            len <= self.cap.to_usize(),
             "New length must be less than or equal to current capacity"
         );
-        self.len = assert_size(len);
+        self.len = S::from_usize(len);
     }
 }
-
-/// Singleton used by all empty collections to avoid allocating a header with
-/// an empty array of elements on the heap.
-pub(crate) static EMPTY_HEADER: Header = Header::new(0, 0);
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_max_cap() {
-        Header::new(0, u16::MAX as usize);
+    fn test_max_cap_u8() {
+        Header::<u8>::new(0, u8::MAX as usize);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "LowMemoryThinVec size may not exceed the capacity of an 8-bit sized int"
+    )]
+    fn test_over_max_cap_u8() {
+        Header::<u8>::new(0, (u8::MAX as usize) + 1);
+    }
+
+    #[test]
+    fn test_max_cap_u16() {
+        Header::<u16>::new(0, u16::MAX as usize);
     }
 
     #[test]
     #[should_panic(
         expected = "LowMemoryThinVec size may not exceed the capacity of a 16-bit sized int"
     )]
-    fn test_over_max_cap() {
-        Header::new(0, (u16::MAX as usize) + 1);
+    fn test_over_max_cap_u16() {
+        Header::<u16>::new(0, (u16::MAX as usize) + 1);
     }
+
+    #[test]
+    fn test_max_cap_u32() {
+        Header::<u32>::new(0, u32::MAX as usize);
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    #[should_panic(
+        expected = "LowMemoryThinVec size may not exceed the capacity of a 32-bit sized int"
+    )]
+    fn test_over_max_cap_u32() {
+        Header::<u32>::new(0, (u32::MAX as usize) + 1);
+    }
+
     #[test]
     #[should_panic(expected = "Capacity must be greater than or equal to the current length")]
     fn test_small_capacity() {
-        let mut header = Header::new(10, 20);
+        let mut header = Header::<u16>::new(10, 20);
         header.set_capacity(5);
     }
 
     #[test]
     #[should_panic(expected = "New length must be less than or equal to current capacity")]
     fn test_large_length() {
-        let mut header = Header::new(10, 20);
+        let mut header = Header::<u16>::new(10, 20);
         header.set_len(30);
+    }
+
+    #[test]
+    fn test_header_sizes() {
+        use std::mem::size_of;
+
+        assert_eq!(size_of::<Header<u8>>(), 2); // 1 + 1
+        assert_eq!(size_of::<Header<u16>>(), 4); // 2 + 2
+        assert_eq!(size_of::<Header<u32>>(), 8); // 4 + 4
+        assert_eq!(size_of::<Header<u64>>(), 16); // 8 + 8
     }
 }
