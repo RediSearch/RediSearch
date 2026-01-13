@@ -9,7 +9,7 @@ mod private {
     impl Sealed for u64 {}
 }
 
-/// Trait for types that can be used as the size/capacity type for [`LowMemoryThinVec`].
+/// Trait for types that can be used as the size/capacity type for [`LowMemoryThinVec`](crate::LowMemoryThinVec).
 ///
 /// This trait is sealed and can only be implemented for u8, u16, u32, and u64.
 pub trait VecCapacity:
