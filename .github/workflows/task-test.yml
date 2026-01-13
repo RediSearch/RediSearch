@@ -605,8 +605,17 @@ jobs:
       - name: Import Codecov GPG public key
         if: inputs.coverage
         run: gpg --import .github/codecov_gpg.pub
+      - name: Upload flow coverage (combined)
+        if: inputs.coverage && inputs.standalone && inputs.coordinator
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_standalone.info,bin/flow_coordinator.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (standalone)
-        if: inputs.coverage && inputs.standalone
+        if: inputs.coverage && inputs.standalone && !inputs.coordinator
         uses: codecov/codecov-action@v5
         with:
           files: bin/flow_standalone.info
@@ -615,13 +624,13 @@ jobs:
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (coordinator)
-        if: inputs.coverage && inputs.coordinator
+        if: inputs.coverage && !inputs.standalone && inputs.coordinator
         uses: codecov/codecov-action@v5
         with:
           files: bin/flow_coordinator.info
           disable_search: true
           flags: flow
-          fail_ci_if_error: true
+          fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
         if: inputs.coverage && inputs.unit-tests
@@ -630,7 +639,7 @@ jobs:
           files: bin/unit.info,bin/rust_cov.info
           disable_search: true
           flags: unit
-          fail_ci_if_error: true
+          fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # Stop EC2 runner for self-hosted platforms (always runs if `start-runner` succeeds, to ensure cleanup)
