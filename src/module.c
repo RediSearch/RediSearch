@@ -578,12 +578,19 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return REDISMODULE_OK;
   }
 
+  // Log index creation
+  RedisModule_Log(ctx, "notice", "Creating index");
+
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
   if (sp == NULL) {
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
     return REDISMODULE_OK;
   }
+
+  // Log successful index creation
+  RedisModule_Log(ctx, "notice", "Successfully created index %s",
+                  IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   /*
    * We replicate CreateIfNotExists command for replica of support.
@@ -678,6 +685,9 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // If we don't delete the docs, we just remove the index from the global dict
     IndexSpec_RemoveFromGlobals(global_ref, true);
   }
+
+  // Log index deletion
+  RedisModule_Log(ctx, "notice", "Successfully dropped index %s", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "sc", argv[1], "_FORCEKEEPDOCS");
 
@@ -877,6 +887,10 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     return RedisModule_ReplyWithError(ctx, "No fields provided");
   }
 
+  // Log index alteration
+  RedisModule_Log(ctx, "notice", "Altering index %s",
+                  IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
+
   CurrentThread_SetIndexSpec(ref);
 
   if (ifnx) {
@@ -906,6 +920,10 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
 
   RedisSearchCtx_UnlockSpec(&sctx);
   CurrentThread_ClearIndexSpec();
+
+  // Log successful index alteration
+  RedisModule_Log(ctx, "notice", "Successfully altered index %s",
+                  IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
