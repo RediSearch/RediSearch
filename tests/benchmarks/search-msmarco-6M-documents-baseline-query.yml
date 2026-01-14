@@ -15,6 +15,9 @@ dataset_load_timeout_secs: 3600
 setups:
   - oss-cluster-08-primaries-250gb
 
+remote:
+  - setup: redisearch-msmarco
+
 dbconfig:
   - dataset_name: "msmarco-6M-documents"
   - init_commands:

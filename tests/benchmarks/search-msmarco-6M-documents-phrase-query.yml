@@ -2,6 +2,9 @@ version: 0.5
 name: "search-msmarco-6M-documents-phrase-query"
 description: "MS MARCO 6M documents - Phrase query benchmark (exact phrase matching)"
 
+remote:
+  - setup: redisearch-msmarco
+
 metadata:
   component: "search"
   dataset: "MS MARCO document-v2"
