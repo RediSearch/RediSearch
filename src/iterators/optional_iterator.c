@@ -14,15 +14,6 @@
 #include "wildcard_iterator.h"
 #include "iterators_rs.h"
 
-typedef struct {
-  QueryIterator base;     // base index iterator
-  QueryIterator *child;   // child index iterator
-  QueryIterator *wcii;    // wildcard child iterator, used for optimization
-  RSIndexResult *virt;
-  t_docId maxDocId;
-  double weight;
-} OptionalOptimizedIterator;
-
 static void OI_Free(QueryIterator *base) {
   OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
 
