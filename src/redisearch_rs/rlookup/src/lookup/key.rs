@@ -207,11 +207,7 @@ impl<'a> DerefMut for RLookupKey<'a> {
 // reference `Pin<&mut CStr>` which safe Rust also cannot move out of.
 // This means you may NEVER EVER hand out a `&mut CStr` EVER.
 impl<'a> RLookupKey<'a> {
-    /// Constructs a new `RLookupKey` using the provided `CStr` and flags.
-    ///
-    /// If the [`RLookupKeyFlag::NameAlloc`] is given, then the provided `CStr` will be cloned into
-    /// a new allocation that is owned by this key. If the flag is *not* provided the key
-    /// will simply borrow the provided string.
+    /// Constructs a new `RLookupKey` using the provided `name` and `flags`.
     #[cfg_attr(not(debug_assertions), allow(unused_variables))]
     pub fn new(
         parent: &RLookup<'_>,
@@ -223,12 +219,7 @@ impl<'a> RLookupKey<'a> {
             "The NameAlloc flag should have been handled in the FFI function. This is a bug."
         );
 
-        let name = match name.into() {
-            Cow::Borrowed(name) if flags.contains(RLookupKeyFlag::NameAlloc) => {
-                Cow::Owned(name.to_owned())
-            }
-            name => name,
-        };
+        let name = name.into();
 
         Self {
             header: RLookupKeyHeader {
@@ -247,7 +238,7 @@ impl<'a> RLookupKey<'a> {
         }
     }
 
-    /// Construct an `RLookupKey` from its main parts. Prefer Self::new if you are unsure which to use.
+    /// Construct an `RLookupKey` from its main parts. Prefer [`Self::new`] if you are unsure which to use.
     pub(crate) fn from_parts(
         name: Cow<'a, CStr>,
         path: Option<Cow<'a, CStr>>,
