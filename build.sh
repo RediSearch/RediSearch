@@ -386,7 +386,7 @@ prepare_cmake_arguments() {
     # Enable Rust/C LTO by using clang and lld
     # Check LLVM version compatibility between Rust and Clang
     RUSTC_LLVM_VERSION=$(rustc --version --verbose | grep "LLVM version" | awk '{print $3}' | cut -d. -f1)
-    CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | grep -oP 'version \K[0-9]+' | head -n1)
+    CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | sed -n 's/.*version \([0-9]\+\).*/\1/p' | head -n1)
 
     if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" ]]; then
         echo "Error: Could not detect LLVM versions for Rust and Clang."
