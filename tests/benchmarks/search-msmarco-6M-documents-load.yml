@@ -24,3 +24,4 @@ clientconfig:
     - workers: 64
     - reporting-period: 5s
     - input: "s3://benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.SETUP.csv"
+    - max-token-size-mb: 10

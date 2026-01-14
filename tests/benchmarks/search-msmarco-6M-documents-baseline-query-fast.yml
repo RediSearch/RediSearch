@@ -23,6 +23,7 @@ dbconfig:
     - reporting-period: 5s
     - requests: 100000
     - input: "s3://benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.SETUP.100k.csv"
+    - max-token-size-mb: 10
   - check:
       keyspacelen: 100000
 clientconfig:
@@ -34,3 +35,4 @@ clientconfig:
     - reporting-period: 1s
     - duration: 60s
     - input: "s3://benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.BENCH.QUERY_baseline.csv"
+    - max-token-size-mb: 10
