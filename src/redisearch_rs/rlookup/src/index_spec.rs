@@ -11,7 +11,7 @@ use std::slice;
 
 use crate::{SchemaRule, field_spec::FieldSpec};
 
-/// A safe wrapper around a pointer to a `IndexSpec`, the underlying pointer is non-null.
+/// A safe wrapper around an `ffi::IndexSpec`.
 ///
 /// We wrap the `IndexSpec` C implementation here.
 #[repr(transparent)]

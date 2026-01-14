@@ -16,7 +16,7 @@ use ffi::DocumentType;
 
 use crate::RLookupKey;
 
-/// A safe wrapper around a pointer to a `SchemaRule`, the underlying pointer is non-null.
+/// A safe wrapper around an `ffi::SchemaRule`.
 ///
 /// # Safety
 ///
