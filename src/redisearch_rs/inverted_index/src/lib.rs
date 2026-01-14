@@ -369,6 +369,11 @@ impl IndexBlock {
         this
     }
 
+    /// Get the memory usage of this block, including the stack size and the capacity of the bytes buffer.
+    pub fn mem_usage(&self) -> usize {
+        Self::STACK_SIZE + self.buffer.capacity()
+    }
+
     /// Get the first document ID in this block. This is only needed for some C tests.
     pub const fn first_block_id(&self) -> t_docId {
         self.first_doc_id
@@ -843,7 +848,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                             n_unique_docs_removed,
                         } => {
                             info.entries_removed += block.num_entries as usize;
-                            info.bytes_freed += IndexBlock::STACK_SIZE + block.buffer.capacity();
+                            info.bytes_freed += block.mem_usage();
                             self.n_unique_docs -= n_unique_docs_removed;
                         }
                         RepairType::Replace {
@@ -851,13 +856,12 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                             n_unique_docs_removed,
                         } => {
                             info.entries_removed += block.num_entries as usize;
-                            info.bytes_freed += IndexBlock::STACK_SIZE + block.buffer.capacity();
+                            info.bytes_freed += block.mem_usage();
                             self.n_unique_docs -= n_unique_docs_removed;
 
                             for block in blocks {
                                 info.entries_removed -= block.num_entries as usize;
-                                info.bytes_allocated +=
-                                    IndexBlock::STACK_SIZE + block.buffer.capacity();
+                                info.bytes_allocated += block.mem_usage();
                                 self.blocks.push(block);
                             }
                         }
@@ -870,7 +874,18 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             }
         }
 
-        self.blocks.shrink_to_fit();
+        // Remove excess capacity from the blocks vector.
+        {
+            let had_allocated = self.blocks.has_allocated();
+            self.blocks.shrink_to_fit();
+            // If we got rid of the heap block buffer entirely, we have also freed the memory occupied
+            // by the thin vec header (4 bytes to track length, 4 bytes to track capacity).
+            // That hasn't been accounted for yet, so we add it to the bytes freed now.
+            if !self.blocks.has_allocated() && had_allocated {
+                info.bytes_freed += 4 + 4;
+            }
+        }
+
         self.gc_marker_inc();
 
         info
