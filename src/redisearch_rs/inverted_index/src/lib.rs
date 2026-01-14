@@ -487,7 +487,7 @@ impl<E: Encoder> InvertedIndex<E> {
     /// Create a new inverted index from the given blocks and encoder. The blocks are expected to not
     /// contain duplicate entries and be ordered by document ID.
     #[cfg(test)]
-    fn from_blocks(flags: IndexFlags, blocks: LowMemoryThinVec<IndexBlock, u32>) -> Self {
+    fn from_blocks(flags: IndexFlags, blocks: LowMemoryThinVec<IndexBlock, BlockCapacity>) -> Self {
         debug_assert!(!blocks.is_empty());
         debug_assert!(
             blocks.is_sorted_by(|a, b| a.last_doc_id < b.first_doc_id),
