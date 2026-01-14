@@ -37,9 +37,6 @@ typedef enum RsValueType {
  */
 typedef struct RsValue RsValue;
 
-/**
- * A shared RedisSearch dynamic value, backed by an `Arc<RsValue>`.
- */
 typedef struct SharedRsValue SharedRsValue;
 
 /**
@@ -214,6 +211,8 @@ struct RsValue *RSValue_NewNumber(double value);
 struct RsValue *RSValue_NewTrio(struct RsValue *left,
                                 struct RsValue *middle,
                                 struct RsValue *right);
+
+struct RsValue *RSValue_NullStatic(void);
 
 /**
  * Gets the numeric value from an [`RsValue`].
@@ -399,6 +398,17 @@ const struct RsValue *SharedRsValue_NewArray(RsValueArray vals);
  * @return A pointer to a heap-allocated RsValue of type RsValueType_Map
  */
 const struct RsValue *SharedRsValue_NewMap(RsValueMap map);
+
+/**
+ * Decrement the reference count of the provided [`RsValue`] object. If this was
+ * the last available reference, it frees the data.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
+ *    `RSValue_*` function returning an owned [`RsValue`] object.
+ */
+void RSValue_DecrRef(const struct RsValue *value);
 
 /**
  * Returns the type of the given [`RsValue`].
