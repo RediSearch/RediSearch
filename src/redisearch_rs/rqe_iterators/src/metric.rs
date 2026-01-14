@@ -9,7 +9,10 @@
 
 //! Supporting types for [`Metric`].
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdList};
+use crate::{
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdList,
+    utils::OwnedSlice,
+};
 use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
 use inverted_index::RSIndexResult;
 
@@ -34,7 +37,7 @@ pub type MetricSortedByScore<'index> = Metric<'index, false>;
 /// but the choice is made at compile time.
 pub struct Metric<'index, const SORTED_BY_ID: bool> {
     base: IdList<'index, SORTED_BY_ID>,
-    metric_data: Vec<f64>,
+    metric_data: OwnedSlice<f64>,
     #[allow(dead_code)]
     type_: MetricType,
     own_key: *mut RLookupKey,
@@ -73,7 +76,13 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey
 }
 
 impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
-    pub fn new(ids: Vec<t_docId>, metric_data: Vec<f64>) -> Self {
+    pub fn new(
+        ids: impl Into<OwnedSlice<t_docId>>,
+        metric_data: impl Into<OwnedSlice<f64>>,
+    ) -> Self {
+        let ids = ids.into();
+        let metric_data = metric_data.into();
+
         debug_assert!(ids.len() == metric_data.len());
 
         Self {

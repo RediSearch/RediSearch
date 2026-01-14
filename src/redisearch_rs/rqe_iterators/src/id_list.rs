@@ -8,12 +8,12 @@
 */
 
 //! Supporting types for [`IdList`].
-use std::cmp::Ordering;
 
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
+use std::cmp::Ordering;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, utils::OwnedSlice};
 
 /// An iterator that yields results according to a sorted list of unique IDs, specified on construction.
 pub type IdListSorted<'index> = IdList<'index, true>;
@@ -25,7 +25,7 @@ pub type IdListUnsorted<'index> = IdList<'index, false>;
 pub struct IdList<'index, const SORTED: bool> {
     /// The list of document IDs to iterate over.
     /// There must be no duplicates. The list must be sorted if `SORTED` is set to `true`.
-    ids: Vec<t_docId>,
+    ids: OwnedSlice<t_docId>,
     /// The current position of the iterator (a.k.a the next document ID to return by `read`).
     /// When `offset` is equal to the length of `ids`, the iterator is at EOF.
     offset: usize,
@@ -39,7 +39,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     /// The list of document IDs cannot contain duplicates.
     /// If `SORTED` is set to `true`, the list must be sorted.
     #[inline(always)]
-    pub fn new(ids: Vec<t_docId>) -> Self {
+    pub fn new(ids: impl Into<OwnedSlice<t_docId>>) -> Self {
         Self::with_result(ids, RSIndexResult::virt())
     }
 
@@ -54,7 +54,9 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
 
     /// Same as [`IdList::new`] but with a custom [`RSIndexResult`],
     /// useful when wrapping this iterator and requiring a non-virtual result.
-    pub fn with_result(ids: Vec<t_docId>, result: RSIndexResult<'index>) -> Self {
+    pub fn with_result(ids: impl Into<OwnedSlice<t_docId>>, result: RSIndexResult<'index>) -> Self {
+        let ids = ids.into();
+
         if SORTED && !cfg!(feature = "disable_sort_checks_in_idlist") {
             debug_assert!(
                 ids.is_sorted_by(|a, b| a < b),
@@ -62,7 +64,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
             );
         }
 
-        IdList {
+        Self {
             ids,
             offset: 0,
             result,
@@ -210,11 +212,13 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
         }))
     }
 
+    #[inline(always)]
     fn rewind(&mut self) {
         self.offset = 0;
         self.result.doc_id = 0;
     }
 
+    #[inline(always)]
     fn num_estimated(&self) -> usize {
         self.ids.len()
     }
