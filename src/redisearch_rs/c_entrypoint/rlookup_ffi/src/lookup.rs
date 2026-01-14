@@ -118,16 +118,12 @@ pub unsafe extern "C" fn RLookup_GetKey_Read(
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
 
-    let mut name = Cow::Borrowed(
-        // Safety: ensured by caller (2., 3., 4., 5.)
-        unsafe { CStr::from_ptr(name) },
-    );
+    // Safety: ensured by caller (2., 3., 4., 5.)
+    let name = unsafe { CStr::from_ptr(name) };
 
-    let mut flags = RLookupKeyFlags::from_bits(flags).unwrap();
-    if flags.contains(RLookupKeyFlag::NameAlloc) {
-        name = name.into_owned().into();
-        flags.remove(RLookupKeyFlag::NameAlloc);
-    }
+    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+
+    let (name, flags) = maybe_allocate_and_clear_flag(name, flags);
 
     lookup.get_key_read(name, flags).map(NonNull::from)
 }
@@ -164,23 +160,17 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx(
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
 
-    let mut name = {
-        Cow::Borrowed(
-            CStr::from_bytes_with_nul(
-                // `name_len` is a value as returned by `strlen` and therefore **does not**
-                // include the null terminator (that is why we do `name_len + 1` below)
-                // Safety: ensured by caller (2., 3., 4., 5.)
-                unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
-            )
-            .unwrap(),
-        )
-    };
+    let name = CStr::from_bytes_with_nul(
+        // `name_len` is a value as returned by `strlen` and therefore **does not**
+        // include the null terminator (that is why we do `name_len + 1` below)
+        // Safety: ensured by caller (2., 3., 4., 5.)
+        unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
+    )
+    .unwrap();
 
-    let mut flags = RLookupKeyFlags::from_bits(flags).unwrap();
-    if flags.contains(RLookupKeyFlag::NameAlloc) {
-        name = name.into_owned().into();
-        flags.remove(RLookupKeyFlag::NameAlloc);
-    }
+    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+
+    let (name, flags) = maybe_allocate_and_clear_flag(name, flags);
 
     lookup.get_key_read(name, flags).map(NonNull::from)
 }
@@ -214,16 +204,12 @@ pub unsafe extern "C" fn RLookup_GetKey_Write(
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
 
-    let mut name = Cow::Borrowed(
-        // Safety: ensured by caller (2., 3., 4., 5.)
-        unsafe { CStr::from_ptr(name) },
-    );
+    // Safety: ensured by caller (2., 3., 4., 5.)
+    let name = unsafe { CStr::from_ptr(name) };
 
-    let mut flags = RLookupKeyFlags::from_bits(flags).unwrap();
-    if flags.contains(RLookupKeyFlag::NameAlloc) {
-        name = name.into_owned().into();
-        flags.remove(RLookupKeyFlag::NameAlloc);
-    }
+    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+
+    let (name, flags) = maybe_allocate_and_clear_flag(name, flags);
 
     lookup.get_key_write(name, flags).map(NonNull::from)
 }
@@ -259,23 +245,17 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx(
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
 
-    let mut name = {
-        Cow::Borrowed(
-            CStr::from_bytes_with_nul(
-                // `name_len` is a value as returned by `strlen` and therefore **does not**
-                // include the null terminator (that is why we do `name_len + 1` below)
-                // Safety: ensured by caller (2., 3., 4., 5.)
-                unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
-            )
-            .unwrap(),
-        )
-    };
+    let name = CStr::from_bytes_with_nul(
+        // `name_len` is a value as returned by `strlen` and therefore **does not**
+        // include the null terminator (that is why we do `name_len + 1` below)
+        // Safety: ensured by caller (2., 3., 4., 5.)
+        unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
+    )
+    .unwrap();
 
-    let mut flags = RLookupKeyFlags::from_bits(flags).unwrap();
-    if flags.contains(RLookupKeyFlag::NameAlloc) {
-        name = name.into_owned().into();
-        flags.remove(RLookupKeyFlag::NameAlloc);
-    }
+    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+
+    let (name, flags) = maybe_allocate_and_clear_flag(name, flags);
 
     lookup.get_key_write(name, flags).map(NonNull::from)
 }
@@ -315,16 +295,12 @@ pub unsafe extern "C" fn RLookup_GetKey_Load(
     // Safety: ensured by caller (2., 3., 4., 5.)
     let field_name = unsafe { CStr::from_ptr(field_name) };
 
-    let mut name = Cow::Borrowed(
-        // Safety: ensured by caller (2., 3., 4., 5.)
-        unsafe { CStr::from_ptr(name) },
-    );
+    // Safety: ensured by caller (2., 3., 4., 5.)
+    let name = unsafe { CStr::from_ptr(name) };
 
-    let mut flags = RLookupKeyFlags::from_bits(flags).unwrap();
-    if flags.contains(RLookupKeyFlag::NameAlloc) {
-        name = name.into_owned().into();
-        flags.remove(RLookupKeyFlag::NameAlloc);
-    }
+    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+
+    let (name, flags) = maybe_allocate_and_clear_flag(name, flags);
 
     lookup
         .get_key_load(name, field_name, flags)
@@ -368,25 +344,17 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx(
     // Safety: ensured by caller (2., 3., 4., 5.)
     let field_name = unsafe { CStr::from_ptr(field_name) };
 
-    let mut name = {
-        Cow::Borrowed(
-            CStr::from_bytes_with_nul(
-                // `name_len` is a value as returned by `strlen` and therefore **does not**
-                // include the null terminator (that is why we do `name_len + 1` below)
-                // Safety: ensured by caller (2., 3., 4., 5.)
-                unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
-            )
-            .unwrap(),
-        )
-    };
+    let name = CStr::from_bytes_with_nul(
+        // `name_len` is a value as returned by `strlen` and therefore **does not**
+        // include the null terminator (that is why we do `name_len + 1` below)
+        // Safety: ensured by caller (2., 3., 4., 5.)
+        unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
+    )
+    .unwrap();
 
-    let mut flags = RLookupKeyFlags::from_bits(flags).unwrap();
-    if flags.contains(RLookupKeyFlag::NameAlloc) {
-        name = name.into_owned().into();
-        flags.remove(RLookupKeyFlag::NameAlloc);
-    }
+    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
-    //
+    let (name, flags) = maybe_allocate_and_clear_flag(name, flags);
 
     lookup
         .get_key_load(name, field_name, flags)
@@ -491,4 +459,16 @@ pub unsafe extern "C" fn RLookup_Init(
 pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
     // Safety: ensured by caller (1.,2.)
     unsafe { lookup.unwrap().drop_in_place() };
+}
+
+/// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
+fn maybe_allocate_and_clear_flag(
+    name: &CStr,
+    flags: RLookupKeyFlags,
+) -> (Cow<'_, CStr>, RLookupKeyFlags) {
+    if flags.contains(RLookupKeyFlag::NameAlloc) {
+        (name.to_owned().into(), flags & !RLookupKeyFlag::NameAlloc)
+    } else {
+        (name.into(), flags)
+    }
 }
