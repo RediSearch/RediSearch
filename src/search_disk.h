@@ -157,6 +157,17 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key
 bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd);
 
 /**
+ * @brief Get the document ID for a given key
+ *
+ * @param handle Handle to the disk index spec.
+ * @param key The key to get the document ID for.
+ * @param len The length of the key.
+ * @return the doc-id corresponding to `key` if one exists, 0 (invalid doc-id)
+ * otherwise.
+ */
+t_docId SearchDisk_GetId(RedisSearchDiskIndexSpec *handle, const char *key, size_t len);
+
+/**
  * @brief Check if a document ID is deleted
  *
  * @param handle Handle to the document table

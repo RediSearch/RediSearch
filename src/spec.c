@@ -3648,19 +3648,42 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
-void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, t_docId id) {
-  RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
-  if (md) {
-    RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
-    spec->stats.numDocuments--;
-    RS_LOG_ASSERT(spec->stats.totalDocsLen >= md->docLen, "totalDocsLen is smaller than md->docLen");
-    spec->stats.totalDocsLen -= md->docLen;
-    DMD_Return(md);
+void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+  RSDocumentMetadata *md = NULL;
+  if (isSpecOnDisk(spec)) {
+    // TODO: Remove once metadata API is used - MOD-13508
+    // Get the id
+    size_t len;
+    const char *keyStr = RedisModule_StringPtrLen(key, &len);
+    t_docId id = SearchDisk_GetId(spec->diskSpec, key, len);
 
-    // Increment the index's garbage collector's scanning frequency after document deletions
-    if (spec->gc) {
-      GCContext_OnDelete(spec->gc);
+    // Get the dmd, if exists
+    RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+    diskDmd->ref_count = 1;
+    bool foundDocument = SearchDisk_GetDocumentMetadata(spec->diskSpec, id, diskDmd);
+    if (foundDocument) {
+      md = diskDmd;
+      // Delete the document
+      SearchDisk_DeleteDocument(spec->diskSpec, key, len);
+    } else {
+      DMD_Return(diskDmd);
     }
+  } else {
+    md = DocTable_PopR(&spec->docs, key);
+  }
+  if (!md) {
+    // Nothing to delete
+    return;
+  }
+
+  RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
+  spec->stats.numDocuments--;
+  RS_LOG_ASSERT(spec->stats.totalDocsLen >= md->docLen, "totalDocsLen is smaller than md->docLen");
+  spec->stats.totalDocsLen -= md->docLen;
+
+  // Increment the index's garbage collector's scanning frequency after document deletions
+  if (spec->gc) {
+    GCContext_OnDelete(spec->gc);
   }
 
   // VecSim fields clear deleted data on the fly
@@ -3669,47 +3692,27 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         VecSimIndex *vecsim = openVectorIndex(spec->fields + i, DONT_CREATE_INDEX);
         if(!vecsim)
-          continue;
-        VecSimIndex_DeleteVector(vecsim, id);
+        continue;
+        VecSimIndex_DeleteVector(vecsim, md->id);
       }
     }
   }
 
   if (spec->flags & Index_HasGeometry) {
-    GeometryIndex_RemoveId(spec, id);
+    GeometryIndex_RemoveId(spec, md->id);
   }
+
+  DMD_Return(md);
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
-  if (sctx.spec->diskSpec) {
-    // TODO: Statistics handling is done in IndexSpec_DeleteDoc_Unsafe (MOD-13306).
-    size_t len;
-    const char *keyStr = RedisModule_StringPtrLen(key, &len);
-    IndexSpec_IncrActiveWrites(spec);
-    RedisSearchCtx_LockSpecWrite(&sctx);
-    SearchDisk_DeleteDocument(sctx.spec->diskSpec, keyStr, len);
-    IndexSpec_DecrActiveWrites(spec);
-    RedisSearchCtx_UnlockSpec(&sctx);
-  } else {
-    // TODO: is this necessary?
-    RedisSearchCtx_LockSpecRead(&sctx);
-    // Get the doc ID
-    t_docId id = DocTable_GetIdR(&spec->docs, key);
-    RedisSearchCtx_UnlockSpec(&sctx);
-
-    if (id == 0) {
-      // ID does not exist.
-      return REDISMODULE_ERR;
-    }
-
-    IndexSpec_IncrActiveWrites(spec);
-    RedisSearchCtx_LockSpecWrite(&sctx);
-    IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
-    IndexSpec_DecrActiveWrites(spec);
-    RedisSearchCtx_UnlockSpec(&sctx);
-  }
+  IndexSpec_IncrActiveWrites(spec);
+  RedisSearchCtx_LockSpecWrite(&sctx);
+  IndexSpec_DeleteDoc_Unsafe(spec, ctx, key);
+  IndexSpec_DecrActiveWrites(spec);
+  RedisSearchCtx_UnlockSpec(&sctx);
 
   return REDISMODULE_OK;
 }

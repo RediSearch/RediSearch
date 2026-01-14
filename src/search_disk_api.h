@@ -116,6 +116,17 @@ typedef struct DocTableDiskAPI {
   bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocateKey);
 
   /**
+   * @brief Get the document ID for a given key
+   *
+   * @param handle Handle to the disk index spec.
+   * @param key The key to get the document ID for.
+   * @param len The length of the key.
+   * @return the doc-id corresponding to `key` if one exists, 0 (invalid doc-id)
+   * otherwise.
+   */
+  t_docId (*getId)(RedisSearchDiskIndexSpec *handle, const char *key, size_t len);
+
+  /**
    * @brief Gets the maximum document ID assigned in the index
    *
    * @param handle Handle to the document table
