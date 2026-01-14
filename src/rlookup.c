@@ -19,22 +19,22 @@
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
   RLookupKey *ret = rm_calloc(1, sizeof(*ret));
 
-  if (!lookup->head) {
-    lookup->head = lookup->tail = ret;
+  if (!lookup->_head) {
+    lookup->_head = lookup->_tail = ret;
   } else {
-    lookup->tail->_next = ret;
-    lookup->tail = ret;
+    lookup->_tail->_next = ret;
+    lookup->_tail = ret;
   }
 
   // Set the name of the key.
   ret->_name = (flags & RLOOKUP_F_NAMEALLOC) ? rm_strndup(name, name_len) : name;
   ret->_name_len = name_len;
   ret->_path = ret->_name;
-  ret->_dstidx = lookup->rowlen;
+  ret->_dstidx = lookup->_rowlen;
   ret->_flags = flags & ~RLOOKUP_TRANSIENT_FLAGS;
 
   // Increase the RLookup table row length. (all rows have the same length).
-  ++(lookup->rowlen);
+  ++(lookup->_rowlen);
 
   return ret;
 }
@@ -77,8 +77,8 @@ static RLookupKey *overrideKey(RLookup *lk, RLookupKey *old, uint32_t flags) {
   new->_next = old->_next;
   old->_next = new;
   // If the old key was the tail, set the new key as the tail
-  if (lk->tail == old) {
-    lk->tail = new;
+  if (lk->_tail == old) {
+    lk->_tail = new;
   }
 
   return new;
@@ -118,7 +118,7 @@ void RLookupKey_Free(RLookupKey *k) {
 }
 
 const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
-  const IndexSpecCache *cc = lookup->spcache;
+  const IndexSpecCache *cc = lookup->_spcache;
   if (!cc) {
     return NULL;
   }
@@ -140,7 +140,7 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name
   const FieldSpec *fs = findFieldInSpecCache(lookup, name);
   // FIXME: LOAD ALL loads the key properties by their name, and we won't find their value by the field name
   //        if the field has a different name (alias) than its path.
-  if(!fs || (!FieldSpec_IsSortable(fs) && !(lookup->options & RLOOKUP_OPT_ALL_LOADED))) {
+  if(!fs || (!FieldSpec_IsSortable(fs) && !(lookup->_options & RLOOKUP_OPT_ALL_LOADED))) {
     return NULL;
   }
 
@@ -248,7 +248,7 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
     }
 
     // If we didn't find the key in the schema (there is no schema) and unresolved is OK, create an unresolved key.
-    if (!key && (lookup->options & RLOOKUP_OPT_UNRESOLVED_OK)) {
+    if (!key && (lookup->_options & RLOOKUP_OPT_UNRESOLVED_OK)) {
       key = createNewKey(lookup, name, name_len, flags);
       RLookupKey_MergeFlags(key, RLOOKUP_F_UNRESOLVED);
     }
@@ -291,7 +291,7 @@ RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name
 size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipFieldIndex,
                          size_t skipFieldIndex_len, uint32_t requiredFlags, uint32_t excludeFlags,
                          SchemaRule *rule) {
-  RS_LOG_ASSERT(skipFieldIndex_len >= lookup->rowlen, "'skipFieldIndex_len' should be at least equal to lookup len");
+  RS_LOG_ASSERT(skipFieldIndex_len >= lookup->_rowlen, "'skipFieldIndex_len' should be at least equal to lookup len");
 
   RLookupIterator iter = RLookup_Iter(lookup);
   const RLookupKey* kk;
@@ -328,13 +328,13 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipF
     ++nfields;
     i +=1;
   }
-  RS_LOG_ASSERT(i == lookup->rowlen, "'i' should be equal to lookup len");
+  RS_LOG_ASSERT(i == lookup->_rowlen, "'i' should be equal to lookup len");
   return nfields;
 }
 
 void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
   memset(lk, 0, sizeof(*lk));
-  lk->spcache = spcache;
+  lk->_spcache = spcache;
 }
 
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
@@ -400,15 +400,15 @@ void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *d
 }
 
 void RLookup_Cleanup(RLookup *lk) {
-  RLookupKey *next, *cur = lk->head;
+  RLookupKey *next, *cur = lk->_head;
   while (cur) {
     next = cur->_next;
     RLookupKey_Free(cur);
     cur = next;
   }
-  IndexSpecCache_Decref(lk->spcache);
+  IndexSpecCache_Decref(lk->_spcache);
 
-  lk->head = lk->tail = NULL;
+  lk->_head = lk->_tail = NULL;
   memset(lk, 0xff, sizeof(*lk));
 }
 
