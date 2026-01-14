@@ -2320,6 +2320,50 @@ def test_total_indexing_ops_multi_value_json(env):
   env.assertEqual(metrics, prev_metrics,
                   message="Multi-value JSON geoshape field is not supported")
 
+# Test that JSON NULL fields are not counted in indexing statistics
+@skip(cluster=True, no_json=True)
+def test_json_null_fields(env):
+  """Test that JSON NULL fields do not increment field indexing statistics."""
+  conn = getConnectionByEnv(env)
+
+  def get_field_metrics():
+    info = conn.execute_command('INFO', 'MODULES')
+    return {
+      'text': info['search_total_indexing_ops_text_fields'],
+      'tag': info['search_total_indexing_ops_tag_fields'],
+      'numeric': info['search_total_indexing_ops_numeric_fields'],
+      'geo': info['search_total_indexing_ops_geo_fields'],
+      'vector': info['search_total_indexing_ops_vector_fields'],
+    }
+
+  # Baseline: all metrics should be 0
+  baseline = get_field_metrics()
+
+  # Create a JSON index with 2 TEXT fields, 1 TAG, 1 NUMERIC, 1 GEO, 1 VECTOR
+  env.expect('FT.CREATE', 'idx_json', 'ON', 'JSON', 'SCHEMA',
+             '$.text1', 'AS', 'text1', 'TEXT',
+             '$.text2', 'AS', 'text2', 'TEXT',
+             '$.tag', 'AS', 'tag', 'TAG',
+             '$.num', 'AS', 'num', 'NUMERIC',
+             '$.geo', 'AS', 'geo', 'GEO',
+             '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  waitForIndex(env, 'idx_json')
+
+  # Test 1: Document with ALL fields NULL (should NOT increment any counter)
+  prev_metrics = get_field_metrics()
+  env.expect('JSON.SET', 'doc:1', '$', '{"text1":null,"text2":null,"tag":null,"num":null,"geo":null,"vec":null}').ok()
+  metrics = get_field_metrics()
+  env.assertEqual(metrics, prev_metrics,
+                  message="Doc with all NULL fields should NOT increment any counter")
+
+  # Test 2: Document with one text field NULL, one text field non-NULL (should increment text counter by 1)
+  # This makes sure we cover the increment in the metric after writeCurEntries (if we just used a null field - we won't reach it)
+  prev_metrics = get_field_metrics()
+  env.expect('JSON.SET', 'doc:2', '$', '{"text1":null,"text2":"hello"}').ok()
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['text'], prev_metrics['text'] + 1,
+                  message="Doc with one NULL text field and one non-NULL text field should increment text counter by 1")
+
 # Test coordinator dispatch time metric (total_coord_dispatch_time_ms)
 # This metric tracks the time from when the command is received on the coordinator
 # until it is dispatched to shards (only for cluster mode with shard count > 1).
