@@ -246,18 +246,10 @@ impl<'a> RLookupKey<'a> {
         flags: RLookupKeyFlags,
         #[cfg(debug_assertions)] rlookup_id: RLookupId,
     ) -> Self {
-        debug_assert_eq!(
-            matches!(name, Cow::Owned(_)),
-            flags.contains(RLookupKeyFlag::NameAlloc),
-            "`RLookupKeyFlag::NameAlloc` was provided, but `name` was not `Cow::Owned`"
+        debug_assert!(
+            !flags.contains(RLookupKeyFlag::NameAlloc),
+            "The NameAlloc flag should have been handled in the FFI function. This is a bug."
         );
-        if let Some(path) = &path {
-            debug_assert_eq!(
-                matches!(path, Cow::Owned(_)),
-                flags.contains(RLookupKeyFlag::NameAlloc),
-                "`RLookupKeyFlag::NameAlloc` was provided, but `path` was not `Cow::Owned`"
-            );
-        }
 
         Self {
             header: RLookupKeyHeader {
