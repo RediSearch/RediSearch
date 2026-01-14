@@ -213,3 +213,8 @@ pub extern "C" fn RSValue_NewNumberFromInt64(number: i64) -> *mut RsValue {
         .into_raw()
         .cast_mut()
 }
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NullStatic() -> *mut RsValue {
+    SharedRsValue::null_static().into_raw() as *mut _
+}

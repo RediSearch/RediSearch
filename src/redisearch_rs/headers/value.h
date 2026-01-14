@@ -144,6 +144,8 @@ struct RsValue *RSValue_NewTrio(struct RsValue *left,
                                 struct RsValue *middle,
                                 struct RsValue *right);
 
+struct RsValue *RSValue_NullStatic(void);
+
 /**
  * Creates and returns a new **owned** [`RsValue::String`],
  * taking ownership of the given `RedisModule_Alloc`-allocated buffer.
