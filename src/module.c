@@ -3453,6 +3453,9 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                       struct ConcurrentCmdCtx *cmdCtx);
 
 int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // Capture start time for coordinator dispatch time tracking
+  rs_wall_clock_ns_t t0 = rs_wall_clock_now_ns();
+
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
@@ -3494,8 +3497,10 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  ConcurrentSearchHandlerCtx handlerCtx = {0};
-  handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
+  ConcurrentSearchHandlerCtx handlerCtx = {
+    .coordStartTime = t0,
+    .spec_ref = StrongRef_Demote(spec_ref)
+  };
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);

@@ -271,7 +271,7 @@ class testOomHybridStandaloneBehavior:
 
 class testOomHybridClusterBehavior:
     def __init__(self):
-        skipTest(cluster=False)
+        # skipTest(cluster=False)
         self.env = Env(shardsCount=3)
         self.n_docs = _common_hybrid_cluster_test_scenario(self.env)
         allShards_change_maxmemory_low(self.env)

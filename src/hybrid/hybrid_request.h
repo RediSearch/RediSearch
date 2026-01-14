@@ -34,6 +34,7 @@ typedef struct HybridRequest {
     RPStatus *subqueriesReturnCodes;  // Array to store return codes from each subquery
     RedisSearchCtx *sctx;
     QEFlags reqflags;
+    rs_wall_clock_ns_t coordStartTime;
 } HybridRequest;
 
 // Blocked client context for HybridRequest background execution

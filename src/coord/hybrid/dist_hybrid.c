@@ -285,6 +285,9 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // Prepare command for slot info (Cluster mode)
   MRCommand_PrepareForSlotInfo(xcmd, xcmd->num);
 
+  // Prepare placeholder for dispatch time (will be filled in when sending to shards)
+  MRCommand_PrepareForDispatchTime(xcmd, xcmd->num);
+
   if (sp && sp->rule && sp->rule->prefixes && array_len(sp->rule->prefixes) > 0) {
     MRCommand_Append(xcmd, "_INDEX_PREFIXES", strlen("_INDEX_PREFIXES"));
     arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
@@ -384,6 +387,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     cmd.hybridParams = &hybridParams;
     cmd.tailPlan = &hreq->tailPipeline->ap;
     cmd.reqConfig = &hreq->reqConfig;
+    cmd.coordStartTime = &hreq->coordStartTime;
 
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
@@ -467,6 +471,7 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     // Get the command from the RPNet (it was set during prepareForExecution)
     MRCommand *cmd = &searchRPNet->cmd;
     int numShards = GetNumShards_UnSafe();
+    cmd->coordStartTime = hreq->coordStartTime;
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
     if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy)) {
@@ -559,6 +564,9 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     }
 
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+
+    // Store coordinator start time for dispatch time tracking
+    hreq->coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
     if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, &status) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);

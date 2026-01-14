@@ -34,6 +34,7 @@ typedef struct ParseHybridCommandCtx {
     HybridPipelineParams* hybridParams;
     RequestConfig* reqConfig;
     CursorConfig* cursorConfig;
+    rs_wall_clock_ns_t *coordStartTime;
 } ParseHybridCommandCtx;
 
 // Function for parsing hybrid command arguments - exposed for testing
