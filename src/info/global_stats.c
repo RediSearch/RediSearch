@@ -228,8 +228,6 @@ void FieldsGlobalStats_UpdateFieldDocsIndexed(const FieldSpec *fs, int toAdd) {
   // Indexing documents happens only in the main thread or with the GIL locked.
   // Therefore, there is no need for atomic operations.
 
-  if (!FieldSpec_IsIndexable(fs)) return;
-
   FieldType field_type = fs->types;
   switch (field_type) {
     case INDEXFLD_T_FULLTEXT:
@@ -258,6 +256,5 @@ void FieldsGlobalStats_UpdateTextFieldDocsIndexed(int toAdd) {
   // Creates a mock FieldSpec with just the necessary fields set.
   FieldSpec mockTextFieldSpec = {0};
   mockTextFieldSpec.types = INDEXFLD_T_FULLTEXT;
-  mockTextFieldSpec.options = 0;  // Indexable by default (FieldSpec_NotIndexable is not set)
   FieldsGlobalStats_UpdateFieldDocsIndexed(&mockTextFieldSpec, toAdd);
 }
