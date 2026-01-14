@@ -6,20 +6,24 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  */
+
 #pragma once
 
-// C API for disk-based vector indexes.
+#include "VecSim/vec_sim.h"
+// C API for creating disk-based  indexes.
 // After creation, use standard VecSimIndex_* functions for all operations.
-
-#include "VecSim/vec_sim_common.h"
-
-// Forward declarations (defined in rocksdb/c.h)
-typedef struct rocksdb_t rocksdb_t;
-typedef struct rocksdb_column_family_handle_t rocksdb_column_family_handle_t;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+VecSimIndex* VecSimDisk_CreateIndex(const VecSimParamsDisk* params);
+
+void VecSimDisk_FreeIndex(VecSimIndex* index);
+
+// Forward declarations (defined in rocksdb/c.h)
+typedef struct rocksdb_t rocksdb_t;
+typedef struct rocksdb_column_family_handle_t rocksdb_column_family_handle_t;
 
 typedef void* VecSimDiskIndexHandle;
 
@@ -30,12 +34,6 @@ typedef struct SpeeDBHandles {
     rocksdb_column_family_handle_t* cf;
 } SpeeDBHandles;
 
-// Create a disk-based HNSW index. Returns VecSimIndex* or NULL on failure.
-VecSimDiskIndexHandle VecSimDisk_CreateIndex(const VecSimHNSWDiskParams* params);
-
-// Free a disk-based HNSW index.
-void VecSimDisk_FreeIndex(VecSimDiskIndexHandle index);
-
 #ifdef __cplusplus
 }
-#endif
+#endif // __cplusplus

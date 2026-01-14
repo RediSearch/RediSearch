@@ -9,13 +9,18 @@
 
 #include "gtest/gtest.h"
 #include "test_utils.h"
-#include "hnsw_disk_factory.h"
+#include "vecsim_disk_api.h"
 
 using namespace test_utils;
 
 class HNSWDiskTest : public ::testing::Test {
 protected:
     static constexpr size_t DIM = 4;
+
+    VecSimIndex* createIndex(const HNSWParams& hnsw_params) {
+        auto params_disk_holder = createDiskParams(hnsw_params);
+        return VecSimDisk_CreateIndex(&params_disk_holder->params_disk);
+    }
 };
 
 TEST_F(HNSWDiskTest, CreateIndex) {
@@ -82,22 +87,18 @@ TEST_F(HNSWDiskTest, IndexOwnsStorage) {
 
 TEST_F(HNSWDiskTest, FactoryWithNullStorage) {
     // Test that factory handles null storage gracefully
-    VecSimHNSWDiskParams params = {
-        .dim = DIM,
+    HNSWParams hnsw_params = {
         .type = VecSimType_FLOAT32,
+        .dim = DIM,
         .metric = VecSimMetric_L2,
+        .multi = false,
+        .blockSize = 1024,
         .M = 16,
         .efConstruction = 200,
         .efRuntime = 10,
-        .blockSize = 1024,
-        .multi = false,
-        .storage = nullptr, // No storage provided
-        .indexName = "test",
-        .indexNameLen = 4,
-        .logCtx = nullptr,
     };
 
-    auto* handle = VecSimDisk_CreateIndex(&params);
+    auto* handle = this->createIndex(hnsw_params);
     ASSERT_NE(handle, nullptr);
 
     auto* index = static_cast<HNSWDiskIndex<float, float>*>(handle);
@@ -115,22 +116,18 @@ TEST_F(HNSWDiskTest, FactoryWithSpeeDBHandles) {
     handles.db = reinterpret_cast<rocksdb_t*>(0xDEADBEEF);
     handles.cf = reinterpret_cast<rocksdb_column_family_handle_t*>(0xCAFEBABE);
 
-    VecSimHNSWDiskParams params = {
-        .dim = DIM,
+    HNSWParams hnsw_params = {
         .type = VecSimType_FLOAT32,
+        .dim = DIM,
         .metric = VecSimMetric_L2,
+        .multi = false,
+        .blockSize = 1024,
         .M = 16,
         .efConstruction = 200,
         .efRuntime = 10,
-        .blockSize = 1024,
-        .multi = false,
-        .storage = &handles, // SpeeDBHandles from FFI
-        .indexName = "test",
-        .indexNameLen = 4,
-        .logCtx = nullptr,
     };
 
-    auto* handle = VecSimDisk_CreateIndex(&params);
+    auto* handle = this->createIndex(hnsw_params);
     ASSERT_NE(handle, nullptr);
 
     auto* index = static_cast<HNSWDiskIndex<float, float>*>(handle);

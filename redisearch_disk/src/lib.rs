@@ -16,7 +16,8 @@ use ffi::{
     AllocateKeyCallback, BasicDiskAPI, DocTableDiskAPI, IndexDiskAPI,
     IteratorType_INV_IDX_ITERATOR, QueryIterator, REDISMODULE_ERR, REDISMODULE_OK,
     RSDocumentMetadata, RedisModuleCtx, RedisSearchDisk, RedisSearchDiskAPI,
-    RedisSearchDiskIndexSpec, VecSimHNSWDiskParams, VectorDiskAPI, t_docId, t_fieldMask,
+    RedisSearchDiskIndexSpec, VecSimDiskContext, VecSimParamsDisk, VectorDiskAPI, t_docId,
+    t_fieldMask,
 };
 use rqe_iterators_interop::RQEIteratorWrapper;
 
@@ -731,7 +732,7 @@ impl IndexSpec {
 /// `VecSimIndex_*` functions (AddVector, TopKQuery, etc.) due to polymorphism.
 extern "C" fn vector_create_index(
     index: *mut RedisSearchDiskIndexSpec,
-    params: *const VecSimHNSWDiskParams,
+    params: *const VecSimParamsDisk,
 ) -> *mut c_void {
     // SAFETY: Caller (RediSearch C code) guarantees index is a valid pointer we created
     let Some(index_spec) = (unsafe { IndexSpec::try_as_mut(index) }) else {
@@ -739,7 +740,7 @@ extern "C" fn vector_create_index(
         return std::ptr::null_mut();
     };
 
-    // SAFETY: Caller guarantees params is a valid pointer to VecSimHNSWDiskParams
+    // SAFETY: Caller guarantees params is a valid pointer to VecSimParamsDisk
     let params_ref = match unsafe { params.as_ref() } {
         Some(p) => p,
         None => {
@@ -748,8 +749,17 @@ extern "C" fn vector_create_index(
         }
     };
 
+    // SAFETY: diskContext is a valid pointer set by the caller (C code), and we check for null immediately after
+    let disk_ctx_ref = match unsafe { params_ref.diskContext.as_ref() } {
+        Some(d) => d,
+        None => {
+            error!("vector_create_index: diskContext is null");
+            return std::ptr::null_mut();
+        }
+    };
+
     // SAFETY: params_ref.indexName points to indexNameLen valid bytes (guaranteed by caller)
-    let field_name = unsafe { c_str_to_str(params_ref.indexName, params_ref.indexNameLen) };
+    let field_name = unsafe { c_str_to_str(disk_ctx_ref.indexName, disk_ctx_ref.indexNameLen) };
     let Some(field_name) = field_name else {
         error!("vector_create_index: field name is null or invalid UTF-8");
         return std::ptr::null_mut();
@@ -779,18 +789,29 @@ extern "C" fn vector_create_index(
         return std::ptr::null_mut();
     };
 
-    // C++ copies these values, so stack allocation is fine
+    // C++ copies these pointer values immediately in the constructor, so stack allocation is fine
     let storage = SpeeDBHandles {
         db: db_ptr.cast(),
         cf: cf_ptr.cast(),
     };
 
-    let mut params_with_storage = *params_ref;
-    params_with_storage.storage = &storage as *const SpeeDBHandles as *mut c_void;
+    // Create a local copy of diskContext with our storage pointer.
+    // This avoids modifying the caller's diskContext, which would create a dangling pointer
+    // after this function returns (since storage is stack-allocated).
+    let mut local_disk_ctx = VecSimDiskContext {
+        storage: &storage as *const SpeeDBHandles as *mut c_void,
+        ..*disk_ctx_ref
+    };
 
-    // SAFETY: params_with_storage is a valid VecSimHNSWDiskParams with valid storage pointers
+    // Create params pointing to our local diskContext.
+    let params_with_storage = VecSimParamsDisk {
+        diskContext: &mut local_disk_ctx as *mut VecSimDiskContext,
+        ..*params_ref
+    };
+
+    // SAFETY: params_with_storage is a valid VecSimParamsDisk with valid storage pointers
     let cpp_index = unsafe {
-        VecSimDisk_CreateIndex(&params_with_storage as *const VecSimHNSWDiskParams as *const c_void)
+        VecSimDisk_CreateIndex(&params_with_storage as *const VecSimParamsDisk as *const c_void)
     };
 
     if cpp_index.is_null() {

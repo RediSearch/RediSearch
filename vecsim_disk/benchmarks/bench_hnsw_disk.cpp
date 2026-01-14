@@ -8,7 +8,6 @@
  */
 
 #include <benchmark/benchmark.h>
-#include "hnsw_disk_factory.h"
 
 // Placeholder benchmark - to be implemented with actual HNSW disk operations
 static void BM_HNSWDiskPlaceholder(benchmark::State& state) {

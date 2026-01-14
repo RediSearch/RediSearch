@@ -11,6 +11,7 @@
 #include "hnsw_disk.h"
 #include "vector_storage.h"
 #include "VecSim/memory/vecsim_malloc.h"
+#include "factory/disk_index_factory.h"
 
 #include <cstring>
 #include <memory>
@@ -18,6 +19,14 @@
 #include <unordered_map>
 
 namespace test_utils {
+
+struct DiskParamsHolder {
+    VecSimParams index_params;
+    VecSimDiskContext diskContext;
+    VecSimParamsDisk params_disk;
+};
+
+std::unique_ptr<DiskParamsHolder> createDiskParams(const HNSWParams& hnsw_params);
 
 /**
  * @brief In-memory VectorStore implementation for testing.
@@ -59,25 +68,29 @@ public:
               size_t efRuntime = 10)
         : allocator_(VecSimAllocator::newVecsimAllocator()) {
 
-        VecSimHNSWDiskParams params = {
-            .dim = dim,
+        HNSWParams params = {
             .type = VecSimType_FLOAT32,
+            .dim = dim,
             .metric = metric,
+            .multi = false,
+            .blockSize = 1024,
             .M = M,
             .efConstruction = efConstruction,
             .efRuntime = efRuntime,
-            .blockSize = 1024,
-            .multi = false,
-            .storage = nullptr, // Not used - we pass storage directly to constructor
-            .indexName = "test_index",
-            .indexNameLen = 10,
-            .logCtx = nullptr,
         };
+        auto params_disk_holder = createDiskParams(params);
+
+        // Create abstract init params
+        auto abstractInitParams = VecSimDiskFactory::NewAbstractInitParams(&params, nullptr, false);
+
+        // Create components
+        auto indexComponents = CreateIndexComponents<float, float>(allocator_, params.metric, params.dim, false);
 
         // Create storage and pass ownership to the index
         auto storage = std::make_unique<MockStorage>();
         storagePtr_ = storage.get(); // Keep raw pointer for test access
-        index_ = new (allocator_) HNSWDiskIndex<DataType, DistType>(&params, allocator_, std::move(storage));
+        index_ = new (allocator_) HNSWDiskIndex<DataType, DistType>(
+            &params_disk_holder->params_disk, abstractInitParams, indexComponents, std::move(storage));
     }
 
     ~TestIndex() {
@@ -98,5 +111,29 @@ private:
     HNSWDiskIndex<DataType, DistType>* index_;
     MockStorage* storagePtr_; // Raw pointer for test access (index owns storage)
 };
+
+inline VecSimParams createParams(const HNSWParams& params) {
+    VecSimParams params_disk = {
+        .algo = VecSimAlgo_HNSWLIB,
+        .algoParams = {.hnswParams = params},
+        .logCtx = nullptr,
+    };
+    return params_disk;
+}
+
+inline std::unique_ptr<DiskParamsHolder> createDiskParams(const HNSWParams& hnsw_params) {
+    auto holder = std::make_unique<DiskParamsHolder>();
+    holder->index_params = createParams(hnsw_params);
+    holder->diskContext = {
+        .storage = nullptr,
+        .indexName = "test",
+        .indexNameLen = 4,
+    };
+    holder->params_disk = {
+        .indexParams = &holder->index_params,
+        .diskContext = &holder->diskContext,
+    };
+    return holder;
+}
 
 } // namespace test_utils

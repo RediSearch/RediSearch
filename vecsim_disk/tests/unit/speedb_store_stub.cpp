@@ -11,7 +11,7 @@
 // Returns nullptr to simulate no SpeedB storage.
 // Real implementation is in src/speedb_store.cpp.
 
-#include "hnsw_disk_factory.h"
+#include "vecsim_disk_api.h"
 #include "vector_storage.h"
 
 #include <memory>

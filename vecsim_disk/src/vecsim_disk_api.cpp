@@ -7,17 +7,22 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-// SpeeDBStore implementation - creates VectorStore from SpeeDBHandles
-// This file requires linking against SpeedB/RocksDB.
+#include <memory>
 
 #include "vector_storage.h"
 #include "vecsim_disk_api.h"
+#include "factory/disk_index_factory.h"
 
-#include <memory>
-
-std::unique_ptr<VectorStore> CreateSpeeDBStore(const SpeeDBHandles* handles) {
-    if (!handles) {
+VecSimIndex* VecSimDisk_CreateIndex(const VecSimParamsDisk* params) {
+    if (!params) {
         return nullptr;
     }
-    return std::make_unique<SpeeDBStore>(handles->db, handles->cf);
+
+    return VecSimDiskFactory::NewIndex(params);
+}
+
+void VecSimDisk_FreeIndex(VecSimIndex* index) {
+    if (index) {
+        delete index;
+    }
 }

@@ -12,7 +12,7 @@
 
 use std::ffi::c_void;
 
-/// Storage handles passed to C++. Mirrors `SpeeDBHandles` from hnsw_disk_factory.h.
+/// Storage handles passed to C++. Mirrors `SpeeDBHandles` from vecsim_disk_api.h.
 /// The C++ side copies these pointer values, so this struct can be stack-allocated.
 /// The underlying database and column family must outlive the vector index.
 #[repr(C)]

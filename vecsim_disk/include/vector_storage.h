@@ -138,7 +138,7 @@ private:
     }
 };
 
-// Forward declaration for SpeeDBHandles (defined in hnsw_disk_factory.h)
+// Forward declaration for SpeeDBHandles (defined in vecsim_disk_api.h)
 struct SpeeDBHandles;
 
 // Creates a SpeeDBStore from handles. Defined in speedb_store.cpp.

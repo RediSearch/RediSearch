@@ -11,6 +11,10 @@
 // Disk-based HNSW index. Inherits from VecSimIndexAbstract so all standard
 // VecSimIndex_* operations work via polymorphism.
 
+/* ================================================== */
+/* This file will be moved to src/algorithms/hnsw/hnsw_disk.h in a following PR ! */
+/* ================================================== */
+
 #include "VecSim/vec_sim_index.h"
 #include "VecSim/index_factories/components/components_factory.h"
 #include "VecSim/query_result_definitions.h"
@@ -25,8 +29,8 @@ template <typename DataType, typename DistType>
 class HNSWDiskIndex : public VecSimIndexAbstract<DataType, DistType> {
 public:
     // Constructor for factory use - takes ownership of storage
-    HNSWDiskIndex(const VecSimHNSWDiskParams* params, std::shared_ptr<VecSimAllocator> allocator,
-                  std::unique_ptr<VectorStore> storage);
+    HNSWDiskIndex(const VecSimParamsDisk* params, const AbstractIndexInitParams& abstractInitParams,
+                  const IndexComponents<DataType, DistType>& components, std::unique_ptr<VectorStore> storage);
     ~HNSWDiskIndex() override = default;
 
     // VecSimIndexInterface - stubs for MOD-13164
@@ -71,9 +75,6 @@ private:
     // Storage backend (owned by this index)
     std::unique_ptr<VectorStore> storage_;
 
-    static AbstractIndexInitParams createAbstractParams(const VecSimHNSWDiskParams* params,
-                                                        std::shared_ptr<VecSimAllocator> allocator);
-
     HNSWDiskIndex(const HNSWDiskIndex&) = delete;
     HNSWDiskIndex& operator=(const HNSWDiskIndex&) = delete;
 };
@@ -81,32 +82,18 @@ private:
 // Template Implementation
 
 template <typename DataType, typename DistType>
-AbstractIndexInitParams
-HNSWDiskIndex<DataType, DistType>::createAbstractParams(const VecSimHNSWDiskParams* params,
-                                                        std::shared_ptr<VecSimAllocator> allocator) {
-    return AbstractIndexInitParams{
-        .allocator = allocator,
-        .dim = params->dim,
-        .vecType = params->type,
-        .storedDataSize = VecSimParams_GetStoredDataSize(params->type, params->dim, params->metric),
-        .metric = params->metric,
-        .blockSize = params->blockSize,
-        .multi = params->multi,
-        .isDisk = true,
-        .logCtx = params->logCtx,
-        .inputBlobSize = params->dim * sizeof(DataType),
-    };
-}
-
-template <typename DataType, typename DistType>
-HNSWDiskIndex<DataType, DistType>::HNSWDiskIndex(const VecSimHNSWDiskParams* params,
-                                                 std::shared_ptr<VecSimAllocator> allocator,
+HNSWDiskIndex<DataType, DistType>::HNSWDiskIndex(const VecSimParamsDisk* params,
+                                                 const AbstractIndexInitParams& abstractInitParams,
+                                                 const IndexComponents<DataType, DistType>& components,
                                                  std::unique_ptr<VectorStore> storage)
-    : VecSimIndexAbstract<DataType, DistType>(
-          createAbstractParams(params, allocator),
-          CreateIndexComponents<DataType, DistType>(allocator, params->metric, params->dim, false)),
-      M_(params->M), efConstruction_(params->efConstruction), efRuntime_(params->efRuntime),
-      indexName_(params->indexName, params->indexNameLen), storage_(std::move(storage)) {}
+    : VecSimIndexAbstract<DataType, DistType>(abstractInitParams, components),
+      indexName_(params->diskContext->indexName, params->diskContext->indexNameLen), storage_(std::move(storage)) {
+    const HNSWParams& hnswParams = params->indexParams->algoParams.hnswParams;
+    // Apply defaults for zero values (uses the public VectorSimilarity definitions)
+    M_ = hnswParams.M ? hnswParams.M : HNSW_DEFAULT_M;
+    efConstruction_ = hnswParams.efConstruction ? hnswParams.efConstruction : HNSW_DEFAULT_EF_C;
+    efRuntime_ = hnswParams.efRuntime ? hnswParams.efRuntime : HNSW_DEFAULT_EF_RT;
+}
 
 template <typename DataType, typename DistType>
 int HNSWDiskIndex<DataType, DistType>::addVector(const void* blob, labelType label) {
