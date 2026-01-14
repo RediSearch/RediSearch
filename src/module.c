@@ -578,9 +578,6 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return REDISMODULE_OK;
   }
 
-  // Log index creation
-  RedisModule_Log(ctx, "notice", "Creating index");
-
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
   if (sp == NULL) {
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
@@ -890,10 +887,6 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   if (!AC_NumRemaining(&ac)) {
     return RedisModule_ReplyWithError(ctx, "No fields provided");
   }
-
-  // Log index alteration
-  RedisModule_Log(ctx, "notice", "Altering index %s",
-                  IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   CurrentThread_SetIndexSpec(ref);
 
