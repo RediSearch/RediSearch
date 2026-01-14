@@ -52,10 +52,6 @@ pub unsafe extern "C" fn RLookup_AddKeysFrom<'a>(
     let src = unsafe { src.as_ref().unwrap() };
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
-    debug_assert!(
-        flags.contains(RLookupKeyFlag::NameAlloc),
-        "The NameAlloc flag cannot be passed to this function"
-    );
 
     dest.add_keys_from(src, flags);
 }
@@ -393,16 +389,7 @@ pub unsafe extern "C" fn RLookup_GetLength(
     };
 
     let required_flags = RLookupKeyFlags::from_bits(required_flags).unwrap();
-    debug_assert!(
-        required_flags.contains(RLookupKeyFlag::NameAlloc),
-        "The NameAlloc flag cannot be passed to this function"
-    );
-
     let excluded_flags = RLookupKeyFlags::from_bits(excluded_flags).unwrap();
-    debug_assert!(
-        excluded_flags.contains(RLookupKeyFlag::NameAlloc),
-        "The NameAlloc flag cannot be passed to this function"
-    );
 
     let rule = if rule.is_null() {
         None
