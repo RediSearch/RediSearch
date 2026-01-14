@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use low_memory_thin_vec::LowMemoryThinVec;
+use low_memory_thin_vec::{Header, LowMemoryThinVec};
 use serde::{Deserialize, Serialize};
 use std::{
     ffi::c_void,
@@ -253,6 +253,8 @@ pub trait NumericDecoder: Decoder {}
 /// Marker trait for decoders producing term results.
 pub trait TermDecoder: Decoder {}
 
+pub type BlockCapacity = u32;
+
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
 #[derive(Debug)]
@@ -261,7 +263,7 @@ pub struct InvertedIndex<E> {
     /// document IDs. The entries and blocks themselves are ordered by document ID, so the first
     /// block contains entries for the lowest document IDs, and the last block contains entries for
     /// the highest document IDs.
-    blocks: LowMemoryThinVec<IndexBlock, u32>,
+    blocks: LowMemoryThinVec<IndexBlock, BlockCapacity>,
 
     /// Number of unique documents in the index. This is not the total number of entries, but rather the
     /// number of unique documents that have been indexed.
@@ -879,10 +881,9 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             let had_allocated = self.blocks.has_allocated();
             self.blocks.shrink_to_fit();
             // If we got rid of the heap block buffer entirely, we have also freed the memory occupied
-            // by the thin vec header (4 bytes to track length, 4 bytes to track capacity).
-            // That hasn't been accounted for yet, so we add it to the bytes freed now.
+            // by the thin vec header. That hasn't been accounted for yet, so we add it to the bytes freed now.
             if !self.blocks.has_allocated() && had_allocated {
-                info.bytes_freed += 4 + 4;
+                info.bytes_freed += Header::<BlockCapacity>::size_with_padding::<IndexBlock>();
             }
         }
 
