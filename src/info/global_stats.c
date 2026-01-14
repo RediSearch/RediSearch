@@ -256,9 +256,8 @@ void FieldsGlobalStats_UpdateFieldDocsIndexed(const FieldSpec *fs, int toAdd) {
 void FieldsGlobalStats_UpdateTextFieldDocsIndexed(int toAdd) {
   // Wrapper for updating fulltext field statistics without needing a FieldSpec.
   // Creates a mock FieldSpec with just the necessary fields set.
-  FieldSpec mockTextFieldSpec = {
-    .types = INDEXFLD_T_FULLTEXT,
-    .options = 0  // Indexable by default (FieldSpec_NotIndexable is not set)
-  };
+  FieldSpec mockTextFieldSpec = {0};
+  mockTextFieldSpec.types = INDEXFLD_T_FULLTEXT;
+  mockTextFieldSpec.options = 0;  // Indexable by default (FieldSpec_NotIndexable is not set)
   FieldsGlobalStats_UpdateFieldDocsIndexed(&mockTextFieldSpec, toAdd);
 }
