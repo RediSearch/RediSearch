@@ -122,17 +122,40 @@ enum MetricType GetMetricType(QueryIterator *header);
  *
  * # Safety
  *
- * 1. `child_it` must be a valid pointer to an implementation of the C query iterator API.
- * 2. `child_it` is not null.
- * 3. `child_it` must not be aliased.
+ * 1. `child_it` must be a valid non-null pointer to an implementation of the C query iterator API.
+ * 2. `child_it` must not be aliased.
  */
 QueryIterator *NewOptionalNonOptimizedIterator(QueryIterator *child, t_docId max_id, double weight);
 
+/**
+ * Get the child pointer of the optional (non-optimized) iterator or NULL
+ * in case there is no child.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewOptionalNonOptimizedIterator`].
+ */
 const QueryIterator *GetOptionalNonOptimizedIteratorChild(const QueryIterator *header);
 
+/**
+ * Take ownership over the child of the optional (non-optimized) iterator or
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewOptionalNonOptimizedIterator`].
+ */
 QueryIterator *TakeOptionalNonOptimizedIteratorChild(QueryIterator *header);
 
-void SetOptionalNonOptimizedIteratorChild(QueryIterator *header, QueryIterator *child);
+/**
+ * Set (or overwrite) the child iterator of the optional (non-optimized) iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewOptionalNonOptimizedIterator`].
+ * 2. `child` must be a valid non-null non-aliased pointer for a valid [`QueryIterator`] respecting the C API.
+ */
+void SetOptionalNonOptimizedIteratorChild(QueryIterator *header,
+                                          QueryIterator *child);
 
 /**
  * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.

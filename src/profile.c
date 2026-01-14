@@ -286,16 +286,11 @@ void Profile_AddIters(QueryIterator **root) {
       ((NotIterator *)(*root))->child = child;
       break;
     }
-    case OPTIONAL_ITERATOR: {
-      QueryIterator *child = TakeOptionalNonOptimizedIteratorChild(*root);
-      Profile_AddIters(&child);
-      SetOptionalNonOptimizedIteratorChild(*root, child); // TODO: confirm, do we really need to do this?
-      break;
-    }
+    case OPTIONAL_ITERATOR:
     case OPTIONAL_OPTIMIZED_ITERATOR: {
-      QueryIterator *it = ((OptionalIterator *)(*root))->child;
+      QueryIterator *child = TakeOptionalIteratorChild(*root);
       Profile_AddIters(&child);
-      ((OptionalIterator *)(*root))->child = child;
+      SetOptionalIteratorChild(*root, child);
       break;
     }
     case HYBRID_ITERATOR: {
@@ -513,6 +508,12 @@ PRINT_PROFILE_FUNC(printOptionalIt) {
     GetOptionalIteratorChild(root), "OPTIONAL");
 }
 
+PRINT_PROFILE_FUNC(printOptionalOptimizedIt) {
+  PrintIteratorChildProfile(reply, (root), counters, cpuTime, depth, limited, config,
+    GetOptionalIteratorChild(root), "OPTIONAL-OPTIMIZED");
+}
+
+
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
   printIteratorProfile(reply, pi->child, &pi->counters,
@@ -525,20 +526,21 @@ void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, Profile
 
   switch (root->type) {
     // Reader
-    case INV_IDX_ITERATOR:    { printInvIdxIt(reply, root, counters, cpuTime, config);                     break; }
+    case INV_IDX_ITERATOR:              { printInvIdxIt(reply, root, counters, cpuTime, config);                                break; }
     // Multi values
-    case UNION_ITERATOR:      { printUnionIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
-    case INTERSECT_ITERATOR:  { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);  break; }
+    case UNION_ITERATOR:                { printUnionIt(reply, root, counters, cpuTime, depth, limited, config);                 break; }
+    case INTERSECT_ITERATOR:            { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);             break; }
     // Single value
-    case NOT_ITERATOR:        { printNotIt(reply, root, counters, cpuTime, depth, limited, config);        break; }
-    case OPTIONAL_ITERATOR:   { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);   break; }
-    case WILDCARD_ITERATOR:   { printWildcardIt(reply, root, counters, cpuTime, depth, limited, config);   break; }
-    case EMPTY_ITERATOR:      { printEmptyIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
-    case ID_LIST_ITERATOR:    { printIdListIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
-    case PROFILE_ITERATOR:    { printProfileIt(reply, root, 0, 0, depth, limited, config);                 break; }
-    case HYBRID_ITERATOR:     { printHybridIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
-    case METRIC_ITERATOR:     { printMetricIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
-    case OPTIMUS_ITERATOR:    { printOptimusIt(reply, root, counters, cpuTime, depth, limited, config);    break; }
-    case MAX_ITERATOR:        { RS_ABORT("nope");   break; } // LCOV_EXCL_LINE
+    case NOT_ITERATOR:                  { printNotIt(reply, root, counters, cpuTime, depth, limited, config);                   break; }
+    case OPTIONAL_ITERATOR:             { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
+    case OPTIONAL_OPTIMIZED_ITERATOR:   { printOptionalOptimizedIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
+    case WILDCARD_ITERATOR:             { printWildcardIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
+    case EMPTY_ITERATOR:                { printEmptyIt(reply, root, counters, cpuTime, depth, limited, config);                 break; }
+    case ID_LIST_ITERATOR:              { printIdListIt(reply, root, counters, cpuTime, depth, limited, config);                break; }
+    case PROFILE_ITERATOR:              { printProfileIt(reply, root, 0, 0, depth, limited, config);                            break; }
+    case HYBRID_ITERATOR:               { printHybridIt(reply, root, counters, cpuTime, depth, limited, config);                break; }
+    case METRIC_ITERATOR:               { printMetricIt(reply, root, counters, cpuTime, depth, limited, config);                break; }
+    case OPTIMUS_ITERATOR:              { printOptimusIt(reply, root, counters, cpuTime, depth, limited, config);               break; }
+    case MAX_ITERATOR:                  { RS_ABORT("nope");   break; } // LCOV_EXCL_LINE
   }
 }
