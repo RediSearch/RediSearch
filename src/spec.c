@@ -3651,6 +3651,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
   RSDocumentMetadata *md = NULL;
   if (isSpecOnDisk(spec)) {
+    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
     // TODO: Remove once metadata API is used - MOD-13508
     // Get the id
     size_t len;
@@ -3691,8 +3692,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         VecSimIndex *vecsim = openVectorIndex(spec->fields + i, DONT_CREATE_INDEX);
-        if(!vecsim)
-        continue;
+        if(!vecsim) continue;
         VecSimIndex_DeleteVector(vecsim, md->id);
       }
     }
