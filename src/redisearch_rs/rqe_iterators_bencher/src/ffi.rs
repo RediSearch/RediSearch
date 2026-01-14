@@ -123,11 +123,17 @@ impl QueryIterator {
     #[inline(always)]
     pub fn new_optional_full_child_wildcard(max_id: u64, weight: f64) -> Self {
         let child = unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, 1f64) };
-        Self::new_optional_full_child(max_id, weight, child)
+        Self::new_optional_with_child(max_id, weight, child)
     }
 
     #[inline(always)]
-    pub fn new_optional_full_child(
+    pub fn new_optional_id_list(max_id: u64, weight: f64, ids: Vec<u64>) -> Self {
+        let Self(child) = Self::new_id_list(ids);
+        Self::new_optional_with_child(max_id, weight, child)
+    }
+
+    #[inline(always)]
+    fn new_optional_with_child(
         max_id: u64,
         weight: f64,
         child: *mut bindings::QueryIterator,
