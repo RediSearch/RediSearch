@@ -623,19 +623,20 @@ impl<E: Encoder> InvertedIndex<E> {
     /// It returns how many bytes have been added to the size of the heap allocation backing the blocks vector.
     fn add_block(&mut self, block: IndexBlock) -> usize {
         let had_allocated = self.blocks.has_allocated();
-        let mut mem_growth = 0;
-        if self.blocks.len() == self.blocks.capacity() {
-            self.blocks.reserve_exact(1);
+        let mem_growth = if self.blocks.len() == self.blocks.capacity() {
+self.blocks.reserve_exact(1);
 
-            mem_growth = if had_allocated {
+            if had_allocated {
                 IndexBlock::STACK_SIZE
             } else {
                 // Nothing is allocated until the first block is added.
                 // When that happens, the heap allocation has to grow by the size of the block
                 // as well as the size of the thin vector head (i.e. length and capacity).
                 self.blocks.mem_usage()
-            };
-        }
+            }
+         } else {
+           0
+         };
 
         self.blocks.push(block);
         mem_growth
