@@ -54,7 +54,7 @@ fn benchmark_optional(c: &mut Criterion) {
 }
 
 fn benchmark_not_iterator(c: &mut Criterion) {
-    let bencher = benchers::not_iterator::Bencher::default();
+    let bencher = benchers::not::Bencher::default();
     bencher.bench(c);
 }
 

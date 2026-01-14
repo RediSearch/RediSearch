@@ -7,10 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
-
-/// Initializes a global subscriber that reports Rust `tracing` traces through `redismodule` logging.
+/// Intentionally trigger a crash in Rust code,
+/// to verify the crash handling mechanism.
+///
+/// Used by the crash result processor.
 #[unsafe(no_mangle)]
-pub extern "C" fn TracingRedisModule_Init(ctx: Option<NonNull<ffi::RedisModuleCtx>>) {
-    tracing_redismodule::init(ctx);
+pub extern "C" fn CrashInRust() {
+    panic!("Crash in Rust code");
 }

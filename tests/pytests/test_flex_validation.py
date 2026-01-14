@@ -10,14 +10,14 @@ def test_flex_max_index_limit(env):
     # Create 10 indices successfully (the maximum allowed)
     for i in range(10):
         index_name = f'idx{i}'
-        env.expect('FT.CREATE', index_name, 'ON', 'HASH', 'SCHEMA', 'field', 'TEXT').ok()
+        env.expect('FT.CREATE', index_name, 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT').ok()
 
     # Verify all 10 indices were created
     info_result = env.cmd('FT._LIST')
     env.assertEqual(len(info_result), 10)
 
     # Try to create the 11th index - this should fail
-    env.expect('FT.CREATE', 'idx10', 'ON', 'HASH', 'SCHEMA', 'field', 'TEXT') \
+    env.expect('FT.CREATE', 'idx10', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Max number of indexes reached for Flex indexes: 10')
 
 @skip(cluster=True)
@@ -25,13 +25,13 @@ def test_invalid_field_type(env):
     """Test that creating an index with an invalid field type fails when search-_simulate-in-flex is true"""
     # Set the simulate-in-flex configuration to true
     env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'field', 'TAG') \
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TAG') \
         .error().contains('TAG fields are not supported in Flex indexes')
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'field', 'GEO') \
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'GEO') \
         .error().contains('GEO fields are not supported in Flex indexes')
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'field', 'GEOSHAPE') \
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'GEOSHAPE') \
         .error().contains('GEOSHAPE fields are not supported in Flex indexes')
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'field', 'NUMERIC') \
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'NUMERIC') \
         .error().contains('NUMERIC fields are not supported in Flex indexes')
 
 @skip(cluster=True)
@@ -41,7 +41,7 @@ def test_valid_field_types(env):
     env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
 
     # Create index with only TEXT fields (the only supported type in Flex)
-    env.expect('FT.CREATE', 'valid_idx', 'ON', 'HASH', 'SCHEMA',
+    env.expect('FT.CREATE', 'valid_idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
                'title', 'TEXT',
                'description', 'TEXT', 'WEIGHT', '2.0',
                'content', 'TEXT', 'SORTABLE').ok()
@@ -86,7 +86,7 @@ def test_valid_flex_arguments(env):
     env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
 
     # Test with all supported Flex arguments
-    env.expect('FT.CREATE', 'flex_args_idx', 'ON', 'HASH',
+    env.expect('FT.CREATE', 'flex_args_idx', 'ON', 'HASH', 'SKIPINITIALSCAN',
                'PREFIX', '2', 'doc:', 'item:',
                'FILTER', '@status=="active"',
                'LANGUAGE', 'english',
@@ -107,30 +107,35 @@ def test_unsupported_flex_arguments(env):
     env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
 
     # Test unsupported arguments that are valid in regular mode
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'NOOFFSETS', 'SCHEMA', 'field', 'TEXT') \
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'NOOFFSETS', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unsupported argument for Flex index: `NOOFFSETS`')
 
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'NOHL', 'SCHEMA', 'field', 'TEXT') \
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'NOHL', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unsupported argument for Flex index: `NOHL`')
 
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'NOFIELDS', 'SCHEMA', 'field', 'TEXT') \
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'NOFIELDS', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unsupported argument for Flex index: `NOFIELDS`')
 
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'NOFREQS', 'SCHEMA', 'field', 'TEXT') \
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'NOFREQS', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unsupported argument for Flex index: `NOFREQS`')
 
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT') \
-        .error().contains('Unsupported argument for Flex index: `SKIPINITIALSCAN`')
-
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'ASYNC', 'SCHEMA', 'field', 'TEXT') \
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'ASYNC', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unsupported argument for Flex index: `ASYNC`')
 
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'MAXTEXTFIELDS', 'SCHEMA', 'field', 'TEXT') \
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'MAXTEXTFIELDS', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unsupported argument for Flex index: `MAXTEXTFIELDS`')
 
     # Test unsupported arguments that are invalid in RAM, should give same error
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'RANDOM_NAME', 'payload', 'SCHEMA', 'field', 'TEXT') \
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'RANDOM_NAME', 'payload', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unknown argument `RANDOM_NAME`')
+
+@skip(cluster=True)
+def test_missing_skip_initial_scan(env):
+    """Test that SKIPINITIALSCAN is required when search-_simulate-in-flex is true"""
+    # Set the simulate-in-flex configuration to true
+    env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'field', 'TEXT') \
+        .error().contains('Flex index requires SKIPINITIALSCAN argument')
 
 @skip(cluster=True)
 def test_invalid_on_json(env):
@@ -138,7 +143,7 @@ def test_invalid_on_json(env):
     # Set the simulate-in-flex configuration to true
     env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
 
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', 'field', 'TEXT') \
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Only HASH is supported as index data type for Flex indexes')
 
 @skip(cluster=True)
@@ -147,7 +152,7 @@ def test_default_on_hash(env):
     # Set the simulate-in-flex configuration to false
     env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'no').ok()
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'field', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT').ok()
 
     info_result = env.cmd('FT.INFO', 'idx')
 

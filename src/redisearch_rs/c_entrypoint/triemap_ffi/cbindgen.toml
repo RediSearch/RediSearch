@@ -11,7 +11,7 @@ include = ["libc", "low_memory_thin_vec"]
 
 [export]
 # Don't export the `low_memory_thin_vec::Header` again
-exclude = ["Header"]
+exclude = ["Header_u16"]
 
 [export.rename]
 # Workaround for https://github.com/mozilla/cbindgen/issues/539

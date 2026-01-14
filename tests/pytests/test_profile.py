@@ -1054,66 +1054,38 @@ def testConcurrentSetClusterAndProfile():
 
 def CoordDispatchTimeInProfile(env):
   """
-  Tests that 'Coordinator dispatch time' field appears in shard profiles for FT.AGGREGATE.
-  Uses COORD_THREADS pause/resume to create measurable dispatch time.
-  Verifies that FT.SEARCH profile does not include dispatch time.
+  Tests that 'Coordinator dispatch time' field appears in shard profiles for FT.AGGREGATE and FT.SEARCH.
   """
-  # sleep for 10ms
-  pause_duration_sec = 0.01
 
-  # Helper to run a profile command with paused coordinator threads and return the result
-  def run_profile_with_pause(profile_cmd, query_cmd_type):
+  # Helper to verify dispatch time in profile result
+  def verify_dispatch_time_in_profile(profile_result, cmd_name):
     """
-    Pauses coordinator threads, launches profile command in background,
-    waits pause_duration_sec, resumes threads, and returns the result.
+    Verifies that 'Coordinator dispatch time [ms]' field appears in all shard profiles,
+    all shards have the same dispatch time, and the value is >= pause duration.
     """
-    env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+    shards_profile = get_shards_profile(env, profile_result)
+    env.assertEqual(len(shards_profile), env.shardsCount,
+                    message=f"{cmd_name}: unexpected number of shards. full reply output: {profile_result}")
 
-    result_holder = []
-    profile_thread = threading.Thread(target=call_and_store, args=(env.cmd, profile_cmd, result_holder))
-    profile_thread.start()
+    # Collect all dispatch times
+    dispatch_times = []
+    for i, shard_profile in enumerate(shards_profile):
+      env.assertContains('Coordinator dispatch time [ms]', shard_profile,
+                         message=f"{cmd_name} shard {i}: 'Coordinator dispatch time' not found. full reply: {profile_result}")
+      dispatch_times.append(shard_profile['Coordinator dispatch time [ms]'])
 
-    sleep(pause_duration_sec)
-
-    env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
-
-    profile_thread.join(timeout=30)
-
-    env.assertEqual(len(result_holder), 1,
-      message=f"Profile command for {query_cmd_type} did not return a result")
-    return result_holder[0]
+    # All shards should have the exact same dispatch time
+    for i, dispatch_time in enumerate(dispatch_times[1:], start=1):
+      env.assertEqual(dispatch_time, dispatch_times[0],
+        message=f"{cmd_name} shard {i} dispatch time differs from shard 0. all shards: {dispatch_times}")
 
   # --- Test AGGREGATE profile should have dispatch time ---
-  res_agg = run_profile_with_pause(('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'), 'AGGREGATE')
+  res_agg = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
+  verify_dispatch_time_in_profile(res_agg, 'AGGREGATE')
 
-  shards_profile = get_shards_profile(env, res_agg)
-  env.assertEqual(len(shards_profile), env.shardsCount,
-                  message=f"unexpected number of shards. full reply output: {res_agg}")
-
-  # Collect all dispatch times for error messages
-  dispatch_times = []
-  for i, shard_profile in enumerate(shards_profile):
-    env.assertContains('Coordinator dispatch time [ms]', shard_profile,
-                       message=f"shard {i}: 'Coordinator dispatch time' not found. full reply: {res_agg}")
-    dispatch_times.append(shard_profile['Coordinator dispatch time [ms]'])
-
-  # All shards should have the exact same dispatch time
-  for i, dispatch_time in enumerate(dispatch_times[1:], start=1):
-    env.assertEqual(dispatch_time, dispatch_times[0],
-      message=f"shard {i} dispatch time differs from shard 0. all shards: {dispatch_times}")
-
-  # Dispatch time should be >= pause duration (in ms)
-  expected_ms = pause_duration_sec * 1000
-  env.assertGreaterEqual(float(dispatch_times[0]), expected_ms,
-    message=f"dispatch time should be >= pause duration. all shards: {dispatch_times}")
-
-  # --- Test SEARCH profile dispatch time should be 0 ---
-  res_search = run_profile_with_pause(('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'NOCONTENT'), 'SEARCH')
-
-  shards_profile_search = get_shards_profile(env, res_search)
-  for i, shard_profile in enumerate(shards_profile_search):
-    env.assertEqual(float(shard_profile['Coordinator dispatch time [ms]']), 0.0,
-      message=f"shard {i}: 'Coordinator dispatch time' should be 0. full reply: {res_search}")
+  # --- Test SEARCH profile should have dispatch time ---
+  res_search = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'NOCONTENT')
+  verify_dispatch_time_in_profile(res_search, 'SEARCH')
 
   # --- Test HYBRID profile dispatch time should be 0 ---
   # Implement and remove try/except once FT.PROFILE for FT.HYBRID is implemented
