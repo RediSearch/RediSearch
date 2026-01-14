@@ -9,7 +9,7 @@
 
 use crate::hidden_string::HiddenString;
 
-/// A safe wrapper around a pointer to a `FieldSpec`, the underlying pointer is non-null.
+/// A safe wrapper around a pointer an `ffi::FieldSpec`.
 ///
 /// We wrap the `FieldSpec` C implementation here.
 #[repr(transparent)]

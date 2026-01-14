@@ -9,7 +9,7 @@
 
 use std::{ffi::CStr, ptr, slice};
 
-/// A safe wrapper around a pointer to a `HiddenString`, the underlying pointer is non-null.
+/// A safe wrapper around an `ffi::HiddenString`.
 ///
 /// We wrap the `HiddenString` C implementation here.
 #[derive(Debug)]
