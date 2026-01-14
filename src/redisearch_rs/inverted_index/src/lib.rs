@@ -370,7 +370,7 @@ impl IndexBlock {
     }
 
     /// Get the memory usage of this block, including the stack size and the capacity of the bytes buffer.
-    pub fn mem_usage(&self) -> usize {
+    pub const fn mem_usage(&self) -> usize {
         Self::STACK_SIZE + self.buffer.capacity()
     }
 
