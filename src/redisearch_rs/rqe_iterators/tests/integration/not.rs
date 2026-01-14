@@ -10,8 +10,8 @@
 use std::time::Duration;
 
 use rqe_iterators::{
-    id_list::IdListSorted, not::Not, RQEIterator, RQEIteratorError, RQEValidateStatus,
-    SkipToOutcome,
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdListSorted,
+    not::Not,
 };
 
 use crate::utils::{Mock, MockIteratorError, MockRevalidateResult};
@@ -23,7 +23,7 @@ const NOT_ITERATOR_LARGE_TIMEOUT: Duration = Duration::from_secs(300);
 #[test]
 fn initial_state() {
     let child = IdListSorted::new(vec![2, 4, 6]);
-    let it = Not::new(child, 10, 1.0);
+    let it = Not::new(child, 10, 1.0, NOT_ITERATOR_LARGE_TIMEOUT);
 
     // Before first read, cursor is at 0 and we are not at EOF.
     assert_eq!(it.last_doc_id(), 0);

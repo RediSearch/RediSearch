@@ -11,8 +11,8 @@
 
 use std::time::Duration;
 
-use criterion::{measurement::WallTime, BenchmarkGroup, Criterion};
-use rqe_iterators::{empty::Empty, id_list::IdListSorted, not::Not, RQEIterator};
+use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
+use rqe_iterators::{RQEIterator, empty::Empty, id_list::IdListSorted, not::Not};
 
 use crate::ffi::{IteratorStatus_ITERATOR_OK, QueryIterator};
 
