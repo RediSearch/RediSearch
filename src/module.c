@@ -566,6 +566,10 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return REDISMODULE_OK;
   }
 
+  // Log successful index creation
+  RedisModule_Log(ctx, "notice", "Successfully created index %s",
+                  IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
+
   /*
    * We replicate CreateIfNotExists command for replica of support.
    * On replica of the destination will get the ft.create command from
@@ -637,6 +641,9 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   CurrentThread_SetIndexSpec(global_ref);
 
+  // Save the index name for logging (before the index is freed)
+  char *indexName = rm_strdup(IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
+
   if((delDocs || sp->flags & Index_Temporary)) {
     // We take a strong reference to the index, so it will not be freed
     // and we can still use it's doc table to delete the keys.
@@ -655,6 +662,10 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // If we don't delete the docs, we just remove the index from the global dict
     IndexSpec_RemoveFromGlobals(global_ref, true);
   }
+
+  // Log index deletion
+  RedisModule_Log(ctx, "notice", "Successfully dropped index %s", indexName);
+  rm_free(indexName);
 
   RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "sc", argv[1], "_FORCEKEEPDOCS");
 
@@ -883,6 +894,10 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
 
   RedisSearchCtx_UnlockSpec(&sctx);
   CurrentThread_ClearIndexSpec();
+
+  // Log successful index alteration
+  RedisModule_Log(ctx, "notice", "Successfully altered index %s",
+                  IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
