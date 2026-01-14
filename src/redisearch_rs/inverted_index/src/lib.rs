@@ -253,6 +253,7 @@ pub trait NumericDecoder: Decoder {}
 /// Marker trait for decoders producing term results.
 pub trait TermDecoder: Decoder {}
 
+/// The capacity of the block vector used by [`InvertedIndex`].
 pub type BlockCapacity = u32;
 
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
