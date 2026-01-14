@@ -133,7 +133,6 @@ pub unsafe extern "C" fn SetMetricRLookupHandle(
         // SAFETY: Safe thanks to 3.
         unsafe { wrapper.inner.set_handle(key_handle) };
     } else {
-        // Safety: Safe thanks to 2.
         unreachable!("expected a metric iterator, either sorted by ID or Score (metric value)")
     }
 }
@@ -162,7 +161,6 @@ pub unsafe extern "C" fn GetMetricOwnKeyRef(header: *mut QueryIterator) -> *mut 
             unsafe { RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header) };
         wrapper.inner.key_mut_ref() as *mut _
     } else {
-        // Safety: Safe thanks to 2.
         unreachable!("expected a metric iterator, either sorted by ID or Score (metric value)")
     }
 }
@@ -191,7 +189,6 @@ pub unsafe extern "C" fn GetMetricType(header: *mut QueryIterator) -> MetricType
             unsafe { RQEIteratorWrapper::<MetricSortedByScore>::ref_from_header_ptr(header) };
         wrapper.inner.metric_type()
     } else {
-        // Safety: Safe thanks to 2.
         unreachable!("expected a metric iterator, either sorted by ID or Score (metric value)")
     }
 }

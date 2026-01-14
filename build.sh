@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -e
+shopt -s extglob
 
 #-----------------------------------------------------------------------------
 # RediSearch Build Script
@@ -23,6 +24,10 @@ VERBOSE=0        # Verbose output flag
 QUICK=${QUICK:-0} # Quick test mode (subset of tests)
 COV=${COV:-0}    # Coverage mode (for building and testing)
 BUILD_INTEL_SVS_OPT=${BUILD_INTEL_SVS_OPT:-0} # Use SVS pre-compiled library
+# Enable Rust/C LTO. Requires Clang and lld (Linux only).
+# Clang needs to have the same version as the LLVM version used by Rust.
+# Check using `clang --version` and `rustc --version --verbose`.
+LTO=0
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0          # Build test binaries
@@ -51,47 +56,50 @@ NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
 # Parse command-line arguments and set configuration variables
+# Requires extglob to be enabled
 #-----------------------------------------------------------------------------
 parse_arguments() {
   for arg in "$@"; do
-    case $arg in
+    # MacOS only has bash 3.2 built-in, which doesn't support the more modern ${arg^^} syntax.
+    upper_arg=$(printf '%s' "$arg" | tr '[:lower:]' '[:upper:]')
+    case $upper_arg in
       COORD=*)
         COORD="${arg#*=}"
         ;;
-      DEBUG|debug)
+      DEBUG?(=1))
         DEBUG=1
         ;;
-      PROFILE|profile)
+      PROFILE?(=1))
         PROFILE=1
         ;;
-      TESTS|tests)
+      TESTS?(=1))
         BUILD_TESTS=1
         ;;
-      RUN_TESTS|run_tests)
+      RUN_TESTS?(=1))
         RUN_ALL_TESTS=1
         ;;
-      RUN_UNIT_TESTS|run_unit_tests)
+      RUN_UNIT_TESTS?(=1))
         RUN_UNIT_TESTS=1
         ;;
-      RUN_RUST_TESTS|run_rust_tests)
+      RUN_RUST_TESTS?(=1))
         RUN_RUST_TESTS=1
         ;;
-      RUN_RUST_VALGRIND|run_rust_valgrind)
+      RUN_RUST_VALGRIND?(=1))
         RUN_RUST_VALGRIND=1
         ;;
-      RUN_MICRO_BENCHMARKS|run_micro_benchmarks|RUN_MICROBENCHMARKS|run_microbenchmarks)
+      RUN_MICRO_BENCHMARKS?(=1))
         RUN_MICRO_BENCHMARKS=1
         ;;
       COV=*)
         COV="${arg#*=}"
         ;;
-      RUN_PYTEST|run_pytest)
+      RUN_PYTEST?(=1))
         RUN_PYTEST=1
         ;;
-      EXT=*|ext=*)
+      EXT=*)
         EXT="${arg#*=}"
         ;;
-      EXT_HOST=*|ext_host=*)
+      EXT_HOST=*)
         if [[ "${arg#*=}" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
           EXT_HOST="${arg#*=}"
         else
@@ -99,7 +107,7 @@ parse_arguments() {
           exit 1
         fi
         ;;
-      EXT_PORT=*|ext_port=*)
+      EXT_PORT=*)
         EXT_PORT="${arg#*=}"
         ;;
       TEST=*)
@@ -120,10 +128,10 @@ parse_arguments() {
       SAN=*)
         SAN="${arg#*=}"
         ;;
-      FORCE|force)
+      FORCE?(=1))
         FORCE=1
         ;;
-      VERBOSE|verbose)
+      VERBOSE?(=1))
         VERBOSE=1
         ;;
       QUICK=*)
@@ -137,6 +145,9 @@ parse_arguments() {
         ;;
       BUILD_INTEL_SVS_OPT=*)
         BUILD_INTEL_SVS_OPT="${arg#*=}"
+        ;;
+      LTO|lto)
+        LTO=1
         ;;
       *)
         # Pass all other arguments directly to CMake
@@ -336,6 +347,43 @@ prepare_cmake_arguments() {
   # Initialize with base arguments
   CMAKE_BASIC_ARGS="-DCOORD_TYPE=$COORD"
 
+  if [[ "$LTO" == "1" ]]; then
+    # LTO is only supported on Linux
+    if [[ "$OS_NAME" != "linux" ]]; then
+      echo "Error: LTO is only supported on Linux"
+      echo "Current OS: $OS_NAME"
+      exit 1
+    fi
+
+    # Enable Rust/C LTO by using clang and lld
+    # Check LLVM version compatibility between Rust and Clang
+    RUSTC_LLVM_VERSION=$(rustc --version --verbose | grep "LLVM version" | awk '{print $3}' | cut -d. -f1)
+    CLANG_LLVM_VERSION=$(clang --version | head -n1 | grep -oP 'version \K[0-9]+' | head -n1)
+
+    if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" ]]; then
+        echo "Error: Could not detect LLVM versions for Rust and Clang."
+        echo "Cross-language LTO requires matching LLVM major versions."
+        echo "Rust LLVM version: $RUSTC_LLVM_VERSION"
+        echo "Clang LLVM version: $CLANG_LLVM_VERSION"
+        exit 1
+    fi
+
+    if [[ "$RUSTC_LLVM_VERSION" != "$CLANG_LLVM_VERSION" ]]; then
+        echo "Error: LLVM version mismatch between Rust and Clang"
+        echo "Rust uses LLVM $RUSTC_LLVM_VERSION (from: rustc --version --verbose)"
+        echo "Clang uses LLVM $CLANG_LLVM_VERSION (from: clang --version)"
+        echo ""
+        echo "Cross-language LTO requires matching LLVM major versions."
+        echo "Please either:"
+        echo "  1. Install clang-$RUSTC_LLVM_VERSION"
+        echo "  2. Or build without LTO by removing the 'LTO' argument"
+        exit 1
+    fi
+
+    echo "Enabling C/Rust LTO"
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
+  fi
+
   if [[ "$BUILD_TESTS" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_SEARCH_UNIT_TESTS=ON"
   fi
@@ -405,6 +453,13 @@ prepare_cmake_arguments() {
     # -Zsanitizer=address enables ASAN in Rust
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Zsanitizer=address"
   fi
+
+
+  if [[ "$LTO" == "1" ]]; then
+    # Include LLVM bitcode information for cross-language LTO
+    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C linker-plugin-lto -C linker=clang -C link-arg=-fuse-ld=lld"
+  fi
+
   # Export RUSTFLAGS so it's available to the Rust build process
   export RUSTFLAGS
 

@@ -76,6 +76,7 @@ pub enum QueryErrorCode {
     FlexUnsupportedField,
     FlexUnsupportedFTCreateArgument,
     DiskCreation,
+    FlexSkipInitialScanMissingArgument,
 }
 
 impl Debug for QueryErrorCode {
@@ -161,6 +162,9 @@ impl QueryErrorCode {
                 c"Unsupported FT.CREATE argument for Flex index"
             }
             Self::DiskCreation => c"Could not create disk index",
+            Self::FlexSkipInitialScanMissingArgument => {
+                c"Flex index requires SKIPINITIALSCAN argument"
+            }
         }
     }
 }

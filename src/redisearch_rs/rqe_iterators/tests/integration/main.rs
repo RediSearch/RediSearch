@@ -16,7 +16,7 @@ mod intersection;
 mod inverted_index;
 mod maybe_empty;
 mod metric;
-mod not_iterator;
+mod not;
 mod optional;
 mod profile;
 mod wildcard;

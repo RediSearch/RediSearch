@@ -7,8 +7,5 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use build_utils::run_cbinden;
-
-fn main() {
-    run_cbinden("../../headers/tracing_redismodule.h").unwrap();
-}
+mod timeout;
+pub use timeout::TimeoutContext;

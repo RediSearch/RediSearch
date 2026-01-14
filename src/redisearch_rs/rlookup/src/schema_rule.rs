@@ -60,7 +60,7 @@ impl SchemaRule {
         // Check if the key is one of the special fields
         [self.lang_field(), self.score_field(), self.payload_field()]
             .into_iter()
-            .any(|f| f == Some(key.name_as_cstr()))
+            .any(|f| f == Some(key.name()))
     }
 }
 

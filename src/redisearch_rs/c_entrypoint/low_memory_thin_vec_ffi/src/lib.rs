@@ -9,4 +9,4 @@
 
 //! Re-export the `Header` type from the `low_memory_thin_vec` crate for use by other FFI crates
 //! that expose a `LowMemoryThinVec` type.
-pub use low_memory_thin_vec::Header;
+pub type Header = low_memory_thin_vec::Header<u16>;
