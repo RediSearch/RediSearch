@@ -21,6 +21,7 @@
 #include "redismodule.h"
 #include "debug_commands.h"
 #include "search_disk.h"
+#include "info/global_stats.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
