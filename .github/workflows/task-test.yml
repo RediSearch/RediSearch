@@ -499,7 +499,7 @@ jobs:
         run: make pytest ${{ inputs.test-config }}
 
       - name: Rust tests (MIRI)
-        if: inputs.san == 'address'
+        if: inputs.san == 'address' && inputs.unit-tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: rust_unit_tests_miri
         continue-on-error: ${{ !inputs.fail-fast }}
@@ -605,8 +605,8 @@ jobs:
       - name: Import Codecov GPG public key
         if: inputs.coverage
         run: gpg --import .github/codecov_gpg.pub
-      - name: Upload flow coverage
-        if: inputs.coverage
+      - name: Upload flow coverage (combined)
+        if: inputs.coverage && inputs.standalone && inputs.coordinator
         uses: codecov/codecov-action@v5
         with:
           files: bin/flow_standalone.info,bin/flow_coordinator.info
@@ -614,8 +614,26 @@ jobs:
           flags: flow
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload flow coverage (standalone)
+        if: inputs.coverage && inputs.standalone && !inputs.coordinator
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_standalone.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload flow coverage (coordinator)
+        if: inputs.coverage && !inputs.standalone && inputs.coordinator
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_coordinator.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
-        if: inputs.coverage
+        if: inputs.coverage && inputs.unit-tests
         uses: codecov/codecov-action@v5
         with:
           files: bin/unit.info,bin/rust_cov.info
