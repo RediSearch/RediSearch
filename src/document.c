@@ -119,6 +119,11 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     if (FieldSpec_IsIndexable(fs)) {
       if (f->indexAs & INDEXFLD_T_FULLTEXT) {
         numTextIndexable++;
+        // Only count non-NULL fulltext fields for statistics
+        // NULL fields are skipped during preprocessing and not actually indexed
+        if (f->unionType != FLD_VAR_T_NULL) {
+          aCtx->numNotNullTextFields++;
+        }
         hasTextFields = 1;
       }
 
@@ -165,7 +170,6 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     RSByteOffsets_ReserveFields(aCtx->byteOffsets, numTextIndexable);
   }
 
-  aCtx->numTextFields = numTextIndexable;
   return 0;
 }
 

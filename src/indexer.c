@@ -391,8 +391,8 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
     writeCurEntries(aCtx, &ctx);
 
     // Update global statistics for fulltext fields after successful indexing
-    if (aCtx->numTextFields > 0) {
-      FieldsGlobalStats_UpdateTextFieldDocsIndexed(aCtx->numTextFields);
+    if (aCtx->numNotNullTextFields > 0) {
+      FieldsGlobalStats_UpdateTextFieldDocsIndexed(aCtx->numNotNullTextFields);
     }
   }
 
