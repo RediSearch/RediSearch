@@ -143,6 +143,8 @@ struct RsValue *RSValue_NewTrio(struct RsValue *left,
                                 struct RsValue *middle,
                                 struct RsValue *right);
 
+struct RsValue *RSValue_NullStatic(void);
+
 /**
  * Gets the numeric value from an [`RsValue`].
  *
