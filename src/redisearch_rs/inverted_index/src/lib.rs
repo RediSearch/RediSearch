@@ -624,7 +624,7 @@ impl<E: Encoder> InvertedIndex<E> {
     fn add_block(&mut self, block: IndexBlock) -> usize {
         let had_allocated = self.blocks.has_allocated();
         let mem_growth = if self.blocks.len() == self.blocks.capacity() {
-self.blocks.reserve_exact(1);
+            self.blocks.reserve_exact(1);
 
             if had_allocated {
                 IndexBlock::STACK_SIZE
@@ -634,9 +634,9 @@ self.blocks.reserve_exact(1);
                 // as well as the size of the thin vector head (i.e. length and capacity).
                 self.blocks.mem_usage()
             }
-         } else {
-           0
-         };
+        } else {
+            0
+        };
 
         self.blocks.push(block);
         mem_growth
