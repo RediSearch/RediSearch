@@ -218,6 +218,11 @@ impl<'a> RLookupKey<'a> {
         name: impl Into<Cow<'a, CStr>>,
         flags: RLookupKeyFlags,
     ) -> Self {
+        debug_assert!(
+            !flags.contains(RLookupKeyFlag::NameAlloc),
+            "The NameAlloc flag should have been handled in the FFI function. This is a bug."
+        );
+
         let name = match name.into() {
             Cow::Borrowed(name) if flags.contains(RLookupKeyFlag::NameAlloc) => {
                 Cow::Owned(name.to_owned())

@@ -122,11 +122,11 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
 
         debug_assert!(
             !required_flags.contains(RLookupKeyFlag::NameAlloc),
-            "The NameAlloc flag should have been cleared in the FFI function"
+            "The NameAlloc flag should have been handled in the FFI function. This is a bug."
         );
         debug_assert!(
             !excluded_flags.contains(RLookupKeyFlag::NameAlloc),
-            "The NameAlloc flag should have been cleared in the FFI function"
+            "The NameAlloc flag should have been handled in the FFI function. This is a bug."
         );
 
         let mut num_fields = 0;

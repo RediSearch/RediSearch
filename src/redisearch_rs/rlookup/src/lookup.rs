@@ -143,7 +143,7 @@ impl<'a> RLookup<'a> {
     pub fn add_keys_from(&mut self, src: &RLookup<'a>, flags: RLookupKeyFlags) {
         debug_assert!(
             !flags.contains(RLookupKeyFlag::NameAlloc),
-            "The NameAlloc flag should have been cleared in the FFI function"
+            "The NameAlloc flag should have been handled in the FFI function. This is a bug."
         );
 
         // Manually iterate through all keys including hidden ones
