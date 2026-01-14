@@ -141,6 +141,11 @@ impl<'a> RLookup<'a> {
     /// - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
     /// - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
     pub fn add_keys_from(&mut self, src: &RLookup<'a>, flags: RLookupKeyFlags) {
+        debug_assert!(
+            !flags.contains(RLookupKeyFlag::NameAlloc),
+            "The NameAlloc flag should have been cleared in the FFI function"
+        );
+
         // Manually iterate through all keys including hidden ones
         let mut c = src.cursor();
         while let Some(src_key) = c.current() {
