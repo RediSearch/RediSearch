@@ -149,7 +149,7 @@ pub struct RLookupKey<'a> {
     _path: Option<Cow<'a, CStr>>,
 
     #[cfg(debug_assertions)]
-    rlookup_id: RLookupId,
+    pub(crate) rlookup_id: RLookupId,
 }
 
 #[derive(Debug)]
@@ -208,7 +208,6 @@ impl<'a> DerefMut for RLookupKey<'a> {
 // This means you may NEVER EVER hand out a `&mut CStr` EVER.
 impl<'a> RLookupKey<'a> {
     /// Constructs a new `RLookupKey` using the provided `name` and `flags`.
-    #[cfg_attr(not(debug_assertions), allow(unused_variables))]
     pub fn new(
         parent: &RLookup<'_>,
         name: impl Into<Cow<'a, CStr>>,
@@ -238,36 +237,24 @@ impl<'a> RLookupKey<'a> {
         }
     }
 
-    /// Construct an `RLookupKey` from its main parts. Prefer [`Self::new`] if you are unsure which to use.
-    pub(crate) fn from_parts(
-        name: Cow<'a, CStr>,
-        path: Option<Cow<'a, CStr>>,
-        dstidx: u16,
+    /// Constructs a new `RLookupKey` using the provided `name`, `path` and `flags`.
+    pub fn new_with_path(
+        parent: &RLookup<'_>,
+        name: impl Into<Cow<'a, CStr>>,
+        path: impl Into<Cow<'a, CStr>>,
         flags: RLookupKeyFlags,
-        #[cfg(debug_assertions)] rlookup_id: RLookupId,
     ) -> Self {
         debug_assert!(
             !flags.contains(RLookupKeyFlag::NameAlloc),
             "The NameAlloc flag should have been handled in the FFI function. This is a bug."
         );
 
-        Self {
-            header: RLookupKeyHeader {
-                dstidx,
-                svidx: 0,
-                flags: flags & !TRANSIENT_FLAGS,
-                name: name.as_ptr(),
-                // if a separate path was provided we should set the pointer accordingly
-                // if not, we fall back to the name as usual
-                path: path.as_ref().map_or(name.as_ptr(), |path| path.as_ptr()),
-                name_len: name.count_bytes(),
-                next: UnsafeCell::new(None),
-            },
-            _name: name,
-            _path: path,
-            #[cfg(debug_assertions)]
-            rlookup_id,
-        }
+        let mut new = Self::new(parent, name, flags);
+        let path = path.into();
+        new.path = path.as_ptr();
+        new._path = Some(path);
+
+        new
     }
 
     /// Constructs a `Pin<Box<RLookupKey>>` from a raw pointer.
@@ -683,33 +670,19 @@ mod tests {
     }
 
     #[test]
-    fn key_from_parts_only_name() {
+    fn new_only_name() {
         let name = Cow::Borrowed(c"foo");
-        let key = RLookupKey::from_parts(
-            name,
-            None,
-            0,
-            RLookupKeyFlags::empty(),
-            #[cfg(debug_assertions)]
-            RLookupId::next(),
-        );
+        let key = RLookupKey::new(&RLookup::new(), name, RLookupKeyFlags::empty());
 
         assert_eq!(key.name, key._name.as_ptr());
         assert_eq!(key.path, key._name.as_ptr());
     }
 
     #[test]
-    fn key_from_parts_name_and_path() {
+    fn new_name_and_path() {
         let name = Cow::Borrowed(c"foo");
         let path = Cow::Borrowed(c"bar");
-        let key = RLookupKey::from_parts(
-            name,
-            Some(path),
-            0,
-            RLookupKeyFlags::empty(),
-            #[cfg(debug_assertions)]
-            RLookupId::next(),
-        );
+        let key = RLookupKey::new_with_path(&RLookup::new(), name, path, RLookupKeyFlags::empty());
 
         assert_eq!(key.name, key._name.as_ptr());
         assert_eq!(key.path, key._path.as_ref().unwrap().as_ptr());
