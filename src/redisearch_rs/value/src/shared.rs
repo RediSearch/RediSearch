@@ -7,67 +7,121 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::sync::Arc;
+use std::{mem::ManuallyDrop, sync::Arc};
 
 use crate::RsValue;
 
-/// A shared RedisSearch dynamic value, backed by an `Arc<RsValue>`.
-#[derive(Clone)]
 pub struct SharedRsValue {
-    inner: Arc<RsValue>,
+    ptr: *const RsValue,
 }
 
+static NULL_VALUE: RsValue = RsValue::Null;
+
+unsafe impl Send for SharedRsValue {}
+unsafe impl Sync for SharedRsValue {}
+
 impl SharedRsValue {
-    /// Create a new shared RsValue wrapping an [`RsValue`]
-    pub fn new(value: RsValue) -> Self {
+    pub fn null_static() -> Self {
         Self {
-            inner: Arc::new(value),
+            ptr: &NULL_VALUE as *const RsValue,
         }
     }
 
-    /// Get a `*const RsValue` pointer from a [`SharedRsValue`].
-    pub fn as_ptr(&self) -> *const RsValue {
-        Arc::as_ptr(&self.inner)
+    pub fn new(value: RsValue) -> Self {
+        Self {
+            ptr: Arc::into_raw(Arc::new(value)),
+        }
     }
 
     /// Convert a [`SharedRsValue`] into a raw `*const RsValue` pointer.
     pub fn into_raw(self) -> *const RsValue {
-        Arc::into_raw(self.inner)
+        let ptr = self.ptr;
+        std::mem::forget(self); // Prevent Drop from running
+        ptr
+    }
+
+    pub fn as_ptr(&self) -> *const RsValue {
+        self.ptr
     }
 
     /// Convert a `*const RsValue` back into a [`SharedRsValue`].
     ///
     /// # Safety
     ///
-    /// `ptr` must be a valid pointer obtained from `SharedRsValue::into_raw`.
+    /// `ptr` must be a valid pointer obtained from [`SharedRsValue::into_raw`].
     pub unsafe fn from_raw(ptr: *const RsValue) -> Self {
-        Self {
-            // SAFETY: `ptr` is a valid pointer obtained from `SharedRsValue::into_raw`.
-            inner: unsafe { Arc::from_raw(ptr) },
+        Self { ptr }
+    }
+
+    fn is_static(&self) -> bool {
+        std::ptr::eq(self.ptr, &NULL_VALUE)
+    }
+
+    pub fn refcount(&self) -> usize {
+        if self.is_static() {
+            1
+        } else {
+            let v = ManuallyDrop::new(unsafe { Arc::from_raw(self.ptr) });
+            Arc::strong_count(&v)
         }
     }
 
-    /// Get a reference to the inner [`RsValue`].
-    pub fn value(&self) -> &RsValue {
-        &self.inner
+    pub fn fully_dereferenced(&self) -> &Self {
+        if let RsValue::Ref(ref_value) = self.value() {
+            ref_value.fully_dereferenced()
+        } else {
+            self
+        }
     }
 
-    /// Set a new [`RsValue`] for this [`SharedRsValue`].
-    /// Only exactly one reference to the underlying [`RsValue`] must exist.
-    ///
-    /// # Panic
-    ///
-    /// Panics if more than one reference to the underlying [`RsValue`] exists.
-    pub fn set_value(&mut self, new_value: RsValue) {
-        let value =
-            Arc::get_mut(&mut self.inner).expect("Failed to get mutable reference to inner value");
+    pub fn fully_dereferenced_value(&self) -> &RsValue {
+        self.fully_dereferenced().value()
+    }
 
+    pub fn set_value(&mut self, new_value: RsValue) {
+        if self.is_static() {
+            panic!("Cannot change the value of static NULL");
+        }
+        let mut v = ManuallyDrop::new(unsafe { Arc::from_raw(self.ptr) });
+        let value = Arc::get_mut(&mut v).expect("Failed to get mutable reference to inner value");
         *value = new_value;
+    }
+
+    pub fn value(&self) -> &RsValue {
+        if self.is_static() {
+            &NULL_VALUE
+        } else {
+            unsafe { &*self.ptr }
+        }
     }
 }
 
 impl std::fmt::Debug for SharedRsValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.value().fmt(f)
+    }
+}
+
+impl Clone for SharedRsValue {
+    fn clone(&self) -> Self {
+        if self.is_static() {
+            Self { ptr: self.ptr }
+        } else {
+            // Increment refcount
+            let arc: Arc<RsValue> = unsafe { Arc::from_raw(self.ptr) };
+            let cloned = Arc::clone(&arc);
+            std::mem::forget(arc);
+            Self {
+                ptr: Arc::into_raw(cloned),
+            }
+        }
+    }
+}
+
+impl Drop for SharedRsValue {
+    fn drop(&mut self) {
+        if !self.is_static() {
+            unsafe { drop(Arc::from_raw(self.ptr)) };
+        }
     }
 }
