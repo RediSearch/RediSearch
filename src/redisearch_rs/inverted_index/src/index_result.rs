@@ -401,7 +401,7 @@ impl<'index> RSAggregateResult<'index> {
     }
 
     /// The number of results in this aggregate result
-    pub const fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         match self {
             RSAggregateResult::Borrowed { records, .. } => records.len(),
             RSAggregateResult::Owned { records, .. } => records.len(),
@@ -409,7 +409,7 @@ impl<'index> RSAggregateResult<'index> {
     }
 
     /// Check whether this aggregate result is empty
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         match self {
             RSAggregateResult::Borrowed { records, .. } => records.is_empty(),
             RSAggregateResult::Owned { records, .. } => records.is_empty(),
@@ -417,7 +417,7 @@ impl<'index> RSAggregateResult<'index> {
     }
 
     /// The capacity of the aggregate result
-    pub const fn capacity(&self) -> usize {
+    pub fn capacity(&self) -> usize {
         match self {
             RSAggregateResult::Borrowed { records, .. } => records.capacity(),
             RSAggregateResult::Owned { records, .. } => records.capacity(),
