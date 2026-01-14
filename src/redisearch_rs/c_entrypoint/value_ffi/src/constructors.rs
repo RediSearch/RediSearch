@@ -3,7 +3,6 @@ use std::ffi::{c_char, c_double};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::ptr::NonNull;
-use std::sync::LazyLock;
 use value::strings::{RedisString, RmAllocString};
 use value::trio::RsValueTrio;
 use value::{RsValue, shared::SharedRsValue};
@@ -20,12 +19,9 @@ pub unsafe extern "C" fn RSValue_NewNull() -> *mut RsValue {
     SharedRsValue::from_value(RsValue::Null).into_raw() as *mut _
 }
 
-pub static RSVALUE_NULL: LazyLock<SharedRsValue> =
-    LazyLock::new(|| SharedRsValue::from_value(RsValue::Null));
-
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NullStatic() -> *mut RsValue {
-    RSVALUE_NULL.as_ptr() as *mut _
+    SharedRsValue::null_static().into_raw() as *mut _
 }
 
 #[unsafe(no_mangle)]
