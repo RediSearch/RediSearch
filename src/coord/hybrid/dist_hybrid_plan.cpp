@@ -129,13 +129,11 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     }
 
     std::vector<const RLookupKey *> unresolvedKeys;
-    RLookupIterator iter = RLookup_Iter(tailLookup);
-    const RLookupKey* kk;
-    while (RLookupIterator_Next(&iter, &kk)) {
+    RLOOKUP_FOREACH(kk, tailLookup, {
       if (RLookupKey_GetFlags(kk) & RLOOKUP_F_UNRESOLVED) {
         unresolvedKeys.push_back(kk);
       }
-    }
+    });
 
     arrayof(char*) serialized = NULL;
     for (int i = 0; i < hreq->nrequests; i++) {

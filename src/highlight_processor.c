@@ -337,9 +337,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
       processField(hlp, &docParams, &combinedSpec);
     }
   } else if (fields->defaultField.mode != SummarizeMode_None) {
-    RLookupIterator iter = RLookup_Iter(hlp->lookup);
-    const RLookupKey* k;
-    while (RLookupIterator_Next(&iter, &k)) {
+    RLOOKUP_FOREACH(k, hlp->lookup, {
       if (RLookupKey_GetFlags(k) & RLOOKUP_F_HIDDEN) {
         continue;
       }
@@ -349,7 +347,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
       spec.name = RLookupKey_GetName(k);
       resetIovsArr(&docParams.iovsArr, &numIovsArr, spec.summarizeSettings.numFrags);
       processField(hlp, &docParams, &spec);
-    }
+    });
   }
   for (size_t ii = 0; ii < numIovsArr; ++ii) {
     Array_Free(&docParams.iovsArr[ii]);

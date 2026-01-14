@@ -253,10 +253,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
 
       RedisModule_Reply_Map(reply);
       int i = 0;
-      RLookupIterator iter = RLookup_Iter(lk);
-      const RLookupKey* kk;
-      while (RLookupIterator_Next(&iter, &kk)) {
-      // for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+      RLOOKUP_FOREACH(kk, lk, {
         if (!RLookupKey_GetName(kk) || !skipFieldIndex[i++]) {
           continue;
         }
@@ -287,7 +284,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         }
       }
       RedisModule_Reply_RSValue(reply, v, flags);
-    }
+    });
     RedisModule_Reply_MapEnd(reply);
   }
 }

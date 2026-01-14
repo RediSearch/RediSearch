@@ -422,11 +422,9 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
             const char **argv = (const char**)rm_malloc(sizeof(*argv) * RLookup_GetRowLen(&filter_keys));
             size_t argc = 0;
 
-            RLookupIterator iter = RLookup_Iter(&filter_keys);
-            const RLookupKey* kk;
-            while (RLookupIterator_Next(&iter, &kk)) {
+            RLOOKUP_FOREACH(kk, &filter_keys, {
               argv[argc++] = rm_strndup(RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
-            }
+            });
             ArgsCursor_InitCString(&load->args, argv, argc);
             AGPLN_AddStep(remote, &load->base);
           }
@@ -585,13 +583,11 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
   }
 
   std::vector<const RLookupKey *> loadFields;
-  RLookupIterator iter = RLookup_Iter(&dstp->lk);
-  const RLookupKey* kk;
-  while (RLookupIterator_Next(&iter, &kk)) {
+  RLOOKUP_FOREACH(kk, &dstp->lk, {
     if (RLookupKey_GetFlags(kk) & RLOOKUP_F_UNRESOLVED) {
       loadFields.push_back(kk);
     }
-  }
+  });
 
   if (!loadFields.empty()) {
     array_append(dstp->serialized, rm_strndup("LOAD", 4));

@@ -134,6 +134,13 @@ typedef struct RLookup {
   IndexSpecCache *_spcache;
 } RLookup;
 
+#define RLOOKUP_FOREACH(key, rlookup, block) \
+    RLookupIterator iter = RLookup_Iter(rlookup); \
+    const RLookupKey* key; \
+    while (RLookupIterator_Next(&iter, &key)) { \
+        block \
+    }
+
 /** An iterator over the keys in an `RLookup` returning immutable pointers. */
 typedef struct RLookupIterator {
     const struct RLookupKey *current;

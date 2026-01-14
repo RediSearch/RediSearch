@@ -293,11 +293,9 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipF
                          SchemaRule *rule) {
   RS_LOG_ASSERT(skipFieldIndex_len >= lookup->_rowlen, "'skipFieldIndex_len' should be at least equal to lookup len");
 
-  RLookupIterator iter = RLookup_Iter(lookup);
-  const RLookupKey* kk;
   int i = 0;
   size_t nfields = 0;
-  while (RLookupIterator_Next(&iter, &kk)) {
+  RLOOKUP_FOREACH(kk, lookup, {
     if (RLookupKey_GetName(kk) == NULL) {
         // Overridden key. Skip without incrementing the index
         continue;
@@ -327,7 +325,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipF
     skipFieldIndex[i] = true;
     ++nfields;
     i +=1;
-  }
+  });
   RS_LOG_ASSERT(i == lookup->_rowlen, "'i' should be equal to lookup len");
   return nfields;
 }

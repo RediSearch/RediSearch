@@ -292,11 +292,9 @@ void AGPLN_Dump(const AGGPlan *pln) {
     if (lk) {
       printf("  NEW LOOKUP: %p\n", lk);
 
-      RLookupIterator iter = RLookup_Iter(lk);
-      const RLookupKey* kk;
-      while (RLookupIterator_Next(&iter, &kk)) {
+      RLOOKUP_FOREACH(kk, lk, {
         printf("    %s @%p: FLAGS=0x%x\n", RLookupKey_GetName(kk), kk, RLookupKey_GetFlags(kk));
-      }
+      });
     }
 
     switch (stp->type) {

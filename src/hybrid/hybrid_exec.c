@@ -135,9 +135,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, skipFieldIndex_len, requiredFlags, excludeFlags, rule);
 
       int i = 0;
-      RLookupIterator iter = RLookup_Iter(lk);
-      const RLookupKey* kk;
-      while (RLookupIterator_Next(&iter, &kk)) {
+      RLOOKUP_FOREACH(kk, lk, {
         if (!RLookupKey_GetName(kk) || !skipFieldIndex[i++]) {
           continue;
         }
@@ -167,7 +165,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
           }
         }
         RedisModule_Reply_RSValue(reply, v, flags);
-      }
+      });
     }
   }
   RedisModule_Reply_MapEnd(reply); // >result
