@@ -453,7 +453,7 @@ impl IndexBlock {
             }))
         } else if block_changed {
             Ok(Some(RepairType::Replace {
-                blocks: SmallVec::from_iter(tmp_inverted_index.blocks.into_iter()),
+                blocks: SmallVec::from_iter(tmp_inverted_index.blocks),
                 n_unique_docs_removed: unique_read - unique_write,
             }))
         } else {
