@@ -701,6 +701,14 @@ run_rust_tests() {
 
   CARGO_BUILD_FLAGS=""
 
+  # When LTO is enabled, we need to use the LTO-aware linker for Rust tests
+  # since the C static libraries contain LLVM bitcode instead of native object code
+  if [[ "$LTO" == "1" ]]; then
+    LINKER_COMPILER="${CC:-clang}"
+    LINKER_LD="${LD:-lld}"
+    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C linker-plugin-lto -C linker=$LINKER_COMPILER -C link-arg=-fuse-ld=$LINKER_LD"
+  fi
+
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
     RUST_TEST_COMMAND="llvm-cov test"
