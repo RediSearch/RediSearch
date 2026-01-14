@@ -93,7 +93,7 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
   RLookup *lookup = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_PREV);
   RLookup *firstLk = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
   const RLookupKey **loadKeys = NULL;
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && firstLk->spcache) ? &loadKeys : NULL, status);
+  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && RLookup_HasIndexSpecCache(firstLk)) ? &loadKeys : NULL, status);
 
   if (!groupRP) {
     array_free(loadKeys);
@@ -369,7 +369,7 @@ ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
     // Handle JSON spec case
     if (isSpecJson(sctx->spec)) {
       // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
-      lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
+      RLookup_DisableOptions(lookup, RLOOKUP_OPT_ALL_LOADED);
     }
 
     return rp;
@@ -488,7 +488,7 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
     rp = RPLoader_New(params->common.sctx, params->common.reqflags, lookup, loadkeys, array_len(loadkeys), forceLoad, outStateFlags);
     if (isSpecJson(params->common.sctx->spec)) {
       // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
-      lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
+      RLookup_DisableOptions(lookup, RLOOKUP_OPT_ALL_LOADED);
     }
     array_free(loadkeys);
     PUSH_RP();

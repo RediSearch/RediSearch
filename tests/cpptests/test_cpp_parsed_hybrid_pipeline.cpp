@@ -552,7 +552,7 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
   ASSERT_TRUE(tailLookup != NULL) << "Tail pipeline should have a lookup";
 
   // Verify that the tail lookup has been properly initialized and populated
-  ASSERT_GE(tailLookup->rowlen, 3) << "Tail lookup should have at least 3 keys: 'title', 'vector', and 'category'";
+  ASSERT_GE(RLookup_GetRowLen(tailLookup), 3) << "Tail lookup should have at least 3 keys: 'title', 'vector', and 'category'";
 
   int tailKeyCount = 0;
   RLookupIterator iter = RLookup_Iter(tailLookup);
@@ -571,7 +571,7 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
     ASSERT_TRUE(upstreamLookup != NULL) << "Upstream request " << reqIdx << " should have a lookup";
 
     // Verify that the upstream lookup has been properly populated
-    ASSERT_GE(upstreamLookup->rowlen, 3) << "Upstream request " << reqIdx << " should have at least 3 keys: 'title', 'vector', and 'category'";
+    ASSERT_GE(RLookup_GetRowLen(upstreamLookup), 3) << "Upstream request " << reqIdx << " should have at least 3 keys: 'title', 'vector', and 'category'";
 
     // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
     RLookupIterator iter = RLookup_Iter(upstreamLookup);
@@ -626,7 +626,7 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
   ASSERT_TRUE(tailLookup != NULL) << "Tail pipeline should have a lookup";
 
   // Verify that the tail lookup has been properly initialized and populated
-  ASSERT_GE(tailLookup->rowlen, 2) << "Tail lookup should have at least 2 keys: '__key' and '__score'";
+  ASSERT_GE(RLookup_GetRowLen(tailLookup), 2) << "Tail lookup should have at least 2 keys: '__key' and '__score'";
 
   int tailKeyCount = 0;
   RLookupIterator iter = RLookup_Iter(tailLookup);
@@ -659,7 +659,7 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
     ASSERT_TRUE(upstreamLookup != NULL) << "Upstream request " << reqIdx << " should have a lookup";
 
     // Verify that the upstream lookup has been properly populated
-    ASSERT_GE(upstreamLookup->rowlen, 2) << "Upstream request " << reqIdx << " should have at least 2 keys: '__key' and '__score'";
+    ASSERT_GE(RLookup_GetRowLen(upstreamLookup), 2) << "Upstream request " << reqIdx << " should have at least 2 keys: '__key' and '__score'";
 
     // Verify that the upstream subquery also has the implicit "__key" field
     const RLookupKey *upstreamKeyField = NULL;
