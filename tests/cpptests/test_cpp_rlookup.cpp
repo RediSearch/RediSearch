@@ -718,7 +718,7 @@ TEST_F(RLookupTest, testWriteFieldsCreateMissingKeys) {
   TestKeySet srcKeys = init_keys(&source, {"field1", "field2", "field3"});
 
   // Destination is empty - no keys added
-  ASSERT_EQ(0, dest.rowlen);
+  ASSERT_EQ(0, RLookup_GetRowLen(&dest));
 
   // Create test data and write to source row
   RLookupRow srcRow = {0}, destRow = {0};
@@ -729,7 +729,7 @@ TEST_F(RLookupTest, testWriteFieldsCreateMissingKeys) {
   RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest, true);
 
   // Verify keys were created in destination
-  ASSERT_EQ(3, dest.rowlen);
+  ASSERT_EQ(3, RLookup_GetRowLen(&dest));
 
   // Verify values are accessible by field names
   verify_values_by_names(&dest, &destRow, {"field1", "field2", "field3"},
@@ -764,7 +764,7 @@ TEST_F(RLookupTest, testWriteFieldsCreateMissingKeysPartialOverlap) {
   // Create only field2 in destination (field1 and field3 are missing)
   RLookupKey *existing_key = RLookup_GetKey_Write(&dest, "field2", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(existing_key);
-  ASSERT_EQ(1, dest.rowlen);
+  ASSERT_EQ(1, RLookup_GetRowLen(&dest));
 
   // Create test data and write to source row
   RLookupRow srcRow = {0}, destRow = {0};
@@ -775,7 +775,7 @@ TEST_F(RLookupTest, testWriteFieldsCreateMissingKeysPartialOverlap) {
   RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest, true);
 
   // Verify all 3 keys now exist (field1 and field3 were created)
-  ASSERT_EQ(3, dest.rowlen);
+  ASSERT_EQ(3, RLookup_GetRowLen(&dest));
 
   // Verify all values are correct
   verify_values_by_names(&dest, &destRow, {"field1", "field2", "field3"},

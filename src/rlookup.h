@@ -145,15 +145,15 @@ typedef struct RLookupIterator {
  * Returns `true` while there are more keys or `false` to indicate the
  * last key ways returned and the caller should not call this function anymore.
  */
-static inline int RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** key) {
+static inline bool RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** key) {
     const RLookupKey *current = iterator->current;
     if (current == NULL) {
-        return 0;
+        return false;
     } else {
         *key = current;
         iterator->current = current->_next;
 
-        return 1;
+        return true;
     }
 }
 
