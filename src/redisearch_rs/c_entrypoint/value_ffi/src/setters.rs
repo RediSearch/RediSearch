@@ -30,7 +30,7 @@ pub unsafe extern "C" fn RSValue_SetNumber(value: *mut RsValue, n: c_double) {
     let mut shared_value = unsafe { expect_shared_value(value) };
 
     // Safety: ensured by caller (2.)
-    shared_value.set_value(RsValue::Number(n));
+    unsafe { shared_value.set_value(RsValue::Number(n)) };
 }
 
 /// Converts an [`RsValue`] to null type in-place.
@@ -52,5 +52,5 @@ pub unsafe extern "C" fn RSValue_SetNull(value: *mut RsValue) {
     let mut shared_value = unsafe { expect_shared_value(value) };
 
     // Safety: ensured by caller (2.)
-    shared_value.set_value(RsValue::Null);
+    unsafe { shared_value.set_value(RsValue::Null) };
 }

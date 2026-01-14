@@ -17,13 +17,6 @@ use value::{RsValue, SharedRsValue};
 /// 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
 ///    `RSValue_*` function returning an owned [`RsValue`] object.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_DecrRef(value: *const RsValue) {
-    let null_static_ptr = crate::constructors::RSVALUE_NULL.as_ptr();
-    // assert_ne!(null_static_ptr, value, "trying to decrement null static");
-    if value == null_static_ptr {
-        // Don't decrement null static
-        return;
-    }
-
+pub extern "C" fn RSValue_DecrRef(value: *const RsValue) {
     let _ = unsafe { SharedRsValue::from_raw(value) };
 }

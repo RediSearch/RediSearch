@@ -11,7 +11,6 @@ use ffi::RedisModule_Alloc;
 use std::ffi::{c_char, c_double};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
-use std::sync::LazyLock;
 
 use crate::util::rsvalue_str_to_float;
 use std::ptr::copy_nonoverlapping;
@@ -79,12 +78,9 @@ pub unsafe extern "C" fn RSValue_NewTrio(
     .into_raw() as *mut _
 }
 
-pub static RSVALUE_NULL: LazyLock<SharedRsValue> =
-    LazyLock::new(|| SharedRsValue::from_value(RsValue::Null));
-
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NullStatic() -> *mut RsValue {
-    RSVALUE_NULL.as_ptr() as *mut _
+    SharedRsValue::null_static().into_raw() as *mut _
 }
 
 #[unsafe(no_mangle)]
