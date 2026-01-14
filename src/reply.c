@@ -511,13 +511,12 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
       return RedisModule_Reply_StringBuffer(reply, str, len);
 
     case RSValueType_RedisString:
-    case RSValueType_OwnRstring:
       return RedisModule_Reply_String(reply, RSValue_RedisString_Get(v));
 
     case RSValueType_Number: {
       if (!(flags & SENDREPLY_FLAG_EXPAND)) {
         char buf[128];
-        size_t len = RSValue_NumToString(v, buf);
+        size_t len = RSValue_NumToString(v, buf, sizeof(buf));
 
         if (flags & SENDREPLY_FLAG_TYPED) {
           if (reply->resp3) {

@@ -17,8 +17,9 @@ mod bindings {
     #![allow(clippy::ptr_offset_with_cast)]
     #![allow(clippy::useless_transmute)]
     #![allow(clippy::missing_const_for_fn)]
+    #![allow(clippy::upper_case_acronyms)]
 
-    use ffi::{NumericFilter, t_fieldIndex, t_fieldMask};
+    use ffi::{NumericFilter, RSDocumentMetadata, t_fieldIndex, t_fieldMask};
     use field::{FieldFilterContext, FieldMaskOrIndex};
     use inverted_index::t_docId;
 
@@ -41,12 +42,12 @@ mod bindings {
 pub use bindings::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
-    IndexFlags_Index_StoreTermOffsets,
+    IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK, ValidateStatus,
 };
-use bindings::{IteratorStatus, ValidateStatus};
 use ffi::{RedisModule_Alloc, RedisModule_Free};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::{NumericFilter, RSIndexResult};
+use inverted_index::{NumericFilter, RSIndexResult, t_docId};
+
 use std::ffi::c_void;
 use std::ptr;
 
@@ -94,16 +95,6 @@ pub struct QueryIterator(*mut bindings::QueryIterator);
 
 impl QueryIterator {
     #[inline(always)]
-    pub fn new_empty() -> Self {
-        Self(unsafe { bindings::NewEmptyIterator() })
-    }
-
-    #[inline(always)]
-    pub fn new_wildcard(max_id: u64) -> Self {
-        Self(unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, 1f64) })
-    }
-
-    #[inline(always)]
     pub unsafe fn new_numeric(
         ii: *mut bindings::InvertedIndex,
         filter: Option<&NumericFilter>,
@@ -124,14 +115,23 @@ impl QueryIterator {
                 flt,
                 ptr::null(),
                 0.0,
-                std::f64::MAX,
+                f64::MAX,
             )
         })
     }
 
     #[inline(always)]
-    pub fn new_optional_full_child(max_id: u64, weight: f64) -> Self {
+    pub fn new_optional_full_child_wildcard(max_id: u64, weight: f64) -> Self {
         let child = unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, 1f64) };
+        Self::new_optional_full_child(max_id, weight, child)
+    }
+
+    #[inline(always)]
+    pub fn new_optional_full_child(
+        max_id: u64,
+        weight: f64,
+        child: *mut bindings::QueryIterator,
+    ) -> Self {
         let query_eval_ctx = new_redis_search_ctx(max_id);
         let it = unsafe { bindings::NewOptionalIterator(child, query_eval_ctx, weight) };
         free_redis_search_ctx(query_eval_ctx);
@@ -147,6 +147,55 @@ impl QueryIterator {
         Self(it)
     }
 
+    /// Create an empty iterator (returns no results).
+    #[inline(always)]
+    pub fn new_empty() -> Self {
+        Self(iterators_ffi::empty::NewEmptyIterator() as *mut bindings::QueryIterator)
+    }
+
+    /// Create an ID list iterator from a vector of sorted document IDs.
+    #[inline(always)]
+    pub fn new_id_list(ids: Vec<u64>) -> Self {
+        let num = ids.len() as u64;
+        let ids_ptr = if num > 0 {
+            let ptr = unsafe {
+                RedisModule_Alloc.unwrap()(num as usize * std::mem::size_of::<u64>()) as *mut u64
+            };
+            unsafe {
+                std::ptr::copy_nonoverlapping(ids.as_ptr(), ptr, num as usize);
+            }
+            ptr
+        } else {
+            ptr::null_mut()
+        };
+
+        Self(
+            unsafe { iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, num, 1.0) }
+                as *mut bindings::QueryIterator,
+        )
+    }
+
+    /// Create a non-optimized NOT iterator with the given child and max_doc_id.
+    /// This creates a minimal QueryEvalCtx to ensure the C code creates a non-optimized version.
+    #[inline(always)]
+    pub fn new_not_non_optimized(child: Self, max_doc_id: u64, weight: f64) -> Self {
+        // Create a minimal QueryEvalCtx that will NOT trigger optimization
+        // The C code checks: optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all
+        // By zeroing everything, we ensure spec->rule is NULL, so optimized = false
+        let query_eval_ctx = new_redis_search_ctx(max_doc_id);
+        let timeout = bindings::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+
+        let it = unsafe {
+            bindings::NewNotIterator(child.0, max_doc_id, weight, timeout, query_eval_ctx)
+        };
+
+        free_redis_search_ctx(query_eval_ctx);
+        Self(it)
+    }
+
     #[inline(always)]
     pub unsafe fn new_term(ii: *mut bindings::InvertedIndex) -> Self {
         Self(unsafe {
@@ -156,6 +205,52 @@ impl QueryIterator {
                 FieldMaskOrIndex::mask_all(),
                 ptr::null_mut(),
                 1.0,
+            )
+        })
+    }
+
+    /// Creates a new intersection iterator from child ID list iterators.
+    ///
+    /// # Arguments
+    /// * `children_ids` - A slice of vectors, each containing sorted document IDs for a child iterator
+    /// * `weight` - The weight for the intersection result
+    #[inline(always)]
+    pub fn new_intersection(children_ids: &[Vec<t_docId>], weight: f64) -> Self {
+        let num_children = children_ids.len();
+
+        // Allocate array of child iterator pointers using RedisModule_Alloc
+        let children_ptr = unsafe {
+            RedisModule_Alloc.unwrap()(
+                num_children * std::mem::size_of::<*mut bindings::QueryIterator>(),
+            ) as *mut *mut bindings::QueryIterator
+        };
+
+        for (i, ids) in children_ids.iter().enumerate() {
+            // Allocate and copy IDs using RedisModule_Alloc (required by NewSortedIdListIterator)
+            let ids_ptr = unsafe {
+                RedisModule_Alloc.unwrap()(ids.len() * std::mem::size_of::<t_docId>())
+                    as *mut t_docId
+            };
+            unsafe {
+                std::ptr::copy_nonoverlapping(ids.as_ptr(), ids_ptr, ids.len());
+            }
+
+            // Create child iterator
+            let child =
+                unsafe { bindings::NewSortedIdListIterator(ids_ptr, ids.len() as u64, 1.0) };
+            unsafe {
+                *children_ptr.add(i) = child;
+            }
+        }
+
+        // Create intersection iterator (takes ownership of children array)
+        Self(unsafe {
+            bindings::NewIntersectionIterator(
+                children_ptr,
+                num_children,
+                -1,    // max_slop: -1 means no slop validation
+                false, // in_order
+                weight,
             )
         })
     }
@@ -212,18 +307,30 @@ fn new_redis_search_ctx(max_id: u64) -> *mut bindings::QueryEvalCtx {
         RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::QueryEvalCtx>())
             as *mut bindings::QueryEvalCtx
     };
+    unsafe {
+        (*query_eval_ctx) = std::mem::zeroed();
+    }
     let doc_table = unsafe {
         RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::DocTable>())
             as *mut bindings::DocTable
     };
+    unsafe {
+        (*doc_table) = std::mem::zeroed();
+    }
     let search_ctx = unsafe {
         RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::RedisSearchCtx>())
             as *mut bindings::RedisSearchCtx
     };
+    unsafe {
+        (*search_ctx) = std::mem::zeroed();
+    }
     let spec = unsafe {
         RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::IndexSpec>())
             as *mut bindings::IndexSpec
     };
+    unsafe {
+        (*spec) = std::mem::zeroed();
+    }
     unsafe {
         (*doc_table).maxSize = max_id;
     }
@@ -439,24 +546,6 @@ mod tests {
         IndexFlags_Index_StoreNumeric, IteratorStatus_ITERATOR_EOF,
         IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK, ValidateStatus_VALIDATE_OK,
     };
-
-    #[test]
-    fn empty_iterator() {
-        let it = QueryIterator::new_empty();
-        assert_eq!(it.num_estimated(), 0);
-        assert!(it.at_eof());
-
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
-        assert_eq!(it.skip_to(1), IteratorStatus_ITERATOR_EOF);
-
-        it.rewind();
-        assert!(it.at_eof());
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
-
-        assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
-
-        it.free();
-    }
 
     #[test]
     fn numeric_iterator_full() {

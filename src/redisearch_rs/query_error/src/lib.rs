@@ -71,6 +71,12 @@ pub enum QueryErrorCode {
     WeightNotAllowed,
     VectorNotAllowed,
     OutOfMemory,
+    UnavailableSlots,
+    FlexLimitNumberOfIndexes,
+    FlexUnsupportedField,
+    FlexUnsupportedFTCreateArgument,
+    DiskCreation,
+    FlexSkipInitialScanMissingArgument,
 }
 
 impl Debug for QueryErrorCode {
@@ -137,8 +143,8 @@ impl QueryErrorCode {
             Self::BadVal => c"Invalid value was given",
             Self::NonHybrid => c"hybrid query attributes were sent for a non-hybrid query",
             Self::HybridNonExist => c"invalid hybrid policy was given",
-            Self::AdhocWithBatchSize => c"'batch size' is irrelevant for 'ADHOC_BF' policy",
-            Self::AdhocWithEfRuntime => c"'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy",
+            Self::AdhocWithBatchSize => c"'batch size' is irrelevant for the selected policy",
+            Self::AdhocWithEfRuntime => c"'EF_RUNTIME' is irrelevant for the selected policy",
             Self::NonRange => c"range query attributes were sent for a non-range query",
             Self::Missing => c"'ismissing' requires field to be defined with 'INDEXMISSING'",
             Self::Mismatch => c"Index mismatch: Shard index is different than queried index",
@@ -149,6 +155,16 @@ impl QueryErrorCode {
             Self::WeightNotAllowed => c"Weight attributes are not allowed",
             Self::VectorNotAllowed => c"Vector queries are not allowed",
             Self::OutOfMemory => c"Not enough memory available to execute the query",
+            Self::UnavailableSlots => c"Query requires unavailable slots",
+            Self::FlexLimitNumberOfIndexes => c"Flex index limit was reached",
+            Self::FlexUnsupportedField => c"Unsupported field for Flex index",
+            Self::FlexUnsupportedFTCreateArgument => {
+                c"Unsupported FT.CREATE argument for Flex index"
+            }
+            Self::DiskCreation => c"Could not create disk index",
+            Self::FlexSkipInitialScanMissingArgument => {
+                c"Flex index requires SKIPINITIALSCAN argument"
+            }
         }
     }
 }
@@ -236,6 +252,8 @@ pub enum QueryWarningCode {
     ReachedMaxPrefixExpansions,
     OutOfMemoryShard,
     OutOfMemoryCoord,
+    UnavailableSlots,
+    AsmInaccurateResults,
 }
 
 impl QueryWarningCode {
@@ -252,6 +270,10 @@ impl QueryWarningCode {
             }
             Self::OutOfMemoryCoord => {
                 c"One or more shards failed to execute the query due to insufficient memory"
+            }
+            Self::UnavailableSlots => c"Query requires unavailable slots",
+            Self::AsmInaccurateResults => {
+                c"Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete due to Atomic Slot Migration."
             }
         }
     }

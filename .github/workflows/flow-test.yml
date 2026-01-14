@@ -2,7 +2,6 @@ name: Build on Platforms
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
-
 on:
   workflow_call:
     inputs:
@@ -24,8 +23,12 @@ on:
         description: 'Branch to use when building RedisJSON for tests'
       options:
         type: string
-        default: coordinator,standalone,rejson,fail-fast
-        description: 'Comma-separated list of options: coordinator, standalone, rejson, fail-fast, coverage, sanitize'
+        default: coordinator,standalone,unit-tests,rejson,fail-fast
+        description: 'Comma-separated list of options: coordinator, standalone, unit-tests, rejson, fail-fast, coverage, sanitize'
+      separate-coordinator-job:
+        type: boolean
+        default: false
+        description: "Run coordinator tests in a separate parallel job per platform"
 
   workflow_dispatch:
     inputs:
@@ -44,8 +47,9 @@ on:
           - amazonlinux:2023
           - mariner:2
           - azurelinux:3
-          - alpine:3
+          - alpine:3.22
           - macos
+          - intel
         description: 'Platform to test on. Use "all" to test on all platforms'
         default: all
       architecture:
@@ -56,10 +60,10 @@ on:
           - aarch64
         description: 'Architecture to test on. Use "all" to test on all architectures'
         default: all
-      job-test-config:
-        description: 'JSON mapping of job-type to test-config (e.g. ''{"test": "QUICK=1", "coverage": "", "sanitize": ""}''). Use empty string for full tests.'
+      test-config:
+        description: Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")
         type: string
-        default: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
+        default: QUICK=1
       redis-ref:
         description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
         type: string
@@ -67,19 +71,26 @@ on:
         type: string
         default: master
         description: 'Branch to use when building RedisJSON for tests (default: master)'
-      options:
-        type: choice
-        options:
-          - coordinator,standalone,rejson
-          - coordinator,standalone,rejson,fail-fast
-          - coordinator,standalone,rejson,coverage
-          - coordinator,standalone,rejson,sanitize
-          - coordinator,standalone,rejson,coverage,sanitize
-          - coordinator,standalone,rejson,fail-fast,coverage
-          - coordinator,standalone,rejson,fail-fast,sanitize
-          - coordinator,standalone,rejson,fail-fast,coverage,sanitize
-        description: 'Comma-separated list of options to enable'
-        default: coordinator,standalone,rejson
+      unit-tests:
+        description: 'Run unit tests'
+        type: boolean
+        default: true
+      standalone:
+        description: 'Run standalone tests'
+        type: boolean
+        default: true
+      cluster:
+        description: 'Run cluster mode tests'
+        type: boolean
+        default: true
+      rejson:
+        description: 'Include RedisJSON tests'
+        type: boolean
+        default: true
+      fail-fast:
+        description: 'Fail fast on test failures'
+        type: boolean
+        default: true
 
 jobs:
   generate-matrix:
@@ -89,26 +100,28 @@ jobs:
       architecture: ${{ inputs.architecture }}
       include-coverage: ${{ contains(inputs.options, 'coverage') }}
       include-sanitize: ${{ contains(inputs.options, 'sanitize') }}
+      separate-coordinator-job: ${{ inputs.separate-coordinator-job }}
 
-  # Unified test matrix - includes Linux and macOS platforms, plus optional coverage and sanitize
+  # Unified test matrix - includes Linux and macOS platforms, plus optional coverage, sanitize, and intel
   test-matrix:
-    name: ${{ (matrix.job-type || 'test') == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', (matrix.job-type || 'test'), matrix.architecture) }}
+    name: ${{ matrix.job-type == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', matrix.job-type, matrix.architecture) }}${{ matrix.test-mode == 'standalone' && ' (Standalone)' || (matrix.test-mode == 'coordinator' && ' (Coordinator-only)' || '') }}
     needs: [generate-matrix]
     if: ${{ needs.generate-matrix.outputs.has-jobs == 'true' }}
     strategy:
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
-      fail-fast: ${{ contains(inputs.options, 'fail-fast') }}
+      fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
       platform: ${{ matrix.platform }}
       architecture: ${{ matrix.architecture }}
       get-redis: ${{ inputs.redis-ref }}
-      rejson: ${{ contains(inputs.options, 'rejson') }}
+      rejson: ${{ contains(inputs.options, 'rejson') || inputs.rejson == true }}
       rejson-branch: ${{ inputs.rejson-branch }}
-      coordinator: ${{ contains(inputs.options, 'coordinator') }}
-      standalone: ${{ contains(inputs.options, 'standalone') }}
-      test-config: ${{ fromJson(inputs.job-test-config)[(matrix.job-type || 'test')] }}
-      coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
-      san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
-      fail-fast: ${{ contains(inputs.options, 'fail-fast') }}
+      coordinator: ${{ (contains(inputs.options, 'coordinator') || inputs.cluster == true) && matrix.test-mode != 'standalone' }}
+      standalone: ${{ (contains(inputs.options, 'standalone') || inputs.standalone == true) && matrix.test-mode != 'coordinator' }}
+      unit-tests: ${{ (contains(inputs.options, 'unit-tests') || inputs.unit-tests == true) && matrix.test-mode != 'coordinator' }}
+      test-config: ${{ fromJson(inputs.job-test-config || '{}')[matrix.job-type] || inputs.test-config }}
+      coverage: ${{ matrix.job-type == 'coverage' }}
+      san: ${{ matrix.job-type == 'sanitize' && 'address' || '' }}
+      fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}

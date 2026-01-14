@@ -11,6 +11,7 @@
 
 #include "hiredis/sds.h"
 #include "redismodule.h"
+#include "rs_wall_clock.h"
 
 #include <assert.h>
 #include <stdbool.h>
@@ -21,7 +22,8 @@ extern "C" {
 
 typedef enum { C_READ = 0, C_DEL = 1, C_AGG = 2, C_PROFILE = 3 } MRRootCommand;
 
-#define INVALID_SHARD -1
+// Marker string for coordinator dispatch time in distributed commands
+#define COORD_DISPATCH_TIME_STR "_COORD_DISPATCH_TIME"
 
 /* A redis command is represented with all its arguments and its flags as MRCommand */
 typedef struct {
@@ -35,8 +37,16 @@ typedef struct {
   /* Slots info offset - 0 if not set (first argument is always the command) */
   uint32_t slotsInfoArgIndex;
 
-  /* if not -1, this value indicate to which shard the command should be sent */
-  int16_t targetShard;
+  /* Dispatch time arg offset - 0 if not set */
+  uint32_t dispatchTimeArgIndex;
+
+  /* if not NULL, this value indicate to which shard the command should be sent.*/
+  char *targetShard;
+
+  /* Index of the target shard in the cluster's shards array when command is created. Useful to keep track of responses.
+  Can't be used to know where to send the command, since the cluster's shards array can change. In case of new shards added, ASM should control not to trim
+  the slots from the old shard until all cursors are terminated (expected time limit for this). */
+  uint16_t targetShardIdx;
 
   /* 0 (undetermined), 2, or 3 */
   unsigned char protocol;
@@ -54,6 +64,9 @@ typedef struct {
   MRRootCommand rootCommand;
 
   sds cmd;
+
+  /** Coordinator start time (for dispatch time tracking) */
+  rs_wall_clock_ns_t coordStartTime;
 } MRCommand;
 
 /* Free the command and all its strings. Doesn't free the actual command struct, as it is usually
@@ -94,6 +107,27 @@ void MRCommand_PrepareForSlotInfo(MRCommand *cmd, uint32_t pos);
  * @param slots - The slot ranges to insert (specific to the target shard)
  */
 void MRCommand_SetSlotInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slots);
+
+/**
+ * Prepare a command for dispatch time insertion by reserving space at the specified position.
+ * This function allocates space for "_COORD_DISPATCH_TIME" marker and placeholder value.
+ *
+ * Threading: Should be called from the main/coordinator thread during command construction.
+ *
+ * @param cmd - The command to prepare
+ * @param pos - Position in the command where dispatch time should be inserted (0 <= pos <= cmd->num)
+ */
+void MRCommand_PrepareForDispatchTime(MRCommand *cmd, uint32_t pos);
+
+/**
+ * Set the actual dispatch time value in a previously prepared command.
+ * This function calculates the elapsed time since coordStartTime and fills in the placeholder.
+ *
+ * Threading: Should be called from an I/O thread before sending command to a specific shard.
+ *
+ * @param cmd - The command with prepared dispatch time space
+ */
+void MRCommand_SetDispatchTime(MRCommand *cmd);
 
 static inline const char *MRCommand_ArgStringPtrLen(const MRCommand *cmd, size_t idx, size_t *len) {
   // assert(idx < cmd->num);

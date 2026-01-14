@@ -24,7 +24,6 @@ extern "C" {
 #include "src/iterators/union_iterator.h"
 #include "src/iterators/intersection_iterator.h"
 #include "src/iterators/not_iterator.h"
-#include "src/iterators/empty_iterator.h"
 #include "src/iterators/wildcard_iterator.h"
 #include "src/util/arr.h"
 #include "src/util/references.h"
@@ -1287,7 +1286,7 @@ TEST_F(IndexTest, testDocTable) {
   ASSERT_EQ(N + 1, dt.size);
   ASSERT_EQ(N, dt.maxDocId);
 #ifdef __x86_64__
-  ASSERT_EQ(10180 + doc_table_size, (int)dt.memsize);
+  ASSERT_EQ(9380 + doc_table_size, (int)dt.memsize);
 #endif
   for (int i = 0; i < N; i++) {
     snprintf(buf, sizeof(buf), "doc_%d", i);
@@ -1324,7 +1323,7 @@ TEST_F(IndexTest, testDocTable) {
   RSDocumentMetadata *dmd = DocTable_Put(&dt, "Hello", 5, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   t_docId strDocId = dmd->id;
   ASSERT_TRUE(0 != strDocId);
-  ASSERT_EQ(71 + doc_table_size, (int)dt.memsize);
+  ASSERT_EQ(63 + doc_table_size, (int)dt.memsize);
 
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};
@@ -1333,7 +1332,7 @@ TEST_F(IndexTest, testDocTable) {
   DMD_Return(dmd);
   dmd = DocTable_Put(&dt, binBuf, binBufLen, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   ASSERT_TRUE(dmd);
-  ASSERT_EQ(148 + doc_table_size, (int)dt.memsize);
+  ASSERT_EQ(132 + doc_table_size, (int)dt.memsize);
   ASSERT_NE(dmd->id, strDocId);
   ASSERT_EQ(dmd->id, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));

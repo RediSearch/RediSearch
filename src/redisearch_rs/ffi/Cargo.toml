@@ -28,3 +28,7 @@ enumflags2.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+document.workspace = true
+workspace_hack.workspace = true

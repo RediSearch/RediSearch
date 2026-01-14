@@ -18,6 +18,10 @@ on:
         description: 'Include sanitize job in matrix'
         type: boolean
         default: false
+      separate-coordinator-job:
+        description: "Run coordinator tests in a separate parallel job"
+        type: boolean
+        default: false
     outputs:
       matrix:
         description: "Generated matrix as JSON"
@@ -44,18 +48,27 @@ jobs:
           include_basic_test = "${{ inputs.include-basic-test }}" == "true"
           include_coverage = "${{ inputs.include-coverage }}" == "true"
           include_sanitize = "${{ inputs.include-sanitize }}" == "true"
+          separate_coordinator = "${{ inputs.separate-coordinator-job }}" == "true"
+
+          def add_matrix_entry(items, job_type):
+              """Add matrix entry, splitting by test-mode if separate_coordinator is enabled."""
+              if separate_coordinator:
+                  items.append({'job-type': job_type, 'test-mode': 'standalone'})
+                  items.append({'job-type': job_type, 'test-mode': 'coordinator'})
+              else:
+                  items.append({'job-type': job_type, 'test-mode': 'all'})
 
           # Build matrix items based on conditions
           matrix_items = []
 
           if include_basic_test:
-              matrix_items.append({'job-type': 'basic-test'})
+              add_matrix_entry(matrix_items, 'basic-test')
 
           if include_coverage:
-              matrix_items.append({'job-type': 'coverage'})
+              add_matrix_entry(matrix_items, 'coverage')
 
           if include_sanitize:
-              matrix_items.append({'job-type': 'sanitize'})
+              add_matrix_entry(matrix_items, 'sanitize')
 
           # Check if matrix is empty
           has_jobs = len(matrix_items) > 0
@@ -71,4 +84,3 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'matrix={json.dumps({"include": matrix_items})}\n')
               f.write(f'has-jobs={str(has_jobs).lower()}\n')
-

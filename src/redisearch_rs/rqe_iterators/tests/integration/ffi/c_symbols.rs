@@ -9,7 +9,6 @@
 
 //! Mock implementations or stubs of C symbol that aren't provided
 //! by the static C libraries we are linking against in build.rs.
-use std::ffi::c_void;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
@@ -21,11 +20,7 @@ pub use types_ffi;
 // symbols required by the C code we need to redefine
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
-pub static mut RSGlobalConfig: *const c_void = std::ptr::null();
-
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut RSDummyContext: *const c_void = std::ptr::null();
+pub static mut RSGlobalConfig: ffi::RSConfig = unsafe { std::mem::zeroed() };
 
 /// Define an empty stub function for each given symbols.
 /// This is used to define C functions the linker requires but which are not actually used by the tests.
@@ -80,6 +75,10 @@ macro_rules! stub_c_fn {
 // above using the corresponding test binaries.
 stub_c_fn! {
     fast_float_strtod,
+    HiddenString_Compare,
+    HiddenString_Duplicate,
+    HiddenString_Free,
+    HiddenString_GetUnsafe,
     Obfuscate_Number,
     Obfuscate_Text,
     QueryError_SetWithUserDataFmt,
@@ -97,6 +96,8 @@ stub_c_fn! {
     RedisModule_ClusterGetLocalSlotRanges,
     RedisModule_ClusterKeySlotC,
     RedisModule_ClusterPropagateForSlotMigration,
+    RedisModule_ClusterEnableTrim,
+    RedisModule_ClusterDisableTrim,
     RedisModule_ConfigGet,
     RedisModule_ConfigGetBool,
     RedisModule_ConfigGetEnum,

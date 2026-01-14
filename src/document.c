@@ -28,6 +28,7 @@
 #include "redis_index.h"
 #include "fast_float/fast_float_strtod.h"
 #include "obfuscation/obfuscation_api.h"
+#include "info/global_stats.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -463,6 +464,10 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     // Decrease the last increment
     aCtx->tokenizer->ctx.lastOffset -= multiTextOffsetDelta;
   }
+
+  // Since we are here, the indexing was successful, update the global statistics.
+  FieldsGlobalStats_UpdateFieldDocsIndexed(fs, 1);
+
   return 0;
 }
 
@@ -548,7 +553,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
-  GeometryIndex *rt = OpenGeometryIndex(ctx->spec, fs, CREATE_INDEX);
+  GeometryIndex *rt = OpenGeometryIndex(&ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open geoshape index for indexing");
     return -1;
@@ -574,8 +579,8 @@ FIELD_BULK_INDEXER(geometryIndexer) {
 
 
 FIELD_BULK_INDEXER(numericIndexer) {
-  RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
-  NumericRangeTree *rt = openNumericKeysDict(ctx->spec, keyName, CREATE_INDEX);
+
+  NumericRangeTree *rt = openNumericOrGeoIndex(ctx->spec, &ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open numeric index for indexing");
     return -1;
@@ -593,6 +598,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
       ctx->spec->stats.numRecords += rv.numRecords;
     }
   }
+
   return 0;
 }
 
@@ -625,8 +631,7 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
 
 FIELD_BULK_INDEXER(vectorIndexer) {
   IndexSpec *sp = ctx->spec;
-  RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-  VecSimIndex *vecsim = openVectorIndex(sp, keyName, CREATE_INDEX);
+  VecSimIndex *vecsim = openVectorIndex(&sp->fields[fs->index], CREATE_INDEX);
   if (!vecsim) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open vector for indexing");
     return -1;
@@ -724,7 +729,6 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       field->multisv = NULL;
     }
   }
-
   return REDISMODULE_OK;
 }
 
@@ -747,8 +751,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(tagIndexer) {
-  RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
-  TagIndex *tidx = TagIndex_Open(ctx->spec, kname, CREATE_INDEX);
+  TagIndex *tidx = TagIndex_Open(&ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!tidx) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open tag index for indexing");
     return -1;
@@ -802,6 +805,10 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
           break;
       }
     }
+  }
+  // If the indexing was successful, update the global statistics.
+  if (rc == 0) {
+    FieldsGlobalStats_UpdateFieldDocsIndexed(fs, 1);
   }
   return rc;
 }
@@ -881,6 +888,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 
   RLookup lookup_s;
   RLookupRow row = {0};
+  RSValue *rv = NULL;
   IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
   RLookup_Init(&lookup_s, spcache);
   lookup_s.options |= RLOOKUP_OPT_ALL_LOADED; // Setting this option will cause creating keys of non-sortable fields possible
@@ -894,16 +902,18 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   }
 
   ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
-  RSValue rv = RSValue_Undefined();
-  if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
+  rv = RSValue_NewUndefined();
+  if (ExprEval_Eval(&evaluator, rv) != EXPR_EVAL_OK) {
     goto CleanUp;
   }
 
-  *result = RSValue_BoolTest(&rv);
-  RSValue_Clear(&rv);
+  *result = RSValue_BoolTest(rv);
   rc = REDISMODULE_OK;
 
 CleanUp:
+  if (rv) {
+    RSValue_DecrRef(rv);
+  }
   RLookupRow_Reset(&row);
   RLookup_Cleanup(&lookup_s);
 done:

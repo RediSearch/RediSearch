@@ -88,7 +88,7 @@ typedef struct NumericFilter {
  * See the crate's top level documentation for a description of this type.
  */
 typedef struct LowMemoryThinVecRSIndexResult {
-  Header *ptr;
+  Header_u16 *ptr;
 } LowMemoryThinVecRSIndexResult;
 
 /**
@@ -212,7 +212,7 @@ typedef BitFlags_RSResultKind__u8 RSResultKindMask;
  * See the crate's top level documentation for a description of this type.
  */
 typedef struct LowMemoryThinVecRSIndexResultOwned {
-  Header *ptr;
+  Header_u16 *ptr;
 } LowMemoryThinVecRSIndexResultOwned;
 
 /**

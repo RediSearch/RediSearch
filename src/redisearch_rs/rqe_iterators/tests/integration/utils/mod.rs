@@ -8,4 +8,4 @@
 */
 
 mod mock_iterator;
-pub(crate) use mock_iterator::{MockData, MockIterator, MockIteratorError, MockRevalidateResult};
+pub(crate) use mock_iterator::{Mock, MockData, MockIteratorError, MockRevalidateResult};

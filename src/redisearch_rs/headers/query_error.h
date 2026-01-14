@@ -34,6 +34,7 @@
 #define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
 #define QUERY_WOOM_SHARD "One or more shards failed to execute the query due to insufficient memory"
 #define QUERY_WOOM_COORD "Coordinator failed to execute the query due to insufficient memory"
+#define QUERY_ASM_INACCURATE_RESULTS "Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete due to Atomic Slot Migration."
 
 
 enum QueryErrorCode
@@ -95,6 +96,12 @@ enum QueryErrorCode
   QUERY_ERROR_CODE_WEIGHT_NOT_ALLOWED,
   QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED,
   QUERY_ERROR_CODE_OUT_OF_MEMORY,
+  QUERY_ERROR_CODE_UNAVAILABLE_SLOTS,
+  QUERY_ERROR_CODE_FLEX_LIMIT_NUMBER_OF_INDEXES,
+  QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FIELD,
+  QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
+  QUERY_ERROR_CODE_DISK_CREATION,
+  QUERY_ERROR_CODE_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT,
 };
 #ifndef __cplusplus
 typedef uint8_t QueryErrorCode;
@@ -110,6 +117,8 @@ enum QueryWarningCode
   QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS,
   QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD,
   QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD,
+  QUERY_WARNING_CODE_UNAVAILABLE_SLOTS,
+  QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS,
 };
 #ifndef __cplusplus
 typedef uint8_t QueryWarningCode;

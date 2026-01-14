@@ -7,11 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ffi::RSValue;
+use libc::size_t;
 use rlookup::{RLookup, RLookupKey};
-use std::{mem::ManuallyDrop, ptr::NonNull};
+use std::{
+    ffi::{CStr, c_char},
+    mem::{self, ManuallyDrop},
+    ptr::NonNull,
+    slice,
+};
 use value::RSValueFFI;
 
-pub type RLookupRow = rlookup::RLookupRow<'static, RSValueFFI>;
+pub type RLookupRow<'a> = rlookup::RLookupRow<'a, RSValueFFI>;
 
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
 ///
@@ -109,7 +116,7 @@ unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<RLookupRow>>) {
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
-    lookup: *const RLookup<'static>,
+    lookup: *const RLookup,
     src: Option<NonNull<RLookupRow>>,
     dst: Option<NonNull<RLookupRow>>,
 ) {
@@ -136,4 +143,181 @@ pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
     }
 
     dst.move_fields_from(src, lookup);
+}
+
+/// Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+/// for which it is not necessary to use the boilerplate of getting an explicit
+/// key.
+///
+/// Like [`RLookupRow_WriteByNameOwned`], but increases the refcount.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+/// 2. The memory pointed to by `name` must contain a valid null terminator at the
+///    end of the string.
+/// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
+///    This means in particular:
+///     1. `name_len` must be same as `strlen(name)`
+///     2. The entire memory range of this cstr must be contained within a single allocation!
+///     3. `name` must be non-null even for a zero-length cstr.
+/// 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+/// 5. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
+    lookup: Option<NonNull<RLookup<'a>>>,
+    name: *const c_char,
+    name_len: size_t,
+    row: Option<NonNull<RLookupRow<'a>>>,
+    value: Option<NonNull<ffi::RSValue>>,
+) {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { lookup.expect("lookup must not be null").as_mut() };
+
+    // Safety: ensured by caller (2., 3.)
+    let name = unsafe {
+        // `name_len` is a value as returned by `strlen` and therefore **does not**
+        // include the null terminator (that is why we do `name_len + 1` below)
+        let bytes = { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) };
+
+        CStr::from_bytes_with_nul(bytes).expect("unable to create cstr from name")
+    };
+
+    // Safety: ensured by caller (4.)
+    let row = unsafe { row.expect("row must not be null").as_mut() };
+
+    // Safety: ensured by caller (5.)
+    let value = unsafe { RSValueFFI::from_raw(value.expect("value must not be null")) };
+
+    // In order to increase the refcount, we first clone `value` (which increases the refcount)
+    // and move the clone into the function.
+    // We then make sure the original `value` is not dropped (which would decrease the refcount again)
+    // by giving it to `mem::forget()`.
+    row.write_key_by_name(lookup, name, value.clone());
+    mem::forget(value);
+}
+
+/// Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+/// for which it is not necessary to use the boilerplate of getting an explicit
+/// key.
+///
+/// Like [`RLookupRow_WriteByName`], but does not affect the refcount.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+/// 2. The memory pointed to by `name` must contain a valid null terminator at the
+///    end of the string.
+/// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
+///    This means in particular:
+///     1. `name_len` must be same as `strlen(name)`
+///     2. The entire memory range of this cstr must be contained within a single allocation!
+///     3. `name` must be non-null even for a zero-length cstr.
+/// 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+/// 5. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
+    lookup: Option<NonNull<RLookup<'a>>>,
+    name: *const c_char,
+    name_len: size_t,
+    row: Option<NonNull<RLookupRow<'a>>>,
+    value: Option<NonNull<ffi::RSValue>>,
+) {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { lookup.expect("lookup must not be null").as_mut() };
+
+    // Safety: ensured by caller (2., 3.)
+    let name = unsafe {
+        // `name_len` is a value as returned by `strlen` and therefore **does not**
+        // include the null terminator (that is why we do `name_len + 1` below)
+        let bytes = { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) };
+
+        CStr::from_bytes_with_nul(bytes).expect("unable to create cstr from name")
+    };
+
+    // Safety: ensured by caller (4.)
+    let row = unsafe { row.expect("row must not be null").as_mut() };
+
+    // Safety: ensured by caller (5.)
+    let value = unsafe { RSValueFFI::from_raw(value.expect("value must not be null")) };
+
+    // 'value' is moved directly into the function without affecting its refcount.
+    row.write_key_by_name(lookup, name, value);
+}
+
+/// Write fields from a source row into this row, the fields must exist in both lookups (schemas).
+///
+/// Iterate through the source lookup keys, if it finds a corresponding key in the destination
+/// lookup by name, then it's value is written to this row as a destination.
+///
+/// If a source key is not found in the destination lookup the function will panic (same as C behavior).
+///
+/// If a source key has no value in the source row, it is skipped.
+///
+/// # Safety
+///
+/// 1. `src_row` must be a [valid], non-null pointer to an [`RLookupRow`].
+/// 2. `src_lookup` must be a [valid], non-null pointer to an [`RLookup`].
+/// 3. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`].
+/// 4. `dst_lookup` must be a [valid], non-null pointer to an [`RLookup`].
+/// 5. `src_row` and `dst_row` must not point to the same [`RLookupRow`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_WriteFieldsFrom(
+    src_row: *const RLookupRow,
+    src_lookup: *const RLookup,
+    dst_row: Option<NonNull<RLookupRow>>,
+    dst_lookup: *const RLookup,
+) {
+    // Safety: ensured by caller (2.)
+    let src_lookup = unsafe { src_lookup.as_ref().unwrap() };
+
+    // Safety: ensured by caller (3.)
+    let dst_row = unsafe { dst_row.unwrap().as_mut() };
+
+    // We're doing the assert here in the middle to avoid extra type conversions.
+    assert_ne!(
+        src_row, dst_row,
+        "`src_row` and `dst_row` must not be the same"
+    );
+
+    // Safety: ensured by caller (1.)
+    let src_row = unsafe { src_row.as_ref().unwrap() };
+
+    // Safety: ensured by caller (4.)
+    let dst_lookup = unsafe { dst_lookup.as_ref().unwrap() };
+
+    dst_row.copy_fields_from(dst_lookup, src_row, src_lookup);
+}
+
+/// Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
+///
+/// The function first checks for dynamic values, and if not found, it checks the sorting vector
+/// if the `SvSrc` flag is set in the key.
+///
+/// If the item is not found in either location, it returns a NULL pointer.
+///
+/// # Safety
+///
+/// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+/// 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_Get(
+    key: *const RLookupKey,
+    row: *const RLookupRow,
+) -> Option<NonNull<RSValue>> {
+    // Safety: ensured by caller (1.)
+    let key = unsafe { key.as_ref().unwrap() };
+
+    // Safety: ensured by caller (2.)
+    let row = unsafe { row.as_ref().unwrap() };
+
+    row.get(key).map(|x| NonNull::new(x.as_ptr()).unwrap())
 }

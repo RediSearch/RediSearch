@@ -10,8 +10,7 @@
 #include "iterator_util.h"
 
 #include "src/iterators/union_iterator.h"
-#include "src/iterators/empty_iterator.h"
-#include "src/iterators/wildcard_iterator.h"
+#include "iterators_rs.h"
 #include "src/iterators/inverted_index_iterator.h"
 #include "inverted_index.h"
 

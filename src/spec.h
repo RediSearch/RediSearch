@@ -203,7 +203,6 @@ typedef struct Version {
 extern Version redisVersion;
 extern Version rlecVersion;
 extern bool isCrdt;
-extern bool should_filter_slots;
 extern bool isTrimming; // TODO: remove this when redis deprecates sharding trimming events
 extern bool isFlex;
 
@@ -221,7 +220,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 25
+#define INDEX_CURRENT_VERSION 26
+#define INDEX_DISK_VERSION 26
 #define INDEX_VECSIM_SVS_VAMANA_VERSION 25
 #define INDEX_INDEXALL_VERSION 24
 #define INDEX_GEOMETRY_VERSION 23
@@ -278,15 +278,16 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
 
-typedef struct {
-  RedisModuleString *types[INDEXFLD_NUM_TYPES];
-} IndexSpecFmtStrings;
-
 //---------------------------------------------------------------------------------------------
 
 // Forward declaration
 typedef struct InvertedIndex InvertedIndex;
 typedef const void* RedisSearchDiskIndexSpec;
+
+typedef struct CharBuf {
+  char *buf;
+  size_t len;
+} CharBuf;
 
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
@@ -301,7 +302,7 @@ typedef struct IndexSpec {
   Trie *terms;                    // Trie of all TEXT terms. Used for GC and fuzzy queries
   Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
   t_fieldMask suffixMask;         // Mask of all fields that support contains query
-  dict *keysDict;                 // Global dictionary. Contains inverted indexes of all TEXT TAG NUMERIC VECTOR and GEOSHAPE terms
+  dict *keysDict;                 // Inverted indexes dictionary of all TEXT terms
 
   DocTable docs;                  // Contains metadata of all documents
 
@@ -322,8 +323,7 @@ typedef struct IndexSpec {
   bool monitorFieldExpiration;
   bool isDuplicate;               // Marks that this index is a duplicate of an existing one
 
-  // cached strings, corresponding to number of fields
-  IndexSpecFmtStrings *indexStrs;
+  // cached fields, corresponding to number of fields
   struct IndexSpecCache *spcache;
   // For index expiration
   long long timeout;
@@ -373,11 +373,6 @@ typedef struct SpecOpIndexingCtx {
   dict *specs;
   SpecOpCtx *specsOps;
 } SpecOpIndexingCtx;
-
-typedef struct {
-  void (*dtor)(void *p);
-  void *p;
-} KeysDictValue;
 
 extern RedisModuleType *IndexSpecType;
 extern RedisModuleType *IndexAliasType;
@@ -550,8 +545,6 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
  */
 void IndexSpec_MakeKeyless(IndexSpec *sp);
 
-#define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
-
 void IndexesScanner_Cancel(struct IndexesScanner *scanner);
 void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
 
@@ -639,10 +632,6 @@ void IndexSpec_Free(IndexSpec *spec);
 
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
-/** Returns a string suitable for indexes. This saves on string creation/destruction */
-RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
-RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s, FieldType forType);
-
 IndexSpec *NewIndexSpec(const HiddenString *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status);
@@ -723,7 +712,11 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
-void Indexes_Free(dict *d);
+/*
+ * Free all indexes.
+ * @param deleteDiskData - delete the disk data
+*/ 
+void Indexes_Free(dict *d, bool deleteDiskData);
 size_t Indexes_Count();
 void Indexes_Propagate(RedisModuleCtx *ctx);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,

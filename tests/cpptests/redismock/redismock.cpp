@@ -756,21 +756,25 @@ int RMCK_IsIOError(RedisModuleIO *io) {
 void *RMCK_LoadDataTypeFromStringEncver(const RedisModuleString *str,
                                         const RedisModuleType *mt,
                                         int encver) {
-  RedisModuleIO io{};
-  io.buffer.insert(io.buffer.end(), str->c_str(), str->c_str() + str->size());
-  return mt->typemeths.rdb_load(&io, encver);
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  io->buffer.insert(io->buffer.end(), str->c_str(), str->c_str() + str->size());
+  void *ret = mt->typemeths.rdb_load(io, encver);
+  RMCK_FreeRdbIO(io);
+  return ret;
 }
 
 RedisModuleString *RMCK_SaveDataTypeToString(RedisModuleCtx *ctx,
                                              void *data,
                                              const RedisModuleType *mt) {
-  RedisModuleIO io{};
-  mt->typemeths.rdb_save(&io, data);
-  if (io.error_flag) {
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  mt->typemeths.rdb_save(io, data);
+  if (io->error_flag) {
+    RMCK_FreeRdbIO(io);
     return nullptr;
   }
-  RedisModuleString *rms = new RedisModuleString(std::string(io.buffer.begin(), io.buffer.end()));
+  RedisModuleString *rms = new RedisModuleString(std::string(io->buffer.begin(), io->buffer.end()));
   if (ctx) ctx->addPointer(rms);
+  RMCK_FreeRdbIO(io);
   return rms;
 }
 
@@ -1209,6 +1213,20 @@ long long RMCK_CallReplyInteger(RedisModuleCallReply *r) {
   return r->ll;
 }
 
+int RMCK_StringToULongLong(const RedisModuleString *str, unsigned long long *ull) {
+  if (str->empty()) {
+    return REDISMODULE_ERR;
+  }
+  char *endptr = nullptr;
+  errno = 0;
+  *ull = strtoull(str->c_str(), &endptr, 10);
+  if (errno == ERANGE || *endptr != '\0' || endptr == str->c_str()) {
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
+
 Module::ModuleMap Module::modules;
 std::vector<KVDB *> KVDB::dbs;
 static int RMCK_GetApi(const char *s, void *pp);
@@ -1298,6 +1316,11 @@ static int RMCK_AddACLCategory(RedisModuleCtx *ctx, const char *category) {
 }
 
 static int RMCK_SetCommandACLCategories(RedisModuleCommand *cmd, const char *categories) {
+  // Nothing for the mock.
+  return REDISMODULE_OK;
+}
+
+static int RMCK_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo *info) {
   // Nothing for the mock.
   return REDISMODULE_OK;
 }
@@ -1476,6 +1499,7 @@ static void registerApis() {
   REGISTER_API(CallReplyArrayElement);
   REGISTER_API(CallReplyStringPtr);
   REGISTER_API(CallReplyInteger);
+  REGISTER_API(StringToULongLong);
 
   REGISTER_API(GetThreadSafeContext);
   REGISTER_API(GetDetachedThreadSafeContext);
@@ -1507,6 +1531,7 @@ static void registerApis() {
   REGISTER_API(Fork);
   REGISTER_API(AddACLCategory);
   REGISTER_API(SetCommandACLCategories);
+  REGISTER_API(SetCommandInfo);
   REGISTER_API(Yield);
   REGISTER_API(GetContextFlags);
   REGISTER_API(GetSelectedDb);

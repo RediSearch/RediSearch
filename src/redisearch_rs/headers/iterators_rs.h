@@ -23,6 +23,11 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Creates a new empty iterator.
+ */
+QueryIterator *NewEmptyIterator(void);
+
+/**
  * Creates a new iterator over a list of sorted document IDs.
  *
  * # Safety
@@ -121,13 +126,18 @@ enum MetricType GetMetricType(QueryIterator *header);
  * 2. `child_it` is not null.
  * 3. `child_it` must not be aliased.
  */
-QueryIterator *NewNonOptimizedOptionalIterator(QueryIterator *child, t_docId max_id, double weight);
+QueryIterator *NewOptionalNonOptimizedIterator(QueryIterator *child, t_docId max_id, double weight);
 
-const QueryIterator *GetNonOptimizedOptionalIteratorChild(const QueryIterator *header);
+const QueryIterator *GetOptionalNonOptimizedIteratorChild(const QueryIterator *header);
 
-QueryIterator *TakeNonOptimizedOptionalIteratorChild(QueryIterator *header);
+QueryIterator *TakeOptionalNonOptimizedIteratorChild(QueryIterator *header);
 
-void SetNonOptimizedOptionalIteratorChild(QueryIterator *header, QueryIterator *child);
+void SetOptionalNonOptimizedIteratorChild(QueryIterator *header, QueryIterator *child);
+
+/**
+ * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
+ */
+QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
 
 #ifdef __cplusplus
 }  // extern "C"

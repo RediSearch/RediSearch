@@ -18,6 +18,7 @@
 #include "iterators_rs.h"
 #include "reply_macros.h"
 #include "util/units.h"
+#include "coord/rmr/rmr.h"
 
 typedef struct {
     IteratorsConfig *iteratorsConfig;
@@ -98,6 +99,8 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_GROUP:
       case RP_MAX_SCORE_NORMALIZER:
       case RP_NETWORK:
+      case RP_SAFE_DEPLETER:
+      case RP_DEPLETER:
         printProfileType(RPTypeToString(rp->type));
         break;
 
@@ -108,7 +111,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
       case RP_SAFE_LOADER:
         printProfileType(RPTypeToString(rp->type));
-        printProfileGILTime(rp->GILTime);
+        printProfileGILTime(rs_wall_clock_convert_ns_to_ms_d(rp->rpGILTime));
         break;
 
       default:
@@ -132,78 +135,106 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
 }
 
 void Profile_Print(RedisModule_Reply *reply, void *ctx) {
-  ProfilePrinterCtx *profileCtx = ctx;
-  AREQ *req = profileCtx->req;
-  bool timedout = profileCtx->timedout;
-  bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
-  bool bgScanOOM = profileCtx->bgScanOOM;
-  bool queryOOM = profileCtx->queryOOM;
+  AREQ *req = ctx;
+  ProfilePrinterCtx *profileCtx = AREQ_ProfilePrinterCtx(req);
+  bool timedout = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
+  bool reachedMaxPrefixExpansions = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
+  bool bgScanOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
+  bool queryOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
+  bool asmTrimmingDelayTimeout = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
-  //-------------------------------------------------------------------------------------------
   RedisModule_Reply_Map(reply);
-      int profile_verbose = req->reqConfig.printProfileClock;
-      // Print total time
-      if (profile_verbose)
-        RedisModule_ReplyKV_Double(reply, "Total profile time",
-          rs_wall_clock_convert_ns_to_ms_d(req->profileTotalTime));
+  int profile_verbose = req->reqConfig.printProfileClock;
 
-      // Print query parsing time
-      if (profile_verbose)
-        RedisModule_ReplyKV_Double(reply, "Parsing time",
-          rs_wall_clock_convert_ns_to_ms_d(req->profileParseTime));
+  // Get and add the Shard ID string to the profile reply (guarded by a ref count).
+  const char *node_id = MR_GetLocalNodeId();
+  if (node_id) {
+    RedisModule_ReplyKV_SimpleString(reply, "Shard ID", node_id);
+  }
+  MR_ReleaseLocalNodeIdReadLock();
 
-      // Print iterators creation time
-        if (profile_verbose)
-          RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
-            rs_wall_clock_convert_ns_to_ms_d(req->profilePipelineBuildTime));
+  // Print total time
+  if (profile_verbose) {
+    RedisModule_ReplyKV_Double(reply, "Total profile time",
+                               rs_wall_clock_convert_ns_to_ms_d(req->profileTotalTime));
+  }
 
-      //Print total GIL time
-        if (profile_verbose){
-          if (RunInThread()){
-            RedisModule_ReplyKV_Double(reply, "Total GIL time",
-            rs_wall_clock_convert_ns_to_ms_d(qctx->GILTime));
-          } else {
-            rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&qctx->initTime);
-            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
-          }
-        }
+  // Print query parsing time
+  if (profile_verbose) {
+    RedisModule_ReplyKV_Double(reply, "Parsing time",
+                               rs_wall_clock_convert_ns_to_ms_d(req->profileParseTime));
+  }
 
-      // Print whether a warning was raised throughout command execution
-      bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions;
-      if (bgScanOOM) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WINDEXING_FAILURE);
-      }
-      if (queryOOM) {
-        // This function is called by Shard or SA, so always return SHARD warning.
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WOOM_SHARD);
-      }
-      if (timedout) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-      } else if (reachedMaxPrefixExpansions) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
-      } else if (!warningRaised) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
-      }
+  // Print iterators creation time
+  if (profile_verbose) {
+    RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
+                               rs_wall_clock_convert_ns_to_ms_d(req->profilePipelineBuildTime));
+  }
 
-      // print into array with a recursive function over result processors
+  // Print total GIL time
+  if (profile_verbose) {
+    if (AREQ_RequestFlags(req) & QEXEC_F_RUN_IN_BACKGROUND) {
+      RedisModule_ReplyKV_Double(reply, "Total GIL time",
+                                 rs_wall_clock_convert_ns_to_ms_d(qctx->queryGILTime));
+    }
+  }
 
-      // Print profile of iterators
-      QueryIterator *root = QITR_GetRootFilter(qctx);
-      // Coordinator does not have iterators
-      if (root) {
-        RedisModule_Reply_SimpleString(reply, "Iterators profile");
-        PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
-                                     .printProfileClock = profile_verbose};
-        printIteratorProfile(reply, root, 0, 0, 2, AREQ_RequestFlags(req) & QEXEC_F_PROFILE_LIMITED, &config);
-      }
+  // Print coord dispatch time if this is a shard handling a coordinator request.
+  if (profile_verbose && IsInternal(req)) {
+    RedisModule_ReplyKV_Double(reply, "Coordinator dispatch time [ms]",
+                               rs_wall_clock_convert_ns_to_ms_d(req->coordDispatchTime));
+  }
 
-      // Print profile of result processors
-      ResultProcessor *rp = qctx->endProc;
-      RedisModule_ReplyKV_Array(reply, "Result processors profile");
-        printProfileRP(reply, rp, req->reqConfig.printProfileClock);
-      RedisModule_Reply_ArrayEnd(reply);
+  // Print whether a warning was raised throughout command execution
+  bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions || asmTrimmingDelayTimeout;
+  RedisModule_ReplyKV_Array(reply, "Warning");
+  if (!warningRaised) {
+    RedisModule_Reply_SimpleString(reply, "None");
+  } else {
+    if (bgScanOOM) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
+    }
+    if (queryOOM) {
+      // This function is called by Shard or SA, so always return SHARD warning.
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_SHARD);
+    }
+    if (timedout) {
+      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    }
+    if (reachedMaxPrefixExpansions) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
+    }
+    if (asmTrimmingDelayTimeout) {
+      RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
+    }
+  }
+  RedisModule_Reply_ArrayEnd(reply); // >warnings
+
+  // Print cursor reads count if this is a cursor request.
+  if (IsCursor(req)) {
+    // Only internal requests can use profile with cursor.
+    RS_ASSERT(IsInternal(req));
+    RedisModule_ReplyKV_LongLong(reply, "Internal cursor reads", profileCtx->cursor_reads);
+  }
+
+  // Print profile of iterators
+  QueryIterator *root = QITR_GetRootFilter(qctx);
+  // Coordinator does not have iterators
+  if (root) {
+    RedisModule_Reply_SimpleString(reply, "Iterators profile");
+    PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
+                                 .printProfileClock = profile_verbose};
+    printIteratorProfile(reply, root, 0, 0, 2,
+                         AREQ_RequestFlags(req) & QEXEC_F_PROFILE_LIMITED, &config);
+  }
+
+  // Print profile of result processors
+  ResultProcessor *rp = qctx->endProc;
+  RedisModule_ReplyKV_Array(reply, "Result processors profile");
+  printProfileRP(reply, rp, req->reqConfig.printProfileClock);
+  RedisModule_Reply_ArrayEnd(reply);
   RedisModule_Reply_MapEnd(reply);
 }
 
@@ -256,9 +287,15 @@ void Profile_AddIters(QueryIterator **root) {
       break;
     }
     case OPTIONAL_ITERATOR: {
-      QueryIterator *child = TakeOptionalIteratorChild(*root);
+      QueryIterator *child = TakeOptionalNonOptimizedIteratorChild(*root);
       Profile_AddIters(&child);
-      SetOptionalIteratorChild(*root, child);
+      SetOptionalNonOptimizedIteratorChild(*root, child); // TODO: confirm, do we really need to do this?
+      break;
+    }
+    case OPTIONAL_OPTIMIZED_ITERATOR: {
+      QueryIterator *it = ((OptionalIterator *)(*root))->child;
+      Profile_AddIters(&child);
+      ((OptionalIterator *)(*root))->child = child;
       break;
     }
     case HYBRID_ITERATOR: {

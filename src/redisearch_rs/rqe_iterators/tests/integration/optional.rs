@@ -64,9 +64,9 @@ mod optional_iterator_tests {
     // C-Code: port of OptionalIteratorTest::SetUp
     // as found in tests/cpptests/test_cpp_iterator_optional.cpp
     fn setup_optional_iterator_with_mock_child<'index>()
-    -> Optional<'index, utils::MockIterator<'index, NUM_DOCS>> {
+    -> Optional<'index, utils::Mock<'index, NUM_DOCS>> {
         // Create child iterator with specific docIds
-        let child = utils::MockIterator::new(CHILD_DOCS);
+        let child = utils::Mock::new(CHILD_DOCS);
 
         Optional::new(MAX_DOC_ID, WEIGHT, child)
     }
@@ -347,12 +347,12 @@ mod optional_iterator_timeout_tests {
     // C-Code: port of OptionalIteratorTimeoutTest::SetUp
     // as found in tests/cpptests/test_cpp_iterator_optional.cpp
     fn setup_optional_iterator_with_mock_child<'index>()
-    -> Optional<'index, utils::MockIterator<'index, NUM_DOCS>> {
+    -> Optional<'index, utils::Mock<'index, NUM_DOCS>> {
         // Create child iterator with specific docIds
-        let child = utils::MockIterator::new(CHILD_DOCS);
+        let child = utils::Mock::new(CHILD_DOCS);
         child
             .data()
-            .set_error_at_done(Some(utils::MockIteratorError::TimeoutError));
+            .set_error_at_done(Some(utils::MockIteratorError::TimeoutError(None)));
 
         Optional::new(MAX_DOC_ID, WEIGHT, child)
     }
@@ -428,10 +428,10 @@ mod optional_iterator_timeout_tests {
         // Skip to a document beyond child's range
         // This should trigger timeout when trying to advance the child
 
-        matches!(
+        assert!(matches!(
             it.skip_to(50),
             Err(rqe_iterators::RQEIteratorError::TimedOut)
-        );
+        ));
     }
 
     #[test]
@@ -655,11 +655,11 @@ mod optional_iterator_revalidate_test {
     // C-Code: port of OptionalIteratorRevalidateTest::SetUp
     // as found in tests/cpptests/test_cpp_iterator_optional.cpp
     fn setup_optional_iterator_with_mock_child_and_data<'index>() -> (
-        Optional<'index, utils::MockIterator<'index, NUM_DOCS>>,
+        Optional<'index, utils::Mock<'index, NUM_DOCS>>,
         utils::MockData,
     ) {
         // Create child iterator with specific docIds
-        let child = utils::MockIterator::new(CHILD_DOCS);
+        let child = utils::Mock::new(CHILD_DOCS);
         let data = child.data();
 
         let it = Optional::new(MAX_DOC_ID, WEIGHT, child);
@@ -747,16 +747,15 @@ mod optional_iterator_revalidate_test {
 
         // Revalidate should handle child movement
         let status = it.revalidate().expect("revalidate without error");
-        // Should either be OK (if virtual result) or MOVED (if real result was affected)
-        assert!(matches!(
-            status,
-            RQEValidateStatus::Ok | RQEValidateStatus::Moved { .. }
-        ));
+        // Should be MOVED (as real result was affected)
+        assert!(matches!(status, RQEValidateStatus::Moved { .. }));
 
         // Should be able to continue reading after revalidation
-        let _ = it
+        let result = it
             .read()
-            .expect("read returns either some result or EOF after revalidate");
+            .expect("read returns either some result or EOF after revalidate")
+            .expect("should return an actual result here");
+        assert_eq!(12, result.doc_id);
     }
 
     #[test]
@@ -786,10 +785,11 @@ mod optional_iterator_revalidate_test {
         assert!(matches!(status, RQEValidateStatus::Ok));
 
         // Should be able to continue reading
-        let _ = it
+        let result = it
             .read()
             .expect("read without error after revalidate")
             .expect("read some result after revalidate");
+        assert_eq!(16, result.doc_id);
     }
 }
 

@@ -14,7 +14,7 @@
 #include "rdb.h"
 #include "fast_float/fast_float_strtod.h"
 
-TrieMap *SchemaPrefixes_g;
+TrieMap *SchemaPrefixes_g = NULL;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -528,7 +528,7 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
     RLookup_LoadRuleFields(RSDummyContext, &r->lk, &r->row, sp, keyCstr);
 
     if (EvalCtx_EvalExpr(r, rule->filter_exp) != EXPR_EVAL_OK ||
-        !RSValue_BoolTest(&r->res)) {
+        !RSValue_BoolTest(r->res)) {
       ret = false;
     }
     QueryError_ClearError(r->ee.err);
@@ -542,7 +542,9 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void SchemaPrefixes_Create() {
-  SchemaPrefixes_g = NewTrieMap();
+  if (!SchemaPrefixes_g) {
+    SchemaPrefixes_g = NewTrieMap();
+  }
 }
 
 static void freePrefixNode(void *ctx) {

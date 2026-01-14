@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -e
+shopt -s extglob
 
 #-----------------------------------------------------------------------------
 # RediSearch Build Script
@@ -23,6 +24,10 @@ VERBOSE=0        # Verbose output flag
 QUICK=${QUICK:-0} # Quick test mode (subset of tests)
 COV=${COV:-0}    # Coverage mode (for building and testing)
 BUILD_INTEL_SVS_OPT=${BUILD_INTEL_SVS_OPT:-0} # Use SVS pre-compiled library
+# Enable Rust/C LTO. Requires Clang and lld (Linux only).
+# Clang needs to have the same version as the LLVM version used by Rust.
+# Check using `clang --version` and `rustc --version --verbose`.
+LTO=0
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0          # Build test binaries
@@ -39,55 +44,62 @@ RUST_PROFILE=""  # Which profile should be used to build/test Rust code
                  # the operations to be performed
 RUN_MIRI=0       # Run Rust tests through miri to catch undefined behavior
 RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
+RUST_TOOLCHAIN_MODIFIER="" # Rust toolchain to use (e.g., +nightly)
 
 # Rust code is built first, so exclude benchmarking crates that link C code,
 # since the static libraries they depend on haven't been built yet.
 EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi"
 
+# Retrieve our pinned nightly version.
+NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
+
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
 # Parse command-line arguments and set configuration variables
+# Requires extglob to be enabled
 #-----------------------------------------------------------------------------
 parse_arguments() {
   for arg in "$@"; do
-    case $arg in
+    # MacOS only has bash 3.2 built-in, which doesn't support the more modern ${arg^^} syntax.
+    upper_arg=$(printf '%s' "$arg" | tr '[:lower:]' '[:upper:]')
+    case $upper_arg in
       COORD=*)
         COORD="${arg#*=}"
         ;;
-      DEBUG|debug)
+      DEBUG?(=1))
         DEBUG=1
         ;;
-      PROFILE|profile)
+      PROFILE?(=1))
         PROFILE=1
         ;;
-      TESTS|tests)
+      TESTS?(=1))
         BUILD_TESTS=1
         ;;
-      RUN_TESTS|run_tests)
+      RUN_TESTS?(=1))
         RUN_ALL_TESTS=1
         ;;
-      RUN_UNIT_TESTS|run_unit_tests)
+      RUN_UNIT_TESTS?(=1))
         RUN_UNIT_TESTS=1
         ;;
-      RUN_RUST_TESTS|run_rust_tests)
+      RUN_RUST_TESTS?(=1))
         RUN_RUST_TESTS=1
         ;;
-      RUN_RUST_VALGRIND|run_rust_valgrind)
+      RUN_RUST_VALGRIND?(=1))
         RUN_RUST_VALGRIND=1
         ;;
-      RUN_MICRO_BENCHMARKS|run_micro_benchmarks|RUN_MICROBENCHMARKS|run_microbenchmarks)
+      RUN_MICRO_BENCHMARKS?(=1))
         RUN_MICRO_BENCHMARKS=1
         ;;
       COV=*)
         COV="${arg#*=}"
         ;;
-      RUN_PYTEST|run_pytest)
+      RUN_PYTEST?(=1))
         RUN_PYTEST=1
         ;;
-      EXT=*|ext=*)
+      EXT=*)
         EXT="${arg#*=}"
         ;;
-      EXT_HOST=*|ext_host=*)
+      EXT_HOST=*)
         if [[ "${arg#*=}" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
           EXT_HOST="${arg#*=}"
         else
@@ -95,7 +107,7 @@ parse_arguments() {
           exit 1
         fi
         ;;
-      EXT_PORT=*|ext_port=*)
+      EXT_PORT=*)
         EXT_PORT="${arg#*=}"
         ;;
       TEST=*)
@@ -116,10 +128,10 @@ parse_arguments() {
       SAN=*)
         SAN="${arg#*=}"
         ;;
-      FORCE|force)
+      FORCE?(=1))
         FORCE=1
         ;;
-      VERBOSE|verbose)
+      VERBOSE?(=1))
         VERBOSE=1
         ;;
       QUICK=*)
@@ -133,6 +145,9 @@ parse_arguments() {
         ;;
       BUILD_INTEL_SVS_OPT=*)
         BUILD_INTEL_SVS_OPT="${arg#*=}"
+        ;;
+      LTO|lto)
+        LTO=1
         ;;
       *)
         # Pass all other arguments directly to CMake
@@ -168,9 +183,20 @@ setup_test_configuration() {
 # Configure the build environment variables
 #-----------------------------------------------------------------------------
 setup_build_environment() {
+  # Determine Rust toolchain
+  if [[ -n "$SAN" || "$COV" == "1" || "$RUN_MIRI" == "1" ]]; then
+    # For coverage, we use the `nightly` compiler in order to include doc tests in the coverage computation.
+    # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
+    echo "Using nightly version: ${NIGHTLY_VERSION}"
+
+    RUST_TOOLCHAIN_MODIFIER="+$NIGHTLY_VERSION"
+  fi
+
   # Determine build flavor
   if [ "$SAN" == "address" ]; then
     FLAVOR="debug-asan"
+  elif [[ "$RUN_MIRI" == "1" ]]; then
+    FLAVOR="debug-miri"
   elif [[ "$DEBUG" == "1" ]]; then
     FLAVOR="debug"
   elif [[ "$COV" == "1" ]]; then
@@ -181,15 +207,31 @@ setup_build_environment() {
     FLAVOR="release"
   fi
 
+  # We must set the build target explicitly when running with a sanitizer to prevent the Rust flags from being applied to build
+  # scripts and procedural macros.
+  #
+  # See https://doc.rust-lang.org/beta/unstable-book/compiler-flags/sanitizer.html#build-scripts-and-procedural-macros
+  if [ "$SAN" == "address"  ]; then
+    export CARGO_BUILD_TARGET="$(rustc $RUST_TOOLCHAIN_MODIFIER -vV | sed -n 's/host: //p')"
+  fi
+
+  # Disable ODR violation detection when building tests with ASAN. This is needed because both the
+  # shared redisearch.so and the test binaries link to the same static libraries, causing false
+  # positives (mostly in the Rust's compiler_builtins for `RSQRT_TAB`).
+  if [[ "$SAN" == "address" && "$BUILD_TESTS" == "1" ]]; then
+    export ASAN_OPTIONS=detect_odr_violation=0
+  fi
+
   # Determine the correct Rust profile for both build and tests
   # Only set RUST_PROFILE if it wasn't already set by the user
   if [[ -z "$RUST_PROFILE" ]]; then
     if [[ "$BUILD_TESTS" == "1" ]]; then
-      if [[ "$DEBUG" == "1" || -n "$SAN" || "$COV" == "1" ]]; then
+      if [[ "$DEBUG" == "1" || -n "$SAN" || "$COV" == "1" || "$RUN_MIRI" == "1" ]]; then
         RUST_PROFILE="dev"
       else
         if [[ "$RUN_MICRO_BENCHMARKS" == "1" ]]; then
-            RUST_PROFILE="profiling"
+            # We don't want debug assertions to be enabled in microbenchmarks
+            RUST_PROFILE="release"
         else
             RUST_PROFILE="optimised_test"
         fi
@@ -305,6 +347,43 @@ prepare_cmake_arguments() {
   # Initialize with base arguments
   CMAKE_BASIC_ARGS="-DCOORD_TYPE=$COORD"
 
+  if [[ "$LTO" == "1" ]]; then
+    # LTO is only supported on Linux
+    if [[ "$OS_NAME" != "linux" ]]; then
+      echo "Error: LTO is only supported on Linux"
+      echo "Current OS: $OS_NAME"
+      exit 1
+    fi
+
+    # Enable Rust/C LTO by using clang and lld
+    # Check LLVM version compatibility between Rust and Clang
+    RUSTC_LLVM_VERSION=$(rustc --version --verbose | grep "LLVM version" | awk '{print $3}' | cut -d. -f1)
+    CLANG_LLVM_VERSION=$(clang --version | head -n1 | grep -oP 'version \K[0-9]+' | head -n1)
+
+    if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" ]]; then
+        echo "Error: Could not detect LLVM versions for Rust and Clang."
+        echo "Cross-language LTO requires matching LLVM major versions."
+        echo "Rust LLVM version: $RUSTC_LLVM_VERSION"
+        echo "Clang LLVM version: $CLANG_LLVM_VERSION"
+        exit 1
+    fi
+
+    if [[ "$RUSTC_LLVM_VERSION" != "$CLANG_LLVM_VERSION" ]]; then
+        echo "Error: LLVM version mismatch between Rust and Clang"
+        echo "Rust uses LLVM $RUSTC_LLVM_VERSION (from: rustc --version --verbose)"
+        echo "Clang uses LLVM $CLANG_LLVM_VERSION (from: clang --version)"
+        echo ""
+        echo "Cross-language LTO requires matching LLVM major versions."
+        echo "Please either:"
+        echo "  1. Install clang-$RUSTC_LLVM_VERSION"
+        echo "  2. Or build without LTO by removing the 'LTO' argument"
+        exit 1
+    fi
+
+    echo "Enabling C/Rust LTO"
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
+  fi
+
   if [[ "$BUILD_TESTS" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_SEARCH_UNIT_TESTS=ON"
   fi
@@ -359,15 +438,44 @@ prepare_cmake_arguments() {
     else
       RUSTFLAGS="$RUSTFLAGS -C target-feature=-crt-static"
     fi
-    # Export RUSTFLAGS so it's available to the Rust build process
-    export RUSTFLAGS
   fi
+  # Set up RUSTFLAGS for warnings
+  if [[ "$RUST_DENY_WARNS" == "1" ]]; then
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
+  fi
+  # Ensure we can compute coverage across the FFI boundary
+  if [[ $OS_NAME != "macos" && $COV == "1" ]]; then
+    # Needs the C code to link on gcov
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} } -C link-args=-lgcov"
+  fi
+  if [[ $SAN == "address" ]]; then
+    # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
+    # -Zsanitizer=address enables ASAN in Rust
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Zsanitizer=address"
+  fi
+
+
+  if [[ "$LTO" == "1" ]]; then
+    # Include LLVM bitcode information for cross-language LTO
+    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C linker-plugin-lto -C linker=clang -C link-arg=-fuse-ld=lld"
+  fi
+
+  # Export RUSTFLAGS so it's available to the Rust build process
+  export RUSTFLAGS
 
   # RUSTFLAGS will be passed as environment variable to avoid quoting issues
   # This prevents CMake argument parsing from truncating complex flag values
 
   if [[ "$RUST_PROFILE" != "" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_PROFILE=$RUST_PROFILE"
+  fi
+
+  if [[ -n "$CARGO_BUILD_TARGET" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCARGO_BUILD_TARGET=$CARGO_BUILD_TARGET"
+  fi
+
+  if [[ -n "$RUST_TOOLCHAIN_MODIFIER" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_TOOLCHAIN_MODIFIER=$RUST_TOOLCHAIN_MODIFIER"
   fi
 }
 
@@ -560,43 +668,43 @@ run_rust_tests() {
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
 
-  # Set up RUSTFLAGS for warnings
-  if [[ "$RUST_DENY_WARNS" == "1" ]]; then
-    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
-  fi
-
-  # Retrieve our pinned nightly version.
-  NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
+  CARGO_BUILD_FLAGS=""
 
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
-    # We use the `nightly` compiler in order to include doc tests in the coverage computation.
-    # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
-    RUST_EXTENSIONS="+$NIGHTLY_VERSION llvm-cov"
+    RUST_TEST_COMMAND="llvm-cov test"
     # We exclude Rust benchmarking crates that link to C code when computing coverage.
     # On one side, we aren't interested in coverage of those utilities.
     # On top of that, it causes linking issues since, when computing coverage, it seems to
     # require C symbols to be defined even if they aren't invoked at runtime.
-    echo "Using nightly version: ${NIGHTLY_VERSION}"
     RUST_TEST_OPTIONS="
+      --profile=$RUST_PROFILE
       --doctests
       $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C
       --codecov
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*"
       --output-path=$BINROOT/rust_cov.info
     "
-  elif [[ -n "$SAN" || "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
-    RUST_EXTENSIONS="+$NIGHTLY_VERSION miri"
-  fi
-
-  if [[ $OS_NAME != "macos" ]]; then
-  # Needs the C code to link on gcov
-    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} } -C link-args=-lgcov"
+  elif [[ "$RUN_MIRI" == "1" ]]; then
+    RUST_TEST_COMMAND="miri test "
+    RUST_TEST_OPTIONS="--profile=$RUST_PROFILE"
+  elif [[ "$SAN" == "address" ]]; then
+    # We must rebuild the Rust standard library to get sanitizer coverage
+    # for its functions.
+    # Since --build-std is a cargo flag (not rustc), we set it separately
+    CARGO_BUILD_FLAGS="${CARGO_BUILD_FLAGS:+${CARGO_BUILD_FLAGS} }-Zbuild-std"
+    RUST_TEST_COMMAND="nextest run"
+    # The doc tests are disabled under ASAN to avoid issues with linking to the sanitizer runtime
+    # in doc tests.
+    RUST_TEST_OPTIONS="--tests --cargo-profile=$RUST_PROFILE $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C"
+  else
+    RUST_TEST_COMMAND="nextest run"
+    RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
   fi
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings }" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $TEST_FILTER -- --nocapture
+  RUSTFLAGS="${RUSTFLAGS}" cargo $RUST_TOOLCHAIN_MODIFIER $CARGO_BUILD_FLAGS $RUST_TEST_COMMAND $RUST_TEST_OPTIONS --workspace $TEST_FILTER
 
   # Check test results
   RUST_TEST_RESULT=$?
@@ -622,11 +730,6 @@ run_rust_valgrind_tests() {
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
 
-  # Set up RUSTFLAGS for warnings
-  if [[ "$RUST_DENY_WARNS" == "1" ]]; then
-    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
-  fi
-
   cd "$RUST_DIR"
 
   if [[ "$OS_NAME" == "macos" ]]; then
@@ -637,10 +740,9 @@ run_rust_valgrind_tests() {
   else
     # Run cargo valgrind with the appropriate filter
     VALGRINDFLAGS=--suppressions=$PWD/valgrind.supp \
-        RUSTFLAGS="${RUSTFLAGS:--D warnings}" \
+        RUSTFLAGS="${RUSTFLAGS}" \
         cargo valgrind test \
         --profile=$RUST_PROFILE \
-        $RUST_TEST_OPTIONS \
         --workspace $TEST_FILTER \
         -- --nocapture
   fi

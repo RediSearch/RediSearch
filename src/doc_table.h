@@ -62,7 +62,7 @@ void DocIdMap_Free(DocIdMap *m);
  * same key. This may result in document duplication in results  */
 
 typedef struct {
-  DLLIST2 lroot;
+  RSDocumentMetadata *root;
 } DMDChain;
 
 typedef struct {
@@ -81,11 +81,7 @@ typedef struct {
 #define DOCTABLE_FOREACH(dt, code)                                           \
   for (size_t i = 0; i < dt->cap; ++i) {                                     \
     DMDChain *chain = &dt->buckets[i];                                       \
-    if (DLLIST2_IS_EMPTY(&chain->lroot)) {                                   \
-      continue;                                                              \
-    }                                                                        \
-    DLLIST2_FOREACH(it, &chain->lroot) {                                     \
-      RSDocumentMetadata *dmd = DLLIST_ITEM(it, RSDocumentMetadata, llnode); \
+    for (RSDocumentMetadata *dmd = chain->root; dmd != NULL; dmd = dmd->nextInChain) {           \
       code;                                                                  \
     }                                                                        \
   }
@@ -210,6 +206,8 @@ static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
 }
 
 void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
+
+t_docId DocTable_GetMaxDocId(const DocTable *t);
 
 #ifdef __cplusplus
 }

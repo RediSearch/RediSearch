@@ -23,6 +23,8 @@ use crate::{Decoder, Encoder, RSIndexResult, TermDecoder};
 /// The delta and field mask are encoded using [qint encoding](qint).
 ///
 /// This encoder only supports delta values that fit in a `u32`.
+
+#[derive(Debug)]
 pub struct FieldsOnly;
 
 impl Encoder for FieldsOnly {
@@ -70,6 +72,7 @@ impl Decoder for FieldsOnly {
 /// The delta and the field mask are encoded using [varint encoding](varint).
 ///
 /// This encoder only supports delta values that fit in a `u32`.
+#[derive(Debug)]
 pub struct FieldsOnlyWide;
 
 impl Encoder for FieldsOnlyWide {

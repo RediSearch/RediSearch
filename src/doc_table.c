@@ -54,15 +54,32 @@ static RSDocumentMetadata *DocTable_GetOwn(const DocTable *t, t_docId docId) {
   // multiple readers. In any case, we can safely iterate over the chain without a lock and
   // increment the ref count of the document metadata when we find it.
   DMDChain *dmdChain = &t->buckets[bucketIndex];
-  DLLIST2_FOREACH(it, &dmdChain->lroot) {
-    RSDocumentMetadata *dmd = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
-
+  for (RSDocumentMetadata *dmd = dmdChain->root; dmd != NULL; dmd = dmd->nextInChain) {
     if (dmd->id == docId) {
-      if (dmd->flags & Document_Deleted) {
-        return NULL;
-      }
-      return dmd;
+      return (dmd->flags & Document_Deleted) ? NULL : dmd;
     }
+  }
+  return NULL;
+}
+
+// Like `DocTable_GetOwn` but also removes the dmd from the doc table
+static RSDocumentMetadata *DocTable_DmdUnchain(DocTable *t, t_docId docId) {
+  if (!DocTable_ValidateDocId(t, docId)) {
+    return NULL;
+  }
+  uint32_t bucketIndex = DocTable_GetBucket(t, docId);
+  if (bucketIndex >= t->cap) {
+    return NULL;
+  }
+  DMDChain *dmdChain = &t->buckets[bucketIndex];
+  RSDocumentMetadata **prev_next = &dmdChain->root;
+  for (RSDocumentMetadata *md = dmdChain->root; md != NULL; md = md->nextInChain) {
+    if (md->id == docId) {
+      *prev_next = md->nextInChain;
+      md->nextInChain = NULL;
+      return md;
+    }
+    prev_next = &md->nextInChain;
   }
   return NULL;
 }
@@ -87,8 +104,7 @@ bool DocTable_Exists(const DocTable *t, t_docId docId) {
   if (chain == NULL) {
     return 0;
   }
-  DLLIST2_FOREACH(it, &chain->lroot) {
-    const RSDocumentMetadata *md = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
+  for (const RSDocumentMetadata *md = chain->root; md != NULL; md = md->nextInChain) {
     if (md->id == docId) {
       return !(md->flags & Document_Deleted);
     }
@@ -136,7 +152,8 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
   dmd->ref_count = 1; // Index reference
 
   // Adding the dmd to the chain
-  dllist2_append(&chain->lroot, &dmd->llnode);
+  dmd->nextInChain = chain->root;
+  chain->root = dmd;
 }
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesn't */
@@ -255,7 +272,7 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
   dmd->keyPtr = keyPtr;
   dmd->score = score;
   dmd->flags = flags;
-  dmd->maxFreq = 1;
+  dmd->maxTermFreq = 1;
   dmd->id = docId;
   dmd->sortVector = NULL;
   dmd->type = type;
@@ -325,14 +342,12 @@ void DMD_Free(const RSDocumentMetadata *cmd) {
 void DocTable_Free(DocTable *t) {
   for (int i = 0; i < t->cap; ++i) {
     DMDChain *chain = &t->buckets[i];
-    if (DLLIST2_IS_EMPTY(&chain->lroot)) {
-      continue;
-    }
-    DLLIST2_node *nn = chain->lroot.head;
-    while (nn) {
-      RSDocumentMetadata *md = DLLIST2_ITEM(nn, RSDocumentMetadata, llnode);
-      nn = nn->next;
+    RSDocumentMetadata *md, *next;
+    md = chain->root;
+    while (md) {
+      next = md->nextInChain;
       DMD_Return(md);
+      md = next;
     }
   }
   rm_free(t->buckets);
@@ -340,18 +355,12 @@ void DocTable_Free(DocTable *t) {
   DocIdMap_Free(&t->dim);
 }
 
-static void DocTable_DmdUnchain(DocTable *t, RSDocumentMetadata *md) {
-  uint32_t bucketIndex = DocTable_GetBucket(t, md->id);
-  DMDChain *dmdChain = &t->buckets[bucketIndex];
-  dllist2_delete(&dmdChain->lroot, &md->llnode);
-}
-
 RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
   t_docId docId = DocIdMap_Get(&t->dim, s, n);
 
   if (docId && docId <= t->maxDocId) {
 
-    RSDocumentMetadata *md = (RSDocumentMetadata *)DocTable_Borrow(t, docId);
+    RSDocumentMetadata *md = DocTable_DmdUnchain(t, docId);
     if (!md) {
       return NULL;
     }
@@ -378,11 +387,9 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
       t->sortablesSize -= RSSortingVector_GetMemorySize(md->sortVector);
     }
 
-    DocTable_DmdUnchain(t, md);
     DocIdMap_Delete(&t->dim, s, n);
     --t->size;
-    DMD_Return(md); // Return the ref from the `Borrow` call. The caller needs to release the index ref.
-
+    // Move ownership of the metadata to the caller, without changing the ref count
     return md;
   }
   return NULL;
@@ -445,16 +452,16 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     RedisModule_Free(tmpPtr);
 
     dmd->flags = RedisModule_LoadUnsigned(rdb);
-    dmd->maxFreq = 1;
-    dmd->len = 1;
+    dmd->maxTermFreq = 1;
+    dmd->docLen = 1;
     if (encver > 1) {
-      dmd->maxFreq = RedisModule_LoadUnsigned(rdb);
+      dmd->maxTermFreq = RedisModule_LoadUnsigned(rdb);
     }
     if (encver >= INDEX_MIN_DOCLEN_VERSION) {
-      dmd->len = RedisModule_LoadUnsigned(rdb);
+      dmd->docLen = RedisModule_LoadUnsigned(rdb);
     } else {
-      // In older versions, default the len to max freq to avoid division by zero.
-      dmd->len = dmd->maxFreq;
+      // In older versions, default the docLen to maxTermFreq to avoid division by zero.
+      dmd->docLen = dmd->maxTermFreq;
     }
 
     dmd->score = RedisModule_LoadFloat(rdb);
@@ -499,6 +506,10 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
   }
   t->size -= deletedElements;
+}
+
+t_docId DocTable_GetMaxDocId(const DocTable *t) {
+  return t->maxDocId;
 }
 
 DocIdMap NewDocIdMap() {

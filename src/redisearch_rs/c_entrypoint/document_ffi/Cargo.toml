@@ -16,3 +16,4 @@ build_utils = { path = "../../build_utils" }
 c_ffi_utils.workspace = true
 libc.workspace = true
 document.workspace = true
+workspace_hack.workspace = true

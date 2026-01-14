@@ -45,7 +45,6 @@
 #include "iterators/optional_iterator.h"
 #include "iterators/not_iterator.h"
 #include "iterators_rs.h"
-#include "iterators/empty_iterator.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
@@ -519,13 +518,12 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
 
 QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_TOKEN, "query node type should be token")
-  RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
   if (q->sctx->spec->diskSpec) {
     RS_LOG_ASSERT(q->sctx->spec->diskSpec, "Disk spec should be open");
-    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, term->len, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
+    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, qn->tn.str, qn->tn.len, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
   } else {
-    return Redis_OpenReader(q->sctx, term, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
+    return Redis_OpenReader(q->sctx, &qn->tn, q->tokenId++, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
   }
 }
 
@@ -539,15 +537,14 @@ static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
       .str = str
   };
 
-  RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
   QueryIterator *ir = NULL;
 
   if (q->sctx->spec->diskSpec) {
     RS_LOG_ASSERT(q->sctx->spec->diskSpec, "Disk spec should be open");
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, term->len, q->opts->fieldmask & opts->fieldMask, 1);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & opts->fieldMask, 1);
   } else {
     // Open an index reader
-    ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
+    ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
                                         q->opts->fieldmask & opts->fieldMask, 1);
   }
 
@@ -783,11 +780,10 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   RSToken tok = {0};
   tok.str = runesToStr(r, n, &tok.len);
   QueryIterator *ir = NULL;
-  RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
   if (q->sctx->spec->diskSpec) {
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, term->len, q->opts->fieldmask & ctx->opts->fieldMask, 1);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & ctx->opts->fieldMask, 1);
   } else {
-    ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
+    ir = Redis_OpenReader(q->sctx, &tok, ctx->q->tokenId++, &q->sctx->spec->docs,
                                         q->opts->fieldmask & ctx->opts->fieldMask, 1);
   }
   rm_free(tok.str);
@@ -806,12 +802,11 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
     return REDISEARCH_ERR;
   }
   RSToken tok = {.str = (char *)s, .len = n};
-  RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
   QueryIterator *ir = NULL;
   if (q->sctx->spec->diskSpec) {
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, term->len, q->opts->fieldmask & ctx->opts->fieldMask, 1);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & ctx->opts->fieldMask, 1);
   } else {
-    ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
+    ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
                                         q->opts->fieldmask & ctx->opts->fieldMask, 1);
   }
   if (ir) {
@@ -946,7 +941,7 @@ static QueryIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   // TODO: open with DONT_CREATE_INDEX once the query string is validated before we get here.
   // Currently, if  we use DONT_CREATE_INDEX, and the index was not initialized yet, and the query is invalid,
   // we return results as if the index was empty, instead of raising an error.
-  const GeometryIndex *index = OpenGeometryIndex(q->sctx->spec, fs, CREATE_INDEX);
+  const GeometryIndex *index = OpenGeometryIndex((FieldSpec *)fs, CREATE_INDEX);
   const GeometryApi *api = GeometryApi_Get(index);
   const GeometryQuery *gq = node->gmn.geomq;
   RedisModuleString *errMsg;
@@ -1403,8 +1398,7 @@ static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_ASSERT(qn->type == QN_TAG);
   QueryTagNode *node = &qn->tag;
-  RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, node->fs, INDEXFLD_T_TAG);
-  TagIndex *idx = TagIndex_Open(q->sctx->spec, kstr, DONT_CREATE_INDEX);
+  TagIndex *idx = TagIndex_Open(node->fs, DONT_CREATE_INDEX);
 
   if (!idx) {
     // There are no documents to traverse.

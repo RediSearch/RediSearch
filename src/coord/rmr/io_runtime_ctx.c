@@ -50,9 +50,9 @@ static void rqAsyncCb(uv_async_t *async) {
   }
   queueItem *req;
   while (NULL != (req = RQ_Pop(io_runtime_ctx->queue, &io_runtime_ctx->uv_runtime.async))) {
-    GlobalStats_UpdateActiveIoThreads(1);
+    GlobalStats_UpdateUvRunningQueries(1);
     req->cb(req->privdata);
-    GlobalStats_UpdateActiveIoThreads(-1);
+    GlobalStats_UpdateUvRunningQueries(-1);
     rm_free(req);
   }
 }
@@ -104,7 +104,9 @@ static void topologyAsyncCB(uv_async_t *async) {
     // will be the topology check. If the topology hasn't changed, the topology check will quickly
     // mark the event loop thread as ready again.
     io_runtime_ctx->uv_runtime.loop_th_ready = false;
+    GlobalStats_UpdateUvRunningTopoUpdate(1);
     task->cb(task->privdata);
+    GlobalStats_UpdateUvRunningTopoUpdate(-1);
     rm_free(task);
     // Finish this round of topology checks to give the topology connections a chance to connect.
     // Schedule connectivity check immediately with a 1ms repeat interval
@@ -120,8 +122,6 @@ void shutdown_cb(uv_async_t* handle) {
   IORuntimeCtx* io_runtime_ctx = (IORuntimeCtx*)handle->data;
   // Stop the event loop first
   RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Stopping event loop", io_runtime_ctx->queue->id);
-  // Go through all the connections and stop the timers
-  MRConnManager_Stop(&io_runtime_ctx->conn_mgr);
   uv_stop(&io_runtime_ctx->uv_runtime.loop);
 }
 
@@ -157,6 +157,11 @@ static void sideThread(void *arg) {
   RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Running event loop", io_runtime_ctx->queue->id);
   uv_run(&io_runtime_ctx->uv_runtime.loop, UV_RUN_DEFAULT);
   RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Event loop stopped", io_runtime_ctx->queue->id);
+
+  // Process any remaining requests before closing handles
+  uv_run(&io_runtime_ctx->uv_runtime.loop, UV_RUN_NOWAIT);
+  // Go through all the connections and stop the timers
+  MRConnManager_Stop(&io_runtime_ctx->conn_mgr);
   // After the loop stops, close all handles https://github.com/libuv/libuv/issues/709
   uv_walk(&io_runtime_ctx->uv_runtime.loop, close_walk_cb, NULL);
   // Run the loop one more time to process close callbacks

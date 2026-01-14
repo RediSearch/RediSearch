@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Optional iterator implementation
+//! Supporting types for [`Optional`].
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
@@ -29,6 +29,11 @@ pub struct Optional<'index, I> {
     /// This weight is not applied to virtual results.
     weight: f64,
 
+    /// Virtual result which will always contain the last doc id,
+    /// even if that doc id came from the [`Optional::child`] iterator.
+    ///
+    /// Only for actual virtual results do we return a reference to it in
+    /// functions such as Read/SkipTo.
     result: RSIndexResult<'index>,
 
     /// The child [`RQEIterator`] provided at construction time.
@@ -49,7 +54,7 @@ where
     #[inline(always)]
     /// Creates a new [`Optional`] iterator.
     ///
-    /// * `max_id` is the upper bound of document identifiers visited by
+    /// * `max_id` is the inclusive upper bound of document identifiers visited by
     ///   [`RQEIterator::read`] and [`RQEIterator::skip_to`].
     /// * `weight` is applied to [`RSIndexResult`] values returned by the
     ///   child [`RQEIterator`]. When the child is exhausted, the iterator
@@ -66,14 +71,20 @@ where
         }
     }
 
+    /// Get a shared reference to the _child_ iterator
+    /// wrapped by this [`Optional`] iterator.
     pub const fn child(&self) -> Option<&I> {
         self.child.as_ref()
     }
 
+    /// Set the child of this [`Optional`] iterator.
     pub fn set_child(&mut self, new_child: I) {
         self.child = Some(new_child);
     }
 
+    /// Take the child of this [`Optional`] iterator if it had one.
+    /// After this the child iterator of this [`Optional`] will behave
+    /// as if it was the `Empty` iterator.
     pub const fn take_child(&mut self) -> Option<I> {
         self.child.take()
     }
@@ -86,8 +97,9 @@ where
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if let Some(child) = self.child.as_mut()
             && child.last_doc_id() == self.result.doc_id
+            && let Some(child_result) = child.current()
         {
-            child.current()
+            Some(child_result)
         } else {
             Some(&mut self.result)
         }
@@ -120,13 +132,10 @@ where
                 "no backwards reads should be possible"
             );
 
-            if real.doc_id > self.result.doc_id {
-                // demote to virtual, preserve sequential guarantees
-                return Ok(Some(&mut self.result));
+            if real.doc_id == self.result.doc_id {
+                real.weight = self.weight;
+                return Ok(Some(real));
             }
-
-            real.weight = self.weight;
-            return Ok(Some(real));
         }
 
         Ok(Some(&mut self.result))
@@ -173,12 +182,14 @@ where
         };
         let last_child_doc_id = child.last_doc_id();
 
-        // Revalidate the child iterator (C-Code: step 1)
+        // Revalidate the child iterator
         match child.revalidate()? {
             // Abort: Handle child validation results (but continue processing)
-            // C-Code: step 2
-            RQEValidateStatus::Aborted => {
-                self.child = None; // Drop it so we become fully virtual until max is reached
+            status @ (RQEValidateStatus::Aborted | RQEValidateStatus::Moved { .. }) => {
+                if matches!(status, RQEValidateStatus::Aborted) {
+                    self.child = None; // Drop it so we become fully virtual until max is reached
+                }
+
                 Ok(if last_child_doc_id != self.result.doc_id {
                     // virtual
                     RQEValidateStatus::Ok
@@ -192,22 +203,7 @@ where
             }
             // If the current result is virtual,
             // or if the child was not moved, we can return VALIDATE_OK
-            //
-            // C-Code: step 3
             RQEValidateStatus::Ok => Ok(RQEValidateStatus::Ok),
-            RQEValidateStatus::Moved { .. } => {
-                if last_child_doc_id != self.result.doc_id {
-                    // current result is virtual => VALIDATE_OK
-                    return Ok(RQEValidateStatus::Ok);
-                }
-
-                // Current result is real and child was moved - we need to re-read
-                //
-                // C-Code: step 4
-                Ok(RQEValidateStatus::Moved {
-                    current: self.read()?,
-                })
-            }
         }
     }
 

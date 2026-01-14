@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "src/iterators/iterator_api.h"
-#include "src/iterators/wildcard_iterator.h"
+#include "iterators_rs.h"
 
 class BM_WildcardIterator : public benchmark::Fixture {
 public:

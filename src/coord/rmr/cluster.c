@@ -27,20 +27,11 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
   return cl;
 }
 
-static MRConn* MRCluster_GetConn(IORuntimeCtx *ioRuntime, MRCommand *cmd) {
-  RS_LOG_ASSERT(cmd->targetShard != INVALID_SHARD, "Command must know its target shard");
+static inline MRConn* MRCluster_GetConn(IORuntimeCtx *ioRuntime, MRCommand *cmd) {
+  RS_LOG_ASSERT(cmd->targetShard != NULL, "Command must know its target shard");
   RS_LOG_ASSERT(ioRuntime->topo != NULL, "IORuntimeCtx must have a valid topology here");
 
-  // No target shard, or out of range (may happen during topology updates)
-  if (cmd->targetShard >= ioRuntime->topo->numShards) {
-    RedisModule_Log(RSDummyContext, "warning", "Command targetShard %d is out of bounds (numShards=%u)", cmd->targetShard, ioRuntime->topo->numShards);
-    return NULL;
-  }
-
-  /* Get the shard directly by the targetShard field */
-  MRClusterShard *sh = &ioRuntime->topo->shards[cmd->targetShard];
-
-  return MRConn_Get(&ioRuntime->conn_mgr, sh->node.id);
+  return MRConn_Get(&ioRuntime->conn_mgr, cmd->targetShard);
 }
 
 /* Send a single command to the right shard in the cluster, with an optional control over node
@@ -62,6 +53,11 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
                            void *privdata) {
   struct MRClusterTopology *topo = ioRuntime->topo;
   uint32_t slotsInfoPos = cmd->slotsInfoArgIndex; // 0 if not set, which means slot info is not needed
+  uint32_t dispatchTimePos = cmd->dispatchTimeArgIndex; // 0 if not set, which means dispatch time is not needed
+  if (dispatchTimePos) {
+    // Update dispatch time for this command
+    MRCommand_SetDispatchTime(cmd);
+  }
   int ret = 0;
   for (size_t i = 0; i < topo->numShards; i++) {
     MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id);

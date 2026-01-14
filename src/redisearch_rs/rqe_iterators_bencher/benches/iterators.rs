@@ -43,8 +43,18 @@ fn benchmark_wildcard(c: &mut Criterion) {
     bencher.bench(c);
 }
 
+fn benchmark_intersection(c: &mut Criterion) {
+    let bencher = benchers::intersection::Bencher::default();
+    bencher.bench(c);
+}
+
 fn benchmark_optional(c: &mut Criterion) {
     let bencher = benchers::optional::Bencher::default();
+    bencher.bench(c);
+}
+
+fn benchmark_not_iterator(c: &mut Criterion) {
+    let bencher = benchers::not::Bencher::default();
     bencher.bench(c);
 }
 
@@ -136,7 +146,9 @@ criterion_group!(
     benchmark_empty,
     benchmark_id_list,
     benchmark_metric,
+    benchmark_not_iterator,
     benchmark_wildcard,
+    benchmark_intersection,
     benchmark_optional,
 );
 

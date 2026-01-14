@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "iterators/optimizer_reader.h"
-#include "iterators/empty_iterator.h"
+#include "iterators_rs.h"
 
 int cmpAsc(const void *v1, const void *v2, const void *udata) {
   RSIndexResult *res1 = (RSIndexResult *)v1;

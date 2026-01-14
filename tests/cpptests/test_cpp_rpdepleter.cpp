@@ -25,7 +25,7 @@
 #define NumberOfContexts 3
 
 // Base test class for parameterized tests
-class RPDepleterTest : public ::testing::Test, public ::testing::WithParamInterface<bool> {
+class RPSafeDepleterTest : public ::testing::Test, public ::testing::WithParamInterface<bool> {
 protected:
   // Reusable mock upstream processor
   struct MockUpstream : public ResultProcessor {
@@ -109,8 +109,8 @@ protected:
   IndexSpec* mockSpec = nullptr;
 };
 
-TEST_P(RPDepleterTest, RPDepleter_Basic) {
-  // Tests basic RPDepleter functionality: background thread depletes upstream results,
+TEST_P(RPSafeDepleterTest, RPSafeDepleter_Basic) {
+  // Tests basic RPSafeDepleter functionality: background thread depletes upstream results,
   // main thread waits on condition variable, then yields results in order.
 
   bool take_index_lock = GetParam();
@@ -121,8 +121,8 @@ TEST_P(RPDepleterTest, RPDepleter_Basic) {
 
   MockUpstream mockUpstream(n_docs, RS_RESULT_EOF);
 
-  // Create depleter processor with new sync reference
-  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
+  // Create safe depleter processor with new sync reference
+  ResultProcessor *depleter = RPSafeDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
@@ -154,8 +154,8 @@ TEST_P(RPDepleterTest, RPDepleter_Basic) {
   depleter->Free(depleter);
 }
 
-TEST_P(RPDepleterTest, RPDepleter_Timeout) {
-  // Tests RPDepleter handling of upstream timeout: background thread gets timeout,
+TEST_P(RPSafeDepleterTest, RPSafeDepleter_Timeout) {
+  // Tests RPSafeDepleter handling of upstream timeout: background thread gets timeout,
   // main thread waits on condition variable, then yields results and timeout.
 
   bool take_index_lock = GetParam();
@@ -166,8 +166,8 @@ TEST_P(RPDepleterTest, RPDepleter_Timeout) {
 
   MockUpstream mockUpstream(n_docs, RS_RESULT_TIMEDOUT);
 
-  // Create depleter processor with new sync reference
-  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
+  // Create safe depleter processor with new sync reference
+  ResultProcessor *depleter = RPSafeDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
@@ -199,12 +199,12 @@ TEST_P(RPDepleterTest, RPDepleter_Timeout) {
   depleter->Free(depleter);
 }
 
-TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
-  // Tests cross-depleter condition variable signaling: when one depleter finishes,
-  // it signals the shared condition variable, waking up other depleters that return
-  // `RS_RESULT_DEPLETING` (allowing downstream to try other depleters for results).
-  // Test that one depleter can wake up another depleter waiting on the same condition variable.
-  // This tests the core mechanism where depleters share sync objects and signal each other.
+TEST_P(RPSafeDepleterTest, RPSafeDepleter_CrossWakeup) {
+  // Tests cross-safe-depleter condition variable signaling: when one safe depleter finishes,
+  // it signals the shared condition variable, waking up other safe depleters that return
+  // `RS_RESULT_DEPLETING` (allowing downstream to try other safe depleters for results).
+  // Test that one safe depleter can wake up another safe depleter waiting on the same condition variable.
+  // This tests the core mechanism where safe depleters share sync objects and signal each other.
   // High sleep times are used in order to avoid flakiness.
 
   bool take_index_lock = GetParam();
@@ -218,10 +218,10 @@ TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
   // Mock upstream that takes much longer (1000ms sleep per result, different doc IDs)
   MockUpstream slowUpstream(n_docs, RS_RESULT_EOF, 1000, 100);
 
-  // Create shared sync reference and two depleters sharing it
+  // Create shared sync reference and two safe depleters sharing it
   StrongRef sync_ref = DepleterSync_New(2, take_index_lock);
-  ResultProcessor *fastDepleter = RPDepleter_New(StrongRef_Clone(sync_ref), &searchContexts[0], &searchContexts[2]);
-  ResultProcessor *slowDepleter = RPDepleter_New(StrongRef_Clone(sync_ref), &searchContexts[1], &searchContexts[2]);
+  ResultProcessor *fastDepleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), &searchContexts[0], &searchContexts[2]);
+  ResultProcessor *slowDepleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), &searchContexts[1], &searchContexts[2]);
   StrongRef_Release(sync_ref);  // Release our reference
 
   // Set up pipelines
@@ -281,8 +281,8 @@ TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
   slowDepleter->Free(slowDepleter);
 }
 
-TEST_P(RPDepleterTest, RPDepleter_Error) {
-  // Tests RPDepleter handling of upstream error: background thread gets error,
+TEST_P(RPSafeDepleterTest, RPSafeDepleter_Error) {
+  // Tests RPSafeDepleter handling of upstream error: background thread gets error,
   // main thread waits on condition variable, then propagates the error.
   // Mock upstream processor sends an error on the first call.
 
@@ -292,8 +292,8 @@ TEST_P(RPDepleterTest, RPDepleter_Error) {
 
   MockUpstream mockUpstream(0, RS_RESULT_ERROR);
 
-  // Create depleter processor with new sync reference
-  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
+  // Create safe depleter processor with new sync reference
+  ResultProcessor *depleter = RPSafeDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
@@ -329,7 +329,7 @@ TEST_P(RPDepleterTest, RPDepleter_Error) {
 // Instantiate the parameterized test with both true and false values
 INSTANTIATE_TEST_SUITE_P(
     LockingVariants,
-    RPDepleterTest,
+    RPSafeDepleterTest,
     ::testing::Values(false, true),
     [](const ::testing::TestParamInfo<bool>& info) {
       return info.param ? "WithIndexLock" : "WithoutIndexLock";

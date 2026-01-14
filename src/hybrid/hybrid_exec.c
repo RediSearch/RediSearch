@@ -127,11 +127,12 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       // Get the number of fields in the reply.
       // Excludes hidden fields, fields not included in RETURN and, score and language fields.
       SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
-      int excludeFlags = RLOOKUP_F_HIDDEN;
-      int requiredFlags = RLOOKUP_F_NOFLAGS;  //Hybrid does not use RETURN fields; it uses LOAD fields instead
-      int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
-      memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, requiredFlags, excludeFlags, rule);
+      uint32_t excludeFlags = RLOOKUP_F_HIDDEN;
+      uint32_t requiredFlags = RLOOKUP_F_NOFLAGS;  // Hybrid does not use RETURN fields; it uses LOAD fields instead
+      size_t skipFieldIndex_len = lk->rowlen;
+      bool skipFieldIndex[skipFieldIndex_len]; // After calling `RLookup_GetLength` will contain `false` for fields which we should skip below
+      memset(skipFieldIndex, 0, skipFieldIndex_len * sizeof(*skipFieldIndex));
+      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, skipFieldIndex_len, requiredFlags, excludeFlags, rule);
 
       int i = 0;
       for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
@@ -430,7 +431,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
       if (backgroundDepletion) {
-        if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
+        if (areq->pipeline.qctx.endProc->type != RP_SAFE_DEPLETER) {
           break;
         }
         array_ensure_append_1(depleters, areq->pipeline.qctx.endProc);
@@ -457,7 +458,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     }
 
     if (backgroundDepletion) {
-      int rc = RPDepleter_DepleteAll(depleters);
+      int rc = RPSafeDepleter_DepleteAll(depleters);
       array_free(depleters);
       if (rc != RS_RESULT_OK) {
         array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));

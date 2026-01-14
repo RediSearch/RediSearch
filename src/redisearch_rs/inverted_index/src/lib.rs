@@ -254,6 +254,7 @@ pub trait TermDecoder: Decoder {}
 
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
+#[derive(Debug)]
 pub struct InvertedIndex<E> {
     /// The blocks of the index. Each block contains a set of entries for a specific range of
     /// document IDs. The entries and blocks themselves are ordered by document ID, so the first
@@ -871,6 +872,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
 /// A wrapper around the inverted index to track the total number of entries in the index.
 /// Unlike [`InvertedIndex::unique_docs()`], this counts all entries, including duplicates.
+#[derive(Debug)]
 pub struct EntriesTrackingIndex<E> {
     /// The underlying inverted index that stores the entries.
     index: InvertedIndex<E>,
@@ -1008,6 +1010,7 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
 
 /// A wrapper around the inverted index which tracks the fields for all the records in the index
 /// using a mask. This makes is easy to know if the index has any records for a specific field.
+#[derive(Debug)]
 pub struct FieldMaskTrackingIndex<E> {
     /// The underlying inverted index that stores the records.
     index: InvertedIndex<E>,
@@ -1188,6 +1191,9 @@ pub trait IndexReader<'index> {
     /// Check if the underlying index has been modified since the last time this reader read from it.
     /// If it has, then the reader should be reset before reading from it again.
     fn needs_revalidation(&self) -> bool;
+
+    /// Refresh buffer pointers in case blocks were reallocated without GC changes
+    fn refresh_buffer_pointers(&mut self);
 }
 
 /// Marker trait for readers producing numeric values.
@@ -1313,6 +1319,16 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
 
     fn needs_revalidation(&self) -> bool {
         self.gc_marker != self.ii.gc_marker.load(atomic::Ordering::Relaxed)
+    }
+
+    fn refresh_buffer_pointers(&mut self) {
+        if !self.ii.blocks.is_empty() && self.current_block_idx < self.ii.blocks.len() {
+            let current_block = &self.ii.blocks[self.current_block_idx];
+            // Update the cursor to point to the current position in the refreshed buffer
+            let position = self.current_buffer.position();
+            self.current_buffer = Cursor::new(&current_block.buffer);
+            self.current_buffer.set_position(position);
+        }
     }
 }
 
@@ -1462,6 +1478,10 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
     fn needs_revalidation(&self) -> bool {
         self.inner.needs_revalidation()
     }
+
+    fn refresh_buffer_pointers(&mut self) {
+        self.inner.refresh_buffer_pointers();
+    }
 }
 
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterMaskReader<IndexReaderCore<'index, E>> {
@@ -1594,6 +1614,10 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
 
     fn needs_revalidation(&self) -> bool {
         self.inner.needs_revalidation()
+    }
+
+    fn refresh_buffer_pointers(&mut self) {
+        self.inner.refresh_buffer_pointers();
     }
 }
 
@@ -1754,6 +1778,10 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
 
     fn needs_revalidation(&self) -> bool {
         self.inner.needs_revalidation()
+    }
+
+    fn refresh_buffer_pointers(&mut self) {
+        self.inner.refresh_buffer_pointers();
     }
 }
 

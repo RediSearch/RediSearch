@@ -13,9 +13,6 @@ on:
         description: 'Architecture (x86_64, aarch64)'
         type: string
         required: true
-      custom-env:
-        description: 'Environment/runner to use (overrides env from task-get-config)'
-        type: string
       san:
         type: string
       coverage:
@@ -31,6 +28,9 @@ on:
         type: boolean
         default: true
       standalone:
+        type: boolean
+        default: true
+      unit-tests:
         type: boolean
         default: true
       rejson:
@@ -55,20 +55,77 @@ env:
   COV: ${{ inputs.coverage && 1 || 0 }} # convert the boolean input to numeric
   # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
   RUST_BACKTRACE: "full"
+  # Fail on warnings
+  RUSTFLAGS: "-Dwarnings"
   BUILD_INTEL_SVS_OPT: "yes"
+  SETUP_RETRY_LOOP: |
+    SUCCESS=0
+    for i in 1 2 3 4 5; do
+      echo "Attempt $i of 5"
+      if {0}; then
+        echo "Setup succeeded"
+        SUCCESS=1
+        break
+      fi
+      if [ $i -lt 5 ]; then
+        echo "Setup failed, retrying in 30 seconds..."
+        sleep 30
+      fi
+    done
+    [ $SUCCESS -eq 1 ] || exit 1
 
 jobs:
   # Get configuration for this specific platform and architecture
   get-config:
+    name: Get build configurations for platform
     uses: ./.github/workflows/task-get-config.yml
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
+
+  # Start EC2 runner for self-hosted platforms (runs only if ec2_image_id is set in config)
+  start-runner:
+    needs: get-config
+    name: Start self-hosted EC2 runner
+    if: ${{ needs.get-config.outputs.ec2_image_id }}
+    runs-on: ubuntu-latest
+    env:
+      TAGS: | # Make sure there is no trailing comma!
+        [
+          {"Key": "Name",         "Value": "redisearch-ci-runner"},
+          {"Key": "Environment",  "Value": "CI"},
+          {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
+          {"Key": "PR",           "Value": "${{ github.event.number }}"},
+          {"Key": "Owner",        "Value": "${{ github.actor }}"},
+          {"Key": "Project",      "Value": "${{ github.repository }}"}
+        ]
+    outputs:
+      label: ${{ steps.start-ec2-runner.outputs.label }}
+      ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
+          aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
+      - name: Start EC2 runner
+        id: start-ec2-runner
+        uses: machulav/ec2-github-runner@v2
+        with:
+          mode: start
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          ec2-image-id: ${{ needs.get-config.outputs.ec2_image_id }}
+          ec2-instance-type: ${{ needs.get-config.outputs.ec2_instance_type }}
+          subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
+          security-group-id: ${{ secrets.AWS_EC2_SG_ID_BENCHMARK }}
+          aws-resource-tags: ${{ env.TAGS }}
+
   build-image:
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
     continue-on-error: true
-    name: Build container for ${{ needs.get-config.outputs.container  || needs.get-config.outputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    name: Build container for platform
     runs-on: ${{ needs.get-config.outputs.env }}
     permissions:
       contents: read
@@ -131,25 +188,60 @@ jobs:
           echo "succeeded=true" >> $GITHUB_OUTPUT
 
   common-flow:
-    needs: [get-config, build-image]
+    needs: [get-config, build-image, start-runner]
     name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
     # Run if get-config succeeded and at least one test type is enabled
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
-      (inputs.standalone || inputs.coordinator)
-    runs-on: ${{ inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
-    container: ${{ needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container || null }}
+      (!needs.get-config.outputs.ec2_image_id || needs.start-runner.result == 'success') &&
+      (inputs.standalone || inputs.coordinator || inputs.unit-tests)
+    runs-on: ${{ needs.get-config.outputs.ec2_image_id && needs.start-runner.outputs.label || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container: ${{
+      needs.get-config.outputs.container
+        && fromJSON(
+          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+            needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
+            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared' || '')
+        )
+      || null }}
+
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: Debug - Check build-image output
-        if: always()
+      - name: Install bash
+        if: needs.get-config.outputs.container == 'alpine:3.22'
+        shell: sh -l -eo pipefail {0}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
+
+      - name: Free up disk space (container)
+        # For container jobs - delete mounted host directories
+        if: ${{ needs.get-config.outputs.container }}
         run: |
-          echo "build-image.result: ${{ needs.build-image.result }}"
-          echo "build-image.outputs.succeeded: ${{ needs.build-image.outputs.succeeded }}"
-          echo "build-image.outputs.image: ${{ needs.build-image.outputs.image }}"
+          echo "Before cleanup:"
+          df -h
+          rm -rf /host_usr/dotnet/* 2>/dev/null || true
+          rm -rf /host_usr/android/* 2>/dev/null || true
+          rm -rf /host_opt/ghc/* 2>/dev/null || true
+          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+      - name: Free up disk space (non-container)
+        # For non-container jobs - delete directly with sudo
+        # Skip macOS - it doesn't have these directories
+        if: ${{ !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/share/boost || true
+          docker system prune -af 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
       - name: Fix HOME Directory
         if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
         shell: bash
@@ -166,43 +258,11 @@ jobs:
           echo "USER: $USER"
           echo "id: $(id)"
           echo "HOME=$h" >> $GITHUB_ENV
-      # Setup
-      # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
-      - name: Setup Dependencies (Alpine)
-        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3'
-        shell: sh -l -eo pipefail {0}
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ${{ needs.get-config.outputs.setup_script }}; then
-              echo "Setup Dependencies succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup Dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          [ $SUCCESS -eq 1 ] || exit 1
-      - name: Setup Dependencies (Non-Alpine)
-        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3'
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ${{ needs.get-config.outputs.setup_script }}; then
-              echo "Setup Dependencies succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup Dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          [ $SUCCESS -eq 1 ] || exit 1
+
+      - name: Setup Dependencies
+        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
+        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
+
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
@@ -215,7 +275,7 @@ jobs:
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
           CONTAINER="${{ needs.get-config.outputs.container }}"
-          for platform in amazonlinux:2 alpine:3; do
+          for platform in amazonlinux:2; do
             if [[ "$CONTAINER" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
@@ -245,7 +305,7 @@ jobs:
           CONTAINER="${{ needs.get-config.outputs.container }}"
           echo "Detected platform: $CONTAINER"
           case "$CONTAINER" in
-            amazonlinux:2 | alpine:3)
+            amazonlinux:2)
 
               # Configure the safe directory
               git config --global --add safe.directory "/__w/$GITHUB_REPO"
@@ -297,30 +357,16 @@ jobs:
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ./install_script.sh ${{ steps.mode.outputs.mode }}; then
-              echo "Setup succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          if [ $SUCCESS -eq 0 ]; then
-            echo "Setup failed after 5 attempts"
-            exit 1
-          fi
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, './install_script.sh $MODE') }}
+
       # Cache Rust packages
       - uses: Swatinem/rust-cache@v2
         if: steps.node20.outputs.supported == 'true'
         with:
-          prefix-key: "v1-rust"
-          key: ${{ inputs.platform }}-${{ inputs.architecture }}
+          prefix-key: "v2-rust"
+          key: ${{ inputs.platform }}-${{ inputs.architecture }}-${{ inputs.san }}-${{ inputs.coverage && 'cov' || '' }}
           # The cargo workspaces and target directory configuration.
           # These entries are separated by newlines and have the form
           # `$workspace -> $target`. The `$target` part is treated as a directory
@@ -332,51 +378,24 @@ jobs:
         run: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
 
       - name: Setup Python test dependencies
-        run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if .install/test_deps/install_python_deps.sh ${{ steps.mode.outputs.mode }}; then
-              echo "Setup tests dependencies succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup tests dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          if [ $SUCCESS -eq 0 ]; then
-            echo "Setup tests dependencies failed after 5 attempts"
-            exit 1
-          fi
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, '.install/test_deps/install_python_deps.sh $MODE') }}
       - name: Install LLVM for sanitizer
         if: inputs.san == 'address'
         working-directory: .install
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
         run: |
-          SUCCESS=0
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ./install_llvm.sh ${{ steps.mode.outputs.mode }}; then
-              echo "Install LLVM for sanitizer succeeded"
-              CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
-              CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
-              echo "Using LLVM version: $CLANG_VERSION"
-              echo "CC=$CLANG_BIN" >> $GITHUB_ENV
-              echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
-              echo "LD=$CLANG_BIN" >> $GITHUB_ENV
-              SUCCESS=1
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Install LLVM for sanitizer failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          if [ $SUCCESS -eq 0 ]; then
-            echo "Install LLVM for sanitizer failed after 5 attempts"
-            exit 1
-          fi
+          ${{ format(env.SETUP_RETRY_LOOP, './install_llvm.sh $MODE') }}
+          echo "Install LLVM for sanitizer succeeded"
+          CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
+          CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
+          echo "Using LLVM version: $CLANG_VERSION"
+          echo "CC=$CLANG_BIN" >> $GITHUB_ENV
+          echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
+          echo "LD=$CLANG_BIN" >> $GITHUB_ENV
+          echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
       - name: Get Redis (node20)
         if: ${{ steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
@@ -421,9 +440,16 @@ jobs:
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
+      - name: Check disk space after build
+        run: |
+          echo "Disk space after build:"
+          df -h
+          echo "Total Repo Size:"
+          du -sh . 2>/dev/null || echo "Failed to get repo size"
       - name: "C/C++ tests"
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: c_unit_tests
+        if: ${{ inputs.unit-tests }}
         continue-on-error: ${{ !inputs.fail-fast }}
         env:
           SAN: ${{ inputs.san }}
@@ -434,6 +460,7 @@ jobs:
       - name: Rust tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: rust_unit_tests
+        if: ${{ inputs.unit-tests }}
         continue-on-error: ${{ !inputs.fail-fast }}
         env:
           SAN: ${{ inputs.san }}
@@ -471,9 +498,23 @@ jobs:
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
 
+      - name: Rust tests (MIRI)
+        if: inputs.san == 'address' && inputs.unit-tests
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: rust_unit_tests_miri
+        continue-on-error: ${{ !inputs.fail-fast }}
+        env:
+          RUN_MIRI: 1
+          LOG: 1
+          CLEAR_LOGS: 0
+          ENABLE_ASSERT: 1
+        run: make rust-tests
+
       - name: Check test logs folder size
         if: always()
         run: |
+          echo "=== Total Repo Size ==="
+          du -sh . 2>/dev/null || echo "Failed to get repo size"
           echo "=== Test Logs Folder Size ==="
           if [ -d "tests" ]; then
             echo "Total tests directory size:"
@@ -513,7 +554,13 @@ jobs:
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'true' &&
-          (steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
+          failure() || (
+            (steps.rust_unit_tests_miri.outcome == 'failure') ||
+            steps.rust_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' ||
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -528,20 +575,38 @@ jobs:
       - name: Upload Artifacts (node20 not supported) (temporarily disabled)
         if: >
           steps.node20.outputs.supported == 'false' &&
-          (steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
+          failure() || (
+            (steps.rust_unit_tests_miri.outcome == 'failure') ||
+            steps.rust_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' ||
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
         run: echo "Currently not available..."
 
       - name: Fail flow if tests failed
-        if: steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
+        # due to continue-on-error, we need to check failure() explicitly for step to run
+        # otherwise github implicitly adds a success() condition to the if and the job gets skipped
+        if: |
+          failure() || (
+            (steps.rust_unit_tests_miri.outcome == 'failure') ||
+            steps.rust_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' ||
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
         run: |
-          echo "Rust Unit Tests: ${{ steps.rust_unit_tests.outcome }}"
           echo "C Unit Tests: ${{ steps.c_unit_tests.outcome }}"
+          echo "Rust Unit Tests: ${{ steps.rust_unit_tests.outcome }}"
+          echo "Rust Unit Tests(Miri): ${{ steps.rust_unit_tests_miri.outcome }}"
           echo "Standalone: ${{ steps.standalone_tests.outcome }}"
           echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
           exit 1
-
-      - name: Upload flow coverage
+      - name: Import Codecov GPG public key
         if: inputs.coverage
+        run: gpg --import .github/codecov_gpg.pub
+      - name: Upload flow coverage (combined)
+        if: inputs.coverage && inputs.standalone && inputs.coordinator
         uses: codecov/codecov-action@v5
         with:
           files: bin/flow_standalone.info,bin/flow_coordinator.info
@@ -549,8 +614,26 @@ jobs:
           flags: flow
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload flow coverage (standalone)
+        if: inputs.coverage && inputs.standalone && !inputs.coordinator
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_standalone.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload flow coverage (coordinator)
+        if: inputs.coverage && !inputs.standalone && inputs.coordinator
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_coordinator.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
-        if: inputs.coverage
+        if: inputs.coverage && inputs.unit-tests
         uses: codecov/codecov-action@v5
         with:
           files: bin/unit.info,bin/rust_cov.info
@@ -558,3 +641,24 @@ jobs:
           flags: unit
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  # Stop EC2 runner for self-hosted platforms (always runs if `start-runner` succeeds, to ensure cleanup)
+  stop-runner:
+    name: Stop self-hosted EC2 runner
+    needs: [start-runner, common-flow]
+    if: ${{ always() && needs.start-runner.outputs.ec2-instance-id != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
+          aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
+      - name: Stop EC2 runner
+        uses: machulav/ec2-github-runner@v2
+        with:
+          mode: stop
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          label: ${{ needs.start-runner.outputs.label }}
+          ec2-instance-id: ${{ needs.start-runner.outputs.ec2-instance-id }}

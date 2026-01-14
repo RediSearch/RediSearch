@@ -10,7 +10,7 @@
 #include <algorithm>
 #include "rmutil/alloc.h"
 #include "gtest/gtest.h"
-#include "src/iterators/wildcard_iterator.h"
+#include "iterators_rs.h"
 
 class WildcardIteratorTest : public ::testing::Test {
 protected:
@@ -32,17 +32,11 @@ TEST_F(WildcardIteratorTest, Revalidate) {
 }
 
 TEST_F(WildcardIteratorTest, InitialState) {
-  WildcardIterator *wi = (WildcardIterator *)iterator_base;
-
   // Test initial state
-  ASSERT_EQ(wi->topId, maxDocId);
-  ASSERT_EQ(wi->currentId, 0);
   ASSERT_FALSE(iterator_base->atEOF);
   ASSERT_EQ(iterator_base->lastDocId, 0);
   ASSERT_EQ(iterator_base->type, WILDCARD_ITERATOR);
   ASSERT_EQ(iterator_base->current->weight, weight);
-
-  // Test NumEstimated returns the correct number of docs
   ASSERT_EQ(iterator_base->NumEstimated(iterator_base), maxDocId);
 }
 
@@ -86,13 +80,11 @@ TEST_F(WildcardIteratorTest, Rewind) {
     iterator_base->Read(iterator_base);
   }
   ASSERT_EQ(iterator_base->current->docId, 10);
-  ASSERT_EQ(((WildcardIterator *)iterator_base)->currentId, 10);
   ASSERT_EQ(iterator_base->lastDocId, 10);
   ASSERT_EQ(iterator_base->current->weight, weight);
 
   // Test that Rewind resets the iterator
   iterator_base->Rewind(iterator_base);
-  ASSERT_EQ(((WildcardIterator *)iterator_base)->currentId, 0);
   ASSERT_EQ(iterator_base->lastDocId, 0);
   ASSERT_FALSE(iterator_base->atEOF);
   ASSERT_EQ(iterator_base->current->weight, weight);

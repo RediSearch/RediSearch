@@ -41,14 +41,22 @@ jobs:
       include-basic-test: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true' || contains(github.event.pull_request.labels.*.name, 'enforce:test') }}
       include-coverage: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:coverage')) }}
       include-sanitize: ${{ (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
+      separate-coordinator-job: true
 
   test-matrix:
-    needs: [check-what-changed, get-latest-redis-tag, generate-basic-matrix, spellcheck]
+    name: ${{ matrix.job-type }}${{ matrix.test-mode == 'standalone' && ' (Standalone)' || (matrix.test-mode == 'coordinator' && ' (Coordinator-only)' || '') }}
+    needs:
+      - check-what-changed
+      - get-latest-redis-tag
+      - generate-basic-matrix
+      - spellcheck
     # Run if there are jobs AND (spellcheck succeeded or was skipped)
     if: ${{ needs.generate-basic-matrix.outputs.has-jobs == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     strategy:
       matrix: ${{ fromJson(needs.generate-basic-matrix.outputs.matrix) }}
-      fail-fast: true
+      # in the case of pull requests we want to run all jobs, even if one fails
+      # we aren't blocking anybody from merging, and we want to see all failures
+      fail-fast: false
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
@@ -56,6 +64,9 @@ jobs:
       architecture: x86_64
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
+      coordinator: ${{ matrix.test-mode != 'standalone' }}
+      standalone: ${{ matrix.test-mode != 'coordinator' }}
+      unit-tests: ${{ matrix.test-mode != 'coordinator' }}
       coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
       san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
       rejson-branch: master

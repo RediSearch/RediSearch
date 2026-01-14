@@ -7,16 +7,5 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#pragma once
-
-#include "iterator_api.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-QueryIterator *NewEmptyIterator(void);
-
-#ifdef __cplusplus
-}
-#endif
+mod timeout;
+pub use timeout::TimeoutContext;
