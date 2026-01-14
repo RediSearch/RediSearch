@@ -70,3 +70,8 @@ pub unsafe extern "C" fn RSValue_NewTrio(
     )))
     .into_raw() as *mut _
 }
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NullStatic() -> *mut RsValue {
+    SharedRsValue::null_static().into_raw() as *mut _
+}

@@ -205,3 +205,15 @@ pub extern "C" fn SharedRsValue_NewMap(map: RsValueMap) -> *const RsValue {
     let shared_value = SharedRsValue::new(RsValue::Map(map));
     shared_value.into_raw()
 }
+
+/// Decrement the reference count of the provided [`RsValue`] object. If this was
+/// the last available reference, it frees the data.
+///
+/// # Safety
+///
+/// 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
+///    `RSValue_*` function returning an owned [`RsValue`] object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_DecrRef(value: *const RsValue) {
+    let _ = unsafe { SharedRsValue::from_raw(value) };
+}
