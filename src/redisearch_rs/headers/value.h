@@ -307,6 +307,8 @@ struct RsValue *RSValue_NewParsedNumber(const char *value,
  */
 struct RsValue *RSValue_NewNumberFromInt64(int64_t number);
 
+struct RsValue *RSValue_NullStatic(void);
+
 /**
  * Convert the [`RsValue`] to a number. Returns `true` when this value is a number
  * or a numeric string that can be converted and writes the number to `d`. If
