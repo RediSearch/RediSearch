@@ -104,7 +104,10 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     // if it didn't then it will be marked as unresolved
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     const RLookupKey *docKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
-    HybridLookupContext *lookupCtx = HybridLookupContext_New(req->requests, tailLookup);
+    // Pass whether LOAD * is active so RLookupRow_WriteFieldsFrom knows whether
+    // to create missing keys
+    bool createMissingKeys = (req->reqflags & QEXEC_AGG_LOAD_ALL) != 0;
+    HybridLookupContext *lookupCtx = HybridLookupContext_New(req->requests, tailLookup, createMissingKeys);
     ResultProcessor *merger = RPHybridMerger_New(params->aggregationParams.common.sctx,
                                                  params->scoringCtx, upstreams, req->nrequests,
                                                  docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
@@ -126,8 +129,13 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     // Init lookup since we dont call buildQueryPart
     RLookup_Init(tailLookup, IndexSpec_GetSpecCache(req->sctx->spec));
 
-    // Add keys from all source lookups to create unified schema before opening the score key
-    HybridRequest_SynchronizeLookupKeys(req);
+    // Add keys from all source lookups to create unified schema before opening
+    // the score key.
+    // Skip for 'LOAD *' - keys are created dynamically during loading and will
+    // be synchronized lazily in RLookupRow_WriteFieldsFrom when first needed.
+    if (!(req->reqflags & QEXEC_AGG_LOAD_ALL)) {
+      HybridRequest_SynchronizeLookupKeys(req);
+    }
 
     const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, params->aggregationParams.common.scoreAlias, &req->tailPipelineError);
     if (QueryError_HasError(&req->tailPipelineError)) {
