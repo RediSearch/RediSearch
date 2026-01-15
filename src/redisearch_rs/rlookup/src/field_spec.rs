@@ -9,9 +9,7 @@
 
 use crate::hidden_string::HiddenString;
 
-/// A safe wrapper around a pointer an `ffi::FieldSpec`.
-///
-/// We wrap the `FieldSpec` C implementation here.
+/// A safe wrapper around an `ffi::FieldSpec`.
 #[repr(transparent)]
 pub struct FieldSpec(ffi::FieldSpec);
 
@@ -20,9 +18,8 @@ impl FieldSpec {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a valid non-null pointer to a [`ffi::FieldSpec`].
-    ///    that upholds the requirements of the corresponding C implementation.
-    /// 2. `field_name` and `fieldPath` must be valid non-null pointers to [`ffi::HiddenString`]s.
+    /// 1. `ptr` must be a valid non-null pointer to an `ffi::FieldSpec` that is properly initialized.
+    ///    This also applies to any of its subfields.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw<'a>(ptr: *const ffi::FieldSpec) -> &'a Self {
@@ -37,12 +34,12 @@ impl FieldSpec {
     }
 
     pub const fn field_name(&self) -> &HiddenString {
-        // Safety: (2.) due to creation with `FieldSpec::from_raw`
+        // Safety: (1.) due to creation with `FieldSpec::from_raw`
         unsafe { HiddenString::from_raw(self.0.fieldName) }
     }
 
     pub const fn field_path(&self) -> &HiddenString {
-        // Safety: (2.) due to creation with `FieldSpec::from_raw`
+        // Safety: (1.) due to creation with `FieldSpec::from_raw`
         unsafe { HiddenString::from_raw(self.0.fieldPath) }
     }
 }
