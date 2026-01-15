@@ -448,6 +448,62 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
     unsafe { lookup.unwrap().drop_in_place() };
 }
 
+/// Initialize the lookup with fields from hash.
+///
+/// # Safety
+///
+/// 1. `module_ctx` must be a [valid], non-null pointer to an `ffi::RedisModuleCtx` that is properly initialized.
+/// 2. `lookup` must be a [valid], non-null pointer to an `RLookup` that is properly initialized.
+/// 3. `dst_row` must be a [valid], non-null pointer to an `RLookupRow` that is properly initialized.
+/// 4. `index_spec` must be a [valid], non-null pointer to an `ffi::IndexSpec` that is properly initialized.
+///    This also applies to any of its subfields.
+/// 5. The memory pointed to by `key` must contain a valid nul terminator at the
+///    end of the string.
+/// 6. `key` must be [valid] for reads of bytes up to and including the nul terminator.
+///    This means in particular:
+///     1. The entire memory range of this `CStr` must be contained within a single allocation!
+///     2. `key` must be non-null even for a zero-length cstr.
+/// 7. The nul terminator must be within `isize::MAX` from `key`
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_LoadRuleFields(
+    module_ctx: Option<NonNull<ffi::RedisModuleCtx>>,
+    lookup: Option<NonNull<RLookup<'_>>>,
+    dst_row: Option<NonNull<RLookupRow>>,
+    index_spec: Option<NonNull<ffi::IndexSpec>>,
+    key: *const c_char,
+) -> i32 {
+    // Safety: ensured by caller (1.)
+    let ctx = unsafe { module_ctx.unwrap().as_mut() };
+
+    // Safety: ensured by caller (2.)
+    let lookup = unsafe { lookup.unwrap().as_mut() };
+
+    // Safety: ensured by caller (3.)
+    let dst_row = unsafe { dst_row.unwrap().as_mut() };
+
+    // Safety: ensured by caller (4.)
+    let index_spec = unsafe { IndexSpec::from_raw(index_spec.unwrap().as_ref()) };
+
+    // Safety: ensured by caller (5., 6., 7.)
+    let key = unsafe { CStr::from_ptr(key) };
+
+    lookup.load_rule_fields(ctx, dst_row, index_spec, key)
+}
+
+/// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
+fn maybe_allocate_and_clear_flag(
+    name: &CStr,
+    flags: RLookupKeyFlags,
+) -> (Cow<'_, CStr>, RLookupKeyFlags) {
+    if flags.contains(RLookupKeyFlag::NameAlloc) {
+        (name.to_owned().into(), flags & !RLookupKeyFlag::NameAlloc)
+    } else {
+        (name.into(), flags)
+    }
+}
+
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
 fn handle_name_alloc_flag(name: &CStr, flags: RLookupKeyFlags) -> (Cow<'_, CStr>, RLookupKeyFlags) {
     if flags.contains(RLookupKeyFlag::NameAlloc) {

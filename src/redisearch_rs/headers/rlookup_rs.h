@@ -429,6 +429,32 @@ void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
 void RLookup_Cleanup(struct RLookup *lookup);
 
 /**
+ * Initialize the lookup with fields from hash.
+ *
+ * # Safety
+ *
+ * 1. `module_ctx` must be a [valid], non-null pointer to an `ffi::RedisModuleCtx` that is properly initialized.
+ * 2. `lookup` must be a [valid], non-null pointer to an `RLookup` that is properly initialized.
+ * 3. `dst_row` must be a [valid], non-null pointer to an `RLookupRow` that is properly initialized.
+ * 4. `index_spec` must be a [valid], non-null pointer to an `ffi::IndexSpec` that is properly initialized.
+ *    This also applies to any of its subfields.
+ * 5. The memory pointed to by `key` must contain a valid nul terminator at the
+ *    end of the string.
+ * 6. `key` must be [valid] for reads of bytes up to and including the nul terminator.
+ *    This means in particular:
+ *     1. The entire memory range of this `CStr` must be contained within a single allocation!
+ *     2. `key` must be non-null even for a zero-length cstr.
+ * 7. The nul terminator must be within `isize::MAX` from `key`
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int32_t RLookup_LoadRuleFields(RedisModuleCtx *module_ctx,
+                               struct RLookup *lookup,
+                               RLookupRow *dst_row,
+                               IndexSpec *index_spec,
+                               const char *key);
+
+/**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
  *
  * # Safety
