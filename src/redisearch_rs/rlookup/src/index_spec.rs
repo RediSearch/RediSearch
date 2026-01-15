@@ -29,6 +29,11 @@ impl IndexSpec {
         unsafe { ptr.cast::<Self>().as_ref().unwrap() }
     }
 
+    #[cfg(test)]
+    pub fn from_ffi(value: ffi::IndexSpec) -> Self {
+        Self(value)
+    }
+
     pub const fn rule(&self) -> &SchemaRule {
         // Safety: (1.) due to creation with `IndexSpec::from_raw`
         unsafe { SchemaRule::from_raw(self.0.rule) }
