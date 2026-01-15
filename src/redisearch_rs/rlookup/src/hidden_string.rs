@@ -10,8 +10,6 @@
 use std::{ffi::CStr, ptr, slice};
 
 /// A safe wrapper around an `ffi::HiddenString`.
-///
-/// We wrap the `HiddenString` C implementation here.
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct HiddenString(ffi::HiddenString);
@@ -21,8 +19,8 @@ impl HiddenString {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a valid non-null pointer to a valid [`ffi::HiddenString`]
-    ///    that upholds the requirements of the corresponding C implementation.
+    /// 1. `ptr` must be a valid non-null pointer to an `ffi::HiddenString` that is properly initialized.
+    ///    This also applies to any of its subfields.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw<'a>(ptr: *const ffi::HiddenString) -> &'a Self {

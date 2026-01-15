@@ -18,9 +18,7 @@ use crate::RLookupKey;
 
 /// A safe wrapper around an `ffi::SchemaRule`.
 ///
-/// # Safety
-///
-/// We wrap the SchemaRule C implementation here.
+/// # Type invariants
 ///
 /// Given a valid SchemaRule pointer, the fields `lang_field`, `score_field`, and `payload_field`
 /// are guaranteed to either be null or point to valid C strings. So we assume these invariants:
@@ -28,11 +26,6 @@ use crate::RLookupKey;
 /// 1. If `lang_field` is non-null, it points to a valid C string.
 /// 2. If `score_field` is non-null, it points to a valid C string.
 /// 3. If `payload_field` is non-null, it points to a valid C string.
-///
-/// We also assume that
-/// 4. `filter_fields` is a valid non-null pointer to an `array_t` type array of non-null pointers to valid C strings.
-/// 5. `filter_fields_index` is a valid non-null pointer to a regular type array of ints.
-/// 6. the number of elements in the `filter_fields` and `filter_fields_index` arrays are equal.
 #[repr(transparent)]
 pub struct SchemaRule(ffi::SchemaRule);
 
@@ -41,7 +34,10 @@ impl SchemaRule {
     ///
     /// # Safety
     ///
-    /// 1. The caller must ensure that the given pointer upholds the safety invariants described on the type documentation.
+    /// 1. `ptr` must be a [valid], non-null pointer to an `IndexSpec` that is properly initialized.
+    ///    This also applies to any of its subfields.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw<'a>(ptr: *const ffi::SchemaRule) -> &'a Self {
         // Safety: ensured by caller (1.)
         unsafe { ptr.cast::<Self>().as_ref().unwrap() }
@@ -49,19 +45,19 @@ impl SchemaRule {
 
     /// Get the language field [`CStr`], if present.
     pub const fn lang_field(&self) -> Option<&CStr> {
-        // Safety: (1) due to creation with `SchemaRule::from_raw` its field pointers are valid or null, (2) lifetime tied to `self.0.lang_field`.
+        // Safety: (1.) due to creation with `SchemaRule::from_raw` its field pointers are valid or null, (2) lifetime tied to `self.0.lang_field`.
         unsafe { maybe_cstr_from_ptr(self.0.lang_field) }
     }
 
     /// Get the score field [`CStr`], if present.
     pub const fn score_field(&self) -> Option<&CStr> {
-        // Safety: (1) due to creation with `SchemaRule::from_raw` its field pointers are valid or null, (2) lifetime tied to `self.0.score_field`.
+        // Safety: (1.) due to creation with `SchemaRule::from_raw` its field pointers are valid or null, (2) lifetime tied to `self.0.score_field`.
         unsafe { maybe_cstr_from_ptr(self.0.score_field) }
     }
 
     /// Get the payload field [`CStr`], if present.
     pub const fn payload_field(&self) -> Option<&CStr> {
-        // Safety: (1) due to creation with `SchemaRule::from_raw` its field pointers are valid or null, (2) lifetime tied to `self.0.payload_field`.
+        // Safety: (1.) due to creation with `SchemaRule::from_raw` its field pointers are valid or null, (2) lifetime tied to `self.0.payload_field`.
         unsafe { maybe_cstr_from_ptr(self.0.payload_field) }
     }
 
@@ -80,12 +76,12 @@ impl SchemaRule {
             !self.0.filter_fields.is_null(),
             "filter_fields must not be null"
         );
-        // Safety: (4.) due to creation with `SchemaRule::from_raw`
+        // Safety: (1.) due to creation with `SchemaRule::from_raw`
         let filter_fields = unsafe { slice::from_raw_parts(self.0.filter_fields, len) };
         filter_fields
             .iter()
             .map(|&c|
-                // Safety: (4.) due to creation with `SchemaRule::from_raw`
+                // Safety: (1.) due to creation with `SchemaRule::from_raw`
                 unsafe { CStr::from_ptr(c) })
             .collect::<Vec<_>>()
     }
@@ -97,13 +93,13 @@ impl SchemaRule {
             !self.0.filter_fields_index.is_null(),
             "filter_fields_index must not be null"
         );
-        // Safety: (5., 6.) due to creation with `SchemaRule::from_raw`
+        // Safety: (1.) due to creation with `SchemaRule::from_raw`
         unsafe { slice::from_raw_parts(self.0.filter_fields_index, len) }
     }
 
     /// Get the length of the `filter_fields` array.
     fn filter_fields_len(&self) -> usize {
-        // Safety: (4.) due to creation with `SchemaRule::from_raw`
+        // Safety: (1.) due to creation with `SchemaRule::from_raw`
         unsafe { ffi::array_len_func(self.0.filter_fields as ffi::array_t) }
             .try_into()
             .expect("array_len must not exceed usize")
