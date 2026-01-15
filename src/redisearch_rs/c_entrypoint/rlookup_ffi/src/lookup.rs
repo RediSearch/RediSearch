@@ -483,15 +483,3 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
 
     lookup.load_rule_fields(ctx, dst_row, index_spec, key)
 }
-
-/// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
-fn maybe_allocate_and_clear_flag(
-    name: &CStr,
-    flags: RLookupKeyFlags,
-) -> (Cow<'_, CStr>, RLookupKeyFlags) {
-    if flags.contains(RLookupKeyFlag::NameAlloc) {
-        (name.to_owned().into(), flags & !RLookupKeyFlag::NameAlloc)
-    } else {
-        (name.into(), flags)
-    }
-}
