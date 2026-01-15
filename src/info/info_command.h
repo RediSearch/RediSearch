@@ -8,12 +8,21 @@
 */#pragma once
 
 #include "redismodule.h"
+#include "spec.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int IndexObfuscatedInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
+/**
+ * Output basic index info in a crash-safe manner (no allocations, no locks).
+ * Can be called from crash/signal handlers.
+ */
+void fillReplyWithIndexInfoCrashSafe(const IndexSpec *sp, RedisModuleInfoCtx *info_ctx, bool obfuscate);
+
 #ifdef __cplusplus
 }
 #endif

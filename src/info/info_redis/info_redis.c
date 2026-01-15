@@ -345,7 +345,7 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
                                    RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor);
 }
 
-// IF the crashing thread worked on a spec, output the spec name
+// IF the crashing thread worked on a spec, output the spec name and info
 void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
   SpecInfo *specInfo = CurrentThread_TryGetSpecInfo();
   RedisModule_InfoAddSection(ctx, "current_thread");
@@ -361,7 +361,10 @@ void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
       RedisModule_InfoAddFieldCString(ctx, "index", specInfo->specName ? specInfo->specName : "n/a");
     } else {
       RedisModule_InfoAddFieldCString(ctx, "index", IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
-      // output FT.INFO
+
+      // Output FT.INFO in a crash-safe manner (no allocations, no locks)
+      // Reuses the same logic as FT.INFO command but adapted for crash context
+      fillReplyWithIndexInfoCrashSafe(spec, ctx, RSGlobalConfig.hideUserDataFromLog);
     }
   }
 }
