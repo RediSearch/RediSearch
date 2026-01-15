@@ -44,7 +44,6 @@ def test_query_thread_crash():
     env.assertTrue(
         expect_query_crash_output(env, [
             "search_current_thread",
-            "search_index:idx",
             "search_index_name:idx",
             "search_num_docs:",
             "search_max_doc_id:",
@@ -68,7 +67,6 @@ def test_query_thread_crash_with_rust_panic():
                 # The panic message
                 'A panic occurred in the Rust code panic.payload="Crash in Rust code"',
                 "search_current_thread",
-                "search_index:idx",
                 "search_index_name:idx",
                 "search_num_docs:",
                 "search_inverted_sz_mb:",
