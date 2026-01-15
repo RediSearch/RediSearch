@@ -17,25 +17,19 @@ use ffi::DocumentType;
 use crate::RLookupKey;
 
 /// A safe wrapper around an `ffi::SchemaRule`.
-///
-/// # Type invariants
-///
-/// Given a valid SchemaRule pointer, the fields `lang_field`, `score_field`, and `payload_field`
-/// are guaranteed to either be null or point to valid C strings. So we assume these invariants:
-///
-/// 1. If `lang_field` is non-null, it points to a valid C string.
-/// 2. If `score_field` is non-null, it points to a valid C string.
-/// 3. If `payload_field` is non-null, it points to a valid C string.
 #[repr(transparent)]
 pub struct SchemaRule(ffi::SchemaRule);
 
 impl SchemaRule {
-    /// Create a SchemaRule from a non-null pointer.
+    /// Create a `SchemaRule` wrapper from a non-null pointer.
     ///
     /// # Safety
     ///
     /// 1. `ptr` must be a [valid], non-null pointer to an `IndexSpec` that is properly initialized.
-    ///    This also applies to any of its subfields.
+    ///    This also applies to any of its subfields. Specifically:
+    ///    1. If `lang_field` is non-null, it points to a valid C string.
+    ///    2. If `score_field` is non-null, it points to a valid C string.
+    ///    3. If `payload_field` is non-null, it points to a valid C string.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw<'a>(ptr: *const ffi::SchemaRule) -> &'a Self {
@@ -45,19 +39,19 @@ impl SchemaRule {
 
     /// Get the language field [`CStr`], if present.
     pub const fn lang_field(&self) -> Option<&CStr> {
-        // Safety: (1.) due to creation with `SchemaRule::from_raw` its field pointers are valid or null, (2) lifetime tied to `self.0.lang_field`.
+        // Safety: (1.) due to creation with `SchemaRule::from_raw`
         unsafe { maybe_cstr_from_ptr(self.0.lang_field) }
     }
 
     /// Get the score field [`CStr`], if present.
     pub const fn score_field(&self) -> Option<&CStr> {
-        // Safety: (1.) due to creation with `SchemaRule::from_raw` its field pointers are valid or null, (2) lifetime tied to `self.0.score_field`.
+        // Safety: (1.) due to creation with `SchemaRule::from_raw`
         unsafe { maybe_cstr_from_ptr(self.0.score_field) }
     }
 
     /// Get the payload field [`CStr`], if present.
     pub const fn payload_field(&self) -> Option<&CStr> {
-        // Safety: (1.) due to creation with `SchemaRule::from_raw` its field pointers are valid or null, (2) lifetime tied to `self.0.payload_field`.
+        // Safety: (1.) due to creation with `SchemaRule::from_raw`
         unsafe { maybe_cstr_from_ptr(self.0.payload_field) }
     }
 
@@ -88,6 +82,7 @@ impl SchemaRule {
 
     /// Expose the underlying `filter_fields_index` as a slice of ints.
     pub fn filter_fields_index(&self) -> &[i32] {
+        // These two arrays are assumed to be of the same length.
         let len = self.filter_fields_len();
         debug_assert!(
             !self.0.filter_fields_index.is_null(),
