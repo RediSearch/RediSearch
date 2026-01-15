@@ -284,8 +284,11 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
     case RSExpr_Property:
       expr->property.lookupObj = RLookup_GetKey_Read(lookup, expr->property.key, RLOOKUP_F_NOFLAGS);
       if (!expr->property.lookupObj) {
-        QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY, "Property", " `%s` not loaded nor in pipeline",
-                               expr->property.key);
+        // Keep wording aligned with other NO_PROP_KEY call sites (and tests): this can mean the
+        // property is neither available from the current row/pipeline nor loadable from the document.
+        QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY,
+                                     "Property is not present in document or pipeline", ": `%s`",
+                                     expr->property.key);
         return EXPR_EVAL_ERR;
       }
       break;

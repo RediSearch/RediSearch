@@ -572,7 +572,9 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   QueryError status = QueryError_Default();
 
   if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
-    QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_FLEX_LIMIT_NUMBER_OF_INDEXES, "Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
+    QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_FLEX_LIMIT_NUMBER_OF_INDEXES,
+                                     "SEARCH_FLEX_LIMIT_NUMBER_OF_INDEXES: Max number of indexes reached for Flex indexes: %zu",
+                                     Indexes_Count());
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
     return REDISMODULE_OK;
@@ -1158,7 +1160,9 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "ERRBADVAL Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
+    return RedisModule_ReplyWithErrorFormat(ctx,
+                                           "SEARCH_FLEX_LIMIT_NUMBER_OF_INDEXES: Max number of indexes reached for Flex indexes: %zu",
+                                           Indexes_Count());
   }
 
   int rc = IndexSpec_Deserialize(argv[3], encodeVersion);

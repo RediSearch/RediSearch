@@ -1616,7 +1616,7 @@ void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status,
     }
     if (isKnownArg) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
-        "Unsupported argument for Flex index:", " `%s`", badarg);
+        "SEARCH_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT: Unsupported argument for Flex index:", " `%s`", badarg);
     } else {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_UNKNOWN: Unknown argument", " `%s`", badarg);
     }
@@ -1687,7 +1687,8 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     }
   }
   if (invalid_flex_on_type) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT, "Only HASH is supported as index data type for Flex indexes");
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
+                        "SEARCH_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT: Only HASH is supported as index data type for Flex indexes");
     goto failure;
   }
 
@@ -1720,7 +1721,8 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     spec->diskSpec = SearchDisk_OpenIndex(name, len, spec->rule->type);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
     if (!spec->diskSpec) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
+                          "SEARCH_DISK_CREATION: Could not open disk index");
       goto failure;
     }
   }
@@ -1752,7 +1754,8 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   }
 
   if (isSpecOnDiskForValidation(spec) && !(spec->flags & Index_SkipInitialScan)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT, "Flex index requires SKIPINITIALSCAN argument");
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT,
+                        "SEARCH_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT: Flex index requires SKIPINITIALSCAN argument");
     goto failure;
   }
 

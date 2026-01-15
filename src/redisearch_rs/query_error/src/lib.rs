@@ -102,76 +102,74 @@ impl QueryErrorCode {
     pub const fn to_c_str(self) -> &'static CStr {
         match self {
             Self::Ok => c"Success (not an error)",
-            Self::Generic => c"Generic error evaluating the query",
-            Self::Syntax => c"Parsing/Syntax error for query string",
-            Self::ParseArgs => c"Error parsing query/aggregation arguments",
-            Self::AddArgs => c"Error parsing document indexing arguments",
-            Self::Expr => c"Parsing/Evaluating dynamic expression failed",
-            Self::Keyword => c"Could not handle query keyword",
-            Self::NoResults => c"Query matches no results",
-            Self::BadAttr => c"Attribute not supported for term",
-            Self::Inval => c"Could not validate the query nodes (bad attribute?)",
-            Self::BuildPlan => c"Could not build plan from query",
-            Self::ConstructPipeline => c"Could not construct query pipeline",
-            Self::NoReducer => c"Missing reducer",
-            Self::ReducerGeneric => c"Generic reducer error",
-            Self::AggPlan => c"Could not plan aggregation request",
-            Self::CursorAlloc => c"Could not allocate a cursor",
-            Self::ReducerInit => c"Could not initialize reducer",
-            Self::QString => c"Bad query string",
-            Self::NoPropKey => c"Property does not exist in schema",
-            Self::NoPropVal => c"Value was not found in result (not a hard error)",
-            Self::NoDoc => c"Document does not exist",
-            Self::NoOption => c"Invalid option",
-            Self::RedisKeyType => c"Invalid Redis key",
-            Self::InvalPath => c"Invalid path",
-            Self::IndexExists => c"Index already exists",
-            Self::BadOption => c"Option not supported for current mode",
-            Self::BadOrderOption => c"Path with undefined ordering does not support slop/inorder",
-            Self::Limit => c"Limit exceeded",
-            Self::NoIndex => c"Index not found",
-            Self::DocExists => c"Document already exists",
-            Self::DocNotAdded => c"Document was not added because condition was unmet",
-            Self::DupField => c"Field was specified twice",
-            Self::GeoFormat => cr#"Invalid lon/lat format. Use "lon lat" or "lon,lat""#,
-            Self::NoDistribute => c"Could not distribute the operation",
-            Self::UnsuppType => c"Unsupported index type",
-            Self::NotNumeric => c"Could not convert value to a number",
-            Self::TimedOut => c"Timeout limit was reached",
-            Self::NoParam => c"Parameter not found",
-            Self::DupParam => c"Parameter was specified twice",
-            Self::BadVal => c"Invalid value was given",
-            Self::NonHybrid => c"hybrid query attributes were sent for a non-hybrid query",
-            Self::HybridNonExist => c"invalid hybrid policy was given",
-            Self::AdhocWithBatchSize => c"'batch size' is irrelevant for the selected policy",
-            Self::AdhocWithEfRuntime => c"'EF_RUNTIME' is irrelevant for the selected policy",
-            Self::NonRange => c"range query attributes were sent for a non-range query",
-            Self::Missing => c"'ismissing' requires field to be defined with 'INDEXMISSING'",
-            Self::Mismatch => c"Index mismatch: Shard index is different than queried index",
-            Self::UnknownIndex => c"Unknown index name",
-            Self::DroppedBackground => c"The index was dropped before the query could be executed",
-            Self::DroppedDuringCursor => c"SEARCH_INDEX_DROPPED_DURING_CURSOR: The index was dropped while the cursor was idle",
-            Self::CursorInvalidId => c"SEARCH_CURSOR_INVALID_ID: Bad cursor ID",
-            Self::CursorNotFound => c"SEARCH_CURSOR_NOT_FOUND: Cursor not found",
-            Self::CursorDoesNotExist => c"SEARCH_CURSOR_DOES_NOT_EXIST: Cursor does not exist",
-            Self::ArgumentCountInvalid => c"SEARCH_ARGUMENT_COUNT_INVALID: Bad value for COUNT",
-            Self::CmdTypeMissing => c"SEARCH_CMD_TYPE_MISSING: No SEARCH or AGGREGATE provided",
-            Self::CmdSubcmdUnknown => c"SEARCH_CMD_SUBCMD_UNKNOWN: Unknown subcommand",
-            Self::AliasConflict => c"Alias conflicts with an existing index name",
-            Self::IndexBgOOMFail => c"Index background scan did not complete due to OOM",
-            Self::WeightNotAllowed => c"Weight attributes are not allowed",
-            Self::VectorNotAllowed => c"Vector queries are not allowed",
-            Self::OutOfMemory => c"Not enough memory available to execute the query",
-            Self::UnavailableSlots => c"Query requires unavailable slots",
-            Self::FlexLimitNumberOfIndexes => c"Flex index limit was reached",
-            Self::FlexUnsupportedField => c"Unsupported field for Flex index",
+            Self::Generic => c"SEARCH_GENERIC: Generic error evaluating the query",
+            Self::Syntax => c"SEARCH_SYNTAX: Parsing/Syntax error for query string",
+            Self::ParseArgs => c"SEARCH_PARSE_ARGS: Error parsing query/aggregation arguments",
+            Self::AddArgs => c"SEARCH_ADD_ARGS: Error parsing document indexing arguments",
+            Self::Expr => c"SEARCH_EXPR: Parsing/Evaluating dynamic expression failed",
+            Self::Keyword => c"SEARCH_KEYWORD: Could not handle query keyword",
+            Self::NoResults => c"SEARCH_NO_RESULTS: Query matches no results",
+            Self::BadAttr => c"SEARCH_ATTR_BAD: Attribute not supported for term",
+            Self::Inval => c"SEARCH_QUERY_BAD: Could not validate the query nodes (bad attribute?)",
+            Self::BuildPlan => c"SEARCH_BUILD_PLAN: Could not build plan from query",
+            Self::ConstructPipeline => c"SEARCH_CONSTRUCT_PIPELINE: Could not construct query pipeline",
+            Self::NoReducer => c"SEARCH_REDUCER_NOT_FOUND: Reducer not found",
+            Self::ReducerGeneric => c"SEARCH_REDUCER_ERROR: Generic reducer error",
+            Self::AggPlan => c"SEARCH_AGG_PLAN: Could not plan aggregation request",
+            Self::CursorAlloc => c"SEARCH_CURSOR_ALLOC_FAILED: Could not allocate a cursor",
+            Self::ReducerInit => c"SEARCH_REDUCER_INIT_FAILED: Could not initialize reducer",
+            Self::QString => c"SEARCH_QUERY_STRING_BAD: Bad query string",
+            // NOTE: This error code is used in multiple contexts (schema validation and runtime/pipeline
+            // evaluation). Keep the default message schema-neutral; call sites may provide more specific
+            // messages (e.g. "not loaded nor in pipeline") via QueryError_SetWithUserDataFmt.
+            Self::NoPropKey => c"SEARCH_PROP_NOT_FOUND: No such property",
+            Self::NoPropVal => c"SEARCH_VALUE_NOT_FOUND: Value not found in result (not a hard error)",
+            Self::NoDoc => c"SEARCH_DOC_NOT_FOUND: Document not found",
+            Self::NoOption => c"SEARCH_OPTION_BAD: Invalid option",
+            Self::RedisKeyType => c"SEARCH_REDIS_KEY_TYPE_BAD: Invalid Redis key",
+            Self::InvalPath => c"SEARCH_PATH_BAD: Invalid path",
+            Self::IndexExists => c"SEARCH_INDEX_EXISTS: Index already exists",
+            Self::BadOption => c"SEARCH_OPTION_BAD: Option not supported for current mode",
+            Self::BadOrderOption => c"SEARCH_ORDER_OPTION_BAD: Path with undefined ordering does not support slop/inorder",
+            Self::Limit => c"SEARCH_LIMIT_OVER: Limit exceeded",
+            Self::NoIndex => c"SEARCH_INDEX_NOT_FOUND: Index not found",
+            Self::DocExists => c"SEARCH_DOCUMENT_EXISTS: Document already exists",
+            Self::DocNotAdded => c"SEARCH_DOCUMENT_NOT_ADDED: Document was not added because condition was unmet",
+            Self::DupField => c"SEARCH_FIELD_DUP: Field was specified twice",
+            Self::GeoFormat => cr#"SEARCH_GEO_FORMAT_BAD: Invalid lon/lat format. Use "lon lat" or "lon,lat""#,
+            Self::NoDistribute => c"SEARCH_DIST_FAILED: Could not distribute the operation",
+            Self::UnsuppType => c"SEARCH_TYPE_UNSUP: Unsupported index type",
+            Self::NotNumeric => c"SEARCH_NUMERIC_CONVERT_FAILED: Could not convert value to a number",
+            Self::TimedOut => c"SEARCH_TIMEOUT: Timeout limit was reached",
+            Self::NoParam => c"SEARCH_PARAM_NOT_FOUND: Parameter not found",
+            Self::DupParam => c"SEARCH_PARAM_DUP: Parameter was specified twice",
+            Self::BadVal => c"SEARCH_VALUE_BAD: Invalid value was given",
+            Self::NonHybrid => c"SEARCH_HYBRID_ATTRS_BAD: hybrid query attributes were sent for a non-hybrid query",
+            Self::HybridNonExist => c"SEARCH_HYBRID_POLICY_BAD: invalid hybrid policy was given",
+            Self::AdhocWithBatchSize => c"SEARCH_ADHOC_BATCH_SIZE_BAD: 'batch size' is irrelevant for 'ADHOC_BF' policy",
+            Self::AdhocWithEfRuntime => c"SEARCH_ADHOC_EF_RUNTIME_BAD: 'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy",
+            Self::NonRange => c"SEARCH_RANGE_ATTRS_BAD: range query attributes were sent for a non-range query",
+            Self::Missing => c"SEARCH_FIELD_MISSING_REQ: 'ismissing' requires field to be defined with 'INDEXMISSING'",
+            Self::Mismatch => c"SEARCH_INDEX_MISMATCH: Index mismatch: Shard index is different than queried index",
+            Self::UnknownIndex => c"SEARCH_INDEX_NOT_FOUND: Index not found",
+            Self::DroppedBackground => c"SEARCH_INDEX_DROPPED_BG: The index was dropped before the query could be executed",
+            Self::AliasConflict => c"SEARCH_ALIAS_CONFLICT: Alias conflicts with an existing index name",
+            Self::IndexBgOOMFail => c"SEARCH_INDEX_BG_OOM_FAIL: Index background scan did not complete due to OOM",
+            Self::WeightNotAllowed => c"SEARCH_WEIGHT_NOT_ALLOWED: Weight attributes are not allowed",
+            Self::VectorNotAllowed => c"SEARCH_VECTOR_NOT_ALLOWED: Vector queries are not allowed",
+            Self::OutOfMemory => c"SEARCH_OOM: Not enough memory available to execute the query",
+            Self::UnavailableSlots => c"SEARCH_SLOTS_UNAVAIL: Query requires unavailable slots",
+            Self::FlexLimitNumberOfIndexes => {
+                c"SEARCH_FLEX_LIMIT_NUMBER_OF_INDEXES: Flex index limit was reached"
+            }
+            Self::FlexUnsupportedField => c"SEARCH_FLEX_UNSUPPORTED_FIELD: Unsupported field for Flex index",
             Self::FlexUnsupportedFTCreateArgument => {
-                c"Unsupported FT.CREATE argument for Flex index"
+                c"SEARCH_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT: Unsupported FT.CREATE argument for Flex index"
             }
-            Self::DiskCreation => c"Could not create disk index",
+            Self::DiskCreation => c"SEARCH_DISK_CREATION: Could not create disk index",
             Self::FlexSkipInitialScanMissingArgument => {
-                c"Flex index requires SKIPINITIALSCAN argument"
-            }
+                c"SEARCH_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT: Flex index requires SKIPINITIALSCAN argument"
+            },
         }
     }
 }
@@ -301,4 +299,23 @@ impl Warnings {
     pub const fn set_out_of_memory(&mut self) {
         self.out_of_memory = true;
     }
+}
+
+pub mod opaque {
+    use super::QueryError;
+    use c_ffi_utils::opaque::{Size, Transmute};
+
+    /// An opaque query error which can be passed by value to C.
+    ///
+    /// The size and alignment of this struct must match the Rust `QueryError`
+    /// structure exactly.
+    #[repr(C, align(8))]
+    pub struct OpaqueQueryError(Size<38>);
+
+    // Safety: `OpaqueQueryError` is defined as a `MaybeUninit` slice of
+    // bytes with the same size and alignment as `QueryError`, so any valid
+    // `QueryError` has a bit pattern which is a valid `OpaqueQueryError`.
+    unsafe impl Transmute<QueryError> for OpaqueQueryError {}
+
+    c_ffi_utils::opaque!(QueryError, OpaqueQueryError);
 }

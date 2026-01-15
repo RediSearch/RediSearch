@@ -153,7 +153,7 @@ struct QueryError QueryError_Default(void);
  *
  * `query_error` must have been created by [`QueryError_Default`].
  */
-bool QueryError_IsOk(const QueryError *query_error);
+bool QueryError_IsOk(const struct QueryError *query_error);
 
 /**
  * Returns true if `query_error` has an error code set.
@@ -162,7 +162,7 @@ bool QueryError_IsOk(const QueryError *query_error);
  *
  * `query_error` must have been created by [`QueryError_Default`].
  */
-bool QueryError_HasError(const QueryError *query_error);
+bool QueryError_HasError(const struct QueryError *query_error);
 
 /**
  * Returns a human-readable string representing the provided [`QueryErrorCode`].
@@ -200,7 +200,7 @@ QueryErrorCode QueryError_GetCodeFromMessage(const char *message);
  * - `query_error` must have been created by [`QueryError_Default`].
  * - `message` must be a valid C string or a NULL pointer.
  */
-void QueryError_SetError(QueryError *query_error, uint8_t code, const char *message);
+void QueryError_SetError(struct QueryError *query_error, uint8_t code, const char *message);
 
 /**
  * Sets the [`QueryErrorCode`] for a [`QueryError`].
@@ -215,7 +215,7 @@ void QueryError_SetError(QueryError *query_error, uint8_t code, const char *mess
  *
  * - `query_error` must have been created by [`QueryError_Default`].
  */
-void QueryError_SetCode(QueryError *query_error, uint8_t code);
+void QueryError_SetCode(struct QueryError *query_error, uint8_t code);
 
 /**
  * Always sets the private message for a [`QueryError`].
@@ -225,7 +225,7 @@ void QueryError_SetCode(QueryError *query_error, uint8_t code);
  * - `query_error` must have been created by [`QueryError_Default`].
  * - `detail` must be a valid C string or a NULL pointer.
  */
-void QueryError_SetDetail(QueryError *query_error, const char *detail);
+void QueryError_SetDetail(struct QueryError *query_error, const char *detail);
 
 /**
  * Clones the `src` [`QueryError`] into `dest`.
@@ -237,7 +237,7 @@ void QueryError_SetDetail(QueryError *query_error, const char *detail);
  * - `src` must have been created by [`QueryError_Default`].
  * - `dest` must have been created by [`QueryError_Default`].
  */
-void QueryError_CloneFrom(const QueryError *src, QueryError *dest);
+void QueryError_CloneFrom(const struct QueryError *src, struct QueryError *dest);
 
 /**
  * Returns the private message set for a [`QueryError`]. If no private message
@@ -248,7 +248,7 @@ void QueryError_CloneFrom(const QueryError *src, QueryError *dest);
  *
  * - `query_error` must have been created by [`QueryError_Default`].
  */
-const char *QueryError_GetUserError(const QueryError *query_error);
+const char *QueryError_GetUserError(const struct QueryError *query_error);
 
 /**
  * Returns an message of a [`QueryError`].
@@ -263,7 +263,7 @@ const char *QueryError_GetUserError(const QueryError *query_error);
  *
  * - `query_error` must have been created by [`QueryError_Default`].
  */
-const char *QueryError_GetDisplayableError(const QueryError *query_error, bool obfuscate);
+const char *QueryError_GetDisplayableError(const struct QueryError *query_error, bool obfuscate);
 
 /**
  * Returns the [`QueryErrorCode`] set for a [`QueryError`].
@@ -272,7 +272,7 @@ const char *QueryError_GetDisplayableError(const QueryError *query_error, bool o
  *
  * - `query_error` must have been created by [`QueryError_Default`].
  */
-QueryErrorCode QueryError_GetCode(const QueryError *query_error);
+QueryErrorCode QueryError_GetCode(const struct QueryError *query_error);
 
 /**
  * Clears any error set on a [`QueryErrorCode`].
@@ -284,7 +284,7 @@ QueryErrorCode QueryError_GetCode(const QueryError *query_error);
  *
  * - `query_error` must have been created by [`QueryError_Default`].
  */
-void QueryError_ClearError(QueryError *query_error);
+void QueryError_ClearError(struct QueryError *query_error);
 
 /**
  * Sets the [`QueryErrorCode`] for a [`QueryError`].
@@ -301,7 +301,7 @@ void QueryError_ClearError(QueryError *query_error);
  *
  * - `query_error` must have been created by [`QueryError_Default`].
  */
-void QueryError_MaybeSetCode(QueryError *query_error, uint8_t code);
+void QueryError_MaybeSetCode(struct QueryError *query_error, uint8_t code);
 
 /**
  * Returns whether the [`QueryError`] has the `reached_max_prefix_expansions`
@@ -311,7 +311,7 @@ void QueryError_MaybeSetCode(QueryError *query_error, uint8_t code);
  *
  * - `query_error` must have been created by [`QueryError_Default`].
  */
-bool QueryError_HasReachedMaxPrefixExpansionsWarning(const QueryError *query_error);
+bool QueryError_HasReachedMaxPrefixExpansionsWarning(const struct QueryError *query_error);
 
 /**
  * Sets the `reached_max_prefix_expansions` warning on the [`QueryError`].
@@ -320,7 +320,7 @@ bool QueryError_HasReachedMaxPrefixExpansionsWarning(const QueryError *query_err
  *
  * - `query_error` must have been created by [`QueryError_Default`].
  */
-void QueryError_SetReachedMaxPrefixExpansionsWarning(QueryError *query_error);
+void QueryError_SetReachedMaxPrefixExpansionsWarning(struct QueryError *query_error);
 
 /**
  * Returns whether the [`QueryError`] has the `out_of_memory` warning set.
@@ -329,7 +329,7 @@ void QueryError_SetReachedMaxPrefixExpansionsWarning(QueryError *query_error);
  *
  * - `query_error` must have been created by [`QueryError_Default`].
  */
-bool QueryError_HasQueryOOMWarning(const QueryError *query_error);
+bool QueryError_HasQueryOOMWarning(const struct QueryError *query_error);
 
 /**
  * Sets the `out_of_memory` warning on the [`QueryError`].
@@ -338,7 +338,7 @@ bool QueryError_HasQueryOOMWarning(const QueryError *query_error);
  *
  * - `query_error` must have been created by [`QueryError_Default`].
  */
-void QueryError_SetQueryOOMWarning(QueryError *query_error);
+void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
 
 /**
  * Returns a [`QueryWarningCode`] given an warnings message.

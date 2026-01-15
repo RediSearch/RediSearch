@@ -11,11 +11,7 @@
 #include "redismodule.h"
 #include "../../rmalloc.h"
 #include "../../../deps/rmutil/rm_assert.h"
-<<<<<<< HEAD
-#include "query_error.h"
-=======
 #include "../../redisearch_rs/headers/query_error.h"
->>>>>>> 33dba4d89 (Fix bad rebase and build issues)
 #include <string.h>
 #include "info/global_stats.h"
 
