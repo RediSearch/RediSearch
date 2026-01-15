@@ -3649,38 +3649,38 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 }
 
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
-  RSDocumentMetadata *md = NULL;
+  t_docId id = 0;
+  size_t docLen = 0;
   if (isSpecOnDisk(spec)) {
     RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-    // TODO: Remove once metadata API is used - MOD-13508
-    // Get the id
     size_t len;
     const char *keyStr = RedisModule_StringPtrLen(key, &len);
-    t_docId id = SearchDisk_GetId(spec->diskSpec, key, len);
 
-    // Get the dmd, if exists
-    RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
-    diskDmd->ref_count = 1;
-    bool foundDocument = SearchDisk_GetDocumentMetadata(spec->diskSpec, id, diskDmd);
-    if (foundDocument) {
-      md = diskDmd;
-      // Delete the document
-      SearchDisk_DeleteDocument(spec->diskSpec, key, len);
-    } else {
-      DMD_Return(diskDmd);
+    // Delete the document
+    SearchDisk_DeleteDocument(spec->diskSpec, keyStr, len, &docLen, &id); // TODO: Add the id. We need it for the below logic (vector deletion)
+
+    if (id == 0) {
+      // Nothing to delete
+      return;
     }
   } else {
-    md = DocTable_PopR(&spec->docs, key);
-  }
-  if (!md) {
-    // Nothing to delete
-    return;
+    RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
+    if (!md) {
+      // Nothing to delete
+      return;
+    }
+
+    id = md->id;
+    docLen = md->docLen;
+
+    DMD_Return(md);
   }
 
+  // Update the stats
+  RS_LOG_ASSERT(spec->stats.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
+  spec->stats.totalDocsLen -= docLen;
   RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
   spec->stats.numDocuments--;
-  RS_LOG_ASSERT(spec->stats.totalDocsLen >= md->docLen, "totalDocsLen is smaller than md->docLen");
-  spec->stats.totalDocsLen -= md->docLen;
 
   // Increment the index's garbage collector's scanning frequency after document deletions
   if (spec->gc) {
@@ -3693,16 +3693,14 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         VecSimIndex *vecsim = openVectorIndex(spec->fields + i, DONT_CREATE_INDEX);
         if(!vecsim) continue;
-        VecSimIndex_DeleteVector(vecsim, md->id);
+        VecSimIndex_DeleteVector(vecsim, id);
       }
     }
   }
 
   if (spec->flags & Index_HasGeometry) {
-    GeometryIndex_RemoveId(spec, md->id);
+    GeometryIndex_RemoveId(spec, id);
   }
-
-  DMD_Return(md);
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
