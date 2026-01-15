@@ -10,16 +10,23 @@
 mod key;
 mod key_list;
 
-use crate::bindings::{FieldSpecOption, FieldSpecOptions, IndexSpecCache};
 #[cfg(debug_assertions)]
 use crate::rlookup_id::RLookupId;
+use crate::{
+    IndexSpec, RLookupRow,
+    bindings::{FieldSpecOption, FieldSpecOptions, IndexSpecCache},
+    field_spec::FieldSpec,
+};
 use enumflags2::{BitFlags, bitflags};
 use key_list::KeyList;
+use query_error::QueryError;
 use std::{
     borrow::Cow,
     ffi::CStr,
+    mem,
     ops::{Deref, DerefMut},
     pin::Pin,
+    ptr,
 };
 
 pub use key::{GET_KEY_FLAGS, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, TRANSIENT_FLAGS};
@@ -416,19 +423,136 @@ impl<'a> RLookup<'a> {
     pub(crate) const fn get_row_len(&self) -> u32 {
         self.header.keys.rowlen
     }
+
+    pub fn load_rule_fields(
+        &mut self,
+        module_ctx: &mut ffi::RedisModuleCtx,
+        dst_row: &mut RLookupRow<value::RSValueFFI>,
+        index_spec: &'a IndexSpec,
+        key: &CStr,
+    ) -> i32 {
+        let keys = create_keys_from_spec(self, index_spec);
+        let pushed_keys = keys.into_iter().map(|k| self.keys.push(k)).collect();
+        load_many_keys(self, module_ctx, dst_row, index_spec, key, pushed_keys)
+    }
+}
+
+fn create_keys_from_spec<'a>(
+    lookup: &mut RLookup,
+    index_spec: &'a IndexSpec,
+) -> Vec<RLookupKey<'a>> {
+    let rule = index_spec.rule();
+    let field_specs = index_spec.field_specs();
+    rule.filter_fields_index()
+        .iter()
+        .zip(rule.filter_fields())
+        .map(|(&index, filter_field)| {
+            create_key_from_data(lookup, index, filter_field, field_specs)
+        })
+        .collect::<Vec<_>>()
+}
+
+fn create_key_from_data<'a>(
+    lookup: &mut RLookup,
+    index: i32,
+    filter_field: &'a CStr,
+    field_specs: &'a [FieldSpec],
+) -> RLookupKey<'a> {
+    const NO_MATCH: i32 = -1;
+    if NO_MATCH == index {
+        dbg!(RLookupKey::new(
+            lookup,
+            filter_field,
+            RLookupKeyFlags::empty()
+        ))
+    } else {
+        let index = usize::try_from(index).expect("index must be positive and fit into usize");
+        let field_spec = &field_specs[index];
+        let field_name = field_spec.field_name().get_secret_value();
+        let path = field_spec.field_path().get_secret_value();
+        let path = Cow::Borrowed(path);
+
+        RLookupKey::new_with_path(lookup, field_name, path, RLookupKeyFlags::empty())
+    }
+}
+
+fn load_many_keys(
+    lookup: &mut RLookup,
+    module_ctx: &mut ffi::RedisModuleCtx,
+    dst_row: &mut RLookupRow<value::RSValueFFI>,
+    index_spec: &IndexSpec,
+    key: &CStr,
+    keys: Vec<Pin<&mut RLookupKey>>,
+) -> i32 {
+    let lookup = ptr::from_mut(lookup).cast::<ffi::RLookup>();
+    let dst_row = ptr::from_mut(dst_row).cast::<ffi::RLookupRow>();
+
+    let mut keys = keys
+        .into_iter()
+        .map(|k| {
+            // Safety: ...
+            let k = unsafe { Pin::into_inner_unchecked(k.into_ref()) };
+            ptr::from_ref(k).cast::<ffi::RLookupKey>()
+        })
+        .collect::<Vec<_>>();
+
+    let mut sctx = create_redis_search_ctx(module_ctx);
+
+    // TODO: Add comment explaining why "for real" temp.
+    // Safety: ...
+    let mut status = unsafe { mem::transmute(QueryError::default()) };
+
+    let mut options = ffi::RLookupLoadOptions {
+        keys: keys.as_mut_ptr(),
+        nkeys: keys.len(),
+        sctx: &mut sctx,
+        keyPtr: key.as_ptr(),
+        type_: index_spec.rule().type_(),
+        status: &mut status,
+        forceLoad: true,
+        mode: ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
+        dmd: ptr::null(),
+        forceString: false,
+    };
+
+    unsafe { ffi::loadIndividualKeys(lookup, dst_row, &mut options) }
+}
+
+const fn create_redis_search_ctx(module_ctx: *mut ffi::RedisModuleCtx) -> ffi::RedisSearchCtx {
+    ffi::RedisSearchCtx {
+        redisCtx: module_ctx,
+        spec: ptr::null_mut(),
+        key_: ptr::null_mut(),
+        time: ffi::SearchTime {
+            current: ffi::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+            timeout: ffi::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+        },
+        apiVersion: 0,
+        expanded: 0,
+        flags: 0,
+    }
 }
 
 #[cfg(test)]
 #[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {
+    use crate::mock::array_new;
+
     use super::*;
 
-    use enumflags2::make_bitflags;
     use std::ffi::CString;
     #[cfg(not(miri))]
     use std::mem::MaybeUninit;
     use std::ptr::{self, NonNull};
 
+    use enumflags2::make_bitflags;
+    use pretty_assertions::assert_eq;
     #[cfg(not(miri))]
     use proptest::prelude::*;
 
@@ -1302,5 +1426,70 @@ mod tests {
                  ffi::HiddenString_Free(arr[0].fieldName, false);
              }
         }
+    }
+
+    #[test]
+    fn create_keys_from_spec() {
+        // Arrange
+        let index_spec = {
+            let mut index_spec = unsafe { MaybeUninit::<ffi::IndexSpec>::zeroed().assume_init() };
+
+            let mut schema_rule = {
+                let mut schema_rule =
+                    unsafe { MaybeUninit::<ffi::SchemaRule>::zeroed().assume_init() };
+                schema_rule.filter_fields_index = [-1, 0, 1].as_mut_ptr();
+                schema_rule.filter_fields = filter_fields_array(&[c"ff0", c"ff1", c"ff2"]);
+                schema_rule
+            };
+            index_spec.rule = ptr::from_mut(&mut schema_rule);
+
+            let mut field_specs = [
+                field_spec(c"fn0", c"fp0"),
+                field_spec(c"fn1", c"fp1"),
+                field_spec(c"fn2", c"fp2"),
+            ];
+            index_spec.fields = field_specs.as_mut_ptr();
+            index_spec.numFields = field_specs.len().try_into().unwrap();
+            index_spec
+        };
+
+        let mut lookup = RLookup::new();
+        let index_spec = IndexSpec::from_ffi(index_spec);
+
+        // Act
+        let actual = super::create_keys_from_spec(&mut lookup, &index_spec);
+
+        // Assert
+        assert_eq!(actual.len(), 3);
+
+        assert_eq!(actual[0].name(), c"ff0");
+        assert_eq!(actual[0].path(), &None);
+        assert_eq!(actual[0].rlookup_id(), lookup.id());
+
+        assert_eq!(actual[1].name(), c"fn0");
+        assert_eq!(actual[1].path(), &Some(c"fp0".into()));
+        assert_eq!(actual[1].rlookup_id(), lookup.id());
+
+        assert_eq!(actual[2].name(), c"fn1");
+        assert_eq!(actual[2].path(), &Some(c"fp1".into()));
+        assert_eq!(actual[2].rlookup_id(), lookup.id());
+    }
+
+    fn filter_fields_array(filter_fields: &[&CStr]) -> *mut *mut i8 {
+        let temp = filter_fields
+            .iter()
+            .map(|ff| ff.as_ptr().cast_mut())
+            .collect::<Vec<_>>();
+
+        array_new(&temp)
+    }
+
+    fn field_spec(field_name: &CStr, field_path: &CStr) -> ffi::FieldSpec {
+        let mut res = unsafe { MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init() };
+        res.fieldName =
+            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
+        res.fieldPath =
+            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
+        res
     }
 }
