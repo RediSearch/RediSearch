@@ -2248,7 +2248,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   conn.execute_command('HSET', 'sametype:2', 't1', 'hello', 't2', 'world')
   metrics = get_field_metrics()
   env.assertEqual(metrics['text'], prev_metrics['text'] + 2,
-                  message="Doc with two text fields increments text by 2 (per fold, not per doc)")
+                  message="Doc with two text fields increments text by 2 (per field, not per doc)")
 
 
 # Test the 'total_indexing_ops_<field_type>_fields' INFO MODULES metrics with multi-value JSON.
