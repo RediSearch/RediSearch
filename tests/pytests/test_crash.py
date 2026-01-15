@@ -42,7 +42,17 @@ def expect_query_crash_output(env, expected_fragments, crash_in_rust=False):
 def test_query_thread_crash():
     env = CrashingEnv(testName="test_query_thread_crash", freshEnv=True)
     env.assertTrue(
-        expect_query_crash_output(env, ["search_current_thread", "search_index:idx"])
+        expect_query_crash_output(env, [
+            "search_current_thread",
+            "search_index:idx",
+            "search_index_name:idx",
+            "search_num_docs:",
+            "search_max_doc_id:",
+            "search_num_terms:",
+            "search_inverted_sz_mb:",
+            "search_indexing:",
+            "search_num_fields:",
+        ])
     )
 
 
@@ -59,6 +69,9 @@ def test_query_thread_crash_with_rust_panic():
                 'A panic occurred in the Rust code panic.payload="Crash in Rust code"',
                 "search_current_thread",
                 "search_index:idx",
+                "search_index_name:idx",
+                "search_num_docs:",
+                "search_inverted_sz_mb:",
                 # The backtrace
                 "# search_rust_backtrace",
             ],

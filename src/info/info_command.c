@@ -334,6 +334,37 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   RedisModule_Reply_MapEnd(reply); // top
 }
 
+/**
+ * Crash-safe version of fillReplyWithIndexInfo.
+ * Outputs basic index info without allocations or locks.
+ */
+void fillReplyWithIndexInfoCrashSafe(const IndexSpec *sp, RedisModuleInfoCtx *info_ctx, bool obfuscate) {
+  if (!sp) return;
+
+  // Index name - use existing strings, no allocation
+  const char* specName = obfuscate ? sp->obfuscatedName : sp->name;
+  if (specName) {
+    RedisModule_InfoAddFieldCString(info_ctx, "index_name", (char *)specName);
+  }
+
+  // Basic statistics - just reading integers
+  RedisModule_InfoAddFieldLongLong(info_ctx, "num_docs", sp->stats.numDocuments);
+  RedisModule_InfoAddFieldLongLong(info_ctx, "max_doc_id", sp->docs.maxDocId);
+  RedisModule_InfoAddFieldLongLong(info_ctx, "num_terms", sp->stats.numTerms);
+  RedisModule_InfoAddFieldLongLong(info_ctx, "num_records", sp->stats.numRecords);
+
+  // Memory stats
+  RedisModule_InfoAddFieldDouble(info_ctx, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(info_ctx, "doc_table_size_mb", sp->docs.memsize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(info_ctx, "sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
+
+  // State
+  RedisModule_InfoAddFieldLongLong(info_ctx, "indexing", sp->scan_in_progress);
+  RedisModule_InfoAddFieldLongLong(info_ctx, "number_of_uses", sp->counter);
+  RedisModule_InfoAddFieldLongLong(info_ctx, "indexing_failures", sp->stats.indexError.error_count);
+  RedisModule_InfoAddFieldLongLong(info_ctx, "num_fields", sp->numFields);
+}
+
 /* FT.INFO {index}
  *  Provide info and stats about an index
  */
