@@ -16,6 +16,7 @@
 #include "info/info_redis/types/blocked_queries.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
+#include "search_disk.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
