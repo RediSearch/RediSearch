@@ -12,21 +12,16 @@ use std::slice;
 use crate::{SchemaRule, field_spec::FieldSpec};
 
 /// A safe wrapper around an `ffi::IndexSpec`.
-///
-/// We wrap the `IndexSpec` C implementation here.
 #[repr(transparent)]
 pub struct IndexSpec(ffi::IndexSpec);
 
 impl IndexSpec {
-    /// Create a `IndexSpec` wrapper from a non-null pointer.
+    /// Create a safe `IndexSpec` wrapper from a non-null pointer.
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a valid non-null pointer to a valid [`ffi::IndexSpec`].
-    ///    that upholds the requirements of the corresponding C implementation.
-    /// 2. `fields` is a valid non-null pointer to an array of [`ffi::FieldSpec`].
-    /// 3. `numFields` is the number of elements in the array pointed to by `fields`.
-    /// 4. `rule` is a valid non-null pointer to an [`ffi::SchemaRule`].
+    /// 1. `ptr` must be a [valid], non-null pointer to an `ffi::IndexSpec` that is properly initialized.
+    ///    This also applies to any of its subfields.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw<'a>(ptr: *const ffi::IndexSpec) -> &'a Self {
@@ -35,7 +30,7 @@ impl IndexSpec {
     }
 
     pub const fn rule(&self) -> &SchemaRule {
-        // Safety: (4.) due to creation with `IndexSpec::from_raw`
+        // Safety: (1.) due to creation with `IndexSpec::from_raw`
         unsafe { SchemaRule::from_raw(self.0.rule) }
     }
 
@@ -47,7 +42,7 @@ impl IndexSpec {
             .numFields
             .try_into()
             .expect("numFields must fit into usize");
-        // Safety: (2., 3.) due to creation with `IndexSpec::from_raw`
+        // Safety: (1.) due to creation with `IndexSpec::from_raw`
         unsafe { slice::from_raw_parts(data, len) }
     }
 }
