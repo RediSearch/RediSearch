@@ -268,7 +268,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipF
                          size_t skipFieldIndex_len, uint32_t requiredFlags, uint32_t excludeFlags,
                          SchemaRule *rule) {
   RS_LOG_ASSERT(skipFieldIndex_len >= lookup->rowlen, "'skipFieldIndex_len' should be at least equal to lookup len");
-  
+
   int i = 0;
   size_t nfields = 0;
   for (const RLookupKey *kk = lookup->head; kk; kk = kk->next, ++i) {
@@ -402,7 +402,8 @@ RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
     RedisModule_StringToDouble(src, &dd);
     return RSValue_NewNumber(dd);
   } else {
-    return RSValue_NewOwnedRedisString((RedisModuleString *)src);
+    RedisModule_RetainString(RSDummyContext, src);
+    return RSValue_NewRedisString((RedisModuleString *)src);
   }
 }
 
@@ -433,7 +434,7 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
     case JSONType_Array:
     case JSONType_Object:
       japi->getJSON(json, ctx, &rstr);
-      return RSValue_NewStolenRedisString(rstr);
+      return RSValue_NewRedisString(rstr);
     case JSONType_Null:
       return RSValue_NullStatic();
     case JSONType__EOF:
@@ -463,7 +464,7 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       RSValueMap map = RSValueMap_AllocUninit(len);
       for (; (japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK); ++i) {
         value = *value_ptr;
-        RSValueMap_SetEntry(&map, i, RSValue_NewStolenRedisString(keyName),
+        RSValueMap_SetEntry(&map, i, RSValue_NewRedisString(keyName),
           jsonValToValueExpanded(ctx, value));
       }
       japi->freeJson(value_ptr);
@@ -567,7 +568,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 
     if (json) {
       RSValue *val = jsonValToValue(ctx, json);
-      RSValue *otherval = RSValue_NewStolenRedisString(serialized);
+      RSValue *otherval = RSValue_NewRedisString(serialized);
       RSValue *expand = jsonIterToValueExpanded(ctx, iter);
       *rsv = RSValue_NewTrio(val, otherval, expand);
       res = REDISMODULE_OK;
@@ -927,7 +928,7 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
   }
 
   // load
-  RedisSearchCtx sctx = {.redisCtx = ctx, .spec = spec };
+  RedisSearchCtx sctx = { .redisCtx = ctx };
   struct QueryError status = QueryError_Default(); // TODO: report errors
   RLookupLoadOptions opt = {.keys = (const RLookupKey **)keys,
                             .nkeys = nkeys,
@@ -963,7 +964,8 @@ void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags) {
 }
 
 void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
-                               RLookupRow *destRow, RLookup *destLookup) {
+                               RLookupRow *destRow, RLookup *destLookup,
+                               bool createMissingKeys) {
   RS_ASSERT(srcRow && srcLookup);
   RS_ASSERT(destRow && destLookup);
 
@@ -983,7 +985,15 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
 
     // Find corresponding key in destination lookup
     RLookupKey *dest_key = RLookup_FindKey(destLookup, src_key->name, src_key->name_len);
-    RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
+    if (!createMissingKeys) {
+      RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
+    } else if (!dest_key) {
+        // Key doesn't exist in destination - create it on demand.
+        // This can happen with LOAD * where keys are created dynamically.
+        // Inherit non-transient flags from source.
+        uint32_t flags = src_key->flags & ~RLOOKUP_TRANSIENT_FLAGS;
+        dest_key = RLookup_GetKey_WriteEx(destLookup, src_key->name, src_key->name_len, flags);
+    }
     // Write fields to destination (increments refcount, shares ownership)
     RLookup_WriteKey(dest_key, destRow, value);
   }

@@ -55,7 +55,8 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-standalone-threads-6:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
+    # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
+    if: false # ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
     strategy:
       fail-fast: false
       matrix:

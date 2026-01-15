@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use low_memory_thin_vec::{Header, LowMemoryThinVec};
 use serde::{Deserialize, Serialize};
 use std::{
     ffi::c_void,
@@ -252,14 +253,18 @@ pub trait NumericDecoder: Decoder {}
 /// Marker trait for decoders producing term results.
 pub trait TermDecoder: Decoder {}
 
+/// The capacity of the block vector used by [`InvertedIndex`].
+pub type BlockCapacity = u32;
+
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
+#[derive(Debug)]
 pub struct InvertedIndex<E> {
     /// The blocks of the index. Each block contains a set of entries for a specific range of
     /// document IDs. The entries and blocks themselves are ordered by document ID, so the first
     /// block contains entries for the lowest document IDs, and the last block contains entries for
     /// the highest document IDs.
-    blocks: Vec<IndexBlock>,
+    blocks: LowMemoryThinVec<IndexBlock, BlockCapacity>,
 
     /// Number of unique documents in the index. This is not the total number of entries, but rather the
     /// number of unique documents that have been indexed.
@@ -351,24 +356,25 @@ enum RepairType {
 }
 
 impl IndexBlock {
-    const SIZE: usize = std::mem::size_of::<Self>();
+    const STACK_SIZE: usize = std::mem::size_of::<Self>();
 
     /// Make a new index block with primed with the initial doc ID. The next entry written into
     /// the block should be for this doc ID else the block will contain incoherent data.
-    ///
-    /// This returns the block and how much memory grew by.
-    fn new(doc_id: t_docId) -> (Self, usize) {
+    fn new(doc_id: t_docId) -> Self {
         let this = Self {
             first_doc_id: doc_id,
             last_doc_id: doc_id,
             num_entries: 0,
             buffer: Vec::new(),
         };
-        let buf_cap = this.buffer.capacity();
-
         TOTAL_BLOCKS.fetch_add(1, atomic::Ordering::Relaxed);
 
-        (this, Self::SIZE + buf_cap)
+        this
+    }
+
+    /// Get the memory usage of this block, including the stack size and the capacity of the bytes buffer.
+    pub const fn mem_usage(&self) -> usize {
+        Self::STACK_SIZE + self.buffer.capacity()
     }
 
     /// Get the first document ID in this block. This is only needed for some C tests.
@@ -450,7 +456,7 @@ impl IndexBlock {
             }))
         } else if block_changed {
             Ok(Some(RepairType::Replace {
-                blocks: tmp_inverted_index.blocks.into(),
+                blocks: SmallVec::from_iter(tmp_inverted_index.blocks),
                 n_unique_docs_removed: unique_read - unique_write,
             }))
         } else {
@@ -470,7 +476,7 @@ impl<E: Encoder> InvertedIndex<E> {
     /// entries to the index.
     pub fn new(flags: IndexFlags) -> Self {
         Self {
-            blocks: Vec::new(),
+            blocks: Default::default(),
             n_unique_docs: 0,
             flags,
             gc_marker: AtomicU32::new(0),
@@ -481,7 +487,7 @@ impl<E: Encoder> InvertedIndex<E> {
     /// Create a new inverted index from the given blocks and encoder. The blocks are expected to not
     /// contain duplicate entries and be ordered by document ID.
     #[cfg(test)]
-    fn from_blocks(flags: IndexFlags, blocks: Vec<IndexBlock>) -> Self {
+    fn from_blocks(flags: IndexFlags, blocks: LowMemoryThinVec<IndexBlock, BlockCapacity>) -> Self {
         debug_assert!(!blocks.is_empty());
         debug_assert!(
             blocks.is_sorted_by(|a, b| a.last_doc_id < b.first_doc_id),
@@ -505,13 +511,11 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// The memory size of the index in bytes.
     pub fn memory_usage(&self) -> usize {
-        let blocks_size: usize = self
-            .blocks
-            .iter()
-            .map(|b| IndexBlock::SIZE + b.buffer.capacity())
-            .sum();
+        let blocks_heap = self.blocks.mem_usage();
+        let blocks_buffers: usize = self.blocks.iter().map(|b| b.buffer.capacity()).sum();
+        let stack = std::mem::size_of::<Self>();
 
-        std::mem::size_of::<Self>() + blocks_size
+        blocks_heap + blocks_buffers + stack
     }
 
     /// Add a new record to the index and return by how much memory grew. It is expected that
@@ -535,7 +539,8 @@ impl<E: Encoder> InvertedIndex<E> {
 
         // We take ownership of the block since we are going to keep using self. So we can't have a
         // mutable reference to the block we are working with at the same time.
-        let (mut block, mut mem_growth) = self.take_block(doc_id, same_doc);
+        let mut block = self.take_block(doc_id, same_doc);
+        let mut mem_growth = 0;
 
         let delta_base = E::delta_base(&block);
         debug_assert!(
@@ -549,12 +554,11 @@ impl<E: Encoder> InvertedIndex<E> {
             None => {
                 // The delta is too large for this encoder. We need to create a new block.
                 // Since the new block is empty, we'll start with `delta` equal to 0.
-                let (new_block, block_size) = IndexBlock::new(doc_id);
+                let new_block = IndexBlock::new(doc_id);
 
                 // We won't use the block so make sure to put it back
-                self.add_block(block);
+                mem_growth += self.add_block(block);
                 block = new_block;
-                mem_growth += block_size;
 
                 E::Delta::zero()
             }
@@ -575,7 +579,7 @@ impl<E: Encoder> InvertedIndex<E> {
         block.last_doc_id = doc_id;
 
         // We took ownership of the block so put it back
-        self.add_block(block);
+        mem_growth += self.add_block(block);
 
         if !same_doc {
             self.n_unique_docs += 1;
@@ -591,8 +595,8 @@ impl<E: Encoder> InvertedIndex<E> {
         self.blocks.last().map(|b| b.last_doc_id)
     }
 
-    /// Take a block that can be written to and report by how much memory grew
-    fn take_block(&mut self, doc_id: t_docId, same_doc: bool) -> (IndexBlock, usize) {
+    /// Take a block that can be written to.
+    fn take_block(&mut self, doc_id: t_docId, same_doc: bool) -> IndexBlock {
         if self.blocks.is_empty()
             || (
                 // If the block is full
@@ -607,23 +611,35 @@ impl<E: Encoder> InvertedIndex<E> {
         {
             IndexBlock::new(doc_id)
         } else {
-            (
-                self.blocks
-                    .pop()
-                    .expect("to get the last block since we know there is one"),
-                0,
-            )
+            self.blocks
+                .pop()
+                .expect("to get the last block since we know there is one")
         }
     }
 
     /// Add a block back to the index. This allows us to control the growth strategy used by the
     /// `blocks` vector.
-    fn add_block(&mut self, block: IndexBlock) {
-        if self.blocks.len() == self.blocks.capacity() {
+    ///
+    /// It returns how many bytes have been added to the size of the heap allocation backing the blocks vector.
+    fn add_block(&mut self, block: IndexBlock) -> usize {
+        let had_allocated = self.blocks.has_allocated();
+        let mem_growth = if self.blocks.len() == self.blocks.capacity() {
             self.blocks.reserve_exact(1);
-        }
+
+            if had_allocated {
+                IndexBlock::STACK_SIZE
+            } else {
+                // Nothing is allocated until the first block is added.
+                // When that happens, the heap allocation has to grow by the size of the block
+                // as well as the size of the thin vector head (i.e. length and capacity).
+                self.blocks.mem_usage()
+            }
+        } else {
+            0
+        };
 
         self.blocks.push(block);
+        mem_growth
     }
 
     /// Returns the number of unique documents in the index.
@@ -662,7 +678,7 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 
     /// Returns the number of blocks in this index.
-    pub const fn number_of_blocks(&self) -> usize {
+    pub fn number_of_blocks(&self) -> usize {
         self.blocks.len()
     }
 
@@ -816,7 +832,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             return info;
         }
 
-        let mut tmp_blocks = Vec::with_capacity(self.blocks.len());
+        let mut tmp_blocks = LowMemoryThinVec::with_capacity(self.blocks.len());
         std::mem::swap(&mut self.blocks, &mut tmp_blocks);
 
         let mut deltas = deltas.into_iter().peekable();
@@ -836,7 +852,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                             n_unique_docs_removed,
                         } => {
                             info.entries_removed += block.num_entries as usize;
-                            info.bytes_freed += IndexBlock::SIZE + block.buffer.capacity();
+                            info.bytes_freed += block.mem_usage();
                             self.n_unique_docs -= n_unique_docs_removed;
                         }
                         RepairType::Replace {
@@ -844,12 +860,12 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                             n_unique_docs_removed,
                         } => {
                             info.entries_removed += block.num_entries as usize;
-                            info.bytes_freed += IndexBlock::SIZE + block.buffer.capacity();
+                            info.bytes_freed += block.mem_usage();
                             self.n_unique_docs -= n_unique_docs_removed;
 
                             for block in blocks {
                                 info.entries_removed -= block.num_entries as usize;
-                                info.bytes_allocated += IndexBlock::SIZE + block.buffer.capacity();
+                                info.bytes_allocated += block.mem_usage();
                                 self.blocks.push(block);
                             }
                         }
@@ -862,7 +878,17 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             }
         }
 
-        self.blocks.shrink_to_fit();
+        // Remove excess capacity from the blocks vector.
+        {
+            let had_allocated = self.blocks.has_allocated();
+            self.blocks.shrink_to_fit();
+            // If we got rid of the heap block buffer entirely, we have also freed the memory occupied
+            // by the thin vec header. That hasn't been accounted for yet, so we add it to the bytes freed now.
+            if !self.blocks.has_allocated() && had_allocated {
+                info.bytes_freed += Header::<BlockCapacity>::size_with_padding::<IndexBlock>();
+            }
+        }
+
         self.gc_marker_inc();
 
         info
@@ -871,6 +897,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
 /// A wrapper around the inverted index to track the total number of entries in the index.
 /// Unlike [`InvertedIndex::unique_docs()`], this counts all entries, including duplicates.
+#[derive(Debug)]
 pub struct EntriesTrackingIndex<E> {
     /// The underlying inverted index that stores the entries.
     index: InvertedIndex<E>,
@@ -948,7 +975,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     }
 
     /// Returns the number of blocks in this index.
-    pub const fn number_of_blocks(&self) -> usize {
+    pub fn number_of_blocks(&self) -> usize {
         self.index.number_of_blocks()
     }
 
@@ -1008,6 +1035,7 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
 
 /// A wrapper around the inverted index which tracks the fields for all the records in the index
 /// using a mask. This makes is easy to know if the index has any records for a specific field.
+#[derive(Debug)]
 pub struct FieldMaskTrackingIndex<E> {
     /// The underlying inverted index that stores the records.
     index: InvertedIndex<E>,
@@ -1077,7 +1105,7 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     }
 
     /// Returns the number of blocks in this index.
-    pub const fn number_of_blocks(&self) -> usize {
+    pub fn number_of_blocks(&self) -> usize {
         self.index.number_of_blocks()
     }
 

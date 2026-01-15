@@ -207,6 +207,8 @@ static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
 
 void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
+t_docId DocTable_GetMaxDocId(const DocTable *t);
+
 #ifdef __cplusplus
 }
 #endif

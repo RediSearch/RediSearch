@@ -511,7 +511,6 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
       return RedisModule_Reply_StringBuffer(reply, str, len);
 
     case RSValueType_RedisString:
-    case RSValueType_OwnRstring:
       return RedisModule_Reply_String(reply, RSValue_RedisString_Get(v));
 
     case RSValueType_Number: {

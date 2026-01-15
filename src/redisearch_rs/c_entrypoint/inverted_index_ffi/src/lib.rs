@@ -82,21 +82,23 @@ pub enum InvertedIndex {
 impl Debug for InvertedIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Full(_) => f.debug_tuple("Full").finish(),
-            Self::FullWide(_) => f.debug_tuple("FullWide").finish(),
-            Self::FreqsFields(_) => f.debug_tuple("FreqsFields").finish(),
-            Self::FreqsFieldsWide(_) => f.debug_tuple("FreqsFieldsWide").finish(),
-            Self::FreqsOnly(_) => f.debug_tuple("FreqsOnly").finish(),
-            Self::FieldsOnly(_) => f.debug_tuple("FieldsOnly").finish(),
-            Self::FieldsOnlyWide(_) => f.debug_tuple("FieldsOnlyWide").finish(),
-            Self::FieldsOffsets(_) => f.debug_tuple("FieldsOffsets").finish(),
-            Self::FieldsOffsetsWide(_) => f.debug_tuple("FieldsOffsetsWide").finish(),
-            Self::OffsetsOnly(_) => f.debug_tuple("OffsetsOnly").finish(),
-            Self::FreqsOffsets(_) => f.debug_tuple("FreqsOffsets").finish(),
-            Self::DocumentIdOnly(_) => f.debug_tuple("DocumentIdOnly").finish(),
-            Self::RawDocumentIdOnly(_) => f.debug_tuple("RawDocumentIdOnly").finish(),
-            Self::Numeric(_) => f.debug_tuple("Numeric").finish(),
-            Self::NumericFloatCompression(_) => f.debug_tuple("NumericFloatCompression").finish(),
+            Self::Full(ii) => f.debug_tuple("Full").field(ii).finish(),
+            Self::FullWide(ii) => f.debug_tuple("FullWide").field(ii).finish(),
+            Self::FreqsFields(ii) => f.debug_tuple("FreqsFields").field(ii).finish(),
+            Self::FreqsFieldsWide(ii) => f.debug_tuple("FreqsFieldsWide").field(ii).finish(),
+            Self::FreqsOnly(ii) => f.debug_tuple("FreqsOnly").field(ii).finish(),
+            Self::FieldsOnly(ii) => f.debug_tuple("FieldsOnly").field(ii).finish(),
+            Self::FieldsOnlyWide(ii) => f.debug_tuple("FieldsOnlyWide").field(ii).finish(),
+            Self::FieldsOffsets(ii) => f.debug_tuple("FieldsOffsets").field(ii).finish(),
+            Self::FieldsOffsetsWide(ii) => f.debug_tuple("FieldsOffsetsWide").field(ii).finish(),
+            Self::OffsetsOnly(ii) => f.debug_tuple("OffsetsOnly").field(ii).finish(),
+            Self::FreqsOffsets(ii) => f.debug_tuple("FreqsOffsets").field(ii).finish(),
+            Self::DocumentIdOnly(ii) => f.debug_tuple("DocumentIdOnly").field(ii).finish(),
+            Self::RawDocumentIdOnly(ii) => f.debug_tuple("RawDocumentIdOnly").field(ii).finish(),
+            Self::Numeric(ii) => f.debug_tuple("Numeric").field(ii).finish(),
+            Self::NumericFloatCompression(ii) => {
+                f.debug_tuple("NumericFloatCompression").field(ii).finish()
+            }
         }
     }
 }

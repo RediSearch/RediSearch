@@ -64,6 +64,16 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
     disk->basic.closeIndexSpec(index);
 }
 
+void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && index);
+  disk->basic.indexSpecRdbSave(rdb, index);
+}
+
+int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk);
+  return disk->basic.indexSpecRdbLoad(rdb, index);
+}
+
 // Index API wrappers
 bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask) {
     RS_ASSERT(disk && index);
@@ -80,9 +90,9 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
     return disk->index.newWildcardIterator(index, weight);
 }
 
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen) {
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen) {
     RS_ASSERT(disk && handle);
-    return disk->docTable.putDocument(handle, key, keyLen, score, flags, maxTermFreq, docLen);
+    return disk->docTable.putDocument(handle, key, keyLen, score, flags, maxTermFreq, docLen, oldLen);
 }
 
 bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd) {
@@ -93,6 +103,26 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId do
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
     RS_ASSERT(disk && handle);
     return disk->docTable.isDocIdDeleted(handle, docId);
+}
+
+t_docId SearchDisk_GetMaxDocId(RedisSearchDiskIndexSpec *handle) {
+    RS_ASSERT(disk && handle);
+    return disk->docTable.getMaxDocId(handle);
+}
+
+uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle) {
+    RS_ASSERT(disk && handle);
+    return disk->docTable.getDeletedIdsCount(handle);
+}
+
+size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size) {
+    RS_ASSERT(disk && handle);
+    return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
+}
+
+void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, uint32_t *oldLen, t_docId *id) {
+    RS_ASSERT(disk && handle);
+    disk->index.deleteDocument(handle, key, keyLen, oldLen, id);
 }
 
 bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx) {
@@ -114,7 +144,7 @@ bool SearchDisk_IsEnabledForValidation() {
 }
 
 // Vector API wrappers
-void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const struct VecSimHNSWDiskParams *params) {
+void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params) {
     RS_ASSERT(disk && index && params);
     RS_ASSERT(disk->vector.createVectorIndex);
     return disk->vector.createVectorIndex(index, params);

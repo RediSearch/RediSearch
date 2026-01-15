@@ -12,6 +12,7 @@
 #include "extension.h"
 #include <util/minmax_heap.h>
 #include "ext/default.h"
+#include "result_processor_rs.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
@@ -1798,7 +1799,9 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
  static bool hybridMergerStoreUpstreamResult(RPHybridMerger* self, SearchResult *r, size_t upstreamIndex, double score) {
   // Single shard case - use dmd->keyPtr
   RLookupRow translated = {0};
-  RLookupRow_WriteFieldsFrom(&r->rowdata, self->lookupCtx->sourceLookups[upstreamIndex], &translated, self->lookupCtx->tailLookup);
+  RLookupRow_WriteFieldsFrom(&r->rowdata,
+              self->lookupCtx->sourceLookups[upstreamIndex], &translated,
+              self->lookupCtx->tailLookup, self->lookupCtx->createMissingKeys);
   RLookupRow_Reset(&r->rowdata);
   r->rowdata = translated;
 
@@ -2219,16 +2222,34 @@ static int RPCrash_Next(ResultProcessor *base, SearchResult *r) {
   return base->upstream->Next(base->upstream, r);
 }
 
-ResultProcessor *RPCrash_New() {
-  RPCrash *ret = rm_calloc(1, sizeof(RPCrash));
-  ret->base.type = RP_CRASH;
-  ret->base.Next = RPCrash_Next;
-  ret->base.Free = RPCrash_Free;
-  return &ret->base;
+static int RPCrash_NextInRust(ResultProcessor *base, SearchResult *r) {
+  RPCrash *self = (RPCrash *)base;
+  CrashInRust();
+  return base->upstream->Next(base->upstream, r);
 }
 
-void PipelineAddCrash(struct AREQ *r) {
-  ResultProcessor *crash = RPCrash_New();
+ResultProcessor *RPCrash_New(enum CrashLocation location) {
+  RPCrash *ret = rm_calloc(1, sizeof(RPCrash));
+  switch (location) {
+    case CRASH_IN_C:
+      ret->base.type = RP_CRASH;
+      ret->base.Next = RPCrash_Next;
+      ret->base.Free = RPCrash_Free;
+      return &ret->base;
+    case CRASH_IN_RUST:
+      ret->base.type = RP_CRASH_IN_RUST;
+      ret->base.Next = RPCrash_NextInRust;
+      ret->base.Free = RPCrash_Free;
+      return &ret->base;
+    default:
+        rm_free(ret);
+        RedisModule_Log(RSDummyContext, "warning", "Invalid CrashLocation enum value");
+        abort();
+  }
+}
+
+void PipelineAddCrash(struct AREQ *r, enum CrashLocation location) {
+  ResultProcessor *crash = RPCrash_New(location);
   addResultProcessor(AREQ_QueryProcessingCtx(r), crash);
 }
 

@@ -154,6 +154,7 @@ trait ToBytes<const N: usize> {
 
 /// The base numeric decoder/encoder which follows the encoding format described in the module
 /// documentation.
+#[derive(Debug)]
 pub struct Numeric;
 
 impl Numeric {
@@ -166,6 +167,7 @@ impl Numeric {
 /// Like the base [`Numeric`] encoder, but attempts to compress float values to f32 when possible.
 /// This is done by checking if the float value can be represented as f32 without loss of precision,
 /// or if the difference between the f64 and f32 representation is below a certain threshold.
+#[derive(Debug)]
 pub struct NumericFloatCompression;
 
 impl NumericFloatCompression {

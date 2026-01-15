@@ -49,7 +49,7 @@ typedef void (*freeCB)(void*);
  * See the crate's top level documentation for a description of this type.
  */
 typedef struct LowMemoryThinVecCVoid {
-  Header *ptr;
+  Header_u16 *ptr;
 } LowMemoryThinVecCVoid;
 
 /**

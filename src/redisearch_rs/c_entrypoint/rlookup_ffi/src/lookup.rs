@@ -8,14 +8,80 @@
 */
 
 use crate::row::RLookupRow;
-use ffi::SchemaRule;
 use libc::size_t;
-use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags, SchemaRuleWrapper};
+use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags, SchemaRule};
 use std::{
     ffi::{CStr, c_char},
-    ptr::NonNull,
+    ptr::{self, NonNull},
     slice,
 };
+
+/// Add all non-overridden keys from `src` to `dest`.
+///
+/// For each key in `src`, check if it already exists *by name*.
+/// - If it does, the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
+/// - If it doesn't, a new key will be created.
+///
+/// Flag handling:
+/// - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+/// - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+/// - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+/// - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+///
+/// # Safety
+///
+/// 1. `src` must be a [valid], non-null pointer to an [`RLookup`]
+/// 2. `dest` must be a [valid], non-null pointer to an [`RLookup`]
+/// 3. `src` and `dest` must not point to the same [`RLookup`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_AddKeysFrom<'a>(
+    src: *const RLookup<'a>,
+    dest: Option<NonNull<RLookup<'a>>>,
+    flags: u32,
+) {
+    // Safety: ensured by caller (2.)
+    let dest = unsafe { dest.unwrap().as_mut() };
+
+    // We're doing the assert here in the middle to avoid extra type conversions.
+    assert_ne!(src, dest, "`src` and `dst` must not be the same");
+
+    // Safety: ensured by caller (1.)
+    let src = unsafe { src.as_ref().unwrap() };
+
+    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+
+    dest.add_keys_from(src, flags);
+}
+
+/// Find a field in the index spec cache of the lookup.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 2. The memory pointed to by `name` must contain a valid nul terminator at the
+///    end of the string.
+/// 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
+///    This means in particular:
+///     1. The entire memory range of this cstr must be contained within a single allocation!
+///     2. `name` must be non-null even for a zero-length cstr.
+/// 4. The nul terminator must be within `isize::MAX` from `name`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
+    lookup: *const RLookup<'_>,
+    name: *const c_char,
+) -> *const ffi::FieldSpec {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { lookup.as_ref().unwrap() };
+
+    // Safety: ensured by caller (2., 3., 4.)
+    let name = unsafe { CStr::from_ptr(name) };
+
+    lookup
+        .find_field_in_spec_cache(name)
+        .map_or(ptr::null(), ptr::from_ref)
+}
 
 /// Get a RLookup key for a given name.
 ///
@@ -299,7 +365,7 @@ pub unsafe extern "C" fn RLookup_GetLength(
     skip_field_index_len: size_t,
     required_flags: u32,
     excluded_flags: u32,
-    rule: Option<NonNull<SchemaRule>>,
+    rule: *const ffi::SchemaRule,
 ) -> size_t {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.as_ref().unwrap() };
@@ -315,9 +381,12 @@ pub unsafe extern "C" fn RLookup_GetLength(
     let required_flags = RLookupKeyFlags::from_bits(required_flags).unwrap();
     let excluded_flags = RLookupKeyFlags::from_bits(excluded_flags).unwrap();
 
-    // Safety: ensured by caller (4.)
-    let rule = rule.map(|ptr| unsafe { SchemaRuleWrapper::from_non_null(ptr) });
-    let rule = rule.as_ref();
+    let rule = if rule.is_null() {
+        None
+    } else {
+        // Safety: ensured by caller (4.)
+        Some(unsafe { SchemaRule::from_raw(rule) })
+    };
 
     row.get_length_no_alloc(
         lookup,

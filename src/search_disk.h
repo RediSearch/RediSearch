@@ -60,6 +60,25 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
  */
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
 
+/**
+ * @brief Save the disk-related data of the index to the rdb file
+ *
+ * @param rdb Redis module rdb file
+ * @param index Pointer to the index
+ * @return true if successful, false otherwise
+ */
+void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+
+/**
+ * @brief Load the disk-related data of the index from the rdb file
+ *
+ * @param rdb Redis module rdb file
+ * @param index Pointer to the index. If NULL, the RDB section related to the
+ * index is consumed only.
+ * @return true if successful, false otherwise
+ */
+int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+
 // Index API wrappers
 
 /**
@@ -73,6 +92,17 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
  * @return true if successful, false otherwise
  */
 bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask);
+
+/**
+ * @brief Delete a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
+ *
+ * @param handle Handle to the document table
+ * @param key Document key
+ * @param keyLen Length of the document key
+ * @param oldLen Optional pointer to receive the old document length (can be NULL)
+ * @param id Optional pointer to receive the deleted document ID (can be NULL)
+ */
+void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, uint32_t *oldLen, t_docId *id);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
@@ -104,7 +134,8 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
 // DocTable API wrappers
 
 /**
- * @brief Add a new document to the table
+ * @brief Add a new document to the table, and delete the previously existing
+ * document associated with the key.
  *
  * @param handle Handle to the document table
  * @param key Document key
@@ -113,9 +144,10 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
  * @param flags Document flags
  * @param maxTermFreq Maximum frequency of any single term in the document
  * @param totalFreq Total frequency of the document
+ * @param oldLen Pointer to an integer to store the length of the deleted document
  * @return New document ID, or 0 on error/duplicate
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen);
 
 /**
  * @brief Get document metadata by document ID
@@ -135,6 +167,35 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId do
  * @return true if deleted, false if not deleted or on error
  */
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
+
+/**
+ * @brief Get the maximum document ID of the index (next to be assigned)
+ *
+ * @param handle Handle to the document table
+ * @return The maximum document ID, or 0 if the index is empty
+ */
+t_docId SearchDisk_GetMaxDocId(RedisSearchDiskIndexSpec *handle);
+
+/**
+ * @brief Get the count of deleted document IDs
+ *
+ * @param handle Handle to the document table
+ * @return The number of deleted document IDs
+ */
+uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
+
+/**
+ * @brief Get all deleted document IDs
+ *
+ * Fills the provided buffer with deleted document IDs. The caller must ensure
+ * the buffer is large enough to hold all deleted IDs (use SearchDisk_GetDeletedIdsCount first).
+ *
+ * @param handle Handle to the document table
+ * @param buffer Buffer to fill with deleted document IDs
+ * @param buffer_size Size of the buffer (number of t_docId elements)
+ * @return The number of IDs written to the buffer
+ */
+size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
 
 /**
  * @brief Check if the search disk module is enabled from configuration
@@ -174,7 +235,7 @@ bool SearchDisk_IsEnabledForValidation();
  * @param params Vector index parameters
  * @return VecSimIndex* handle, or NULL on error
  */
-void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const struct VecSimHNSWDiskParams *params);
+void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params);
 
 /**
  * @brief Free a disk-based vector index
