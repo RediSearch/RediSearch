@@ -23,9 +23,12 @@ typedef struct {
   RSIndexResult *virt;
   t_docId maxDocId;
   double weight;
-} OptionalIterator;
+} OptionalOptimizedIterator;
 
 QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double weight);
+QueryIterator const *GetOptionalIteratorChild(QueryIterator *const it);
+void SetOptionalIteratorChild(QueryIterator *it, QueryIterator* child);
+QueryIterator *TakeOptionalIteratorChild(QueryIterator *it);
 
 #ifdef __cplusplus
 }
