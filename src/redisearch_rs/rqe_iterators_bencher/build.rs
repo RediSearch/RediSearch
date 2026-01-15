@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("src/iterators", "iterators"),
         ("src/buffer", "buffer"),
         ("src/index_result", "index_result"),
-        ("src/value", "value"),
+        // ("src/value", "value"),
     ]);
 
     // Compile the wildcard iterator benchmark C file

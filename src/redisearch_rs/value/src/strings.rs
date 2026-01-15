@@ -11,7 +11,7 @@ use std::{
     alloc::{self, Layout},
     fmt,
     mem::MaybeUninit,
-    num::NonZeroUsize,
+    num::{NonZero, NonZeroUsize},
     os::raw::c_char,
     ptr::{NonNull, copy_nonoverlapping},
     slice,
@@ -22,24 +22,24 @@ use ffi::{
     RedisModule_StringPtrLen, RedisModuleString, context::redisearch_module_context,
 };
 
-/// An owned, `rm_alloc`'d string. The string
+/// A `rm_alloc`'d string. The string
 /// need not be UTF-8 or null-terminated. It is basically
 /// just an array of bytes annotated with its length.
 ///
 /// # Invariants
 /// - (1) if `len > 0`, `str` points to an `rn_alloc`'d sequence of `len` bytes.
-/// - (2) The Redis allocator must be initialized before any [`OwnedRmAllocString`]
+/// - (2) The Redis allocator must be initialized before any [`RmAllocString`]
 ///   is created, to avoid panicking on `drop`.
 /// - (3) [`RedisModule_Alloc`] must not be mutated for the lifetime of the
-///   `OwnedRmAllocString`.
+///   `RmAllocString`.
 #[repr(C, packed)]
-pub struct OwnedRmAllocString {
+pub struct RmAllocString {
     str: NonNull<c_char>,
     len: u32,
 }
 
-impl OwnedRmAllocString {
-    /// Create a new [`OwnedRmAllocString`], taking ownership of the
+impl RmAllocString {
+    /// Create a new [`RmAllocString`], taking ownership of the
     /// backing `rm_alloc`'d string.
     ///
     /// # Safety
@@ -48,12 +48,12 @@ impl OwnedRmAllocString {
     /// - (3) if `len > 0`, `str` must not be aliased.
     /// - (4) if `len > 0`, `str` must have been allocated with `rm_alloc`
     /// - (5) [`RedisModule_Alloc`] must not be mutated for the lifetime of the
-    ///   `OwnedRmAllocString`.
+    ///   `RmAllocString`.
     pub const unsafe fn take_unchecked(str: NonNull<c_char>, len: u32) -> Self {
         Self { str, len }
     }
 
-    /// Create a new [`OwnedRmAllocString`] by copying `len` bytes
+    /// Create a new [`RmAllocString`] by copying `len` bytes
     /// from `str` into a new `rm_alloc`'d space.
     ///
     /// # Panics
@@ -62,7 +62,7 @@ impl OwnedRmAllocString {
     /// # Safety
     /// - (1) `str` must point to a byte sequence and be valid for `len` reads.
     /// - (2) [`RedisModule_Alloc`] must not be mutated for the lifetime of the
-    ///   `OwnedRmAllocString`.
+    ///   `RmAllocString`.
     pub unsafe fn copy_from_string(str: *const c_char, len: u32) -> Self {
         if len == 0 {
             return Self {
@@ -88,10 +88,19 @@ impl OwnedRmAllocString {
         Self { str: buf, len }
     }
 
+    pub fn len(&self) -> u32 {
+        self.len
+    }
+
+    pub fn as_ptr(&self) -> *const c_char {
+        self.str.as_ptr()
+    }
+
     /// Get the string's bytes as a slice of `u8`'s.
-    pub const fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         if self.len == 0 {
-            return &[];
+            // return &[];
+            return &b"\0"[..0];
         }
 
         // Safety: `self.str` lives as long as `self`, and
@@ -101,7 +110,7 @@ impl OwnedRmAllocString {
     }
 }
 
-impl Clone for OwnedRmAllocString {
+impl Clone for RmAllocString {
     fn clone(&self) -> Self {
         // Safety: invariants (3) and (4)
         // uphold the safety requirements of `Self::copy_from_string`
@@ -109,19 +118,19 @@ impl Clone for OwnedRmAllocString {
     }
 }
 
-impl fmt::Debug for OwnedRmAllocString {
+impl fmt::Debug for RmAllocString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         String::from_utf8_lossy(self.as_bytes()).fmt(f)
     }
 }
 
-impl fmt::Display for OwnedRmAllocString {
+impl fmt::Display for RmAllocString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         String::from_utf8_lossy(self.as_bytes()).fmt(f)
     }
 }
 
-impl Drop for OwnedRmAllocString {
+impl Drop for RmAllocString {
     fn drop(&mut self) {
         if self.len == 0 {
             // No need to free any memory
@@ -136,12 +145,12 @@ impl Drop for OwnedRmAllocString {
     }
 }
 
-// Safety: `OwnedRmAllocString` does not hold data that cannot be sent
+// Safety: `RmAllocString` does not hold data that cannot be sent
 // to another thread
-unsafe impl Send for OwnedRmAllocString {}
-// Safety: `OwnedRmAllocString` does not hold data that cannot be referenced
+unsafe impl Send for RmAllocString {}
+// Safety: `RmAllocString` does not hold data that cannot be referenced
 // from another thread
-unsafe impl Sync for OwnedRmAllocString {}
+unsafe impl Sync for RmAllocString {}
 
 /// A reference to a string constant, annotated
 /// with its length.
@@ -167,14 +176,23 @@ impl ConstString {
     }
 
     /// Get the string's bytes as a slice of `u8`'s.
-    pub const fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         if self.len == 0 {
-            return &[];
+            // return &[];
+            return &b"\0"[..0];
         }
 
         // Safety: invariants (1) and (2) uphold the safety requirements
         // of `slice::from_raw_parts`
         unsafe { slice::from_raw_parts(self.str as *const u8, self.len as usize) }
+    }
+
+    pub fn len(&self) -> u32 {
+        self.len
+    }
+
+    pub fn as_ptr(&self) -> *const c_char {
+        self.str
     }
 }
 
@@ -198,64 +216,18 @@ unsafe impl Send for ConstString {}
 // from another thread
 unsafe impl Sync for ConstString {}
 
-/// A reference to a [`RedisModuleString`].
-///
-/// Holds a [`NonNull<RedisModuleString>`], because `RedisModuleString` is
-/// reference counted. Instances of this type do not correspond to
-/// an increment of the reference count, and thus do not own the
-/// `RedisModuleString`.
-///
-/// # Invariants
-/// - (1) `str` must point to a valid `RedisModuleString`.
-/// - (2) The reference count of the [`RedisModuleString`] `str` points to
-///   must be at least 1 for the lifetime of the [`RedisStringRef`]
-#[derive(Debug, Clone)]
-#[repr(transparent)]
-pub struct RedisStringRef {
-    str: NonNull<RedisModuleString>,
-}
-
-impl RedisStringRef {
-    /// Create a new [`RedisStringRef`] from a borrowed [`RedisModuleString`].
-    /// This does not increment the [`RedisModuleString`]'s reference count.
-    ///
-    /// # Safety
-    /// - (1) The passed pointer must be valid for reads.
-    /// - (2) The reference count of the [`RedisModuleString`] `str` points to
-    ///   must be at least 1 for the lifetime of the created [`RedisStringRef`]
-    pub const unsafe fn new_unchecked(str: NonNull<RedisModuleString>) -> Self {
-        Self { str }
-    }
-
-    /// Converts `self` into an [`OwnedRedisString`] by incrementing
-    /// the reference count.
-    pub fn retain(self) -> OwnedRedisString {
-        // Safety: invariants (1) and (2) uphold
-        // the safety requirements of `OwnedRedisString::retain`.
-        unsafe { OwnedRedisString::retain(self.str) }
-    }
-}
-
-// Safety: [`RedisStringRef`] does not hold data that cannot be sent
-// to another thread
-unsafe impl Send for RedisStringRef {}
-
-// Safety: [`RedisStringRef`] does not hold data that cannot be referenced
-// from another thread
-unsafe impl Sync for RedisStringRef {}
-
-/// An owned [`RedisModuleString`]
+/// A [`RedisModuleString`]
 ///
 /// # Invariants
 /// - (1) `str` must point to a valid [`RedisModuleString`]
 ///   with a reference count of at least 1;
 /// - (2) The Redis Module must be initialized
 #[repr(transparent)]
-pub struct OwnedRedisString {
+pub struct RedisString {
     str: NonNull<RedisModuleString>,
 }
 
-impl OwnedRedisString {
+impl RedisString {
     /// Increment the reference count of the [`RedisModuleString`]
     /// `str` points to.
     ///
@@ -273,11 +245,11 @@ impl OwnedRedisString {
         // Safety: caller must ensure (1)
         unsafe { rm_retain_string(ctx, str.as_ptr()) };
 
-        OwnedRedisString { str }
+        RedisString { str }
     }
 
     /// Takes ownership of the passed `RedisModuleString`
-    /// and wraps it in an [`OwnedRedisString`]
+    /// and wraps it in an [`RedisString`]
     ///
     /// # Safety
     /// - (1) `str` must point to a valid [`RedisModuleString`]
@@ -302,9 +274,13 @@ impl OwnedRedisString {
         // Safety: `str_ptr` is valid for reads of `len` bytes.
         unsafe { slice::from_raw_parts(str_ptr as *const u8, len) }
     }
+
+    pub fn as_ptr(&self) -> *const RedisModuleString {
+        self.str.as_ptr()
+    }
 }
 
-impl Drop for OwnedRedisString {
+impl Drop for RedisString {
     fn drop(&mut self) {
         // Safety: invariant (1).
         let ctx = unsafe { redisearch_module_context() };
@@ -317,21 +293,21 @@ impl Drop for OwnedRedisString {
     }
 }
 
-impl Clone for OwnedRedisString {
+impl Clone for RedisString {
     fn clone(&self) -> Self {
         // Safety: invariants (1) and (2) uphold
-        // the safety requirements of `OwnedRedisString::retain`
-        unsafe { OwnedRedisString::retain(self.str) }
+        // the safety requirements of `RedisString::retain`
+        unsafe { RedisString::retain(self.str) }
     }
 }
 
-impl fmt::Debug for OwnedRedisString {
+impl fmt::Debug for RedisString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         String::from_utf8_lossy(self.as_bytes()).fmt(f)
     }
 }
 
-impl fmt::Display for OwnedRedisString {
+impl fmt::Display for RedisString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         String::from_utf8_lossy(self.as_bytes()).fmt(f)
     }
@@ -339,11 +315,11 @@ impl fmt::Display for OwnedRedisString {
 
 // Safety: [`RedisStringRef`] does not hold data that cannot be sent
 // to another thread
-unsafe impl Send for OwnedRedisString {}
+unsafe impl Send for RedisString {}
 
 // Safety: [`RedisStringRef`] does not hold data that cannot be referenced
 // from another thread
-unsafe impl Sync for OwnedRedisString {}
+unsafe impl Sync for RedisString {}
 
 /// Data container for `RsValueString`,
 /// a pointer to which does not become a
@@ -430,6 +406,17 @@ impl RsValueStringData {
         Self { len, data: s_cpy }
     }
 
+    fn from_string(string: String) -> Self {
+        let boxed_str: Box<str> = string.into_boxed_str();
+        let len = boxed_str.len();
+        let ptr = Box::<str>::into_raw(boxed_str) as *mut u8;
+
+        Self {
+            len: NonZero::new(len).unwrap(),
+            data: ptr,
+        }
+    }
+
     /// Get the string's bytes as a slice of `u8`'s.
     pub const fn as_bytes(&self) -> &[u8] {
         // Safety: invariant (1) upholds
@@ -493,7 +480,7 @@ unsafe impl Send for RsValueStringData {}
 // from another thread
 unsafe impl Sync for RsValueStringData {}
 
-/// A string type optimized for use in [`crate::RsValueInternal`],
+/// A string type optimized for use in [`crate::RsValue`],
 /// of which variant data can be at most 12 bytes in size.
 ///
 /// Wraps an `Option<Arc<RsValueStringData>>` because:
@@ -557,8 +544,17 @@ impl RsValueString {
         Ok(Self::from_data(data))
     }
 
+    pub fn from_string(string: String) -> Self {
+        Self::from_data(RsValueStringData::from_string(string))
+    }
+
     const fn from_data(data: RsValueStringData) -> Self {
         Self { s: Some(data) }
+    }
+
+    /// Returns the string as a `&str`.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.s.as_ref().map(|s| s.as_bytes()).unwrap_or(&[])
     }
 
     /// Returns the string as a `&str`.
