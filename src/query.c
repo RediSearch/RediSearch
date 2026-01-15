@@ -15,6 +15,7 @@
 #include "geo_index.h"
 #include "query.h"
 #include "config.h"
+#include "iterators/iterator_api.h"
 #include "query_error.h"
 #include "redis_index.h"
 #include "iterators_rs.h"
@@ -1000,7 +1001,7 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   // If iterator was created successfully, and we have a metric to yield, update the
   // Only create MetricRequest entries for iterators that actually yield metrics
   if (it && qn->vn.vq->scoreField &&
-      (it->type == HYBRID_ITERATOR || it->type == METRIC_ITERATOR)) {
+      (it->type == HYBRID_ITERATOR || it->type == METRIC_SORTED_BY_ID_ITERATOR || it->type == METRIC_SORTED_BY_SCORE_ITERATOR)) {
     MetricRequest *request = array_ensure_at(q->metricRequestsP, idx, MetricRequest);
 
     // Create a handle that points to the iterator's ownKey field

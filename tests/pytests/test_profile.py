@@ -71,7 +71,7 @@ def testProfileSearch(env):
   # test ID LIST iter with INKEYS
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello', 'inkeys', 1, '1')
   expected_res = ['Type', 'INTERSECT', 'Number of reading operations', 1, 'Child iterators', [
-                    ['Type', 'ID-LIST', 'Number of reading operations', 1],
+                    ['Type', 'ID-LIST-SORTED', 'Number of reading operations', 1],
                     ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 1, 'Estimated number of matches', 1]]]
   env.assertEqual(actual_res[1][1][0][3], expected_res)
 
@@ -302,7 +302,7 @@ def testProfileVector(env):
   # Range query - uses metric iterator. Radius is set so that the closest 2 vectors will be in the range
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
                                     'SORTBY', 'dist', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
-  expected_iterators_res = ['Type', 'METRIC - VECTOR DISTANCE', 'Number of reading operations', 2, 'Vector search mode', 'RANGE_QUERY']
+  expected_iterators_res = ['Type', 'METRIC SORTED BY ID - VECTOR DISTANCE', 'Number of reading operations', 2, 'Vector search mode', 'RANGE_QUERY']
   expected_vecsim_rp_res = ['Type', 'Metrics Applier', 'Results processed', 2]
   env.assertEqual(actual_res[0], [2, '4', '2'])
   actual_profile = to_dict(actual_res[1][1][0])
@@ -905,7 +905,7 @@ def testProfileVectorSearchMode():
     query: the query string
     params: list of params (e.g., ['vec', 'aaaaaaaa'])
     expected_mode: expected search mode string
-    expected_iterator_type: 'VECTOR' or 'METRIC - VECTOR DISTANCE'
+    expected_iterator_type: 'VECTOR' or 'METRIC SORTED BY ID - VECTOR DISTANCE'
     """
     cmd = ['FT.PROFILE', 'idx', query_type, 'QUERY', query]
     cmd.extend(['PARAMS'] + [str(len(params))] + params)
@@ -937,9 +937,9 @@ def testProfileVectorSearchMode():
 
   # Test 3: RANGE_QUERY (uses METRIC_ITERATOR)
   verify_search_mode('SEARCH', '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
-                     ['vec', 'aaaaaaaa'], 'RANGE_QUERY', 'METRIC - VECTOR DISTANCE')
+                     ['vec', 'aaaaaaaa'], 'RANGE_QUERY', 'METRIC SORTED BY ID - VECTOR DISTANCE')
   verify_search_mode('AGGREGATE', '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
-                     ['vec', 'aaaaaaaa'], 'RANGE_QUERY', 'METRIC - VECTOR DISTANCE')
+                     ['vec', 'aaaaaaaa'], 'RANGE_QUERY', 'METRIC SORTED BY ID - VECTOR DISTANCE')
 
   # Test 4: HYBRID_BATCHES
   verify_search_mode('SEARCH', '(@t:hello world)=>[KNN 3 @v $vec HYBRID_POLICY BATCHES BATCH_SIZE 100]', ['vec', 'aaaaaaaa'], 'HYBRID_BATCHES')

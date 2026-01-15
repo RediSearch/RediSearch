@@ -16,10 +16,10 @@ use inverted_index::RSIndexResult;
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// An iterator that yields results according to a sorted list of unique IDs, specified on construction.
-pub type SortedIdList<'index> = IdList<'index, true>;
+pub type IdListSorted<'index> = IdList<'index, true>;
 /// An iterator that yields results according to an IDs list, specified on construction,
 /// which may or may not be sorted.
-pub type UnsortedIdList<'index> = IdList<'index, false>;
+pub type IdListUnsorted<'index> = IdList<'index, false>;
 
 /// An iterator that yields results according to an IDs list given on construction.
 pub struct IdList<'index, const SORTED: bool> {
