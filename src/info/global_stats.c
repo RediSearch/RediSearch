@@ -224,12 +224,10 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   return stats;
 }
 
-void FieldsGlobalStats_UpdateFieldDocsIndexed(const FieldSpec *fs, int toAdd) {
+void FieldsGlobalStats_UpdateFieldDocsIndexed(FieldType field_types, int toAdd) {
   // Indexing documents happens only in the main thread or with the GIL locked.
   // Therefore, there is no need for atomic operations.
-
-  FieldType field_type = fs->types;
-  switch (field_type) {
+  switch (field_types) {
     case INDEXFLD_T_FULLTEXT:
       RSGlobalStats.fieldsStats.textTotalDocsIndexed += toAdd;
       break;
@@ -249,12 +247,4 @@ void FieldsGlobalStats_UpdateFieldDocsIndexed(const FieldSpec *fs, int toAdd) {
       RSGlobalStats.fieldsStats.geometryTotalDocsIndexed += toAdd;
       break;
   }
-}
-
-void FieldsGlobalStats_UpdateTextFieldDocsIndexed(int toAdd) {
-  // Wrapper for updating fulltext field statistics without needing a FieldSpec.
-  // Creates a mock FieldSpec with just the necessary fields set.
-  FieldSpec mockTextFieldSpec = {0};
-  mockTextFieldSpec.types = INDEXFLD_T_FULLTEXT;
-  FieldsGlobalStats_UpdateFieldDocsIndexed(&mockTextFieldSpec, toAdd);
 }

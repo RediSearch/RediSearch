@@ -812,7 +812,7 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
   }
   // If the indexing was successful, update the global statistics.
   if (rc == 0) {
-    FieldsGlobalStats_UpdateFieldDocsIndexed(fs, 1);
+    FieldsGlobalStats_UpdateFieldDocsIndexed(fs->types, 1);
   }
   return rc;
 }
