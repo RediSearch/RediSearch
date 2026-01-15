@@ -1803,7 +1803,9 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
  static bool hybridMergerStoreUpstreamResult(RPHybridMerger* self, SearchResult *r, size_t upstreamIndex, double score) {
   // Single shard case - use dmd->keyPtr
   RLookupRow translated = {0};
-  RLookupRow_WriteFieldsFrom(&r->rowdata, self->lookupCtx->sourceLookups[upstreamIndex], &translated, self->lookupCtx->tailLookup);
+  RLookupRow_WriteFieldsFrom(&r->rowdata,
+              self->lookupCtx->sourceLookups[upstreamIndex], &translated,
+              self->lookupCtx->tailLookup, self->lookupCtx->createMissingKeys);
   RLookupRow_Reset(&r->rowdata);
   r->rowdata = translated;
 
