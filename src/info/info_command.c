@@ -342,7 +342,7 @@ void fillReplyWithIndexInfoCrashSafe(const IndexSpec *sp, RedisModuleInfoCtx *in
   if (!sp) return;
 
   // Index name - use existing strings, no allocation
-  const char* specName = obfuscate ? sp->obfuscatedName : sp->name;
+  const char* specName = obfuscate ? sp->obfuscatedName : sp->specName;
   if (specName) {
     RedisModule_InfoAddFieldCString(info_ctx, "index_name", (char *)specName);
   }
