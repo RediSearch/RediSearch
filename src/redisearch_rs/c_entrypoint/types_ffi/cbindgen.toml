@@ -32,7 +32,7 @@ include = ["enumflags2", "inverted_index", "low_memory_thin_vec", "field"]
 
 [export]
 # Don't export the `low_memory_thin_vec::Header` again
-exclude = ["Header"]
+exclude = ["Header_u16"]
 include = ["BlockSummary", "Summary", "ReadFilter", "FieldMaskOrIndex", "FieldExpirationPredicate", "FieldFilterContext"]
 
 [export.rename]

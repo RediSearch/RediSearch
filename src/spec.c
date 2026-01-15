@@ -1134,7 +1134,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   sp->flags |= Index_HasVecSim;
 
   memset(&fs->vectorOpts.vecSimParams, 0, sizeof(VecSimParams));
-  memset(&fs->vectorOpts.diskParams, 0, sizeof(VecSimHNSWDiskParams));
+  memset(&fs->vectorOpts.diskCtx, 0, sizeof(VecSimDiskContext));
 
   // If the index is on JSON and the given path is dynamic, create a multi-value index.
   bool multi = false;
@@ -1188,20 +1188,10 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     result = parseVectorField_hnsw(fs, params, ac, status);
     // Build disk params if disk mode is enabled
     if (result && sp->diskSpec) {
-      const HNSWParams *hnsw = &params->algoParams.hnswParams;
       size_t nameLen;
       const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
-      fs->vectorOpts.diskParams = (VecSimHNSWDiskParams){
-        .dim = hnsw->dim,
-        .type = hnsw->type,
-        .metric = hnsw->metric,
-        .M = hnsw->M,
-        .efConstruction = hnsw->efConstruction,
-        .efRuntime = hnsw->efRuntime,
-        .blockSize = hnsw->blockSize,
-        .multi = hnsw->multi,
+      fs->vectorOpts.diskCtx = (VecSimDiskContext){
         .storage = sp->diskSpec,
-        .logCtx = logCtx,
         .indexName = rm_strndup(namePtr, nameLen),
         .indexNameLen = nameLen,
       };
@@ -1581,7 +1571,7 @@ inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
   return SearchDisk_IsEnabledForValidation();
 }
 
-// Populate diskParams for all HNSW vector fields in the spec.
+// Populate diskCtx for all HNSW vector fields in the spec.
 // This must be called after sp->diskSpec is set.
 static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
   if (!sp->diskSpec) return;
@@ -1602,21 +1592,12 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
     const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
 
     // Free any existing indexName to avoid memory leak
-    if (fs->vectorOpts.diskParams.indexName) {
-      rm_free((void*)fs->vectorOpts.diskParams.indexName);
+    if (fs->vectorOpts.diskCtx.indexName) {
+      rm_free((void*)fs->vectorOpts.diskCtx.indexName);
     }
 
-    fs->vectorOpts.diskParams = (VecSimHNSWDiskParams){
-      .dim = hnsw->dim,
-      .type = hnsw->type,
-      .metric = hnsw->metric,
-      .M = hnsw->M,
-      .efConstruction = hnsw->efConstruction,
-      .efRuntime = hnsw->efRuntime,
-      .blockSize = hnsw->blockSize,
-      .multi = hnsw->multi,
+    fs->vectorOpts.diskCtx = (VecSimDiskContext){
       .storage = sp->diskSpec,
-      .logCtx = params->logCtx,
       .indexName = rm_strndup(namePtr, nameLen),
       .indexNameLen = nameLen,
     };
@@ -1730,7 +1711,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
 
   // Store on disk if we're on Flex.
   // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
-  // is available when parsing vector fields (for populating diskParams).
+  // is available when parsing vector fields (for populating diskCtx).
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
     size_t len;
@@ -3410,7 +3391,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
         StrongRef_Release(spec_ref);
         return NULL;
       }
-    // Populate diskParams for vector fields now that diskSpec is available
+    // Populate diskCtx for vector fields now that diskSpec is available
     IndexSpec_PopulateVectorDiskParams(sp);
   }
 
@@ -3648,19 +3629,43 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
-void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, t_docId id) {
-  RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
-  if (md) {
-    RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
-    spec->stats.numDocuments--;
-    RS_LOG_ASSERT(spec->stats.totalDocsLen >= md->docLen, "totalDocsLen is smaller than md->docLen");
-    spec->stats.totalDocsLen -= md->docLen;
-    DMD_Return(md);
+void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+  t_docId id = 0;
+  uint32_t docLen = 0;
+  if (isSpecOnDisk(spec)) {
+    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
+    size_t len;
+    const char *keyStr = RedisModule_StringPtrLen(key, &len);
 
-    // Increment the index's garbage collector's scanning frequency after document deletions
-    if (spec->gc) {
-      GCContext_OnDelete(spec->gc);
+    // Delete the document
+    SearchDisk_DeleteDocument(spec->diskSpec, keyStr, len, &docLen, &id);
+
+    if (id == 0) {
+      // Nothing to delete
+      return;
     }
+  } else {
+    RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
+    if (!md) {
+      // Nothing to delete
+      return;
+    }
+
+    id = md->id;
+    docLen = md->docLen;
+
+    DMD_Return(md);
+  }
+
+  // Update the stats
+  RS_LOG_ASSERT(spec->stats.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
+  spec->stats.totalDocsLen -= docLen;
+  RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
+  spec->stats.numDocuments--;
+
+  // Increment the index's garbage collector's scanning frequency after document deletions
+  if (spec->gc) {
+    GCContext_OnDelete(spec->gc);
   }
 
   // VecSim fields clear deleted data on the fly
@@ -3668,8 +3673,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         VecSimIndex *vecsim = openVectorIndex(spec->fields + i, DONT_CREATE_INDEX);
-        if(!vecsim)
-          continue;
+        if(!vecsim) continue;
         VecSimIndex_DeleteVector(vecsim, id);
       }
     }
@@ -3683,33 +3687,11 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
-  if (sctx.spec->diskSpec) {
-    // TODO: Statistics handling is done in IndexSpec_DeleteDoc_Unsafe (MOD-13306).
-    size_t len;
-    const char *keyStr = RedisModule_StringPtrLen(key, &len);
-    IndexSpec_IncrActiveWrites(spec);
-    RedisSearchCtx_LockSpecWrite(&sctx);
-    SearchDisk_DeleteDocument(sctx.spec->diskSpec, keyStr, len);
-    IndexSpec_DecrActiveWrites(spec);
-    RedisSearchCtx_UnlockSpec(&sctx);
-  } else {
-    // TODO: is this necessary?
-    RedisSearchCtx_LockSpecRead(&sctx);
-    // Get the doc ID
-    t_docId id = DocTable_GetIdR(&spec->docs, key);
-    RedisSearchCtx_UnlockSpec(&sctx);
-
-    if (id == 0) {
-      // ID does not exist.
-      return REDISMODULE_ERR;
-    }
-
-    IndexSpec_IncrActiveWrites(spec);
-    RedisSearchCtx_LockSpecWrite(&sctx);
-    IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
-    IndexSpec_DecrActiveWrites(spec);
-    RedisSearchCtx_UnlockSpec(&sctx);
-  }
+  IndexSpec_IncrActiveWrites(spec);
+  RedisSearchCtx_LockSpecWrite(&sctx);
+  IndexSpec_DeleteDoc_Unsafe(spec, ctx, key);
+  IndexSpec_DecrActiveWrites(spec);
+  RedisSearchCtx_UnlockSpec(&sctx);
 
   return REDISMODULE_OK;
 }

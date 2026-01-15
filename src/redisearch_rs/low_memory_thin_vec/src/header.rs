@@ -1,99 +1,97 @@
-/// The header of a LowMemoryThinVec.
+use crate::{capacity::VecCapacity, layout::header_field_padding};
+
+/// The header of a `LowMemoryThinVec`.
 #[repr(C)]
-pub struct Header {
-    len: SizeType,
-    cap: SizeType,
+pub struct Header<S: VecCapacity> {
+    len: S,
+    cap: S,
 }
 
-/// The type used to represent the capacity of a `LowMemoryThinVec`.
-pub(crate) type SizeType = u16;
-
-/// The maximum capacity of a `LowMemoryThinVec`.
-pub(crate) const MAX_CAP: usize = SizeType::MAX as usize;
-
-#[inline(always)]
-/// Convert a `usize` to a [`SizeType`], panicking if the value is too large to fit.
-pub(crate) const fn assert_size(x: usize) -> SizeType {
-    if x > MAX_CAP {
-        panic!("LowMemoryThinVec size may not exceed the capacity of a 16-bit sized int");
-    }
-    x as SizeType
-}
-
-impl Header {
-    /// Creates a new header with the given length and capacity.
+impl<S: VecCapacity> Header<S> {
+    /// Creates a new header with the given capacity.
     ///
-    /// # Panics
-    ///
-    /// Panics if the length is greater than the capacity.
-    pub(crate) const fn new(len: usize, cap: usize) -> Self {
-        assert!(len <= cap, "Length must be less than or equal to capacity");
-        Self {
-            len: assert_size(len),
-            cap: assert_size(cap),
-        }
+    /// Length is set to zero.
+    pub(crate) const fn for_capacity(cap: S) -> Self {
+        Self { len: S::ZERO, cap }
     }
 
     #[inline]
-    pub(crate) const fn len(&self) -> usize {
-        self.len as usize
+    pub(crate) const fn len(&self) -> S {
+        self.len
     }
 
     #[inline]
-    pub(crate) const fn capacity(&self) -> usize {
-        self.cap as usize
+    pub(crate) const fn capacity(&self) -> S {
+        self.cap
     }
 
     #[inline]
-    pub(crate) const fn set_capacity(&mut self, cap: usize) {
+    pub(crate) fn set_capacity(&mut self, cap: S) {
         assert!(
-            cap >= self.len as usize,
+            cap >= self.len,
             "Capacity must be greater than or equal to the current length"
         );
-        self.cap = assert_size(cap);
+        self.cap = cap;
     }
 
     #[inline]
-    pub(crate) const fn set_len(&mut self, len: usize) {
+    pub(crate) fn set_len(&mut self, len: usize) {
         assert!(
-            len <= self.cap as usize,
+            len <= self.cap.to_usize(),
             "New length must be less than or equal to current capacity"
         );
-        self.len = assert_size(len);
+        self.len = S::from_usize(len);
+    }
+
+    /// Returns the size of the header, including the padding required for alignment
+    /// when the vector is storing elements of type `T`.
+    pub const fn size_with_padding<T>() -> usize {
+        let header_size = std::mem::size_of::<Self>();
+        header_size + header_field_padding::<T, S>()
     }
 }
-
-/// Singleton used by all empty collections to avoid allocating a header with
-/// an empty array of elements on the heap.
-pub(crate) static EMPTY_HEADER: Header = Header::new(0, 0);
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_max_cap() {
-        Header::new(0, u16::MAX as usize);
+    fn test_max_cap_u8() {
+        Header::<u8>::for_capacity(u8::MAX);
     }
 
     #[test]
-    #[should_panic(
-        expected = "LowMemoryThinVec size may not exceed the capacity of a 16-bit sized int"
-    )]
-    fn test_over_max_cap() {
-        Header::new(0, (u16::MAX as usize) + 1);
+    fn test_max_cap_u16() {
+        Header::<u16>::for_capacity(u16::MAX);
     }
+
+    #[test]
+    fn test_max_cap_u32() {
+        Header::<u32>::for_capacity(u32::MAX);
+    }
+
     #[test]
     #[should_panic(expected = "Capacity must be greater than or equal to the current length")]
     fn test_small_capacity() {
-        let mut header = Header::new(10, 20);
+        let mut header = Header::<u16>::for_capacity(20);
+        header.set_len(10);
         header.set_capacity(5);
     }
 
     #[test]
     #[should_panic(expected = "New length must be less than or equal to current capacity")]
     fn test_large_length() {
-        let mut header = Header::new(10, 20);
+        let mut header = Header::<u16>::for_capacity(20);
         header.set_len(30);
+    }
+
+    #[test]
+    fn test_header_sizes() {
+        use std::mem::size_of;
+
+        assert_eq!(size_of::<Header<u8>>(), 2); // 1 + 1
+        assert_eq!(size_of::<Header<u16>>(), 4); // 2 + 2
+        assert_eq!(size_of::<Header<u32>>(), 8); // 4 + 4
+        assert_eq!(size_of::<Header<u64>>(), 16); // 8 + 8
     }
 }

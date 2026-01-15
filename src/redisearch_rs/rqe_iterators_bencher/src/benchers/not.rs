@@ -12,12 +12,9 @@
 use std::time::Duration;
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
-use rqe_iterators::{RQEIterator, empty::Empty, id_list::SortedIdList, not_iterator::Not};
+use rqe_iterators::{RQEIterator, empty::Empty, id_list::SortedIdList, not::Not};
 
 use crate::ffi::{IteratorStatus_ITERATOR_OK, QueryIterator};
-
-static WEIGHT: f64 = 1.0;
-static MAX_DOC_ID: u64 = 1_000_000;
 
 #[derive(Default)]
 pub struct Bencher;
@@ -25,6 +22,12 @@ pub struct Bencher;
 impl Bencher {
     const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
     const WARMUP_TIME: Duration = Duration::from_millis(200);
+
+    const WEIGHT: f64 = 1.0;
+    const MAX_DOC_ID: u64 = 1_000_000;
+
+    /// Duration chosen to be big enough such that it will not be reached.
+    const NOT_ITERATOR_LARGE_TIMEOUT: Duration = Duration::from_secs(300);
 
     fn benchmark_group<'a>(
         &self,
@@ -53,7 +56,14 @@ impl Bencher {
         // Rust implementation
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || Not::new(Empty, MAX_DOC_ID, 1.0),
+                || {
+                    Not::new(
+                        Empty,
+                        Self::MAX_DOC_ID,
+                        1.0,
+                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                    )
+                },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
                         criterion::black_box(current);
@@ -68,7 +78,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let child = QueryIterator::new_empty();
-                    QueryIterator::new_not_non_optimized(child, MAX_DOC_ID, WEIGHT)
+                    QueryIterator::new_not_non_optimized(child, Self::MAX_DOC_ID, Self::WEIGHT)
                 },
                 |it| {
                     while it.read() == IteratorStatus_ITERATOR_OK {
@@ -91,8 +101,13 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     // Child has 1% of docs (every 100th doc)
-                    let data = (1..MAX_DOC_ID).step_by(100).collect();
-                    Not::new(SortedIdList::new(data), MAX_DOC_ID, 1.0)
+                    let data = (1..Self::MAX_DOC_ID).step_by(100).collect();
+                    Not::new(
+                        SortedIdList::new(data),
+                        Self::MAX_DOC_ID,
+                        1.0,
+                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                    )
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -107,9 +122,9 @@ impl Bencher {
         group.bench_function("C", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..MAX_DOC_ID).step_by(100).collect();
+                    let data = (1..Self::MAX_DOC_ID).step_by(100).collect();
                     let child = QueryIterator::new_id_list(data);
-                    QueryIterator::new_not_non_optimized(child, MAX_DOC_ID, WEIGHT)
+                    QueryIterator::new_not_non_optimized(child, Self::MAX_DOC_ID, Self::WEIGHT)
                 },
                 |it| {
                     while it.read() == IteratorStatus_ITERATOR_OK {
@@ -132,8 +147,13 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     // Child has 99% of docs (all except every 100th doc)
-                    let data = (1..MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
-                    Not::new(SortedIdList::new(data), MAX_DOC_ID, 1.0)
+                    let data = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
+                    Not::new(
+                        SortedIdList::new(data),
+                        Self::MAX_DOC_ID,
+                        1.0,
+                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                    )
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -148,9 +168,9 @@ impl Bencher {
         group.bench_function("C", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
+                    let data = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
                     let child = QueryIterator::new_id_list(data);
-                    QueryIterator::new_not_non_optimized(child, MAX_DOC_ID, WEIGHT)
+                    QueryIterator::new_not_non_optimized(child, Self::MAX_DOC_ID, Self::WEIGHT)
                 },
                 |it| {
                     while it.read() == IteratorStatus_ITERATOR_OK {
@@ -172,7 +192,14 @@ impl Bencher {
         // Rust implementation
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || Not::new(Empty, MAX_DOC_ID, 1.0),
+                || {
+                    Not::new(
+                        Empty,
+                        Self::MAX_DOC_ID,
+                        1.0,
+                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                    )
+                },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
                         criterion::black_box(current);
@@ -187,7 +214,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let child = QueryIterator::new_empty();
-                    QueryIterator::new_not_non_optimized(child, MAX_DOC_ID, WEIGHT)
+                    QueryIterator::new_not_non_optimized(child, Self::MAX_DOC_ID, Self::WEIGHT)
                 },
                 |it| {
                     while it.skip_to(it.last_doc_id() + step) == IteratorStatus_ITERATOR_OK {
@@ -210,8 +237,13 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..MAX_DOC_ID).step_by(100).collect();
-                    Not::new(SortedIdList::new(data), MAX_DOC_ID, 1.0)
+                    let data = (1..Self::MAX_DOC_ID).step_by(100).collect();
+                    Not::new(
+                        SortedIdList::new(data),
+                        Self::MAX_DOC_ID,
+                        1.0,
+                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                    )
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
@@ -226,9 +258,9 @@ impl Bencher {
         group.bench_function("C", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..MAX_DOC_ID).step_by(100).collect();
+                    let data = (1..Self::MAX_DOC_ID).step_by(100).collect();
                     let child = QueryIterator::new_id_list(data);
-                    QueryIterator::new_not_non_optimized(child, MAX_DOC_ID, WEIGHT)
+                    QueryIterator::new_not_non_optimized(child, Self::MAX_DOC_ID, Self::WEIGHT)
                 },
                 |it| {
                     while it.skip_to(it.last_doc_id() + step) == IteratorStatus_ITERATOR_OK {
@@ -251,8 +283,13 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
-                    Not::new(SortedIdList::new(data), MAX_DOC_ID, 1.0)
+                    let data = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
+                    Not::new(
+                        SortedIdList::new(data),
+                        Self::MAX_DOC_ID,
+                        1.0,
+                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                    )
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
@@ -267,9 +304,9 @@ impl Bencher {
         group.bench_function("C", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
+                    let data = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
                     let child = QueryIterator::new_id_list(data);
-                    QueryIterator::new_not_non_optimized(child, MAX_DOC_ID, WEIGHT)
+                    QueryIterator::new_not_non_optimized(child, Self::MAX_DOC_ID, Self::WEIGHT)
                 },
                 |it| {
                     while it.skip_to(it.last_doc_id() + step) == IteratorStatus_ITERATOR_OK {

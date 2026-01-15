@@ -403,8 +403,8 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   ASSERT_EQ(1, sctx.spec->stats.numDocuments);
   // But the last block deletion was skipped.
   ASSERT_EQ(2, sctx.spec->stats.numRecords);
-  // 40 bytes is the base size of an inverted index
-  ASSERT_EQ(lastBlockMemory + 40, sctx.spec->stats.invertedSize);
+  // 24 bytes is the base size of an inverted index, 8 is the header of the block vector
+  ASSERT_EQ(lastBlockMemory + 24 + 8, sctx.spec->stats.invertedSize);
   ASSERT_EQ(1, TotalIIBlocks() - startValue);
 }
 

@@ -9,13 +9,14 @@
 
 //! Supporting types for [`Not`].
 
-use std::cmp::Ordering;
+use std::time::Duration;
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 
 use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
+    util::TimeoutContext,
 };
 
 /// An iterator that negates the results of its child iterator.
@@ -27,23 +28,51 @@ pub struct Not<'index, I> {
     child: MaybeEmpty<I>,
     /// The maximum document ID to iterate up to (inclusive).
     max_doc_id: t_docId,
+    /// Set to `true` in case the NOT Iterator
+    /// detected using the [`TimeoutContext`] a timeout,
+    /// and reset to `false` at [`RQEIterator::rewind`].
+    forced_eof: bool,
     /// A reusable result object to avoid allocations on each `read` call.
     result: RSIndexResult<'index>,
-    // TODO: Timeout
+    /// Tracks the execution deadline for this iterator.
+    ///
+    /// Uses an amortized check to minimize overhead in hot paths. The timeout
+    /// is absolute for the iterator's lifetime and does not reset upon rewinding.
+    timeout_ctx: TimeoutContext,
 }
 
 impl<'index, I> Not<'index, I>
 where
     I: RQEIterator<'index>,
 {
-    pub const fn new(child: I, max_doc_id: t_docId, weight: f64) -> Self {
+    pub fn new(child: I, max_doc_id: t_docId, weight: f64, timeout: Duration) -> Self {
         Self {
             child: MaybeEmpty::new(child),
             max_doc_id,
+            forced_eof: false,
             result: RSIndexResult::virt()
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL),
+            // The `limit` of 5_000 determines the granularity of the timeout check.
+            // Each time [`TimeoutContext::check_timeout`] is called (during `read` / `skip_to`),
+            // the internal counter goes up. When it reaches this `limit` of 5_000 it will
+            // reset that counter and do the actual (OS) expensive timeout check.
+            timeout_ctx: TimeoutContext::new(timeout, 5_000),
         }
+    }
+
+    /// Wrapper around [`TimeoutContext::check_timeout`] to ensure that in case of an error (timeout),
+    /// we also mark this iterator as EOF.
+    ///
+    /// Returns error [`RQEIteratorError::TimedOut`] if the deadline has been reached or exceeded.
+    #[inline(always)]
+    fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+        let result = self.timeout_ctx.check_timeout();
+        if matches!(result, Err(RQEIteratorError::TimedOut)) {
+            // NOTE: this is not done for optimized version of NOT iterator in C
+            self.forced_eof = true;
+        }
+        result
     }
 }
 
@@ -62,32 +91,25 @@ where
         while !self.at_eof() {
             self.result.doc_id += 1;
 
-            match self.result.doc_id.cmp(&self.child.last_doc_id()) {
-                Ordering::Less => {
-                    // Our doc_id is before child's position - it's not in the child, return it
-                    return Ok(Some(&mut self.result));
-                }
-                Ordering::Equal => {
-                    // We caught up with child iterator - this doc is in the child, skip it
-                    continue;
-                }
-                Ordering::Greater => {
-                    // Our doc_id is past child's position - need to advance child
-                    if let Some(result) = self.child.read()? {
-                        if result.doc_id > self.result.doc_id {
-                            // child skipped ahead already
-                            return Ok(Some(&mut self.result));
-                        }
-                        debug_assert_eq!(
-                            result.doc_id, self.result.doc_id,
-                            "child read backwards without rewind"
-                        );
-                    } else {
-                        // child EOF at read
-                        return Ok(Some(&mut self.result));
-                    }
-                }
+            // 1. Sync child if we've moved past its last known position
+            let child_at_eof = if self.result.doc_id > self.child.last_doc_id() {
+                self.child.read()?.is_none()
+            } else {
+                false
+            };
+
+            // 2. Unified Checkpoint: Exactly one check per iteration.
+            // This occurs AFTER the child.read() and before we decide to return.
+            self.check_timeout()?;
+
+            // 3. Comparison Logic
+            // If child is EOF, or we haven't reached the child's position,
+            // or the child skipped past us, this document is a valid result.
+            if child_at_eof || self.result.doc_id != self.child.last_doc_id() {
+                return Ok(Some(&mut self.result));
             }
+
+            // Otherwise: doc_id == child.last_doc_id(), so we skip and loop again.
         }
 
         debug_assert!(self.at_eof());
@@ -117,6 +139,8 @@ where
             || (self.child.at_eof() && doc_id > self.child.last_doc_id())
         {
             self.result.doc_id = doc_id;
+            self.check_timeout()?;
+
             return Ok(Some(SkipToOutcome::Found(&mut self.result)));
         }
         // Case 2: Child is behind docId - need to check if docId is in child
@@ -129,10 +153,15 @@ where
                 None | Some(SkipToOutcome::NotFound(_)) => {
                     // Not found or EOF - return
                     self.result.doc_id = doc_id;
+
+                    self.check_timeout()?;
+
                     return Ok(Some(SkipToOutcome::Found(&mut self.result)));
                 }
             }
         }
+
+        self.check_timeout()?;
 
         // If we are here, Child has DocID (either already lastDocID == docId or the SkipTo returned OK)
         // We need to return NOTFOUND and set the current result to the next valid docId
@@ -145,6 +174,7 @@ where
 
     #[inline(always)]
     fn rewind(&mut self) {
+        self.forced_eof = false;
         self.result.doc_id = 0;
         self.child.rewind();
     }
@@ -161,7 +191,7 @@ where
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        self.result.doc_id >= self.max_doc_id
+        self.forced_eof || self.result.doc_id >= self.max_doc_id
     }
 
     #[inline(always)]

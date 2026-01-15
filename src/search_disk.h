@@ -99,8 +99,10 @@ bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term,
  * @param handle Handle to the document table
  * @param key Document key
  * @param keyLen Length of the document key
+ * @param oldLen Optional pointer to receive the old document length (can be NULL)
+ * @param id Optional pointer to receive the deleted document ID (can be NULL)
  */
-void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen);
+void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, uint32_t *oldLen, t_docId *id);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
@@ -142,9 +144,10 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
  * @param flags Document flags
  * @param maxTermFreq Maximum frequency of any single term in the document
  * @param totalFreq Total frequency of the document
+ * @param oldLen Pointer to an integer to store the length of the deleted document
  * @return New document ID, or 0 on error/duplicate
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen);
 
 /**
  * @brief Get document metadata by document ID
@@ -232,7 +235,7 @@ bool SearchDisk_IsEnabledForValidation();
  * @param params Vector index parameters
  * @return VecSimIndex* handle, or NULL on error
  */
-void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const struct VecSimHNSWDiskParams *params);
+void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params);
 
 /**
  * @brief Free a disk-based vector index

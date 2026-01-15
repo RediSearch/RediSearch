@@ -13,6 +13,7 @@
 #include "cursor.h"
 #include "info/indexes_info.h"
 #include "util/units.h"
+#include "module_init.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
@@ -95,6 +96,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   if (for_crash_report) {
     AddToInfo_CurrentThread(ctx);
     AddToInfo_BlockedQueries(ctx);
+    AddToInfo_RustBacktrace(ctx);
   }
 }
 

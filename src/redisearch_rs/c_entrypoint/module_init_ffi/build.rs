@@ -7,5 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub mod counter;
-pub mod crash;
+use build_utils::run_cbinden;
+
+fn main() {
+    run_cbinden("../../headers/module_init.h").unwrap();
+}

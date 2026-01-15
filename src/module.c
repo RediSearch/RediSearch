@@ -74,7 +74,7 @@
 #include "util/redis_mem_info.h"
 #include "notifications.h"
 #include "aggregate/reply_empty.h"
-#include "tracing_redismodule.h"
+#include "module_init.h"
 #include "asm_state_machine.h"
 #include "search_disk_utils.h"
 
@@ -585,6 +585,10 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return REDISMODULE_OK;
   }
 
+  // Log successful index creation
+  RedisModule_Log(ctx, "notice", "Successfully created index %s",
+                  IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
+
   /*
    * We replicate CreateIfNotExists command for replica of support.
    * On replica of the destination will get the ft.create command from
@@ -656,6 +660,9 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   CurrentThread_SetIndexSpec(global_ref);
 
+  // Save the index name for logging (before the index is freed)
+  char *indexName = rm_strdup(IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
+
   if (sp->diskSpec) {
     SearchDisk_MarkIndexForDeletion(sp->diskSpec);
   }
@@ -678,6 +685,10 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // If we don't delete the docs, we just remove the index from the global dict
     IndexSpec_RemoveFromGlobals(global_ref, true);
   }
+
+  // Log index deletion
+  RedisModule_Log(ctx, "notice", "Successfully dropped index %s", indexName);
+  rm_free(indexName);
 
   RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "sc", argv[1], "_FORCEKEEPDOCS");
 
@@ -906,6 +917,10 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
 
   RedisSearchCtx_UnlockSpec(&sctx);
   CurrentThread_ClearIndexSpec();
+
+  // Log successful index alteration
+  RedisModule_Log(ctx, "notice", "Successfully altered index %s",
+                  IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -3774,6 +3789,10 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   MRCommand_PrepareForSlotInfo(cmd, arg_pos);
   arg_pos += 2;
 
+  // Prepare placeholder for dispatch time (will be filled in when sending to shards)
+  MRCommand_PrepareForDispatchTime(cmd, arg_pos);
+  arg_pos += 2;
+
   // Return spec references, no longer needed
   IndexSpecRef_Release(strong_ref);
   WeakRef_Release(spec_ref);
@@ -3792,7 +3811,7 @@ static searchRequestCtx *createReq(RedisModuleString **argv, int argc, RedisModu
 }
 
 int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
-  RedisModuleString **argv, int argc, WeakRef spec_ref) {
+  RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
   searchRequestCtx *req = createReq(argv, argc, bc, &status);
@@ -3802,7 +3821,10 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, spec_ref, &status);
+
+  // Set coordinator start time for dispatch time tracking
+  cmd.coordStartTime = handlerCtx->coordStartTime;
+  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, handlerCtx->spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
     return REDISMODULE_OK;
   }
@@ -3819,12 +3841,12 @@ typedef struct SearchCmdCtx {
   int argc;
   RedisModuleBlockedClient* bc;
   int protocol;
-  WeakRef spec_ref;
+  ConcurrentSearchHandlerCtx handlerCtx;
 } SearchCmdCtx;
 
 static void DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
-  FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, sCmdCtx->spec_ref);
+  FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
@@ -3855,6 +3877,9 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
+  // Capture start time for coordinator dispatch time tracking
+  rs_wall_clock_ns_t t0 = rs_wall_clock_now_ns();
+
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
@@ -3910,7 +3935,8 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
-  sCmdCtx->spec_ref = StrongRef_Demote(spec_ref);
+  sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
+  sCmdCtx->handlerCtx.coordStartTime = t0;
   RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
@@ -4131,6 +4157,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   TracingRedisModule_Init(ctx);
+  RustPanicHook_Init();
 
   setHiredisAllocators();
   uv_replace_allocator(rm_malloc, rm_realloc, rm_calloc, rm_free);
@@ -4282,7 +4309,7 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
 /* ======================= DEBUG ONLY ======================= */
 
 static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
-  RedisModuleString **argv, int argc, WeakRef spec_ref) {
+  RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
   AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
 
@@ -4300,7 +4327,8 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(base_argc, argv);
-  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, spec_ref, &status);
+  cmd.coordStartTime = handlerCtx->coordStartTime;
+  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, handlerCtx->spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
     return REDISMODULE_OK;
   }
@@ -4323,7 +4351,7 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
 static void DEBUG_DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
   // send argv not including the _FT.DEBUG
-  DEBUG_FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, sCmdCtx->spec_ref);
+  DEBUG_FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
