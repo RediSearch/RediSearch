@@ -1,4 +1,4 @@
-use crate::capacity::VecCapacity;
+use crate::{capacity::VecCapacity, layout::header_field_padding};
 
 /// The header of a `LowMemoryThinVec`.
 #[repr(C)]
@@ -41,6 +41,13 @@ impl<S: VecCapacity> Header<S> {
             "New length must be less than or equal to current capacity"
         );
         self.len = S::from_usize(len);
+    }
+
+    /// Returns the size of the header, including the padding required for alignment
+    /// when the vector is storing elements of type `T`.
+    pub const fn size_with_padding<T>() -> usize {
+        let header_size = std::mem::size_of::<Self>();
+        header_size + header_field_padding::<T, S>()
     }
 }
 
