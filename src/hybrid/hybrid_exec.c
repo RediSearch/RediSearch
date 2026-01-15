@@ -135,14 +135,16 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, skipFieldIndex_len, requiredFlags, excludeFlags, rule);
 
       int i = 0;
-      for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-        if (!kk->name || !skipFieldIndex[i++]) {
+      RLookupIterator iter = RLookup_Iter(lk);
+      const RLookupKey* kk;
+      while (RLookupIterator_Next(&iter, &kk)) {
+        if (!RLookupKey_GetName(kk) || !skipFieldIndex[i++]) {
           continue;
         }
         const RSValue *v = RLookup_GetItem(kk, SearchResult_GetRowData(r));
         RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
-        RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
+        RedisModule_Reply_StringBuffer(reply, RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
 
         SendReplyFlags flags = (options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
         flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;

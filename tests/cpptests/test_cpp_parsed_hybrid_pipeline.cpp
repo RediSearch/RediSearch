@@ -330,9 +330,11 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitLoad) {
     ASSERT_NE(nullptr, lookup);
 
     bool foundKeyField = false;
-    for (RLookupKey *key = lookup->head; key != nullptr; key = key->next) {
-      if (key->name && strcmp(key->name, HYBRID_IMPLICIT_KEY_FIELD) == 0) {
-        EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, key->path);
+    RLookupIterator iter = RLookup_Iter(lookup);
+    const RLookupKey* key;
+    while (RLookupIterator_Next(&iter, &key)) {
+      if (RLookupKey_GetName(key) && strcmp(RLookupKey_GetName(key), HYBRID_IMPLICIT_KEY_FIELD) == 0) {
+        EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, RLookupKey_GetPath(key));
         foundKeyField = true;
         break;
       }
@@ -343,7 +345,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitLoad) {
   ResultProcessor *hybridMerger = FindHybridMergerInPipeline(hybridReq->tailPipeline->qctx.endProc);
   const RLookupKey *scoreKey = RPHybridMerger_GetScoreKey(hybridMerger);
   ASSERT_NE(nullptr, scoreKey) << "scoreKey should be set for implicit load case";
-  EXPECT_STREQ(UNDERSCORE_SCORE, scoreKey->name) << "scoreKey should point to UNDERSCORE_SCORE field";
+  EXPECT_STREQ(UNDERSCORE_SCORE, RLookupKey_GetName(scoreKey)) << "scoreKey should point to UNDERSCORE_SCORE field";
 }
 
 
@@ -384,8 +386,10 @@ TEST_F(HybridRequestParseTest, testHybridRequestMultipleLoads) {
     std::vector<std::string> expectedFields = {"__score", "title", "__key"};
     for (const std::string& expectedField : expectedFields) {
       bool foundField = false;
-      for (RLookupKey *key = lookup->head; key != nullptr; key = key->next) {
-        if (key->name && strcmp(key->name, expectedField.c_str()) == 0) {
+      RLookupIterator iter = RLookup_Iter(lookup);
+      const RLookupKey* key;
+      while (RLookupIterator_Next(&iter, &key)) {
+        if (RLookupKey_GetName(key) && strcmp(RLookupKey_GetName(key), expectedField.c_str()) == 0) {
           foundField = true;
           break;
         }
@@ -551,8 +555,10 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
   ASSERT_GE(tailLookup->rowlen, 3) << "Tail lookup should have at least 3 keys: 'title', 'vector', and 'category'";
 
   int tailKeyCount = 0;
-  for (RLookupKey *key = tailLookup->head; key; key = key->next) {
-    if (key->name) {
+  RLookupIterator iter = RLookup_Iter(tailLookup);
+  const RLookupKey* key;
+  while (RLookupIterator_Next(&iter, &key)) {
+    if (RLookupKey_GetName(key)) {
       tailKeyCount++;
     }
   }
@@ -568,35 +574,39 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
     ASSERT_GE(upstreamLookup->rowlen, 3) << "Upstream request " << reqIdx << " should have at least 3 keys: 'title', 'vector', and 'category'";
 
     // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
-    for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
-      if (!upstreamKey->name) {
+    RLookupIterator iter = RLookup_Iter(upstreamLookup);
+    const RLookupKey* upstreamKey;
+    while (RLookupIterator_Next(&iter, &upstreamKey)) {
+      if (!RLookupKey_GetName(upstreamKey)) {
         continue; // Skip overridden keys
       }
 
       // Find corresponding key in tail lookup by name
-      RLookupKey *tailKey = NULL;
-      for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
-        if (tk->name && strcmp(tk->name, upstreamKey->name) == 0) {
+      const RLookupKey *tailKey = NULL;
+      RLookupIterator iter = RLookup_Iter(tailLookup);
+      const RLookupKey* tk;
+      while (RLookupIterator_Next(&iter, &tk)) {
+        if (RLookupKey_GetName(tk) && strcmp(RLookupKey_GetName(tk), RLookupKey_GetName(upstreamKey)) == 0) {
           tailKey = tk;
           break;
         }
       }
 
       ASSERT_TRUE(tailKey != NULL)
-        << "Key '" << upstreamKey->name << "' from upstream request " << reqIdx << " not found in tail pipeline";
+        << "Key '" << RLookupKey_GetName(upstreamKey) << "' from upstream request " << reqIdx << " not found in tail pipeline";
 
       // Verify path matches
-      if (upstreamKey->path && tailKey->path) {
-        EXPECT_STREQ(upstreamKey->path, tailKey->path)
-          << "Key '" << upstreamKey->name << "' has different path in upstream request " << reqIdx << " vs tail";
+      if (RLookupKey_GetPath(upstreamKey) && RLookupKey_GetPath(tailKey)) {
+        EXPECT_STREQ(RLookupKey_GetPath(upstreamKey), RLookupKey_GetPath(tailKey))
+          << "Key '" << RLookupKey_GetName(upstreamKey) << "' has different path in upstream request " << reqIdx << " vs tail";
       } else {
-        EXPECT_EQ(upstreamKey->path, tailKey->path)
-          << "Key '" << upstreamKey->name << "' path nullness differs between upstream request " << reqIdx << " and tail";
+        EXPECT_EQ(RLookupKey_GetPath(upstreamKey), RLookupKey_GetPath(tailKey))
+          << "Key '" << RLookupKey_GetName(upstreamKey) << "' path nullness differs between upstream request " << reqIdx << " and tail";
       }
 
       // Verify name length matches
-      EXPECT_EQ(upstreamKey->name_len, tailKey->name_len)
-        << "Key '" << upstreamKey->name << "' has different name_len in upstream request " << reqIdx << " vs tail";
+      EXPECT_EQ(RLookupKey_GetNameLen(upstreamKey), RLookupKey_GetNameLen(tailKey))
+        << "Key '" << RLookupKey_GetName(upstreamKey) << "' has different name_len in upstream request " << reqIdx << " vs tail";
     }
   }
 }
@@ -619,24 +629,28 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
   ASSERT_GE(tailLookup->rowlen, 2) << "Tail lookup should have at least 2 keys: '__key' and '__score'";
 
   int tailKeyCount = 0;
-  for (RLookupKey *key = tailLookup->head; key; key = key->next) {
-    if (key->name) {
+  RLookupIterator iter = RLookup_Iter(tailLookup);
+  const RLookupKey* key;
+  while (RLookupIterator_Next(&iter, &key)) {
+    if (RLookupKey_GetName(key)) {
       tailKeyCount++;
     }
   }
   ASSERT_GE(tailKeyCount, 2) << "Tail lookup should have at least 2 keys: '__key' and '__score'";
 
   // Verify that implicit loading creates the "__key" field in the tail pipeline
-  RLookupKey *tailKeyField = NULL;
-  for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
+  const RLookupKey *tailKeyField = NULL;
+  RLookupIterator iter2 = RLookup_Iter(tailLookup);
+  const RLookupKey* tk;
+  while (RLookupIterator_Next(&iter2, &tk)) {
     const char *keyName = HYBRID_IMPLICIT_KEY_FIELD;
-    if (tk->name && strcmp(tk->name, keyName) == 0) {
+    if (RLookupKey_GetName(tk) && strcmp(RLookupKey_GetName(tk), keyName) == 0) {
       tailKeyField = tk;
       break;
     }
   }
   ASSERT_TRUE(tailKeyField != NULL) << "Tail pipeline should have implicit '__key' field";
-  EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, tailKeyField->path) << "Implicit key field should have path '__key'";
+  EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, RLookupKey_GetPath(tailKeyField)) << "Implicit key field should have path '__key'";
 
   // Test all upstream subqueries in the hybrid request
   for (size_t reqIdx = 0; reqIdx < hybridReq->nrequests; reqIdx++) {
@@ -648,45 +662,51 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
     ASSERT_GE(upstreamLookup->rowlen, 2) << "Upstream request " << reqIdx << " should have at least 2 keys: '__key' and '__score'";
 
     // Verify that the upstream subquery also has the implicit "__key" field
-    RLookupKey *upstreamKeyField = NULL;
-    for (RLookupKey *uk = upstreamLookup->head; uk; uk = uk->next) {
-      if (uk->name && strcmp(uk->name, HYBRID_IMPLICIT_KEY_FIELD) == 0) {
+    const RLookupKey *upstreamKeyField = NULL;
+    RLookupIterator iter = RLookup_Iter(upstreamLookup);
+    const RLookupKey* uk;
+    while (RLookupIterator_Next(&iter, &uk)) {
+      if (RLookupKey_GetName(uk) && strcmp(RLookupKey_GetName(uk), HYBRID_IMPLICIT_KEY_FIELD) == 0) {
         upstreamKeyField = uk;
         break;
       }
     }
     ASSERT_TRUE(upstreamKeyField != NULL) << "Upstream request " << reqIdx << " should have implicit '__key' field";
-    EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, upstreamKeyField->path) << "Implicit key field should have path '__key' in request " << reqIdx;
+    EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, RLookupKey_GetPath(upstreamKeyField)) << "Implicit key field should have path '__key' in request " << reqIdx;
 
     // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
-    for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
-      if (!upstreamKey->name) {
+    RLookupIterator iter2 = RLookup_Iter(upstreamLookup);
+    const RLookupKey* upstreamKey;
+    while (RLookupIterator_Next(&iter2, &upstreamKey)) {
+      if (!RLookupKey_GetName(upstreamKey)) {
         continue; // Skip overridden keys
       }
 
       // Find corresponding key in tail lookup by name
-      RLookupKey *tailKey = NULL;
-      for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
-        if (tk->name && strcmp(tk->name, upstreamKey->name) == 0) {
+      const RLookupKey *tailKey = NULL;
+      RLookupIterator iter = RLookup_Iter(tailLookup);
+      const RLookupKey* tk;
+      while (RLookupIterator_Next(&iter, &tk)) {
+        if (RLookupKey_GetName(tk) && strcmp(RLookupKey_GetName(tk), RLookupKey_GetName(upstreamKey)) == 0) {
           tailKey = tk;
           break;
         }
       }
 
       ASSERT_TRUE(tailKey != NULL)
-        << "Key '" << upstreamKey->name << "' from upstream request " << reqIdx << " not found in tail pipeline";
+        << "Key '" << RLookupKey_GetName(upstreamKey) << "' from upstream request " << reqIdx << " not found in tail pipeline";
       // Verify path matches
-      if (upstreamKey->path && tailKey->path) {
-        EXPECT_STREQ(upstreamKey->path, tailKey->path)
-          << "Key '" << upstreamKey->name << "' has different path in upstream request " << reqIdx << " vs tail";
+      if (RLookupKey_GetPath(upstreamKey) && RLookupKey_GetPath(tailKey)) {
+        EXPECT_STREQ(RLookupKey_GetPath(upstreamKey), RLookupKey_GetPath(tailKey))
+          << "Key '" << RLookupKey_GetName(upstreamKey) << "' has different path in upstream request " << reqIdx << " vs tail";
       } else {
-        EXPECT_EQ(upstreamKey->path, tailKey->path)
-          << "Key '" << upstreamKey->name << "' path nullness differs between upstream request " << reqIdx << " and tail";
+        EXPECT_EQ(RLookupKey_GetPath(upstreamKey), RLookupKey_GetPath(tailKey))
+          << "Key '" << RLookupKey_GetName(upstreamKey) << "' path nullness differs between upstream request " << reqIdx << " and tail";
       }
 
       // Verify name length matches
-      EXPECT_EQ(upstreamKey->name_len, tailKey->name_len)
-        << "Key '" << upstreamKey->name << "' has different name_len in upstream request " << reqIdx << " vs tail";
+      EXPECT_EQ(RLookupKey_GetNameLen(upstreamKey), RLookupKey_GetNameLen(tailKey))
+        << "Key '" << RLookupKey_GetName(upstreamKey) << "' has different name_len in upstream request " << reqIdx << " vs tail";
     }
   }
 }

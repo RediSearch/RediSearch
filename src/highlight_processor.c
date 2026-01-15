@@ -8,6 +8,7 @@
 */
 #include "result_processor.h"
 #include "fragmenter.h"
+#include "rlookup.h"
 #include "value.h"
 #include "util/minmax.h"
 #include "toksep.h"
@@ -336,14 +337,16 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
       processField(hlp, &docParams, &combinedSpec);
     }
   } else if (fields->defaultField.mode != SummarizeMode_None) {
-    for (const RLookupKey *k = hlp->lookup->head; k; k = k->next) {
-      if (k->flags & RLOOKUP_F_HIDDEN) {
+    RLookupIterator iter = RLookup_Iter(hlp->lookup);
+    const RLookupKey* k;
+    while (RLookupIterator_Next(&iter, &k)) {
+      if (RLookupKey_GetFlags(k) & RLOOKUP_F_HIDDEN) {
         continue;
       }
       ReturnedField spec = {0};
       normalizeSettings(NULL, &fields->defaultField, &spec);
       spec.lookupKey = k;
-      spec.name = k->name;
+      spec.name = RLookupKey_GetName(k);
       resetIovsArr(&docParams.iovsArr, &numIovsArr, spec.summarizeSettings.numFrags);
       processField(hlp, &docParams, &spec);
     }

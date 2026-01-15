@@ -291,8 +291,11 @@ void AGPLN_Dump(const AGGPlan *pln) {
     const RLookup *lk = lookupFromNode(nn);
     if (lk) {
       printf("  NEW LOOKUP: %p\n", lk);
-      for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-        printf("    %s @%p: FLAGS=0x%x\n", kk->name, kk, kk->flags);
+
+      RLookupIterator iter = RLookup_Iter(lk);
+      const RLookupKey* kk;
+      while (RLookupIterator_Next(&iter, &kk)) {
+        printf("    %s @%p: FLAGS=0x%x\n", RLookupKey_GetName(kk), kk, RLookupKey_GetFlags(kk));
       }
     }
 

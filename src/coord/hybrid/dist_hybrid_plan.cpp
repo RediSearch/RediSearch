@@ -67,10 +67,10 @@ static void serializeUnresolvedKeys(arrayof(char*) *target, std::vector<const RL
     array_append(*target, buffer);
     for (auto kk : keys) {
       // json paths should be serialized as is to avoid weird names
-      if (kk->name[0] == '$') {
-        buffer = rm_strndup(kk->name, kk->name_len);
+      if (RLookupKey_GetName(kk)[0] == '$') {
+        buffer = rm_strndup(RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
       } else {
-        rm_asprintf(&buffer, "@%.*s", (int)kk->name_len, kk->name);
+        rm_asprintf(&buffer, "@%.*s", (int)RLookupKey_GetNameLen(kk), RLookupKey_GetName(kk));
       }
       array_append(*target, buffer);
     }
@@ -123,8 +123,10 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     }
 
     std::vector<const RLookupKey *> unresolvedKeys;
-    for (RLookupKey *kk = tailLookup->head; kk; kk = kk->next) {
-      if (kk->flags & RLOOKUP_F_UNRESOLVED) {
+    RLookupIterator iter = RLookup_Iter(tailLookup);
+    const RLookupKey* kk;
+    while (RLookupIterator_Next(&iter, &kk)) {
+      if (RLookupKey_GetFlags(kk) & RLOOKUP_F_UNRESOLVED) {
         unresolvedKeys.push_back(kk);
       }
     }
@@ -136,7 +138,7 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
       RS_ASSERT(dstp);
       for (const RLookupKey *kk : unresolvedKeys) {
         // Add the unresolved keys to the upstream lookup since we will add them to the LOAD clause
-        RLookup_GetKey_Write(&dstp->lk, kk->name, kk->flags & ~RLOOKUP_F_UNRESOLVED);
+        RLookup_GetKey_Write(&dstp->lk, RLookupKey_GetName(kk), RLookupKey_GetFlags(kk) & ~RLOOKUP_F_UNRESOLVED);
       }
       serializeUnresolvedKeys(&dstp->serialized, unresolvedKeys);
       lookups[i] = &dstp->lk;
