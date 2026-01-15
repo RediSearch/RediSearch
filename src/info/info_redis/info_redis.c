@@ -366,10 +366,8 @@ void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
     if (!spec) {
       RedisModule_InfoAddFieldCString(ctx, "index", specInfo->specName ? specInfo->specName : "n/a");
     } else {
-      RedisModule_InfoAddFieldCString(ctx, "index", IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
-
       // Output FT.INFO in a crash-safe manner (no allocations, no locks)
-      // Reuses the same logic as FT.INFO command but adapted for crash context
+      // This includes the index name, so no need to output it separately
       fillReplyWithIndexInfoCrashSafe(spec, ctx, RSGlobalConfig.hideUserDataFromLog);
     }
   }

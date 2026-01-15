@@ -37,7 +37,6 @@ def test_query_thread_crash():
     env.assertTrue(
         expect_query_crash_output(env, [
             "search_current_thread",
-            "search_index:idx",
             "search_index_name:idx",
             "search_num_docs:",
             "search_max_doc_id:",
