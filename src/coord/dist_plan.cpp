@@ -399,7 +399,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           }
           RLookup filter_keys;
           RLookup_Init(&filter_keys, NULL);
-          filter_keys.options |= RLOOKUP_OPT_UNRESOLVED_OK;
+          RLookup_EnableOptions(&filter_keys, RLOOKUP_OPT_UNRESOLVED_OK);
           ExprAST_GetLookupKeys(tmpExpr, &filter_keys, status);
           if (QueryError_HasError(status)) {
             RLookup_Cleanup(&filter_keys);
@@ -408,7 +408,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           }
           // Step 2: generate a LOAD step for the keys. If the keys are already loaded (or sortable),
           //         this step will be optimized out.
-          if (filter_keys.rowlen) {
+          if (RLookup_GetRowLen(&filter_keys)) {
             PLN_LoadStep *load = (PLN_LoadStep *)rm_calloc(1, sizeof(*load));
             load->base.type = PLN_T_LOAD;
             load->base.dtor = [](PLN_BaseStep *stp) {
@@ -419,7 +419,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
               rm_free(load->args.objs);
               rm_free(stp);
             };
-            const char **argv = (const char**)rm_malloc(sizeof(*argv) * filter_keys.rowlen);
+            const char **argv = (const char**)rm_malloc(sizeof(*argv) * RLookup_GetRowLen(&filter_keys));
             size_t argc = 0;
 
             RLookupIterator iter = RLookup_Iter(&filter_keys);
@@ -576,9 +576,10 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
   auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_DISTRIBUTE);
   RS_ASSERT(dstp);
 
-  dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
+  RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_UNRESOLVED_OK);
   int rc = AREQ_BuildPipeline(r, status);
-  dstp->lk.options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
+  RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_UNRESOLVED_OK);
+
   if (rc != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }

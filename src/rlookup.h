@@ -117,19 +117,21 @@ static inline uint32_t RLookupKey_GetFlags(const RLookupKey* key) {
 }
 
 typedef struct RLookup {
-  RLookupKey *head;
-  RLookupKey *tail;
+  /** DO NOT ACCESS DIRECTLY. USE RLookup_Iter or RLookup_IterMut INSTEAD! */
+  RLookupKey *_head;
+  /** DO NOT ACCESS DIRECTLY. USE RLookup_Iter or RLookup_IterMut INSTEAD! */
+  RLookupKey *_tail;
 
-  // Length of the data row. This is not necessarily the number
-  // of lookup keys
-  uint32_t rowlen;
+  /** DO NOT ACCESS DIRECTLY. USE RLookup_GetRowLen INSTEAD! */
+  uint32_t _rowlen;
 
-  // Flags/options
-  uint32_t options;
+  /** DO NOT ACCESS DIRECTLY. USE RLookup_EnableOptions or RLookup_DisableOptions INSTEAD! */
+  uint32_t _options;
 
   // If present, then GetKey will consult this list if the value is not found in
   // the existing list of keys.
-  IndexSpecCache *spcache;
+  /** DO NOT ACCESS DIRECTLY. USE RLookup_HasIndexSpecCache INSTEAD! */
+  IndexSpecCache *_spcache;
 } RLookup;
 
 /** An iterator over the keys in an `RLookup` returning immutable pointers. */
@@ -181,15 +183,42 @@ static inline bool RLookupIteratorMut_Next(RLookupIteratorMut* iterator, RLookup
 /** Returns an immutable iterator over the keys in this RLookup */
 static inline RLookupIterator RLookup_Iter(const RLookup* rlookup) {
     RLookupIterator iter = { 0 };
-    iter.current = rlookup->head;
+    iter.current = rlookup->_head;
     return iter;
 }
 
 /** Returns an mutable iterator over the keys in this RLookup */
 static inline RLookupIteratorMut RLookup_IterMut(const RLookup* rlookup) {
     RLookupIteratorMut iter = { 0 };
-    iter.current = rlookup->head;
+    iter.current = rlookup->_head;
     return iter;
+}
+
+/**
+ * Returns the length of the data row.
+ * This is not necessarily the number of lookup keys
+ */
+static inline uint32_t RLookup_GetRowLen(const RLookup* rlookup) {
+    return rlookup->_rowlen;
+}
+
+/**
+ * Enables the given set of RLookup options.
+ */
+static inline void RLookup_EnableOptions(RLookup* rlookup, uint32_t options) {
+    rlookup->_options |= options;
+}
+
+/**
+ * Disables the given set of RLookup options.
+ */
+static inline void RLookup_DisableOptions(RLookup* rlookup, uint32_t options) {
+    rlookup->_options &= ~options;
+}
+
+/** Returns `true` if this RLookup has an associated IndexSpecCache. */
+static inline bool RLookup_HasIndexSpecCache(const RLookup* rlookup) {
+    return rlookup->_spcache != NULL;
 }
 
 // If the key cannot be found, do not mark it as an error, but create it and
