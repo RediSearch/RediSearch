@@ -100,11 +100,6 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId do
     return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen);
 }
 
-t_docId SearchDisk_GetId(RedisSearchDiskIndexSpec *handle, const char *key, size_t len) {
-  RS_ASSERT(disk && handle);
-  return disk->docTable.getId(handle, key, len);
-}
-
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
     RS_ASSERT(disk && handle);
     return disk->docTable.isDocIdDeleted(handle, docId);

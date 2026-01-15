@@ -3650,14 +3650,14 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
   t_docId id = 0;
-  size_t docLen = 0;
+  uint32_t docLen = 0;
   if (isSpecOnDisk(spec)) {
     RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
     size_t len;
     const char *keyStr = RedisModule_StringPtrLen(key, &len);
 
     // Delete the document
-    SearchDisk_DeleteDocument(spec->diskSpec, keyStr, len, &docLen, &id); // TODO: Add the id. We need it for the below logic (vector deletion)
+    SearchDisk_DeleteDocument(spec->diskSpec, keyStr, len, &docLen, &id);
 
     if (id == 0) {
       // Nothing to delete
