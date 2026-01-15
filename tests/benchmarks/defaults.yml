@@ -120,7 +120,7 @@ spec:
       placement: "sparse"
     resources:
       requests:
-        cpus: "30" # 4 * 7 (4 primaries x 7 threads (main thread + 6 workers))
+        cpus: "28" # 4 * 7 (4 primaries x 7 threads (main thread + 6 workers))
         memory: "40g"
     dbconfig:
       module-configuration-parameters:
@@ -252,7 +252,7 @@ spec:
         cpus: "32"
         memory: "300g"
 
-  - name: oss-cluster-08-primaries-250gb
+  - name: oss-cluster-08-primaries-250gb-threads-8
     type: oss-cluster
     redis_topology:
       primaries: 8

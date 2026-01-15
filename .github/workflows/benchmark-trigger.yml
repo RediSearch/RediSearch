@@ -39,25 +39,7 @@ jobs:
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
     with:
-      allowed_setup: oss-cluster-08-primaries-250gb
-
-  msmarco-benchmark-fast:
-    name: Trigger MS MARCO Fast Benchmark
-    if: >
-      (
-        github.event.action == 'labeled' &&
-        github.event.label.name == 'action:run-msmarco-benchmark-fast'
-      ) || (
-        contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action) &&
-        contains(github.event.pull_request.labels.*.name, 'action:run-msmarco-benchmark-fast')
-      )
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.event.number }}-msmarco-benchmark-fast
-      cancel-in-progress: true
-    uses: ./.github/workflows/benchmark-runner.yml
-    secrets: inherit
-    with:
-      allowed_setup: oss-cluster-08-primaries-fast
+      allowed_setup: oss-cluster-08-primaries-250gb-threads-8
 
   rust-micro-benchmarks:
     name: Trigger Rust Micro Benchmarks

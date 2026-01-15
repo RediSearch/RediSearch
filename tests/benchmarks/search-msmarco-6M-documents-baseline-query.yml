@@ -13,7 +13,7 @@ timeout_seconds: 3600
 dataset_load_timeout_secs: 3600
 
 setups:
-  - oss-cluster-08-primaries-250gb
+  - oss-cluster-08-primaries-250gb-threads-8
 
 remote:
   - setup: redisearch-msmarco
