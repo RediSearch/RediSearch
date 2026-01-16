@@ -210,7 +210,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   cmd.reqConfig = &hreq->reqConfig;
   cmd.coordDispatchTime = &hreq->coordDispatchTime;
 
-  int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, status, false);
+  int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, status, false, EXEC_NO_FLAGS);
   if (rc != REDISMODULE_OK) {
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);

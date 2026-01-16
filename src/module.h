@@ -18,6 +18,7 @@
 #include "coord/special_case_ctx.h"
 #include "rs_wall_clock.h"
 #include "thpool/thpool.h"
+#include "profile/options.h"
 
 // Hack to support Alpine Linux 3 where __STRING is not defined
 #if !defined(__GLIBC__) && !defined(__STRING)
@@ -139,6 +140,9 @@ int QueryMemoryGuardFailure_WithReply(RedisModuleCtx *ctx);
 void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req);
 
 int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv);
+
+typedef int (*execCommandCommonHandler)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                             CommandType type, ProfileOptions profileOptions);
 
 #ifdef __cplusplus
 }

@@ -44,7 +44,9 @@ void Profile_AddIters(QueryIterator **root);
 
 // Print the profile of a single shard
 void Profile_Print(RedisModule_Reply *reply, void *ctx);
-// Print the profile of a single shard, in full format
+
+// Print the profile of a single shard in hybrid search
+void Profile_PrintHybrid(RedisModule_Reply *reply, void *ctx);
 
 #define PROFILE_STR "Profile"
 #define PROFILE_SHARDS_STR "Shards"
@@ -88,6 +90,15 @@ typedef struct {
   // plus 1 for each subsequent FT.CURSOR READ call.
   size_t cursor_reads;
 } ProfilePrinterCtx; // Context for the profile printing callback
+
+typedef struct {
+  /** Profile variables */
+  rs_wall_clock initClock;                      // Time of start. Reset for each cursor call
+  rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accumulate cursors times
+  rs_wall_clock_ns_t profileQueueTime;          // Time spent waiting in workers thread pool queue
+  rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query
+  rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline
+} ProfileClocks;
 
 void Profile_PrintDefault(RedisModule_Reply *reply, void *ctx);
 

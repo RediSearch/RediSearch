@@ -20,6 +20,7 @@
 #include "hybrid_request.h"
 #include "hybrid_scoring.h"
 #include "rs_wall_clock.h"
+#include "profile/options.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,7 +42,7 @@ typedef struct ParseHybridCommandCtx {
 // Function for parsing hybrid command arguments - exposed for testing
 int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
                        RedisSearchCtx *sctx, ParseHybridCommandCtx *parsedCmdCtx,
-                       QueryError *status, bool internal);
+                       QueryError *status, bool interna, ProfileOptions profileOptionsl);
 
 #ifdef __cplusplus
 }

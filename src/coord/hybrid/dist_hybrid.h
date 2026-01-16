@@ -16,12 +16,13 @@ extern "C" {
 #include "hybrid/hybrid_request.h"
 #include "rmr/command.h"
 #include "dist_plan.h"
+#include "profile/options.h"
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx);
 
 // For testing purposes
-void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
+void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, HybridPipelineParams *hybridParams);
 

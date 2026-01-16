@@ -146,7 +146,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
 
     AREQ *req = AREQ_New();
     // Clock init required for profiling
-    rs_wall_clock_init(&req->initClock);
+    rs_wall_clock_init(&req->profileClocks.initClock);
     rs_wall_clock_init(&AREQ_QueryProcessingCtx(req)->initTime);
 
     // Check if command in internal

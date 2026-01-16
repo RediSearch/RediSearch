@@ -18,7 +18,7 @@ def testProfileSearch(env):
   conn.execute_command('hset', '2', 't', 'world')
 
   env.expect('ft.profile', 'profile', 'idx', '*', 'nocontent').error().contains('no such index')
-  env.expect('FT.PROFILE', 'idx', 'Puffin', '*', 'nocontent').error().contains('No `SEARCH` or `AGGREGATE` provided')
+  env.expect('FT.PROFILE', 'idx', 'Puffin', '*', 'nocontent').error().contains('No `SEARCH`, `AGGREGATE`, or `HYBRID` provided')
 
   # test WILDCARD
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*', 'nocontent')
@@ -189,7 +189,7 @@ def testProfileErrors(env):
   env.expect('ft.profile', 'idx', 'SEARCH').error().contains('wrong number of arguments')
   env.expect('ft.profile', 'idx', 'SEARCH', 'QUERY').error().contains('wrong number of arguments')
   # wrong `query` type
-  env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('No `SEARCH` or `AGGREGATE` provided')
+  env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('No `SEARCH`, `AGGREGATE`, or `HYBRID` provided')
   # miss `QUERY` keyword
   if not env.isCluster():
     env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyword is expected')
@@ -1000,6 +1000,105 @@ def testProfileBM25NormMax(env):
   env.assertTrue(recursive_contains(aggregate_response, "Score Max Normalizer"))
   search_response = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'query', 'hello', 'WITHSCORES', 'SCORER', 'BM25STD.NORM')
   env.assertTrue(recursive_contains(search_response, "Score Max Normalizer"))
+
+# @skip(cluster=True)
+def testProfileHybrid(env):
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', '2')
+
+  # Create index with both text and vector fields
+  env.expect('FT.CREATE idx SCHEMA t TEXT v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok()
+  conn.execute_command('hset', '1', 't', 'hello world', 'v', 'bababaca')
+  conn.execute_command('hset', '2', 't', 'hello space', 'v', 'babababa')
+  conn.execute_command('hset', '3', 't', 'world space', 'v', 'aabbaabb')
+  conn.execute_command('hset', '4', 't', 'other text', 'v', 'bbaabbaa')
+
+  # Test FT.PROFILE with FT.HYBRID
+  actual_res = env.execute_command(
+    'FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
+    'SEARCH', 'hello',
+    'VSIM', '@v', '$blob', 'KNN', '2', 'K', '10',
+    'PARAMS', 2, 'blob', 'aaaaaaaa')
+
+  # Debug: Print the actual structure to understand it
+  print(f'DEBUG: actual_res length: {len(actual_res)}')
+  for i, element in enumerate(actual_res):
+    print(f'DEBUG: Element {i}: {element} (type: {type(element)})')
+
+  # # Verify the response structure
+  # env.assertTrue(isinstance(actual_res, list))
+  # env.assertEqual(len(actual_res), 9)  # Should have 9 elements
+
+  # # Verify the flat list structure: ['total_results', value, 'results', value, 'warnings', value, 'execution_time', value, profile_data]
+  # env.assertEqual(actual_res[0], 'total_results')
+  # env.assertTrue(isinstance(actual_res[1], int))
+  # env.assertEqual(actual_res[2], 'results')
+  # env.assertTrue(isinstance(actual_res[3], list))
+  # env.assertEqual(actual_res[4], 'warnings')
+  # env.assertTrue(isinstance(actual_res[5], list))
+  # env.assertEqual(actual_res[6], 'execution_time')
+  # env.assertTrue(isinstance(actual_res[7], str))
+
+  # # Check that we have profile data with Shards
+  # env.assertTrue('Shards' in profile_data)
+  # shards = profile_data['Shards']
+  # env.assertTrue(isinstance(shards, list))
+  # env.assertTrue(len(shards) >= 1)
+
+  # # Verify shard structure - should contain SEARCH, VSIM, and COMBINE
+  # shard = shards[0]
+  # env.assertTrue(isinstance(shard, dict))
+  # env.assertTrue('SEARCH' in shard)
+  # env.assertTrue('VSIM' in shard)
+  # env.assertTrue('COMBINE' in shard)
+
+  # # Check SEARCH subquery profile
+  # search_profile = shard['SEARCH']
+  # env.assertTrue('Total profile time' in search_profile)
+  # env.assertTrue('Parsing time' in search_profile)
+  # env.assertTrue('Pipeline creation time' in search_profile)
+  # env.assertTrue('Iterators profile' in search_profile)
+  # env.assertTrue('Result processors profile' in search_profile)
+
+  # # Check VSIM subquery profile
+  # vsim_profile = shard['VSIM']
+  # env.assertTrue('Total profile time' in vsim_profile)
+  # env.assertTrue('Parsing time' in vsim_profile)
+  # env.assertTrue('Pipeline creation time' in vsim_profile)
+  # env.assertTrue('Iterators profile' in vsim_profile)
+  # env.assertTrue('Result processors profile' in vsim_profile)
+
+  # # Check COMBINE profile
+  # combine_profile = shard['COMBINE']
+  # env.assertTrue('Total profile time' in combine_profile)
+  # env.assertTrue('Result processors profile' in combine_profile)
+
+  # # Check Coordinator section exists
+  # env.assertTrue('Coordinator' in profile_data)
+
+  # # Test FT.PROFILE with FT.HYBRID LIMITED
+  # actual_res = conn.execute_command('ft.profile', 'idx', 'hybrid', 'limited', 'query', 'search', 'hello',
+  #                                   'vsim', '@v', 'aaaaaaaa', 'knn', '2', 'k', '10',
+  #                                   'combine', 'rrf', '2', 'constant', '60')
+
+  # # Verify LIMITED profile also works with new format
+  # env.assertTrue(isinstance(actual_res, list))
+  # env.assertTrue(len(actual_res) >= 5)
+  # profile_data = actual_res[4]
+  # env.assertTrue('Shards' in profile_data)
+
+  # # Test with PARAMS
+  # actual_res = conn.execute_command('ft.profile', 'idx', 'hybrid', 'query', 'search', '($term)',
+  #                                   'vsim', '@v', '$vec', 'knn', '2', 'k', '10',
+  #                                   'combine', 'rrf', '2', 'constant', '60',
+  #                                   'params', '4', 'term', 'hello', 'vec', 'aaaaaaaa')
+
+  # # Verify PARAMS profile works with new format
+  # env.assertTrue(isinstance(actual_res, list))
+  # env.assertTrue(len(actual_res) >= 5)
+  # profile_data = actual_res[4]
+  # env.assertTrue('Shards' in profile_data)
 
 def testProfileVectorSearchMode():
   """Test Vector search mode field in FT.PROFILE for both SEARCH and AGGREGATE"""
