@@ -103,8 +103,13 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
       return NULL;
     }
 
-    // Add keys from all source lookups to create unified schema before opening the score key
-    HybridRequest_SynchronizeLookupKeys(hreq);
+    // Add keys from all source lookups to create unified schema before opening
+    // the score key.
+    // Skip for 'LOAD *' - keys are created dynamically during loading and will
+    // be synchronized lazily in RLookupRow_WriteFieldsFrom when first needed.
+    if (!(hreq->reqflags & QEXEC_AGG_LOAD_ALL)) {
+      HybridRequest_SynchronizeLookupKeys(hreq);
+    }
 
     // Open the key outside the RLOOKUP_OPT_UNRESOLVED_OK scope so it won't be marked as unresolved
     const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, hybridParams->aggregationParams.common.scoreAlias, status);

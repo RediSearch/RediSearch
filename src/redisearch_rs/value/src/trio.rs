@@ -11,7 +11,7 @@ use std::fmt;
 
 use crate::shared::SharedRsValue;
 
-/// A container for the [`RsValueInternal::Trio`](crate::RsValueInternal::Trio)
+/// A container for the [`RsValue::Trio`](crate::RsValue::Trio)
 /// variant.
 #[repr(C)]
 #[derive(Clone)]

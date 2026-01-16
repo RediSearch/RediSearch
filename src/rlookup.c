@@ -964,7 +964,8 @@ void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags) {
 }
 
 void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
-                               RLookupRow *destRow, RLookup *destLookup) {
+                               RLookupRow *destRow, RLookup *destLookup,
+                               bool createMissingKeys) {
   RS_ASSERT(srcRow && srcLookup);
   RS_ASSERT(destRow && destLookup);
 
@@ -984,7 +985,15 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
 
     // Find corresponding key in destination lookup
     RLookupKey *dest_key = RLookup_FindKey(destLookup, src_key->name, src_key->name_len);
-    RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
+    if (!createMissingKeys) {
+      RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
+    } else if (!dest_key) {
+        // Key doesn't exist in destination - create it on demand.
+        // This can happen with LOAD * where keys are created dynamically.
+        // Inherit non-transient flags from source.
+        uint32_t flags = src_key->flags & ~RLOOKUP_TRANSIENT_FLAGS;
+        dest_key = RLookup_GetKey_WriteEx(destLookup, src_key->name, src_key->name_len, flags);
+    }
     // Write fields to destination (increments refcount, shares ownership)
     RLookup_WriteKey(dest_key, destRow, value);
   }
