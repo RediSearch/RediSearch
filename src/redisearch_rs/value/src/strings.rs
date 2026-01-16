@@ -11,7 +11,7 @@ use std::{
     alloc::{self, Layout},
     fmt,
     mem::MaybeUninit,
-    num::NonZeroUsize,
+    num::{NonZero, NonZeroUsize},
     os::raw::c_char,
     ptr::{NonNull, copy_nonoverlapping},
     slice,
@@ -88,10 +88,19 @@ impl RmAllocString {
         Self { str: buf, len }
     }
 
+    pub fn len(&self) -> u32 {
+        self.len
+    }
+
+    pub fn as_ptr(&self) -> *const c_char {
+        self.str.as_ptr()
+    }
+
     /// Get the string's bytes as a slice of `u8`'s.
-    pub const fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         if self.len == 0 {
-            return &[];
+            // return &[];
+            return &b"\0"[..0];
         }
 
         // Safety: `self.str` lives as long as `self`, and
@@ -167,14 +176,23 @@ impl ConstString {
     }
 
     /// Get the string's bytes as a slice of `u8`'s.
-    pub const fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         if self.len == 0 {
-            return &[];
+            // return &[];
+            return &b"\0"[..0];
         }
 
         // Safety: invariants (1) and (2) uphold the safety requirements
         // of `slice::from_raw_parts`
         unsafe { slice::from_raw_parts(self.str as *const u8, self.len as usize) }
+    }
+
+    pub fn len(&self) -> u32 {
+        self.len
+    }
+
+    pub fn as_ptr(&self) -> *const c_char {
+        self.str
     }
 }
 
@@ -255,6 +273,10 @@ impl RedisString {
 
         // Safety: `str_ptr` is valid for reads of `len` bytes.
         unsafe { slice::from_raw_parts(str_ptr as *const u8, len) }
+    }
+
+    pub fn as_ptr(&self) -> *const RedisModuleString {
+        self.str.as_ptr()
     }
 }
 
@@ -384,6 +406,17 @@ impl RsValueStringData {
         Self { len, data: s_cpy }
     }
 
+    fn from_string(string: String) -> Self {
+        let boxed_str: Box<str> = string.into_boxed_str();
+        let len = boxed_str.len();
+        let ptr = Box::<str>::into_raw(boxed_str) as *mut u8;
+
+        Self {
+            len: NonZero::new(len).unwrap(),
+            data: ptr,
+        }
+    }
+
     /// Get the string's bytes as a slice of `u8`'s.
     pub const fn as_bytes(&self) -> &[u8] {
         // Safety: invariant (1) upholds
@@ -511,8 +544,17 @@ impl RsValueString {
         Ok(Self::from_data(data))
     }
 
+    pub fn from_string(string: String) -> Self {
+        Self::from_data(RsValueStringData::from_string(string))
+    }
+
     const fn from_data(data: RsValueStringData) -> Self {
         Self { s: Some(data) }
+    }
+
+    /// Returns the string as a `&str`.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.s.as_ref().map(|s| s.as_bytes()).unwrap_or(&[])
     }
 
     /// Returns the string as a `&str`.

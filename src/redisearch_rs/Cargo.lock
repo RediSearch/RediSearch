@@ -1534,6 +1534,7 @@ dependencies = [
  "slots_tracker_ffi",
  "triemap_ffi",
  "types_ffi",
+ "value_ffi",
  "varint_ffi",
  "workspace_hack",
 ]
@@ -2373,6 +2374,7 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "ffi",
+ "libc",
  "redis_mock",
  "thiserror",
  "workspace_hack",
@@ -2386,7 +2388,10 @@ dependencies = [
  "c_ffi_utils",
  "cbindgen",
  "ffi",
+ "fnv",
  "libc",
+ "query_error",
+ "tracing",
  "value",
  "workspace_hack",
 ]

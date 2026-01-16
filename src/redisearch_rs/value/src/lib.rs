@@ -8,7 +8,6 @@
 */
 
 use crate::{
-    collection::{RsValueArray, RsValueMap},
     shared::SharedRsValue,
     strings::{ConstString, RedisString, RmAllocString, RsValueString},
     trio::RsValueTrio,
@@ -28,10 +27,10 @@ mod test_utils;
 #[cfg(feature = "test_utils")]
 pub use test_utils::RSValueMock;
 
-pub mod collection;
 pub mod shared;
 pub mod strings;
 pub mod trio;
+pub mod util;
 
 /// An actual [`RsValue`] object
 #[derive(Debug, Clone)]
@@ -51,13 +50,23 @@ pub enum RsValue {
     /// String value
     String(Box<RsValueString>),
     /// Array value
-    Array(RsValueArray),
+    Array(Vec<SharedRsValue>),
     /// Reference value
     Ref(SharedRsValue),
     /// Trio value
     Trio(RsValueTrio),
     /// Map value
-    Map(RsValueMap),
+    Map(Vec<(SharedRsValue, SharedRsValue)>),
+}
+
+impl RsValue {
+    pub fn fully_dereferenced(&self) -> &Self {
+        if let RsValue::Ref(ref_value) = self {
+            ref_value.value().fully_dereferenced()
+        } else {
+            self
+        }
+    }
 }
 
 impl Value for RsValue {
@@ -153,12 +162,12 @@ pub trait Value: Sized {
     }
 
     /// Create a new array value
-    fn array(arr: RsValueArray) -> Self {
+    fn array(arr: Vec<SharedRsValue>) -> Self {
         Self::from_value(RsValue::Array(arr))
     }
 
     /// Create a new map value
-    fn map(map: RsValueMap) -> Self {
+    fn map(map: Vec<(SharedRsValue, SharedRsValue)>) -> Self {
         Self::from_value(RsValue::Map(map))
     }
 }

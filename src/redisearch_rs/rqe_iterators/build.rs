@@ -18,7 +18,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ("src/util/arr", "arr"),
             ("src/util/dict", "dict"),
             ("src/util/mempool", "mempool"),
-            ("src/value", "value"),
         ]);
     }
 

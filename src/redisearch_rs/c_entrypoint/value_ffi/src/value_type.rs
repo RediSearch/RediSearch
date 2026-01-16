@@ -7,52 +7,118 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use value::{RsValue, shared::SharedRsValue};
+use value::RsValue;
 
 /// Enumeration of the types an
-/// `RsValue` or a `SharedRsValue` can be of.
+/// `RsValue` can be of.
 /// cbindgen:prefix-with-name
 #[repr(C)]
 #[derive(Debug)]
 pub enum RsValueType {
-    Undefined,
-    Null,
-    Number,
-    RmAllocString,
-    ConstString,
-    RedisString,
-    String,
-    Array,
-    Ref,
-    Trio,
-    Map,
+    Undef = 0,
+    Number = 1,
+    String = 2,
+    Null = 3,
+    RedisString = 4,
+    Array = 5,
+    Reference = 6,
+    Trio = 7,
+    Map = 8,
 }
 
-pub trait AsRsValueType {
-    fn as_value_type(&self) -> RsValueType;
-}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_Type(value: *const RsValue) -> RsValueType {
+    debug_assert!(!value.is_null());
 
-impl AsRsValueType for RsValue {
-    fn as_value_type(&self) -> RsValueType {
-        use RsValueType::*;
-        match self {
-            RsValue::Undefined => Undefined,
-            RsValue::Null => Null,
-            RsValue::Number(_) => Number,
-            RsValue::RmAllocString(_) => RmAllocString,
-            RsValue::ConstString(_) => ConstString,
-            RsValue::RedisString(_) => RedisString,
-            RsValue::String(_) => String,
-            RsValue::Array(_) => Array,
-            RsValue::Ref(_) => Ref,
-            RsValue::Trio(_) => Trio,
-            RsValue::Map(_) => Map,
-        }
+    let value = unsafe { &*value };
+
+    use RsValueType::*;
+
+    match value {
+        RsValue::Undefined => Undef,
+        RsValue::Null => Null,
+        RsValue::Number(_) => Number,
+        RsValue::RmAllocString(_) => String,
+        RsValue::ConstString(_) => String,
+        RsValue::RedisString(_) => RedisString,
+        RsValue::String(_) => String,
+        RsValue::Array(_) => Array,
+        RsValue::Ref(_) => Reference,
+        RsValue::Trio(_) => Trio,
+        RsValue::Map(_) => Map,
     }
 }
 
-impl AsRsValueType for SharedRsValue {
-    fn as_value_type(&self) -> RsValueType {
-        self.value().as_value_type()
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_IsReference(value: *const RsValue) -> bool {
+    if value.is_null() {
+        return false;
     }
+
+    let value = unsafe { &*value };
+
+    matches!(value, RsValue::Ref(_))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_IsNumber(value: *const RsValue) -> bool {
+    if value.is_null() {
+        return false;
+    }
+
+    let value = unsafe { &*value };
+
+    matches!(value, RsValue::Number(_))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_IsString(value: *const RsValue) -> bool {
+    if value.is_null() {
+        return false;
+    }
+
+    let value = unsafe { &*value };
+
+    matches!(
+        value,
+        RsValue::RmAllocString(_)
+            | RsValue::ConstString(_)
+            | RsValue::RedisString(_)
+            | RsValue::String(_)
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_IsArray(value: *const RsValue) -> bool {
+    if value.is_null() {
+        return false;
+    }
+
+    let value = unsafe { &*value };
+
+    matches!(value, RsValue::Array(_))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_IsTrio(value: *const RsValue) -> bool {
+    if value.is_null() {
+        return false;
+    }
+
+    let value = unsafe { &*value };
+
+    matches!(value, RsValue::Trio(_))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_IsNull(value: *const RsValue) -> bool {
+    if value.is_null() {
+        return true;
+    }
+
+    let value = unsafe { &*value };
+
+    let value = value.fully_dereferenced();
+
+    matches!(value, RsValue::Null)
 }
