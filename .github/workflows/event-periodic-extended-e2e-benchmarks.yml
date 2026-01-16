@@ -1,13 +1,13 @@
-name: Nightly E2E Benchmarks
+name: Periodic E2E Extended Benchmarks
 
 on:
   schedule:
-    - cron: "0 0 * * *"
+    - cron: "0 0 */3 * *"
 
 jobs:
   run-benchmarks:
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
     with:
-      extended: false
+      extended: true
       notify_failure: true
