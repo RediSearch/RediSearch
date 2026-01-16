@@ -25,12 +25,3 @@ jobs:
     if: ${{ needs.check-what-changed.outputs.BENCHMARK_CHANGED == 'true' }}
     uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit
-
-  msmarco-benchmark:
-    needs: check-what-changed
-    if: ${{ needs.check-what-changed.outputs.BENCHMARK_CHANGED == 'true' }}
-    uses: ./.github/workflows/benchmark-runner.yml
-    secrets: inherit
-    with:
-      notify_failure: true
-      allowed_setup: oss-cluster-08-primaries-250gb-threads-8
