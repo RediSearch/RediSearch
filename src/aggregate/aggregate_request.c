@@ -16,7 +16,7 @@
 #include <rmutil/util.h>
 #include "ext/default.h"
 #include "extension.h"
-#include "profile.h"
+#include "profile/profile.h"
 #include "config.h"
 #include "util/timeout.h"
 #include "query_optimizer.h"
