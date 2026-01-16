@@ -14,7 +14,7 @@
 #include "aggregate/aggregate.h"
 #include "dist_plan.h"
 #include "module.h"
-#include "profile.h"
+#include "profile/profile.h"
 #include "util/timeout.h"
 #include "resp3.h"
 #include "coord/config.h"
@@ -86,7 +86,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   return rpnetNext(rp, r);
 }
 
-static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
+static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
                            AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp, specialCaseCtx *knnCtx) {
   // We need to prepend the array with the command, index, and query that
   // we want to use.
@@ -94,15 +94,18 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
-  if (profileArgs == 0) {
+  int profileArgs = 0;
+  if (profileOptions == EXEC_NO_FLAGS) {
     array_append(tmparr, RS_AGGREGATE_CMD);                         // Command
     array_append(tmparr, index_name);  // Index name
   } else {
+    profileArgs += 2; // SEARCH/AGGREGATE + QUERY
     array_append(tmparr, RS_PROFILE_CMD);
     array_append(tmparr, index_name);  // Index name
     array_append(tmparr, "AGGREGATE");
-    if (profileArgs == 3) {
+    if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
       array_append(tmparr, "LIMITED");
+      profileArgs++;
     }
     array_append(tmparr, "QUERY");
   }
@@ -318,12 +321,19 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
                          IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
   AREQ_QueryProcessingCtx(r)->err = status;
   AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
-  rs_wall_clock_init(&r->initClock);
+  rs_wall_clock_init(&r->profileClocks.initClock);
 
-  int profileArgs = parseProfileArgs(argv, argc, r);
-  if (profileArgs == -1) return REDISMODULE_ERR;
-  int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, status);
+  ProfileOptions profileOptions = EXEC_NO_FLAGS;
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv, argc);
+
+  int rc = ParseProfile(&ac, status, &profileOptions);
+  if (rc == REDISMODULE_ERR) return REDISMODULE_ERR;
+  ApplyProfileOptions(AREQ_QueryProcessingCtx(r), &r->reqflags, profileOptions);
+
+  rc = AREQ_Compile(r, argv + ac.offset, argc - ac.offset, status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
+
   r->profile = printAggProfile;
 
   unsigned int dialect = r->reqConfig.dialectVersion;
@@ -356,8 +366,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
 
   // Construct the command string
   MRCommand xcmd;
-  buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp, knnCtx);
-
+  buildMRCommand(argv , argc, profileOptions, &us, &xcmd, sp, knnCtx);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);
@@ -367,7 +376,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // Build the result processor chain
   buildDistRPChain(r, &xcmd, &us, rpnetNext_Start);
 
-  if (IsProfile(r)) r->profileParseTime = rs_wall_clock_elapsed_ns(&r->initClock);
+  if (IsProfile(r)) r->profileClocks.profileParseTime = rs_wall_clock_elapsed_ns(&r->profileClocks.initClock);
 
   // Create the Search context
   // (notice with cursor, we rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted)

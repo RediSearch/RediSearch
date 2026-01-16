@@ -31,6 +31,7 @@
 #include "value.h"
 #include "module.h"
 #include "aggregate/reply_empty.h"
+#include "profile/profile.h"
 
 #include <time.h>
 
@@ -180,7 +181,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   startPipelineCommon(&ctx, rp, results, r, rc);
 }
 
-static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, clock_t duration, QueryError *err) {
+static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, rs_wall_clock_ns_t duration, QueryError *err) {
   if (results) {
     destroyResults(results);
   } else {
@@ -300,14 +301,27 @@ done:
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
     // execution_time
-    clock_t duration = clock() - hreq->initClock;
-    double executionTime = (double)duration / CLOCKS_PER_MILLISEC;
+    const rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock);
+    double executionTime = rs_wall_clock_convert_ns_to_ms_d(duration);
     RedisModule_ReplyKV_Double(reply, "execution_time", executionTime);
+    // // Prepare profile printer context
+    // ProfilePrinterCtx profileCtx = {
+    //   .req = NULL,
+    //   .hreq = hreq,
+    //   .timedout = rc == RS_RESULT_TIMEDOUT,
+    //   .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
+    //   .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
+    //   .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
+    // };
+
+    if (IsProfile(hreq)) {
+      hreq->profile(reply, hreq);
+    }
 
     RedisModule_Reply_MapEnd(reply);
 
 done_err:
-    finishSendChunk_HREQ(hreq, results, &r, clock() - hreq->initClock, &err);
+    finishSendChunk_HREQ(hreq, results, &r, duration, &err);
 }
 
 // Simple version of sendChunk_hybrid that returns empty results for hybrid queries.
@@ -430,6 +444,10 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     arrayof(Cursor*) cursors = array_new(Cursor*, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
+      ResultProcessor *rp = areq->pipeline.qctx.endProc;
+      if (IsProfile(req) && rp->type == RP_PROFILE) {
+        rp = rp->upstream;
+      }
       if (backgroundDepletion) {
         if (areq->pipeline.qctx.endProc->type != RP_SAFE_DEPLETER) {
           break;
@@ -505,6 +523,12 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     return REDISMODULE_ERR;
   }
 
+  for (int i = 0; i < hreq->nrequests; i++) {
+    AREQ *subquery = hreq->requests[i];
+    SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hreq->reqConfig.queryTimeoutMS);
+  }
+  SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
+
   if (!isCursor) {
     HybridRequest_Execute(hreq, ctx, sctx);
   } else if (HybridRequest_StartCursors(hybrid_ref, ctx, status, depleteInBackground) != REDISMODULE_OK) {
@@ -548,9 +572,15 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
 
     // Mark the hreq as running in the background
     hreq->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
+    if (hreq->tailPipeline->qctx.isProfile){
+      hreq->tailPipeline->qctx.queryGILTime += rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock);
+    }
     // Mark the requests as thread safe, so that the pipeline will be built in a thread safe manner
     for (size_t i = 0; i < hreq->nrequests; i++) {
-      AREQ_AddRequestFlags(hreq->requests[i], QEXEC_F_RUN_IN_BACKGROUND);
+      AREQ *areq = hreq->requests[i];
+      AREQ_AddRequestFlags(areq, QEXEC_F_RUN_IN_BACKGROUND);
+      // to keep things consistent, we need to copy the GIL time from the tail pipeline
+      AREQ_QueryProcessingCtx(areq)->queryGILTime = hreq->tailPipeline->qctx.queryGILTime;
     }
 
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, BCHCtx);
@@ -577,13 +607,62 @@ static inline int CleanupAndReplyStatus(RedisModuleCtx *ctx, StrongRef hybrid_re
     return QueryError_ReplyAndClear(ctx, status);
 }
 
+void printHybridProfileCoordinator(RedisModule_Reply *reply, void *ctx) {
+  // only print the coordinator if we are not internal
+  HybridRequest *hreq = ctx;
+  if ((hreq->reqflags & QEXEC_F_INTERNAL) != QEXEC_F_INTERNAL) {
+    // ProfilePrinterCtx combine = {
+    //   .hreq = cCtx->hreq,
+    //   .req = NULL,
+    //   .timedout = cCtx->timedout,
+    //   .reachedMaxPrefixExpansions = cCtx->reachedMaxPrefixExpansions,
+    //   .bgScanOOM = cCtx->bgScanOOM,
+    //   .queryOOM = cCtx->queryOOM,
+    // };
+    Profile_PrintHybrid(reply, ctx);
+  } else {
+    RedisModule_Reply_EmptyMap(reply);
+  }
+}
+
+// output "SEARCH", "VSIM" and "COMBINE"(if we are standalone)
+void printHybridProfileShards(RedisModule_Reply *reply, void *ctx) {
+  HybridRequest *hreq = ctx;
+  RedisModule_Reply_Map(reply);
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ *areq = hreq->requests[i];
+    // ProfilePrinterCtx sCtx = {
+    //   .req = areq,
+    //   .hreq = NULL,
+    //   .timedout = printerCtx->timedout,
+    //   .reachedMaxPrefixExpansions = printerCtx->reachedMaxPrefixExpansions,
+    //   .bgScanOOM = printerCtx->bgScanOOM,
+    //   .queryOOM = printerCtx->queryOOM,
+    // };
+    const char *subqueryType = "N/A";
+    if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) {
+      subqueryType = "SEARCH";
+    } else if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY) {
+      subqueryType = "VSIM";
+    }
+    RedisModule_Reply_SimpleString(reply, subqueryType);
+    Profile_Print(reply, areq);
+  }
+  RedisModule_Reply_MapEnd(reply);  // End shard map
+}
+
+void printHybridProfile(RedisModule_Reply *reply, void *ctx) {
+  ProfilePrinterCtx *cCtx = ctx;
+  Profile_PrintInFormat(reply, printHybridProfileShards, ctx, printHybridProfileCoordinator, ctx);
+}
+
 /**
  * Main command handler for FT.HYBRID command.
  *
  * Parses command arguments, builds hybrid request structure, constructs execution pipeline,
  * and prepares for hybrid search execution.
  */
-int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal) {
+int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal, ProfileOptions profileOptions) {
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
@@ -613,6 +692,8 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   CurrentThread_SetIndexSpec(spec_ref);
 
   HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx);
+  hybridRequest->profile = printHybridProfile;
+  hybridRequest->tailPipeline->qctx.isProfile = profileOptions != EXEC_NO_FLAGS;
   StrongRef hybrid_ref = StrongRef_New(hybridRequest, &FreeHybridRequest);
   HybridPipelineParams hybridParams = {0};
 
@@ -628,13 +709,15 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, argv, argc);
 
-  if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal) != REDISMODULE_OK) {
+  if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal, profileOptions) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
   }
 
-  for (int i = 0; i < hybridRequest->nrequests; i++) {
-    AREQ *subquery = hybridRequest->requests[i];
-    SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hybridRequest->reqConfig.queryTimeoutMS);
+  if (profileOptions != EXEC_NO_FLAGS) {
+    rs_wall_clock parseClock;
+    rs_wall_clock_init(&parseClock);
+    // Calculate the time elapsed for profileParseTime by using the initialized parseClock
+    hybridRequest->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&hybridRequest->profileClocks.initClock, &parseClock);
   }
   SearchCtx_UpdateTime(hybridRequest->sctx, hybridRequest->reqConfig.queryTimeoutMS);
 

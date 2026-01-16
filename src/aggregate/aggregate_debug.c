@@ -9,6 +9,7 @@
 #include "aggregate_debug.h"
 #include "module.h"
 #include "result_processor.h"
+#include "../profile/options.h"
 
 /*  Using INTERNAL_ONLY with TIMEOUT_AFTER_N where N == 0 may result in an infinite loop in the
    coordinator. Since shard replies are always empty, the coordinator might get stuck indefinitely
