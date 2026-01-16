@@ -350,10 +350,12 @@ typedef struct {
 
   /* Needed for rule filter where dmd does not exist */
   const char *keyPtr;
+  
   DocumentType type;
 
   /** Keys to load. If present, then loadNonCached and loadAllFields is ignored */
-  const RLookupKey **keys;
+  const RLookupKey *const *keys;
+
   /** Number of keys in keys array */
   size_t nkeys;
 

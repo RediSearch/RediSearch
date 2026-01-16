@@ -27,6 +27,7 @@ use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
 };
+use low_memory_thin_vec::low_memory_thin_vec;
 use pretty_assertions::assert_eq;
 use smallvec::smallvec;
 
@@ -68,13 +69,14 @@ impl Encoder for Dummy {
 #[test]
 fn memory_usage() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    let empty_size = 24;
 
-    assert_eq!(ii.memory_usage(), 40);
+    assert_eq!(ii.memory_usage(), empty_size);
 
     let record = RSIndexResult::default().doc_id(10);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.memory_usage(), 40 + mem_growth);
+    assert_eq!(ii.memory_usage(), empty_size + mem_growth);
 }
 
 #[test]
@@ -85,8 +87,9 @@ fn adding_records() {
     let mem_growth = ii.add_record(&record).unwrap();
 
     assert_eq!(
-        mem_growth, 52,
-        "size of the index block (48 bytes) plus 4 bytes for the delta"
+        mem_growth,
+        8 + IndexBlock::STACK_SIZE + 4,
+        "header of the thin vec storing the blocks (8 bytes), size of the first index block (48 bytes) plus 4 bytes for the encoded delta"
     );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
@@ -216,8 +219,9 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
 
     let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
     assert_eq!(
-        mem_growth, 49,
-        "size of the index block (48 bytes) plus the byte written"
+        mem_growth,
+        8 + IndexBlock::STACK_SIZE + 1,
+        "header of the thin vec storing the blocks (8 bytes), size of the first index block (48 bytes) plus the byte written"
     );
     assert_eq!(ii.blocks.len(), 1);
     let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(11)).unwrap();
@@ -227,7 +231,8 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
     // 3 entry should create a new block
     let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(12)).unwrap();
     assert_eq!(
-        mem_growth, 49,
+        mem_growth,
+        IndexBlock::STACK_SIZE + 1,
         "size of the new index block (48 bytes) plus the byte written"
     );
     assert_eq!(
@@ -262,8 +267,8 @@ fn adding_big_delta_makes_new_block() {
 
     assert_eq!(
         mem_growth,
-        4 + 48,
-        "should write 4 bytes for delta and 48 bytes for the index block"
+        4 + 8 + 48,
+        "should write 4 bytes for delta, 8 bytes of thin vec header, and 48 bytes for the index block"
     );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
@@ -395,13 +400,14 @@ fn adding_ii_blocks_growth_strategy() {
 fn adding_tracks_entries() {
     let mut ii = EntriesTrackingIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
-    assert_eq!(ii.memory_usage(), 48);
+    let empty_size = 32;
+    assert_eq!(ii.memory_usage(), empty_size);
     assert_eq!(ii.number_of_entries(), 0);
 
     let record = RSIndexResult::default().doc_id(10);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.memory_usage(), 48 + mem_growth);
+    assert_eq!(ii.memory_usage(), empty_size + mem_growth);
     assert_eq!(ii.number_of_entries(), 1);
 
     let record = RSIndexResult::default().doc_id(10);
@@ -414,13 +420,17 @@ fn adding_tracks_entries() {
 fn adding_track_field_mask() {
     let mut ii = FieldMaskTrackingIndex::<Dummy>::new(IndexFlags_Index_StoreFieldFlags);
 
-    assert_eq!(ii.memory_usage(), 56);
+    assert_eq!(ii.memory_usage(), 40);
     assert_eq!(ii.field_mask(), 0);
 
     let record = RSIndexResult::default().doc_id(10).field_mask(0b101);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(mem_growth, 52);
+    assert_eq!(
+        mem_growth,
+        8 + IndexBlock::STACK_SIZE + 4,
+        "header of the thin vec storing the blocks (8 bytes), size of the first index block (48 bytes) plus 4 bytes for the encoded result"
+    );
     assert_eq!(ii.field_mask(), 0b101);
 
     let record = RSIndexResult::default().doc_id(11).field_mask(0b101);
@@ -470,7 +480,7 @@ impl Decoder for Dummy {
 #[test]
 fn reading_records() {
     // Make two blocks. The first with two records and the second with one record
-    let blocks = vec![
+    let blocks = low_memory_thin_vec![
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
             num_entries: 2,
@@ -516,7 +526,7 @@ fn reading_records() {
 fn reading_over_empty_blocks() {
     // Make three blocks with the second one being empty and the other two containing one entries.
     // The second should automatically continue from the third block
-    let blocks = vec![
+    let blocks = low_memory_thin_vec![
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
@@ -596,7 +606,7 @@ fn read_using_the_first_block_id_as_the_base() {
     }
 
     // Make a block with three different doc IDs
-    let blocks = vec![IndexBlock {
+    let blocks = low_memory_thin_vec![IndexBlock {
         buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2],
         num_entries: 3,
         first_doc_id: 10,
@@ -628,7 +638,7 @@ fn read_using_the_first_block_id_as_the_base() {
 #[test]
 fn seeking_records() {
     // Make two blocks - the last one with four records
-    let blocks = vec![
+    let blocks = low_memory_thin_vec![
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
             num_entries: 3,
@@ -684,7 +694,7 @@ fn index_reader_construction_with_no_blocks() {
 
 #[test]
 fn index_reader_skip_to() {
-    let blocks = vec![
+    let blocks = low_memory_thin_vec![
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 5],
             num_entries: 2,
@@ -767,7 +777,7 @@ fn index_reader_skip_to() {
 
 #[test]
 fn reader_reset() {
-    let blocks = vec![
+    let blocks = low_memory_thin_vec![
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
             num_entries: 2,
@@ -826,7 +836,7 @@ fn reader_needs_revalidation() {
 
 #[test]
 fn reader_unique_docs() {
-    let blocks = vec![
+    let blocks = low_memory_thin_vec![
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
             num_entries: 2,
@@ -1565,7 +1575,7 @@ fn ii_scan_gc() {
     // - One which will be completely deleted
     // - One which will be partially deleted
     // - Two which will be unchanged
-    let blocks = vec![
+    let blocks = low_memory_thin_vec![
         IndexBlock {
             buffer: encode_ids!(Dummy, 10, 11),
             num_entries: 2,
@@ -1635,7 +1645,7 @@ fn ii_scan_gc() {
 #[test]
 fn ii_scan_gc_no_change() {
     // Create 2 blocks which will be unchanged
-    let blocks = vec![
+    let blocks = low_memory_thin_vec![
         IndexBlock {
             buffer: encode_ids!(Dummy, 10, 11),
             num_entries: 2,
@@ -1670,7 +1680,7 @@ fn ii_apply_gc() {
     // - One which will be partially deleted
     // - One which will be unchanged
     // - One which will be split into multiple blocks
-    let blocks = vec![
+    let blocks = low_memory_thin_vec![
         IndexBlock {
             buffer: encode_ids!(Dummy, 10, 11),
             num_entries: 2,
@@ -1698,13 +1708,16 @@ fn ii_apply_gc() {
     ];
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
-    // Inverted index is 40 bytes base
-    // 1st index block is 40 bytes + 16 bytes for the buffer capacity
-    // 2nd index block is 40 bytes + 24 bytes for the buffer capacity
-    // 3rd index block is 40 bytes + 16 bytes for the buffer capacity
-    // 4th index block is 40 bytes + 24 bytes for the buffer capacity
-    // So total memory size is 288 bytes
-    assert_eq!(ii.memory_usage(), 280);
+    assert_eq!(
+        ii.memory_usage(),
+        24// Size of an empty inverted index
+        + 8 // Size of the header of the thinvec storing blocks
+        + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
+        + 8 // Size of the buffer of the first index block
+        + 16 // Size of the buffer of the second index block
+        + 8 // Size of the buffer of the third index block
+        + 16 // Size of the buffer of the fourth index block
+    );
 
     let gc_result = vec![
         BlockGcScanResult {
@@ -1759,13 +1772,16 @@ fn ii_apply_gc() {
 
     assert_eq!(ii.gc_marker(), 1);
 
-    // Inverted index is 40 bytes base
-    // 1st index block is 40 bytes + 16 bytes for the buffer capacity
-    // 2nd index block is 40 bytes + 16 bytes for the buffer capacity
-    // 3rd index block is 40 bytes + 16 bytes for the buffer capacity
-    // 4th index block is 40 bytes + 16 bytes for the buffer capacity
-    // So total memory size is 272 bytes
-    assert_eq!(ii.memory_usage(), 264);
+    assert_eq!(
+        ii.memory_usage(),
+        24// Size of an empty inverted index
+        + 8 // Size of the header of the thinvec storing blocks
+        + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
+        + 8 // Size of the buffer of the first index block
+        + 8 // Size of the buffer of the second index block
+        + 8 // Size of the buffer of the third index block
+        + 8 // Size of the buffer of the fourth index block
+    );
 
     assert_eq!(ii.unique_docs(), 4);
     assert_eq!(
@@ -1813,7 +1829,7 @@ fn ii_apply_gc() {
 #[test]
 fn ii_apply_gc_last_block_updated() {
     // Create 2 blocks where the last block will have new entries since the GC scan
-    let blocks = vec![
+    let blocks = low_memory_thin_vec![
         IndexBlock {
             buffer: encode_ids!(Dummy, 10, 11),
             num_entries: 2,
@@ -1830,11 +1846,14 @@ fn ii_apply_gc_last_block_updated() {
 
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
-    // Inverted index is 40 bytes base
-    // 1st index block is 40 bytes + 16 bytes for the buffer capacity
-    // 2nd index block is 40 bytes + 24 bytes for the buffer capacity
-    // So total memory size is 168 bytes
-    assert_eq!(ii.memory_usage(), 160);
+    assert_eq!(
+        ii.memory_usage(),
+        24// Size of an empty inverted index
+        + 8 // Size of the header of the thinvec storing blocks
+        + IndexBlock::STACK_SIZE * 2 // Size of the index blocks
+        + 8 // Size of the buffer of the first index block
+        + 16 // Size of the buffer of the second index block
+    );
 
     let gc_result = vec![
         BlockGcScanResult {
@@ -1871,10 +1890,13 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(ii.gc_marker(), 1);
 
-    // Inverted index is 40 bytes base
-    // 1st index block is 40 bytes + 24 bytes for the buffer capacity
-    // So total memory size is 112 bytes
-    assert_eq!(ii.memory_usage(), 104);
+    assert_eq!(
+        ii.memory_usage(),
+        24 // Size of an empty inverted index
+        + 8 // Size of the header of the thinvec storing blocks
+        + IndexBlock::STACK_SIZE * 1 // Size of the index blocks
+        + 16 // Size of the buffer of the first index block
+    );
 
     assert_eq!(ii.unique_docs(), 3);
     assert_eq!(
