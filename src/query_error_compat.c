@@ -29,7 +29,7 @@ void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, cons
   rm_vasprintf(&formatted, fmt, ap);
   va_end(ap);
 
-  // Get the error code prefix (e.g., "SEARCH_PROP_NOT_FOUND:") from the full Rust message
+  // Get the error code prefix from the full Rust message
   const char *full_rust_message = QueryError_Strerror(code);
   const char *colon_pos = strchr(full_rust_message, ':');
 

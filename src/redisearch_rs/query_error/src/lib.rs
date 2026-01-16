@@ -119,10 +119,7 @@ impl QueryErrorCode {
             Self::CursorAlloc => c"SEARCH_CURSOR_ALLOC_FAILED: Could not allocate a cursor",
             Self::ReducerInit => c"SEARCH_REDUCER_INIT_FAILED: Could not initialize reducer",
             Self::QString => c"SEARCH_QUERY_STRING_BAD: Bad query string",
-            // NOTE: This error code is used in multiple contexts (schema validation and runtime/pipeline
-            // evaluation). Keep the default message schema-neutral; call sites may provide more specific
-            // messages (e.g. "not loaded nor in pipeline") via QueryError_SetWithUserDataFmt.
-            Self::NoPropKey => c"SEARCH_PROP_NOT_FOUND: No such property",
+            Self::NoPropKey => c"SEARCH_PROP_NOT_FOUND: Property not found in schema",
             Self::NoPropVal => c"SEARCH_VALUE_NOT_FOUND: Value not found in result (not a hard error)",
             Self::NoDoc => c"SEARCH_DOC_NOT_FOUND: Document not found",
             Self::NoOption => c"SEARCH_OPTION_BAD: Invalid option",
