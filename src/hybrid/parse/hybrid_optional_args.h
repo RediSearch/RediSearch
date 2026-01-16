@@ -38,7 +38,6 @@ typedef enum {
     SPECIFIED_ARG_LOAD = 1 << 11,
     SPECIFIED_ARG_FILTER = 1 << 12,
     SPECIFIED_ARG_NUM_SSTRING = 1 << 13,
-    SPECIFIED_ARG_COORD_DISPATCH_TIME = 1 << 14,
 } SpecifiedArg;
 
 /**

@@ -1608,7 +1608,7 @@ def test_warnings_metric_count_oom_cluster_in_shards_resp3():
   info_coord = info_modules_to_dict(env)
   env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], '2')
 
-# @skip(cluster=False)
+@skip(cluster=False)
 def test_warnings_metric_count_maxprefixexpansions_cluster_resp3():
   # Test max prefix expansions warnings in shards and coord with RESP3
   env  = Env(protocol=3)
