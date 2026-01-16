@@ -10,6 +10,7 @@
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "config.h"
 #include "util/arg_parser.h"
+#include "coord/rmr/command.h"
 #include <string.h>
 
 /**
@@ -44,6 +45,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     // Add all supported arguments with their callbacks
     ArgsCursor subArgs = {0};
+    unsigned long long coordDispatchTimeTemp = 0;  // Temporary storage for parsed dispatch time
     // LIMIT offset count - handles result limiting
     ArgParser_AddSubArgsV(parser, "LIMIT", "Limit results",
                          &subArgs, 2, 2,
@@ -135,6 +137,13 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                             &subArgs, 1, 1,
                             ARG_OPT_REQUIRED,
                             ARG_OPT_CALLBACK, handleSlotsInfo, ctx,
+                            ARG_OPT_END);
+
+        // _COORD_DISPATCH_TIME argument for internal requests (optional)
+        ArgParser_AddULongLongV(parser, COORD_DISPATCH_TIME_STR, "Coordinator dispatch time",
+                            &coordDispatchTimeTemp,
+                            ARG_OPT_REQUIRED,
+                            ARG_OPT_CALLBACK, handleCoordDispatchTime, &ctx->coordDispatchTime,
                             ARG_OPT_END);
 
     }

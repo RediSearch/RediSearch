@@ -13,6 +13,7 @@
 #include "hybrid//hybrid_scoring.h"
 #include "util/arg_parser.h"
 #include "aggregate/aggregate.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,6 +38,7 @@ typedef enum {
     SPECIFIED_ARG_LOAD = 1 << 11,
     SPECIFIED_ARG_FILTER = 1 << 12,
     SPECIFIED_ARG_NUM_SSTRING = 1 << 13,
+    SPECIFIED_ARG_COORD_DISPATCH_TIME = 1 << 14,
 } SpecifiedArg;
 
 /**
@@ -58,6 +60,7 @@ typedef struct {
     arrayof(sds) *prefixes;                 // Prefixes for the index
     const RedisModuleSlotRangeArray **querySlots; // Slots requested from coordinator (referenced from AREQ)
     uint32_t *keySpaceVersion;                 // Slots version for the request (referenced from AREQ)
+    rs_wall_clock_ns_t *coordDispatchTime;     // Coordinator dispatch time
 } HybridParseContext;
 
 /**

@@ -387,7 +387,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     cmd.hybridParams = &hybridParams;
     cmd.tailPlan = &hreq->tailPipeline->ap;
     cmd.reqConfig = &hreq->reqConfig;
-    cmd.coordStartTime = &hreq->coordStartTime;
+    cmd.coordDispatchTime = &hreq->coordDispatchTime;
 
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
