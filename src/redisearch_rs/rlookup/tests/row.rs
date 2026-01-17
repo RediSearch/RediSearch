@@ -576,7 +576,7 @@ fn write_fields_basic() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write fields from source to destination
-    dst_row.copy_fields_from(&dst_lookup, &src_row, &src_lookup, false);
+    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
 
     // Verify written values are correct and accessible by field names
     let dst_cursor1 = dst_lookup.find_key_by_name(&src_key1_name).unwrap();
@@ -624,7 +624,7 @@ fn write_fields_empty_source() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write from empty source row, will result in error
-    dst_row.copy_fields_from(&dst_lookup, &src_row, &src_lookup, false);
+    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
 
     // Verify destination remains empty
     assert_eq!(dst_row.num_dyn_values(), 0);
@@ -672,7 +672,7 @@ fn write_fields_different_mapping() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write fields
-    dst_row.copy_fields_from(&dst_lookup, &src_row, &src_lookup, false);
+    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
 
     // Verify data is readable by field names despite potentially different indices
     let dst_cursor1 = dst_lookup.find_key_by_name(&key1_name).unwrap();
@@ -729,8 +729,8 @@ fn write_fields_multiple_sources_no_overlap() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write data from both sources to single destination row
-    dst_row.copy_fields_from(&dst_lookup, &src1_row, &src1_lookup, false);
-    dst_row.copy_fields_from(&dst_lookup, &src2_row, &src2_lookup, false);
+    dst_row.copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false);
+    dst_row.copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false);
 
     // Verify all 4 fields are readable from destination using field names
     let dst_cursor1 = dst_lookup.find_key_by_name(&field1_name).unwrap();
@@ -796,13 +796,13 @@ fn write_fields_multiple_sources_partial_overlap() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write src1 first, then src2
-    dst_row.copy_fields_from(&dst_lookup, &src1_row, &src1_lookup, false);
+    dst_row.copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false);
 
     // After first write, s1_val2 should have refcount 3 (original var + src1Row + destRow)
     assert_eq!(s1_val2.strong_count(), 3); // Shared between source and destination
     assert_eq!(s2_val2.strong_count(), 2); // s2_val2 unchanged yet (original var + src2Row)
 
-    dst_row.copy_fields_from(&dst_lookup, &src2_row, &src2_lookup, false);
+    dst_row.copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false);
 
     // After second write, s1_val2 should be decremented (overwritten in dest), s2_val2 should be shared
     assert_eq!(s1_val2.strong_count(), 2); // Back to original var + src1Row (removed from destRow)
@@ -864,8 +864,8 @@ fn write_fields_multiple_sources_full_overlap() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write src1 first, then src2 - src2 should overwrite all values
-    dst_row.copy_fields_from(&dst_lookup, &src1_row, &src1_lookup, false);
-    dst_row.copy_fields_from(&dst_lookup, &src2_row, &src2_lookup, false);
+    dst_row.copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false);
+    dst_row.copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false);
 
     // Verify all fields contain src2 data (last write wins)
     let dst_cursor1 = dst_lookup.find_key_by_name(&field1_name).unwrap();
@@ -909,7 +909,7 @@ fn write_fields_key_missing_in_dst() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write fields from source to destination
-    dst_row.copy_fields_from(&dst_lookup, &src_row, &src_lookup, false);
+    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
 }
 
 /// Mock implementation of `IndexSpecCache_Decref` from spec.h for testing purposes

@@ -286,11 +286,11 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// - `src_row`: The source row from which to copy values.
     /// - `src_lookup`: The source lookup containing the schema of the source row, must be the associated lookup of `src_row`.
     /// - `create_missing_keys`: Whether keys missing in `dst_lookup` should be created automatically, or force a panic.
-    pub fn copy_fields_from(
+    pub fn copy_fields_from<'b>(
         &mut self,
-        dst_lookup: &RLookup,
+        dst_lookup: &mut RLookup<'b>,
         src_row: &Self,
-        src_lookup: &RLookup,
+        src_lookup: &RLookup<'b>,
         create_missing_keys: bool,
     ) {
         let dst_row = self;
