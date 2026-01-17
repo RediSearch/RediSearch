@@ -17,6 +17,7 @@
 #include "../rmutil/util.h"
 #include "reply_empty.h"
 #include "info/global_stats.h"
+#include "../profile/options.h"
 
 // Helper function that performs minimal parsing of query arguments to support sendChunk output
 static int shallow_parse_query_args(RedisModuleString **argv, int argc, AREQ *req) {
@@ -157,7 +158,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;
 
-    parseProfileExecOptions(req, execOptions);
+    ApplyProfileOptions(AREQ_QueryProcessingCtx(req), &req->reqflags, execOptions);
 
     if (shallow_parse_query_args(argv, argc, req) != REDISMODULE_OK) {
         AREQ_Free(req);

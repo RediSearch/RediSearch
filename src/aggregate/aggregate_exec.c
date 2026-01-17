@@ -1056,18 +1056,6 @@ done:
   return rc;
 }
 
-void parseProfileExecOptions(AREQ *r, int execOptions) {
-  if (execOptions & EXEC_WITH_PROFILE) {
-    AREQ_QueryProcessingCtx(r)->isProfile = true;
-    AREQ_AddRequestFlags(r, QEXEC_F_PROFILE);
-    if (execOptions & EXEC_WITH_PROFILE_LIMITED) {
-      AREQ_AddRequestFlags(r, QEXEC_F_PROFILE_LIMITED);
-    }
-  } else {
-    AREQ_QueryProcessingCtx(r)->isProfile = false;
-  }
-}
-
 static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, ProfileOptions profileOptions, QueryError *status) {
   AREQ *r = *r_ptr;
   // If we got here, we know `argv[0]` is a valid registered command name.
@@ -1107,7 +1095,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
     if (qctx->isProfile){
-      qctx->queryGILTime += rs_wall_clock_elapsed_ns(&r->profileClocks.initClock);
+      // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
+      qctx->queryGILTime += rs_wall_clock_elapsed_ns(&r->profileClocks.initClock) + 1;
     }
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(rc == 0);

@@ -167,6 +167,8 @@ void Profile_PrintCommon(RedisModule_Reply *reply, AREQ *req, HybridRequest *hre
   bool queryOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
   bool asmTrimmingDelayTimeout = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
 
+  clocks->profileTotalTime = rs_wall_clock_elapsed_ns(&clocks->initClock);
+
   RedisModule_Reply_Map(reply);
 
   // Get and add the Shard ID string to the profile reply (guarded by a ref count).
