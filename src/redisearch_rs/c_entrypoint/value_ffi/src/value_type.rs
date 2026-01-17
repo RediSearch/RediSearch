@@ -7,22 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use value::{RsValue, RsValueInternal, Value, shared::SharedRsValue};
+use value::{RsValue, shared::SharedRsValue};
 
 /// Enumeration of the types an
 /// `RsValue` or a `SharedRsValue` can be of.
 /// cbindgen:prefix-with-name
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub enum RsValueType {
-    #[default]
     Undefined,
     Null,
     Number,
     RmAllocString,
     ConstString,
-    OwnedRedisString,
-    BorrowedRedisString,
+    RedisString,
     String,
     Array,
     Ref,
@@ -30,41 +28,31 @@ pub enum RsValueType {
     Map,
 }
 
-pub(crate) trait AsRsValueType {
+pub trait AsRsValueType {
     fn as_value_type(&self) -> RsValueType;
 }
 
-impl AsRsValueType for RsValueInternal {
+impl AsRsValueType for RsValue {
     fn as_value_type(&self) -> RsValueType {
         use RsValueType::*;
         match self {
-            RsValueInternal::Null => Null,
-            RsValueInternal::Number(_) => Number,
-            RsValueInternal::RmAllocString(_) => RmAllocString,
-            RsValueInternal::ConstString(_) => ConstString,
-            RsValueInternal::OwnedRedisString(_) => OwnedRedisString,
-            RsValueInternal::BorrowedRedisString(_) => BorrowedRedisString,
-            RsValueInternal::String(_) => String,
-            RsValueInternal::Array(_) => Array,
-            RsValueInternal::Ref(_) => Ref,
-            RsValueInternal::Trio(_) => Trio,
-            RsValueInternal::Map(_) => Map,
+            RsValue::Undefined => Undefined,
+            RsValue::Null => Null,
+            RsValue::Number(_) => Number,
+            RsValue::RmAllocString(_) => RmAllocString,
+            RsValue::ConstString(_) => ConstString,
+            RsValue::RedisString(_) => RedisString,
+            RsValue::String(_) => String,
+            RsValue::Array(_) => Array,
+            RsValue::Ref(_) => Ref,
+            RsValue::Trio(_) => Trio,
+            RsValue::Map(_) => Map,
         }
     }
 }
 
 impl AsRsValueType for SharedRsValue {
     fn as_value_type(&self) -> RsValueType {
-        self.internal()
-            .map(|i| i.as_value_type())
-            .unwrap_or_default()
-    }
-}
-
-impl AsRsValueType for RsValue {
-    fn as_value_type(&self) -> RsValueType {
-        self.internal()
-            .map(|i| i.as_value_type())
-            .unwrap_or_default()
+        self.value().as_value_type()
     }
 }
