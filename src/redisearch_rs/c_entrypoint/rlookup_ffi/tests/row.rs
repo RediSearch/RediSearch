@@ -9,7 +9,6 @@
 
 #![allow(clippy::undocumented_unsafe_blocks)]
 
-use std::cmp;
 use std::mem::{self, offset_of};
 use std::ptr;
 use std::ptr::NonNull;
