@@ -493,7 +493,6 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 // From dist_aggregate.c
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
-void parseProfileExecOptions(AREQ *r, int execOptions);
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 
