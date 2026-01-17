@@ -305,12 +305,9 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
                 && let Some(value) = src_row.get(src_key)
             {
                 // Find corresponding key in destination lookup
-                let dst_key = if let Some(dst_key) = dst_lookup.find_key_by_name(src_key.name()) {
-                    dst_key.into_current().unwrap()
-                } else {
-                    if !create_missing_keys {
-                        panic!("all source keys must exist in destination")
-                    } else {
+                let dst_key = match dst_lookup.find_key_by_name(src_key.name()) {
+                    Some(k) => k.into_current().unwrap(),
+                    None if create_missing_keys => {
                         // Inherit non-transient flags from source.
                         let flags = src_key.flags & !TRANSIENT_FLAGS;
 
@@ -320,6 +317,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
                             .get_key_write(src_key.name().clone(), flags)
                             .unwrap()
                     }
+                    _ => panic!("all source keys must exist in destination"),
                 };
 
                 // Write fields to destination
