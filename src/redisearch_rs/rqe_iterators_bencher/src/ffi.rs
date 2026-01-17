@@ -18,6 +18,7 @@ mod bindings {
     #![allow(clippy::useless_transmute)]
     #![allow(clippy::missing_const_for_fn)]
     #![allow(clippy::upper_case_acronyms)]
+    #![allow(clippy::disallowed_types)]
 
     use ffi::{NumericFilter, RSDocumentMetadata, t_fieldIndex, t_fieldMask};
     use field::{FieldFilterContext, FieldMaskOrIndex};
