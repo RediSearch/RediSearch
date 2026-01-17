@@ -882,6 +882,36 @@ fn write_fields_multiple_sources_full_overlap() {
     assert_eq!(dst_row.num_dyn_values(), 3);
 }
 
+#[test]
+#[should_panic(expected = "we expect all source keys to exist in destination")]
+fn write_fields_key_missing_in_dst() {
+    // Tests basic field writing between lookup rows
+    let mut src_lookup = RLookup::new();
+    let mut dst_lookup = RLookup::new();
+
+    // Create source keys
+    let src_key1_name = CString::new("field1").unwrap();
+    let src_key2_name = CString::new("field2").unwrap();
+
+    let mut src_row: RLookupRow<RSValueMock> = RLookupRow::new(&src_lookup);
+
+    // Write values to source row
+    let value1 = RSValueMock::create_num(100.0);
+    let value2 = RSValueMock::create_num(200.0);
+
+    src_row.write_key_by_name(&mut src_lookup, src_key1_name.to_owned(), value1.clone());
+    src_row.write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone());
+
+    // Add source keys to destination lookup (simulating RLookup_AddKeysFrom)
+    // Don't add key2, to force expected panic.
+    dst_lookup.get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty());
+
+    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
+
+    // Write fields from source to destination
+    dst_row.copy_fields_from(&dst_lookup, &src_row, &src_lookup);
+}
+
 /// Mock implementation of `IndexSpecCache_Decref` from spec.h for testing purposes
 #[unsafe(no_mangle)]
 extern "C" fn IndexSpecCache_Decref(spcache: Option<NonNull<ffi::IndexSpecCache>>) {
