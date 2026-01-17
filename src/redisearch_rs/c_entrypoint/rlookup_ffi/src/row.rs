@@ -292,7 +292,7 @@ unsafe extern "C" fn RLookupRow_WriteFieldsFrom(
     // Safety: ensured by caller (4.)
     let dst_lookup = unsafe { dst_lookup.as_ref().unwrap() };
 
-    dst_row.copy_fields_from(dst_lookup, src_row, src_lookup);
+    dst_row.copy_fields_from(&mut dst_lookup, src_row, src_lookup, false);
 }
 
 /// Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.

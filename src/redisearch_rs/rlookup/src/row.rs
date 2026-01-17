@@ -9,7 +9,9 @@
 
 #[cfg(debug_assertions)]
 use crate::rlookup_id::RLookupId;
-use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule};
+use crate::{
+    RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
+};
 use sorting_vector::RSSortingVector;
 use std::{borrow::Cow, ffi::CStr};
 use value::RSValueTrait;
@@ -303,11 +305,22 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
                 && let Some(value) = src_row.get(src_key)
             {
                 // Find corresponding key in destination lookup
-                let dst_key = dst_lookup
-                    .find_key_by_name(src_key.name())
-                    .expect("all source keys must exist in destination")
-                    .into_current()
-                    .unwrap();
+                let dst_key = if let Some(dst_key) = dst_lookup.find_key_by_name(src_key.name()) {
+                    dst_key.into_current().unwrap()
+                } else {
+                    if !create_missing_keys {
+                        panic!("all source keys must exist in destination")
+                    } else {
+                        // Inherit non-transient flags from source.
+                        let flags = src_key.flags & !TRANSIENT_FLAGS;
+
+                        // Key doesn't exist in destination - create it on demand.
+                        // This can happen with LOAD * where keys are created dynamically.
+                        dst_lookup
+                            .get_key_write(src_key.name().clone(), flags)
+                            .unwrap()
+                    }
+                };
 
                 // Write fields to destination
                 dst_row.write_key(dst_key, value.clone());
