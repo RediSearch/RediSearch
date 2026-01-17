@@ -40,8 +40,6 @@ typedef struct {
 } blockedClientReqCtx;
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
-int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                             CommandType type, ProfileOptions profileOptions);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 
 /**

@@ -190,7 +190,8 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv, int 
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
-void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
+void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
+                            ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, HybridPipelineParams *hybridParams) {
   int argOffset;
@@ -411,7 +412,7 @@ void printShardsHybridProfile(RedisModule_Reply *reply, void *ctx) {
 }
 
 void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
-  Profile_PrintInFormat(reply, printShardsHybridProfile, ctx, Profile_Print, ctx);
+  Profile_PrintInFormat(reply, printShardsHybridProfile, ctx, Profile_PrintHybrid, ctx);
 }
 
 static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,

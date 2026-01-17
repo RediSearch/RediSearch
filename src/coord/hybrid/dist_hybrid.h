@@ -22,7 +22,8 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx);
 
 // For testing purposes
-void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
+void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
+                            ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, HybridPipelineParams *hybridParams);
 

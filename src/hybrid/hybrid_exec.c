@@ -321,7 +321,7 @@ done:
     RedisModule_Reply_MapEnd(reply);
 
 done_err:
-    finishSendChunk_HREQ(hreq, results, &r, duration, &err);
+    finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
 }
 
 // Simple version of sendChunk_hybrid that returns empty results for hybrid queries.
