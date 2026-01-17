@@ -932,7 +932,7 @@ fn write_fields_key_missing_in_dst_should_create() {
     src_row.write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone());
 
     // Add source keys to destination lookup (simulating RLookup_AddKeysFrom)
-    // Don't add key2, to force expected panic.
+    // Don't add key2, to force creation.
     dst_lookup.get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty());
 
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
