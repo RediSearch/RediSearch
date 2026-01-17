@@ -83,9 +83,6 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         if (isProfile) {
           QITR_PushRP(qctx, RPProfile_New(qctx->endProc, qctx));
         }
-        if (isProfile) {
-          areq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
-        }
     }
     if (depleteInBackground) {
       // Release the sync reference as depleters now hold their own references
