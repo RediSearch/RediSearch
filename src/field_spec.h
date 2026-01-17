@@ -119,8 +119,8 @@ typedef struct FieldSpec {
       // expected size of vector blob.
       size_t expBlobSize;
       VecSimIndex *vecSimIndex;
-      // Disk index params (diskParams.storage is non-NULL for disk-based indexes)
-      VecSimHNSWDiskParams diskParams;
+      // Disk index params (diskCtx.storage is non-NULL for disk-based indexes)
+      VecSimDiskContext diskCtx;
     } vectorOpts;
     struct {
       // Geometry index parameters

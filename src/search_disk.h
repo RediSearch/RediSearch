@@ -235,7 +235,7 @@ bool SearchDisk_IsEnabledForValidation();
  * @param params Vector index parameters
  * @return VecSimIndex* handle, or NULL on error
  */
-void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const struct VecSimHNSWDiskParams *params);
+void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params);
 
 /**
  * @brief Free a disk-based vector index
