@@ -298,7 +298,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
                 // Find corresponding key in destination lookup
                 let dst_key = dst_lookup
                     .find_key_by_name(src_key.name())
-                    .expect("we expect all source keys to exist in destination")
+                    .expect("all source keys must exist in destination")
                     .into_current()
                     .unwrap();
 

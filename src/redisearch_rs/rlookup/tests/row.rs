@@ -883,7 +883,7 @@ fn write_fields_multiple_sources_full_overlap() {
 }
 
 #[test]
-#[should_panic(expected = "we expect all source keys to exist in destination")]
+#[should_panic(expected = "all source keys must exist in destination")]
 fn write_fields_key_missing_in_dst() {
     // Tests basic field writing between lookup rows
     let mut src_lookup = RLookup::new();
