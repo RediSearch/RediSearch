@@ -10,6 +10,7 @@
 
 #include "redismodule.h"
 #include "redisearch.h"
+#include "VecSim/vec_sim_common.h"
 
 #ifdef __cplusplus
 extern "C" {
