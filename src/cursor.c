@@ -356,8 +356,9 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
 
   // If either lock failed (non-zero return), we can't safely access the cursor lists
   if (lock_result != 0 || lock_coord_result != 0) {
-    RedisModule_InfoAddSection(ctx, "cursor_stats");
-    RedisModule_InfoAddFieldString(ctx, "status", "locked");
+    RedisModule_InfoBeginDictField(ctx, "cursor_stats");
+    RedisModule_InfoAddFieldCString(ctx, "status", "locked");
+    RedisModule_InfoEndDictField(ctx);
     // Unlock any locks we did acquire
     if (lock_result == 0) {
       CursorList_Unlock(cl);
