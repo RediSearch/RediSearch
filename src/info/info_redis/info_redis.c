@@ -368,7 +368,7 @@ void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
     } else {
       // Output FT.INFO in a crash-safe manner (no allocations, no locks)
       // This includes the index name, so no need to output it separately
-      IndexInfoCrashSafe(spec, ctx, RSGlobalConfig.hideUserDataFromLog);
+      IndexSpec_AddToInfo(ctx, spec, RSGlobalConfig.hideUserDataFromLog, true);
     }
     // give us a sense of how long this thread was active on this index before we crashed
     rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&specInfo->runningTime);
