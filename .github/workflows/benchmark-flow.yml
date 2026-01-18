@@ -55,9 +55,14 @@ jobs:
       - name: Install Boost
         working-directory: .install
         run: ./install_boost.sh
-
+      - name: Setup LLVM for LTO
+        run: |
+          source .install/LLVM_VERSION.sh
+          echo "CC=clang-$LLVM_VERSION" >> $GITHUB_ENV
+          echo "CXX=clang++-$LLVM_VERSION" >> $GITHUB_ENV
+          echo "LD=lld-$LLVM_VERSION" >> $GITHUB_ENV
       - name: Build RediSearch
-        run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
+        run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}} LTO=1
       - name: Install Python dependencies
         run: |
           pip3 install --upgrade pip
