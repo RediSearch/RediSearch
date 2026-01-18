@@ -1,0 +1,43 @@
+version: 0.5
+name: "search-msmarco-6M-documents-and-query"
+description: "MS MARCO 6M documents - AND query benchmark (multi-term intersection)"
+
+metadata:
+  component: "search"
+  dataset: "MS MARCO document-v2"
+  doc_count: 6000000
+  query_type: "and"
+  use_case: "Multi-term AND search performance on large dataset"
+
+timeout_seconds: 3600
+dataset_load_timeout_secs: 3600
+
+setups:
+  - oss-cluster-08-primaries-250gb-threads-8
+
+remote:
+  - setup: redisearch-msmarco
+
+dbconfig:
+  - dataset_name: "msmarco-6M-documents"
+  - init_commands:
+    - '"FT.CREATE" "ms_marco_idx" "ON" "HASH" "PREFIX" "1" "doc:" "SCHEMA" "url" "TEXT" "title" "TEXT" "WEIGHT" "2.0" "headings" "TEXT" "WEIGHT" "1.5" "body" "TEXT" "tags" "TAG" "SEPARATOR" ","'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 5s
+    - max-token-size-mb: 10
+    - input: "s3://benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.SETUP.csv"
+  - check:
+      keyspacelen: 5978761
+
+clientconfig:
+  - benchmark_type: "read-only"
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - requests: 300000
+    - reporting-period: 1s
+    - duration: 120s
+    - input: "s3://benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.BENCH.QUERY_and.csv"
+    - max-token-size-mb: 10
