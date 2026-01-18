@@ -343,7 +343,7 @@ void IndexInfoCrashSafe(const IndexSpec *sp, RedisModuleInfoCtx *info_ctx, bool 
 
   // Index name - use existing strings, no allocation
   const char* indexName = obfuscate ? sp->obfuscatedName : HiddenString_GetUnsafe(sp->specName, NULL);
-  if (specName) {
+  if (indexName) {
     RedisModule_InfoAddFieldCString(info_ctx, "index_name", (char*)indexName);
   }
 
