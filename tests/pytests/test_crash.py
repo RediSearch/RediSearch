@@ -51,6 +51,7 @@ def test_query_thread_crash():
             "search_inverted_sz_mb:",
             "search_indexing:",
             "search_num_fields:",
+            "search_run_time_ns:",
         ])
     )
 
@@ -70,6 +71,7 @@ def test_query_thread_crash_with_rust_panic():
                 "search_index_name:idx",
                 "search_num_docs:",
                 "search_inverted_sz_mb:",
+                "search_run_time_ns:",
                 # The backtrace
                 "# search_rust_backtrace",
             ],
