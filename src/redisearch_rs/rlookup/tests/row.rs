@@ -576,7 +576,7 @@ fn write_fields_basic() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write fields from source to destination
-    dst_row.copy_fields_from(&dst_lookup, &src_row, &src_lookup);
+    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
 
     // Verify written values are correct and accessible by field names
     let dst_cursor1 = dst_lookup.find_key_by_name(&src_key1_name).unwrap();
@@ -624,7 +624,7 @@ fn write_fields_empty_source() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write from empty source row, will result in error
-    dst_row.copy_fields_from(&dst_lookup, &src_row, &src_lookup);
+    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
 
     // Verify destination remains empty
     assert_eq!(dst_row.num_dyn_values(), 0);
@@ -672,7 +672,7 @@ fn write_fields_different_mapping() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write fields
-    dst_row.copy_fields_from(&dst_lookup, &src_row, &src_lookup);
+    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
 
     // Verify data is readable by field names despite potentially different indices
     let dst_cursor1 = dst_lookup.find_key_by_name(&key1_name).unwrap();
@@ -729,8 +729,8 @@ fn write_fields_multiple_sources_no_overlap() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write data from both sources to single destination row
-    dst_row.copy_fields_from(&dst_lookup, &src1_row, &src1_lookup);
-    dst_row.copy_fields_from(&dst_lookup, &src2_row, &src2_lookup);
+    dst_row.copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false);
+    dst_row.copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false);
 
     // Verify all 4 fields are readable from destination using field names
     let dst_cursor1 = dst_lookup.find_key_by_name(&field1_name).unwrap();
@@ -796,13 +796,13 @@ fn write_fields_multiple_sources_partial_overlap() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write src1 first, then src2
-    dst_row.copy_fields_from(&dst_lookup, &src1_row, &src1_lookup);
+    dst_row.copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false);
 
     // After first write, s1_val2 should have refcount 3 (original var + src1Row + destRow)
     assert_eq!(s1_val2.strong_count(), 3); // Shared between source and destination
     assert_eq!(s2_val2.strong_count(), 2); // s2_val2 unchanged yet (original var + src2Row)
 
-    dst_row.copy_fields_from(&dst_lookup, &src2_row, &src2_lookup);
+    dst_row.copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false);
 
     // After second write, s1_val2 should be decremented (overwritten in dest), s2_val2 should be shared
     assert_eq!(s1_val2.strong_count(), 2); // Back to original var + src1Row (removed from destRow)
@@ -864,8 +864,8 @@ fn write_fields_multiple_sources_full_overlap() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write src1 first, then src2 - src2 should overwrite all values
-    dst_row.copy_fields_from(&dst_lookup, &src1_row, &src1_lookup);
-    dst_row.copy_fields_from(&dst_lookup, &src2_row, &src2_lookup);
+    dst_row.copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false);
+    dst_row.copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false);
 
     // Verify all fields contain src2 data (last write wins)
     let dst_cursor1 = dst_lookup.find_key_by_name(&field1_name).unwrap();
@@ -880,6 +880,88 @@ fn write_fields_multiple_sources_full_overlap() {
     assert_eq!(dst_row.get(dst_key3).unwrap().as_num(), Some(333.0)); // From src2
 
     assert_eq!(dst_row.num_dyn_values(), 3);
+}
+
+#[test]
+#[should_panic(expected = "all source keys must exist in destination")]
+fn write_fields_key_missing_in_dst_should_panic() {
+    // Tests basic field writing between lookup rows
+    let mut src_lookup = RLookup::new();
+    let mut dst_lookup = RLookup::new();
+
+    // Create source keys
+    let src_key1_name = CString::new("field1").unwrap();
+    let src_key2_name = CString::new("field2").unwrap();
+
+    let mut src_row: RLookupRow<RSValueMock> = RLookupRow::new(&src_lookup);
+
+    // Write values to source row
+    let value1 = RSValueMock::create_num(100.0);
+    let value2 = RSValueMock::create_num(200.0);
+
+    src_row.write_key_by_name(&mut src_lookup, src_key1_name.to_owned(), value1.clone());
+    src_row.write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone());
+
+    // Add source keys to destination lookup (simulating RLookup_AddKeysFrom)
+    // Don't add key2, to force expected panic.
+    dst_lookup.get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty());
+
+    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
+
+    // Write fields from source to destination
+    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
+}
+
+#[test]
+fn write_fields_key_missing_in_dst_should_create() {
+    // Tests basic field writing between lookup rows
+    let mut src_lookup = RLookup::new();
+    let mut dst_lookup = RLookup::new();
+
+    // Create source keys
+    let src_key1_name = CString::new("field1").unwrap();
+    let src_key2_name = CString::new("field2").unwrap();
+
+    let mut src_row: RLookupRow<RSValueMock> = RLookupRow::new(&src_lookup);
+
+    // Write values to source row
+    let value1 = RSValueMock::create_num(100.0);
+    let value2 = RSValueMock::create_num(200.0);
+
+    src_row.write_key_by_name(&mut src_lookup, src_key1_name.to_owned(), value1.clone());
+    src_row.write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone());
+
+    // Add source keys to destination lookup (simulating RLookup_AddKeysFrom)
+    // Don't add key2, to force creation.
+    dst_lookup.get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty());
+
+    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
+
+    // Write fields from source to destination
+    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, true);
+
+    // Verify written values are correct and accessible by field names
+    let dst_cursor1 = dst_lookup.find_key_by_name(&src_key1_name).unwrap();
+    let dst_key1 = dst_cursor1.into_current().unwrap();
+    let dst_cursor2 = dst_lookup.find_key_by_name(&src_key2_name).unwrap();
+    let dst_key2 = dst_cursor2.into_current().unwrap();
+
+    assert_eq!(dst_row.get(dst_key1).unwrap().as_num(), Some(100.0));
+    assert_eq!(dst_row.get(dst_key2).unwrap().as_num(), Some(200.0));
+
+    // Verify shared ownership (reference counts should be increased)
+    // value1 and value2 are referenced by: the original vars + src_row + dst_row = 3 total
+    assert_eq!(value1.strong_count(), 3); // value1 + src_row + dst_row
+    assert_eq!(value2.strong_count(), 3); // value2 + src_row + dst_row
+
+    // Verify source row still contains the values (shared ownership, not moved)
+    let src_cursor1 = src_lookup.find_key_by_name(&src_key1_name).unwrap();
+    let src_key1 = src_cursor1.into_current().unwrap();
+    let src_cursor2 = src_lookup.find_key_by_name(&src_key2_name).unwrap();
+    let src_key2 = src_cursor2.into_current().unwrap();
+
+    assert_eq!(src_row.get(src_key1).unwrap().as_num(), Some(100.0));
+    assert_eq!(src_row.get(src_key2).unwrap().as_num(), Some(200.0));
 }
 
 /// Mock implementation of `IndexSpecCache_Decref` from spec.h for testing purposes

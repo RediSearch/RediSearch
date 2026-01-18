@@ -558,7 +558,8 @@ void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
  * Iterate through the source lookup keys, if it finds a corresponding key in the destination
  * lookup by name, then it's value is written to this row as a destination.
  *
- * If a source key is not found in the destination lookup the function will panic (same as C behavior).
+ * If a source key is not found in the destination lookup the function will either create it or panic
+ * depending on the value of `create_missing_keys`.
  *
  * If a source key has no value in the source row, it is skipped.
  *
@@ -575,7 +576,8 @@ void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
 void RLookupRow_WriteFieldsFrom(const RLookupRow *src_row,
                                 const struct RLookup *src_lookup,
                                 RLookupRow *dst_row,
-                                const struct RLookup *dst_lookup);
+                                struct RLookup *dst_lookup,
+                                bool create_missing_keys);
 
 /**
  * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
