@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   get-latest-redis-tag:
-    # TODO: Revert to using the latest stable ref in redis
+    # TODO: Revert to using the latest stable ref in redis when 8.6 is released
     runs-on: ubuntu-latest
     outputs:
       tag: unstable

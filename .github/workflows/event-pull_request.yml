@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   get-latest-redis-tag:
-    # TODO: Revert when 8.4 is released
+    # TODO: Revert when 8.6 is released
     runs-on: ubuntu-latest
     outputs:
       tag: unstable
