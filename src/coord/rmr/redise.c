@@ -15,6 +15,7 @@
 typedef struct {
   arrayof(RedisModuleSlotRange) slotRanges;
   MRClusterNode node;
+  bool isMaster;
 } RLShard;
 
 static void RLShard_Free(RLShard *sh) {
@@ -86,6 +87,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   ArgsCursor ac; // Name is important for error macros, same goes for `ctx`
   ArgsCursor_InitRString(&ac, argv, argc);
   AC_Advance(&ac); // Skip command name
+  size_t myID_offset;
   const char *myID = NULL;                 // Mandatory. No default.
   uint32_t numRanges = 0;                  // Mandatory. No default.
   uint32_t numSlots = 16384;               // Default.
@@ -93,6 +95,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   // Parse general arguments. No allocation is done here, so we can just return on error
   while (!AC_IsAtEnd(&ac)) {
     if (AC_AdvanceIfMatch(&ac, "MYID")) {
+      myID_offset = ac.offset;
       myID = AC_GetStringNC(&ac, NULL);  // Verified after breaking out of loop
     } else if (AC_AdvanceIfMatch(&ac, "HASHFUNC")) {
       const char *hashFuncStr = AC_GetStringNC(&ac, NULL);
@@ -156,7 +159,6 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     const char *idstr = RedisModule_StringPtrLen(shardIDStr, &len);
     sh->node.id = rm_strndup(idstr, len);
 
-    bool is_master = false;
     while (!AC_IsAtEnd(&ac)) {
       if (AC_AdvanceIfMatch(&ac, "SLOTRANGE")) {
         if (array_len(sh->slotRanges) > 0) {
@@ -209,24 +211,10 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
         sh->node.endpoint.unixSock = rm_strndup(unixSock, len);
 
       } else if (AC_AdvanceIfMatch(&ac, "MASTER")) {
-        is_master = true;
+        sh->isMaster = true;
       } else {
         break;
       }
-    }
-
-    // We don't care for replicas using this command anymore
-    if (!is_master) {
-      RLShard_Free(sh);
-      sh = NULL;
-      continue;
-    }
-
-    // Ignore shards with no slot ranges (like replicas)
-    if (array_len(sh->slotRanges) == 0) {
-      RLShard_Free(sh);
-      sh = NULL;
-      continue;
     }
 
     dictEntry *entry = dictAddOrFind(shards, shardIDStr);
@@ -270,15 +258,18 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
           goto error;
         }
       }
-      RS_ASSERT(array_len(sh->slotRanges) == 1);
-      // Verify slot range starts past existing ones
-      if (array_tail(existing_shard->slotRanges).end + 1 >= sh->slotRanges[0].start) {
-        ERROR_FMT("SLOTRANGE out of order for shard `%s`", sh->node.id);
-        goto error;
-      }
 
-      // Append new slot range
-      array_ensure_append_1(existing_shard->slotRanges, sh->slotRanges[0]);
+      RS_ASSERT(array_len(sh->slotRanges) <= 1);
+      if (array_len(sh->slotRanges) == 1) {
+        // Verify slot range starts past existing ones
+        if (array_len(existing_shard->slotRanges) > 0 && array_tail(existing_shard->slotRanges).end + 1 >= sh->slotRanges[0].start) {
+          ERROR_FMT("SLOTRANGE out of order for shard `%s`", sh->node.id);
+          goto error;
+        }
+
+        // Append new slot range
+        array_ensure_append_1(existing_shard->slotRanges, sh->slotRanges[0]);
+      }
 
       // Discard parsed shard
       RLShard_Free(sh);
@@ -294,13 +285,17 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   }
 
   // Now, build the topology.
-  // 1. All shards in the dict are valid masters
+  // 1. All shards in the dict are valid
   // 2. We can identify my shard by myID
   topo = MR_NewTopology(dictSize(shards));
   dictIterator *iter = dictGetIterator(shards);
   dictEntry *de;
   while ((de = dictNext(iter)) != NULL) {
-    MRTopology_AddRLShard(topo, dictGetVal(de));
+    RLShard *sh = dictGetVal(de);
+    // Only add master shards with slots
+    if (sh->isMaster && array_len(sh->slotRanges) > 0) {
+      MRTopology_AddRLShard(topo, sh);
+    }
   }
   dictReleaseIterator(iter);
 
@@ -315,10 +310,14 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   }
 
   if (*my_shard_idx == UINT32_MAX) {
-    ERROR_FMT("MYID `%s` does not correspond to any shard", myID);
-    MRClusterTopology_Free(topo);
-    topo = NULL;
-    goto error;
+    // if MyID corresponds to some shard in the dict, this is NOT an error:
+    // It means the local node is not part of the topology we store (e.g., it has no slot, or is a replica)
+    if (dictFind(shards, argv[myID_offset]) == NULL) {
+      ERROR_FMT("MYID `%s` does not correspond to any shard", myID);
+      MRClusterTopology_Free(topo);
+      topo = NULL;
+      goto error;
+    }
   }
 
 error: // Also the normal exit point
