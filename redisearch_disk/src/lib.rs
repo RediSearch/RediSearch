@@ -3,6 +3,7 @@ pub mod document_id_key;
 pub mod index_spec;
 pub mod key_traits;
 pub mod merge_op;
+pub mod metrics;
 pub mod path_prefix;
 pub mod utils;
 pub mod vecsim_disk;
@@ -13,8 +14,8 @@ use crate::path_prefix::PathPrefix;
 use crate::vecsim_disk::{SpeeDBHandles, VecSimDisk_CreateIndex};
 use document::DocumentType;
 use ffi::{
-    AllocateKeyCallback, BasicDiskAPI, DocTableDiskAPI, IndexDiskAPI,
-    IteratorType_INV_IDX_ITERATOR, QueryIterator, REDISMODULE_ERR, REDISMODULE_OK,
+    AllocateKeyCallback, BasicDiskAPI, DiskColumnFamilyMetrics, DocTableDiskAPI, IndexDiskAPI,
+    IteratorType_INV_IDX_ITERATOR, MetricsDiskAPI, QueryIterator, REDISMODULE_ERR, REDISMODULE_OK,
     RSDocumentMetadata, RedisModuleCtx, RedisSearchDisk, RedisSearchDiskAPI,
     RedisSearchDiskIndexSpec, VecSimDiskContext, VecSimParamsDisk, VectorDiskAPI, t_docId,
     t_fieldMask,
@@ -81,6 +82,10 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut RedisSearchDiskAPI {
         vector: VectorDiskAPI {
             createVectorIndex: Some(vector_create_index),
             freeVectorIndex: Some(vector_free_index),
+        },
+        metrics: MetricsDiskAPI {
+            collectDocTableMetrics: Some(collect_doc_table_metrics),
+            collectTextInvertedIndexMetrics: Some(collect_inverted_index_metrics),
         },
     };
 
@@ -864,4 +869,70 @@ extern "C" fn vector_free_index(vec_index: *mut c_void) {
 
     // SAFETY: vec_index is a valid pointer returned by VecSimDisk_CreateIndex (checked not null above)
     unsafe { vecsim_disk::VecSimDisk_FreeIndex(vec_index) };
+}
+
+/// Collects metrics for the doc_table column family.
+///
+/// # Safety
+/// 1. `index` must be a valid pointer to an IndexSpec
+/// 2. `metrics` must be a valid pointer to a DiskColumnFamilyMetrics struct
+unsafe extern "C" fn collect_doc_table_metrics(
+    index: *mut RedisSearchDiskIndexSpec,
+    metrics: *mut DiskColumnFamilyMetrics,
+) -> bool {
+    if index.is_null() || metrics.is_null() {
+        error!("collect_doc_table_metrics: null pointer passed");
+        return false;
+    }
+
+    // SAFETY: Caller guarantees index is a valid IndexSpec pointer
+    let Some(index_spec) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+        error!("collect_doc_table_metrics: failed to convert index pointer");
+        return false;
+    };
+
+    // SAFETY: `metrics` was checked for null above, and the caller guarantees
+    // it points to a valid `DiskColumnFamilyMetrics` instance with the expected
+    // layout for the duration of this call.
+    let metrics_ref: &mut DiskColumnFamilyMetrics = unsafe { &mut *metrics };
+
+    index_spec
+        .doc_table()
+        .collect_metrics()
+        .populate_metrics(metrics_ref);
+
+    true
+}
+
+/// Collects metrics for the inverted_index (fulltext) column family.
+///
+/// # Safety
+/// 1. `index` must be a valid pointer to an IndexSpec
+/// 2. `metrics` must be a valid pointer to a DiskColumnFamilyMetrics struct
+unsafe extern "C" fn collect_inverted_index_metrics(
+    index: *mut RedisSearchDiskIndexSpec,
+    metrics: *mut DiskColumnFamilyMetrics,
+) -> bool {
+    if index.is_null() || metrics.is_null() {
+        error!("collect_inverted_index_metrics: null pointer passed");
+        return false;
+    }
+
+    // SAFETY: Caller guarantees index is a valid IndexSpec pointer
+    let Some(index_spec) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+        error!("collect_inverted_index_metrics: failed to convert index pointer");
+        return false;
+    };
+
+    // SAFETY: `metrics` was checked for null above, and the caller guarantees
+    // it points to a valid `DiskColumnFamilyMetrics` instance with the expected
+    // layout for the duration of this call.
+    let metrics_ref: &mut DiskColumnFamilyMetrics = unsafe { &mut *metrics };
+
+    index_spec
+        .inverted_index()
+        .collect_metrics()
+        .populate_metrics(metrics_ref);
+
+    true
 }

@@ -30,5 +30,4 @@ Feature: RDB Save and Load Functionality
     Then the index "idx" should exist
     Then the max doc-id for "idx" should be 7
     # 2, 3 are deleted from the original deletion operations prior to the reload.
-    # 1, 4 are not read from RDB since we use SST-based reloading.
     Then the deleted-ids for "idx" should be [2, 3]

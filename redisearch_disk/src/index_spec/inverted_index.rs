@@ -23,6 +23,8 @@ use crate::{
     key_traits::AsKeyExt,
 };
 
+use crate::metrics::CFMetrics;
+
 /// Delimiter used in inverted index keys between term and last document ID
 const KEY_DELIMETER_STR: &str = "_";
 
@@ -294,6 +296,12 @@ impl InvertedIndex {
         let iter = InvIndIterator::new(reader, RSIndexResult::virt().weight(weight), None);
 
         Ok(iter)
+    }
+
+    /// Collect metrics for the text inverted index column family.
+    pub fn collect_metrics(&self) -> crate::metrics::CFMetrics {
+        let cf = self.cf_handle();
+        CFMetrics::collect(&self.database, &cf)
     }
 }
 

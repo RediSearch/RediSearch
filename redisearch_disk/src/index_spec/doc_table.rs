@@ -30,6 +30,8 @@ use redis_module::raw::{RedisModuleIO, load_unsigned, save_unsigned};
 
 use super::RDBVersion;
 
+use crate::metrics::CFMetrics;
+
 /// The DocTable struct represents a mapping from document IDs to the Redis key and document
 /// metadata. It is used to look up documents by their IDs and to generate new document IDs
 /// for documents added to the index.
@@ -376,5 +378,11 @@ impl DocTable {
                 Ok(())
             }
         }
+    }
+
+    /// Collect metrics for the document table column family.
+    pub fn collect_metrics(&self) -> crate::metrics::CFMetrics {
+        let cf = self.cf_handle();
+        CFMetrics::collect(&self.database, &cf)
     }
 }
