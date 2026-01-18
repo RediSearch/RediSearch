@@ -509,3 +509,10 @@ void handleSlotsInfo(ArgParser *parser, const void *value, void *user_data) {
   *ctx->querySlots = slot_array;
   *ctx->keySpaceVersion = version.version;
 }
+
+// _COORD_DISPATCH_TIME callback - parses coordinator dispatch time for internal requests
+void handleCoordDispatchTime(ArgParser *parser, const void *value, void *user_data) {
+  unsigned long long *dispatchTime = (unsigned long long*)value;
+  rs_wall_clock_ns_t **coordDispatchTimePtr = (rs_wall_clock_ns_t**)user_data;
+  **coordDispatchTimePtr = (rs_wall_clock_ns_t)*dispatchTime;
+}

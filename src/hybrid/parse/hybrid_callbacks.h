@@ -127,6 +127,12 @@ void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data);
 void handleSlotsInfo(ArgParser *parser, const void *value, void *user_data);
 
 /**
+ * _COORD_DISPATCH_TIME callback - handles _COORD_DISPATCH_TIME <dispatch_time>
+ * Parses coordinator dispatch time for internal requests
+ */
+void handleCoordDispatchTime(ArgParser *parser, const void *value, void *user_data);
+
+/**
  * POLICY callback for FILTER clause - handles POLICY ADHOC/BATCHES
  * Maps ADHOC to adhoc_bf and creates QueryAttribute
  */

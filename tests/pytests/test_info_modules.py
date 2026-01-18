@@ -2490,7 +2490,7 @@ def test_coord_dispatch_time_metric():
   env.assertEqual(dispatch_times_per_shard, [0] * env.shardsCount,
     message=f"Initial per-shard dispatch times should all be 0. Per-shard values: {dispatch_times_per_shard}")
 
-  # --- Test 1: FT.AGGREGATE should increase dispatch time ---
+  # --- Test 1: FT.AGGREGATE should increase dispatch time on coordinator shard ---
   env.cmd('FT.AGGREGATE', 'idx', '*')
   dispatch_times_per_shard = verify_per_shard_dispatch_times_increased('FT.AGGREGATE', dispatch_times_per_shard)
 
@@ -2498,7 +2498,7 @@ def test_coord_dispatch_time_metric():
   env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'NOCONTENT')
   dispatch_times_per_shard = verify_per_shard_dispatch_times_increased('FT.SEARCH', dispatch_times_per_shard)
 
-  # --- Test 3: FT.HYBRID should NOT change dispatch time on any shard ---
+   # --- Test 3: FT.HYBRID should increase dispatch time on coordinator shard ---
   query_vector = np.array([1.0, 1.0], dtype=np.float32).tobytes()
   env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'hello0', 'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector)
-  verify_per_shard_dispatch_times_unchanged('FT.HYBRID', dispatch_times_per_shard)
+  dispatch_times_per_shard = verify_per_shard_dispatch_times_increased('FT.HYBRID', dispatch_times_per_shard)
