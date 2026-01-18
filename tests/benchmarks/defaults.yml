@@ -251,3 +251,41 @@ spec:
       requests:
         cpus: "32"
         memory: "300g"
+
+  - name: oss-cluster-08-primaries-200gb
+    type: oss-cluster
+    redis_topology:
+      primaries: 8
+      replicas: 0
+      placement: "sparse"
+    resources:
+      requests:
+        cpus: "135"
+        memory: "200g"
+    dbconfig:
+      module-configuration-parameters:
+        redisearch:
+          WORKERS: 8
+          MIN_OPERATION_WORKERS: 8
+        module-oss:
+          WORKERS: 8
+          MIN_OPERATION_WORKERS: 8
+
+  - name: oss-cluster-08-primaries-250gb
+    type: oss-cluster
+    redis_topology:
+      primaries: 8
+      replicas: 0
+      placement: "sparse"
+    resources:
+      requests:
+        cpus: "135"
+        memory: "250g"
+    dbconfig:
+      module-configuration-parameters:
+        redisearch:
+          WORKERS: 8
+          MIN_OPERATION_WORKERS: 8
+        module-oss:
+          WORKERS: 8
+          MIN_OPERATION_WORKERS: 8
