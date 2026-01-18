@@ -139,7 +139,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                             ARG_OPT_CALLBACK, handleSlotsInfo, ctx,
                             ARG_OPT_END);
 
-        // _COORD_DISPATCH_TIME argument for internal requests (optional)
+        // Mandatory _COORD_DISPATCH_TIME argument for internal requests
         ArgParser_AddULongLongV(parser, COORD_DISPATCH_TIME_STR, "Coordinator dispatch time",
                             &coordDispatchTimeTemp,
                             ARG_OPT_REQUIRED,
