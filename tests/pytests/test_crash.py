@@ -44,6 +44,7 @@ def test_query_thread_crash():
             "search_inverted_sz_mb:",
             "search_indexing:",
             "search_num_fields:",
+            "search_run_time_ns:",
         ])
     )
     
