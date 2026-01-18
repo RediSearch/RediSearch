@@ -59,6 +59,10 @@ def pytest_configure(config):
     # Enable randomized ports to avoid port conflicts in cluster mode
     Defaults.randomize_ports = True
 
+    # Make RLTest raise exceptions on assertion failures so pytest can detect them
+    # Without this, RLTest only prints failures to stdout and pytest thinks tests passed
+    Defaults.exit_on_failure = True
+
 
 @pytest.fixture(scope='function')
 def redis_env(request):
@@ -124,7 +128,7 @@ def redis_env(request):
         # This ensures each test has its own redisearch database directory
         # and prevents conflicts when running tests in parallel
         # RLTest will use test_log_dir as the cwd when spawning Redis processes
-        env = Env(testName=test_name, redisConfigFile=redis_config_file, logDir=str(test_log_dir))
+        env = Env(testName=test_name, redisConfigFile=redis_config_file, logDir=str(test_log_dir), decodeResponses=True)
 
         # Verify the environment is up and healthy
         if not env.isUp():

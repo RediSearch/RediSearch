@@ -49,7 +49,7 @@ def test_create_hnsw_disk_index(redis_env):
         'M', '16',
         'EF_CONSTRUCTION', '200'
     )
-    assert result == b'OK', f"FT.CREATE failed: {result}"
+    assert result == 'OK', f"FT.CREATE failed: {result}"
 
     # Verify the index is on disk
     info = get_vecsim_info(conn, 'idx', 'vec')
@@ -164,4 +164,4 @@ def test_drop_index(redis_env):
 
     # Drop index with DD (delete documents)
     result = conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
-    assert result == b'OK', f"FT.DROPINDEX failed: {result}"
+    assert result == 'OK', f"FT.DROPINDEX failed: {result}"

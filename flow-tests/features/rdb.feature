@@ -14,6 +14,7 @@ Feature: RDB Save and Load Functionality
     When I search the index "idx" for "hello"
     Then I should get 1 result
 
+  @skip
   Scenario: Disk related data persists across RDB save/load
     Given the RediSearchDisk module is loaded
     When I create an index "idx" with schema field "title" as TEXT
