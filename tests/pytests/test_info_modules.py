@@ -2307,12 +2307,12 @@ def test_total_terms_indexed_text_fields(env):
   env.assertEqual(get_text_metric(), prev_metric,
                   message="Empty text field should not add any terms")
 
-  # Test 8: Document with only some TEXT fields populated
+  # Test 8: Document with only some TEXT fields that match the index schema
   prev_metric = get_text_metric()
-  # Only t1 is populated with 2 new unique terms, t2 is missing
-  conn.execute_command('HSET', 'multi:2', 't1', 'delta epsilon')
+  # Only t1 is populated with 2 new unique terms, t2 is missing, t3 is not indexed
+  conn.execute_command('HSET', 'multi:2', 't1', 'delta epsilon', 't3', 'gamma delta')
   env.assertEqual(get_text_metric(), prev_metric + 2,
-                  message="Partial doc should only count unique terms from populated fields")
+                  message="Only populated fields that match the index schema should be counted")
 
 
 # Test the 'total_indexing_ops_<field_type>_fields' INFO MODULES metrics with multi-value JSON.
