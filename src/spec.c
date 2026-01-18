@@ -2845,12 +2845,9 @@ void ReindexPool_ThreadPoolDestroy() {
 
 //---------------------------------------------------------------------------------------------
 
-#ifdef FTINFO_FOR_INFO_MODULES
-void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
-  char *temp = "info";
-  char name[sp->nameLen + 4 + 2]; // 4 for info and 2 for null termination
-  sprintf(name, "%s_%s", temp, sp->name);
-  RedisModule_InfoAddSection(ctx, name);
+void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate, bool skip_unsafe_ops) {
+  const char* indexName = IndexSpec_FormatName(sp, obfuscate);
+  RedisModule_InfoAddSection(ctx, indexName);
 
   // Index flags
   if (sp->flags & ~(Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreByteOffsets) || sp->flags & Index_WideSchema) {
@@ -2872,8 +2869,14 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   RedisModule_InfoBeginDictField(ctx, "index_definition");
   SchemaRule *rule = sp->rule;
   RedisModule_InfoAddFieldCString(ctx, "type", (char*)DocumentType_ToString(rule->type));
-  if (rule->filter_exp_str)
-    RedisModule_InfoAddFieldCString(ctx, "filter", rule->filter_exp_str);
+  if (rule->filter_exp_str) {
+    const char *filter = HiddenString_GetUnsafe(rule->filter_exp_str, NULL);
+    if (obfuscate) {
+      RedisModule_InfoAddFieldCString(ctx, "filter", (char*)Obfuscate_Text(filter));
+    } else {
+      RedisModule_InfoAddFieldCString(ctx, "filter", (char*)filter);
+    }
+  }
   if (rule->lang_default)
     RedisModule_InfoAddFieldCString(ctx, "default_language", (char*)RSLanguage_ToString(rule->lang_default));
   if (rule->lang_field)
@@ -2886,16 +2889,24 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     RedisModule_InfoAddFieldCString(ctx, "payload_field", rule->payload_field);
   // Prefixes
   int num_prefixes = array_len(rule->prefixes);
-  if (num_prefixes && rule->prefixes[0][0] != '\0') {
-    arrayof(char) prefixes = array_new(char, 512);
-    for (int i = 0; i < num_prefixes; ++i) {
-      prefixes = array_ensure_append_1(prefixes, "\"");
-      prefixes = array_ensure_append_n(prefixes, rule->prefixes[i], strlen(rule->prefixes[i]));
-      prefixes = array_ensure_append_n(prefixes, "\",", 2);
+  if (num_prefixes) {
+    const char *first_prefix = HiddenUnicodeString_GetUnsafe(rule->prefixes[0], NULL);
+    if (first_prefix && first_prefix[0] != '\0') {
+      if (!skip_unsafe_ops) {
+        // Skip when unsafe operations should be avoided (e.g., in signal handler) due to memory allocations
+        arrayof(char) prefixes = array_new(char, 512);
+        for (int i = 0; i < num_prefixes; ++i) {
+          const char *prefix = HiddenUnicodeString_GetUnsafe(rule->prefixes[i], NULL);
+          const char *prefix_to_use = obfuscate ? Obfuscate_Text(prefix) : prefix;
+          prefixes = array_ensure_append_1(prefixes, "\"");
+          prefixes = array_ensure_append_n(prefixes, prefix_to_use, strlen(prefix_to_use));
+          prefixes = array_ensure_append_n(prefixes, "\",", 2);
+        }
+        prefixes[array_len(prefixes)-1] = '\0';
+        RedisModule_InfoAddFieldCString(ctx, "prefixes", prefixes);
+        array_free(prefixes);
+      }
     }
-    prefixes[array_len(prefixes)-1] = '\0';
-    RedisModule_InfoAddFieldCString(ctx, "prefixes", prefixes);
-    array_free(prefixes);
   }
   RedisModule_InfoEndDictField(ctx);
 
@@ -2906,8 +2917,8 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     sprintf(title, "%s_%d", "field", (i+1));
     RedisModule_InfoBeginDictField(ctx, title);
 
-    RedisModule_InfoAddFieldCString(ctx, "identifier", fs->path);
-    RedisModule_InfoAddFieldCString(ctx, "attribute", fs->name);
+    RedisModule_InfoAddFieldCString(ctx, "identifier", FieldSpec_FormatPath(fs, obfuscate));
+    RedisModule_InfoAddFieldCString(ctx, "attribute", FieldSpec_FormatName(fs, obfuscate));
 
     if (fs->options & FieldSpec_Dynamic)
       RedisModule_InfoAddFieldCString(ctx, "type", "<DYNAMIC>");
@@ -2942,16 +2953,23 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_in_mb");
   RedisModule_InfoAddFieldDouble(ctx, "inverted_size", sp->stats.invertedSize / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", IndexSpec_VectorIndexesSize(sp) / (float)0x100000);
+  if (!skip_unsafe_ops) {
+    // Skip when unsafe - calls dictFetchValue which can trigger dict rehashing with rm_free
+    RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", IndexSpec_VectorIndexesSize(sp) / (float)0x100000);
+  }
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", sp->docs.memsize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "key_table_size", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
-  RedisModule_InfoAddFieldDouble("tag_overhead_size_mb", IndexSpec_collect_tags_overhead(sp) / (float)0x100000);
-  RedisModule_InfoAddFieldDouble("text_overhead_size_mb", IndexSpec_collect_text_overhead(sp) / (float)0x100000);
-  RedisModule_InfoAddFieldDouble("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp) / (float)0x100000);
+  if (!skip_unsafe_ops) {
+    // Skip when unsafe - tag overhead calls dictFetchValue which can trigger dict rehashing with rm_free
+    RedisModule_InfoAddFieldDouble(ctx, "tag_overhead_size_mb", IndexSpec_collect_tags_overhead(sp) / (float)0x100000);
+    RedisModule_InfoAddFieldDouble(ctx, "text_overhead_size_mb", IndexSpec_collect_text_overhead(sp) / (float)0x100000);
+    RedisModule_InfoAddFieldDouble(ctx, "total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp, 0, 0, 0, 0) / (float)0x100000);
+  }
   RedisModule_InfoEndDictField(ctx);
 
+  // TotalIIBlocks is safe - just an atomic read, no locks or allocations
   RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", TotalIIBlocks());
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_averages");
@@ -2962,25 +2980,30 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   RedisModule_InfoEndDictField(ctx);
 
   RedisModule_InfoBeginDictField(ctx, "index_failures");
-  RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexingFailures);
+  RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexError.error_count);
   RedisModule_InfoAddFieldLongLong(ctx, "indexing", !!global_spec_scanner || sp->scan_in_progress);
-  IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
-  double percent_indexed = IndexesScanner_IndexedPercent(ctx, scanner, sp);
-  RedisModule_InfoAddFieldDouble(ctx, "percent_indexed", percent_indexed);
+  if (!skip_unsafe_ops) {
+    // Skip when unsafe - calls RedisModule_DbSize which is not async-signal-safe
+    IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
+    double percent_indexed = IndexesScanner_IndexedPercent(ctx, scanner, sp);
+    RedisModule_InfoAddFieldDouble(ctx, "percent_indexed", percent_indexed);
+  }
   RedisModule_InfoEndDictField(ctx);
 
-  // Garbage collector
-  if (sp->gc)
+  // Garbage collector - safe to call, just reads struct fields
+  if (sp->gc) {
     GCContext_RenderStatsForInfo(sp->gc, ctx);
+  }
 
-  // Cursor stat
+  // Cursor stats - safe to call, uses trylock and won't deadlock
   Cursors_RenderStatsForInfo(&g_CursorsList, &g_CursorsListCoord, sp, ctx);
 
   // Stop words
-  if (sp->flags & Index_HasCustomStopwords)
+  if (!skip_unsafe_ops && (sp->flags & Index_HasCustomStopwords)) {
+    // Skip when unsafe operations should be avoided - AddStopWordsListToInfo allocates memory
     AddStopWordsListToInfo(ctx, sp->stopwords);
+  }
 }
-#endif // FTINFO_FOR_INFO_MODULES
 
 // Assumes that the spec is in a safe state to set a scanner on it (write lock or main thread)
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
