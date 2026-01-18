@@ -168,6 +168,8 @@ TEST_F(IORuntimeCtxCommonTest, ShutdownWithPendingRequests) {
 
   // Create a delayed callback that takes 100ms to complete
   auto delayedCallback = [](void *privdata) {
+    int *crash = nullptr;
+    *crash = 3;
     int *counter = (int *)privdata;
     usleep(1000); // 1ms delay
     (*counter)++;

@@ -527,6 +527,18 @@ jobs:
           fi
           echo "=========================="
 
+      - name: Decode C++ crash stack traces
+        if: always() && steps.c_unit_tests.outcome == 'failure'
+        run: |
+          chmod +x tests/cpptests/scripts/decode_stacktrace.sh 2>/dev/null || true
+          if [[ -x tests/cpptests/scripts/decode_stacktrace.sh ]]; then
+            # Find all log files containing stack trace markers and decode them
+            find tests -name "*.log" -exec grep -l "=== Caught fatal signal in C++ test" {} \; 2>/dev/null | \
+              xargs -r tests/cpptests/scripts/decode_stacktrace.sh || true
+          else
+            echo "Decode script not found or not executable"
+          fi
+
       - name: Check coverage files size
         if: inputs.coverage
         run: |

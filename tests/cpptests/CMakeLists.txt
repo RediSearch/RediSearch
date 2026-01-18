@@ -29,7 +29,7 @@ gtest_discover_tests(rstest
 add_executable(test_distagg ${root}/tests/cpptests/test_distagg.cpp stacktrace.cpp)
 target_link_libraries(test_distagg ${TEST_MODULE} redismock)
 set_target_properties(test_distagg PROPERTIES COMPILE_FLAGS "-fvisibility=default")
-add_test(name test_distagg COMMAND test_distagg)
+add_test(NAME test_distagg COMMAND test_distagg)
 
 # Add the coord_tests subdirectory
 add_subdirectory(coord_tests)
