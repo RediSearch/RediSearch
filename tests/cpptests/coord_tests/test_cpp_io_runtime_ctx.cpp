@@ -101,6 +101,7 @@ TEST_F(IORuntimeCtxCommonTest, Schedule) {
 }
 
 TEST_F(IORuntimeCtxCommonTest, ScheduleTopology) {
+  sleep(3);
   // Create a new topology
   MRClusterTopology *newTopo = getDummyTopology(4097);
 
@@ -167,6 +168,8 @@ TEST_F(IORuntimeCtxCommonTest, ShutdownWithPendingRequests) {
 
   // Create a delayed callback that takes 100ms to complete
   auto delayedCallback = [](void *privdata) {
+    int *crash = nullptr;
+    *crash = 3;
     int *counter = (int *)privdata;
     usleep(1000); // 1ms delay
     (*counter)++;
@@ -296,6 +299,9 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
   // Wait for topo callback to start
   bool success = RS::WaitForCondition([&]() { return topo_started.load(); });
   ASSERT_TRUE(success) << "Timeout waiting for topo callback to start";
+
+  int *num = nullptr;
+  *num = 1;
 
   // Phase 3: Verify metric is 1 while callback is running
   stats = GlobalStats_GetMultiThreadingStats();

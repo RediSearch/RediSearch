@@ -122,6 +122,9 @@ TEST_F(TrieTest, testBasicRangeWithScore) {
     auto n = trieInsert(t, buf);
     ASSERT_TRUE(n);
   }
+  ASSERT_EQ(1, 0);
+  const char *number = "i am a number";
+  *((char *)(number + 3)) = 'a';
 
   //TrieNode_Print(t->root, 0, 0);
 
