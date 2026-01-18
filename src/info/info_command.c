@@ -338,13 +338,13 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
  * Crash-safe version of fillReplyWithIndexInfo.
  * Outputs basic index info without allocations or locks.
  */
-void fillReplyWithIndexInfoCrashSafe(const IndexSpec *sp, RedisModuleInfoCtx *info_ctx, bool obfuscate) {
+void IndexInfoCrashSafe(const IndexSpec *sp, RedisModuleInfoCtx *info_ctx, bool obfuscate) {
   if (!sp) return;
 
   // Index name - use existing strings, no allocation
-  const char* specName = obfuscate ? sp->obfuscatedName : sp->specName;
+  const char* indexName = obfuscate ? sp->obfuscatedName : HiddenString_GetUnsafe(sp->specName, NULL);
   if (specName) {
-    RedisModule_InfoAddFieldCString(info_ctx, "index_name", (char *)specName);
+    RedisModule_InfoAddFieldCString(info_ctx, "index_name", (char*)indexName);
   }
 
   // Basic statistics - just reading integers

@@ -362,7 +362,7 @@ void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
     } else {
       // Output FT.INFO in a crash-safe manner (no allocations, no locks)
       // This includes the index name, so no need to output it separately
-      fillReplyWithIndexInfoCrashSafe(spec, ctx, RSGlobalConfig.hideUserDataFromLog);
+      IndexInfoCrashSafe(spec, ctx, RSGlobalConfig.hideUserDataFromLog);
     }
   }
 }
