@@ -164,7 +164,6 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     }
     RSByteOffsets_ReserveFields(aCtx->byteOffsets, numTextIndexable);
   }
-
   return 0;
 }
 
