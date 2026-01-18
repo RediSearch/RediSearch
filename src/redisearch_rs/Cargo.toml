@@ -12,6 +12,7 @@ members = [
     "low_memory_thin_vec",
     "qint",
     "query_error",
+    "redis_json_api",
     "redis_mock",
     "result_processor",
     "rlookup",
@@ -113,8 +114,6 @@ rmp-serde = "1.3.0"
 serde = { version = "1.0.226", features = ["derive"] }
 smallvec = "1.15.1"
 strum = { version = "0.27.2", features = ["derive"] }
-# need "unstable" for the "default_log_filter" attribute allowing to override the default level (info).
-test-log = { version = "0.2", features = ["trace", "unstable"] }
 thiserror = "2.0.12"
 tracing = "0.1.42"
 tracing-core = "0.1"
