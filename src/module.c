@@ -753,11 +753,11 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
-  CurrentThread_SetIndexSpec(ref);
-
   if (!sp->smap) {
     return RedisModule_ReplyWithMapOrArray(ctx, 0, false);
   }
+  
+  CurrentThread_SetIndexSpec(ref);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisSearchCtx_LockSpecRead(&sctx);
