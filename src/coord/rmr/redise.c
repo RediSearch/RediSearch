@@ -82,6 +82,8 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
     }                                                     \
   })
 
+#define STR_MATCH(str, len, lit) (sizeof(lit) - 1 == len && strcasecmp(str, lit) == 0)
+
 MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv,
                                                  int argc, uint32_t *my_shard_idx) {
   ArgsCursor ac; // Name is important for error macros, same goes for `ctx`
@@ -198,18 +200,20 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
 
       } else if (AC_AdvanceIfMatch(&ac, "UNIXADDR")) {
         /* Optional UNIXADDR <unix_addr> */
-        size_t len;
-        const char *unixSock;
-        if (!(unixSock = AC_GetStringNC(&ac, &len))) {
-          ERROR_MISSING("UNIXADDR");
-          goto error;
-        }
         if (sh->node.endpoint.unixSock) {
           ERROR_FMT("Multiple UNIXADDR specified for shard `%s`", sh->node.id);
           goto error;
         }
+        size_t len;
+        const char *unixSock;
+        if (AC_GetString(&ac, &unixSock, &len, AC_F_NOADVANCE) != AC_OK ||
+            STR_MATCH(unixSock, len, "MASTER") || // Avoid consuming MASTER flag argument
+            STR_MATCH(unixSock, len, "SHARD")) {  // Avoid consuming next SHARD marker argument
+          ERROR_MISSING("UNIXADDR");
+          goto error;
+        }
         sh->node.endpoint.unixSock = rm_strndup(unixSock, len);
-
+        AC_Advance(&ac);
       } else if (AC_AdvanceIfMatch(&ac, "MASTER")) {
         sh->isMaster = true;
       } else {
