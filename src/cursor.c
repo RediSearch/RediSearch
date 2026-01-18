@@ -367,20 +367,25 @@ void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const IndexSpec *
 }
 
 void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const IndexSpec *spec, RedisModuleInfoCtx *ctx) {
-  int locked = CursorList_TryLock(cl);
-  int locked_coord = CursorList_TryLock(cl_coord);
-  if (!locked || !locked_coord) {
+  // pthread_mutex_trylock returns 0 on success, non-zero on failure
+  int lock_result = CursorList_TryLock(cl);
+  int lock_coord_result = CursorList_TryLock(cl_coord);
+
+  // If either lock failed (non-zero return), we can't safely access the cursor lists
+  if (lock_result != 0 || lock_coord_result != 0) {
     RedisModule_InfoAddSection(ctx, "cursor_stats");
     RedisModule_InfoAddFieldString(ctx, "status", "locked");
-    if (locked) {
+    // Unlock any locks we did acquire
+    if (lock_result == 0) {
       CursorList_Unlock(cl);
     }
-    if (locked_coord) {
+    if (lock_coord_result == 0) {
       CursorList_Unlock(cl_coord);
     }
     return;
   }
 
+  // Both locks acquired successfully, safe to access cursor lists
   RedisModule_InfoBeginDictField(ctx, "cursor_stats");
   RedisModule_InfoAddFieldLongLong(ctx, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **) +
                                                         ARRAY_GETSIZE_AS(&cl_coord->idle, Cursor **));
@@ -389,7 +394,9 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
   RedisModule_InfoAddFieldLongLong(ctx, "index_total", spec->activeCursors);
   RedisModule_InfoEndDictField(ctx);
 
+  // Unlock both locks
   CursorList_Unlock(cl);
+  CursorList_Unlock(cl_coord);
 }
 
 void CursorList_Empty(CursorList *cl) {
