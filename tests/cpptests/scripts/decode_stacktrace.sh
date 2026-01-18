@@ -241,13 +241,15 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 
     if [[ "$line" == *"=== Caught fatal signal in C++ test, stack trace ==="* ]]; then
         in_stack_trace=true
+        trace_test="$current_test"        # Save test context at START of trace
+        trace_failure="$current_failure"
         > "$frames_file"  # Clear frames file
         continue
     fi
 
     if [[ "$line" == *"=== End of C++ test stack trace ==="* ]]; then
         if [[ "$in_stack_trace" == true ]]; then
-            decode_stack_trace "$frames_file" "$current_test" "$current_failure"
+            decode_stack_trace "$frames_file" "$trace_test" "$trace_failure"
             ((decoded_count++)) || true
         fi
         in_stack_trace=false
