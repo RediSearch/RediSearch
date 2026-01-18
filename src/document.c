@@ -855,9 +855,7 @@ cleanup:
   if (ourRv != REDISMODULE_OK) {
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash
-    t_docId docId = DocTable_GetIdR(&aCtx->spec->docs, doc->docKey);
-    if (docId)
-      IndexSpec_DeleteDoc_Unsafe(aCtx->spec, RSDummyContext, doc->docKey, docId);
+    IndexSpec_DeleteDoc_Unsafe(aCtx->spec, RSDummyContext, doc->docKey);
 
     QueryError_SetCode(&aCtx->status, QUERY_ERROR_CODE_GENERIC);
     AddDocumentCtx_Finish(aCtx);

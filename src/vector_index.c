@@ -48,10 +48,14 @@ VecSimIndex *openVectorIndex(FieldSpec *fieldSpec, bool create_if_missing) {
   RS_ASSERT(FIELD_IS(fieldSpec, INDEXFLD_T_VECTOR));
 
   if (!fieldSpec->vectorOpts.vecSimIndex && create_if_missing) {
-    if (fieldSpec->vectorOpts.diskParams.storage) {
+    if (fieldSpec->vectorOpts.diskCtx.storage) {
       // Disk path - create disk-based HNSW index
+      VecSimParamsDisk diskParams = {
+        .indexParams = &fieldSpec->vectorOpts.vecSimParams,
+        .diskContext = &fieldSpec->vectorOpts.diskCtx,
+      };
       fieldSpec->vectorOpts.vecSimIndex = SearchDisk_CreateVectorIndex(
-        fieldSpec->vectorOpts.diskParams.storage, &fieldSpec->vectorOpts.diskParams);
+        fieldSpec->vectorOpts.diskCtx.storage, &diskParams);
     } else {
       // RAM path - use standard VectorSimilarity
       fieldSpec->vectorOpts.vecSimIndex = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);

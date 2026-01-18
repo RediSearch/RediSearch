@@ -62,8 +62,10 @@ typedef struct IndexDiskAPI {
    * @param handle Handle to the document table
    * @param key Document key
    * @param keyLen Length of the document key
+   * @param oldLen Optional pointer to receive the old document length (can be NULL)
+   * @param id Optional pointer to receive the deleted document ID (can be NULL)
    */
-  void (*deleteDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen);
+  void (*deleteDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, uint32_t *oldLen, t_docId *id);
 
    /**
    * @brief Creates a new iterator for the inverted index
@@ -100,9 +102,10 @@ typedef struct DocTableDiskAPI {
    * @param flags Document flags
    * @param maxTermFreq Maximum frequency of any single term in the document
    * @param docLen Sum of the frequencies of all terms in the document
+   * @param oldLen Pointer to an integer to store the length of the deleted document
    * @return New document ID, or 0 on error/duplicate
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen);
 
   /**
    * @brief Returns whether the docId is in the deleted set
@@ -145,9 +148,6 @@ typedef struct DocTableDiskAPI {
   size_t (*getDeletedIds)(RedisSearchDiskIndexSpec* handle, t_docId* buffer, size_t buffer_size);
 } DocTableDiskAPI;
 
-// VecSimHNSWDiskParams is defined in VecSim/vec_sim_common.h
-struct VecSimHNSWDiskParams;
-
 typedef struct VectorDiskAPI {
   /**
    * @brief Creates a disk-based vector index.
@@ -159,7 +159,7 @@ typedef struct VectorDiskAPI {
    * @param params Vector index parameters
    * @return VecSimIndex* handle, or NULL on error
    */
-  void* (*createVectorIndex)(RedisSearchDiskIndexSpec* index, const struct VecSimHNSWDiskParams* params);
+  void* (*createVectorIndex)(RedisSearchDiskIndexSpec* index, const VecSimParamsDisk* params);
 
   /**
    * @brief Frees a disk-based vector index.

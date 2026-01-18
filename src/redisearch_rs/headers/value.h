@@ -17,61 +17,14 @@
 
 
 /**
- * Enumeration of the types an
- * `RsValue` or a `SharedRsValue` can be of.
+ * An actual [`RsValue`] object
  */
-typedef enum RsValueType {
-  RsValueType_Undefined,
-  RsValueType_Null,
-  RsValueType_Number,
-  RsValueType_RmAllocString,
-  RsValueType_ConstString,
-  RsValueType_OwnedRedisString,
-  RsValueType_BorrowedRedisString,
-  RsValueType_String,
-  RsValueType_Array,
-  RsValueType_Ref,
-  RsValueType_Trio,
-  RsValueType_Map,
-} RsValueType;
+typedef struct RsValue RsValue;
 
 /**
- * Internal storage of [`RsValue`] and [`SharedRsValue`]
+ * A shared RedisSearch dynamic value, backed by an `Arc<RsValue>`.
  */
-typedef struct RsValueInternal RsValueInternal;
-
-/**
- * A type with size `N`.
- */
-typedef uint8_t Size_16[16];
-
-/**
- * Opaque projection of [`RsValue`], allowing the
- * non-FFI-safe [`RsValue`] to be passed to C
- * and even allow C land to place it on the stack.
- */
-typedef struct ALIGNED(8) RsValue {
-  Size_16 _0;
-} RsValue;
-
-/**
- * A heap-allocated and refcounted RedisSearch dynamic value.
- * This type is backed by [`Arc<RsValueInternal>`], but uses
- * the NULL pointer to encode an undefined value, and is FFI safe.
- *
- * # Invariants
- * - If this pointer is non-NULL, it was obtained from `Arc::into_raw`.
- * - If it is NULL, it represents an undefined value.
- * - A non-null pointer represents one clone of said `Arc`, and as such, as
- *   long as the [`SharedRsValue`] lives and holds a non-null pointer, the Arc
- *   is still valid.
- */
-typedef struct SharedRsValue {
-  /**
-   * Pointer representing the `Arc<RsValueInternal>`.
-   */
-  const struct RsValueInternal *ptr;
-} SharedRsValue;
+typedef struct SharedRsValue SharedRsValue;
 
 /**
  * A single entry of a [`RsValueMap`].
@@ -140,60 +93,6 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Creates a stack-allocated, undefined `RsValue`.
- * @returns a stack-allocated `RsValue` of type `RsValueType_Undef`
- */
-struct RsValue RsValue_Undefined(void);
-
-/**
- * Creates a stack-allocated `RsValue` containing a number.
- * The returned value is not allocated on the heap and should not be freed.
- * @param n The numeric value to wrap
- * @return A stack-allocated `RsValue` of type `RsValueType_Number`
- */
-struct RsValue RsValue_Number(double n);
-
-/**
- * Creates a stack-allocated `RsValue` containing a malloc'd string.
- * The returned value itself is not heap-allocated, but does take ownership of the string.
- *
- * # Safety
- * - (1) `str` must be non-null;
- * - (2) `str` must point to a valid C string that was allocated using `rm_malloc`;
- * - (3) The passed length must match the length to the string;
- * - (4) `str` must not be aliased;
- * - (5) `RedisModule_Alloc` must not be mutated for the lifetime of the
- *   `OpaqueRsValue`.
- *
- * @param str The malloc'd string to wrap (ownership is transferred)
- * @param len The length of the string
- * @return A stack-allocated `RsValue` of type `RsValueType_String` with `RSString_Malloc` subtype
- */
-struct RsValue RsValue_String(char *str, uint32_t len);
-
-/**
- * Returns a pointer to a statically allocated NULL `RsValue`.
- * This is a singleton - the same pointer is always returned.
- * DO NOT free or modify this value.
- *
- * @return A pointer to a static `RsValue` of type `RsValueType_Null`
- */
-const struct RsValue *RsValue_NullStatic(void);
-
-/**
- * Get the type of an `RsValue`.
- *
- * # Safety
- * The passed value must originate from one of the `RsValue` constructors,
- * i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
- * or [`RsValue_NullStatic`].
- *
- * @param v The value to inspect
- * @return The `RsValueType` of the value
- */
-enum RsValueType RsValue_Type(const struct RsValue *v);
-
-/**
  * Create a new, uninitialized [`RsValueMap`], reserving space for `cap`
  * entries. The map entries are uninitialized and must be set using [`RsValueMap_SetEntry`].
  *
@@ -216,6 +115,8 @@ RsValueMap RsValueMap_AllocUninit(uint32_t cap);
  *   that is valid for writes;
  * - (2) `i` must smaller than the capacity of the [`RsValueMap`],
  *   which cannot exceed [`u32::MAX`].
+ * - (3) `key` and `value` must be valid pointers to [`RsValue`]
+ *   obtained from [`SharedRsValue::into_raw`].
  *
  * @param map The map to modify
  * @param i The index where to set the entry (must be < map->len)
@@ -224,8 +125,8 @@ RsValueMap RsValueMap_AllocUninit(uint32_t cap);
  */
 void RsValueMap_SetEntry(RsValueMap *map,
                          size_t i,
-                         struct SharedRsValue key,
-                         struct SharedRsValue value);
+                         const struct RsValue *key,
+                         const struct RsValue *value);
 
 /**
  * Allocates an uninitialized [`RsValueArray`].
@@ -247,12 +148,14 @@ RsValueArray RsValueArray_AllocUninit(uint32_t cap);
  * - (2) `arr` must be unique;
  * - (3) `i` must not exceed the [`RsValueArray`]'s capacity, which cannot
  *   exceed [`u32::MAX`].
+ * - (4) `value` must be a valid pointer to [`RsValue`]
+ *   obtained from [`SharedRsValue::into_raw`].
  *
  * @param arr The array to modify
  * @param i The index at which to write the value
  * @param value the value that is to be written
  */
-void RsValueArray_SetEntry(RsValueArray *arr, size_t i, struct SharedRsValue value);
+void RsValueArray_SetEntry(RsValueArray *arr, size_t i, const struct RsValue *value);
 
 /**
  * Creates a heap-allocated `RsValue` wrapping a string.
@@ -271,7 +174,7 @@ void RsValueArray_SetEntry(RsValueArray *arr, size_t i, struct SharedRsValue val
  * @param len The length of the string
  * @return A pointer to a heap-allocated RsValue
  */
-struct SharedRsValue SharedRsValue_NewString(char *str, uint32_t len);
+const struct RsValue *SharedRsValue_NewString(char *str, uint32_t len);
 
 /**
  * Creates a heap-allocated `SharedRsValue` wrapping a const string.
@@ -283,23 +186,7 @@ struct SharedRsValue SharedRsValue_NewString(char *str, uint32_t len);
  * @param str The null-terminated string to wrap (ownership is transferred)
  * @return A pointer to a heap-allocated RsValue wrapping a constant C string
  */
-struct SharedRsValue SharedRsValue_NewConstString(const char *str, uint32_t len);
-
-/**
- * Creates a heap-allocated `RsValue` wrapping a RedisModuleString.
- * Does not increment the refcount of the Redis string.
- * The passed Redis string's refcount does not get decremented
- * upon freeing the returned RsValue.
- *
- * # Safety
- * - (1) The passed pointer must be non-null and valid for reads.
- * - (2) The reference count of the [`RedisModuleString`] `str` points to
- *   must be at least 1 for the lifetime of the created [`SharedRsValue`]
- *
- * @param str The RedisModuleString to wrap
- * @return A pointer to a heap-allocated RsValue
- */
-struct SharedRsValue SharedRsValue_NewBorrowedRedisString(RedisModuleString *str);
+const struct RsValue *SharedRsValue_NewConstString(const char *str, uint32_t len);
 
 /**
  * Creates a heap-allocated `RsValue` which increments and owns a reference to the Redis string.
@@ -313,21 +200,7 @@ struct SharedRsValue SharedRsValue_NewBorrowedRedisString(RedisModuleString *str
  * @param str The RedisModuleString to wrap (refcount is incremented)
  * @return A pointer to a heap-allocated RsValue
  */
-struct SharedRsValue SharedRsValue_NewOwnedRedisString(RedisModuleString *str);
-
-/**
- * Creates a heap-allocated `RsValue` which steals a reference to the Redis string.
- * The caller's reference is transferred to the RsValue.
- *
- * # Safety
- * - (1) `str` must be non-null
- * - (2) `str` must point to a valid [`RedisModuleString`]
- *   with a reference count of at least 1.
- *
- * @param s The RedisModuleString to wrap (ownership is transferred)
- * @return A pointer to a heap-allocated RsValue
- */
-struct SharedRsValue SharedRsValue_NewStolenRedisString(RedisModuleString *str);
+const struct RsValue *SharedRsValue_NewRedisString(RedisModuleString *str);
 
 /**
  * Creates a heap-allocated `RsValue` with a copied string.
@@ -340,7 +213,7 @@ struct SharedRsValue SharedRsValue_NewStolenRedisString(RedisModuleString *str);
  * @param dst The length of the string to copy
  * @return A pointer to a heap-allocated `RsValue` owning the copied string
  */
-struct SharedRsValue SharedRsValue_NewCopiedString(const char *str, uint32_t len);
+const struct RsValue *SharedRsValue_NewCopiedString(const char *str, uint32_t len);
 
 /**
  * Creates a heap-allocated `RsValue` by parsing a string as a number.
@@ -353,7 +226,7 @@ struct SharedRsValue SharedRsValue_NewCopiedString(const char *str, uint32_t len
  * @param l The length of the string
  * @return A pointer to a heap-allocated `RsValue`
  */
-struct SharedRsValue SharedRsValue_NewParsedNumber(const char *str, uintptr_t len);
+const struct RsValue *SharedRsValue_NewParsedNumber(const char *str, uintptr_t len);
 
 /**
  * Creates a heap-allocated `RsValue` containing a number.
@@ -361,7 +234,7 @@ struct SharedRsValue SharedRsValue_NewParsedNumber(const char *str, uintptr_t le
  * @param n The numeric value to wrap
  * @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Number`
  */
-struct SharedRsValue SharedRsValue_NewNumber(double n);
+const struct RsValue *SharedRsValue_NewNumber(double n);
 
 /**
  * Creates a heap-allocated `RsValue` containing a number from an int64.
@@ -370,7 +243,7 @@ struct SharedRsValue SharedRsValue_NewNumber(double n);
  * @param ii The int64 value to convert and wrap
  * @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Number`
  */
-struct SharedRsValue SharedRsValue_NewNumberFromInt64(int64_t dd);
+const struct RsValue *SharedRsValue_NewNumberFromInt64(int64_t dd);
 
 /**
  * Creates a heap-allocated `RsValue` array from existing values.
@@ -380,7 +253,7 @@ struct SharedRsValue SharedRsValue_NewNumberFromInt64(int64_t dd);
  * @param len Number of values
  * @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Array`
  */
-struct SharedRsValue SharedRsValue_NewArray(RsValueArray vals);
+const struct RsValue *SharedRsValue_NewArray(RsValueArray vals);
 
 /**
  * Creates a heap-allocated RsValue of type RsValue_Map from an RsValueMap.
@@ -389,58 +262,34 @@ struct SharedRsValue SharedRsValue_NewArray(RsValueArray vals);
  * @param map The RsValueMap to wrap (ownership is transferred)
  * @return A pointer to a heap-allocated RsValue of type RsValueType_Map
  */
-struct SharedRsValue SharedRsValue_NewMap(RsValueMap map);
-
-/**
- * Creates a heap-allocated `RsValue` array from NULL terminated C strings.
- *
- * # Safety
- * - (1) If `sz > 0`, `str` must be non-null;
- * - (2) If `sz > 0`, `str` must be valid for reads of `sz * size_of::<NonNull<c_char>>` bytes;
- * - (3) If `sz > 0`, `str` must be a valid pointer
- *   to a sequence if valid NULL-terminated C strings of length `sz`.
- *
- * @param strs Array of string pointers
- * @param sz Number of strings in the array
- * @return A pointer to a heap-allocated RsValue array
- */
-struct SharedRsValue SharedRsValue_NewStringArray(char **strs, uint32_t sz);
-
-/**
- * Creates a heap-allocated RsValue array from NULL terminated C string constants.
- *
- * # Safety
- * - (1) If `sz > 0`, `str` must be non-null;
- * - (2) If `sz > 0`, `str` must be valid for reads of `sz * size_of::<NonNull<c_char>>` bytes;
- * - (3) If `sz > 0`, `str` must point to a sequence of valid NULL-terminated C strings of length `sz`;
- * - (4) For each of the strings `str` in `strs`, `strlen(str)` must not exceed `u32::MAX`.
- *
- * @param strs Array of string pointers
- * @param sz Number of strings in the array
- * @return A pointer to a heap-allocated RsValue array
- */
-struct SharedRsValue SharedRsValue_NewConstStringArray(const char **strs,
-                                                       uint32_t sz);
+const struct RsValue *SharedRsValue_NewMap(RsValueMap map);
 
 /**
  * Creates a heap-allocated RsValue Trio from three RsValues.
  * Takes ownership of all three values.
+ *
+ * # Safety
+ *
+ * - (1) `left`, `middle`, and `right` must be valid pointers to [`RsValue`]
+ *   obtained from [`SharedRsValue::into_raw`].
+ *
  * @param left The left value (ownership is transferred)
  * @param middle The middle value (ownership is transferred)
  * @param right The right value (ownership is transferred)
  * @return A pointer to a heap-allocated RsValue of type RsValueType_Trio
  */
-struct SharedRsValue SharedRsValue_NewTrio(struct SharedRsValue left,
-                                           struct SharedRsValue middle,
-                                           struct SharedRsValue right);
+const struct RsValue *SharedRsValue_NewTrio(const struct RsValue *left,
+                                            const struct RsValue *middle,
+                                            const struct RsValue *right);
 
 /**
  * Gets the `f64` wrapped by the `SharedRsValue`
  *
  * # Safety
- * - (1) `v` must be a number value.
+ * - (1) `v` must be a valid pointer to [`RsValue`] obtained from [`SharedRsValue::into_raw`].
+ * - (2) `v` must be a number value.
  */
-double SharedRsValue_Number_Get(const struct SharedRsValue *v);
+double SharedRsValue_Number_Get(const struct RsValue *v);
 
 #ifdef __cplusplus
 }  // extern "C"

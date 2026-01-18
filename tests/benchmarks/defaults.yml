@@ -120,7 +120,7 @@ spec:
       placement: "sparse"
     resources:
       requests:
-        cpus: "4"
+        cpus: "28" # 4 * 7 (4 primaries x 7 threads (main thread + 6 workers))
         memory: "40g"
     dbconfig:
       module-configuration-parameters:

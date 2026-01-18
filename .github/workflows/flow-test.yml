@@ -2,7 +2,6 @@ name: Build on Platforms
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
-
 on:
   workflow_call:
     inputs:
@@ -26,6 +25,10 @@ on:
         type: string
         default: coordinator,standalone,unit-tests,rejson,fail-fast
         description: 'Comma-separated list of options: coordinator, standalone, unit-tests, rejson, fail-fast, coverage, sanitize'
+      separate-coordinator-job:
+        type: boolean
+        default: false
+        description: "Run coordinator tests in a separate parallel job per platform"
 
   workflow_dispatch:
     inputs:
@@ -88,6 +91,10 @@ on:
         description: 'Fail fast on test failures'
         type: boolean
         default: true
+      separate-coordinator-job:
+        type: boolean
+        default: false
+        description: "Run coordinator tests in a separate parallel job per platform"
 
 jobs:
   generate-matrix:
@@ -97,10 +104,11 @@ jobs:
       architecture: ${{ inputs.architecture }}
       include-coverage: ${{ contains(inputs.options, 'coverage') }}
       include-sanitize: ${{ contains(inputs.options, 'sanitize') }}
+      separate-coordinator-job: ${{ inputs.separate-coordinator-job }}
 
   # Unified test matrix - includes Linux and macOS platforms, plus optional coverage, sanitize, and intel
   test-matrix:
-    name: ${{ matrix.job-type == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', matrix.job-type, matrix.architecture) }}
+    name: ${{ matrix.job-type == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', matrix.job-type, matrix.architecture) }}${{ matrix.test-mode == 'standalone' && ' (Standalone)' || (matrix.test-mode == 'coordinator' && ' (Coordinator-only)' || '') }}
     needs: [generate-matrix]
     if: ${{ needs.generate-matrix.outputs.has-jobs == 'true' }}
     strategy:
@@ -114,9 +122,9 @@ jobs:
       get-redis: ${{ inputs.redis-ref }}
       rejson: ${{ contains(inputs.options, 'rejson') || inputs.rejson == true }}
       rejson-branch: ${{ inputs.rejson-branch }}
-      coordinator: ${{ contains(inputs.options, 'coordinator') || inputs.cluster == true }}
-      standalone: ${{ contains(inputs.options, 'standalone') || inputs.standalone == true }}
-      unit-tests: ${{ contains(inputs.options, 'unit-tests') || inputs.unit-tests == true }}
+      coordinator: ${{ (contains(inputs.options, 'coordinator') || inputs.cluster == true) && matrix.test-mode != 'standalone' }}
+      standalone: ${{ (contains(inputs.options, 'standalone') || inputs.standalone == true) && matrix.test-mode != 'coordinator' }}
+      unit-tests: ${{ (contains(inputs.options, 'unit-tests') || inputs.unit-tests == true) && matrix.test-mode != 'coordinator' }}
       test-config: ${{ fromJson(inputs.job-test-config || '{}')[matrix.job-type] || inputs.test-config }}
       coverage: ${{ matrix.job-type == 'coverage' }}
       san: ${{ matrix.job-type == 'sanitize' && 'address' || '' }}

@@ -402,8 +402,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     }
     SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
 
-    // // Set request flags from hybridParams
-    // hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
+    // Set request flags from hybridParams
+    hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
 
     for (size_t i = 0; i < hreq->nrequests; i++) {
         AREQ *areq = hreq->requests[i];

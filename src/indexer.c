@@ -190,9 +190,23 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     if (spec->diskSpec) {
       size_t len;
       const char *key = RedisModule_StringPtrLen(cur->doc->docKey, &len);
-      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len, cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq, cur->fwIdx->totalFreq);
+      uint32_t oldLen = 0;
+      // Put the document and get a new doc-id, and remove the old id->dmd entry
+      // if it existed.
+      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len,
+        cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
+        cur->fwIdx->totalFreq, &oldLen);
+      if (oldLen > 0) {
+        // We deleted a document in the above call, update the stats accordingly
+        RS_ASSERT(spec->stats.numDocuments > 0);
+        spec->stats.numDocuments--;
+        RS_ASSERT(spec->stats.totalDocsLen >= oldLen);
+        spec->stats.totalDocsLen -= oldLen;
+      }
       if (docId) {
         cur->doc->docId = docId;
+        spec->stats.totalDocsLen += cur->fwIdx->totalFreq;
+        ++spec->stats.numDocuments;
       } else {
         cur->stateFlags |= ACTX_F_ERRORED;
       }

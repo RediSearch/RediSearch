@@ -752,7 +752,7 @@ def getInvertedIndexInitialSize(env, fields, depth=0):
     total_size = 0
     for field in fields:
         if field in ['GEO', 'NUMERIC']:
-            inverted_index_size = 40
+            inverted_index_size = 24
             inverted_index_meta_data = 8
             total_size += inverted_index_size + inverted_index_meta_data
             continue
@@ -779,7 +779,7 @@ def compare_numeric_dicts(env, d1, d2, d1_name="d1", d2_name="d2", msg="", _asse
         try:
             res = float(d2[key]) == float(value)
             if _assert:
-                env.assertTrue(res, message=msg + " value is different in key: " + key, depth=depth+1)
+                env.assertTrue(res, message=msg + " value is different in key: " + key + " expected " + str(value) + " got " + str(d2[key]), depth=depth+1)
             else:
                 if res == False:
                     return False
