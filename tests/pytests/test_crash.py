@@ -75,36 +75,34 @@ def test_query_thread_crash():
         "search_idx",
         # Fields are now in nested dictionaries
         "search_number_of_docs:",
-        "search_index_properties",
-        "search_max_doc_id:",
-        "search_num_terms:",
-        "search_index_properties_in_mb",
-        "search_inverted_size:",
+        "search_index_properties:",
+        "search_index_properties_in_mb:",
         "search_total_inverted_index_blocks:",
-        "search_index_failures",
-        "search_indexing:",
+        "search_index_failures:",
         "search_run_time_ns:",
     ])
 
     # Verify all fragments were found
     for fragment, value in results.items():
-        env.assertIsNotNone(value, f"Fragment '{fragment}' not found in crash log")
+        env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
 
     # Verify specific values
     # Empty index should have 0 documents
     env.assertEqual(results["search_number_of_docs:"], "0")
-    env.assertEqual(results["search_max_doc_id:"], "0")
-    env.assertEqual(results["search_num_terms:"], "0")
 
-    # Inverted size should be 0.0 for empty index
-    env.assertEqual(results["search_inverted_size:"], "0.000000")
+    # Verify index_properties contains expected fields
+    env.assertIn("max_doc_id=0", results["search_index_properties:"])
+    env.assertIn("num_terms=0", results["search_index_properties:"])
+
+    # Verify index_properties_in_mb contains inverted_size
+    env.assertIn("inverted_size=0", results["search_index_properties_in_mb:"])
 
     # Total inverted index blocks should be >= 0
     blocks = int(results["search_total_inverted_index_blocks:"])
     env.assertGreaterEqual(blocks, 0)
 
-    # Indexing should be 0 (not currently indexing)
-    env.assertEqual(results["search_indexing:"], "0")
+    # Verify index_failures contains indexing field
+    env.assertIn("indexing=0", results["search_index_failures:"])
 
     # Run time should be > 0 (some time elapsed)
     run_time = int(results["search_run_time_ns:"])
