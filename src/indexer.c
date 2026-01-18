@@ -97,6 +97,9 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
 
+  // Save the number of terms before indexing the current document for metrics
+  size_t prevNumTerms = spec->stats.numTerms;
+
   while (entry != NULL) {
     bool isNew;
     if (spec->diskSpec) {
@@ -125,6 +128,9 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
     entry = ForwardIndexIterator_Next(&it);
   }
+
+  // Update the number of terms added for metrics
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.numTerms - prevNumTerms);
 }
 
 /** Assigns a document ID to a single document. */
@@ -403,11 +409,6 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   // Handle FULLTEXT indexes
   if ((aCtx->fwIdx && (aCtx->stateFlags & ACTX_F_ERRORED) == 0)) {
     writeCurEntries(aCtx, &ctx);
-
-    // Update global statistics for fulltext fields after successful indexing
-    if (aCtx->numNotNullTextFields > 0) {
-      FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, aCtx->numNotNullTextFields);
-    }
   }
 
   if (!(aCtx->stateFlags & ACTX_F_OTHERINDEXED)) {

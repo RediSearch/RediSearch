@@ -191,7 +191,7 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
                                      FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_GEOMETRY));
     RedisModule_InfoEndDictField(ctx);
   }
-  // Total number of documents indexed by each field type, doc can be counted multiple times if it has multiple fields of the same type.
+  // Total number of indexing operations by each field type, doc can be counted multiple times if it has multiple fields of the same type.
   RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_text_fields",
                                   RSGlobalStats.fieldsStats.textTotalDocsIndexed);
   RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_tag_fields",

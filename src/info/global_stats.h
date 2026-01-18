@@ -44,7 +44,7 @@ typedef struct {
   size_t numVectorFieldsHNSW;
   size_t numVectorFieldsSvsVamana;
   size_t numVectorFieldsSvsVamanaCompressed;
-  // Total number of documents indexed by each field type, doc can be counted multiple times if it has multiple fields of the same type.
+  // Total number of indexing operations by each field type, doc can be counted multiple times if it has multiple fields of the same type.
   size_t textTotalDocsIndexed;
   size_t tagTotalDocsIndexed;
   size_t numericTotalDocsIndexed;

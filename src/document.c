@@ -75,7 +75,6 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
 
   size_t numTextIndexable = 0;
-  aCtx->numNotNullTextFields = 0;
 
   // size: uint16_t * SPEC_MAX_FIELDS
   FieldSpecDedupeArray dedupe = {0};
@@ -120,11 +119,6 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     if (FieldSpec_IsIndexable(fs)) {
       if (f->indexAs & INDEXFLD_T_FULLTEXT) {
         numTextIndexable++;
-        // Only count non-NULL fulltext fields for statistics
-        // NULL fields are skipped during preprocessing and not actually indexed
-        if (f->unionType != FLD_VAR_T_NULL) {
-          aCtx->numNotNullTextFields++;
-        }
         hasTextFields = 1;
       }
 
