@@ -207,7 +207,6 @@ void ReplyWithStopWordsList(RedisModule_Reply *reply, struct StopWordList *sl) {
 
 }
 
-#ifdef FTINFO_FOR_INFO_MODULES
 void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl) {
   if (sl == NULL) {
     return;
@@ -229,7 +228,6 @@ void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl) {
   array_free(stopwords);
   TrieMapIterator_Free(it);
 }
-#endif
 
 char **GetStopWordsList(struct StopWordList *sl, size_t *size) {
   *size = TrieMap_NUniqueKeys(sl->m);

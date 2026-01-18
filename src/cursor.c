@@ -28,6 +28,10 @@ static void CursorList_Lock(CursorList *cl) {
   pthread_mutex_lock(&cl->lock);
 }
 
+static int CursorList_TryLock(CursorList *cl) {
+  return pthread_mutex_trylock(&cl->lock);
+}
+
 static void CursorList_Unlock(CursorList *cl) {
   pthread_mutex_unlock(&cl->lock);
 }
@@ -341,9 +345,20 @@ void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const IndexSpec *
   CursorList_Unlock(cl);
 }
 
-#ifdef FTINFO_FOR_INFO_MODULES
 void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const IndexSpec *spec, RedisModuleInfoCtx *ctx) {
-  CursorList_Lock(cl);
+  int locked = CursorList_TryLock(cl);
+  int locked_coord = CursorList_TryLock(cl_coord);
+  if (!locked || !locked_coord) {
+    RedisModule_InfoAddSection(ctx, "cursor_stats");
+    RedisModule_InfoAddFieldString(ctx, "status", "locked");
+    if (locked) {
+      CursorList_Unlock(cl);
+    }
+    if (locked_coord) {
+      CursorList_Unlock(cl_coord);
+    }
+    return;
+  }
 
   RedisModule_InfoBeginDictField(ctx, "cursor_stats");
   RedisModule_InfoAddFieldLongLong(ctx, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **) +
@@ -355,7 +370,6 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
 
   CursorList_Unlock(cl);
 }
-#endif // FTINFO_FOR_INFO_MODULES
 
 void CursorList_Empty(CursorList *cl) {
   CursorList_Lock(cl);
