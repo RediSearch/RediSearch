@@ -371,10 +371,14 @@ extern "C" fn index_spec_index_doc(
 /// # Safety
 /// 1. `index` must have been returned from [`index_spec_open`].
 /// 2. `key` must point to a valid buffer of at least `key_len` bytes.
+/// 3. `old_len` must be either null or point to a valid `u32`.
+/// 4. `id` must be either null or point to a valid `t_docId`.
 extern "C" fn index_spec_delete_document(
     index: *mut RedisSearchDiskIndexSpec,
     key: *const c_char,
     key_len: usize,
+    old_len: *mut u32,
+    id: *mut t_docId,
 ) {
     if key.is_null() {
         error!("key pointer is null");
@@ -392,8 +396,23 @@ extern "C" fn index_spec_delete_document(
     };
 
     // Delete the doc via the `delete_document_by_key` API
-    if let Err(e) = index.doc_table().delete_document_by_key(key_slice) {
-        error!(error = %e, key = ?key_vec, "failed to delete document");
+    match index.doc_table().delete_document_by_key(key_slice) {
+        Ok((deleted_id, deleted_doc_len)) => {
+            // Safety: see safety point 3 above.
+            // If the caller provided an old_len pointer, write the old document length to it
+            if let Some(old_len_ref) = unsafe { old_len.as_mut() } {
+                *old_len_ref = deleted_doc_len;
+            }
+
+            // Safety: see safety point 4 above.
+            // If the caller provided an id pointer, write the deleted doc ID to it
+            if let Some(id_ref) = unsafe { id.as_mut() } {
+                *id_ref = deleted_id;
+            }
+        }
+        Err(e) => {
+            error!(error = %e, key = ?key_vec, "failed to delete document");
+        }
     }
 }
 
@@ -402,6 +421,7 @@ extern "C" fn index_spec_delete_document(
 /// # Safety
 /// 1. `index` must have been returned from [`index_spec_open`].
 /// 2. `key` must point to a valid buffer of at least `key_len` bytes.
+/// 3. `old_len` must be either null or point to a valid `u32`.
 extern "C" fn index_spec_put_doc(
     index: *mut RedisSearchDiskIndexSpec,
     key: *const c_char,
@@ -410,6 +430,7 @@ extern "C" fn index_spec_put_doc(
     flags: u32,
     max_term_freq: u32,
     doc_len: u32,
+    old_len: *mut u32,
 ) -> t_docId {
     // Safety: see safety point 2 above.
     let key = unsafe { std::slice::from_raw_parts(key.cast::<u8>(), key_len) };
@@ -425,16 +446,26 @@ extern "C" fn index_spec_put_doc(
         return INVALID_DOC_ID;
     };
 
-    index
+    match index
         .doc_table()
         .insert_document(key, score, flags, max_term_freq, doc_len)
-        .unwrap_or_else(|error| {
+    {
+        Ok((new_doc_id, old_doc_len)) => {
+            // Safety: see safety point 3 above.
+            // If the caller provided an old_len pointer, write the old document length to it
+            if let Some(old_len_ref) = unsafe { old_len.as_mut() } {
+                *old_len_ref = old_doc_len;
+            }
+            new_doc_id
+        }
+        Err(error) => {
             error!(
                 error = &error as &dyn std::error::Error,
                 "failed to insert document"
             );
             INVALID_DOC_ID
-        })
+        }
+    }
 }
 
 /// Creates a new term iterator for `index`.

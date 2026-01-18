@@ -12,6 +12,7 @@ use speedb::{
 };
 
 use crate::{
+    INVALID_DOC_ID,
     database::{Speedb, SpeedbMultithreadedDatabase},
     index_spec::{Key, deleted_ids::DeletedIdsStore},
     key_traits::{AsKeyExt, FromKeyExt},
@@ -121,6 +122,12 @@ impl DocTable {
     /// If a document with the same key already exists, its old document ID is marked as deleted.
     /// We expect the caller to hold the redis global lock and for that reason two threads can't
     /// call this function at the same time,(and of course the same key).
+    ///
+    /// # Returns
+    /// * `Ok((new_doc_id, old_doc_len))` - A tuple containing:
+    ///   - `new_doc_id`: The newly assigned document ID
+    ///   - `old_doc_len`: The length of the old document if it existed, or 0 if this is a new document
+    /// * `Err(speedb::Error)` - If the database operation fails
     pub fn insert_document(
         &self,
         key: impl Into<Key>,
@@ -128,11 +135,18 @@ impl DocTable {
         flags: u32,
         max_term_freq: u32,
         doc_len: u32,
-    ) -> Result<t_docId, speedb::Error> {
+    ) -> Result<(t_docId, u32), speedb::Error> {
         let key: Key = key.into();
 
         // Check if document with same key exists (for update case)
         let old_doc_id = self.find_doc_id_by_key(&key);
+
+        // If we have an old document, retrieve its length
+        let old_doc_len = old_doc_id
+            .map(|old_id| self.get_document_metadata(old_id))
+            .transpose()?
+            .flatten()
+            .map_or(0, |m| m.doc_len);
 
         let new_doc_id = self.last_document_id.fetch_add(1, Ordering::Relaxed);
 
@@ -171,7 +185,7 @@ impl DocTable {
             self.deleted_ids.mark_deleted(old_id);
         }
 
-        Ok(new_doc_id)
+        Ok((new_doc_id, old_doc_len))
     }
 
     /// Finds the document ID associated with the given document key, if it exists.
@@ -211,13 +225,29 @@ impl DocTable {
         self.document_type
     }
 
-    /// Deletes a document by removing it from the document table and
-    /// adding it to the deleted-ids set.
     /// Deletes a document by its key.
-    /// performs a lookup by key to find the old document id and then deletes the document and the key from the reverse lookup table.
-    pub fn delete_document_by_key(&self, key: impl Into<Key>) -> Result<(), speedb::Error> {
+    ///
+    /// Performs a lookup by key to find the document ID, then deletes the document metadata
+    /// from the document table, removes the key from the reverse lookup table, and marks the
+    /// document ID as deleted in the deleted-ids set.
+    ///
+    /// # Arguments
+    /// * `key` - The document key to delete
+    ///
+    /// # Returns
+    /// * `Ok((doc_id, old_doc_len))` - A tuple containing:
+    ///   - `doc_id`: The deleted document ID if the document existed, or `INVALID_DOC_ID` (0) if not found
+    ///   - `old_doc_len`: The length of the deleted document, or 0 if the document was not found
+    /// * `Err(speedb::Error)` - If the database operation fails
+    pub fn delete_document_by_key(
+        &self,
+        key: impl Into<Key>,
+    ) -> Result<(t_docId, u32), speedb::Error> {
         let key: Key = key.into();
         if let Some(doc_id) = self.find_doc_id_by_key(&key) {
+            // Retrieve the old document length before deletion
+            let old_doc_len = self.get_document_metadata(doc_id)?.map_or(0, |m| m.doc_len);
+
             // Use a batch write to ensure atomicity: both the document metadata and reverse lookup
             // are deleted together.
             let mut batch = WriteBatch::default();
@@ -231,8 +261,10 @@ impl DocTable {
 
             // Mark the document as deleted in the bitmap after successful database write
             self.deleted_ids.mark_deleted(doc_id);
+            Ok((doc_id, old_doc_len))
+        } else {
+            Ok((INVALID_DOC_ID, 0))
         }
-        Ok(())
     }
 
     /// Deletes a document by removing it from the document table and marking its ID
