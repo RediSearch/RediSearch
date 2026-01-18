@@ -18,7 +18,7 @@ include = ["rlookup"]
 
 [export]
 include = ["RLookupKeyFlag", "RLookupOption", "RLookupKey"]
-exclude = ["Option_IndexSpecCache", "Option_Cow_CStr", "RLookupId", "SchemaRule"]
+exclude = ["FieldSpec", "IndexSpec", "Option_IndexSpecCache", "Option_Cow_CStr", "RLookupId", "SchemaRule"]
 
 [export.rename]
 "RLookupRow_RSValueFFI" = "RLookupRow"
