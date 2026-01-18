@@ -21,7 +21,7 @@ int IndexObfuscatedInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
  * Output basic index info in a crash-safe manner (no allocations, no locks).
  * Can be called from crash/signal handlers.
  */
-void fillReplyWithIndexInfoCrashSafe(const IndexSpec *sp, RedisModuleInfoCtx *info_ctx, bool obfuscate);
+void IndexInfoCrashSafe(const IndexSpec *sp, RedisModuleInfoCtx *info_ctx, bool obfuscate);
 
 #ifdef __cplusplus
 }
