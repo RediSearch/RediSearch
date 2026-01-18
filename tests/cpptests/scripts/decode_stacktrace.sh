@@ -50,22 +50,24 @@ format_decoded_line() {
         return
     fi
 
-    # Split by "(inlined by)" and process each part
+    # Process each line (multi-line results have inlined functions on separate lines)
     local first=true
-    local parts="${result//(inlined by)/$'\x01'}"
-    local IFS_OLD="$IFS"
-    IFS=$'\x01'
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
 
-    for part in $parts; do
-        # Trim whitespace
-        part="${part#"${part%%[![:space:]]*}"}"
-        part="${part%"${part##*[![:space:]]}"}"
-        [[ -z "$part" ]] && continue
+        # Check if this is an inlined line
+        local is_inlined=false
+        if [[ "$line" == " (inlined by)"* ]]; then
+            is_inlined=true
+            # Remove the " (inlined by) " prefix
+            line="${line# (inlined by) }"
+        fi
 
+        # Parse "func at location" format
         local func_name="" location=""
-        if [[ "$part" == *" at "* ]]; then
-            func_name="${part%% at *}"
-            location="${part#* at }"
+        if [[ "$line" == *" at "* ]]; then
+            func_name="${line%% at *}"
+            location="${line#* at }"
             # Shorten the path
             if [[ "$location" == *":"* ]]; then
                 local filepath="${location%:*}"
@@ -73,7 +75,7 @@ format_decoded_line() {
                 location="$(shorten_path "$filepath"):${lineno}"
             fi
         else
-            func_name="$part"
+            func_name="$line"
         fi
 
         if [[ "$first" == true ]]; then
@@ -82,18 +84,23 @@ format_decoded_line() {
         else
             echo "${indent}  inlined by: ${func_name}${location:+ at $location}"
         fi
-    done
-    IFS="$IFS_OLD"
+    done <<< "$result"
 }
 
 # Decode and print a complete stack trace
-# Arguments: arrays of frame data passed via temporary files
+# Arguments: frames_file, optional test_name, optional failure_reason
 decode_stack_trace() {
     local frames_file="$1"
+    local test_name="${2:-<unknown test>}"
+    local failure_reason="${3:-}"
 
     echo ""
     echo "==============================================================================="
-    echo "DECODED STACK TRACE"
+    if [[ -n "$failure_reason" ]]; then
+        echo "DECODED STACK TRACE: $test_name ($failure_reason)"
+    else
+        echo "DECODED STACK TRACE: $test_name"
+    fi
     echo "==============================================================================="
 
     # Group frames by binary for batch processing
@@ -115,20 +122,33 @@ decode_stack_trace() {
         if [[ -f "$binary" ]]; then
             local offsets="${binary_offsets[$binary]}"
             # Call addr2line once with all offsets for this binary
-            # Note: Using -Cfp (no -i) because -i produces multiple lines per address
-            # which breaks batch processing. Individual calls would be needed for inlines.
+            # Using -Cfpi for inline info. Parse output by detecting:
+            # - Lines NOT starting with space = new address result
+            # - Lines starting with " (inlined by)" = continuation of previous address
             local results
-            results=$("$ADDR2LINE" -e "$binary" -Cfp $offsets 2>/dev/null) || results=""
+            results=$("$ADDR2LINE" -e "$binary" -Cfpi $offsets 2>/dev/null) || results=""
             # Store results indexed by offset
             local offset_array
             read -ra offset_array <<< "$offsets"
             local i=0
+            local current_result=""
             while IFS= read -r decoded_line; do
-                if [[ $i -lt ${#offset_array[@]} ]]; then
-                    decoded_results["${binary}|${offset_array[$i]}"]="$decoded_line"
+                if [[ "$decoded_line" == " (inlined by)"* ]]; then
+                    # Continuation of previous address - append with newline
+                    current_result+=$'\n'"$decoded_line"
+                else
+                    # New address - save previous result (if any) and start new
+                    if [[ $i -gt 0 && $((i-1)) -lt ${#offset_array[@]} ]]; then
+                        decoded_results["${binary}|${offset_array[$((i-1))]}"]="$current_result"
+                    fi
+                    current_result="$decoded_line"
+                    ((i++)) || true
                 fi
-                ((i++)) || true
             done <<< "$results"
+            # Save last result
+            if [[ $i -gt 0 && $((i-1)) -lt ${#offset_array[@]} ]]; then
+                decoded_results["${binary}|${offset_array[$((i-1))]}"]="$current_result"
+            fi
         fi
     done
 
@@ -186,10 +206,39 @@ parse_backtrace_line() {
 # Main processing
 in_stack_trace=false
 decoded_count=0
+current_test=""
+current_failure=""
 frames_file=$(mktemp)
 trap "rm -f '$frames_file'" EXIT
 
 while IFS= read -r line || [[ -n "$line" ]]; do
+    # Track test names from Google Test output: [ RUN      ] TestName.TestCase
+    # Don't reset failure if test name matches (CTest line may have already set it)
+    if [[ "$line" =~ \[\ RUN\ +\]\ +([^[:space:]]+) ]]; then
+        gtest_name="${BASH_REMATCH[1]}"
+        if [[ "$gtest_name" != "$current_test" ]]; then
+            current_test="$gtest_name"
+            current_failure=""  # Reset failure reason only for different test
+        fi
+        continue
+    fi
+
+    # Track test names and failure reasons from CTest output:
+    # Test #123: test_name ...***Exception: SegFault  0.03 sec
+    # Test #123: test_name ...***Timeout  2.01 sec
+    if [[ "$line" =~ Test\ \#[0-9]+:\ +([^[:space:]]+) ]]; then
+        current_test="${BASH_REMATCH[1]}"
+        # Extract failure reason if present
+        if [[ "$line" =~ \*\*\*Exception:\ *([^[:space:]]+) ]]; then
+            current_failure="${BASH_REMATCH[1]}"
+        elif [[ "$line" =~ \*\*\*(Timeout|Failed|Skipped) ]]; then
+            current_failure="${BASH_REMATCH[1]}"
+        else
+            current_failure=""
+        fi
+        # Don't continue - line may have more info
+    fi
+
     if [[ "$line" == *"=== Caught fatal signal in C++ test, stack trace ==="* ]]; then
         in_stack_trace=true
         > "$frames_file"  # Clear frames file
@@ -198,7 +247,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 
     if [[ "$line" == *"=== End of C++ test stack trace ==="* ]]; then
         if [[ "$in_stack_trace" == true ]]; then
-            decode_stack_trace "$frames_file"
+            decode_stack_trace "$frames_file" "$current_test" "$current_failure"
             ((decoded_count++)) || true
         fi
         in_stack_trace=false
