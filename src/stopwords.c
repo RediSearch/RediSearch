@@ -212,7 +212,7 @@ void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl) {
     return;
   }
 
-  TrieMapIterator *it = TrieMap_Iterate(sl->m, "", 0);
+  TrieMapIterator *it = TrieMap_Iterate(sl->m);
   char *str;
   tm_len_t len;
   void *ptr;
