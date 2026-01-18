@@ -311,10 +311,12 @@ parse_cpp_test_results() {
     printf "\nTest summary:\n"
     grep -E "^[0-9]+% tests passed" "$log_file" || true
 
-    # Show failed/timeout test details if any
-    if grep -qE "Failed|Timeout" "$log_file"; then
-        printf "\nFailed/timed out tests:\n"
-        grep -E "^\s*[0-9]+ - .* \((Failed|Timeout)" "$log_file" || true
+    # Show failed/timeout/crash test details if any
+    # CTest failure reasons include: Failed, Timeout, SEGFAULT, Subprocess aborted, etc.
+    if grep -qE "The following tests FAILED:" "$log_file"; then
+        printf "\nFailed tests:\n"
+        # Print all lines after "The following tests FAILED:" until an empty line or end
+        sed -n '/The following tests FAILED:/,/^$/p' "$log_file" | tail -n +2 || true
     fi
 }
 

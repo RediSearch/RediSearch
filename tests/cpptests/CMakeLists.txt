@@ -18,7 +18,7 @@ endif()
 include(GoogleTest)
 
 file(GLOB TEST_SOURCES "test_cpp_*.cpp")
-add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp iterator_util.cpp)
+add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp iterator_util.cpp stacktrace.cpp)
 target_link_libraries(rstest gtest ${TEST_MODULE} redismock ${CMAKE_LD_LIBS})
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
 add_dependencies(rstest example_extension)
@@ -26,7 +26,7 @@ gtest_discover_tests(rstest
     PROPERTIES TIMEOUT 300  # Timeout for each individual test
 )
 
-add_executable(test_distagg ${root}/tests/cpptests/test_distagg.cpp)
+add_executable(test_distagg ${root}/tests/cpptests/test_distagg.cpp stacktrace.cpp)
 target_link_libraries(test_distagg ${TEST_MODULE} redismock)
 set_target_properties(test_distagg PROPERTIES COMPILE_FLAGS "-fvisibility=default")
 add_test(name test_distagg COMMAND test_distagg)
@@ -35,6 +35,6 @@ add_test(name test_distagg COMMAND test_distagg)
 add_subdirectory(coord_tests)
 
 file(GLOB BENCHMARK_SOURCES "benchmark_*.cpp")
-add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp)
+add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp stacktrace.cpp)
 target_link_libraries(rsbench ${TEST_MODULE} redismock ${CMAKE_LD_LIBS} pthread)
 set_target_properties(rsbench PROPERTIES LINKER_LANGUAGE CXX)
