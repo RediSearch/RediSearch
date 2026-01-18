@@ -738,7 +738,7 @@ TEST_F(ClusterSetTest, Error_MissingUNIXADDRValue) {
         "MYID", "shard1",
         "RANGES", "1",
         "SHARD", "shard1", "SLOTRANGE", "0", "16383",
-        "ADDR", "127.0.0.1:6379", "MASTER", "UNIXADDR"
+        "ADDR", "127.0.0.1:6379", "UNIXADDR", "MASTER"
     };
 
     ArgvList argv(ctx, args);
@@ -746,7 +746,7 @@ TEST_F(ClusterSetTest, Error_MissingUNIXADDRValue) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Missing value for UNIXADDR at offset 14");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Missing value for UNIXADDR at offset 13");
 
 }
 
@@ -806,7 +806,7 @@ TEST_F(ClusterSetTest, Error_MultipleUNIXADDR_SameBlock) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Multiple UNIXADDR specified for shard `shard1` at offset 16");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Multiple UNIXADDR specified for shard `shard1` at offset 15");
 
 }
 
