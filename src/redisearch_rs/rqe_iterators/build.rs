@@ -7,20 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Link the static libraries that contain our array functions
+fn main() {
     #[cfg(feature = "unittest")]
-    {
-        build_utils::link_static_libraries(&[
-            ("src/index_result", "index_result"),
-            ("src/iterators", "iterators"),
-            ("src/ttl_table", "ttl_table"),
-            ("src/util/arr", "arr"),
-            ("src/util/dict", "dict"),
-            ("src/util/mempool", "mempool"),
-            ("src/value", "value"),
-        ]);
-    }
-
-    Ok(())
+    build_utils::bind_foreign_c_symbols();
 }

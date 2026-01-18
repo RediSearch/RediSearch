@@ -7,18 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use build_utils::{generate_c_bindings, git_root, link_static_libraries};
+use build_utils::{bind_foreign_c_symbols, generate_c_bindings, git_root};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Always link the static libraries, independent of bindgen
-    link_static_libraries(&[
-        ("src/util/arr", "arr"),
-        ("src/util/mempool", "mempool"),
-        ("src/iterators", "iterators"),
-        ("src/buffer", "buffer"),
-        ("src/index_result", "index_result"),
-        ("src/value", "value"),
-    ]);
+    bind_foreign_c_symbols();
 
     // Compile the wildcard iterator benchmark C file
     let root = git_root().expect("Could not find git root");

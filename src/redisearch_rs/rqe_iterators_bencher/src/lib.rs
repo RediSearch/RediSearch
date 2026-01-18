@@ -13,55 +13,9 @@
     clippy::multiple_unsafe_ops_per_block
 )]
 
-use std::ffi::c_void;
-
 pub mod benchers;
 pub mod ffi;
 
-// Need these symbols to be defined for the benchers to run
-pub use types_ffi::NewVirtualResult;
-
-// Re-export iterators_ffi to ensure the symbols are linked
-pub use iterators_ffi::id_list::NewSortedIdListIterator;
-
-redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
-
-// symbols required by the C code we need to redefine
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut RSGlobalConfig: *const c_void = std::ptr::null();
-
-/// Define an empty stub function for each given symbols.
-/// This is used to define C functions the linker requires but which are not actually used by the benchers.
-macro_rules! stub_c_fn {
-    ($($fn_name:ident),* $(,)?) => {
-        $(
-            #[unsafe(no_mangle)]
-            pub extern "C" fn $fn_name() {
-                panic!(concat!(stringify!($fn_name), " should not be called by any of the benchmarks"));
-            }
-        )*
-    };
-}
-
-// Those C symbols are required for the c benchmarking code to build and run.
-// They have been added by adding them until it runs fine.
-stub_c_fn! {
-    fast_float_strtod,
-    Obfuscate_Number,
-    Obfuscate_Text,
-    QueryError_SetWithUserDataFmt,
-    RSIndexResult_IterateOffsets,
-    sdscat,
-    sdscatfmt,
-    sdscatlen,
-    isWithinRadius,
-    Redis_OpenInvertedIndex,
-    RS_dictFetchValue,
-    SearchDisk_NewWildcardIterator,
-    TagIndex_OpenIndex,
-    TimeToLiveTable_VerifyDocAndField,
-    TimeToLiveTable_VerifyDocAndFieldMask,
-    TimeToLiveTable_VerifyDocAndWideFieldMask,
-    TRIEMAP_NOTFOUND
-}
+// Some of the missing C symbols are actually Rust-provided.
+extern crate redisearch_rs;
+redis_mock::mock_or_stub_missing_redis_c_symbols!();

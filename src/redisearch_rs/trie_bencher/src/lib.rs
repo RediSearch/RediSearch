@@ -8,10 +8,10 @@
 */
 
 //! Supporting types and functions for benchmarking trie operations.
-use redis_mock::bind_redis_alloc_symbols_to_mock_impl;
+use redis_mock::mock_or_stub_missing_redis_c_symbols;
 use std::{ffi::c_void, ptr::NonNull};
 
-bind_redis_alloc_symbols_to_mock_impl!();
+mock_or_stub_missing_redis_c_symbols!();
 
 pub use bencher::OperationBencher;
 
