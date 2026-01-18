@@ -1021,3 +1021,29 @@ TEST_F(ClusterSetTest, EdgeCase_LocalShardEmpty) {
 
     MRClusterTopology_Free(topo);
 }
+
+TEST_F(ClusterSetTest, EdgeCase_LocalShardReplica) {
+    std::vector<std::string> args = {
+        "search.CLUSTERSET",
+        "MYID", "local_shard",
+        "RANGES", "2",
+        "SHARD", "local_shard", "ADDR", "127.0.0.3:6379", "SLOTRANGE", "0", "16383",
+        "SHARD", "other_shard", "ADDR", "127.0.0.1:6381", "SLOTRANGE", "0", "16383", "MASTER",
+    };
+
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    ASSERT_NE(topo, nullptr) << "Parsing should succeed with empty local shard";
+    EXPECT_EQ(my_shard_idx, UINT32_MAX) << "Should not find local shard in topology (empty shard ignored)";
+    EXPECT_EQ(topo->numShards, 1) << "Should have 1 shard (empty shard ignored)";
+
+    // Verify that the local shard is not part of the topology
+    for (uint32_t i = 0; i < topo->numShards; i++) {
+        EXPECT_STRNE(topo->shards[i].node.id, "local_shard")
+            << "Local shard should not be in topology";
+    }
+
+    MRClusterTopology_Free(topo);
+}
