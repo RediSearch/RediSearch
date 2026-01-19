@@ -410,6 +410,8 @@ prepare_cmake_arguments() {
 
     echo "Enabling C/Rust LTO"
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=$C_COMPILER -DCMAKE_CXX_COMPILER=$CXX_COMPILER -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
+    # Include LLVM bitcode information for cross-language LTO
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C linker-plugin-lto -C linker=$C_COMPILER -C link-arg=-fuse-ld=$LINKER"
   fi
 
   if [[ "$BUILD_TESTS" == "1" ]]; then
@@ -480,15 +482,6 @@ prepare_cmake_arguments() {
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
     # -Zsanitizer=address enables ASAN in Rust
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Zsanitizer=address"
-  fi
-
-
-  if [[ "$LTO" == "1" ]]; then
-    # Include LLVM bitcode information for cross-language LTO
-    # Use CC and LD from environment, defaulting to clang and lld if not set
-    LINKER_COMPILER="${CC:-clang}"
-    LINKER_LD="${LD:-lld}"
-    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C linker-plugin-lto -C linker=$LINKER_COMPILER -C link-arg=-fuse-ld=$LINKER_LD"
   fi
 
   # Export RUSTFLAGS so it's available to the Rust build process
