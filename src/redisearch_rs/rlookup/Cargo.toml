@@ -24,6 +24,7 @@ thiserror.workspace = true
 redis_mock.workspace = true
 redis-module.workspace = true
 workspace_hack.workspace = true
+query_error.workspace = true
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,
