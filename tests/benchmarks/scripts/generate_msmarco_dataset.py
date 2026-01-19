@@ -355,14 +355,15 @@ def generate_query_commands(
         for i in range(num_queries):
             query_text = queries[i % len(queries)]
 
-            # Format: "READ","R1","1","FT.SEARCH","index","query","LIMIT","0","10"
+            # Format: "READ","R1","1","FT.SEARCH","index","query","NOCONTENT","LIMIT","0","10"
+            # NOCONTENT avoids loading field values from keyspace
             writer.writerow([
                 "READ", "R1", "1", "FT.SEARCH", index_name,
-                query_text, "LIMIT", "0", "10"
+                query_text, "NOCONTENT", "LIMIT", "0", "10"
             ])
             query_count += 1
 
-    print(f"✓ Generated {query_count:,} {query_category} queries")
+    print(f"✓ Generated {query_count:,} {query_category} queries (with NOCONTENT)")
     return query_count
 
 
