@@ -1,7 +1,7 @@
 use ffi::DocumentMetadata;
 use value::RSValueFFI;
 
-use crate::{load_document::LoadDocumentError, RLookup, RLookupKey, RLookupRow};
+use crate::{RLookup, RLookupKey, RLookupRow, load_document::LoadDocumentError};
 
 pub fn load_key(
     kk: &RLookupKey,
