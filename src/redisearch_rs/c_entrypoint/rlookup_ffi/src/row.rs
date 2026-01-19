@@ -266,6 +266,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
 /// 3. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 4. `dst_lookup` must be a [valid], non-null pointer to an [`RLookup`].
 /// 5. `src_row` and `dst_row` must not point to the same [`RLookupRow`].
+/// 6. `src_lookup` and `dst_lookup` must not point to the same [`RLookup`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -276,23 +277,27 @@ unsafe extern "C" fn RLookupRow_WriteFieldsFrom<'a>(
     dst_lookup: Option<NonNull<RLookup<'a>>>,
     create_missing_keys: bool,
 ) {
-    // Safety: ensured by caller (2.)
-    let src_lookup = unsafe { src_lookup.as_ref().unwrap() };
-
     // Safety: ensured by caller (3.)
     let dst_row = unsafe { dst_row.unwrap().as_mut() };
 
-    // We're doing the assert here in the middle to avoid extra type conversions.
+    // Safety: ensured by caller (4.)
+    let dst_lookup = unsafe { dst_lookup.unwrap().as_mut() };
+
+    // We're doing the asserts here in the middle to avoid extra type conversions.
     assert_ne!(
         src_row, dst_row,
         "`src_row` and `dst_row` must not be the same"
+    );
+    assert_ne!(
+        src_lookup, dst_lookup,
+        "`src_lookup` and `dst_lookup` must not be the same"
     );
 
     // Safety: ensured by caller (1.)
     let src_row = unsafe { src_row.as_ref().unwrap() };
 
-    // Safety: ensured by caller (4.)
-    let dst_lookup = unsafe { dst_lookup.unwrap().as_mut() };
+    // Safety: ensured by caller (2.)
+    let src_lookup = unsafe { src_lookup.as_ref().unwrap() };
 
     dst_row.copy_fields_from(dst_lookup, src_row, src_lookup, create_missing_keys);
 }

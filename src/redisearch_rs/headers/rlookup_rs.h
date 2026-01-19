@@ -570,6 +570,7 @@ void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
  * 3. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`].
  * 4. `dst_lookup` must be a [valid], non-null pointer to an [`RLookup`].
  * 5. `src_row` and `dst_row` must not point to the same [`RLookupRow`].
+ * 6. `src_lookup` and `dst_lookup` must not point to the same [`RLookup`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
