@@ -503,7 +503,7 @@ static void copyCursorConfig(CursorConfig *dest, const CursorConfig *src) {
 static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
                                       ParseHybridCommandCtx *parsedCmdCtx,
                                       RSSearchOptions *mergeSearchopts,
-                                      uint32_t mergeReqflags, size_t maxHybridResults, 
+                                      uint32_t mergeReqflags, size_t maxHybridResults,
                                       ProfileOptions profileOptions) {
   // Copy parameters if they exist
   if (mergeSearchopts->params) {
