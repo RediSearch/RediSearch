@@ -342,7 +342,8 @@ impl<'list, 'a> CursorMut<'list, 'a> {
             };
             key.dstidx = old.dstidx;
 
-            if cfg!(debug_assertions) {
+            #[cfg(debug_assertions)]
+            {
                 key.rlookup_id = old.rlookup_id();
             }
 
