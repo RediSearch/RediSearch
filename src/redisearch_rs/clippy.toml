@@ -1,6 +1,17 @@
 disallowed-types = [
+    # Based on the list at https://doc.rust-lang.org/std/os/raw/index.html
     { path = "std::os::raw::c_char", replacement = "std::ffi::c_char" },
-    { path = "std::os::raw::c_int",  replacement = "std::ffi::c_int" },
+    { path = "std::os::raw::c_double", replacement = "std::ffi::c_double" },
+    { path = "std::os::raw::c_float", replacement = "std::ffi::c_float" },
+    { path = "std::os::raw::c_int", replacement = "std::ffi::c_int" },
+    { path = "std::os::raw::c_long", replacement = "std::ffi::c_long" },
+    { path = "std::os::raw::c_longlong", replacement = "std::ffi::c_longlong" },
+    { path = "std::os::raw::c_schar", replacement = "std::ffi::c_schar" },
+    { path = "std::os::raw::c_short", replacement = "std::ffi::c_short" },
+    { path = "std::os::raw::c_uchar", replacement = "std::ffi::c_uchar" },
     { path = "std::os::raw::c_uint", replacement = "std::ffi::c_uint" },
+    { path = "std::os::raw::c_ulong", replacement = "std::ffi::c_ulong" },
+    { path = "std::os::raw::c_ulonglong", replacement = "std::ffi::c_ulonglong" },
+    { path = "std::os::raw::c_ushort", replacement = "std::ffi::c_ushort" },
     { path = "std::os::raw::c_void", replacement = "std::ffi::c_void" },
 ]
