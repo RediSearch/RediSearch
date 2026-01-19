@@ -23,6 +23,7 @@ strum.workspace = true
 thiserror.workspace = true
 redis-module.workspace = true
 tracing.workspace = true
+lending-iterator.workspace = true
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,

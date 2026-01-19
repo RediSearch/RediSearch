@@ -9,6 +9,7 @@
 
 use super::RedisJsonApi;
 use crate::{JsonValueRef, SerializeError};
+use lending_iterator::prelude::*;
 use redis_module::RedisString;
 use std::ffi::c_void;
 use std::ptr::NonNull;
@@ -115,11 +116,19 @@ impl<'a> ResultsIter<'a> {
             Err(SerializeError)
         }
     }
+}
 
-    /// Returns the next value in the iterator.
-    ///
-    /// Returns `None` when all values have been consumed.
-    pub fn next(&self) -> Option<JsonValueRef<'_>> {
+// Why do we need a crate? Well: <https://sabrinajewson.org/blog/the-better-alternative-to-lifetime-gats>
+#[gat]
+// The 'tm lifetime parameter is not actually needless.
+#[allow(clippy::needless_lifetimes)]
+impl<'a> LendingIterator for ResultsIter<'a> {
+    type Item<'next>
+    where
+        Self: 'next,
+    = JsonValueRef<'next>;
+
+    fn next(&mut self) -> Option<Self::Item<'_>> {
         // Safety: `ptr` is valid by construction.
         let raw = unsafe { (self.next)(self.ptr.as_ptr()) };
 
