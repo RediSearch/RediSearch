@@ -153,7 +153,7 @@ version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "993776b509cfb49c750f11b8f07a46fa23e0a1386ffc01fb1e7d343efc387895"
 dependencies = [
- "bitflags 2.11.0",
+ "bitflags 2.11.1",
  "cexpr",
  "clang-sys",
  "itertools 0.13.0",
@@ -175,9 +175,9 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
-version = "2.11.0"
+version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "843867be96c8daad0d758b57df9392b6d8d271134fce549de6ce169ff98a92af"
+checksum = "c4512299f36f043ab09a583e57bceb5a5aab7a73db1805848e8fef3c9e8c78b3"
 
 [[package]]
 name = "buffer"
@@ -353,9 +353,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.6.0"
+version = "4.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b193af5b67834b676abd72466a96c1024e6a6ad978a1f484bd90b85c94041351"
+checksum = "1ddb117e43bbf7dacf0a4190fef4d345b9bad68dfc649cb349e7d17d28428e51"
 dependencies = [
  "clap_builder",
 ]
@@ -1592,7 +1592,7 @@ version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b45fcc2344c680f5025fe57779faef368840d0bd1f42f216291f0dc4ace4744"
 dependencies = [
- "bitflags 2.11.0",
+ "bitflags 2.11.1",
  "num-traits 0.2.19",
  "rand 0.9.4",
  "rand_chacha 0.9.0",
@@ -1801,7 +1801,7 @@ source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d
 dependencies = [
  "backtrace",
  "bindgen",
- "bitflags 2.11.0",
+ "bitflags 2.11.1",
  "cc",
  "cfg-if",
  "common",
@@ -1833,6 +1833,7 @@ name = "redis_json_api"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "lending-iterator",
  "redis-module",
  "thiserror",
  "workspace_hack",
@@ -1983,12 +1984,14 @@ dependencies = [
  "index_spec",
  "index_spec_cache",
  "itertools 0.14.0",
+ "lending-iterator",
  "libc",
  "pin-project",
  "pretty_assertions",
  "proptest",
  "query_error",
  "redis-module",
+ "redis_json_api",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
@@ -1997,6 +2000,7 @@ dependencies = [
  "strum",
  "thin_vec",
  "thiserror",
+ "tracing",
  "value",
  "workspace_hack",
 ]
@@ -2191,7 +2195,7 @@ version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
 dependencies = [
- "bitflags 2.11.0",
+ "bitflags 2.11.1",
  "errno",
  "libc",
  "linux-raw-sys",
@@ -3080,7 +3084,7 @@ version = "0.244.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47b807c72e1bac69382b3a6fb3dbe8ea4c0ed87ff5629b8685ae6b9a611028fe"
 dependencies = [
- "bitflags 2.11.0",
+ "bitflags 2.11.1",
  "hashbrown 0.15.5",
  "indexmap",
  "semver",
@@ -3314,7 +3318,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d66ea20e9553b30172b5e831994e35fbde2d165325bec84fc43dbf6f4eb9cb2"
 dependencies = [
  "anyhow",
- "bitflags 2.11.0",
+ "bitflags 2.11.1",
  "indexmap",
  "log",
  "serde",
@@ -3349,7 +3353,7 @@ name = "workspace_hack"
 version = "0.1.0"
 dependencies = [
  "bindgen",
- "bitflags 2.11.0",
+ "bitflags 2.11.1",
  "clang-sys",
  "clap",
  "clap_builder",

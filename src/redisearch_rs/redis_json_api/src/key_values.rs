@@ -14,19 +14,20 @@ use std::{ffi::c_void, ptr::NonNull};
 
 // An iterators over key value pairs if the json value is an object
 pub struct KeyValuesIterator<'a> {
-    pub(crate) ptr: NonNull<c_void>,
+    ptr: NonNull<c_void>,
     // Get the next key-value pair
     // The caller gains ownership of `key_name`
     // The caller must pass 'ptr' which was allocated with allocJson
-    pub(crate) next: unsafe extern "C" fn(
+    next: unsafe extern "C" fn(
         iter: ffi::JSONKeyValuesIterator,
         key_name: *mut *mut ffi::RedisModuleString,
         ptr: ffi::RedisJSONPtr,
     ) -> i32,
+    get_len: unsafe extern "C" fn(*const c_void, *mut usize) -> i32,
     // Free the iterator
-    pub(crate) free: unsafe extern "C" fn(ptr: ffi::JSONKeyValuesIterator),
-    pub(crate) ctx: *mut ffi::RedisModuleCtx,
-    pub(crate) api: &'a RedisJsonApi,
+    free: unsafe extern "C" fn(ptr: ffi::JSONKeyValuesIterator),
+    ctx: *mut ffi::RedisModuleCtx,
+    api: &'a RedisJsonApi,
 }
 
 impl Drop for KeyValuesIterator<'_> {
@@ -57,10 +58,14 @@ impl<'a> KeyValuesIterator<'a> {
         let free = vtable
             .freeKeyValuesIter
             .expect("RedisJSON API function `freeKeyValuesIter` not available");
+        let get_len = vtable
+            .getLen
+            .expect("RedisJSON API function `getLen` not available");
 
         Self {
             ptr,
             next,
+            get_len,
             free,
             ctx,
             api,
@@ -89,4 +94,16 @@ impl<'a> Iterator for KeyValuesIterator<'a> {
             None
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let mut len: usize = 0;
+
+        // Safety: `ptr` is valid by construction.
+        let status = unsafe { (self.get_len)(self.ptr.as_ptr(), &raw mut len) };
+        assert_eq!(status, ffi::REDISMODULE_OK as i32);
+
+        (len, Some(len))
+    }
 }
+
+impl ExactSizeIterator for KeyValuesIterator<'_> {}
