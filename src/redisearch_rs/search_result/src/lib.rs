@@ -12,7 +12,7 @@ use index_result::RSIndexResult;
 use rlookup::RLookupRow;
 use std::ptr::NonNull;
 
-use document_metadata::DocumentMetadata;
+use document_metadata::{DocumentMetadata, OwnedDocumentMetadata};
 
 #[bitflags]
 #[repr(u8)]
@@ -44,7 +44,7 @@ pub struct SearchResult<'index> {
     // TODO resolve ownership (this is heap-allocated but owned by this search result??)
     _score_explain: Option<NonNull<ffi::RSScoreExplain>>,
 
-    _document_metadata: Option<DocumentMetadata>,
+    _document_metadata: Option<OwnedDocumentMetadata>,
 
     // index result should cover what you need for highlighting,
     // but we will add a method to duplicate index results to make
@@ -160,12 +160,12 @@ impl<'index> SearchResult<'index> {
     }
 
     /// Returns an immutable reference to the [`DocumentMetadata`] associated with this search result.
-    pub fn document_metadata(&self) -> Option<&ffi::RSDocumentMetadata> {
+    pub fn document_metadata(&self) -> Option<&DocumentMetadata> {
         self._document_metadata.as_deref()
     }
 
     /// Sets the [`DocumentMetadata`] associated with this search result.
-    pub fn set_document_metadata(&mut self, document_metadata: Option<DocumentMetadata>) {
+    pub fn set_document_metadata(&mut self, document_metadata: Option<OwnedDocumentMetadata>) {
         self._document_metadata = document_metadata;
     }
 
