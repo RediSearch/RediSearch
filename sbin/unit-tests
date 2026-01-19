@@ -234,7 +234,7 @@ run_cpp_tests() {
             fi
         else
             echo "Running all C++ tests via ctest (log: $LOG_FILE)"
-            { cd "$BINDIR" && ctest --test-dir tests/cpptests --output-on-failure -j $(nproc) > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+            { cd "$BINDIR" && ctest --test-dir tests/cpptests --output-on-failure -j $(nproc) 2>&1 | tee "$LOG_FILE"; test_result=${PIPESTATUS[0]}; (( EXIT_CODE |= $test_result )); } || true
             parse_cpp_test_results "$LOG_FILE"
         fi
     else
@@ -250,7 +250,7 @@ run_cpp_tests() {
             fi
         else
             echo "Running C++ test: $TEST via ctest (log: $LOG_FILE)"
-            { cd "$BINDIR" && ctest --test-dir tests/cpptests -R "$TEST" --output-on-failure > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+            { cd "$BINDIR" && ctest --test-dir tests/cpptests -R "$TEST" --output-on-failure 2>&1 | tee "$LOG_FILE"; test_result=${PIPESTATUS[0]}; (( EXIT_CODE |= $test_result )); } || true
             parse_cpp_test_results "$LOG_FILE"
         fi
     fi
@@ -401,7 +401,7 @@ run_cpp_coord_tests() {
             fi
         else
             echo "Running all C++ coordinator tests via ctest (log: $LOG_FILE)"
-            { cd "$BINDIR" && ctest --test-dir tests/cpptests/coord_tests --output-on-failure -j $(nproc) > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+            { cd "$BINDIR" && ctest --test-dir tests/cpptests/coord_tests --output-on-failure -j $(nproc) 2>&1 | tee "$LOG_FILE"; test_result=${PIPESTATUS[0]}; (( EXIT_CODE |= $test_result )); } || true
             parse_cpp_test_results "$LOG_FILE"
         fi
     else
@@ -417,7 +417,7 @@ run_cpp_coord_tests() {
             fi
         else
             echo "Running C++ coordinator test: $TEST via ctest (log: $LOG_FILE)"
-            { cd "$BINDIR" && ctest --test-dir tests/cpptests/coord_tests -R "$TEST" --output-on-failure > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+            { cd "$BINDIR" && ctest --test-dir tests/cpptests/coord_tests -R "$TEST" --output-on-failure 2>&1 | tee "$LOG_FILE"; test_result=${PIPESTATUS[0]}; (( EXIT_CODE |= $test_result )); } || true
             parse_cpp_test_results "$LOG_FILE"
         fi
     fi
