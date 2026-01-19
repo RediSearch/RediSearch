@@ -80,9 +80,10 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
           ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
           QITR_PushRP(qctx, depleter);
         }
-        if (isProfile) {
-          QITR_PushRP(qctx, RPProfile_New(qctx->endProc, qctx));
-        }
+        // TODO: Add profile RP here?
+        // if (isProfile) {
+        //   QITR_PushRP(qctx, RPProfile_New(qctx->endProc, qctx));
+        // }
     }
     if (depleteInBackground) {
       // Release the sync reference as depleters now hold their own references
@@ -118,14 +119,14 @@ void HybridRequest_SynchronizeLookupKeys(HybridRequest *req) {
 int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params) {
     // Array to collect upstream from each individual request pipeline
     arrayof(ResultProcessor*) upstreams = array_new(ResultProcessor *, req->nrequests);
-    // const ResultProcessorType expected = IsProfile(req) ? RP_PROFILE : RP_DEPLETER;
+    const ResultProcessorType expected = IsProfile(req) ? RP_PROFILE : RP_SAFE_DEPLETER;
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
-        // if (areq->pipeline.qctx.endProc->type != expected) {
-        //   QueryError_SetWithoutUserDataFmt(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "Expected %s processor at end of pipeline", RPTypeToString(expected));
-        //   array_free(upstreams);
-        //   return REDISMODULE_ERR;
-        // }
+        if (areq->pipeline.qctx.endProc->type != expected) {
+            QueryError_SetWithoutUserDataFmt(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "Expected %s processor at end of pipeline", RPTypeToString(expected));
+            array_free(upstreams);
+            return REDISMODULE_ERR;
+        }
         array_ensure_append_1(upstreams, areq->pipeline.qctx.endProc);
     }
 

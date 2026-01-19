@@ -449,10 +449,10 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         rp = rp->upstream;
       }
       if (backgroundDepletion) {
-        if (areq->pipeline.qctx.endProc->type != RP_SAFE_DEPLETER) {
+        if (rp->type != RP_SAFE_DEPLETER) {
           break;
         }
-        array_ensure_append_1(depleters, areq->pipeline.qctx.endProc);
+        array_ensure_append_1(depleters, rp);
       }
       Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref, areq->cursorConfig.maxIdle, status);
       if (!cursor) {
@@ -510,7 +510,7 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
                                    bool internal, bool depleteInBackground) {
   // Build the pipeline and execute
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
-  hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
+  // reqflags should already be set by HybridRequest_BuildPipelineAndExecute
   bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
   // Internal commands do not have a hybrid merger and only have a depletion pipeline
   if (internal) {
@@ -559,6 +559,8 @@ static blockedClientHybridCtx *blockedClientHybridCtx_New(StrongRef hybrid_ref,
 static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *hybridParams, RedisModuleCtx *ctx,
                     RedisSearchCtx *sctx, QueryError* status, bool internal) {
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
+  // Set request flags from hybridParams before any execution path
+  hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
   if (RunInThread()) {
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
