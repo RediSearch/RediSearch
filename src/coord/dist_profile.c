@@ -20,6 +20,8 @@ int ParseProfile(ArgsCursor *ac, QueryError *status, ProfileOptions *options) {
       return REDISMODULE_ERR;
     }
   }
+  // For non-profile commands, caller is responsible for advancing past command
+  // name and index
   return REDISMODULE_OK;
 }
 

@@ -13,7 +13,8 @@
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
 
 extern "C" {
-void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
+void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
+                            ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char *) serialized,
                             IndexSpec *sp, HybridPipelineParams *hybridParams);
 }

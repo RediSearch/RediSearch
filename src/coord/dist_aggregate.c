@@ -331,6 +331,13 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   if (rc == REDISMODULE_ERR) return REDISMODULE_ERR;
   ApplyProfileOptions(AREQ_QueryProcessingCtx(r), &r->reqflags, profileOptions);
 
+  // For non-profile commands, skip past command name (FT.AGGREGATE) and index name
+  if (profileOptions == EXEC_NO_FLAGS) {
+    if (AC_AdvanceBy(&ac, 2) != AC_OK) {
+      return REDISMODULE_ERR;
+    }
+  }
+
   rc = AREQ_Compile(r, argv + ac.offset, argc - ac.offset, status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
