@@ -8,6 +8,7 @@
 */
 
 use std::{
+    ffi::CStr,
     ops::Deref,
     ptr::NonNull,
     sync::atomic::{AtomicU16, Ordering},
@@ -26,7 +27,7 @@ pub struct DocumentMetadata(
     /// entire lifetime of this struct.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    NonNull<ffi::RSDocumentMetadata>,
+    NonNull<crate::RSDocumentMetadata>,
 );
 
 impl DocumentMetadata {
@@ -38,15 +39,20 @@ impl DocumentMetadata {
     /// **stay** valid for the entire lifetime of the returned [`DocumentMetadata`].
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub unsafe fn from_raw(ptr: NonNull<ffi::RSDocumentMetadata>) -> Self {
+    pub unsafe fn from_raw(ptr: NonNull<crate::RSDocumentMetadata>) -> Self {
         debug_assert!(ptr.is_aligned());
 
         Self(ptr)
     }
+
+    /// The key of the document
+    pub fn key(&self) -> &CStr {
+        todo!()
+    }
 }
 
 impl Deref for DocumentMetadata {
-    type Target = ffi::RSDocumentMetadata;
+    type Target = crate::RSDocumentMetadata;
 
     fn deref(&self) -> &Self::Target {
         // Safety: The caller of `DocumentMetadata::from_raw` promised the pointer is valid.
@@ -82,7 +88,7 @@ impl Drop for DocumentMetadata {
         if refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
             // Safety: The caller of `DocumentMetadata::from_raw` promised the pointer is valid.
             unsafe {
-                ffi::DMD_Free(self.0.as_ptr());
+                crate::DMD_Free(self.0.as_ptr());
             }
         }
     }
