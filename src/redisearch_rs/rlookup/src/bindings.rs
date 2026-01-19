@@ -29,3 +29,13 @@ pub use rm_array::RmArray;
 #[cfg(test)]
 pub use rs_array::rs_array;
 pub use schema_rule::SchemaRule;
+
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
+#[expect(unused, reason = "Used by followup PRs")]
+pub enum RLookupCoerceType {
+    Str = 0,
+    // Int = 1, unused
+    Dbl = 2,
+    // Bool = 3, unused
+}

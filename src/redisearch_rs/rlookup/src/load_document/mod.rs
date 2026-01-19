@@ -34,6 +34,12 @@ impl Display for LoadDocumentError {
 
 impl Error for LoadDocumentError {}
 
+impl From<redis_module::RedisError> for LoadDocumentError {
+    fn from(_: redis_module::RedisError) -> Self {
+        Self {}
+    }
+}
+
 pub struct DocumentLoader<'env, 'a> {
     rlookup: &'env mut RLookup<'a>,
     dst_row: &'env mut RLookupRow<'a>,
