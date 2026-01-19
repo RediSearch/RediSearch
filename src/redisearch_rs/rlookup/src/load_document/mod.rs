@@ -23,6 +23,8 @@ use query_error::QueryError;
 use redis_module::RedisString;
 use sorting_vector::RSSortingVector;
 
+const UNDERSCORE_KEY: &CStr = c"__key";
+
 #[derive(Debug)]
 pub struct LoadDocumentError {}
 
