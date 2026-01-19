@@ -86,6 +86,9 @@ FT.CREATE ms_marco_idx ON HASH PREFIX 1 doc: SCHEMA
   tags TAG SEPARATOR ","
 ```
 
+> **Note**: Benchmark queries use `NOCONTENT` flag to avoid loading field values from keyspace,
+> enabling fair comparison with disk-based implementations (RoR vs RoF) that don't use a loader.
+
 ---
 
 ## Benchmark Files
