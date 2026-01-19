@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod load_document;
 mod bindings;
 mod field_spec;
 mod hidden_string_ref;
