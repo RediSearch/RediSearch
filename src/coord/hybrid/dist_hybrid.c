@@ -19,7 +19,6 @@
 #include "rpnet.h"
 #include "hybrid_cursor_mappings.h"
 #include "info/global_stats.h"
-#include "concurrent_ctx.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3

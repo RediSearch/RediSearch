@@ -13,7 +13,6 @@
 #include "module.h"
 #include "util/logging.h"
 #include "coord/config.h"
-#include "slot_ranges.h"
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 
