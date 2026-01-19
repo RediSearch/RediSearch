@@ -463,11 +463,7 @@ prepare_cmake_arguments() {
   # Handle RUST_DYN_CRT flag for Alpine Linux compatibility
   if [[ "$RUST_DYN_CRT" == "1" ]]; then
     # Add the dynamic C runtime flag to RUSTFLAGS
-    if [[ "$RUSTFLAGS" == "" ]]; then
-      RUSTFLAGS="-C target-feature=-crt-static"
-    else
-      RUSTFLAGS="$RUSTFLAGS -C target-feature=-crt-static"
-    fi
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-feature=-crt-static"
   fi
   # Set up RUSTFLAGS for warnings
   if [[ "$RUST_DENY_WARNS" == "1" ]]; then
