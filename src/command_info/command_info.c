@@ -2178,42 +2178,11 @@ int SetFtProfileInfo(RedisModuleCommand *cmd) {
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
-// Info for FT.CURSOR READ
-int SetFtCursorReadInfo(RedisModuleCommand *cmd) {
+// Info for FT.CURSOR
+int SetFtCursorInfo(RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
-    .summary = "Reads from a cursor",
-    .complexity = "O(1)",
-    .args = (RedisModuleCommandArg[]){
-      {
-        .name = "index",
-        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
-        .type = REDISMODULE_ARG_TYPE_STRING,
-      },
-      {
-        .name = "cursor_id",
-        .type = REDISMODULE_ARG_TYPE_INTEGER,
-      },
-      {
-        .name = "read size",
-        .token = "COUNT",
-        .type = REDISMODULE_ARG_TYPE_INTEGER,
-        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
-      },
-      {0}
-    },
-    .arity = -3,
-    .tips = "request_policy:special",
-    .since = "1.1.0",
-  };
-  return RedisModule_SetCommandInfo(cmd, &info);
-}
-
-// Info for FT.CURSOR DEL
-int SetFtCursorDelInfo(RedisModuleCommand *cmd) {
-  const RedisModuleCommandInfo info = {
-    .version = REDISMODULE_COMMAND_INFO_VERSION,
-    .summary = "Deletes a cursor",
+    .summary = "Reads from or delete a cursor",
     .complexity = "O(1)",
     .args = (RedisModuleCommandArg[]){
       {
@@ -3116,13 +3085,49 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
       {
         .name = "filter",
         .token = "FILTER",
-        .type = REDISMODULE_ARG_TYPE_STRING,
+        .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+        .subargs = (RedisModuleCommandArg[]){
+          {
+            .name = "count",
+            .type = REDISMODULE_ARG_TYPE_INTEGER,
+          },
+          {
+            .name = "filter_expression",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+          },
+          {
+            .name = "policy",
+            .token = "POLICY",
+            .type = REDISMODULE_ARG_TYPE_ONEOF,
+            .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+            .subargs = (RedisModuleCommandArg[]){
+              {
+                .name = "adhoc",
+                .token = "ADHOC",
+                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+              },
+              {
+                .name = "batches",
+                .token = "BATCHES",
+                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+              },
+              {0}
+            },
+          },
+          {
+            .name = "batch_size_value",
+            .token = "BATCH_SIZE",
+            .type = REDISMODULE_ARG_TYPE_INTEGER,
+            .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+          },
+          {0}
+        },
       },
       {0}
     },
     .arity = -4,
-    .since = "8.4.0",
+    .since = "8.4.4",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
