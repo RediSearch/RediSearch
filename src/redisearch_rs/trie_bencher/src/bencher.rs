@@ -296,11 +296,8 @@ fn insert_rust_benchmark<M: Measurement>(
         b.iter_batched_ref(
             || map.clone(),
             |data| {
-                data.insert(
-                    black_box(word),
-                    black_box(NonNull::<c_void>::dangling()),
-                )
-                .is_some()
+                data.insert(black_box(word), black_box(NonNull::<c_void>::dangling()))
+                    .is_some()
             },
             BatchSize::LargeInput,
         )
