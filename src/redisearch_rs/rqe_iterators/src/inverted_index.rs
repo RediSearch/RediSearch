@@ -492,7 +492,7 @@ where
     const fn should_abort(&self) -> bool {
         if self.it.query_ctx.is_none() {
             return false;
-        };
+        }
 
         // SAFETY: 5. from [`Self::new`]
         let rt = unsafe { self.range_tree.as_ref() };
