@@ -2872,9 +2872,9 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   if (rule->filter_exp_str) {
     const char *filter = HiddenString_GetUnsafe(rule->filter_exp_str, NULL);
     if (obfuscate) {
-      RedisModule_InfoAddFieldCString(ctx, "filter", (char*)Obfuscate_Text(filter));
+      RedisModule_InfoAddFieldCString(ctx, "filter", Obfuscate_Text(filter));
     } else {
-      RedisModule_InfoAddFieldCString(ctx, "filter", (char*)filter);
+      RedisModule_InfoAddFieldCString(ctx, "filter", filter);
     }
   }
   if (rule->lang_default)
@@ -2889,23 +2889,21 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
     RedisModule_InfoAddFieldCString(ctx, "payload_field", rule->payload_field);
   // Prefixes
   int num_prefixes = array_len(rule->prefixes);
-  if (num_prefixes) {
+  if (num_prefixes && !skip_unsafe_ops) {
     const char *first_prefix = HiddenUnicodeString_GetUnsafe(rule->prefixes[0], NULL);
     if (first_prefix && first_prefix[0] != '\0') {
-      if (!skip_unsafe_ops) {
-        // Skip when unsafe operations should be avoided (e.g., in signal handler) due to memory allocations
-        arrayof(char) prefixes = array_new(char, 512);
-        for (int i = 0; i < num_prefixes; ++i) {
-          const char *prefix = HiddenUnicodeString_GetUnsafe(rule->prefixes[i], NULL);
-          const char *prefix_to_use = obfuscate ? Obfuscate_Text(prefix) : prefix;
-          prefixes = array_ensure_append_1(prefixes, "\"");
-          prefixes = array_ensure_append_n(prefixes, prefix_to_use, strlen(prefix_to_use));
-          prefixes = array_ensure_append_n(prefixes, "\",", 2);
-        }
-        prefixes[array_len(prefixes)-1] = '\0';
-        RedisModule_InfoAddFieldCString(ctx, "prefixes", prefixes);
-        array_free(prefixes);
+      // Skip when unsafe operations should be avoided (e.g., in signal handler) due to memory allocations
+      arrayof(char) prefixes = array_new(char, 512);
+      for (int i = 0; i < num_prefixes; ++i) {
+        const char *prefix = HiddenUnicodeString_GetUnsafe(rule->prefixes[i], NULL);
+        const char *prefix_to_use = obfuscate ? Obfuscate_Prefix(prefix) : prefix;
+        prefixes = array_ensure_append_1(prefixes, "\"");
+        prefixes = array_ensure_append_n(prefixes, prefix_to_use, strlen(prefix_to_use));
+        prefixes = array_ensure_append_n(prefixes, "\",", 2);
       }
+      prefixes[array_len(prefixes)-1] = '\0';
+      RedisModule_InfoAddFieldCString(ctx, "prefixes", prefixes);
+      array_free(prefixes);
     }
   }
   RedisModule_InfoEndDictField(ctx);
@@ -2917,8 +2915,18 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
     sprintf(title, "%s_%d", "field", (i+1));
     RedisModule_InfoBeginDictField(ctx, title);
 
-    RedisModule_InfoAddFieldCString(ctx, "identifier", FieldSpec_FormatPath(fs, obfuscate));
-    RedisModule_InfoAddFieldCString(ctx, "attribute", FieldSpec_FormatName(fs, obfuscate));
+    // if we can't perform allocation then use a local buffer to format the field name
+    if (skip_unsafe_ops) {
+      char path[MAX_OBFUSCATED_PATH_NAME];
+      char name[MAX_OBFUSCATED_FIELD_NAME];
+      Obfuscate_FieldPath(fs->index, path);
+      Obfuscate_Field(fs->index, name);
+      RedisModule_InfoAddFieldCString(ctx, "identifier", path);
+      RedisModule_InfoAddFieldCString(ctx, "attribute", name);
+    } else {
+      RedisModule_InfoAddFieldCString(ctx, "identifier", FieldSpec_FormatPath(fs, obfuscate));
+      RedisModule_InfoAddFieldCString(ctx, "attribute", FieldSpec_FormatName(fs, obfuscate));
+    }
 
     if (fs->options & FieldSpec_Dynamic)
       RedisModule_InfoAddFieldCString(ctx, "type", "<DYNAMIC>");
