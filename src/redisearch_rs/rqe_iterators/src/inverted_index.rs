@@ -489,16 +489,16 @@ where
         }
     }
 
-    const fn check_abort(&self) -> bool {
+    const fn should_abort(&self) -> bool {
         if self.it.query_ctx.is_none() {
-            return true;
+            return false;
         };
 
         // SAFETY: 5. from [`Self::new`]
         let rt = unsafe { self.range_tree.as_ref() };
         // If the revision id changed the numeric tree was either completely deleted or a node was split or removed.
         // The cursor is invalidated so we cannot revalidate the iterator.
-        rt.revisionId == self.revision_id
+        rt.revisionId != self.revision_id
     }
 }
 
@@ -546,7 +546,7 @@ where
 
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if !self.check_abort() {
+        if self.should_abort() {
             return Ok(RQEValidateStatus::Aborted);
         }
 
