@@ -8,7 +8,7 @@
 */
 
 use crate::{RLookupKey, RLookupKeyFlags};
-use std::{ffi::CStr, pin::Pin, ptr::NonNull};
+use std::{ffi::CStr, marker::PhantomData, pin::Pin, ptr::NonNull};
 
 #[cfg(any(debug_assertions, test))]
 use std::ptr;
@@ -28,14 +28,31 @@ pub struct KeyList<'a> {
 
 /// A cursor over an [`RLookup`][crate::RLookup]'s key list.
 pub struct Cursor<'list, 'a> {
-    _rlookup: &'list KeyList<'a>,
+    _list: PhantomData<&'list KeyList<'a>>,
     current: Option<NonNull<RLookupKey<'a>>>,
 }
 
 /// A cursor over an [`RLookup`][crate::RLookup]'s key list with editing operations.
 pub struct CursorMut<'list, 'a> {
-    _rlookup: &'list mut KeyList<'a>,
+    list: &'list mut KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
+}
+
+/// A iterator over an [`RLookup`][crate::RLookup]'s key list.
+struct IterRaw<'a> {
+    current: Option<NonNull<RLookupKey<'a>>>,
+}
+
+/// A iterator over an [`RLookup`][crate::RLookup]'s key list.
+pub struct Iter<'list, 'a> {
+    _list: PhantomData<&'list KeyList<'a>>,
+    raw: IterRaw<'a>,
+}
+
+/// A iterator over an [`RLookup`][crate::RLookup]'s key list with editing operations.
+pub struct IterMut<'list, 'a> {
+    _list: PhantomData<&'list mut KeyList<'a>>,
+    raw: IterRaw<'a>,
 }
 
 // ===== impl KeyList =====
@@ -108,8 +125,8 @@ impl<'a> KeyList<'a> {
         self.assert_valid("KeyList::cursor_front");
 
         Cursor {
-            _rlookup: self,
             current: self.head,
+            _list: PhantomData,
         }
     }
 
@@ -120,7 +137,29 @@ impl<'a> KeyList<'a> {
 
         CursorMut {
             current: self.head,
-            _rlookup: self,
+            list: self,
+        }
+    }
+
+    /// Return a cursor over an [`RLookup`]'s key list.
+    pub fn iter(&self) -> Iter<'_, 'a> {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::iter");
+
+        Iter {
+            raw: IterRaw { current: self.head },
+            _list: PhantomData,
+        }
+    }
+
+    /// Return a cursor over an [`RLookup`]'s key list with editing operations.
+    pub fn iter_mut(&mut self) -> IterMut<'_, 'a> {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::iter_mut");
+
+        IterMut {
+            raw: IterRaw { current: self.head },
+            _list: PhantomData,
         }
     }
 
@@ -361,11 +400,56 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         old.set_next(Some(new_ptr));
 
         // If the old key was the tail, set the new key as the tail
-        if self._rlookup.tail == self.current {
-            self._rlookup.tail = Some(new_ptr);
+        if self.list.tail == self.current {
+            self.list.tail = Some(new_ptr);
         }
 
         Some(new)
+    }
+}
+
+impl<'a> Iterator for IterRaw<'a> {
+    type Item = NonNull<RLookupKey<'a>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut curr = self.current.take()?;
+
+        // Safety: The `KeyList` ensures the linked list pointers pointers are valid
+        while unsafe { curr.as_ref() }.is_tombstone() {
+            // Safety: see above
+            let curr_ = unsafe { curr.as_ref() };
+            // Safety: see above
+            curr = unsafe { *curr_.next.get().as_ref().unwrap() }?;
+        }
+
+        Some(curr)
+    }
+}
+
+impl<'list, 'a> Iterator for Iter<'list, 'a> {
+    type Item = &'list RLookupKey<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.raw.next()?;
+
+        // Safety: we immutably borrow (through a PhantomData but nonetheless) the `KeyList` ensuring
+        // it cannot be dropped or mutated while we hold the iterator. The returned reference cannot outlive the list.
+        Some(unsafe { next.as_ref() })
+    }
+}
+
+impl<'list, 'a> Iterator for IterMut<'list, 'a> {
+    type Item = Pin<&'list mut RLookupKey<'a>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut next = self.raw.next()?;
+
+        // Safety: we mutably borrow (through a PhantomData but nonetheless) the `KeyList` ensuring
+        // it cannot be dropped or mutated while we hold the iterator. The returned reference cannot outlive the list.
+        let next = unsafe { next.as_mut() };
+
+        // Safety: all keys are treated as pinned by the crate
+        Some(unsafe { Pin::new_unchecked(next) })
     }
 }
 

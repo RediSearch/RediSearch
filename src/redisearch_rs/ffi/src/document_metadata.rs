@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use redis_module::RedisString;
 use std::{
     ops::Deref,
     ptr::NonNull,
@@ -26,7 +27,7 @@ pub struct DocumentMetadata(
     /// entire lifetime of this struct.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    NonNull<ffi::RSDocumentMetadata>,
+    NonNull<crate::RSDocumentMetadata>,
 );
 
 impl DocumentMetadata {
@@ -38,15 +39,24 @@ impl DocumentMetadata {
     /// **stay** valid for the entire lifetime of the returned [`DocumentMetadata`].
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub unsafe fn from_raw(ptr: NonNull<ffi::RSDocumentMetadata>) -> Self {
+    pub unsafe fn from_raw(ptr: NonNull<crate::RSDocumentMetadata>) -> Self {
         debug_assert!(ptr.is_aligned());
 
         Self(ptr)
     }
+
+    pub fn key_name(&self, ctx: Option<NonNull<crate::RedisModuleCtx>>) -> RedisString {
+        // Safety: the caller has promised - upon construction of the DocumentMetadata - that the type is correctly initialized
+        // which means the `keyPtr` must be a valid SDS.
+        let key_name_len = unsafe { crate::sdslen__(self.keyPtr) };
+
+        // Safety: see above
+        unsafe { RedisString::from_raw_parts(ctx.map(|ctx| ctx.cast()), self.keyPtr, key_name_len) }
+    }
 }
 
 impl Deref for DocumentMetadata {
-    type Target = ffi::RSDocumentMetadata;
+    type Target = crate::RSDocumentMetadata;
 
     fn deref(&self) -> &Self::Target {
         // Safety: The caller of `DocumentMetadata::from_raw` promised the pointer is valid.
@@ -82,7 +92,7 @@ impl Drop for DocumentMetadata {
         if refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
             // Safety: The caller of `DocumentMetadata::from_raw` promised the pointer is valid.
             unsafe {
-                ffi::DMD_Free(self.0.as_ptr());
+                crate::DMD_Free(self.0.as_ptr());
             }
         }
     }

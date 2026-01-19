@@ -8,6 +8,7 @@
 */
 
 mod bindings;
+mod load_document;
 mod lookup;
 mod row;
 
