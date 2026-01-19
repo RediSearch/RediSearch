@@ -1692,10 +1692,12 @@ dependencies = [
  "proptest",
  "query_error",
  "redis-module",
+ "redis_json_api",
  "redis_mock",
  "sorting_vector",
  "strum",
  "thiserror",
+ "tracing",
  "value",
  "workspace_hack",
 ]
