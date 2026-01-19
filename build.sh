@@ -355,37 +355,60 @@ prepare_cmake_arguments() {
       exit 1
     fi
 
-    # Default to clang/clang++/lld if CC/CXX/LD are not set
-    C_COMPILER="${CC:-clang}"
-    CXX_COMPILER="${CXX:-clang++}"
-    LINKER="${LD:-lld}"
+    # Enable Rust/C LTO by using clang and lld
 
-    # Verify that the compiler is clang-based (required for LTO)
-    if [[ ! "$C_COMPILER" =~ ^clang ]]; then
+    # Determine compilers and linker:
+    # 1. Use CC/CXX/LD if set by user
+    # 2. Otherwise, try clang-$VERSION matching Rust's LLVM version
+    # 3. Otherwise, fall back to clang/clang++/lld
+    RUSTC_LLVM_VERSION=$(rustc --version --verbose | grep "LLVM version" | awk '{print $3}' | cut -d. -f1)
+    if [[ -z "$CC" ]]; then
+      if command -v "clang-$RUSTC_LLVM_VERSION" &>/dev/null; then
+        C_COMPILER="clang-$RUSTC_LLVM_VERSION"
+      else
+        C_COMPILER="clang"
+      fi
+    else
+      C_COMPILER="$CC"
+      if [[ ! "$C_COMPILER" =~ ^clang ]]; then
         echo "Error: LTO requires clang as the C compiler"
         echo "Current CC: $C_COMPILER"
         echo "Please set CC to a clang-based compiler (e.g., clang, clang-21)"
         exit 1
+      fi
     fi
-
-    if [[ ! "$CXX_COMPILER" =~ ^clang ]]; then
+    if [[ -z "$CXX" ]]; then
+      if command -v "clang++-$RUSTC_LLVM_VERSION" &>/dev/null; then
+        CXX_COMPILER="clang++-$RUSTC_LLVM_VERSION"
+      else
+        CXX_COMPILER="clang++"
+      fi
+    else
+      CXX_COMPILER="$CXX"
+      if [[ ! "$CXX_COMPILER" =~ ^clang ]]; then
         echo "Error: LTO requires clang++ as the C++ compiler"
         echo "Current CXX: $CXX_COMPILER"
         echo "Please set CXX to a clang-based compiler (e.g., clang++, clang++-21)"
         exit 1
+      fi
     fi
-
-    # Verify that the linker is lld (required for LTO)
-    if [[ ! "$LINKER" =~ ^lld ]]; then
+    if [[ -z "$LD" ]]; then
+      if command -v "lld-$RUSTC_LLVM_VERSION" &>/dev/null; then
+        LINKER="lld-$RUSTC_LLVM_VERSION"
+      else
+        LINKER="lld"
+      fi
+    else
+      LINKER="$LD"
+      if [[ ! "$LINKER" =~ ^lld ]]; then
         echo "Error: LTO requires lld as the linker"
         echo "Current LD: $LINKER"
         echo "Please set LD to lld or a versioned lld (e.g., lld, lld-21)"
         exit 1
+      fi
     fi
 
-    # Enable Rust/C LTO by using clang and lld
     # Check LLVM version compatibility between Rust and Clang
-    RUSTC_LLVM_VERSION=$(rustc --version --verbose | grep "LLVM version" | awk '{print $3}' | cut -d. -f1)
     CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | sed -n 's/.*version \([0-9]\+\).*/\1/p' | head -n1)
 
     if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" ]]; then
