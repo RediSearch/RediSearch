@@ -29,9 +29,9 @@ use std::{
 #[expect(unused, reason = "Used by followup PRs")]
 pub enum RLookupCoerceType {
     Str = 0,
-    Int = 1,
+    // Int = 1, unused
     Dbl = 2,
-    Bool = 3,
+    // Bool = 3, unused
 }
 
 // TODO [MOD-10333] remove once FieldSpec is ported to Rust
