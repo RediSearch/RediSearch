@@ -178,9 +178,6 @@ void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bo
     case QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS:
       INCR_BY(queries_warnings->maxPrefixExpansion, toAdd);
       break;
-    case QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS:
-      INCR_BY(queries_warnings->asm_inaccuracy, toAdd);
-      break;
   }
 }
 

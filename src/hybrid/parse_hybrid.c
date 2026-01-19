@@ -64,6 +64,39 @@ static void addVectorQueryParam(VectorQuery *vq, const char *name, size_t nameLe
   vq->params.needResolve = array_ensure_append_1(vq->params.needResolve, needResolve);
 }
 
+/**
+ * Parse optional subqueries count (currently only 2 supported) in FT.HYBRID.
+ *
+ * Supported formats:
+ *   - FT.HYBRID <index> SEARCH <query> ...          (no explicit count)
+ *   - FT.HYBRID <index> <count> SEARCH <query> ... (count is treated as subqueries count)
+ *
+ * After this function returns successfully, the cursor will be positioned right
+ * after the SEARCH keyword.
+ */
+static bool parseSubqueriesCount(ArgsCursor *ac, QueryError *status) {
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_ARG_REQ: SEARCH argument is required");
+    return false;
+  }
+
+  unsigned int subqueriesCount = 0;
+  const bool hasSubqueryCount = (AC_GetUnsigned(ac, &subqueriesCount, AC_F_GE1) == AC_OK); // advances only on success
+
+  if (hasSubqueryCount && subqueriesCount != HYBRID_REQUEST_NUM_SUBQUERIES) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "SEARCH_HYBRID_SUBQUERY_COUNT_UNSUPPORTED: FT.HYBRID currently supports only two subqueries");
+    return false;
+  }
+
+  if (!AC_AdvanceIfMatch(ac, "SEARCH")) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_ARG_REQ: SEARCH argument is required");
+    return false;
+  }
+
+  return true;
+}
+
 static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_QUERY_STRING_NONE: No query string provided for SEARCH");
@@ -414,6 +447,13 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
   }
 
+  // Check for optional YIELD_SCORE_AS clause
+  if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+    if (parseYieldScoreClause(ac, pvd, status) != REDISMODULE_OK) {
+      goto error;
+    }
+  }
+
   if (AC_AdvanceIfMatch(ac, "DIALECT")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, DIALECT_ERROR_MSG);
     goto error;
@@ -524,7 +564,7 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
 
 // This cannot be easily merged with IsIndexCoherent from aggregate_request.c since aggregate request parses prefixes differently.
 // Unifying would require some refactor on the aggregate flow.
-static bool IsIndexCoherentWithQuery(arrayof(const char*) prefixes, IndexSpec *spec)  {
+static bool IsIndexCoherentWithQuery(arrayof(sds) prefixes, IndexSpec *spec)  {
 
   size_t n_prefixes = array_len(prefixes);
   if (n_prefixes == 0) {
@@ -532,7 +572,7 @@ static bool IsIndexCoherentWithQuery(arrayof(const char*) prefixes, IndexSpec *s
     return true;
   }
 
-  if (n_prefixes > 0 && (!spec || !spec->rule || !spec->rule->prefixes)) {
+  if ((!spec || !spec->rule || !spec->rule->prefixes)) {
     // Index has no prefixes, but query has prefixes --> Incoherent
     return false;
   }
@@ -544,11 +584,8 @@ static bool IsIndexCoherentWithQuery(arrayof(const char*) prefixes, IndexSpec *s
 
   // Validate that the prefixes in the arguments are the same as the ones in the
   // index (also in the same order)
-  // The prefixes start right after the number
   for (uint i = 0; i < n_prefixes; i++) {
-    sds prefix_sds = sdsnew(prefixes[i]);
-    int cmp_result = HiddenUnicodeString_CompareC(spec_prefixes[i], prefix_sds);
-    sdsfree(prefix_sds);
+    int cmp_result = HiddenUnicodeString_CompareC(spec_prefixes[i], prefixes[i]);
     if (cmp_result != 0) {
       // Unmatching prefixes
       return false;
@@ -642,10 +679,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
 
   // Prefixes for the index
-  arrayof(const char*) prefixes = array_new(const char*, 0);
+  arrayof(sds) prefixes = array_new(sds, 0);
 
-  if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_ARG_REQ: SEARCH argument is required");
+  if (!parseSubqueriesCount(ac, status)) {
     goto error;
   }
 
@@ -759,7 +795,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
     goto error;
   }
-  array_free(prefixes);
+  array_free_ex(prefixes, sdsfree(*(sds *)ptr));
   prefixes = NULL;
 
   // Apply context to each request
@@ -787,12 +823,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   };
 
   hybridParams->aggregationParams = params;
-  hybridParams->synchronize_read_locks = true;
 
   return REDISMODULE_OK;
 
 error:
-  array_free(prefixes);
+  array_free_ex(prefixes, sdsfree(*(sds *)ptr));
   prefixes = NULL;
   if (mergeSearchopts.params) {
     Param_DictFree(mergeSearchopts.params);

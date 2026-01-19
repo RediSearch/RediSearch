@@ -656,7 +656,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else if (!dropCommand && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
       delDocs = true;
     } else {
-      return RedisModule_ReplyWithError(ctx, "SEARCH_ARG_UNKNOWN: Unknown argument");
+      return RedisModule_ReplyWithError(ctx, "SEARCH_ARG_UNRECOGNIZED: Unknown argument");
     }
   }
 
@@ -1429,7 +1429,7 @@ static int CreateSearchCommand(RedisModuleCtx *ctx, const SearchCommand *details
  * clusters
  * when it is not an internal OSS build. */
 int DisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return RedisModule_ReplyWithError(ctx, "Module Disabled in Open Source Redis");
+  return RedisModule_ReplyWithError(ctx, "SEARCH_MODULE_DISABLED_OSS: Module Disabled in Open Source Redis");
 }
 
 /** A wrapper function that safely checks whether we are running in OSS cluster when registering
@@ -3988,6 +3988,11 @@ int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return RedisModule_ReplyWithError(ctx, "SEARCH_CMD_TYPE_MISSING: No `SEARCH` or `AGGREGATE` provided");
 }
 
+int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
+  (void)isDebug;
+  return RSProfileCommand(ctx, argv, argc);
+}
+
 int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   MR_uvReplyClusterInfo(ctx);
   return REDISMODULE_OK;
@@ -4077,36 +4082,6 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   MR_InitLocalNodeId();
 
   return REDISMODULE_OK;
-}
-
-size_t GetNumShards_UnSafe() {
-  return NumShards;
-}
-
-/** A dummy command handler, for commands that are disabled when running the module in OSS
- * clusters
- * when it is not an internal OSS build. */
-int DisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return RedisModule_ReplyWithError(ctx, "SEARCH_MODULE_DISABLED_OSS: Module Disabled in Open Source Redis");
-}
-
-/** A wrapper function that safely checks whether we are running in OSS cluster when registering
- * commands.
- * If we are, and the module was not compiled for oss clusters, this wrapper will return a pointer
- * to a dummy function disabling the actual handler.
- *
- * If we are running in RLEC or in a special OSS build - we simply return the original command.
- *
- * All coordinator handlers must be wrapped in this decorator.
- */
-static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
-  if (IsEnterprise() && clusterConfig.type != ClusterType_RedisLabs) {
-    /* If we are running inside OSS cluster and not built for oss, we return the dummy handler */
-    return DisabledCommandHandler;
-  }
-
-  /* Valid - we return the original function */
-  return f;
 }
 
 /**
