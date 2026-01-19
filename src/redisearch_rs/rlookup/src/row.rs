@@ -9,7 +9,9 @@
 
 #[cfg(debug_assertions)]
 use crate::rlookup_id::RLookupId;
-use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule};
+use crate::{
+    RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
+};
 use sorting_vector::RSSortingVector;
 use std::{borrow::Cow, ffi::CStr};
 use value::RSValueTrait;
@@ -271,21 +273,29 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         self.dyn_values = vec![];
     }
 
-    /// Write fields from a source row into this row, the fields must exist in both lookups (schemas).
+    /// Write fields from a source row into this row.
     ///
     /// Iterate through the source lookup keys, if it finds a corresponding key in the destination
     /// lookup by name, then it's value is written to this row as a destination.
     ///
-    /// If a source key is not found in the destination lookup the function will panic (same as C behavior).
-    ///
     /// If a source key has no value in the source row, it is skipped.
+    ///
+    /// If a source key is not found in the destination lookup the function will either create it or panic
+    /// depending on the value of `create_missing_keys`.
     ///
     /// # Arguments
     ///
     /// - `dst_lookup`: The destination lookup containing the schema of this row, must be the associated lookup of `self`.
     /// - `src_row`: The source row from which to copy values.
     /// - `src_lookup`: The source lookup containing the schema of the source row, must be the associated lookup of `src_row`.
-    pub fn copy_fields_from(&mut self, dst_lookup: &RLookup, src_row: &Self, src_lookup: &RLookup) {
+    /// - `create_missing_keys`: Whether keys missing in `dst_lookup` should be created automatically, or force a panic.
+    pub fn copy_fields_from(
+        &mut self,
+        dst_lookup: &mut RLookup<'a>,
+        src_row: &Self,
+        src_lookup: &RLookup<'a>,
+        create_missing_keys: bool,
+    ) {
         let dst_row = self;
 
         // NB: the `Iterator` impl for `Cursor` will automatically skip overridden keys
@@ -296,11 +306,20 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
                 && let Some(value) = src_row.get(src_key)
             {
                 // Find corresponding key in destination lookup
-                let dst_key = dst_lookup
-                    .find_key_by_name(src_key.name())
-                    .expect("we expect all source keys to exist in destination")
-                    .into_current()
-                    .unwrap();
+                let dst_key = match dst_lookup.find_key_by_name(src_key.name()) {
+                    Some(k) => k.into_current().unwrap(),
+                    None if create_missing_keys => {
+                        // Inherit non-transient flags from source.
+                        let flags = src_key.flags & !TRANSIENT_FLAGS;
+
+                        // Key doesn't exist in destination - create it on demand.
+                        // This can happen with LOAD * where keys are created dynamically.
+                        dst_lookup
+                            .get_key_write(src_key.name().clone(), flags)
+                            .unwrap()
+                    }
+                    _ => panic!("all source keys must exist in destination"),
+                };
 
                 // Write fields to destination
                 dst_row.write_key(dst_key, value.clone());
