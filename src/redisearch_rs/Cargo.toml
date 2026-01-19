@@ -7,7 +7,9 @@ members = [
     "ffi",
     "field",
     "fnv",
+    "hll",
     "inverted_index",
+    "numeric_range_tree",
     "inverted_index_bencher",
     "thin_vec",
     "qint",
@@ -69,6 +71,8 @@ publish = false
 [workspace.dependencies]
 buffer = { path = "./buffer" }
 c_ffi_utils = { path = "./c_entrypoint/c_ffi_utils" }
+hll = { path = "./hll" }
+numeric_range_tree = { path = "./numeric_range_tree" }
 document = { path = "./document" }
 ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }

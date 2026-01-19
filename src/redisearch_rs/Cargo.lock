@@ -690,6 +690,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
+name = "hll"
+version = "0.0.1"
+dependencies = [
+ "fnv",
+ "proptest",
+ "workspace_hack",
+]
+
+[[package]]
 name = "http"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1161,6 +1170,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "numeric_range_tree"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "hll",
+ "inverted_index",
+ "inverted_index_ffi",
+ "proptest",
+ "workspace_hack",
+]
+
+[[package]]
+name = "numeric_range_tree_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "hll",
+ "inverted_index",
+ "inverted_index_ffi",
+ "numeric_range_tree",
+ "workspace_hack",
 ]
 
 [[package]]
