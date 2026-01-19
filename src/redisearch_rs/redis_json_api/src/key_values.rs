@@ -39,6 +39,8 @@ impl Drop for KeyValuesIterator<'_> {
 impl<'a> KeyValuesIterator<'a> {
     /// Construct a new `KeyValuesIterator` from a raw pointer.
     ///
+    /// Only available with RedisJSON API v4 and later.
+    ///
     /// # Safety
     ///
     /// 1. `ctx` must be a valid Redis module context.
@@ -69,6 +71,9 @@ impl<'a> KeyValuesIterator<'a> {
 impl<'a> Iterator for KeyValuesIterator<'a> {
     type Item = (RedisString, JsonValue<'a>);
 
+    /// Yield the next key-value pair.
+    ///
+    /// Only available with RedisJSON API v6 and later.
     fn next(&mut self) -> Option<Self::Item> {
         let mut key: *mut ffi::RedisModuleString = std::ptr::null_mut();
         let value = JsonValue::new(self.api);

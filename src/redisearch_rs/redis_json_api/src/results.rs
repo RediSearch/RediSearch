@@ -10,7 +10,7 @@
 use super::RedisJsonApi;
 use crate::{JsonValueRef, SerializeError};
 use redis_module::RedisString;
-use std::os::raw::c_void;
+use std::ffi::c_void;
 use std::ptr::NonNull;
 
 /// An iterator over JSON query results.
@@ -23,12 +23,6 @@ pub struct ResultsIter<'a> {
     next: unsafe extern "C" fn(ffi::JSONResultsIterator) -> ffi::RedisJSON,
     free: unsafe extern "C" fn(ffi::JSONResultsIterator),
     len: unsafe extern "C" fn(ffi::JSONResultsIterator) -> usize,
-    reset_iter: unsafe extern "C" fn(ffi::JSONResultsIterator),
-    get_json_from_iter: unsafe extern "C" fn(
-        *const c_void,
-        *mut ffi::RedisModuleCtx,
-        *mut *mut ffi::RedisModuleString,
-    ) -> i32,
     api: &'a RedisJsonApi,
 }
 
@@ -57,20 +51,12 @@ impl<'a> ResultsIter<'a> {
         let len = vtable
             .len
             .expect("RedisJSON API function `len` not available");
-        let reset_iter = vtable
-            .resetIter
-            .expect("RedisJSON API function `resetIter` not available");
-        let get_json_from_iter = vtable
-            .getJSONFromIter
-            .expect("RedisJSON API function `getJSONFromIter` not available");
 
         Self {
             ptr,
             next,
             free,
             len,
-            reset_iter,
-            get_json_from_iter,
             api,
         }
     }
@@ -88,12 +74,21 @@ impl<'a> ResultsIter<'a> {
     }
 
     /// Resets the iterator to the beginning.
+    ///
+    /// Only available with RedisJSON API v3 and later.
     pub fn reset(&mut self) {
+        let vtable = self.api.vtable();
+        let reset_iter = vtable
+            .resetIter
+            .expect("RedisJSON API function `resetIter` not available");
+
         // Safety: `ptr` is valid by construction.
-        unsafe { (self.reset_iter)(self.ptr.as_ptr()) };
+        unsafe { reset_iter(self.ptr.as_ptr()) };
     }
 
     /// Serializes all results in this iterator to a JSON string.
+    ///
+    /// Only available with RedisJSON API v3 and later.
     ///
     /// # Safety
     ///
@@ -103,10 +98,14 @@ impl<'a> ResultsIter<'a> {
         &self,
         ctx: *mut ffi::RedisModuleCtx,
     ) -> Result<RedisString, SerializeError> {
+        let vtable = self.api.vtable();
+        let get_json_from_iter = vtable
+            .getJSONFromIter
+            .expect("RedisJSON API function `getJSONFromIter` not available");
         let mut str: *mut ffi::RedisModuleString = std::ptr::null_mut();
 
         // Safety: `ptr` and `ctx` are valid by construction/caller guarantee
-        let status = unsafe { (self.get_json_from_iter)(self.ptr.as_ptr(), ctx, &mut str) };
+        let status = unsafe { get_json_from_iter(self.ptr.as_ptr(), ctx, &mut str) };
 
         if status == ffi::REDISMODULE_OK as i32 {
             Ok(RedisString::from_redis_module_string(

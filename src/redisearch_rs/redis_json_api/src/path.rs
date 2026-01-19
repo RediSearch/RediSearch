@@ -13,7 +13,7 @@ use std::ffi::CStr;
 
 use super::RedisJsonApi;
 
-use std::os::raw::c_void;
+use std::ffi::c_void;
 
 use std::ptr::NonNull;
 
@@ -34,6 +34,8 @@ impl<'a> JsonPath<'a> {
     /// Parses a JSON path expression.
     ///
     /// Returns the parsed path on success, or an error message on failure.
+    ///
+    /// Only available with RedisJSON API v2 and later.
     ///
     /// # Safety
     ///
@@ -75,6 +77,8 @@ impl<'a> JsonPath<'a> {
     ///
     /// A path is "single" if it doesn't contain wildcards or recursive
     /// descent operators that could match multiple values.
+    ///
+    /// Only available with RedisJSON API v2 and later.
     pub fn is_single(&self) -> bool {
         let vtable = self.api.vtable();
         let path_is_single = vtable
@@ -90,6 +94,8 @@ impl<'a> JsonPath<'a> {
     /// Paths with defined order will always return results in the same
     /// order when applied to the same document. Paths with wildcards
     /// or recursive descent may not have a defined order.
+    ///
+    /// Only available with RedisJSON API v2 and later.
     pub fn path_has_defined_order(&self) -> bool {
         let vtable = self.api.vtable();
         let path_has_defined_order = vtable

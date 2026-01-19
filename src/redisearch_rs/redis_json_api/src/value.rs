@@ -221,6 +221,8 @@ impl<'a> JsonValueRef<'a> {
     }
 
     /// Returns the element at index `idx` of this `JsonValue`s if it is an Array or `None` otherwise.
+    ///
+    /// Only available with RedisJSON API v6 and later.
     pub fn get_at(&self, idx: usize) -> Option<JsonValue<'_>> {
         let vtable = self.api.vtable();
         let get_at = vtable
@@ -239,6 +241,8 @@ impl<'a> JsonValueRef<'a> {
     }
 
     /// Returns a iterator over this `JsonValue`s the key-value pairs if it is an Object or `None` otherwise.
+    ///
+    /// Only available with RedisJSON API v4 and later.
     ///
     /// # Safety
     ///
@@ -320,6 +324,9 @@ impl Drop for JsonValue<'_> {
 }
 
 impl<'a> JsonValue<'a> {
+    /// Allocate a new `JsonValue`.
+    ///
+    /// Only available with RedisJSON API v6 and later.
     pub(crate) fn new(api: &'a RedisJsonApi) -> Self {
         let vtable = api.vtable();
         let alloc_json = vtable

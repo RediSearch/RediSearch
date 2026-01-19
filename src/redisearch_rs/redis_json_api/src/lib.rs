@@ -140,6 +140,8 @@ impl RedisJsonApi {
     ///
     /// Returns `None` if the key doesn't exist or is not a JSON type.
     ///
+    /// Only available with RedisJSON API v5 and later.
+    ///
     /// # Safety
     ///
     /// 1. `ctx` must be a valid Redis module context.
