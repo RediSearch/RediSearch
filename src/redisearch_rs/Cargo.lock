@@ -821,12 +821,12 @@ dependencies = [
  "enumflags2",
  "ffi",
  "field",
- "low_memory_thin_vec",
  "pretty_assertions",
  "proptest",
  "qint",
  "serde",
  "smallvec",
+ "thin_vec",
  "varint",
  "workspace_hack",
 ]
@@ -1028,23 +1028,6 @@ name = "log"
 version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
-
-[[package]]
-name = "low_memory_thin_vec"
-version = "0.0.1"
-dependencies = [
- "workspace_hack",
-]
-
-[[package]]
-name = "low_memory_thin_vec_ffi"
-version = "0.0.1"
-dependencies = [
- "build_utils",
- "cbindgen",
- "low_memory_thin_vec",
- "workspace_hack",
-]
 
 [[package]]
 name = "macro_rules_attribute"
@@ -2058,6 +2041,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "thin_vec"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
+name = "thin_vec_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "thin_vec",
+ "workspace_hack",
+]
+
+[[package]]
 name = "thiserror"
 version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2247,9 +2247,9 @@ dependencies = [
  "cbindgen",
  "lending-iterator",
  "libc",
- "low_memory_thin_vec",
  "redis-module",
  "redis_mock",
+ "thin_vec",
  "trie_rs",
  "wildcard 0.0.1",
  "workspace_hack",

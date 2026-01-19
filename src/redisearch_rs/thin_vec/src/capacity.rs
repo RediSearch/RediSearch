@@ -9,7 +9,7 @@ mod private {
     impl Sealed for u64 {}
 }
 
-/// Trait for types that can be used as the size/capacity type for [`LowMemoryThinVec`](crate::LowMemoryThinVec).
+/// Trait for types that can be used as the size/capacity type for [`ThinVec`](crate::ThinVec).
 ///
 /// This trait is sealed and can only be implemented for u8, u16, u32, and u64.
 pub trait VecCapacity:
@@ -49,7 +49,7 @@ impl VecCapacity for u8 {
     fn from_usize(val: usize) -> Self {
         if val > <Self as VecCapacity>::MAX as usize {
             panic!(
-                "LowMemoryThinVec size may not exceed the capacity of an {} sized int",
+                "TinyThinVec size may not exceed the capacity of an {} sized int",
                 Self::TYPE_NAME
             );
         }
@@ -72,7 +72,7 @@ impl VecCapacity for u16 {
     fn from_usize(val: usize) -> Self {
         if val > <Self as VecCapacity>::MAX as usize {
             panic!(
-                "LowMemoryThinVec size may not exceed the capacity of a {} sized int",
+                "SmallThinVec size may not exceed the capacity of a {} sized int",
                 Self::TYPE_NAME
             );
         }
@@ -95,7 +95,7 @@ impl VecCapacity for u32 {
     fn from_usize(val: usize) -> Self {
         if val > <Self as VecCapacity>::MAX as usize {
             panic!(
-                "LowMemoryThinVec size may not exceed the capacity of a {} sized int",
+                "MediumThinVec size may not exceed the capacity of a {} sized int",
                 Self::TYPE_NAME
             );
         }

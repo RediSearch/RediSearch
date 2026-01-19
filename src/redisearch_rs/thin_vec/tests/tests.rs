@@ -1,25 +1,27 @@
 use core::mem::size_of;
 use core::usize;
-use low_memory_thin_vec::{Header, LowMemoryThinVec, VecCapacity, low_memory_thin_vec};
 use std::format;
 use std::vec;
+use thin_vec::{
+    Header, MediumThinVec, SmallThinVec, ThinVec, TinyThinVec, VecCapacity, small_thin_vec,
+};
 
 #[test]
 fn test_size_of() {
     use core::mem::size_of;
-    assert_eq!(size_of::<LowMemoryThinVec<u8>>(), size_of::<&u8>());
+    assert_eq!(size_of::<SmallThinVec<u8>>(), size_of::<&u8>());
 
-    assert_eq!(size_of::<Option<LowMemoryThinVec<u8>>>(), size_of::<&u8>());
+    assert_eq!(size_of::<Option<SmallThinVec<u8>>>(), size_of::<&u8>());
 }
 
 #[test]
 fn test_drop_empty() {
-    LowMemoryThinVec::<u8>::new();
+    SmallThinVec::<u8>::new();
 }
 
 #[test]
 fn test_alloc() {
-    let mut v: LowMemoryThinVec<i32> = LowMemoryThinVec::new();
+    let mut v: SmallThinVec<i32> = SmallThinVec::new();
     assert!(!v.has_allocated());
     v.push(1);
     assert!(v.has_allocated());
@@ -29,15 +31,15 @@ fn test_alloc() {
     assert!(!v.has_allocated());
     v.reserve(64);
     assert!(v.has_allocated());
-    v = LowMemoryThinVec::with_capacity(64);
+    v = SmallThinVec::with_capacity(64);
     assert!(v.has_allocated());
-    v = LowMemoryThinVec::with_capacity(0);
+    v = SmallThinVec::with_capacity(0);
     assert!(!v.has_allocated());
 }
 
 #[test]
 fn test_clone() {
-    let mut v = LowMemoryThinVec::<i32>::new();
+    let mut v = SmallThinVec::<i32>::new();
     assert!(!v.has_allocated());
     v.push(0);
     v.pop();
@@ -49,18 +51,18 @@ fn test_clone() {
 
 #[test]
 fn test_partial_eq() {
-    let v1: LowMemoryThinVec<i32> = low_memory_thin_vec![0];
-    let v2: LowMemoryThinVec<i32> = low_memory_thin_vec![0];
-    let v3: LowMemoryThinVec<i32> = low_memory_thin_vec![1];
+    let v1: SmallThinVec<i32> = small_thin_vec![0];
+    let v2: SmallThinVec<i32> = small_thin_vec![0];
+    let v3: SmallThinVec<i32> = small_thin_vec![1];
     assert_eq!(v1, v2);
     assert_ne!(v1, v3);
-    let v4: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    let v4: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
     assert_eq!(v4, vec![1, 2, 3]);
 }
 
 #[test]
 fn test_clear() {
-    let mut v = LowMemoryThinVec::<i32>::new();
+    let mut v = SmallThinVec::<i32>::new();
     assert_eq!(v.len(), 0);
     assert_eq!(v.capacity(), 0);
     assert_eq!(&v[..], &[]);
@@ -101,7 +103,7 @@ fn test_clear() {
 #[test]
 fn test_empty_singleton_torture() {
     {
-        let mut v = LowMemoryThinVec::<i32>::new();
+        let mut v = SmallThinVec::<i32>::new();
         assert_eq!(v.len(), 0);
         assert_eq!(v.capacity(), 0);
         assert!(v.is_empty());
@@ -115,10 +117,10 @@ fn test_empty_singleton_torture() {
     }
 
     {
-        let v = LowMemoryThinVec::<i32>::new();
+        let v = SmallThinVec::<i32>::new();
         assert_eq!(v.into_iter().count(), 0);
 
-        let v = LowMemoryThinVec::<i32>::new();
+        let v = SmallThinVec::<i32>::new();
         #[allow(clippy::never_loop)]
         for _ in v.into_iter() {
             unreachable!();
@@ -126,7 +128,7 @@ fn test_empty_singleton_torture() {
     }
 
     {
-        let mut v = LowMemoryThinVec::<i32>::new();
+        let mut v = SmallThinVec::<i32>::new();
         v.truncate(1);
         assert_eq!(v.len(), 0);
         assert_eq!(v.capacity(), 0);
@@ -139,7 +141,7 @@ fn test_empty_singleton_torture() {
     }
 
     {
-        let mut v = LowMemoryThinVec::<i32>::new();
+        let mut v = SmallThinVec::<i32>::new();
         v.shrink_to_fit();
         assert_eq!(v.len(), 0);
         assert_eq!(v.capacity(), 0);
@@ -147,7 +149,7 @@ fn test_empty_singleton_torture() {
     }
 
     {
-        let mut v = LowMemoryThinVec::<i32>::new();
+        let mut v = SmallThinVec::<i32>::new();
         let new = v.split_off(0);
         assert_eq!(v.len(), 0);
         assert_eq!(v.capacity(), 0);
@@ -159,7 +161,7 @@ fn test_empty_singleton_torture() {
     }
 
     {
-        let mut v = LowMemoryThinVec::<i32>::new();
+        let mut v = SmallThinVec::<i32>::new();
         v.reserve(0);
 
         assert_eq!(v.len(), 0);
@@ -168,7 +170,7 @@ fn test_empty_singleton_torture() {
     }
 
     {
-        let mut v = LowMemoryThinVec::<i32>::new();
+        let mut v = SmallThinVec::<i32>::new();
         v.reserve_exact(0);
 
         assert_eq!(v.len(), 0);
@@ -177,7 +179,7 @@ fn test_empty_singleton_torture() {
     }
 
     {
-        let mut v = LowMemoryThinVec::<i32>::new();
+        let mut v = SmallThinVec::<i32>::new();
         v.reserve(0);
 
         assert_eq!(v.len(), 0);
@@ -186,7 +188,7 @@ fn test_empty_singleton_torture() {
     }
 
     {
-        let v = LowMemoryThinVec::<i32>::with_capacity(0);
+        let v = SmallThinVec::<i32>::with_capacity(0);
 
         assert_eq!(v.len(), 0);
         assert_eq!(v.capacity(), 0);
@@ -194,7 +196,7 @@ fn test_empty_singleton_torture() {
     }
 
     {
-        let v = LowMemoryThinVec::<i32>::default();
+        let v = SmallThinVec::<i32>::default();
 
         assert_eq!(v.len(), 0);
         assert_eq!(v.capacity(), 0);
@@ -202,7 +204,7 @@ fn test_empty_singleton_torture() {
     }
 
     {
-        let mut v = LowMemoryThinVec::<i32>::new();
+        let mut v = SmallThinVec::<i32>::new();
         v.retain(|_| unreachable!());
 
         assert_eq!(v.len(), 0);
@@ -211,7 +213,7 @@ fn test_empty_singleton_torture() {
     }
 
     {
-        let mut v = LowMemoryThinVec::<i32>::new();
+        let mut v = SmallThinVec::<i32>::new();
         v.retain_mut(|_| unreachable!());
 
         assert_eq!(v.len(), 0);
@@ -220,7 +222,7 @@ fn test_empty_singleton_torture() {
     }
 
     {
-        let v = LowMemoryThinVec::<i32>::new();
+        let v = SmallThinVec::<i32>::new();
         let v = v.clone();
 
         assert_eq!(v.len(), 0);
@@ -251,21 +253,21 @@ impl Drop for DropTracker {
 
 #[test]
 fn test_small_vec_struct() {
-    assert!(size_of::<LowMemoryThinVec<u8>>() == size_of::<usize>());
+    assert!(size_of::<SmallThinVec<u8>>() == size_of::<usize>());
 }
 
 #[test]
 fn test_double_drop() {
     struct TwoVec<T> {
-        x: LowMemoryThinVec<T>,
-        y: LowMemoryThinVec<T>,
+        x: SmallThinVec<T>,
+        y: SmallThinVec<T>,
     }
 
     let (mut count_x, mut count_y) = (0, 0);
     {
         let mut tv = TwoVec {
-            x: LowMemoryThinVec::new(),
-            y: LowMemoryThinVec::new(),
+            x: SmallThinVec::new(),
+            y: SmallThinVec::new(),
         };
         tv.x.push(DropCounter {
             count: &mut count_x,
@@ -274,7 +276,7 @@ fn test_double_drop() {
             count: &mut count_y,
         });
 
-        // If LowMemoryThinVec had a drop flag, here is where it would be zeroed.
+        // If ThinVec had a drop flag, here is where it would be zeroed.
         // Instead, it should rely on its internal state to prevent
         // doing anything significant when dropped multiple times.
         drop(tv.x);
@@ -288,7 +290,7 @@ fn test_double_drop() {
 
 #[test]
 fn test_reserve() {
-    let mut v: LowMemoryThinVec<i32> = LowMemoryThinVec::new();
+    let mut v: SmallThinVec<i32> = SmallThinVec::new();
     assert_eq!(v.capacity(), 0);
 
     v.reserve(2);
@@ -309,22 +311,18 @@ fn test_reserve() {
 }
 
 #[test]
-#[should_panic(
-    expected = "LowMemoryThinVec size may not exceed the capacity of an 8-bit sized int"
-)]
+#[should_panic(expected = "ThinVec size may not exceed the capacity of an 8-bit sized int")]
 fn test_reserve_beyond_max_capacity() {
-    let mut v: LowMemoryThinVec<i32, u8> = LowMemoryThinVec::new();
+    let mut v: TinyThinVec<i32> = TinyThinVec::new();
     assert_eq!(v.capacity(), 0);
 
     v.reserve(u8::MAX as usize + 1);
 }
 
 #[test]
-#[should_panic(
-    expected = "LowMemoryThinVec size may not exceed the capacity of an 8-bit sized int"
-)]
+#[should_panic(expected = "ThinVec size may not exceed the capacity of an 8-bit sized int")]
 fn test_reserve_exact_beyond_max_capacity() {
-    let mut v: LowMemoryThinVec<i32, u8> = LowMemoryThinVec::new();
+    let mut v: TinyThinVec<i32> = TinyThinVec::new();
     assert_eq!(v.capacity(), 0);
 
     v.reserve_exact(u8::MAX as usize + 1);
@@ -332,8 +330,8 @@ fn test_reserve_exact_beyond_max_capacity() {
 
 #[test]
 fn test_extend() {
-    let mut v = LowMemoryThinVec::<usize>::new();
-    let mut w: LowMemoryThinVec<usize> = LowMemoryThinVec::new();
+    let mut v = SmallThinVec::<usize>::new();
+    let mut w: SmallThinVec<usize> = SmallThinVec::new();
     v.extend(w.clone());
     assert_eq!(v, &[]);
 
@@ -358,8 +356,8 @@ fn test_extend() {
     #[derive(PartialEq, Debug)]
     struct Foo;
 
-    let mut a: LowMemoryThinVec<Foo> = LowMemoryThinVec::new();
-    let b: LowMemoryThinVec<Foo> = low_memory_thin_vec![Foo, Foo];
+    let mut a: SmallThinVec<Foo> = SmallThinVec::new();
+    let b: SmallThinVec<Foo> = small_thin_vec![Foo, Foo];
 
     a.extend(b);
     assert_eq!(a, &[Foo, Foo]);
@@ -367,8 +365,8 @@ fn test_extend() {
     // Double drop
     let mut count_x = 0;
     {
-        let mut x: LowMemoryThinVec<DropCounter> = LowMemoryThinVec::new();
-        let y: LowMemoryThinVec<DropCounter> = low_memory_thin_vec![DropCounter {
+        let mut x: SmallThinVec<DropCounter> = SmallThinVec::new();
+        let y: SmallThinVec<DropCounter> = small_thin_vec![DropCounter {
             count: &mut count_x
         }];
         x.extend(y);
@@ -379,7 +377,7 @@ fn test_extend() {
 
 #[test]
 fn test_slice_from_mut() {
-    let mut values: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3, 4, 5];
+    let mut values: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
     {
         let slice = &mut values[2..];
         assert!(slice == [3, 4, 5]);
@@ -393,7 +391,7 @@ fn test_slice_from_mut() {
 
 #[test]
 fn test_slice_to_mut() {
-    let mut values: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3, 4, 5];
+    let mut values: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
     {
         let slice = &mut values[..2];
         assert!(slice == [1, 2]);
@@ -407,7 +405,7 @@ fn test_slice_to_mut() {
 
 #[test]
 fn test_split_at_mut() {
-    let mut values: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3, 4, 5];
+    let mut values: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
     {
         let (left, right) = values.split_at_mut(2);
         {
@@ -432,10 +430,9 @@ fn test_split_at_mut() {
 
 #[test]
 fn test_clone_from() {
-    let mut v: LowMemoryThinVec<Box<i32>> = low_memory_thin_vec![];
-    let three: LowMemoryThinVec<Box<i32>> =
-        low_memory_thin_vec![Box::new(1), Box::new(2), Box::new(3)];
-    let two: LowMemoryThinVec<Box<i32>> = low_memory_thin_vec![Box::new(4), Box::new(5)];
+    let mut v: SmallThinVec<Box<i32>> = small_thin_vec![];
+    let three: SmallThinVec<Box<i32>> = small_thin_vec![Box::new(1), Box::new(2), Box::new(3)];
+    let two: SmallThinVec<Box<i32>> = small_thin_vec![Box::new(4), Box::new(5)];
     // zero, long
     v.clone_from(&three);
     assert_eq!(v, three);
@@ -455,14 +452,14 @@ fn test_clone_from() {
 
 #[test]
 fn test_retain() {
-    let mut vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3, 4];
+    let mut vec: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4];
     vec.retain(|&x| x % 2 == 0);
     assert_eq!(vec, [2, 4]);
 }
 
 #[test]
 fn test_retain_mut() {
-    let mut vec: LowMemoryThinVec<i32> = low_memory_thin_vec![9, 9, 9, 9];
+    let mut vec: SmallThinVec<i32> = small_thin_vec![9, 9, 9, 9];
     let mut i = 0;
     vec.retain_mut(|x| {
         i += 1;
@@ -474,7 +471,7 @@ fn test_retain_mut() {
 
 #[test]
 fn zero_sized_values() {
-    let mut v: LowMemoryThinVec<()> = LowMemoryThinVec::new();
+    let mut v: SmallThinVec<()> = SmallThinVec::new();
     assert_eq!(v.len(), 0);
     v.push(());
     assert_eq!(v.len(), 1);
@@ -507,41 +504,29 @@ fn zero_sized_values() {
 
 #[test]
 fn test_partition() {
-    let empty: LowMemoryThinVec<i32> = low_memory_thin_vec![];
-    let result: (LowMemoryThinVec<i32>, LowMemoryThinVec<i32>) =
+    let empty: SmallThinVec<i32> = small_thin_vec![];
+    let result: (SmallThinVec<i32>, SmallThinVec<i32>) =
         empty.into_iter().partition(|x: &i32| *x < 3);
-    assert_eq!(result, (low_memory_thin_vec![], low_memory_thin_vec![]));
+    assert_eq!(result, (small_thin_vec![], small_thin_vec![]));
 
-    let v1: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
-    let result: (LowMemoryThinVec<i32>, LowMemoryThinVec<i32>) =
-        v1.into_iter().partition(|x| *x < 4);
-    assert_eq!(
-        result,
-        (low_memory_thin_vec![1, 2, 3], low_memory_thin_vec![])
-    );
+    let v1: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
+    let result: (SmallThinVec<i32>, SmallThinVec<i32>) = v1.into_iter().partition(|x| *x < 4);
+    assert_eq!(result, (small_thin_vec![1, 2, 3], small_thin_vec![]));
 
-    let v2: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
-    let result: (LowMemoryThinVec<i32>, LowMemoryThinVec<i32>) =
-        v2.into_iter().partition(|x| *x < 2);
-    assert_eq!(
-        result,
-        (low_memory_thin_vec![1], low_memory_thin_vec![2, 3])
-    );
+    let v2: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
+    let result: (SmallThinVec<i32>, SmallThinVec<i32>) = v2.into_iter().partition(|x| *x < 2);
+    assert_eq!(result, (small_thin_vec![1], small_thin_vec![2, 3]));
 
-    let v3: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
-    let result: (LowMemoryThinVec<i32>, LowMemoryThinVec<i32>) =
-        v3.into_iter().partition(|x| *x < 0);
-    assert_eq!(
-        result,
-        (low_memory_thin_vec![], low_memory_thin_vec![1, 2, 3])
-    );
+    let v3: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
+    let result: (SmallThinVec<i32>, SmallThinVec<i32>) = v3.into_iter().partition(|x| *x < 0);
+    assert_eq!(result, (small_thin_vec![], small_thin_vec![1, 2, 3]));
 }
 
 #[test]
 fn test_zip_unzip() {
-    let z1: LowMemoryThinVec<(i32, i32)> = low_memory_thin_vec![(1, 4), (2, 5), (3, 6)];
+    let z1: SmallThinVec<(i32, i32)> = small_thin_vec![(1, 4), (2, 5), (3, 6)];
 
-    let (left, right): (LowMemoryThinVec<i32>, LowMemoryThinVec<i32>) = z1.iter().cloned().unzip();
+    let (left, right): (SmallThinVec<i32>, SmallThinVec<i32>) = z1.iter().cloned().unzip();
 
     assert_eq!((1, 4), (left[0], right[0]));
     assert_eq!((2, 5), (left[1], right[1]));
@@ -550,22 +535,22 @@ fn test_zip_unzip() {
 
 #[test]
 fn test_remove() {
-    let mut v: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    let mut v: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
     let mut i = v.remove(1);
     assert_eq!(i, 2);
-    let expected: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 3];
+    let expected: SmallThinVec<i32> = small_thin_vec![1, 3];
     assert_eq!(v, expected);
 
     i = v.remove(0);
     assert_eq!(i, 1);
-    let expected: LowMemoryThinVec<i32> = low_memory_thin_vec![3];
+    let expected: SmallThinVec<i32> = small_thin_vec![3];
     assert_eq!(v, expected);
 }
 
 #[test]
 #[should_panic]
 fn test_remove_out_of_bounds() {
-    let mut v: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    let mut v: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
     v.remove(3);
 }
 
@@ -575,7 +560,7 @@ fn test_vec_truncate_drop() {
     use std::rc::Rc;
 
     let drops = Rc::new(Cell::new(0u32));
-    let mut v: LowMemoryThinVec<DropTracker> = low_memory_thin_vec![
+    let mut v: SmallThinVec<DropTracker> = small_thin_vec![
         DropTracker(Rc::clone(&drops)),
         DropTracker(Rc::clone(&drops)),
         DropTracker(Rc::clone(&drops)),
@@ -602,8 +587,8 @@ fn test_vec_truncate_fail() {
         }
     }
 
-    let mut v: LowMemoryThinVec<BadElem> =
-        low_memory_thin_vec![BadElem(1), BadElem(2), BadElem(0xbadbeef), BadElem(4)];
+    let mut v: SmallThinVec<BadElem> =
+        small_thin_vec![BadElem(1), BadElem(2), BadElem(0xbadbeef), BadElem(4)];
     v.truncate(0);
 }
 
@@ -620,70 +605,70 @@ fn test_vec_clear_fail() {
         }
     }
 
-    let mut v: LowMemoryThinVec<BadElem> =
-        low_memory_thin_vec![BadElem(1), BadElem(2), BadElem(0xbadbeef), BadElem(4)];
+    let mut v: SmallThinVec<BadElem> =
+        small_thin_vec![BadElem(1), BadElem(2), BadElem(0xbadbeef), BadElem(4)];
     v.clear();
 }
 
 #[test]
 fn test_index() {
-    let vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    let vec: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
     assert!(vec[1] == 2);
 }
 
 #[test]
 #[should_panic]
 fn test_index_out_of_bounds() {
-    let vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    let vec: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
     let _ = vec[3];
 }
 
 #[test]
 #[should_panic]
 fn test_slice_out_of_bounds_1() {
-    let x: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3, 4, 5];
+    let x: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
     let _ = &x[!0..];
 }
 
 #[test]
 #[should_panic]
 fn test_slice_out_of_bounds_2() {
-    let x: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3, 4, 5];
+    let x: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
     let _ = &x[..6];
 }
 
 #[test]
 #[should_panic]
 fn test_slice_out_of_bounds_3() {
-    let x: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3, 4, 5];
+    let x: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
     let _ = &x[!0..4];
 }
 
 #[test]
 #[should_panic]
 fn test_slice_out_of_bounds_4() {
-    let x: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3, 4, 5];
+    let x: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
     let _ = &x[1..6];
 }
 
 #[test]
 #[should_panic]
 fn test_slice_out_of_bounds_5() {
-    let x: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3, 4, 5];
+    let x: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
     let _ = &x[3..2];
 }
 
 #[test]
 #[should_panic]
 fn test_swap_remove_empty() {
-    let mut vec = LowMemoryThinVec::<i32>::new();
+    let mut vec = SmallThinVec::<i32>::new();
     vec.swap_remove(0);
 }
 
 #[test]
 fn test_move_items() {
-    let vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
-    let mut vec2: LowMemoryThinVec<i32> = low_memory_thin_vec![];
+    let vec: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
+    let mut vec2: SmallThinVec<i32> = small_thin_vec![];
     for i in vec {
         vec2.push(i);
     }
@@ -692,8 +677,8 @@ fn test_move_items() {
 
 #[test]
 fn test_move_items_reverse() {
-    let vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
-    let mut vec2: LowMemoryThinVec<i32> = low_memory_thin_vec![];
+    let vec: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
+    let mut vec2: SmallThinVec<i32> = small_thin_vec![];
     for i in vec.into_iter().rev() {
         vec2.push(i);
     }
@@ -702,8 +687,8 @@ fn test_move_items_reverse() {
 
 #[test]
 fn test_move_items_zero_sized() {
-    let vec: LowMemoryThinVec<()> = low_memory_thin_vec![(), (), ()];
-    let mut vec2: LowMemoryThinVec<()> = low_memory_thin_vec![];
+    let vec: SmallThinVec<()> = small_thin_vec![(), (), ()];
+    let mut vec2: SmallThinVec<()> = small_thin_vec![];
     for i in vec {
         vec2.push(i);
     }
@@ -712,7 +697,7 @@ fn test_move_items_zero_sized() {
 
 #[test]
 fn test_split_off() {
-    let mut vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3, 4, 5, 6];
+    let mut vec: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5, 6];
     let vec2 = vec.split_off(4);
     assert_eq!(vec, [1, 2, 3, 4]);
     assert_eq!(vec2, [5, 6]);
@@ -720,7 +705,7 @@ fn test_split_off() {
 
 #[test]
 fn test_into_iter_as_slice() {
-    let vec: LowMemoryThinVec<char> = low_memory_thin_vec!['a', 'b', 'c'];
+    let vec: SmallThinVec<char> = small_thin_vec!['a', 'b', 'c'];
     let mut into_iter = vec.into_iter();
     assert_eq!(into_iter.as_slice(), &['a', 'b', 'c']);
     let _ = into_iter.next().unwrap();
@@ -732,7 +717,7 @@ fn test_into_iter_as_slice() {
 
 #[test]
 fn test_into_iter_as_mut_slice() {
-    let vec: LowMemoryThinVec<char> = low_memory_thin_vec!['a', 'b', 'c'];
+    let vec: SmallThinVec<char> = small_thin_vec!['a', 'b', 'c'];
     let mut into_iter = vec.into_iter();
     assert_eq!(into_iter.as_slice(), &['a', 'b', 'c']);
     into_iter.as_mut_slice()[0] = 'x';
@@ -743,7 +728,7 @@ fn test_into_iter_as_mut_slice() {
 
 #[test]
 fn test_into_iter_debug() {
-    let vec: LowMemoryThinVec<char> = low_memory_thin_vec!['a', 'b', 'c'];
+    let vec: SmallThinVec<char> = small_thin_vec!['a', 'b', 'c'];
     let into_iter = vec.into_iter();
     let debug = format!("{into_iter:?}");
     assert_eq!(debug, "IntoIter(['a', 'b', 'c'])");
@@ -751,17 +736,17 @@ fn test_into_iter_debug() {
 
 #[test]
 fn test_into_iter_count() {
-    let vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    let vec: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
     assert_eq!(vec.into_iter().count(), 3);
 }
 
 #[test]
 fn test_into_iter_clone() {
     fn iter_equal<I: Iterator<Item = i32>>(it: I, slice: &[i32]) {
-        let v: LowMemoryThinVec<i32> = it.collect();
+        let v: SmallThinVec<i32> = it.collect();
         assert_eq!(&v[..], slice);
     }
-    let vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    let vec: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
     let mut it = vec.into_iter();
     iter_equal(it.clone(), &[1, 2, 3]);
     assert_eq!(it.next(), Some(1));
@@ -778,7 +763,7 @@ fn test_into_iter_clone() {
 fn overaligned_allocations() {
     #[repr(align(256))]
     struct Foo(usize);
-    let mut v: LowMemoryThinVec<Foo> = low_memory_thin_vec![Foo(273)];
+    let mut v: SmallThinVec<Foo> = small_thin_vec![Foo(273)];
     for i in 0..0x1000 {
         v.reserve_exact(i);
         assert!(v[0].0 == 273);
@@ -793,7 +778,7 @@ fn overaligned_allocations() {
 fn test_reserve_exact() {
     // This is all the same as test_reserve
 
-    let mut v: LowMemoryThinVec<i32> = LowMemoryThinVec::new();
+    let mut v: SmallThinVec<i32> = SmallThinVec::new();
     assert_eq!(v.capacity(), 0);
 
     v.reserve_exact(2);
@@ -815,7 +800,7 @@ fn test_reserve_exact() {
 
 #[test]
 fn test_set_len() {
-    let mut vec: LowMemoryThinVec<u32> = low_memory_thin_vec![];
+    let mut vec: SmallThinVec<u32> = small_thin_vec![];
     unsafe {
         vec.set_len(0); // at one point this caused a crash
     }
@@ -824,9 +809,9 @@ fn test_set_len() {
 #[test]
 // The `debug_assert!` in `set_len` only fires if debug assertions are enabled.
 #[cfg(debug_assertions)]
-#[should_panic(expected = "invalid set_len(1) on empty LowMemoryThinVec")]
+#[should_panic(expected = "invalid set_len(1) on empty ThinVec")]
 fn test_set_len_invalid() {
-    let mut vec: LowMemoryThinVec<u32> = low_memory_thin_vec![];
+    let mut vec: SmallThinVec<u32> = small_thin_vec![];
     unsafe {
         vec.set_len(1);
     }
@@ -834,47 +819,46 @@ fn test_set_len_invalid() {
 
 #[test]
 #[should_panic(
-    expected = "The size of the allocated buffer for `LowMemoryThinVec` would exceed `isize::MAX`, which is the maximum size that can be allocated."
+    expected = "The size of the allocated buffer for `ThinVec` would exceed `isize::MAX`, which is the maximum size that can be allocated."
 )]
 fn test_capacity_overflow_header_too_big() {
-    let vec: LowMemoryThinVec<u8, u64> = LowMemoryThinVec::with_capacity(isize::MAX as usize - 2);
+    let vec: ThinVec<u8> = ThinVec::with_capacity(isize::MAX as usize - 2);
     assert!(vec.capacity() > 0);
 }
 
 #[test]
 #[should_panic(
-    expected = "The size of the array of elements within `LowMemoryThinVec<T>` would exceed `isize::MAX`, which is the maximum size that can be allocated."
+    expected = "The size of the array of elements within `ThinVec<T>` would exceed `isize::MAX`, which is the maximum size that can be allocated."
 )]
 fn test_capacity_overflow_cap_too_big() {
-    let vec: LowMemoryThinVec<u8, u64> = LowMemoryThinVec::with_capacity(isize::MAX as usize + 1);
+    let vec: ThinVec<u8> = ThinVec::with_capacity(isize::MAX as usize + 1);
     assert!(vec.capacity() > 0);
 }
 
 #[test]
 #[should_panic(
-    expected = "The size of the array of elements within `LowMemoryThinVec<T>` would exceed `isize::MAX`, which is the maximum size that can be allocated."
+    expected = "The size of the array of elements within `ThinVec<T>` would exceed `isize::MAX`, which is the maximum size that can be allocated."
 )]
 fn test_capacity_overflow_size_mul1() {
-    let vec: LowMemoryThinVec<u16, u64> = LowMemoryThinVec::with_capacity(isize::MAX as usize + 1);
+    let vec: ThinVec<u16> = ThinVec::with_capacity(isize::MAX as usize + 1);
     assert!(vec.capacity() > 0);
 }
 
 #[test]
 #[should_panic(
-    expected = "The size of the array of elements within `LowMemoryThinVec<T>` would exceed `isize::MAX`, which is the maximum size that can be allocated."
+    expected = "The size of the array of elements within `ThinVec<T>` would exceed `isize::MAX`, which is the maximum size that can be allocated."
 )]
 fn test_capacity_overflow_size_mul2() {
-    let vec: LowMemoryThinVec<u16, u64> =
-        LowMemoryThinVec::with_capacity(isize::MAX as usize / 2 + 1);
+    let vec: ThinVec<u16> = ThinVec::with_capacity(isize::MAX as usize / 2 + 1);
     assert!(vec.capacity() > 0);
 }
 
 #[test]
 #[should_panic(
-    expected = "The size of the allocated buffer for `LowMemoryThinVec` would exceed `isize::MAX`, which is the maximum size that can be allocated."
+    expected = "The size of the allocated buffer for `ThinVec` would exceed `isize::MAX`, which is the maximum size that can be allocated."
 )]
 fn test_capacity_overflow_cap_really_isnt_isize() {
-    let vec: LowMemoryThinVec<u8, u64> = LowMemoryThinVec::with_capacity(isize::MAX as usize);
+    let vec: ThinVec<u8> = ThinVec::with_capacity(isize::MAX as usize);
     assert!(vec.capacity() > 0);
 }
 
@@ -893,7 +877,7 @@ fn test_header_sizes() {
 /// Generic test helper that runs basic operations for any size type
 fn test_basic_operations_generic<S: VecCapacity>() {
     // Test new and has_allocated
-    let mut v: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
+    let mut v: ThinVec<i32, S> = ThinVec::new();
     assert!(!v.has_allocated());
     assert_eq!(v.len(), 0);
     assert!(v.is_empty());
@@ -921,12 +905,12 @@ fn test_basic_operations_generic<S: VecCapacity>() {
     assert!(v.is_empty());
 
     // Test with_capacity
-    let v2: LowMemoryThinVec<i32, S> = LowMemoryThinVec::with_capacity(10);
+    let v2: ThinVec<i32, S> = ThinVec::with_capacity(10);
     assert!(v2.capacity() >= 10);
     assert_eq!(v2.len(), 0);
 
     // Test shrink_to_fit
-    let mut v3: LowMemoryThinVec<i32, S> = LowMemoryThinVec::with_capacity(100);
+    let mut v3: ThinVec<i32, S> = ThinVec::with_capacity(100);
     v3.push(1);
     v3.push(2);
     v3.shrink_to_fit();
@@ -956,8 +940,8 @@ fn test_basic_operations_u64() {
 
 /// Test that each size type's empty header singleton works correctly
 fn test_empty_singleton_generic<S: VecCapacity>() {
-    let v1: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
-    let v2: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
+    let v1: ThinVec<i32, S> = ThinVec::new();
+    let v2: ThinVec<i32, S> = ThinVec::new();
 
     // Both should use the same singleton
     assert!(!v1.has_allocated());
@@ -990,7 +974,7 @@ fn test_empty_singleton_u64() {
 
 /// Test iterator operations for all size types
 fn test_iterator_generic<S: VecCapacity>() {
-    let mut v: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
+    let mut v: ThinVec<i32, S> = ThinVec::new();
     v.push(1);
     v.push(2);
     v.push(3);
@@ -1000,7 +984,7 @@ fn test_iterator_generic<S: VecCapacity>() {
     assert_eq!(collected, vec![1, 2, 3]);
 
     // Test iter
-    let mut v: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
+    let mut v: ThinVec<i32, S> = ThinVec::new();
     v.push(4);
     v.push(5);
     let sum: i32 = v.iter().sum();
@@ -1036,7 +1020,7 @@ fn test_iterator_u64() {
 
 /// Test clone for all size types
 fn test_clone_generic<S: VecCapacity>() {
-    let mut v: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
+    let mut v: ThinVec<i32, S> = ThinVec::new();
     v.push(1);
     v.push(2);
     v.push(3);
@@ -1046,7 +1030,7 @@ fn test_clone_generic<S: VecCapacity>() {
     assert_eq!(v2.len(), 3);
 
     // Empty clone
-    let empty: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
+    let empty: ThinVec<i32, S> = ThinVec::new();
     let empty2 = empty.clone();
     assert!(!empty2.has_allocated());
 }
@@ -1075,12 +1059,12 @@ fn test_clone_u64() {
 #[test]
 #[should_panic(expected = "8-bit")]
 fn test_u8_capacity_overflow() {
-    let _: LowMemoryThinVec<u8, u8> = LowMemoryThinVec::with_capacity(256);
+    let _: TinyThinVec<u8> = TinyThinVec::with_capacity(256);
 }
 
 #[test]
 fn test_u8_max_capacity() {
-    let v: LowMemoryThinVec<u8, u8> = LowMemoryThinVec::with_capacity(255);
+    let v: TinyThinVec<u8> = TinyThinVec::with_capacity(255);
     assert!(v.capacity() >= 255);
 }
 
@@ -1088,12 +1072,12 @@ fn test_u8_max_capacity() {
 #[test]
 #[should_panic(expected = "16-bit")]
 fn test_u16_capacity_overflow() {
-    let _: LowMemoryThinVec<u8, u16> = LowMemoryThinVec::with_capacity(65536);
+    let _: SmallThinVec<u8> = SmallThinVec::with_capacity(65536);
 }
 
 #[test]
 fn test_u16_max_capacity() {
-    let v: LowMemoryThinVec<u8, u16> = LowMemoryThinVec::with_capacity(65535);
+    let v: SmallThinVec<u8> = SmallThinVec::with_capacity(65535);
     assert!(v.capacity() >= 65535);
 }
 
@@ -1101,7 +1085,7 @@ fn test_u16_max_capacity() {
 #[test]
 fn test_u32_large_capacity() {
     // This would panic with u16, but works with u32
-    let v: LowMemoryThinVec<u8, u32> = LowMemoryThinVec::with_capacity(100_000);
+    let v: MediumThinVec<u8> = MediumThinVec::with_capacity(100_000);
     assert!(v.capacity() >= 100_000);
 }
 
@@ -1113,7 +1097,7 @@ fn test_drop_generic<S: VecCapacity>() {
     let drops = Rc::new(Cell::new(0u32));
 
     {
-        let mut v: LowMemoryThinVec<DropTracker, S> = LowMemoryThinVec::new();
+        let mut v: ThinVec<DropTracker, S> = ThinVec::new();
         v.push(DropTracker(Rc::clone(&drops)));
         v.push(DropTracker(Rc::clone(&drops)));
         v.push(DropTracker(Rc::clone(&drops)));
@@ -1147,22 +1131,22 @@ fn test_drop_u64() {
 fn test_from_vec_different_sizes() {
     let std_vec = vec![1, 2, 3, 4, 5];
 
-    let v8: LowMemoryThinVec<i32, u8> = LowMemoryThinVec::from(std_vec.clone());
+    let v8: TinyThinVec<i32> = TinyThinVec::from(std_vec.clone());
     assert_eq!(v8.len(), 5);
 
-    let v16: LowMemoryThinVec<i32, u16> = LowMemoryThinVec::from(std_vec.clone());
+    let v16: SmallThinVec<i32> = SmallThinVec::from(std_vec.clone());
     assert_eq!(v16.len(), 5);
 
-    let v32: LowMemoryThinVec<i32, u32> = LowMemoryThinVec::from(std_vec.clone());
+    let v32: MediumThinVec<i32> = MediumThinVec::from(std_vec.clone());
     assert_eq!(v32.len(), 5);
 
-    let v64: LowMemoryThinVec<i32, u64> = LowMemoryThinVec::from(std_vec);
+    let v64: ThinVec<i32> = ThinVec::from(std_vec);
     assert_eq!(v64.len(), 5);
 }
 
 // Test extend for different size types
 fn test_extend_generic<S: VecCapacity>() {
-    let mut v: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
+    let mut v: ThinVec<i32, S> = ThinVec::new();
     v.extend(vec![1, 2, 3]);
     v.extend(4..7);
     assert_eq!(v.len(), 6);
@@ -1191,7 +1175,7 @@ fn test_extend_u64() {
 
 // Test split_off for different size types
 fn test_split_off_generic<S: VecCapacity>() {
-    let mut v: LowMemoryThinVec<i32, S> = LowMemoryThinVec::new();
+    let mut v: ThinVec<i32, S> = ThinVec::new();
     v.extend(1..=6);
 
     let v2 = v.split_off(3);
@@ -1222,28 +1206,16 @@ fn test_split_off_u64() {
 // Test that vec size remains pointer-sized regardless of S
 #[test]
 fn test_vec_size_is_pointer_sized() {
-    assert_eq!(size_of::<LowMemoryThinVec<u8, u8>>(), size_of::<usize>());
-    assert_eq!(size_of::<LowMemoryThinVec<u8, u16>>(), size_of::<usize>());
-    assert_eq!(size_of::<LowMemoryThinVec<u8, u32>>(), size_of::<usize>());
-    assert_eq!(size_of::<LowMemoryThinVec<u8, u64>>(), size_of::<usize>());
+    assert_eq!(size_of::<TinyThinVec<u8>>(), size_of::<usize>());
+    assert_eq!(size_of::<SmallThinVec<u8>>(), size_of::<usize>());
+    assert_eq!(size_of::<MediumThinVec<u8>>(), size_of::<usize>());
+    assert_eq!(size_of::<ThinVec<u8>>(), size_of::<usize>());
 
     // Option should also be pointer-sized
-    assert_eq!(
-        size_of::<Option<LowMemoryThinVec<u8, u8>>>(),
-        size_of::<usize>()
-    );
-    assert_eq!(
-        size_of::<Option<LowMemoryThinVec<u8, u16>>>(),
-        size_of::<usize>()
-    );
-    assert_eq!(
-        size_of::<Option<LowMemoryThinVec<u8, u32>>>(),
-        size_of::<usize>()
-    );
-    assert_eq!(
-        size_of::<Option<LowMemoryThinVec<u8, u64>>>(),
-        size_of::<usize>()
-    );
+    assert_eq!(size_of::<Option<TinyThinVec<u8>>>(), size_of::<usize>());
+    assert_eq!(size_of::<Option<SmallThinVec<u8>>>(), size_of::<usize>());
+    assert_eq!(size_of::<Option<MediumThinVec<u8>>>(), size_of::<usize>());
+    assert_eq!(size_of::<Option<ThinVec<u8>>>(), size_of::<usize>());
 }
 
 // Test mem_usage returns correct sizes for different size types
@@ -1255,10 +1227,10 @@ fn test_mem_usage_different_sizes() {
     // - u32 header: 8 bytes + padding to align u8 (0) + 10 bytes = 18 bytes (padded to 24)
     // - u64 header: 16 bytes + padding to align u8 (0) + 10 bytes = 26 bytes (padded to 32)
 
-    let v8: LowMemoryThinVec<u8, u8> = LowMemoryThinVec::with_capacity(10);
-    let v16: LowMemoryThinVec<u8, u16> = LowMemoryThinVec::with_capacity(10);
-    let v32: LowMemoryThinVec<u8, u32> = LowMemoryThinVec::with_capacity(10);
-    let v64: LowMemoryThinVec<u8, u64> = LowMemoryThinVec::with_capacity(10);
+    let v8: TinyThinVec<u8> = TinyThinVec::with_capacity(10);
+    let v16: SmallThinVec<u8> = SmallThinVec::with_capacity(10);
+    let v32: MediumThinVec<u8> = MediumThinVec::with_capacity(10);
+    let v64: ThinVec<u8> = ThinVec::with_capacity(10);
 
     // Smaller size types should use less memory
     assert!(v8.mem_usage() <= v16.mem_usage());

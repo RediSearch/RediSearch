@@ -9,7 +9,7 @@ members = [
     "fnv",
     "inverted_index",
     "inverted_index_bencher",
-    "low_memory_thin_vec",
+    "thin_vec",
     "qint",
     "query_error",
     "redis_mock",
@@ -74,7 +74,7 @@ ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
 fnv = { path = "./fnv" }
 inverted_index = { path = "./inverted_index" }
-low_memory_thin_vec = { path = "./low_memory_thin_vec" }
+thin_vec = { path = "./thin_vec" }
 qint = { path = "./qint" }
 query_error = { path = "./query_error" }
 redis_mock = { path = "./redis_mock" }

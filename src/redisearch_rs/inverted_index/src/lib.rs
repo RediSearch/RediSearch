@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use low_memory_thin_vec::{Header, LowMemoryThinVec};
 use serde::{Deserialize, Serialize};
 use std::{
     ffi::c_void,
@@ -15,6 +14,7 @@ use std::{
     marker::PhantomData,
     sync::atomic::{self, AtomicU32, AtomicUsize},
 };
+use thin_vec::{Header, ThinVec};
 
 use controlled_cursor::ControlledCursor;
 use debug::{BlockSummary, Summary};
@@ -264,7 +264,7 @@ pub struct InvertedIndex<E> {
     /// document IDs. The entries and blocks themselves are ordered by document ID, so the first
     /// block contains entries for the lowest document IDs, and the last block contains entries for
     /// the highest document IDs.
-    blocks: LowMemoryThinVec<IndexBlock, BlockCapacity>,
+    blocks: ThinVec<IndexBlock, BlockCapacity>,
 
     /// Number of unique documents in the index. This is not the total number of entries, but rather the
     /// number of unique documents that have been indexed.
@@ -487,7 +487,7 @@ impl<E: Encoder> InvertedIndex<E> {
     /// Create a new inverted index from the given blocks and encoder. The blocks are expected to not
     /// contain duplicate entries and be ordered by document ID.
     #[cfg(test)]
-    fn from_blocks(flags: IndexFlags, blocks: LowMemoryThinVec<IndexBlock, BlockCapacity>) -> Self {
+    fn from_blocks(flags: IndexFlags, blocks: ThinVec<IndexBlock, BlockCapacity>) -> Self {
         debug_assert!(!blocks.is_empty());
         debug_assert!(
             blocks.is_sorted_by(|a, b| a.last_doc_id < b.first_doc_id),
@@ -832,7 +832,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             return info;
         }
 
-        let mut tmp_blocks = LowMemoryThinVec::with_capacity(self.blocks.len());
+        let mut tmp_blocks = ThinVec::with_capacity(self.blocks.len());
         std::mem::swap(&mut self.blocks, &mut tmp_blocks);
 
         let mut deltas = deltas.into_iter().peekable();
