@@ -1,5 +1,5 @@
 [package]
-name = "low_memory_thin_vec"
+name = "thin_vec"
 version.workspace = true
 edition.workspace = true
 # Same license as the original `thin_vec` crate.

@@ -54,7 +54,7 @@ fn visit_dir(dir: &Path, fix: bool, bad_files: &mut Vec<std::path::PathBuf>) {
         let entry = entry.expect("Failed to read entry");
         let path = entry.path();
         if path.is_dir() {
-            if path.file_name().and_then(|s| s.to_str()) == Some("low_memory_thin_vec") {
+            if path.file_name().and_then(|s| s.to_str()) == Some("thin_vec") {
                 // That crate is under a different license, since it's a fork.
                 println!("Skipping crate: {path:?}");
                 continue;

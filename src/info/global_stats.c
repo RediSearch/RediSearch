@@ -224,14 +224,10 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   return stats;
 }
 
-void FieldsGlobalStats_UpdateFieldDocsIndexed(const FieldSpec *fs, int toAdd) {
+void FieldsGlobalStats_UpdateFieldDocsIndexed(FieldType field_types, int toAdd) {
   // Indexing documents happens only in the main thread or with the GIL locked.
   // Therefore, there is no need for atomic operations.
-
-  if (!FieldSpec_IsIndexable(fs)) return;
-
-  FieldType field_type = fs->types;
-  switch (field_type) {
+  switch (field_types) {
     case INDEXFLD_T_FULLTEXT:
       RSGlobalStats.fieldsStats.textTotalDocsIndexed += toAdd;
       break;

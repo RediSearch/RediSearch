@@ -243,3 +243,23 @@ void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSim
  * @param vecIndex The vector index handle returned by SearchDisk_CreateVectorIndex
  */
 void SearchDisk_FreeVectorIndex(void *vecIndex);
+
+// Metrics API wrappers
+
+/**
+ * @brief Collect metrics for the doc_table column family
+ *
+ * @param index Pointer to the index spec
+ * @param metrics Pointer to the metrics structure to populate
+ * @return true if successful, false on error
+ */
+bool SearchDisk_CollectDocTableMetrics(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics);
+
+/**
+ * @brief Collect metrics for the inverted_index (fulltext) column family
+ *
+ * @param index Pointer to the index spec
+ * @param metrics Pointer to the metrics structure to populate
+ * @return true if successful, false on error
+ */
+bool SearchDisk_CollectTextInvertedIndexMetrics(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics);
