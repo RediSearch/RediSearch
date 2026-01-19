@@ -18,7 +18,8 @@ typedef struct PrintShardProfile_ctx {
   bool isSearch;
 } PrintShardProfile_ctx;
 
-// Parse profile options, returns REDISMODULE_OK if parsing succeeded, otherwise returns REDISMODULE_ERR
+// Parse profile options, returns REDISMODULE_OK if parsing succeeded,
+// otherwise returns REDISMODULE_ERR
 int ParseProfile(ArgsCursor *ac, QueryError *status, ProfileOptions *options);
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
