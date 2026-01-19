@@ -15,6 +15,7 @@ use std::{
 
 /// Reference counted pointer to a [`ffi::RSDocumentMetadata`].
 #[derive(Debug)]
+#[repr(transparent)]
 pub struct DocumentMetadata(
     /// Raw pointer to an [`ffi::RSDocumentMetadata`].
     ///

@@ -1592,6 +1592,7 @@ dependencies = [
  "pin-project",
  "proptest",
  "redis-module",
+ "redis_json_api",
  "redis_mock",
  "sorting_vector",
  "strum",
