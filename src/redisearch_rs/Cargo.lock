@@ -2665,6 +2665,7 @@ dependencies = [
  "clap_builder",
  "either",
  "getrandom 0.3.4",
+ "itertools 0.13.0",
  "libc",
  "memchr",
  "miniz_oxide",
