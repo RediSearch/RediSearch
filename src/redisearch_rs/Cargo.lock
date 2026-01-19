@@ -1897,8 +1897,8 @@ dependencies = [
 
 [[package]]
 name = "redis-module"
-version = "2.0.7"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=ce7e83074376494c20e2fbdb5059384db6c1ca26#ce7e83074376494c20e2fbdb5059384db6c1ca26"
+version = "2.0.8"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f74ecbbc62e0ce867049af8ac12cbf41c1fd4a2b#f74ecbbc62e0ce867049af8ac12cbf41c1fd4a2b"
 dependencies = [
  "backtrace",
  "bindgen",
@@ -1920,16 +1920,16 @@ dependencies = [
 
 [[package]]
 name = "redis-module-common"
-version = "0.1.0"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=ce7e83074376494c20e2fbdb5059384db6c1ca26#ce7e83074376494c20e2fbdb5059384db6c1ca26"
+version = "0.1.1"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f74ecbbc62e0ce867049af8ac12cbf41c1fd4a2b#f74ecbbc62e0ce867049af8ac12cbf41c1fd4a2b"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "redis-module-macros-internals"
-version = "2.0.7"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=ce7e83074376494c20e2fbdb5059384db6c1ca26#ce7e83074376494c20e2fbdb5059384db6c1ca26"
+version = "2.0.8"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f74ecbbc62e0ce867049af8ac12cbf41c1fd4a2b#f74ecbbc62e0ce867049af8ac12cbf41c1fd4a2b"
 dependencies = [
  "lazy_static",
  "proc-macro2",
