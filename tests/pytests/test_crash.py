@@ -103,12 +103,15 @@ def test_query_thread_crash():
     env.assertIn(f"max_doc_id={doc_count}", results["search_index_properties:"])
     env.assertIn(f"num_terms={len(terms)}", results["search_index_properties:"])
 
-    # Verify index_properties_in_mb contains inverted_size
+    # Verify index_properties_in_mb contains inverted_size and it's > 0
     env.assertIn("inverted_size=", results["search_index_properties_in_mb:"])
+    inverted_size_str = results["search_index_properties_in_mb:"].split("inverted_size=")[1].split(",")[0]
+    inverted_size = float(inverted_size_str)
+    env.assertGreater(inverted_size, 0)
 
     # Total inverted index blocks should be >= 0
     blocks = int(results["search_total_inverted_index_blocks:"])
-    env.assertGreaterEqual(blocks, 0)
+    env.assertGreater(blocks, 0)
 
     # Verify index_failures contains indexing field
     env.assertIn("indexing=0", results["search_index_failures:"])
@@ -156,8 +159,11 @@ def test_query_thread_crash_with_rust_panic():
     # Verify index stats for empty index
     env.assertEqual(results["search_number_of_docs:"], f"{doc_count}")
 
-    # Verify index_properties_in_mb contains inverted_size
+    # Verify index_properties_in_mb contains inverted_size and it's > 0
     env.assertIn("inverted_size=", results["search_index_properties_in_mb:"])
+    inverted_size_str = results["search_index_properties_in_mb:"].split("inverted_size=")[1].split(",")[0]
+    inverted_size = float(inverted_size_str)
+    env.assertGreater(inverted_size, 0)
 
     # Run time should be > 0
     run_time = int(results["search_run_time_ns:"])
