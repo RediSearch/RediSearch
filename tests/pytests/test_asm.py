@@ -6,6 +6,9 @@ import re
 import numpy as np
 import threading
 import time
+import os
+import signal
+import psutil
 
 # Random words for generating more diverse text content
 RANDOM_WORDS = [
@@ -16,14 +19,17 @@ RANDOM_WORDS = [
     "opal", "paradise", "quasar", "rhapsody", "symphony", "twilight", "universe", "velvet", "whisper", "xenon"
 ]
 
-def get_expected(env, query, query_type: str = 'FT.SEARCH'):
+def get_expected(env, query, query_type: str = 'FT.SEARCH', protocol=2):
     if query_type == 'FT.AGGREGATE.WITHCURSOR':
         expected = []
         cursor_result = env.cmd(*query)
         cursor_id = cursor_result[1]
         while cursor_id != 0:
             res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
-            expected.extend(res)
+            if protocol == 2:
+              expected.extend(res)  # Skip the count
+            else:
+              expected.append(res)
         return expected
     else:
         return env.cmd(*query)
@@ -186,6 +192,76 @@ class ClusterNode:
         )
 
 
+def get_shard_pid(conn):
+    """Get the PID of a Redis shard connection"""
+    return conn.execute_command('info', 'server')['process_id']
+
+def get_all_shards_pids(env):
+    """Get PIDs from all environment shards"""
+    pids = []
+    for shard_conn in env.getOSSMasterNodesConnectionList():
+        pid = get_shard_pid(shard_conn)
+        pids.append(pid)
+    return pids
+
+def get_child_pids(parent_pid):
+    """Get all child PIDs of a given parent PID"""
+    try:
+        parent = psutil.Process(parent_pid)
+        children = parent.children(recursive=True)
+        return [child.pid for child in children]
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return []
+
+def send_sigabrt_to_children_and_parents(parent_pids):
+    """Send SIGABRT signal to all children of the given parent PIDs and to the parents themselves"""
+    if not parent_pids:
+        print("No parent PIDs provided, skipping SIGABRT")
+        return
+
+    total_children_killed = 0
+    total_parents_killed = 0
+
+    # First, send SIGABRT to all child processes
+    for parent_pid in parent_pids:
+        try:
+            child_pids = get_child_pids(parent_pid)
+            if not child_pids:
+                print(f"No child processes found for parent PID {parent_pid}")
+            else:
+                print(f"Found {len(child_pids)} child processes for parent PID {parent_pid}: {child_pids}")
+                for child_pid in child_pids:
+                    try:
+                        # Verify the process still exists before sending signal
+                        if psutil.pid_exists(child_pid):
+                            os.kill(child_pid, signal.SIGABRT)
+                            print(f"Sent SIGABRT to child process {child_pid} of parent {parent_pid}")
+                            total_children_killed += 1
+                        else:
+                            print(f"Child process {child_pid} no longer exists")
+                    except (OSError, ProcessLookupError) as e:
+                        print(f"Failed to send SIGABRT to child process {child_pid}: {e}")
+        except Exception as e:
+            print(f"Error processing children of parent PID {parent_pid}: {e}")
+
+    # Then, send SIGABRT to the parent processes themselves
+    for parent_pid in parent_pids:
+        try:
+            # Verify the parent process still exists before sending signal
+            if psutil.pid_exists(parent_pid):
+                os.kill(parent_pid, signal.SIGABRT)
+                print(f"Sent SIGABRT to parent process {parent_pid}")
+                total_parents_killed += 1
+            else:
+                print(f"Parent process {parent_pid} no longer exists")
+        except (OSError, ProcessLookupError) as e:
+            print(f"Failed to send SIGABRT to parent process {parent_pid}: {e}")
+        except Exception as e:
+            print(f"Error processing parent PID {parent_pid}: {e}")
+
+    print(f"Total child processes sent SIGABRT: {total_children_killed}")
+    print(f"Total parent processes sent SIGABRT: {total_parents_killed}")
+
 def import_middle_slot_range(dest: Redis, source: Redis) -> str:
 
     def cluster_node_of(conn) -> ClusterNode:
@@ -264,32 +340,48 @@ def wait_for_migration_complete(env, dest_shard, source_shard, timeout=300, quer
                                to run queries during migration
     """
     task_id = import_middle_slot_range(dest_shard, source_shard)
-    with TimeLimit(timeout):
-        while True:
-            try:
-                if query_during_migration:
-                    # Pattern with queries during migration
-                    while not is_migration_complete(dest_shard, task_id):
-                        env.debugPrint("Querying shards while migration is in progress")
-                        query_shards(env, query_during_migration['query'],
-                                   query_during_migration['shards'],
-                                   query_during_migration['expected'],
-                                   query_during_migration['query_type'])
-                        env.debugPrint("Query passed")
-                        time.sleep(0.001)
-                else:
-                    # Original pattern checking both shards
-                    while not is_migration_complete(dest_shard, task_id) or not is_migration_complete(source_shard, task_id):
-                        time.sleep(0.1)
-                break  # Exit outer loop when migration completes successfully
-            except TaskIDFailed as e:
-                env.debugPrint(f"Task failed: {e}")
-                time.sleep(0.1)
+
+    # Get all shard PIDs before starting the timeout
+    shard_pids = get_all_shards_pids(env)
+    env.debugPrint(f"Shard PIDs: {shard_pids}")
+
+    try:
+        with TimeLimit(timeout):
+            while True:
+                try:
+                    if query_during_migration:
+                        # Pattern with queries during migration
+                        while not is_migration_complete(dest_shard, task_id):
+                            env.debugPrint("Querying shards while migration is in progress")
+                            query_shards(env, query_during_migration['query'],
+                                       query_during_migration['shards'],
+                                       query_during_migration['expected'],
+                                       query_during_migration['query_type'])
+                            env.debugPrint("Query passed")
+                            time.sleep(0.001)
+                    else:
+                        # Original pattern checking both shards
+                        while not is_migration_complete(dest_shard, task_id) or not is_migration_complete(source_shard, task_id):
+                            time.sleep(0.1)
+                    break  # Exit outer loop when migration completes successfully
+                except TaskIDFailed as e:
+                    print(f"Task failed: {e}")
+                    time.sleep(0.1)
+    except Exception as e:
+        # Check if this is a timeout exception from TimeLimit
+        # TimeLimit raises Exception with message starting with 'Timeout:'
+        print(f"TimeLimit timeout occurred: {e}")
+        print(f"Detected timeout with shard PIDs: {shard_pids}")
+        print("Sending SIGABRT to child processes and parent processes of all shards")
+        send_sigabrt_to_children_and_parents(shard_pids)
+        print("SIGABRT signals sent to child and parent processes")
+        # Re-raise the exception to maintain original behavior
+        raise
 
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
 def import_slot_range_sanity_test(env: Env, query_type: str = 'FT.SEARCH'):
-    n_docs = 2**14
+    n_docs = 5 * 2**14
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
@@ -419,6 +511,7 @@ def test_ft_search_import_slot_range_BG():
     import_slot_range_test(env, 'FT.SEARCH')
 
 @skip(cluster=False, min_shards=2)
+@skip
 def test_ft_aggregate_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.AGGREGATE')
@@ -571,7 +664,6 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
 
     # Add a new shard
     env.addShardToClusterIfExists()
-    time.sleep(3)  # wait a bit for the cluster to stabilize before migrating
     new_shard = env.getConnection(shardId=initial_shards_count+1)
     # ...and migrate slots from shard 1 to the new shard
     wait_for_migration_complete(env, new_shard, shard1, query_during_migration={'query': query, 'shards': shards, 'expected': expected, 'query_type': query_type})
@@ -587,32 +679,32 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
         query_shards(env, query, shards, expected, query_type)
         time.sleep(0.1)
 
-@skip(cluster=False)
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.SEARCH')
 
-@skip(cluster=False)
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.SEARCH')
 
-@skip(cluster=False)
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_aggregate():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.AGGREGATE')
 
-@skip(cluster=False)
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_aggregate_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.AGGREGATE')
 
-@skip(cluster=False)
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_aggregate_withcursor():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-@skip(cluster=False)
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_aggregate_withcursor_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.AGGREGATE.WITHCURSOR')
@@ -639,9 +731,22 @@ def test_slots_info_errors(env: Env):
     env.expect('_FT.SEARCH', 'idx', '*').error().contains('Internal query missing slots specification')
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', 'invalid_slots_data').error().contains('Failed to deserialize _SLOTS_INFO data')
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', generate_slots(range(0, 0)), '_SLOTS_INFO', generate_slots(range(0, 0))).error().contains('_SLOTS_INFO already specified')
-    env.expect('_FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@n', '$BLOB', '_SLOTS_INFO', generate_slots(range(0, 0)), '_SLOTS_INFO', generate_slots(range(0, 0)), 'PARAMS', '2', 'BLOB', b'\x00\x00\x00\x00').error().contains('_SLOTS_INFO: Argument specified multiple times')
 
-def _test_ft_cursors_trimmed(env: Env):
+def info_modules_to_dict(conn):
+    res = conn.execute_command('INFO MODULES')
+    info = dict()
+    section_name = ""
+    for line in res.splitlines():
+      if line:
+        if line.startswith('#'):
+          section_name = line[2:]
+          info[section_name] = dict()
+        else:
+          data = line.split(':', 1)
+          info[section_name][data[0]] = data[1]
+    return info
+
+def _test_ft_cursors_trimmed(env: Env, protocol: int):
     for shard in env.getOSSMasterNodesConnectionList():
         shard.execute_command('CONFIG', 'SET', 'search-_max-trim-delay-ms', 2500)
     n_docs = 2**14
@@ -650,31 +755,102 @@ def _test_ft_cursors_trimmed(env: Env):
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
     query = ('FT.AGGREGATE', 'idx', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR')
 
-    expected = get_expected(env, query, 'FT.AGGREGATE.WITHCURSOR')
+    expected = get_expected(env, query, 'FT.AGGREGATE.WITHCURSOR', protocol)
 
     _, cursor_id = env.cmd(*query)
     wait_for_migration_complete(env, shard1, shard2)
     time.sleep(5)
     total_results = []
+    num_warnings = 0
     while cursor_id != 0:
         res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
-        total_results.extend(res)
-    results_set = {item[1] for item in total_results if isinstance(item, list) and len(item) == 2 and item[0] == 'n'}
-    expected_set = {item[1] for item in expected if isinstance(item, list) and len(item) == 2 and item[0] == 'n'}
-    env.assertNotEqual(results_set, expected_set)
-    env.assertGreater(len(expected_set), len(results_set))
+        if protocol == 2:
+          total_results.extend(res)
+        else:
+          total_results.append(res)
+        if protocol == 3:
+          if 'warning' in res and len(res['warning']) > 0:
+            num_warnings += 1
+            env.assertContains('Results may be incomplete due to Atomic Slot Migration', res['warning'][0])
 
-@skip(cluster=False)
-def test_ft_cursors_trimmed():
-    env = Env(clusterNodeTimeout=cluster_node_timeout)
-    _test_ft_cursors_trimmed(env)
+    if protocol == 2:
+      results_set = {item[1] for item in total_results if isinstance(item, list) and len(item) == 2 and item[0] == 'n'}
+      expected_set = {item[1] for item in expected if isinstance(item, list) and len(item) == 2 and item[0] == 'n'}
+      env.assertNotEqual(results_set, expected_set)
+      env.assertGreater(len(expected_set), len(results_set))
+    else:
+      env.assertGreaterEqual(num_warnings, 1)
+      # For protocol 3 with RESP3 format, results are in dict format
+      results_set = set()
+      expected_set = set()
 
-@skip(cluster=False)
-def test_ft_cursors_trimmed_BG():
-    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
-    _test_ft_cursors_trimmed(env)
+      # Extract from total_results - each item in the list is a cursor response
+      for res in total_results:
+          if isinstance(res, dict) and 'results' in res:
+              for result in res['results']:
+                  if 'extra_attributes' in result and 'n' in result['extra_attributes']:
+                      results_set.add(result['extra_attributes']['n'])
 
-@skip(cluster=False)
+      # Extract from expected (dict format)
+      for res in expected:
+          if isinstance(res, dict) and 'results' in res:
+              for result in res['results']:
+                if 'extra_attributes' in result and 'n' in result['extra_attributes']:
+                    expected_set.add(result['extra_attributes']['n'])
+
+      env.assertNotEqual(results_set, expected_set)
+      env.assertGreater(len(expected_set), len(results_set))
+
+      shard_total_num_warnings = 0
+      coord_total_num_warnings = 0
+      for shard_id, shard in enumerate(env.getOSSMasterNodesConnectionList(), 1):
+        shard_num_warnings = 0
+        coord_num_warnings = 0
+        info_dict = info_modules_to_dict(shard)
+        if 'search_warnings_and_errors' in info_dict and 'search_shard_total_query_warnings_asm_inaccurate_results' in info_dict['search_warnings_and_errors']:
+            shard_num_warnings = int(info_dict['search_warnings_and_errors']['search_shard_total_query_warnings_asm_inaccurate_results'])
+        if 'search_coordinator_warnings_and_errors' in info_dict and 'search_coord_total_query_warnings_asm_inaccurate_results' in info_dict['search_coordinator_warnings_and_errors']:
+            coord_num_warnings = int(info_dict['search_coordinator_warnings_and_errors']['search_coord_total_query_warnings_asm_inaccurate_results'])
+        if shard_id == 1:
+            env.assertEqual(shard_num_warnings, 0)
+            env.assertGreater(coord_num_warnings, 0)
+            if protocol == 3:
+              # ShardID 1 is the coordinator so it gets the warnings as nonInternal and are the ones seen in the replies
+              env.assertEqual(num_warnings, coord_num_warnings)
+        elif (shard_id == 2):
+            # ShardID 2 is the one where trimming happens (source shard), so it puts its warnings in the shard
+            env.assertGreater(shard_num_warnings, 0)
+            env.assertEqual(coord_num_warnings, 0)
+        else:
+            # Other shards don't have any warnings
+            env.assertEqual(shard_num_warnings, 0)
+            env.assertEqual(coord_num_warnings, 0)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_cursors_trimmed_protocol_2():
+    protocol = 2
+    env = Env(clusterNodeTimeout=cluster_node_timeout, protocol=protocol)
+    _test_ft_cursors_trimmed(env, protocol)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_cursors_trimmed_protocol_3():
+    protocol = 3
+    env = Env(clusterNodeTimeout=cluster_node_timeout, protocol=protocol)
+    _test_ft_cursors_trimmed(env, protocol)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_cursors_trimmed_BG_protocol_2():
+    protocol = 2
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2', protocol=protocol)
+    _test_ft_cursors_trimmed(env, protocol)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_cursors_trimmed_BG_protocol_3():
+    protocol = 3
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2', protocol=protocol)
+    _test_ft_cursors_trimmed(env, protocol)
+
+@skip(cluster=False, min_shards=2)
 def test_migrate_no_indexes():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
 

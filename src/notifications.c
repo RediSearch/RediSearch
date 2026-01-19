@@ -18,6 +18,7 @@
 #include "slot_ranges.h"
 #include "asm_state_machine.h"
 #include "src/coord/rmr/redis_cluster.h"
+#include "cursor.h"
 
 #define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;
@@ -384,6 +385,7 @@ static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
   RedisModule_Log(ctx, "verbose", "Maximum delay reached. Enabling trimming.");
   if (!ASM_CanStartTrimming()) {
     RedisModule_Log(ctx, "warning", "Queries still using the old version, potential result inaccuracy.");
+    CursorList_MarkASMInaccuracy();
   }
   RS_ASSERT(trimmingDelayCtx.checkTrimmingStateTimerIdScheduled);
   RedisModule_StopTimer(ctx, trimmingDelayCtx.checkTrimmingStateTimerId, NULL);
