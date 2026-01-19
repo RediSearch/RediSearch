@@ -15,7 +15,13 @@ class CrashingEnv(RLTest.Env):
         pass
 
 
-def extract_query_crash_output(env, expected_fragments, crash_in_rust=False):
+def prepare_index(env, terms=["hello"], doc_count=10):
+    env.cmd("FT.CREATE", "idx", "SCHEMA", "text", "TEXT")
+    for i in range(doc_count):
+        env.cmd("HSET", f"doc{i}", "text", " ".join(terms))
+    waitForIndex(env, "idx")
+
+def extract_query_crash_output(env, expected_fragments, doc_count=10, crash_in_rust=False):
     """
     Extract values for each fragment from the crash log, checking they appear in order.
 
@@ -31,7 +37,6 @@ def extract_query_crash_output(env, expected_fragments, crash_in_rust=False):
     logDir = env.cmd("config", "get", "dir")[1]
     logFileName = env.cmd("CONFIG", "GET", "logfile")[1]
     logFilePath = os.path.join(logDir, logFileName)
-    env.cmd("FT.CREATE", "idx", "SCHEMA", "text", "TEXT")
     runDebugQueryCommandAndCrash(
         env, ["FT.SEARCH", "idx", "*"], crash_in_rust=crash_in_rust
     )
@@ -70,8 +75,12 @@ def extract_query_crash_output(env, expected_fragments, crash_in_rust=False):
 def test_query_thread_crash():
     env = CrashingEnv(testName="test_query_thread_crash", freshEnv=True)
 
-    results = extract_query_crash_output(env, [
+    doc_count = 10
+    terms = ['hello', 'world']
+    prepare_index(env, terms=terms, doc_count=doc_count)
+    results = extract_query_crash_output(env, doc_count=doc_count, expected_fragments=[
         "search_current_thread",
+        "search_run_time_ns:",
         # Index name is now a section header, not a field
         "search_idx",
         # Fields are now in nested dictionaries
@@ -80,7 +89,6 @@ def test_query_thread_crash():
         "search_index_properties_in_mb:",
         "search_total_inverted_index_blocks:",
         "search_index_failures:",
-        "search_run_time_ns:",
     ])
 
     # Verify all fragments were found
@@ -89,14 +97,14 @@ def test_query_thread_crash():
 
     # Verify specific values
     # Empty index should have 0 documents
-    env.assertEqual(results["search_number_of_docs:"], "0")
+    env.assertEqual(results["search_number_of_docs:"], f"{doc_count}")
 
     # Verify index_properties contains expected fields
-    env.assertIn("max_doc_id=0", results["search_index_properties:"])
-    env.assertIn("num_terms=0", results["search_index_properties:"])
+    env.assertIn(f"max_doc_id={doc_count}", results["search_index_properties:"])
+    env.assertIn(f"num_terms={len(terms)}", results["search_index_properties:"])
 
     # Verify index_properties_in_mb contains inverted_size
-    env.assertIn("inverted_size=0", results["search_index_properties_in_mb:"])
+    env.assertIn("inverted_size=", results["search_index_properties_in_mb:"])
 
     # Total inverted index blocks should be >= 0
     blocks = int(results["search_total_inverted_index_blocks:"])
@@ -116,17 +124,21 @@ def test_query_thread_crash():
 def test_query_thread_crash_with_rust_panic():
     env = CrashingEnv(testName="test_query_thread_crash_with_rust_panic", freshEnv=True)
 
+    doc_count = 10
+    terms = ['hello', 'world']
+    prepare_index(env, terms, doc_count=doc_count)
     results = extract_query_crash_output(
         env,
-        [
+        doc_count=doc_count,
+        expected_fragments=[
             # The panic message
             'A panic occurred in the Rust code panic.payload="Crash in Rust code"',
             "search_current_thread",
+            "search_run_time_ns:",
             # Index name is now a section header
             "search_idx",
             "search_number_of_docs:",
             "search_index_properties_in_mb:",
-            "search_run_time_ns:",
             # The backtrace
             "# search_rust_backtrace",
         ],
@@ -142,10 +154,10 @@ def test_query_thread_crash_with_rust_panic():
     env.assertIn("crash.rs", results['A panic occurred in the Rust code panic.payload="Crash in Rust code"'])
 
     # Verify index stats for empty index
-    env.assertEqual(results["search_number_of_docs:"], "0")
+    env.assertEqual(results["search_number_of_docs:"], f"{doc_count}")
 
     # Verify index_properties_in_mb contains inverted_size
-    env.assertIn("inverted_size=0", results["search_index_properties_in_mb:"])
+    env.assertIn("inverted_size=", results["search_index_properties_in_mb:"])
 
     # Run time should be > 0
     run_time = int(results["search_run_time_ns:"])
