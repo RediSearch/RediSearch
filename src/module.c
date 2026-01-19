@@ -3933,15 +3933,23 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_Log(ctx, "notice", "Received new cluster topology with %u shards (%s)", topo->numShards, ranges_info);
 
-  // Take a reference to our own shard slot ranges (MR_UpdateTopology won't consume it)
-  RS_ASSERT(my_shard_idx < topo->numShards);
-  const RedisModuleSlotRangeArray *my_slots = topo->shards[my_shard_idx].slotRanges;
+  if (my_shard_idx != UINT32_MAX) {
+    // Take a reference to our own shard slot ranges (MR_UpdateTopology won't consume it)
+    RS_ASSERT(my_shard_idx < topo->numShards);
+    const RedisModuleSlotRangeArray *my_slots = topo->shards[my_shard_idx].slotRanges;
 
-  // Store the local shard id
-  MR_SetLocalNodeId(topo->shards[my_shard_idx].node.id);
+    // Store the local shard id
+    MR_SetLocalNodeId(topo->shards[my_shard_idx].node.id);
 
-  // send the topology to the cluster
-  MR_UpdateTopology(topo, my_slots);
+    // send the topology to the cluster
+    MR_UpdateTopology(topo, my_slots);
+
+  } else {
+    // Valid topology but this node is not part of it.
+    // We cannot pass NULL as local slots, so we pass an empty slot array.
+    static const RedisModuleSlotRangeArray empty_slots = {0, {{0, 0}}};
+    MR_UpdateTopology(topo, &empty_slots);
+  }
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
