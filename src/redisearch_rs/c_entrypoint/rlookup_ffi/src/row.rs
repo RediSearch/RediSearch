@@ -348,7 +348,7 @@ unsafe extern "C" fn RLookupRow_GetSortingVector(
         .unwrap_or(std::ptr::null())
 }
 
-/// Sets the sorting vector (if any) for the row.
+/// Sets the sorting vector for the row.
 ///
 /// # Safety
 ///
