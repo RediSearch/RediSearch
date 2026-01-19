@@ -1,5 +1,5 @@
 use crate::{
-    RLookup, RLookupKey, RLookupRow,
+    RLookup, RLookupKey, RLookupKeyFlags, RLookupRow,
     load_document::{LoadDocumentError, UNDERSCORE_KEY},
 };
 use query_error::QueryError;
@@ -74,7 +74,61 @@ pub fn load_all_keys(
     api_version: u32,
     status: &mut QueryError,
 ) -> Result<(), LoadDocumentError> {
-    todo!()
+    //   int rc = REDISMODULE_ERR;
+    //   if (!japi) {
+    //     return rc;
+    //   }
+    let japi = unsafe { RedisJsonApi::get() }.ok_or_else(|| LoadDocumentError {})?;
+
+    //   RedisJSON jsonRoot = japi->openKeyWithFlags(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
+    //   RedisModule_FreeString(ctx, keyName);
+    //   if (!jsonRoot) {
+    //     goto done;
+    //   }
+    let json_root = unsafe {
+        japi.open_key_with_flags(
+            ctx.cast().as_ptr(),
+            key_name,
+            DOCUMENT_OPEN_KEY_QUERY_FLAGS as i32,
+        )
+        .ok_or_else(|| LoadDocumentError {})?
+    };
+
+    //   jsonIter = japi->get(jsonRoot, JSON_ROOT);
+    //   if (jsonIter == NULL) {
+    //     goto done;
+    //   }
+    let json_iter = json_root
+        .get(JSON_ROOT)
+        .ok_or_else(|| LoadDocumentError {})?;
+
+    //   RSValue *vptr;
+    //   int res = jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &vptr);
+    //   japi->freeIter(jsonIter);
+    //   if (res == REDISMODULE_ERR) {
+    //     goto done;
+    //   }
+    let value = json_iter_to_value(ctx, json_iter, api_version)?;
+
+    //   RLookupKey *rlk = RLookup_FindKey(it, JSON_ROOT, strlen(JSON_ROOT));
+    let rlk = if let Some(rlk) = rlookup.find_key_by_name(JSON_ROOT) {
+        rlk.into_current().unwrap()
+    } else {
+        //   if (!rlk) {
+        //     // First returned document, create the key.
+        //     rlk = RLookup_GetKey_LoadEx(it, JSON_ROOT, strlen(JSON_ROOT), JSON_ROOT, RLOOKUP_F_NOFLAGS);
+        //   }
+
+        rlookup
+            .get_key_load(JSON_ROOT, JSON_ROOT, RLookupKeyFlags::empty())
+            .unwrap()
+    };
+
+    //   RLookup_WriteOwnKey(rlk, dst, vptr);
+    dst_row.write_key(rlk, value);
+
+    //   rc = REDISMODULE_OK;
+    Ok(())
 }
 
 // // Get the value from an iterator and free the iterator
