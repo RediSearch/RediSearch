@@ -3,35 +3,30 @@
 # Decode stack traces from C++ test crashes.
 #
 # This script parses raw backtrace output from signal handlers and uses
-# addr2line to decode the addresses into function names and line numbers.
+# gdb to decode the addresses into function names and line numbers.
 #
 # Usage:
 #   ./decode_stacktrace.sh [log_file...]
 #   cat test_output.log | ./decode_stacktrace.sh
 #
 # Requirements:
-#   - addr2line or llvm-addr2line must be installed
+#   - gdb must be installed
 #   - The binary must exist at the specified path
 #   - The binary should be built with debug symbols (-g) for best results
 
 set -euo pipefail
 
-# Find addr2line tool
-find_addr2line() {
-    if command -v llvm-addr2line &>/dev/null; then
-        echo "llvm-addr2line"
-    elif command -v addr2line &>/dev/null; then
-        echo "addr2line"
-    else
-        echo ""
-    fi
-}
+# Check for macOS - skip decoding as gdb is not typically available
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    echo "WARNING: Stack trace decoding is not supported on macOS." >&2
+    echo "Raw stack traces are available in the log files." >&2
+    exit 0
+fi
 
-ADDR2LINE=$(find_addr2line)
-
-if [[ -z "$ADDR2LINE" ]]; then
-    echo "ERROR: Neither addr2line nor llvm-addr2line found." >&2
-    exit 1
+# Check for gdb
+if ! command -v gdb &>/dev/null; then
+    echo "WARNING: gdb not found, skipping stack trace decoding." >&2
+    exit 0
 fi
 
 # Shorten a path to just filename
@@ -39,52 +34,44 @@ shorten_path() {
     basename "$1"
 }
 
-# Format a single decoded line (handles inlined functions)
-format_decoded_line() {
-    local result="$1"
-    local indent="$2"
+# Decode a single address using gdb
+# Arguments: binary, offset
+# Returns: decoded info or empty
+decode_address_with_gdb() {
+    local binary="$1"
+    local offset="$2"
 
-    # Handle unknown
-    if [[ "$result" == "??"* ]] || [[ -z "$result" ]]; then
-        echo "${indent}<unknown>"
-        return
+    if [[ ! -f "$binary" ]]; then
+        return 1
     fi
 
-    # Process each line (multi-line results have inlined functions on separate lines)
-    local first=true
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
+    # Use gdb to decode the address
+    # Output format: "0xADDR is in function_name (file.cpp:123)." or similar
+    local gdb_output
+    gdb_output=$(gdb -s "$binary" -ex "list *$offset" -batch -q 2>&1 | head -n1) || true
 
-        # Check if this is an inlined line
-        local is_inlined=false
-        if [[ "$line" == " (inlined by)"* ]]; then
-            is_inlined=true
-            # Remove the " (inlined by) " prefix
-            line="${line# (inlined by) }"
+    # Check if gdb found useful info
+    if [[ "$gdb_output" == 0x* ]] && [[ "$gdb_output" == *" is in "* ]]; then
+        # Parse: "0x123 is in function_name (file.cpp:123)."
+        local func_and_loc="${gdb_output#* is in }"
+        local func_name="${func_and_loc%% (*}"
+        local location=""
+        if [[ "$func_and_loc" == *"("*":"*")"* ]]; then
+            location="${func_and_loc#*(}"
+            location="${location%).*}"
+            # Shorten path
+            local filepath="${location%:*}"
+            local lineno="${location##*:}"
+            location="$(shorten_path "$filepath"):${lineno}"
         fi
-
-        # Parse "func at location" format
-        local func_name="" location=""
-        if [[ "$line" == *" at "* ]]; then
-            func_name="${line%% at *}"
-            location="${line#* at }"
-            # Shorten the path
-            if [[ "$location" == *":"* ]]; then
-                local filepath="${location%:*}"
-                local lineno="${location##*:}"
-                location="$(shorten_path "$filepath"):${lineno}"
-            fi
-        else
-            func_name="$line"
-        fi
-
-        if [[ "$first" == true ]]; then
-            echo "${indent}${func_name}${location:+ at $location}"
-            first=false
-        else
-            echo "${indent}  inlined by: ${func_name}${location:+ at $location}"
-        fi
-    done <<< "$result"
+        echo "${func_name}${location:+ at $location}"
+    elif [[ "$gdb_output" == "No line"* ]] || [[ "$gdb_output" == "No symbol"* ]]; then
+        # No debug info available
+        return 1
+    else
+        # Other gdb output - might still be useful
+        return 1
+    fi
 }
 
 # Decode and print a complete stack trace
@@ -103,65 +90,16 @@ decode_stack_trace() {
     fi
     echo "==============================================================================="
 
-    # Group frames by binary for batch processing
-    declare -A binary_offsets
-    declare -a frame_order
-
-    while IFS='|' read -r binary offset binary_short; do
-        frame_order+=("$binary|$offset|$binary_short")
-        if [[ -n "${binary_offsets[$binary]:-}" ]]; then
-            binary_offsets[$binary]+=" $offset"
-        else
-            binary_offsets[$binary]="$offset"
-        fi
-    done < "$frames_file"
-
-    # Batch decode all offsets per binary
-    declare -A decoded_results
-    for binary in "${!binary_offsets[@]}"; do
-        if [[ -f "$binary" ]]; then
-            local offsets="${binary_offsets[$binary]}"
-            # Call addr2line once with all offsets for this binary
-            # Using -Cfpi for inline info. Parse output by detecting:
-            # - Lines NOT starting with space = new address result
-            # - Lines starting with " (inlined by)" = continuation of previous address
-            local results
-            results=$("$ADDR2LINE" -e "$binary" -Cfpi $offsets 2>/dev/null) || results=""
-            # Store results indexed by offset
-            local offset_array
-            read -ra offset_array <<< "$offsets"
-            local i=0
-            local current_result=""
-            while IFS= read -r decoded_line; do
-                if [[ "$decoded_line" == " (inlined by)"* ]]; then
-                    # Continuation of previous address - append with newline
-                    current_result+=$'\n'"$decoded_line"
-                else
-                    # New address - save previous result (if any) and start new
-                    if [[ $i -gt 0 && $((i-1)) -lt ${#offset_array[@]} ]]; then
-                        decoded_results["${binary}|${offset_array[$((i-1))]}"]="$current_result"
-                    fi
-                    current_result="$decoded_line"
-                    ((i++)) || true
-                fi
-            done <<< "$results"
-            # Save last result
-            if [[ $i -gt 0 && $((i-1)) -lt ${#offset_array[@]} ]]; then
-                decoded_results["${binary}|${offset_array[$((i-1))]}"]="$current_result"
-            fi
-        fi
-    done
-
-    # Print frames in order
+    # Read frames and decode each one
     local frame_num=0
-    for frame in "${frame_order[@]}"; do
-        IFS='|' read -r binary offset binary_short <<< "$frame"
+    while IFS='|' read -r binary offset binary_short; do
         echo ""
         echo "[$frame_num] ${binary_short} +${offset}"
 
-        local key="${binary}|${offset}"
-        if [[ -n "${decoded_results[$key]:-}" ]]; then
-            format_decoded_line "${decoded_results[$key]}" "    "
+        # Try to decode with gdb
+        local decoded
+        if decoded=$(decode_address_with_gdb "$binary" "$offset" 2>/dev/null) && [[ -n "$decoded" ]]; then
+            echo "    $decoded"
         elif [[ ! -f "$binary" ]]; then
             echo "    <binary not found>"
         else
@@ -169,7 +107,7 @@ decode_stack_trace() {
         fi
 
         ((frame_num++)) || true
-    done
+    done < "$frames_file"
 
     echo ""
     echo "==============================================================================="
