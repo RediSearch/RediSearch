@@ -478,7 +478,7 @@ mod tests {
             Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
         );
         assert_eq!(len, 0);
-        assert_eq!(flags, vec![]);
+        assert!(flags.is_empty());
     }
 
     #[test]
