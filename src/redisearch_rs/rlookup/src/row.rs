@@ -273,14 +273,15 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         self.dyn_values = vec![];
     }
 
-    /// Write fields from a source row into this row, the fields must exist in both lookups (schemas).
+    /// Write fields from a source row into this row.
     ///
     /// Iterate through the source lookup keys, if it finds a corresponding key in the destination
     /// lookup by name, then it's value is written to this row as a destination.
     ///
-    /// If a source key is not found in the destination lookup the function will panic (same as C behavior).
-    ///
     /// If a source key has no value in the source row, it is skipped.
+    ///
+    /// If a source key is not found in the destination lookup the function will either create it or panic
+    /// depending on the value of `create_missing_keys`.
     ///
     /// # Arguments
     ///
