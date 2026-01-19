@@ -208,6 +208,26 @@ unsafe impl<T: Send, S: VecCapacity> Send for ThinVec<T, S> {}
 // provided by `Vec<T>` when `T` is `Sync`.
 unsafe impl<T: Sync, S: VecCapacity> Sync for ThinVec<T, S> {}
 
+/// Internal implementation macro - not part of public API.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __thin_vec_impl {
+    (@UNIT $($t:tt)*) => (());
+
+    ($ty:ty; $elem:expr; $n:expr) => ({
+        let mut vec = <$ty>::new();
+        vec.resize($n, $elem);
+        vec
+    });
+    ($ty:ty;) => { <$ty>::new() };
+    ($ty:ty; $($x:expr),+ $(,)?) => ({
+        let len = [$($crate::__thin_vec_impl!(@UNIT $x)),+].len();
+        let mut vec = <$ty>::with_capacity(len);
+        $(vec.push($x);)+
+        vec
+    });
+}
+
 /// Creates a [`ThinVec`] containing the arguments.
 ///
 /// ```rust
@@ -224,21 +244,8 @@ unsafe impl<T: Sync, S: VecCapacity> Sync for ThinVec<T, S> {}
 /// ```
 #[macro_export]
 macro_rules! thin_vec {
-    (@UNIT $($t:tt)*) => (());
-
-    ($elem:expr; $n:expr) => ({
-        let mut vec = $crate::ThinVec::new();
-        vec.resize($n, $elem);
-        vec
-    });
-    () => {$crate::ThinVec::new()};
-    ($($x:expr),*) => ({
-        let len = [$($crate::thin_vec!(@UNIT $x)),*].len();
-        let mut vec = $crate::ThinVec::with_capacity(len);
-        $(vec.push($x);)*
-        vec
-    });
-    ($($x:expr,)*) => ($crate::thin_vec![$($x),*]);
+    () => { $crate::__thin_vec_impl![$crate::ThinVec<_>;] };
+    ($($args:tt)+) => { $crate::__thin_vec_impl![$crate::ThinVec<_>; $($args)+] };
 }
 
 /// Creates a [`TinyThinVec`] (capacity `u8`) containing the arguments.
@@ -251,21 +258,8 @@ macro_rules! thin_vec {
 /// ```
 #[macro_export]
 macro_rules! tiny_thin_vec {
-    (@UNIT $($t:tt)*) => (());
-
-    ($elem:expr; $n:expr) => ({
-        let mut vec = $crate::TinyThinVec::new();
-        vec.resize($n, $elem);
-        vec
-    });
-    () => {$crate::TinyThinVec::new()};
-    ($($x:expr),*) => ({
-        let len = [$($crate::tiny_thin_vec!(@UNIT $x)),*].len();
-        let mut vec = $crate::TinyThinVec::with_capacity(len);
-        $(vec.push($x);)*
-        vec
-    });
-    ($($x:expr,)*) => ($crate::tiny_thin_vec![$($x),*]);
+    () => { $crate::__thin_vec_impl![$crate::TinyThinVec<_>;] };
+    ($($args:tt)+) => { $crate::__thin_vec_impl![$crate::TinyThinVec<_>; $($args)+] };
 }
 
 /// Creates a [`SmallThinVec`] (capacity `u16`) containing the arguments.
@@ -278,21 +272,8 @@ macro_rules! tiny_thin_vec {
 /// ```
 #[macro_export]
 macro_rules! small_thin_vec {
-    (@UNIT $($t:tt)*) => (());
-
-    ($elem:expr; $n:expr) => ({
-        let mut vec = $crate::SmallThinVec::new();
-        vec.resize($n, $elem);
-        vec
-    });
-    () => {$crate::SmallThinVec::new()};
-    ($($x:expr),*) => ({
-        let len = [$($crate::small_thin_vec!(@UNIT $x)),*].len();
-        let mut vec = $crate::SmallThinVec::with_capacity(len);
-        $(vec.push($x);)*
-        vec
-    });
-    ($($x:expr,)*) => ($crate::small_thin_vec![$($x),*]);
+    () => { $crate::__thin_vec_impl![$crate::SmallThinVec<_>;] };
+    ($($args:tt)+) => { $crate::__thin_vec_impl![$crate::SmallThinVec<_>; $($args)+] };
 }
 
 /// Creates a [`MediumThinVec`] (capacity `u32`) containing the arguments.
@@ -305,21 +286,8 @@ macro_rules! small_thin_vec {
 /// ```
 #[macro_export]
 macro_rules! medium_thin_vec {
-    (@UNIT $($t:tt)*) => (());
-
-    ($elem:expr; $n:expr) => ({
-        let mut vec = $crate::MediumThinVec::new();
-        vec.resize($n, $elem);
-        vec
-    });
-    () => {$crate::MediumThinVec::new()};
-    ($($x:expr),*) => ({
-        let len = [$($crate::medium_thin_vec!(@UNIT $x)),*].len();
-        let mut vec = $crate::MediumThinVec::with_capacity(len);
-        $(vec.push($x);)*
-        vec
-    });
-    ($($x:expr,)*) => ($crate::medium_thin_vec![$($x),*]);
+    () => { $crate::__thin_vec_impl![$crate::MediumThinVec<_>;] };
+    ($($args:tt)+) => { $crate::__thin_vec_impl![$crate::MediumThinVec<_>; $($args)+] };
 }
 
 impl<T, S: VecCapacity> ThinVec<T, S> {
