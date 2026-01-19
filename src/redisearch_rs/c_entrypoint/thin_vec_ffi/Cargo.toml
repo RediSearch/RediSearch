@@ -1,5 +1,5 @@
 [package]
-name = "low_memory_thin_vec_ffi"
+name = "thin_vec_ffi"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
@@ -13,5 +13,5 @@ cbindgen.workspace = true
 build_utils = { path = "../../build_utils" }
 
 [dependencies]
-low_memory_thin_vec.workspace = true
+thin_vec.workspace = true
 workspace_hack.workspace = true

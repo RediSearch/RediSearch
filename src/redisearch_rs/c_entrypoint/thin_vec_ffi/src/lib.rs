@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use build_utils::run_cbinden;
-
-fn main() {
-    run_cbinden("../../headers/low_memory_thin_vec.h").unwrap();
-}
+//! Re-export the `Header` type from the `thin_vec` crate for use by other FFI crates
+//! that expose a `ThinVec` type.
+pub type Header = thin_vec::Header<u16>;
