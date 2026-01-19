@@ -59,7 +59,7 @@ typedef struct {
     arrayof(sds) *prefixes;                 // Prefixes for the index
     const RedisModuleSlotRangeArray **querySlots; // Slots requested from coordinator (referenced from AREQ)
     uint32_t *keySpaceVersion;                 // Slots version for the request (referenced from AREQ)
-    rs_wall_clock_ns_t *coordDispatchTime;     // Coordinator dispatch time
+    rs_wall_clock_ns_t *coordDispatchTime;     // Coordinator dispatch time for internal commands
 } HybridParseContext;
 
 /**

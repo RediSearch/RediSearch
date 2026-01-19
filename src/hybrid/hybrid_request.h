@@ -35,7 +35,7 @@ typedef struct HybridRequest {
     RedisSearchCtx *sctx;
     QEFlags reqflags;
     rs_wall_clock_ns_t coordStartTime;
-    rs_wall_clock_ns_t coordDispatchTime;
+    rs_wall_clock_ns_t coordDispatchTime; // Coordinator dispatch time for internal commands
 } HybridRequest;
 
 // Blocked client context for HybridRequest background execution
