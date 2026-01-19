@@ -23,7 +23,7 @@ use std::{
 };
 
 pub use key::{GET_KEY_FLAGS, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, TRANSIENT_FLAGS};
-pub use key_list::{Cursor, CursorMut};
+pub use key_list::{Cursor, CursorMut, Iter, IterMut};
 
 #[bitflags]
 #[repr(u32)]
@@ -162,6 +162,16 @@ impl<'a> RLookup<'a> {
 
             c.move_next();
         }
+    }
+
+    #[inline]
+    pub fn iter(&self) -> Iter<'_, 'a> {
+        self.keys.iter()
+    }
+
+    #[inline]
+    pub fn iter_mut(&mut self) -> IterMut<'_, 'a> {
+        self.keys.iter_mut()
     }
 
     /// Returns a [`Cursor`] starting at the first key.
