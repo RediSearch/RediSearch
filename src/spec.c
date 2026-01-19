@@ -2990,12 +2990,6 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoBeginDictField(ctx, "index_failures");
   RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexError.error_count);
   RedisModule_InfoAddFieldLongLong(ctx, "indexing", !!global_spec_scanner || sp->scan_in_progress);
-  if (!skip_unsafe_ops) {
-    // Skip when unsafe - calls RedisModule_DbSize which is not async-signal-safe
-    IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
-    double percent_indexed = IndexesScanner_IndexedPercent(ctx, scanner, sp);
-    RedisModule_InfoAddFieldDouble(ctx, "percent_indexed", percent_indexed);
-  }
   RedisModule_InfoEndDictField(ctx);
 
   // Garbage collector - safe to call, just reads struct fields
