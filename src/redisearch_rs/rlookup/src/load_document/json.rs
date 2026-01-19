@@ -1,14 +1,12 @@
-use std::ffi::CStr;
-
+use crate::{
+    RLookup, RLookupKey, RLookupKeyFlags, RLookupRow,
+    load_document::{LoadDocumentError, UNDERSCORE_KEY},
+};
 use ffi::DocumentMetadata;
 use redis_json_api::{JsonType, JsonValueRef, RedisJsonApi};
 use redis_module::RedisString;
+use std::{collections::HashMap, ffi::CStr, ptr::NonNull, slice};
 use value::{RSValueFFI, RSValueTrait};
-
-use crate::{
-    RLookup, RLookupKey, RLookupRow,
-    load_document::{LoadDocumentError, UNDERSCORE_KEY},
-};
 
 const DOCUMENT_OPEN_KEY_QUERY_FLAGS: u32 = ffi::REDISMODULE_READ
     | ffi::REDISMODULE_OPEN_KEY_NOEFFECTS
@@ -73,7 +71,70 @@ pub fn load_all_keys(
     dmd: &DocumentMetadata,
     api_version: u32,
 ) -> Result<(), LoadDocumentError> {
-    todo!()
+    //   int rc = REDISMODULE_ERR;
+    //   if (!japi) {
+    //     return rc;
+    //   }
+    let japi = unsafe { RedisJsonApi::get() }.ok_or_else(|| LoadDocumentError {})?;
+
+    //   RedisModuleString* keyName = RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
+
+    // Safety: We assume the caller provided options with a key pointer containing a sds string.
+    let sds_len = unsafe { ffi::sdslen__(dmd.keyPtr) };
+
+    // Safety: The sds string is prefixed with its length, key_ptr directly points to the string data.
+    let key_str =
+        unsafe { RedisString::from_raw_parts(NonNull::new(ctx.ctx), dmd.keyPtr, sds_len) };
+
+    //   RedisJSON jsonRoot = japi->openKeyWithFlags(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
+    //   RedisModule_FreeString(ctx, keyName);
+    //   if (!jsonRoot) {
+    //     goto done;
+    //   }
+    let json_root = unsafe {
+        japi.open_key_with_flags(
+            ctx.ctx.cast(),
+            &key_str,
+            DOCUMENT_OPEN_KEY_QUERY_FLAGS as i32,
+        )
+        .ok_or_else(|| LoadDocumentError {})?
+    };
+
+    //   jsonIter = japi->get(jsonRoot, JSON_ROOT);
+    //   if (jsonIter == NULL) {
+    //     goto done;
+    //   }
+    let json_iter = json_root
+        .get(JSON_ROOT)
+        .ok_or_else(|| LoadDocumentError {})?;
+
+    //   RSValue *vptr;
+    //   int res = jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &vptr);
+    //   japi->freeIter(jsonIter);
+    //   if (res == REDISMODULE_ERR) {
+    //     goto done;
+    //   }
+    let value = json_iter_to_value(ctx, json_iter, api_version)?;
+
+    //   RLookupKey *rlk = RLookup_FindKey(it, JSON_ROOT, strlen(JSON_ROOT));
+    let rlk = if let Some(rlk) = rlookup.find_key_by_name(JSON_ROOT) {
+        rlk.into_current().unwrap()
+    } else {
+        //   if (!rlk) {
+        //     // First returned document, create the key.
+        //     rlk = RLookup_GetKey_LoadEx(it, JSON_ROOT, strlen(JSON_ROOT), JSON_ROOT, RLOOKUP_F_NOFLAGS);
+        //   }
+
+        rlookup
+            .get_key_load(JSON_ROOT, JSON_ROOT, RLookupKeyFlags::empty())
+            .unwrap()
+    };
+
+    //   RLookup_WriteOwnKey(rlk, dst, vptr);
+    dst_row.write_key(rlk, value);
+
+    //   rc = REDISMODULE_OK;
+    Ok(())
 }
 
 // // Get the value from an iterator and free the iterator
