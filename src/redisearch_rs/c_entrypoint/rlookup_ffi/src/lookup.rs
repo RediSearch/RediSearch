@@ -119,7 +119,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Read(
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
-    let (name, flags) = maybe_allocate_and_clear_flag(name, flags);
+    let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup.get_key_read(name, flags).map(NonNull::from)
 }
@@ -166,7 +166,7 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx(
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
-    let (name, flags) = maybe_allocate_and_clear_flag(name, flags);
+    let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup.get_key_read(name, flags).map(NonNull::from)
 }
@@ -205,7 +205,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Write(
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
-    let (name, flags) = maybe_allocate_and_clear_flag(name, flags);
+    let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup.get_key_write(name, flags).map(NonNull::from)
 }
@@ -251,7 +251,7 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx(
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
-    let (name, flags) = maybe_allocate_and_clear_flag(name, flags);
+    let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup.get_key_write(name, flags).map(NonNull::from)
 }
@@ -296,7 +296,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Load(
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
-    let (name, flags) = maybe_allocate_and_clear_flag(name, flags);
+    let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
         .get_key_load(name, field_name, flags)
@@ -350,7 +350,7 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx(
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
-    let (name, flags) = maybe_allocate_and_clear_flag(name, flags);
+    let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
         .get_key_load(name, field_name, flags)
@@ -449,10 +449,7 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
 }
 
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
-fn maybe_allocate_and_clear_flag(
-    name: &CStr,
-    flags: RLookupKeyFlags,
-) -> (Cow<'_, CStr>, RLookupKeyFlags) {
+fn handle_name_alloc_flag(name: &CStr, flags: RLookupKeyFlags) -> (Cow<'_, CStr>, RLookupKeyFlags) {
     if flags.contains(RLookupKeyFlag::NameAlloc) {
         (name.to_owned().into(), flags & !RLookupKeyFlag::NameAlloc)
     } else {
