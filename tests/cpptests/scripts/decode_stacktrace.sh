@@ -113,32 +113,32 @@ decode_stack_trace() {
     echo "==============================================================================="
 }
 
-# Parse a backtrace line and extract binary/offset
-# Returns: binary|offset|binary_short or empty
+# Parse a backtrace line and extract binary/address
+# Returns: binary|address|binary_short or empty
+# Handles both formats:
+#   binary(+0xoffset)[0xabsolute]  (Ubuntu/Debian)
+#   binary[0xabsolute]              (Rocky/RHEL)
 parse_backtrace_line() {
     local line="$1"
 
-    # Extract binary path (everything before the first '(')
-    local binary="${line%%\(*}"
+    # Split on delimiters ()[] to extract binary and address
+    # This handles both formats automatically
+    IFS='()[]' read -ra parts <<< "$line"
+    local binary="${parts[0]}"
+    local address="${parts[1]}"
 
-    # Skip if no binary or vdso
-    [[ -z "$binary" || "$binary" == *"linux-vdso"* ]] && return 1
+    # Clean up binary path (remove trailing spaces)
+    binary="${binary%% *}"
 
-    # Extract offset
-    local offset=""
-    local regex_simple='[(][+]0x([0-9a-fA-F]+)[)]'
-    local regex_symbol='[(][^)]+[+]0x([0-9a-fA-F]+)[)]'
-    if [[ "$line" =~ $regex_simple ]]; then
-        offset="0x${BASH_REMATCH[1]}"
-    elif [[ "$line" =~ $regex_symbol ]]; then
-        offset="0x${BASH_REMATCH[1]}"
-    fi
+    # Skip if no binary, no address, or vdso
+    [[ -z "$binary" || -z "$address" || "$binary" == *"linux-vdso"* ]] && return 1
 
-    [[ -z "$offset" ]] && return 1
+    # If address doesn't start with 0x or +0x, skip it
+    [[ "$address" != 0x* && "$address" != +0x* ]] && return 1
 
     local binary_short
     binary_short=$(shorten_path "$binary")
-    echo "${binary}|${offset}|${binary_short}"
+    echo "${binary}|${address}|${binary_short}"
 }
 
 # Main processing
