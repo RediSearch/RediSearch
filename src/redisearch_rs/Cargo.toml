@@ -7,6 +7,7 @@ members = [
     "ffi",
     "field",
     "fnv",
+    "hll",
     "inverted_index",
     "inverted_index_bencher",
     "thin_vec",
@@ -73,6 +74,7 @@ document = { path = "./document" }
 ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
 fnv = { path = "./fnv" }
+hll = { path = "./hll" }
 inverted_index = { path = "./inverted_index" }
 thin_vec = { path = "./thin_vec" }
 qint = { path = "./qint" }

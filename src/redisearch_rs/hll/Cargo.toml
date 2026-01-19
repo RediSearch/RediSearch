@@ -1,0 +1,17 @@
+[package]
+name = "hll"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fnv = { workspace = true }
+thiserror = { workspace = true }
+workspace_hack.workspace = true
+
+[dev-dependencies]
+proptest = { workspace = true, features = ["std"] }
