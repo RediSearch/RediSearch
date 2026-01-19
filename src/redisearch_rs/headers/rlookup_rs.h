@@ -598,7 +598,7 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *src_row,
 RSValue *RLookupRow_Get(const struct RLookupKey *key, const RLookupRow *row);
 
 /**
- * Returns the sorting vector (if any) for the row.
+ * Returns the sorting vector for the row, or `NULL` if none exists.
  *
  * # Safety
  *
@@ -609,7 +609,7 @@ RSValue *RLookupRow_Get(const struct RLookupKey *key, const RLookupRow *row);
 const RSSortingVector<RSValueFFI> *RLookupRow_GetSortingVector(const RLookupRow *row);
 
 /**
- * Sets the sorting vector (if any) for the row.
+ * Sets the sorting vector for the row.
  *
  * # Safety
  *
