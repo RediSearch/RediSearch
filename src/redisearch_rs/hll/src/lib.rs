@@ -77,6 +77,122 @@ impl Hasher32 for HllHasher {
     }
 }
 
+/// Murmur3 hasher wrapper for better hash distribution.
+///
+/// This hasher provides better avalanche properties than FNV-1a,
+/// especially for sequential or structured data like integers.
+pub struct Murmur3Hasher(hash32::Murmur3Hasher);
+
+impl Default for Murmur3Hasher {
+    fn default() -> Self {
+        Self(hash32::Murmur3Hasher::default())
+    }
+}
+
+impl Hasher32 for Murmur3Hasher {
+    #[inline]
+    fn finish32(&self) -> u32 {
+        <hash32::Murmur3Hasher as hash32::Hasher>::finish32(&self.0)
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        <hash32::Murmur3Hasher as Hasher>::write(&mut self.0, bytes);
+    }
+}
+
+/// xxHash32 hasher wrapper.
+///
+/// xxHash is an extremely fast non-cryptographic hash algorithm.
+pub struct XxHash32Hasher(xxhash_rust::xxh32::Xxh32);
+
+impl Default for XxHash32Hasher {
+    fn default() -> Self {
+        Self(xxhash_rust::xxh32::Xxh32::new(0))
+    }
+}
+
+impl Hasher32 for XxHash32Hasher {
+    #[inline]
+    fn finish32(&self) -> u32 {
+        self.0.digest()
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        self.0.update(bytes);
+    }
+}
+
+/// AHash hasher wrapper (truncated to 32 bits).
+///
+/// AHash is the default hasher for hashbrown/HashMap, optimized for speed.
+pub struct AHasher(ahash::AHasher);
+
+impl Default for AHasher {
+    fn default() -> Self {
+        Self(ahash::AHasher::default())
+    }
+}
+
+impl Hasher32 for AHasher {
+    #[inline]
+    fn finish32(&self) -> u32 {
+        Hasher::finish(&self.0) as u32
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        Hasher::write(&mut self.0, bytes);
+    }
+}
+
+/// FxHash hasher wrapper (truncated to 32 bits).
+///
+/// FxHash is the hasher used by the Rust compiler, optimized for small keys.
+pub struct FxHasher(fxhash::FxHasher);
+
+impl Default for FxHasher {
+    fn default() -> Self {
+        Self(fxhash::FxHasher::default())
+    }
+}
+
+impl Hasher32 for FxHasher {
+    #[inline]
+    fn finish32(&self) -> u32 {
+        Hasher::finish(&self.0) as u32
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        Hasher::write(&mut self.0, bytes);
+    }
+}
+
+/// WyHash hasher wrapper (truncated to 32 bits).
+///
+/// WyHash is an extremely fast hash function with good distribution.
+pub struct WyHasher(wyhash::WyHash);
+
+impl Default for WyHasher {
+    fn default() -> Self {
+        Self(wyhash::WyHash::with_seed(0))
+    }
+}
+
+impl Hasher32 for WyHasher {
+    #[inline]
+    fn finish32(&self) -> u32 {
+        Hasher::finish(&self.0) as u32
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        Hasher::write(&mut self.0, bytes);
+    }
+}
+
 /// Errors that can occur when creating an HLL from a slice.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum HllError {
@@ -605,6 +721,24 @@ mod tests {
         assert_eq!(rank(2, 20), 2); // 2 has 1 trailing zero, +1
         assert_eq!(rank(4, 20), 3); // 4 has 2 trailing zeros, +1
         assert_eq!(rank(0b1000, 20), 4); // 8 has 3 trailing zeros, +1
+    }
+
+    #[test]
+    fn test_murmur3_accuracy() {
+        type Murmur3Hll12 = Hll<12, 4096, Murmur3Hasher>;
+
+        let mut hll = Murmur3Hll12::new();
+        let n = 10000u32;
+
+        for i in 0..n {
+            hll.add(&i.to_le_bytes());
+        }
+
+        let count = hll.count();
+        let error = (count as f64 - n as f64).abs() / n as f64;
+
+        // Murmur3 should achieve < 5% error with sequential integers
+        assert!(error < 0.05, "error {error} too large, count={count}, n={n}");
     }
 
     /// Custom hasher for testing pluggable hasher support.

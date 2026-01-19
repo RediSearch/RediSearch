@@ -8,6 +8,7 @@ members = [
     "field",
     "fnv",
     "hll",
+    "hll_bencher",
     "inverted_index",
     "inverted_index_bencher",
     "thin_vec",
