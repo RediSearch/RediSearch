@@ -329,7 +329,7 @@ unsafe extern "C" fn RLookupRow_Get(
     row.get(key).map(|x| NonNull::new(x.as_ptr()).unwrap())
 }
 
-/// Returns the sorting vector (if any) for the row.
+/// Returns the sorting vector for the row, or `NULL` if none exists.
 ///
 /// # Safety
 ///
