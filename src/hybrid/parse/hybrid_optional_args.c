@@ -45,7 +45,6 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     // Add all supported arguments with their callbacks
     ArgsCursor subArgs = {0};
-    unsigned long long coordDispatchTimeTemp = 0;  // Temporary storage for parsed dispatch time
     // LIMIT offset count - handles result limiting
     ArgParser_AddSubArgsV(parser, "LIMIT", "Limit results",
                          &subArgs, 2, 2,
@@ -141,9 +140,8 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
         // Mandatory _COORD_DISPATCH_TIME argument for internal requests
         ArgParser_AddULongLongV(parser, COORD_DISPATCH_TIME_STR, "Coordinator dispatch time",
-                            &coordDispatchTimeTemp,
+                            ctx->coordDispatchTime,
                             ARG_OPT_REQUIRED,
-                            ARG_OPT_CALLBACK, handleCoordDispatchTime, &ctx->coordDispatchTime,
                             ARG_OPT_END);
 
     }
