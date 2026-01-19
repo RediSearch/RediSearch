@@ -154,6 +154,19 @@ Rust integration tests live in the `tests` subfolder, next to the `Cargo.toml` o
    redis_mock::mock_or_stub_missing_redis_c_symbols!();
    ```
 
+4. **Disable the lib unit-test binary** if `src/` has no `#[test]` items:
+   ```toml
+   [lib]
+   test = false
+   ```
+   Cargo otherwise builds an empty lib test binary that links `-lredisearch_all` (via `build.rs`) without pulling in the FFI rlibs — every C-side reference into `rlookup_ffi`, `query_error_ffi`, … then goes unresolved. If you do have inline unit tests, mirror step 3 inside `src/lib.rs` under `cfg(all(test, feature = "unittest"))` instead.
+
+> ### Diagnosing `undefined symbol` link failures
+>
+> Coverage/sanitizer CI on Linux x86 uses a stricter linker (`-Wl,--unresolved-symbols=report-all`, `-Wl,-undefined,error`) and will fail with `rust-lld: error: undefined symbol: <Foo>` for FFI symbols (`RLookup_*`, `QueryError_*`, …) referenced from `libredisearch_all.a`. Read the `-o .../deps/<name>-<hash>` argument in the failing link line: if `<name>` matches a crate name exactly, it's that crate's **lib unit-test binary** — apply step 4. If it matches a `tests/<file>` stem, that integration test is missing the step-3 setup.
+>
+> Adding a seemingly unrelated dependency to an upstream crate can trigger this by expanding the rlib graph enough that the linker stops dead-stripping previously-unused C objects from `libredisearch_all.a`.
+
 ### Adding a benchmark crate
 
 Benchmark crates (e.g., named `*_bencher`) are pure testing code, so they don't need an additional feature flag:
