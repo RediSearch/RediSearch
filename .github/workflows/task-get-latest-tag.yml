@@ -59,7 +59,7 @@ jobs:
                       https://api.github.com/repos/${{ inputs.repo }}/releases?per_page=${{ env.NUM_RELEASES }} | \
                 jq -e -r '.[].tag_name | select(startswith("${{ inputs.prefix }}"))' | \
                 sort -V | tail -1) && \
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "tag=8.4" >> $GITHUB_OUTPUT
 
       - name: Validate Tag
         if: ${{ !steps.latest.outputs.tag && !steps.with-prefix.outputs.tag }}

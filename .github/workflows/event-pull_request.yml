@@ -15,6 +15,7 @@ jobs:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
       repo: redis/redis
+      prefix: '8.4'
 
   check-what-changed:
     uses: ./.github/workflows/task-check-changes.yml
@@ -50,7 +51,7 @@ jobs:
     with:
       platform: ubuntu:default
       architecture: x86_64
-      get-redis: "8.4"
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
       san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
