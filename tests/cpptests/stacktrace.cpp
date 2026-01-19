@@ -9,7 +9,8 @@
 
 #include "common.h"
 
-#if defined(__unix__) || defined(__APPLE__)
+// execinfo.h (backtrace) is a glibc extension, not available on musl (Alpine)
+#if defined(__APPLE__) || (defined(__unix__) && defined(__GLIBC__))
 
 #include <execinfo.h>
 #include <signal.h>
