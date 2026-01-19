@@ -464,9 +464,6 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     aCtx->tokenizer->ctx.lastOffset -= multiTextOffsetDelta;
   }
 
-  // Since we are here, the indexing was successful, update the global statistics.
-  FieldsGlobalStats_UpdateFieldDocsIndexed(fs, 1);
-
   return 0;
 }
 
@@ -805,7 +802,7 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
   }
   // If the indexing was successful, update the global statistics.
   if (rc == 0) {
-    FieldsGlobalStats_UpdateFieldDocsIndexed(fs, 1);
+    FieldsGlobalStats_UpdateFieldDocsIndexed(fs->types, 1);
   }
   return rc;
 }
