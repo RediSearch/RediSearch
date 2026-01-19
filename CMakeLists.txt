@@ -254,6 +254,7 @@ include_directories(
     ${root}/deps
     ${root}/deps/VectorSimilarity/src
     ${root}/deps/rmalloc
+    ${root}/deps/hiredis
     ${root}/src/ttl_table
     ${BOOST_DIR}
     ${root})

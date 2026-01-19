@@ -363,3 +363,7 @@ int RLookup_LoadRuleFields(RedisSearchCtx *sctx, RLookup *it, RLookupRow *dst, I
   rm_free(keys);
   return rv;
 }
+
+size_t sdslen_rust(const sds s) {
+  return sdslen(s);
+}
