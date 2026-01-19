@@ -13,7 +13,7 @@ use rlookup::{RLookup, RLookupKey};
 use std::{
     ffi::{CStr, c_char},
     mem::{self, ManuallyDrop},
-    ptr::NonNull,
+    ptr::{self, NonNull},
     slice,
 };
 use value::RSValueFFI;
@@ -327,4 +327,45 @@ unsafe extern "C" fn RLookupRow_Get(
     let row = unsafe { row.as_ref().unwrap() };
 
     row.get(key).map(|x| NonNull::new(x.as_ptr()).unwrap())
+}
+
+/// Returns the sorting vector (if any) for the row.
+///
+/// # Safety
+///
+/// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_GetSortingVector(
+    row: *const RLookupRow,
+) -> *const sorting_vector::RSSortingVector<RSValueFFI> {
+    // Safety: ensured by caller (1.)
+    let row = unsafe { row.as_ref().unwrap() };
+
+    row.sorting_vector()
+        .map(ptr::from_ref)
+        .unwrap_or(std::ptr::null())
+}
+
+/// Sets the sorting vector (if any) for the row.
+///
+/// # Safety
+///
+/// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+/// 2. `sv` must be either null or a [valid], non-null pointer to an [`sorting_vector::RSSortingVector`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+const unsafe extern "C" fn RLookupRow_SetSortingVector(
+    row: Option<NonNull<RLookupRow>>,
+    sv: *const sorting_vector::RSSortingVector<RSValueFFI>,
+) {
+    // Safety: ensured by caller (1.)
+    let row = unsafe { row.unwrap().as_mut() };
+
+    // Safety: ensured by caller (2.)
+    let sv = unsafe { sv.as_ref().unwrap() };
+
+    row.set_sorting_vector(sv);
 }
