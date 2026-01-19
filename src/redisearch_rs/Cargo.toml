@@ -92,7 +92,7 @@ workspace_hack = { path = "./workspace_hack" }
 
 anstyle-query = "1.1.5"
 cbindgen = "0.29"
-cc = "1"
+cc = "1.2.53"
 crc32fast = "1.5.0"
 criterion = { version = "0.5", features = ["html_reports"] }
 csv = "1.4.0"
