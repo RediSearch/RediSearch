@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   get-latest-redis-tag:
-    # TODO: Revert once redis v8.4.? is released
+    # TODO: Revert once redis v8.4.1 is released
     # uses: ./.github/workflows/task-get-latest-tag.yml
     # with:
     #   repo: redis/redis
