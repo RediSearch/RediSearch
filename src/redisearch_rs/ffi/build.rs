@@ -319,7 +319,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/search_ctx.h",
         fns: &["NewSearchCtxC", "SearchCtx_Free"],
         types: &[],
-        vars: &[],
+        vars: &["APIVERSION_RETURN_MULTI_CMP_FIRST"],
     },
     // RSE: the entire disk API struct family lives in this header and is
     // consumed by `redisearch_disk` to bridge from C into the Rust storage
