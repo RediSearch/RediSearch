@@ -85,7 +85,6 @@ class ParseHybridTest : public ::testing::Test {
     result.hybridParams = &hybridParams;
     result.reqConfig = &hybridRequest->reqConfig;
     result.cursorConfig = &hybridRequest->cursorConfig;
-    result.localSlots = Slots_GetLocalSlots();
   }
 
   void TearDown() override {
@@ -94,9 +93,6 @@ class ParseHybridTest : public ::testing::Test {
     }
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
-    }
-    if (result.localSlots) {
-      Slots_FreeLocalSlots(result.localSlots);
     }
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
@@ -1333,5 +1329,3 @@ TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalidKeyword) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "2", "INVALID_KEYWORD", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "2");
   testErrorCode(args,  QUERY_ESYNTAX, "SEARCH keyword is required");
 }
-
-
