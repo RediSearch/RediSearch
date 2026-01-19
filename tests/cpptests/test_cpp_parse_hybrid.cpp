@@ -85,7 +85,7 @@ class ParseHybridTest : public ::testing::Test {
     result.hybridParams = &hybridParams;
     result.reqConfig = &hybridRequest->reqConfig;
     result.cursorConfig = &hybridRequest->cursorConfig;
-    result.coordDispatchTime = &hybridRequest->coordDispatchTime;
+    result.coordDispatchTime = &hybridRequest->profileClocks.coordDispatchTime;
   }
 
   void TearDown() override {
@@ -714,7 +714,7 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   ASSERT_TRUE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
 
   // Verify _COORD_DISPATCH_TIME was parsed and stored
-  EXPECT_EQ(hybridRequest->coordDispatchTime, 1000000) << "Coordinator dispatch time should be set";
+  EXPECT_EQ(hybridRequest->profileClocks.coordDispatchTime, 1000000) << "Coordinator dispatch time should be set";
 }
 
 TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {

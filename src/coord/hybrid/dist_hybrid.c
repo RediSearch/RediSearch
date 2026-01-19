@@ -416,8 +416,7 @@ void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
 }
 
 static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
-        RedisModuleString **argv, int argc, IndexSpec *sp,
-        struct ConcurrentCmdCtx *cmdCtx, QueryError *status) {
+        RedisModuleString **argv, int argc, IndexSpec *sp, QueryError *status) {
 
     hreq->tailPipeline->qctx.err = status;
     hreq->profile = printDistHybridProfile;
@@ -431,7 +430,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     cmd.hybridParams = &hybridParams;
     cmd.tailPlan = &hreq->tailPipeline->ap;
     cmd.reqConfig = &hreq->reqConfig;
-    cmd.coordDispatchTime = &hreq->coordDispatchTime;
+    cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
     ArgsCursor ac = {0};
     ArgsCursor_InitRString(&ac, argv, argc);
@@ -541,7 +540,7 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     // Get the command from the RPNet (it was set during prepareForExecution)
     MRCommand *cmd = &searchRPNet->cmd;
     int numShards = GetNumShards_UnSafe();
-    cmd->coordStartTime = hreq->coordStartTime;
+    cmd->coordStartTime = hreq->profileClocks.coordStartTime;
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
     if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy)) {
@@ -641,7 +640,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
-    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, cmdCtx, &status) != REDISMODULE_OK) {
+    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, &status) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;
     }
