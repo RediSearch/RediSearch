@@ -258,6 +258,9 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
 ///
 /// If a source key has no value in the source row, it is skipped.
 ///
+/// If `create_missing_keys` is true, will create keys in destination that don't exist (LOAD * behavior).
+/// If false, will panic on non-existent keys.
+///
 /// # Safety
 ///
 /// 1. `src_row` must be a [valid], non-null pointer to an [`RLookupRow`].
@@ -268,11 +271,12 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_WriteFieldsFrom(
-    src_row: *const RLookupRow,
-    src_lookup: *const RLookup,
-    dst_row: Option<NonNull<RLookupRow>>,
-    dst_lookup: *const RLookup,
+unsafe extern "C" fn RLookupRow_WriteFieldsFrom<'a>(
+    src_row: *const RLookupRow<'a>,
+    src_lookup: *const RLookup<'a>,
+    dst_row: Option<NonNull<RLookupRow<'a>>>,
+    dst_lookup: Option<NonNull<RLookup<'a>>>,
+    create_missing_keys: bool,
 ) {
     // Safety: ensured by caller (2.)
     let src_lookup = unsafe { src_lookup.as_ref().unwrap() };
@@ -290,9 +294,9 @@ unsafe extern "C" fn RLookupRow_WriteFieldsFrom(
     let src_row = unsafe { src_row.as_ref().unwrap() };
 
     // Safety: ensured by caller (4.)
-    let dst_lookup = unsafe { dst_lookup.as_ref().unwrap() };
+    let dst_lookup = unsafe { dst_lookup.unwrap().as_mut() };
 
-    dst_row.copy_fields_from(dst_lookup, src_row, src_lookup);
+    dst_row.copy_fields_from(dst_lookup, src_row, src_lookup, create_missing_keys);
 }
 
 /// Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.

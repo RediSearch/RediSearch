@@ -9,7 +9,7 @@
 
 #[cfg(debug_assertions)]
 use crate::rlookup_id::RLookupId;
-use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule};
+use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup};
 use sorting_vector::RSSortingVector;
 use std::{borrow::Cow, ffi::CStr};
 use value::RSValueTrait;
@@ -285,7 +285,13 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// - `dst_lookup`: The destination lookup containing the schema of this row, must be the associated lookup of `self`.
     /// - `src_row`: The source row from which to copy values.
     /// - `src_lookup`: The source lookup containing the schema of the source row, must be the associated lookup of `src_row`.
-    pub fn copy_fields_from(&mut self, dst_lookup: &RLookup, src_row: &Self, src_lookup: &RLookup) {
+    pub fn copy_fields_from(
+        &mut self,
+        dst_lookup: &mut RLookup<'a>,
+        src_row: &Self,
+        src_lookup: &RLookup<'a>,
+        create_missing_keys: bool,
+    ) {
         let dst_row = self;
 
         // NB: the `Iterator` impl for `Cursor` will automatically skip overridden keys
@@ -296,11 +302,19 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
                 && let Some(value) = src_row.get(src_key)
             {
                 // Find corresponding key in destination lookup
-                let dst_key = dst_lookup
-                    .find_key_by_name(src_key.name())
-                    .expect("we expect all source keys to exist in destination")
-                    .into_current()
-                    .unwrap();
+                let dst_key = match dst_lookup.find_key_by_name(src_key.name()) {
+                    Some(dst_key) => dst_key.into_current().unwrap(),
+                    None if create_missing_keys => {
+                        // Key doesn't exist in destination - create it on demand.
+                        // This can happen with LOAD * where keys are created dynamically.
+                        // Inherit non-transient flags from source.
+                        let flags = src_key.flags & !lookup::TRANSIENT_FLAGS;
+                        let name = src_key.name().clone();
+
+                        dst_lookup.get_key_write(name, flags).unwrap()
+                    }
+                    None => panic!("we expect all source keys to exist in destination"),
+                };
 
                 // Write fields to destination
                 dst_row.write_key(dst_key, value.clone());

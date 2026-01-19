@@ -562,6 +562,9 @@ void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
  *
  * If a source key has no value in the source row, it is skipped.
  *
+ * If `create_missing_keys` is true, will create keys in destination that don't exist (LOAD * behavior).
+ * If false, will panic on non-existent keys.
+ *
  * # Safety
  *
  * 1. `src_row` must be a [valid], non-null pointer to an [`RLookupRow`].
@@ -575,7 +578,8 @@ void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
 void RLookupRow_WriteFieldsFrom(const RLookupRow *src_row,
                                 const struct RLookup *src_lookup,
                                 RLookupRow *dst_row,
-                                const struct RLookup *dst_lookup);
+                                struct RLookup *dst_lookup,
+                                bool create_missing_keys);
 
 /**
  * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
