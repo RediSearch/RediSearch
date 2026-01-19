@@ -358,6 +358,28 @@ def config_cmd():
 def enable_unstable_features(env):
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'yes')
 
+def disable_unstable_features(env):
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'false')
+
+class unstable_features:
+    """Context manager to enable unstable features for a block of code.
+
+    Usage:
+        with unstable_features(env):
+            # code that requires unstable features
+        # unstable features are disabled after the block
+    """
+    def __init__(self, env):
+        self.env = env
+
+    def __enter__(self):
+        enable_unstable_features(self.env)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        disable_unstable_features(self.env)
+        return False  # Don't suppress exceptions
+
 def run_command_on_all_shards(env, *args):
     return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
 
@@ -442,6 +464,8 @@ def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None
 def to_dict(res):
     if type(res) == dict:
         return res
+    if len(res) % 2 != 0:
+        raise ValueError(f"to_dict expects even-length array (key-value pairs), got {len(res)} elements")
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
 
@@ -838,10 +862,8 @@ def downloadFile(env, file_name, depth=0, max_retries=3):
             ], check=True, capture_output=True, text=True)
 
         except subprocess.CalledProcessError as e:
-            env.assertTrue(False,
-                message=f"Failed to download {BASE_RDBS_URL + file_name} after {max_retries + 1} attempts. "
-                       f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}",
-                depth=depth + 1)
+            env.debugPrint(f"Failed to download {file_name} after {max_retries + 1} attempts. "
+                           f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}", force=True)
 
             # Clean up partial download
             try:
@@ -1214,3 +1236,10 @@ def shard_change_timeout_policy(env, shardId, policy):
 def allShards_change_timeout_policy(env, policy):
     for shardId in range(1, env.shardsCount + 1):
         shard_change_timeout_policy(env, shardId, policy)
+
+def get_shards_profile(env, res):
+  """Extract shard profiles from FT.PROFILE AGGREGATE response."""
+  if env.protocol == 3:
+    return res['Profile']['Shards']
+  else:
+    return [to_dict(p) for p in res[-1][1]]

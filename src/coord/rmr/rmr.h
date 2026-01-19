@@ -21,6 +21,12 @@
 struct MRCtx;
 struct RedisModuleCtx;
 
+// r/w lock protected wrapper for the local node ID string
+typedef struct {
+  char *node_id;
+  pthread_rwlock_t lock;
+} NodeIdRef;
+
 void iterStartCb(void *p);
 
 void iterCursorMappingCb(void *p);
@@ -40,6 +46,27 @@ void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS);
  * @param localSlots The local slots information to refresh. Does NOT take ownership.
  */
 void MR_UpdateTopology(MRClusterTopology *newTopology, const RedisModuleSlotRangeArray *localSlots);
+
+/* @brief Initialize the local node ID structure. */
+void MR_InitLocalNodeId();
+
+/* @brief Set the local node ID for this shard while holding the write lock.
+ * @param node_id The node ID string to set. Will be duplicated internally.
+ */
+void MR_SetLocalNodeId(const char *node_id);
+
+/* @brief Get the local node ID for this shard.
+ * The caller must call MR_ReleaseLocalNodeId() when done using the returned string.
+ */
+const char* MR_GetLocalNodeId(void);
+
+/* @brief Release the local node ID handle obtained from MR_GetLocalNodeId().
+ * Must be called after MR_GetLocalNodeId() to release the read lock.
+ */
+void MR_ReleaseLocalNodeIdReadLock();
+
+/* @brief Free the local node ID structure. */
+void MR_FreeLocalNodeId();
 
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
 
@@ -83,9 +110,20 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
 
 MRReply *MRIterator_Next(MRIterator *it);
 
+/* Get the next reply from the iterator with a timeout.
+ * Parameters:
+ *   - it: the iterator
+ *   - abstime: absolute time (CLOCK_MONOTONIC) when the timeout expires. If NULL, behaves like MRIterator_Next.
+ *   - timedOut: output parameter, set to true if the function returned due to timeout
+ * Returns: the next reply, or NULL if no more replies or timed out */
+MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime, bool *timedOut);
+
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData, void (*iterStartCb)(void *) ,StrongRef *iterStartCbPrivateData);
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
+                                      void (*cbPrivateDataDestructor)(void *),
+                                      void (*cbPrivateDataInit)(void *, MRIterator *),
+                                      void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData);
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 

@@ -34,6 +34,7 @@
 #include "asm_state_machine.h"
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "util/arg_parser.h"
+#include "slot_ranges.h"
 
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
@@ -593,10 +594,53 @@ static void handleLoadStepForHybridPipelines(AGGPlan *tailPlan, AGGPlan *searchP
 }
 
 /**
+ * Parse the subqueries count at the beginning of the FT.HYBRID command.
+ *
+ * Expected position in command:
+ *   FT.HYBRID <index> <subqueries_count> SEARCH ...
+ *                    ^
+ *
+ * Currently supports only 2 subqueries. We also support the old format without
+ * the subqueries count for backward compatibility:
+ *   FT.HYBRID <index> SEARCH <query> VSIM <vector_args>
+ *
+ * @param ac ArgsCursor for parsing - should be right after the index name
+ * @param status Output parameter for error reporting
+ * @return true if parsing succeeded, false if an error occurred (error is set in status)
+ */
+static bool parseSubqueriesCount(ArgsCursor *ac, QueryError *status) {
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing subqueries count for FT.HYBRID");
+    return false;
+  }
+
+  unsigned int subqueriesCount = 0;
+  bool hasSubqueryCount = AC_GetUnsigned(ac, &subqueriesCount, AC_F_GE1) == AC_OK; // Advances the cursor only if parsing succeeded
+
+  if (hasSubqueryCount) {
+    if (subqueriesCount != HYBRID_REQUEST_NUM_SUBQUERIES) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "FT.HYBRID currently supports only two subqueries");
+      return false;
+    } else if (!AC_AdvanceIfMatch(ac, "SEARCH")) {
+      QueryError_SetError(status, QUERY_ESYNTAX, "SEARCH keyword is required");
+      return false;
+    }
+  } else if (!AC_AdvanceIfMatch(ac, "SEARCH")) { // Old format: FT.HYBRID <index> <search_query> <vsim_query>
+    // error according to the new format
+    QueryError_SetError(status, QUERY_ESYNTAX, "Invalid subqueries count: expected an unsigned integer");
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Parse FT.HYBRID command arguments and build a complete HybridRequest structure.
  *
  * Expected format: FT.HYBRID <index> SEARCH <query> [SCORER <scorer>] VSIM <vector_args>
  *                  [COMBINE <method> [params]] [aggregation_options]
+ *
+ * Can be called from the main thread or from a background thread. (Note: access RSGlobalConfig which is not thread safe)
  *
  * @param ctx Redis module context
  * @param ac ArgsCursor for parsing command arguments - should start after the index name
@@ -645,8 +689,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
   uint32_t keySpaceVersion = INVALID_KEYSPACE_VERSION;
 
-  if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "SEARCH argument is required");
+  if (!parseSubqueriesCount(ac, status)) {
     goto error;
   }
 
@@ -784,11 +827,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   prefixes = NULL;
 
   // Apply context to each request
-  if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
+  if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status, Slots_Clone(parsedCmdCtx->localSlots)) != REDISMODULE_OK) {
     AddValidationErrorContext(searchRequest, status);
     goto error;
   }
-  if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status) != REDISMODULE_OK) {
+  if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status, Slots_Clone(parsedCmdCtx->localSlots)) != REDISMODULE_OK) {
     AddValidationErrorContext(vectorRequest, status);
     goto error;
   }

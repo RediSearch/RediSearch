@@ -297,12 +297,38 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     bool isSortby0 = AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK
                         && !strcmp(firstArg, "0");
     if (isSortby0 && *papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) {
+      // Special case for SORTBY 0 in hybrid tail.
       AC_Advance(ac);  // Advance without adding SortBy step to the plan
       *papCtx->reqflags |= QEXEC_F_NO_SORT;
     } else {
-      PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(papCtx->plan);
+      // Handle SORTBY (also covers SORTBY 0 MAX n)
+      REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_HAS_SORTBY);
+      PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(papCtx->plan);
+      bool existingSort = (arng != NULL);
+      if (!arng) {
+        arng = NewArrangeStep();
+      }
       if (parseSortby(arng, ac, status, papCtx) != REDISMODULE_OK) {
+        if (!existingSort) {
+          arng->base.dtor(&arng->base);
+        }
         return ARG_ERROR;
+      }
+      if (array_len(arng->sortKeys) == 0) {
+        // No need to sort
+        REQFLAGS_RemoveFlags(papCtx->reqflags, QEXEC_F_HAS_SORTBY);
+        if (!existingSort) {
+          if (arng->limit > 0) {
+            // To support SORTBY 0 MAX n, we have a SORTER without any keys,
+            // but with a limit.
+            AGPLN_AddStep(papCtx->plan, &arng->base);
+          } else {
+            arng->base.dtor(&arng->base);
+          }
+        }
+      } else if (!existingSort) {
+        // Need to sort (add a sorter step if not yet added)
+        AGPLN_AddStep(papCtx->plan, &arng->base);
       }
     }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
@@ -315,6 +341,10 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
+    if (((*papCtx->reqflags) & QEXEC_F_IS_AGGREGATE) && ((*papCtx->reqflags) & QEXEC_F_HAS_WITHCOUNT)) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
+      return ARG_ERROR;
+    }
     if (parseCursorSettings(papCtx->reqflags, papCtx->cursorConfig, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -603,9 +633,23 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
       AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
+      if (IsAggregate(req)) {
+        if (!RSGlobalConfig.enableUnstableFeatures) {
+          QueryError_SetError(status, QUERY_EPARSEARGS, "FT.AGGREGATE + WITHCOUNT is not available when `ENABLE_UNSTABLE_FEATURES` is off");
+          return REDISMODULE_ERR;
+        }
+        AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
+        if (IsCursor(req) && !IsInternal(req)) {
+          QueryError_SetError(status, QUERY_EPARSEARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
+          return REDISMODULE_ERR;
+        }
+      }
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
       AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
+      if (IsAggregate(req)) {
+        AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
+      }
       optimization_specified = true;
     } else {
       ParseAggPlanContext papCtx = {
@@ -980,7 +1024,6 @@ AREQ *AREQ_New(void) {
   req->optimizer = QOptimizer_New();
   req->profile = Profile_PrintDefault;
   req->prefixesOffset = 0;
-  req->has_timedout = false;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
   return req;
@@ -1002,6 +1045,7 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status
       if (parseGroupby(papCtx->plan, ac, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
+      REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_HAS_GROUPBY);
     } else if (AC_AdvanceIfMatch(ac, "APPLY")) {
       if (handleApplyOrFilter(papCtx->plan, ac, status, 1) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
@@ -1031,6 +1075,10 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status
   }
 
   return REDISMODULE_OK;
+}
+
+static bool IsNeededDepleter(AREQ *req) {
+  return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req);
 }
 
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
@@ -1082,6 +1130,13 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   if (IsInternal(req) && !req->querySlots) {
     QueryError_SetError(status, QUERY_EMISSING, "Internal query missing slots specification");
     goto error;
+  }
+
+  // Define if we need a depleter in the pipeline to get accurate total results
+  if (IsAggregate(req) && HasWithCount(req)) {
+    if (IsNeededDepleter(req)) {
+      AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
+    }
   }
 
   return REDISMODULE_OK;
@@ -1238,11 +1293,12 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   return REDISMODULE_OK;
 }
 
-int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
+int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status, const SharedSlotRangeArray *localSlots) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
   req->sctx = sctx;
+  req->slotRanges = localSlots;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_EMISSMATCH, NULL);

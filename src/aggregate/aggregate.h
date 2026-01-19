@@ -22,6 +22,7 @@
 #include "vector_index.h"
 #include "hybrid/vector_query_utils.h"
 #include "slot_ranges.h"
+#include "profile.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -119,6 +120,18 @@ typedef enum {
   // Currently only used in when QEXEC_F_IS_HYBRID_TAIL is set - i.e this is the tail part
   QEXEC_F_NO_SORT = 0x4000000,
 
+  // The query has an explicit SORTBY x - sort by a field
+  QEXEC_F_HAS_SORTBY = 0x8000000,
+
+  // The query should use a depleter in the pipeline (for FT.AGGREGATE)
+  QEXEC_F_HAS_DEPLETER = 0x10000000,
+
+  // The query has an explicit WITHCOUNT (for FT.AGGREGATE)
+  QEXEC_F_HAS_WITHCOUNT = 0x20000000,
+
+  // The query has an explicit GROUPBY (for FT.AGGREGATE)
+  QEXEC_F_HAS_GROUPBY = 0x40000000,
+
   // The query is for debugging. Note that this is the last bit of uint32_t
   QEXEC_F_DEBUG = 0x80000000,
 
@@ -147,18 +160,24 @@ typedef struct {
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
+#define IsAggregate(r) ((r)->reqflags & QEXEC_F_IS_AGGREGATE)
 #define IsHybridTail(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_TAIL)
 #define IsHybridSearchSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY)
 #define IsHybridVectorSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY)
 #define IsHybrid(r) (IsHybridTail(r) || IsHybridSearchSubquery(r) || IsHybridVectorSubquery(r))
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
+#define HasDepleter(r) ((r)->reqflags & QEXEC_F_HAS_DEPLETER)
+#define HasWithCount(r) ((r)->reqflags & QEXEC_F_HAS_WITHCOUNT)
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
+#define IsCursor(r) ((r)->reqflags & QEXEC_F_IS_CURSOR)
 #define HasScorer(r) ((r)->optimizer && (r)->optimizer->scorerType != SCORER_TYPE_NONE)
 #define HasLoader(r) ((r)->stateflags & QEXEC_S_HAS_LOAD)
 #define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
 #define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
+#define HasSortBy(r) ((r)->reqflags & QEXEC_F_HAS_SORTBY)
+#define HasGroupBy(r) ((r)->reqflags & QEXEC_F_HAS_GROUPBY)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
 #define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
 
@@ -261,13 +280,7 @@ typedef struct AREQ {
   // The offset of the prefixes in the command
   size_t prefixesOffset;
 
-  // Indicates whether the query has timed out.
-  // Useful for query with cursor and RETURN policy
-  bool has_timedout;
-
-  // Number of cursor reads: 1 for the initial FT.AGGREGATE WITHCURSOR,
-  // plus 1 for each subsequent FT.CURSOR READ call.
-  size_t cursor_reads;
+  ProfilePrinterCtx profileCtx;
 } AREQ;
 
 /**
@@ -323,11 +336,13 @@ void initializeAREQ(AREQ *req);
  * query will be parsed (and matched according to the schema), and the reducers
  * will be loaded and analyzed.
  *
+ * Can be called from the main thread or from a background thread. (Note: access RSGlobalConfig which is not thread safe)
+ *
  * This consumes a refcount of the context used.
  *
  * Note that this function consumes a refcount even if it fails!
  */
-int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
+int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status, const SharedSlotRangeArray *localSlots);
 
 /**
  * Constructs the pipeline objects needed to actually start processing
@@ -354,8 +369,14 @@ static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
  */
 #define REQFLAGS_AddFlags(reqflags, flags) (*(reqflags) |= (flags))
 
+#define REQFLAGS_RemoveFlags(reqflags, flags) (*(reqflags) &= ~(flags))
+
 static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
   return &req->pipeline.qctx;
+}
+
+static inline ProfilePrinterCtx *AREQ_ProfilePrinterCtx(AREQ *req) {
+  return &req->profileCtx;
 }
 
 static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
@@ -423,7 +444,7 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 int prepareExecutionPlan(AREQ *req, QueryError *status);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
-void sendChunk_ReplyOnly_EmptyResults(RedisModule_Reply *reply, AREQ *req);
+void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
 void AREQ_Free(AREQ *req);
 
 /**

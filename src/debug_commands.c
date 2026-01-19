@@ -6,6 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+
+#include "commands.h"
 #include "debug_commands.h"
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
@@ -107,15 +109,15 @@ static void ReplyIteratorResultsIDs(QueryIterator *iterator, RedisModuleCtx *ctx
   iterator->Free(iterator);
 }
 
-static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS,
+static FieldSpec *getFieldByNameAndType(IndexSpec *spec, RedisModuleString *fieldNameRS,
                                           FieldType t) {
   size_t len;
   const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, &len);
   const FieldSpec *fieldSpec = IndexSpec_GetFieldWithLength(spec, fieldName, len);
-  if (!fieldSpec) {
+  if (!fieldSpec || !FIELD_IS(fieldSpec, t)) {
     return NULL;
   }
-  return IndexSpec_GetFormattedKey(spec, fieldSpec, t);
+  return (FieldSpec *)fieldSpec;
 }
 
 typedef struct {
@@ -247,15 +249,15 @@ DEBUG_COMMAND(NumericIndexSummary) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[3], INDEXFLD_T_NUMERIC);
-  if (!keyName) {
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
+  if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
   NumericRangeTree rt_info = {0};
   int root_max_depth = 0;
 
-  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
+  NumericRangeTree *rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
   // If we failed to open the numeric index, it was not initialized yet.
   // Else, we copy the data to a local variable.
   if (rt) {
@@ -288,8 +290,8 @@ DEBUG_COMMAND(DumpNumericIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[3], INDEXFLD_T_NUMERIC);
-  if (!keyName) {
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
+  if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
@@ -297,7 +299,7 @@ DEBUG_COMMAND(DumpNumericIndex) {
   // It's a debug command... lets not waste time on string comparison.
   int with_headers = argc == 5 ? true : false;
 
-  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
+  NumericRangeTree *rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
   // If we failed to open the numeric index, it was not initialized yet.
   if (!rt) {
     RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
@@ -340,16 +342,15 @@ DEBUG_COMMAND(DumpGeometryIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  size_t len;
-  const char *fieldName = RedisModule_StringPtrLen(argv[3], &len);
-  const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, len);
+
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_GEOMETRY);
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
 
   // TODO: use DONT_CREATE_INDEX and imitate the reply struct of an empty index.
-  const GeometryIndex *idx = OpenGeometryIndex(sctx->spec, fs, CREATE_INDEX);
+  const GeometryIndex *idx = OpenGeometryIndex(fs, CREATE_INDEX);
   if (!idx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not open geoshape index");
     goto end;
@@ -510,13 +511,13 @@ DEBUG_COMMAND(DumpNumericIndexTree) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[3], INDEXFLD_T_NUMERIC);
-  if (!keyName) {
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
+  if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
   NumericRangeTree dummy_rt = {0};
-  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
+  NumericRangeTree *rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
   // If we failed to open the numeric index, it was not initialized yet,
   // reply as if the tree is empty.
   if (!rt) {
@@ -557,12 +558,12 @@ DEBUG_COMMAND(DumpTagIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[3], INDEXFLD_T_TAG);
-  if (!keyName) {
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_TAG);
+  if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const TagIndex *tagIndex = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
+  const TagIndex *tagIndex = TagIndex_Open(fs, DONT_CREATE_INDEX);
 
   // Field was not initialized yet
   if (!tagIndex) {
@@ -630,12 +631,12 @@ DEBUG_COMMAND(DumpSuffix) {
     RedisModule_ReplySetArrayLength(ctx, resultSize);
 
   } else { // suffix triemap of tag field
-    RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[3], INDEXFLD_T_TAG);
-    if (!keyName) {
+    FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_TAG);
+    if (!fs) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
       goto end;
     }
-    const TagIndex *idx = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
+    const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
 
     // Field was not initialized yet
     if (!idx) {
@@ -851,12 +852,12 @@ DEBUG_COMMAND(GCCleanNumeric) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[3], INDEXFLD_T_NUMERIC);
-  if (!keyName) {
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
+  if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
+  NumericRangeTree *rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
   if (!rt) {
     goto end;
   }
@@ -1090,13 +1091,13 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[3], INDEXFLD_T_TAG);
-  if (!keyName) {
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_TAG);
+  if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
+  const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
 
   // Field was not initialized yet
   if (!idx) {
@@ -1302,14 +1303,14 @@ DEBUG_COMMAND(VecsimInfo) {
   }
   GET_SEARCH_CTX(argv[2]);
 
-  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
-  if (!keyName) {
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
+  if (!fs) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Vector index not found");
   }
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
-  VecSimIndex *vecsimIndex = openVectorIndex(sctx->spec, keyName, CREATE_INDEX);
+  VecSimIndex *vecsimIndex = openVectorIndex(fs, CREATE_INDEX);
   if(!vecsimIndex) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Can't open vector index");
@@ -1378,14 +1379,14 @@ DEBUG_COMMAND(dumpHNSWData) {
   }
   GET_SEARCH_CTX(argv[2])
 
-  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
-  if (!keyName) {
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
+  if (!fs) {
     RedisModule_ReplyWithError(ctx, "Vector index not found");
 	  goto cleanup;
   }
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
-  VecSimIndex *vecsimIndex = openVectorIndex(sctx->spec, keyName, CREATE_INDEX);
+  VecSimIndex *vecsimIndex = openVectorIndex(fs, CREATE_INDEX);
   if(!vecsimIndex) {
     RedisModule_ReplyWithError(ctx, "Can't open vector index");
     goto cleanup;

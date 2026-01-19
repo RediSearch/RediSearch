@@ -816,64 +816,22 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
 
 static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
-  RedisModuleCallReply *rep = NULL;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisModuleString *krstr =
       RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
-  // We can only use the scan API from Redis version 6.0.6 and above
-  // and when the deployment is not enterprise-crdt
-  if(!isFeatureSupported(RM_SCAN_KEY_API_FIX) || isCrdt){
-    rep = RedisModule_Call(ctx, "HGETALL", "s!", krstr);
-    if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
-      goto done;
-    }
 
-    size_t len = RedisModule_CallReplyLength(rep);
-    // Zero means the document does not exist in redis
-    if (len == 0) {
-      goto done;
-    }
-
-    for (size_t i = 0; i < len; i += 2) {
-      size_t klen = 0;
-      RedisModuleCallReply *repk = RedisModule_CallReplyArrayElement(rep, i);
-      RedisModuleCallReply *repv = RedisModule_CallReplyArrayElement(rep, i + 1);
-
-      const char *kstr = RedisModule_CallReplyStringPtr(repk, &klen);
-      RLookupKey *rlk = RLookup_FindKey(it, kstr, klen);
-      if (!rlk) {
-        // First returned document, create the key.
-        rlk = RLookup_GetKey_LoadEx(it, kstr, klen, kstr, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD);
-      } else if ((rlk->flags & RLOOKUP_F_QUERYSRC)
-                 /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/) {
-        continue; // Key name is already taken by a query key, or it's already loaded.
-      }
-      RLookupCoerceType ctype = RLOOKUP_C_STR;
-      if (!options->forceString && rlk->flags & RLOOKUP_T_NUMERIC) {
-        ctype = RLOOKUP_C_DBL;
-      }
-      RSValue *vptr = replyElemToValue(repv, ctype);
-      RLookup_WriteOwnKey(rlk, dst, vptr);
-    }
-  } else {
-    RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
-    if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
-      // key does not exist or is not a hash
-      if (key) {
-        RedisModule_CloseKey(key);
-      }
-      goto done;
-    }
-    RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
-    RLookup_HGETALL_privdata pd = {
-      .it = it,
-      .dst = dst,
-      .options = options,
-    };
-    while(RedisModule_ScanKey(key, cursor, RLookup_HGETALL_scan_callback, &pd));
-    RedisModule_ScanCursorDestroy(cursor);
-    RedisModule_CloseKey(key);
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
+  if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
+    goto done;
   }
+  RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
+  RLookup_HGETALL_privdata pd = {
+    .it = it,
+    .dst = dst,
+    .options = options,
+  };
+  while(RedisModule_ScanKey(key, cursor, RLookup_HGETALL_scan_callback, &pd));
+  RedisModule_ScanCursorDestroy(cursor);
 
   rc = REDISMODULE_OK;
 
@@ -881,8 +839,8 @@ done:
   if (krstr) {
     RedisModule_FreeString(ctx, krstr);
   }
-  if (rep) {
-    RedisModule_FreeCallReply(rep);
+  if (key) {
+    RedisModule_CloseKey(key);
   }
   return rc;
 }
@@ -1002,7 +960,8 @@ void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags) {
 }
 
 void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
-                               RLookupRow *destRow, RLookup *destLookup) {
+                               RLookupRow *destRow, RLookup *destLookup,
+                               bool createMissingKeys) {
   RS_ASSERT(srcRow && srcLookup);
   RS_ASSERT(destRow && destLookup);
 
@@ -1022,7 +981,15 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
 
     // Find corresponding key in destination lookup
     RLookupKey *dest_key = RLookup_FindKey(destLookup, src_key->name, src_key->name_len);
-    RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
+    if (!createMissingKeys) {
+      RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
+    } else if (!dest_key) {
+        // Key doesn't exist in destination - create it on demand.
+        // This can happen with LOAD * where keys are created dynamically.
+        // Inherit non-transient flags from source.
+        uint32_t flags = src_key->flags & ~RLOOKUP_TRANSIENT_FLAGS;
+        dest_key = RLookup_GetKey_WriteEx(destLookup, src_key->name, src_key->name_len, flags);
+    }
     // Write fields to destination (increments refcount, shares ownership)
     RLookup_WriteKey(dest_key, destRow, value);
   }

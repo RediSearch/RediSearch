@@ -277,15 +277,16 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
 
-typedef struct {
-  RedisModuleString *types[INDEXFLD_NUM_TYPES];
-} IndexSpecFmtStrings;
-
 //---------------------------------------------------------------------------------------------
 
 // Forward declaration
 typedef struct InvertedIndex InvertedIndex;
 typedef const void* RedisSearchDiskIndexSpec;
+
+typedef struct CharBuf {
+  char *buf;
+  size_t len;
+} CharBuf;
 
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
@@ -300,7 +301,7 @@ typedef struct IndexSpec {
   Trie *terms;                    // Trie of all TEXT terms. Used for GC and fuzzy queries
   Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
   t_fieldMask suffixMask;         // Mask of all fields that support contains query
-  dict *keysDict;                 // Global dictionary. Contains inverted indexes of all TEXT TAG NUMERIC VECTOR and GEOSHAPE terms
+  dict *keysDict;                 // Inverted indexes dictionary of all TEXT terms
 
   DocTable docs;                  // Contains metadata of all documents
 
@@ -321,8 +322,7 @@ typedef struct IndexSpec {
   bool monitorFieldExpiration;
   bool isDuplicate;               // Marks that this index is a duplicate of an existing one
 
-  // cached strings, corresponding to number of fields
-  IndexSpecFmtStrings *indexStrs;
+  // cached fields, corresponding to number of fields
   struct IndexSpecCache *spcache;
   // For index expiration
   long long timeout;
@@ -372,11 +372,6 @@ typedef struct SpecOpIndexingCtx {
   dict *specs;
   SpecOpCtx *specsOps;
 } SpecOpIndexingCtx;
-
-typedef struct {
-  void (*dtor)(void *p);
-  void *p;
-} KeysDictValue;
 
 extern RedisModuleType *IndexSpecType;
 extern RedisModuleType *IndexAliasType;
@@ -549,8 +544,6 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
  */
 void IndexSpec_MakeKeyless(IndexSpec *sp);
 
-#define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
-
 void IndexesScanner_Cancel(struct IndexesScanner *scanner);
 void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
 
@@ -637,10 +630,6 @@ void IndexSpec_Free(IndexSpec *spec);
 //---------------------------------------------------------------------------------------------
 
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
-
-/** Returns a string suitable for indexes. This saves on string creation/destruction */
-RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
-RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s, FieldType forType);
 
 IndexSpec *NewIndexSpec(const HiddenString *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);

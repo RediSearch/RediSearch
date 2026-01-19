@@ -102,20 +102,16 @@ extern "C" {
  *
  *
  */
-typedef struct {
+typedef struct TagIndex {
   uint32_t uniqueId;
   TrieMap *values;
   TrieMap *suffix;
 } TagIndex;
 
-#define TAG_INDEX_KEY_FMT "tag:%s/%s"
-/* Format the key name for a tag index */
-RedisModuleString *TagIndex_FormatName(const IndexSpec *spec, const HiddenString *field);
-
 /* Create a new tag index*/
 TagIndex *NewTagIndex();
 
-void TagIndex_Free(void *p);
+void TagIndex_Free(TagIndex *index);
 
 char *TagIndex_SepString(char sep, char **s, size_t *toklen, bool indexEmpty);
 
@@ -138,7 +134,7 @@ QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
                                    double weight, t_fieldIndex fieldIndex);
 
 /* Open the tag index key in redis */
-TagIndex *TagIndex_Open(const IndexSpec *spec, RedisModuleString *formattedKey, bool create_if_missing);
+TagIndex *TagIndex_Open(FieldSpec *spec, bool create_if_missing);
 
 /* Find and index containing value, if the index is not found and create == 1,
  * a new index is created.
@@ -155,7 +151,7 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);
 * Calculates the overhead used by the TrieMaps of the TAG field named `name`, in
 * IndexSpec `sp`.
 */
-size_t TagIndex_GetOverhead(const IndexSpec *sp, FieldSpec *fs);
+size_t TagIndex_GetOverhead(FieldSpec *fs);
 
 #ifdef __cplusplus
 }

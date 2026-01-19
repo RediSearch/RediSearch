@@ -18,6 +18,7 @@
 #include "iterators/optimizer_reader.h"
 #include "reply_macros.h"
 #include "util/units.h"
+#include "coord/rmr/rmr.h"
 
 typedef struct {
     IteratorsConfig *iteratorsConfig;
@@ -98,6 +99,8 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_GROUP:
       case RP_MAX_SCORE_NORMALIZER:
       case RP_NETWORK:
+      case RP_SAFE_DEPLETER:
+      case RP_DEPLETER:
         printProfileType(RPTypeToString(rp->type));
         break;
 
@@ -132,17 +135,24 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
 }
 
 void Profile_Print(RedisModule_Reply *reply, void *ctx) {
-  ProfilePrinterCtx *profileCtx = ctx;
-  AREQ *req = profileCtx->req;
-  bool timedout = profileCtx->timedout;
-  bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
-  bool bgScanOOM = profileCtx->bgScanOOM;
-  bool queryOOM = profileCtx->queryOOM;
+  AREQ *req = ctx;
+  ProfilePrinterCtx *profileCtx = AREQ_ProfilePrinterCtx(req);
+  bool timedout = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
+  bool reachedMaxPrefixExpansions = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
+  bool bgScanOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
+  bool queryOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
   req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
   RedisModule_Reply_Map(reply);
   int profile_verbose = req->reqConfig.printProfileClock;
+
+  // Get and add the Shard ID string to the profile reply (guarded by a ref count).
+  const char *node_id = MR_GetLocalNodeId();
+  if (node_id) {
+    RedisModule_ReplyKV_SimpleString(reply, "Shard ID", node_id);
+  }
+  MR_ReleaseLocalNodeIdReadLock();
 
   // Print total time
   if (profile_verbose) {
@@ -175,30 +185,33 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
     }
   }
 
-      // Print whether a warning was raised throughout command execution
-      bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions;
-      if (bgScanOOM) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WINDEXING_FAILURE);
-      }
-      if (queryOOM) {
-        // This function is called by Shard or SA, so always return SHARD warning.
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WOOM_SHARD);
-      }
-      if (timedout) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ETIMEDOUT));
-      } else if (reachedMaxPrefixExpansions) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
-      } else if (!warningRaised) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
-      }
-
-      // print into array with a recursive function over result processors
+  // Print whether a warning was raised throughout command execution
+  bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions;
+  RedisModule_ReplyKV_Array(reply, "Warning");
+  if (!warningRaised) {
+    RedisModule_Reply_SimpleString(reply, "None");
+  } else {
+    if (bgScanOOM) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
+    }
+    if (queryOOM) {
+      // This function is called by Shard or SA, so always return SHARD warning.
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_SHARD);
+    }
+    if (timedout) {
+      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+    }
+    if (reachedMaxPrefixExpansions) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
+    }
+  }
+  RedisModule_Reply_ArrayEnd(reply); // >warnings
 
   // Print cursor reads count if this is a cursor request.
   if (req->reqflags & QEXEC_F_IS_CURSOR) {
     // Only internal requests can use profile with cursor.
     RS_ASSERT(IsInternal(req));
-    RedisModule_ReplyKV_LongLong(reply, "Internal cursor reads", req->cursor_reads);
+    RedisModule_ReplyKV_LongLong(reply, "Internal cursor reads", profileCtx->cursor_reads);
   }
 
   // Print profile of iterators

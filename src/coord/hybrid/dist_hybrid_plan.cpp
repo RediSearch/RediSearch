@@ -50,7 +50,7 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
       // The depleter will feed results to the hybrid merger
       RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
       RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
-      ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
+      ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
       pushDepleter(qctx, depleter);
   }
 
@@ -103,8 +103,13 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
       return NULL;
     }
 
-    // Add keys from all source lookups to create unified schema before opening the score key
-    HybridRequest_SynchronizeLookupKeys(hreq);
+    // Add keys from all source lookups to create unified schema before opening
+    // the score key.
+    // Skip for 'LOAD *' - keys are created dynamically during loading and will
+    // be synchronized lazily in RLookupRow_WriteFieldsFrom when first needed.
+    if (!(hreq->reqflags & QEXEC_AGG_LOAD_ALL)) {
+      HybridRequest_SynchronizeLookupKeys(hreq);
+    }
 
     // Open the key outside the RLOOKUP_OPT_UNRESOLVED_OK scope so it won't be marked as unresolved
     const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, hybridParams->aggregationParams.common.scoreAlias, status);

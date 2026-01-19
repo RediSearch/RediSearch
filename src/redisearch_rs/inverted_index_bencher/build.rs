@@ -13,7 +13,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Always link the static libraries, independent of bindgen
     link_static_libraries(&[
         ("src/inverted_index", "inverted_index"),
-        ("src/buffer", "buffer"),
         ("src/util/arr", "arr"),
     ]);
 
