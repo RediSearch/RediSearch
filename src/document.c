@@ -586,13 +586,13 @@ FIELD_BULK_INDEXER(numericIndexer) {
   if (!fdata->isMulti) {
     NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric, false);
     ctx->spec->stats.invertedSize += rv.sz;
-    ctx->spec->stats.numRecords += rv.numRecords;
+    ctx->spec->stats.numRecords += rv.num_records;
   } else {
     for (uint32_t i = 0; i < array_len(fdata->arrNumeric); ++i) {
       double numval = fdata->arrNumeric[i];
       NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, numval, true);
       ctx->spec->stats.invertedSize += rv.sz;
-      ctx->spec->stats.numRecords += rv.numRecords;
+      ctx->spec->stats.numRecords += rv.num_records;
     }
   }
 

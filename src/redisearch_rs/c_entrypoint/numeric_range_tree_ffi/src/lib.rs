@@ -529,6 +529,164 @@ pub const unsafe extern "C" fn NumericRangeTree_GetInvertedIndexesSize(tree: *co
     unsafe { (*tree).inverted_indexes_size() }
 }
 
+/// Gets the value (split point) of a node.
+///
+/// # Safety
+///
+/// - `node` must be a valid pointer to a NumericRangeNode.
+#[unsafe(no_mangle)]
+pub const unsafe extern "C" fn NumericRangeNode_GetValue(node: *const NumericRangeNode) -> f64 {
+    if node.is_null() {
+        return 0.0;
+    }
+    // SAFETY: The caller guarantees that `node` is a valid pointer.
+    unsafe { (*node).value }
+}
+
+/// Gets the maximum depth of a node's subtree.
+///
+/// # Safety
+///
+/// - `node` must be a valid pointer to a NumericRangeNode.
+#[unsafe(no_mangle)]
+pub const unsafe extern "C" fn NumericRangeNode_GetMaxDepth(node: *const NumericRangeNode) -> i32 {
+    if node.is_null() {
+        return 0;
+    }
+    // SAFETY: The caller guarantees that `node` is a valid pointer.
+    unsafe { (*node).max_depth }
+}
+
+/// Gets the left child of a node.
+///
+/// # Safety
+///
+/// - `node` must be a valid pointer to a NumericRangeNode.
+///
+/// # Returns
+///
+/// A pointer to the left child, or null if the node has no left child.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NumericRangeNode_GetLeft(node: *const NumericRangeNode) -> *const NumericRangeNode {
+    if node.is_null() {
+        return ptr::null();
+    }
+    // SAFETY: The caller guarantees that `node` is a valid pointer.
+    unsafe { (*node).left.as_ref().map_or(ptr::null(), |n| n.as_ref() as *const _) }
+}
+
+/// Gets the right child of a node.
+///
+/// # Safety
+///
+/// - `node` must be a valid pointer to a NumericRangeNode.
+///
+/// # Returns
+///
+/// A pointer to the right child, or null if the node has no right child.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NumericRangeNode_GetRight(node: *const NumericRangeNode) -> *const NumericRangeNode {
+    if node.is_null() {
+        return ptr::null();
+    }
+    // SAFETY: The caller guarantees that `node` is a valid pointer.
+    unsafe { (*node).right.as_ref().map_or(ptr::null(), |n| n.as_ref() as *const _) }
+}
+
+/// Gets a pointer to the HLL registers of a range.
+///
+/// # Safety
+///
+/// - `range` must be a valid pointer to a NumericRange.
+///
+/// # Returns
+///
+/// A pointer to the HLL registers, or null if `range` is null.
+/// The pointer is valid as long as the range is not modified or freed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NumericRange_GetHLLRegisters(range: *const NumericRange) -> *const u8 {
+    if range.is_null() {
+        return ptr::null();
+    }
+    // SAFETY: The caller guarantees that `range` is a valid pointer.
+    unsafe { (*range).hll().registers().as_ptr() }
+}
+
+/// Sets the HLL registers of a range from a buffer.
+///
+/// # Safety
+///
+/// - `range` must be a valid mutable pointer to a NumericRange.
+/// - `registers` must be a valid pointer to at least `len` bytes.
+/// - `len` must match the expected register size (64 for 6-bit precision).
+///
+/// # Returns
+///
+/// True if the registers were successfully set, false otherwise.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NumericRange_SetHLLRegisters(
+    range: *mut NumericRange,
+    registers: *const u8,
+    len: usize,
+) -> bool {
+    if range.is_null() || registers.is_null() {
+        return false;
+    }
+
+    // SAFETY: The caller guarantees that `range` is a valid pointer.
+    let range = unsafe { &mut *range };
+    // SAFETY: The caller guarantees that `registers` points to `len` valid bytes.
+    let registers = unsafe { std::slice::from_raw_parts(registers, len) };
+
+    range.hll_mut().set_registers(registers)
+}
+
+/// Clears the HLL registers of a range.
+///
+/// # Safety
+///
+/// - `range` must be a valid mutable pointer to a NumericRange.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NumericRange_ClearHLL(range: *mut NumericRange) {
+    if range.is_null() {
+        return;
+    }
+    // SAFETY: The caller guarantees that `range` is a valid pointer.
+    unsafe { (*range).hll_mut().clear() }
+}
+
+/// Gets the root node of the tree.
+///
+/// # Safety
+///
+/// - `tree` must be a valid pointer to a NumericRangeTree.
+///
+/// # Returns
+///
+/// A pointer to the root node.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NumericRangeTree_GetRoot(tree: *const NumericRangeTree) -> *const NumericRangeNode {
+    if tree.is_null() {
+        return ptr::null();
+    }
+    // SAFETY: The caller guarantees that `tree` is a valid pointer.
+    unsafe { (*tree).root() as *const _ }
+}
+
+/// Gets the number of empty leaves in the tree.
+///
+/// # Safety
+///
+/// - `tree` must be a valid pointer to a NumericRangeTree.
+#[unsafe(no_mangle)]
+pub const unsafe extern "C" fn NumericRangeTree_GetEmptyLeaves(tree: *const NumericRangeTree) -> usize {
+    if tree.is_null() {
+        return 0;
+    }
+    // SAFETY: The caller guarantees that `tree` is a valid pointer.
+    unsafe { (*tree).empty_leaves() }
+}
+
 /// Creates an IndexReader for a NumericRange's inverted index entries.
 ///
 /// This function allows C code to create an IndexReader to iterate over

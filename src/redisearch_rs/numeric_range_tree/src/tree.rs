@@ -168,6 +168,12 @@ impl NumericRangeTree {
         &self.root
     }
 
+    /// Returns the number of empty leaves.
+    #[must_use]
+    pub const fn empty_leaves(&self) -> usize {
+        self.empty_leaves
+    }
+
     /// Adds a value to the tree.
     ///
     /// # Arguments

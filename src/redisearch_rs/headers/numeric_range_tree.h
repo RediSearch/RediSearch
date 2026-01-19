@@ -357,6 +357,112 @@ t_docId NumericRangeTree_GetLastDocId(const struct NumericRangeTree *tree);
 uintptr_t NumericRangeTree_GetInvertedIndexesSize(const struct NumericRangeTree *tree);
 
 /**
+ * Gets the value (split point) of a node.
+ *
+ * # Safety
+ *
+ * - `node` must be a valid pointer to a NumericRangeNode.
+ */
+double NumericRangeNode_GetValue(const struct NumericRangeNode *node);
+
+/**
+ * Gets the maximum depth of a node's subtree.
+ *
+ * # Safety
+ *
+ * - `node` must be a valid pointer to a NumericRangeNode.
+ */
+int32_t NumericRangeNode_GetMaxDepth(const struct NumericRangeNode *node);
+
+/**
+ * Gets the left child of a node.
+ *
+ * # Safety
+ *
+ * - `node` must be a valid pointer to a NumericRangeNode.
+ *
+ * # Returns
+ *
+ * A pointer to the left child, or null if the node has no left child.
+ */
+const struct NumericRangeNode *NumericRangeNode_GetLeft(const struct NumericRangeNode *node);
+
+/**
+ * Gets the right child of a node.
+ *
+ * # Safety
+ *
+ * - `node` must be a valid pointer to a NumericRangeNode.
+ *
+ * # Returns
+ *
+ * A pointer to the right child, or null if the node has no right child.
+ */
+const struct NumericRangeNode *NumericRangeNode_GetRight(const struct NumericRangeNode *node);
+
+/**
+ * Gets a pointer to the HLL registers of a range.
+ *
+ * # Safety
+ *
+ * - `range` must be a valid pointer to a NumericRange.
+ *
+ * # Returns
+ *
+ * A pointer to the HLL registers, or null if `range` is null.
+ * The pointer is valid as long as the range is not modified or freed.
+ */
+const uint8_t *NumericRange_GetHLLRegisters(const struct NumericRange *range);
+
+/**
+ * Sets the HLL registers of a range from a buffer.
+ *
+ * # Safety
+ *
+ * - `range` must be a valid mutable pointer to a NumericRange.
+ * - `registers` must be a valid pointer to at least `len` bytes.
+ * - `len` must match the expected register size (64 for 6-bit precision).
+ *
+ * # Returns
+ *
+ * True if the registers were successfully set, false otherwise.
+ */
+bool NumericRange_SetHLLRegisters(struct NumericRange *range,
+                                  const uint8_t *registers,
+                                  uintptr_t len);
+
+/**
+ * Clears the HLL registers of a range.
+ *
+ * # Safety
+ *
+ * - `range` must be a valid mutable pointer to a NumericRange.
+ */
+void NumericRange_ClearHLL(struct NumericRange *range);
+
+/**
+ * Gets the root node of the tree.
+ *
+ * # Safety
+ *
+ * - `tree` must be a valid pointer to a NumericRangeTree.
+ *
+ * # Returns
+ *
+ * A pointer to the root node.
+ */
+const struct NumericRangeNode *NumericRangeTree_GetRoot(const struct NumericRangeTree *tree);
+
+/**
+ * Gets the number of empty leaves in the tree.
+ *
+ * # Safety
+ *
+ * - `tree` must be a valid pointer to a NumericRangeTree.
+ */
+uintptr_t NumericRangeTree_GetEmptyLeaves(const struct NumericRangeTree *tree);
+
+/**
  * Creates an IndexReader for a NumericRange's inverted index entries.
  *
  * This function allows C code to create an IndexReader to iterate over

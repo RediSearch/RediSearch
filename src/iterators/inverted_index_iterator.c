@@ -9,6 +9,7 @@
 
 #include "inverted_index_iterator.h"
 #include "redis_index.h"
+#include "numeric_range_tree.h"
 
 void InvIndIterator_Free(QueryIterator *it) {
   if (!it) return;
@@ -41,7 +42,8 @@ static ValidateStatus NumericCheckAbort(QueryIterator *base) {
 
   // sctx and rt should always be set, except in some tests.
   RS_ASSERT(nit->rt);
-  if (nit->rt->revisionId != nit->revisionId) {
+  // Use FFI to get the revision ID from the Rust NumericRangeTree
+  if (NumericRangeTree_GetRevisionId(nit->rt) != nit->revisionId) {
     // The numeric tree was either completely deleted or a node was split or removed.
     // The cursor is invalidated.
     return VALIDATE_ABORTED;
@@ -425,7 +427,7 @@ QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const Re
   InitInvIndIterator(&numIt->base, idx, NewNumericResult(), fieldCtx, sctx, &decoderCtx, NumericCheckAbort);
 
   if (rt) {
-    numIt->revisionId = rt->revisionId;
+    numIt->revisionId = NumericRangeTree_GetRevisionId(rt);
     numIt->rt = rt;
   }
 
@@ -434,6 +436,76 @@ QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const Re
   it->profileCtx.numeric.rangeMin = rangeMin;
   it->profileCtx.numeric.rangeMax = rangeMax;
   return ret;
+}
+
+// Creates an iterator using a pre-created Rust IndexReader.
+// This is used when the NumericRange entries are managed by Rust.
+QueryIterator *NewInvIndIterator_FromReader(IndexReader *reader, const RedisSearchCtx *sctx,
+                                            const FieldFilterContext* filterCtx,
+                                            const NumericRangeTree *rt,
+                                            double rangeMin, double rangeMax) {
+  if (!reader) {
+    return NULL;
+  }
+
+  NumericInvIndIterator *numIt = rm_calloc(1, sizeof(*numIt));
+  InvIndIterator *it = &numIt->base;
+
+  // Set the pre-created reader directly
+  it->reader = reader;
+  it->sctx = sctx;
+  if (filterCtx) {
+    it->filterCtx = *filterCtx;
+  } else {
+    it->filterCtx = (FieldFilterContext){
+      .field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX},
+      .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
+    };
+  }
+  it->isWildcard = false;
+  it->CheckAbort = (ValidateStatus (*)(struct InvIndIterator *))NumericCheckAbort;
+
+  QueryIterator *base = &it->base;
+  base->current = NewNumericResult();
+  base->type = INV_IDX_ITERATOR;
+  base->atEOF = false;
+  base->lastDocId = 0;
+  base->NumEstimated = InvIndIterator_NumEstimated;
+  base->Free = InvIndIterator_Free;
+  base->Rewind = InvIndIterator_Rewind;
+  base->Revalidate = InvIndIterator_Revalidate;
+
+  // Choose the Read and SkipTo methods for best performance
+  bool skipMulti = ShouldSkipMulti(it);
+  bool hasExpiration = HasExpiration(it);
+
+  if (skipMulti && hasExpiration) {
+    base->Read = InvIndIterator_Read_SkipMulti_CheckExpiration;
+  } else if (skipMulti) {
+    base->Read = InvIndIterator_Read_SkipMulti;
+  } else if (hasExpiration) {
+    base->Read = InvIndIterator_Read_CheckExpiration;
+  } else {
+    base->Read = InvIndIterator_Read_Default;
+  }
+
+  if (hasExpiration) {
+    base->SkipTo = InvIndIterator_SkipTo_CheckExpiration;
+  } else {
+    base->SkipTo = InvIndIterator_SkipTo;
+  }
+
+  // Set numeric tree for abort checking
+  if (rt) {
+    numIt->revisionId = NumericRangeTree_GetRevisionId(rt);
+    numIt->rt = rt;
+  }
+
+  // Set profile context
+  it->profileCtx.numeric.rangeMin = rangeMin;
+  it->profileCtx.numeric.rangeMax = rangeMax;
+
+  return base;
 }
 
 static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {

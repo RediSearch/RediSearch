@@ -447,7 +447,7 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp) {
         continue;
       }
 
-      overhead += sizeof(NumericRangeTree);
+      overhead += NumericIndexType_MemUsage(rt);
     }
   }
   return overhead;
