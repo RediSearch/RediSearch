@@ -9,7 +9,7 @@
 
 //! Benchmark ID-list iterator.
 
-use std::time::Duration;
+use std::{hint::black_box, time::Duration};
 
 use criterion::{
     BenchmarkGroup, Criterion,
@@ -92,7 +92,7 @@ impl Bencher {
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -108,7 +108,7 @@ impl Bencher {
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -126,7 +126,7 @@ impl Bencher {
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -143,7 +143,7 @@ impl Bencher {
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
