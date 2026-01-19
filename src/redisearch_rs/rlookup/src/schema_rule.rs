@@ -92,7 +92,7 @@ impl SchemaRule {
         unsafe { slice::from_raw_parts(self.0.filter_fields_index, len) }
     }
 
-    /// Get the length of the `filter_fields` array.
+    /// Get the length of the underlying `filter_fields` array.
     fn filter_fields_len(&self) -> usize {
         // Safety: (1.) due to creation with `SchemaRule::from_raw`
         unsafe { ffi::array_len_func(self.0.filter_fields as ffi::array_t) }
@@ -100,6 +100,7 @@ impl SchemaRule {
             .expect("array_len must not exceed usize")
     }
 
+    /// Get the underlying `type_`.
     pub const fn type_(&self) -> DocumentType {
         self.0.type_
     }

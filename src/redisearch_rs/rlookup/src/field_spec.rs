@@ -33,11 +33,13 @@ impl FieldSpec {
         std::ptr::from_ref(&self.0)
     }
 
+    /// Get the underlying field name as a `&HiddenString`.
     pub const fn field_name(&self) -> &HiddenString {
         // Safety: (1.) due to creation with `FieldSpec::from_raw`
         unsafe { HiddenString::from_raw(self.0.fieldName) }
     }
 
+    /// Get the underlying field path as a `&HiddenString`.
     pub const fn field_path(&self) -> &HiddenString {
         // Safety: (1.) due to creation with `FieldSpec::from_raw`
         unsafe { HiddenString::from_raw(self.0.fieldPath) }
