@@ -16,6 +16,22 @@
 
 #include <memory>
 
+// Stub RocksDB C API functions to satisfy linker when SpeeDBStore class is compiled
+// but not actually used (CreateSpeeDBStore returns nullptr in tests).
+extern "C" {
+void rocksdb_readoptions_destroy(rocksdb_readoptions_t*) {}
+void rocksdb_writeoptions_destroy(rocksdb_writeoptions_t*) {}
+void rocksdb_put_cf(rocksdb_t*, const rocksdb_writeoptions_t*, rocksdb_column_family_handle_t*, const char*, size_t,
+                    const char*, size_t, char**) {}
+char* rocksdb_get_cf(rocksdb_t*, const rocksdb_readoptions_t*, rocksdb_column_family_handle_t*, const char*, size_t,
+                     size_t*, char**) {
+    return nullptr;
+}
+void rocksdb_delete_cf(rocksdb_t*, const rocksdb_writeoptions_t*, rocksdb_column_family_handle_t*, const char*, size_t,
+                       char**) {}
+void rocksdb_free(void*) {}
+}
+
 std::unique_ptr<VectorStore> CreateSpeeDBStore(const SpeeDBHandles* /*handles*/) {
     // In unit tests, we don't have SpeedB available.
     // Return nullptr - tests should use MockStorage instead.

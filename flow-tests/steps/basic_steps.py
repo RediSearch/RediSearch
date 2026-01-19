@@ -115,14 +115,109 @@ def verify_result_count(request, count):
     assert result[0] == count, f"Expected {count} results, got {result[0]}, result: {result}"
 
 
-@then(parsers.parse('the first result should be "{doc_id}"'))
+@then(parsers.parse('the only result should be "{doc_id}"'))
 def verify_first_result(request, doc_id):
     """Verify the first search result document ID."""
     result = request.node.search_result
     assert result is not None
+    # we only expect one result
+    assert result[0] == 1
     # Handle both bytes and strings
     result_id = result[1].decode('utf-8') if isinstance(result[1], bytes) else result[1]
     assert result_id == doc_id, f"Expected first result to be '{doc_id}', got '{result_id}'"
+
+
+def _decode(val):
+    """Decode bytes to string if needed."""
+    return val.decode('utf-8') if isinstance(val, bytes) else val
+
+
+def _parse_search_results(result):
+    """Parse FT.SEARCH results into a dict.
+
+    Usage:
+        result = [2, b'doc1', [b'title', b'hello'], b'doc2', [b'title', b'world']]
+        _parse_search_results(result)
+        # => {'doc1': {'title': 'hello'}, 'doc2': {'title': 'world'}}
+    """
+    docs = {}
+    for i in range(1, len(result), 2):
+        field_list = result[i + 1] if i + 1 < len(result) else []
+        fields = {_decode(field_list[j]): _decode(field_list[j + 1]) for j in range(0, len(field_list), 2)}
+        docs[_decode(result[i])] = fields
+    return docs
+
+
+def _verify_docs_in_results(actual, datatable, check_exact=False):
+    """Verify expected docs are in results.
+
+    Usage:
+        actual = {'doc1': {'title': 'hello'}, 'doc2': {'title': 'world'}}
+        datatable = [['doc_id', 'title'], ['doc1', 'hello']]
+        _verify_docs_in_results(actual, datatable)  # passes, doc2 ignored
+        _verify_docs_in_results(actual, datatable, check_exact=True)  # fails, doc2 unexpected
+    """
+    headers = datatable[0]
+    expected = {row[headers.index('doc_id')]: dict(zip(headers, row)) for row in datatable[1:]}
+
+    if check_exact:
+        assert set(actual.keys()) == set(expected.keys()), \
+            f"Expected exactly {list(expected.keys())}, got {list(actual.keys())}"
+
+    for doc_id, expected_fields in expected.items():
+        assert doc_id in actual, f"Expected '{doc_id}' in results, got {list(actual.keys())}"
+        for field, value in expected_fields.items():
+            if field != 'doc_id':
+                assert actual[doc_id].get(field) == value, \
+                    f"Expected '{field}'='{value}' for '{doc_id}', got '{actual[doc_id].get(field)}'"
+
+
+@then('the results should contain:')
+def verify_results_contain_docs(request, datatable):
+    """Verify the search results contain specific documents (others may exist).
+
+    Usage:
+        Then the results should contain:
+          | doc_id |
+          | doc1   |
+
+        Then the results should contain:
+          | doc_id | title |
+          | doc1   | hello |
+    """
+    result = request.node.search_result
+    assert result is not None
+    actual = _parse_search_results(result)
+    _verify_docs_in_results(actual, datatable, check_exact=False)
+
+
+@then('the results should only contain:')
+def verify_results_only_contain_docs(request, datatable):
+    """Verify the search results contain exactly the specified documents (no extras).
+
+    Usage:
+        Then the results should only contain:
+          | doc_id |
+          | doc1   |
+          | doc2   |
+
+        Then the results should only contain:
+          | doc_id | title |
+          | doc1   | hello |
+          | doc2   | world |
+    """
+    result = request.node.search_result
+    assert result is not None
+    actual = _parse_search_results(result)
+    _verify_docs_in_results(actual, datatable, check_exact=True)
+
+
+@then('the results should be empty')
+def verify_results_empty(request):
+    """Verify the search returned no results."""
+    result = request.node.search_result
+    assert result is not None
+    assert result[0] == 0, f"Expected 0 results, got {result[0]}, result: {result}"
 
 
 @then(parsers.parse('the index "{index_name}" should exist'))

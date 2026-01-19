@@ -15,18 +15,15 @@ use crate::merge_op::DeletedIdsMergeOperator;
 
 use speedb::{
     BlockBasedOptions, ColumnFamilyDescriptor, Options as SpeedbDbOptions, SliceTransform,
+    WriteOptions,
 };
 
 use crate::{
     database::{Speedb, SpeedbMultithreadedDatabase},
-    document_id_key::DocumentIdKey,
     key_traits::AsKeyExt,
 };
 
 use crate::metrics::CFMetrics;
-
-/// Delimiter used in inverted index keys between term and last document ID
-const KEY_DELIMETER_STR: &str = "_";
 
 /// An inverted index maps terms to the documents which contain the term.
 pub struct InvertedIndex {
@@ -38,24 +35,54 @@ pub struct InvertedIndex {
     /// We can't currently store the column family handle directly because it has a lifetime
     /// tied to the database instance, which complicates ownership (does not compile).
     cf_name: String,
+
+    /// Write options for the inverted index
+    write_options: WriteOptions,
 }
 
-/// Key structure for inverted index entries
+/// Key structure for inverted index entries.
+///
+/// Key format: `prefix + delimiter (0x00) + doc_id (8 bytes big-endian)`
+///
+/// Big-endian encoding is used for doc_id so that lexicographic ordering matches numeric ordering,
+/// enabling efficient range scans and seeks in the database.
 struct InvertedIndexKey<'term> {
     prefix: &'term str,
     last_doc_id: Option<t_docId>,
 }
 
+impl InvertedIndexKey<'_> {
+    /// Delimiter byte between term and doc_id. Using \x00 is safe because:
+    /// - UTF-8 never uses \x00 in multi-byte sequences (only for NUL character itself)
+    /// - Ensures "term\x00..." < "term_...\x00..." so reverse seeks stay within term bounds
+    const TERM_DELIMITER: u8 = 0x00;
+
+    /// Size of the delimiter byte between term and doc_id
+    pub(crate) const DELIMITER_SIZE: usize = std::mem::size_of_val(&Self::TERM_DELIMITER);
+
+    /// Size of the binary-encoded document ID suffix in keys (delimiter + 8 bytes for u64)
+    pub(crate) const DOC_ID_KEY_SIZE: usize = Self::DELIMITER_SIZE + std::mem::size_of::<t_docId>();
+}
+
 impl<'term> AsKeyExt for InvertedIndexKey<'term> {
     fn as_key(&self) -> Vec<u8> {
-        let key = if let Some(last_doc_id) = self.last_doc_id {
-            let last_doc_id: DocumentIdKey = last_doc_id.into();
-            format!("{}{}{}", self.prefix, KEY_DELIMETER_STR, last_doc_id)
-        } else {
-            format!("{}{}", self.prefix, KEY_DELIMETER_STR)
-        };
+        // Pre-calculate capacity: term + optional (delimiter + 8-byte doc_id)
+        let capacity = self.prefix.len()
+            + if self.last_doc_id.is_some() {
+                Self::DOC_ID_KEY_SIZE
+            } else {
+                0
+            };
+        let mut key = Vec::with_capacity(capacity);
 
-        key.as_bytes().to_vec()
+        key.extend_from_slice(self.prefix.as_bytes());
+
+        if let Some(doc_id) = self.last_doc_id {
+            key.push(Self::TERM_DELIMITER);
+            key.extend_from_slice(&doc_id.to_be_bytes());
+        }
+
+        key
     }
 }
 
@@ -182,7 +209,6 @@ impl From<term::Document> for PostingsListBlock {
 }
 
 impl InvertedIndex {
-    const KEY_DELIMITER: u8 = b'_';
     const COLUMN_FAMILY_NAME: &str = "fulltext";
     const PREFIX_EXTRACTOR_NAME: &str = "fulltext_prefix_extractor";
     const MERGE_OPERATOR_NAME: &str = "fulltext_merge_operator";
@@ -194,33 +220,36 @@ impl InvertedIndex {
             .cf_handle(Self::COLUMN_FAMILY_NAME)
             .expect("Inverted index column family should exist");
 
+        let mut write_options = WriteOptions::default();
+        write_options.disable_wal(true);
         InvertedIndex {
             database,
             cf_name: Self::COLUMN_FAMILY_NAME.to_string(),
+            write_options,
         }
     }
 
-    /// Strip everything after the last [`KEY_DELIMITER`], which is the key
-    /// without the last doc_id, but keeping the delimiter.
-    fn strip_after_last_delimiter(src: &[u8]) -> &[u8] {
-        let last_key_delimiter_idx = src
-            .iter()
-            .rposition(|byte| *byte == Self::KEY_DELIMITER)
-            .expect("slice doesn't contain KEY_DELIMITER");
-
-        src.split_at(last_key_delimiter_idx + 1).0
+    /// Strip the 8-byte doc_id suffix from the key, leaving just the term.
+    /// Keys are structured as: [term bytes][8-byte big-endian doc_id]
+    fn strip_doc_id_suffix(src: &[u8]) -> &[u8] {
+        debug_assert!(
+            src.len() >= InvertedIndexKey::DOC_ID_KEY_SIZE,
+            "key must be at least {} bytes to contain a doc_id",
+            InvertedIndexKey::DOC_ID_KEY_SIZE
+        );
+        &src[..src.len() - InvertedIndexKey::DOC_ID_KEY_SIZE]
     }
 
-    /// Returns whether `src` contains a [`KEY_DELIMITER`].
-    fn contains_key_delimiter(src: &[u8]) -> bool {
-        src.contains(&Self::KEY_DELIMITER)
+    /// Returns whether `src` is long enough to contain a doc_id suffix.
+    fn has_doc_id_suffix(src: &[u8]) -> bool {
+        src.len() >= InvertedIndexKey::DOC_ID_KEY_SIZE
     }
 
     pub fn cf_descriptor(deleted_ids: DeletedIdsStore) -> ColumnFamilyDescriptor {
         let prefix_extractor = SliceTransform::create(
             Self::PREFIX_EXTRACTOR_NAME,
-            Self::strip_after_last_delimiter,
-            Some(Self::contains_key_delimiter),
+            Self::strip_doc_id_suffix,
+            Some(Self::has_doc_id_suffix),
         );
 
         let mut cf_options = SpeedbDbOptions::default();
@@ -269,7 +298,7 @@ impl InvertedIndex {
         let block = block.serialize();
 
         self.database
-            .put_cf(&self.cf_handle(), key.as_key(), block)?;
+            .put_cf_opt(&self.cf_handle(), key.as_key(), block, &self.write_options)?;
 
         Ok(())
     }
@@ -310,23 +339,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_strip_after_last_delimiter_basic() {
-        let key = b"foo_40";
-        let expected = b"foo_";
-        assert_eq!(InvertedIndex::strip_after_last_delimiter(key), expected);
+    fn test_strip_doc_id_suffix_basic() {
+        // "foo" + delimiter + 8 bytes of doc_id
+        let key = b"foo\x00\x00\x00\x00\x00\x00\x00\x00\x28"; // doc_id = 40
+        let expected = b"foo";
+        assert_eq!(InvertedIndex::strip_doc_id_suffix(key), expected);
     }
 
     #[test]
-    fn test_strip_after_last_delimiter_multiple_delimiters() {
-        let key = b"alpha_beta_gamma_123";
-        let expected = b"alpha_beta_gamma_";
-        assert_eq!(InvertedIndex::strip_after_last_delimiter(key), expected);
+    fn test_strip_doc_id_suffix_with_underscore_in_term() {
+        // "alpha_beta" + delimiter + 8 bytes of doc_id
+        let key = b"alpha_beta\x00\x00\x00\x00\x00\x00\x00\x00\x7B"; // doc_id = 123
+        let expected = b"alpha_beta";
+        assert_eq!(InvertedIndex::strip_doc_id_suffix(key), expected);
     }
 
     #[test]
-    #[should_panic(expected = "slice doesn't contain KEY_DELIMITER")]
-    fn test_strip_after_last_delimiter_panics_without_delimiter() {
-        InvertedIndex::strip_after_last_delimiter(b"nodelimiterhere");
+    fn test_strip_doc_id_suffix_with_delimiter_byte_in_doc_id() {
+        // Test that doc_id containing 0x5F ('_') doesn't break extraction
+        // doc_id = 95 has 0x5F as its last byte
+        let key = b"term\x00\x00\x00\x00\x00\x00\x00\x00\x5F"; // doc_id = 95
+        let expected = b"term";
+        assert_eq!(InvertedIndex::strip_doc_id_suffix(key), expected);
+    }
+
+    #[test]
+    fn test_has_doc_id_suffix() {
+        // With delimiter, DOC_ID_KEY_SIZE is 9 bytes (1 delimiter + 8 doc_id)
+        assert!(InvertedIndex::has_doc_id_suffix(
+            b"term\x00\x00\x00\x00\x00\x00\x00\x00\x01"
+        ));
+        assert!(InvertedIndex::has_doc_id_suffix(
+            b"\x00\x00\x00\x00\x00\x00\x00\x00\x01"
+        )); // just 9 bytes (delimiter + doc_id)
+        assert!(!InvertedIndex::has_doc_id_suffix(b"short")); // less than 9 bytes
+        assert!(!InvertedIndex::has_doc_id_suffix(b"")); // empty
     }
 
     #[test]

@@ -172,7 +172,7 @@ _run_clang_format() {
     done
 
     if [ "$failed" = true ]; then
-      echo "Formatting check failed. Run './build.sh format' to fix."
+      echo "Formatting check failed. Run './build.sh format-vecsim' to fix."
       exit 1
     fi
     echo "Formatting check passed"
@@ -245,9 +245,9 @@ cmd_bench() {
 }
 
 cmd_profile() {
-  # Build in Release mode
+  # Build in Release mode without tests
   echo "[profile] Building module in Release mode..."
-  PROFILE=Release cmd_build
+  PROFILE=Release CMAKE_ARGS="-DVECSIM_DISK_BUILD_TESTS=OFF" cmd_build
 
   # Source and run the profile script
   source "${ROOT_DIR}/profile.sh"

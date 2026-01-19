@@ -3,7 +3,6 @@ use inverted_index::IndexReader;
 use speedb::{DBIteratorWithThreadMode, IteratorMode};
 use thiserror::Error;
 
-use crate::document_id_key::DocumentIdKeyFromKeyError;
 use crate::key_traits::{AsKeyExt, FromKeyExt};
 
 /// Lazy reader to get the document IDs from the document table
@@ -84,15 +83,11 @@ impl<'index, 'iterator, DBAccess: speedb::DBAccess> IndexReader<'index>
             None => return Ok(false),
         };
 
-        let doc_id = t_docId::from_key(&key).map_err(|e| match e {
-            DocumentIdKeyFromKeyError::InvalidUtf8(e) => std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("Failed to parse document ID from key: Invalid UTF-8, {e}"),
-            ),
-            DocumentIdKeyFromKeyError::ParseInt(e) => std::io::Error::new(
+        let doc_id = t_docId::from_key(&key).map_err(|e| {
+            std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("Failed to parse document ID from key: {e}"),
-            ),
+            )
         })?;
 
         result.doc_id = doc_id;

@@ -12,8 +12,7 @@ Feature: RediSearchDisk Basic Functionality
     When I create an index "idx" with schema field "title" as TEXT
     And I add a document "doc1" with field "title" set to "hello world"
     And I search the index "idx" for "hello"
-    Then I should get 1 result
-    And the first result should be "doc1"
+    Then the only result should be "doc1"
 
   Scenario: Index and search multiple documents
     Given the RediSearchDisk module is loaded
@@ -22,9 +21,15 @@ Feature: RediSearchDisk Basic Functionality
     And I add a document "doc2" with field "content" set to "redis database"
     And I add a document "doc3" with field "content" set to "search engine"
     And I search the index "idx" for "redis"
-    Then I should get 2 results
+    Then the results should only contain:
+      | doc_id |
+      | doc1   |
+      | doc2   |
     When I search the index "idx" for "search"
-    Then I should get 2 results
+    Then the results should only contain:
+      | doc_id |
+      | doc1   |
+      | doc3   |
 
   @skip
   Scenario: Index with tag fields
@@ -46,7 +51,10 @@ Feature: RediSearchDisk Basic Functionality
       | title    | item three  |
       | category | electronics |
     And I search the index "idx" for tag "category" with value "electronics"
-    Then I should get 2 results
+    Then the results should only contain:
+      | doc_id |
+      | item1  |
+      | item3  |
 
   @skip
   Scenario: Delete documents from index
@@ -55,21 +63,23 @@ Feature: RediSearchDisk Basic Functionality
     And I add a document "doc1" with field "content" set to "test document"
     And I add a document "doc2" with field "content" set to "another test"
     And I search the index "idx" for "test"
-    Then I should get 2 results
+    Then the results should only contain:
+      | doc_id |
+      | doc1   |
+      | doc2   |
     When I delete the document "doc1"
     And I search the index "idx" for "test"
-    Then I should get 1 result
-    And the first result should be "doc2"
+    Then the only result should be "doc2"
 
   Scenario: Update documents in index
     Given the RediSearchDisk module is loaded
     When I create an index "idx" with schema field "content" as TEXT
     And I add a document "doc1" with field "content" set to "original content"
     And I search the index "idx" for "original"
-    Then I should get 1 result
+    Then the only result should be "doc1"
     When I update document "doc1" with field "content" set to "updated content"
     And I search the index "idx" for "updated"
-    Then I should get 1 result
+    Then the only result should be "doc1"
     When I search the index "idx" for "original"
-    Then I should get 0 results
+    Then the results should be empty
 

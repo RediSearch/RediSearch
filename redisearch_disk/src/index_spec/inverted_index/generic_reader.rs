@@ -1,19 +1,22 @@
 use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
 use inverted_index::IndexReader;
+use num_traits::Zero;
 use speedb::DBIteratorWithThreadMode;
 use thiserror::Error;
 use tracing::error;
 
-use crate::{
-    document_id_key::DocumentIdKey,
-    key_traits::{AsKeyExt, FromKeyExt},
-};
+use crate::key_traits::AsKeyExt;
 
 use super::{
-    InvertedIndexKey, KEY_DELIMITER,
     block_traits::{ArchivedBlock, ArchivedDocument as _},
+    InvertedIndexKey, DELIMITER_SIZE, DOC_ID_KEY_SIZE,
 };
-use num_traits::Zero;
+
+/// Checks if a key belongs to the given term by verifying that the key's prefix
+/// (everything except the doc_id suffix) matches the expected term key prefix.
+fn key_belongs_to_term(key: &[u8], term_key_prefix: &[u8]) -> bool {
+    key.len() >= DOC_ID_KEY_SIZE && &key[..key.len() - DOC_ID_KEY_SIZE] == term_key_prefix
+}
 
 /// Error type for posting list construction failures
 #[derive(Debug, Error)]
@@ -65,7 +68,7 @@ where
         }
         .as_key();
 
-        let estimate = Self::get_estimate(&mut iterator, &key_prefix, &term)?;
+        let estimate = Self::get_estimate(&mut iterator, &key_prefix, &prefix)?;
 
         // Reset the iterator to the first block for the term
         iterator.set_mode(speedb::IteratorMode::From(
@@ -75,7 +78,7 @@ where
 
         Ok(Self {
             iterator,
-            term,
+            prefix,
             key_prefix,
             current_block: None,
             current_block_key: None,
@@ -88,21 +91,23 @@ where
     /// found, or `false` if there are no more blocks for the current term.
     fn next_block(&mut self) -> bool {
         let (key, value) = match self.iterator.next() {
-            Some(Ok((key, value)))
-                if key
-                    .iter()
-                    .rposition(|&c| c == KEY_DELIMITER)
-                    .map(|p| &key[..=p])
-                    == Some(&self.key_prefix) =>
-            {
+            Some(Ok((key, value))) if key_belongs_to_term(&key, self.key_prefix.as_slice()) => {
                 (key, value)
             }
             Some(Err(error)) => {
+                // Skip key_prefix + delimiter to get the 8-byte doc_id
                 let last_block_document_id = self
                     .current_block_key
                     .as_ref()
-                    .map(|key| &key[self.key_prefix.len()..])
-                    .and_then(|key| DocumentIdKey::from_key(key).ok());
+                    .and_then(|key| {
+                        let doc_id_start = self.key_prefix.len() + DELIMITER_SIZE;
+                        if key.len() >= doc_id_start + 8 {
+                            let bytes: [u8; 8] = key[doc_id_start..doc_id_start + 8].try_into().ok()?;
+                            Some(t_docId::from_be_bytes(bytes))
+                        } else {
+                            None
+                        }
+                    });
 
                 error!(
                     error = &error as &dyn std::error::Error,
@@ -131,7 +136,7 @@ where
     fn get_estimate(
         iterator: &mut DBIteratorWithThreadMode<'iterator, DBAccess>,
         key_prefix: &[u8],
-        term: &str,
+        prefix: &str,
     ) -> Result<u64, ReaderCreateError> {
         let Some(next) = iterator.next() else {
             return Ok(0);
@@ -139,13 +144,7 @@ where
 
         let (key, value) = next?;
 
-        // Make sure we are still in the same term
-        if key
-            .iter()
-            .rposition(|&c| c == KEY_DELIMITER)
-            .map(|p| &key[..=p])
-            != Some(key_prefix)
-        {
+        if !key_belongs_to_term(&key, key_prefix) {
             return Ok(0);
         }
 
@@ -157,7 +156,7 @@ where
 
         // Now seek to the end to find the last document ID
         let end_key = InvertedIndexKey {
-            term,
+            prefix,
             last_doc_id: Some(u64::MAX),
         }
         .as_key();
@@ -173,10 +172,20 @@ where
             .unwrap()
             .map_err(ReaderCreateError::SpeedbError)?;
 
-        let key = &key[key_prefix.len()..];
-        let last_doc_id = DocumentIdKey::from_key(key)
-            .map_err(|_e| ReaderCreateError::ParseLastKey)?
-            .as_num();
+        // Verify the key belongs to our term
+        let expected_key_len = key_prefix.len() + DOC_ID_KEY_SIZE;
+        if key.len() != expected_key_len || !key.starts_with(key_prefix) {
+            return Err(ReaderCreateError::ParseLastKey);
+        }
+
+        // Extract doc_id: skip key_prefix and the delimiter byte
+        let doc_id_start = key_prefix.len() + DELIMITER_SIZE;
+        let doc_id_bytes = &key[doc_id_start..];
+        let last_doc_id = t_docId::from_be_bytes(
+            doc_id_bytes
+                .try_into()
+                .map_err(|_| ReaderCreateError::ParseLastKey)?,
+        );
 
         Ok(last_doc_id - first_id + 1)
     }
@@ -261,7 +270,7 @@ where
 
         self.iterator.set_mode(speedb::IteratorMode::From(
             &InvertedIndexKey {
-                term: &self.term,
+                prefix: &self.prefix,
                 last_doc_id: Some(doc_id),
             }
             .as_key(),

@@ -12,7 +12,7 @@ Feature: RDB Save and Load Functionality
     And I restart Redis and reload the RDB
     Then the index "idx" should exist
     When I search the index "idx" for "hello"
-    Then I should get 1 result
+    Then the only result should be "doc1"
 
   @skip
   Scenario: Disk related data persists across RDB save/load

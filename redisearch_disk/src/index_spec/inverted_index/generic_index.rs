@@ -6,7 +6,7 @@ use speedb::{BoundColumnFamily, ColumnFamilyDescriptor};
 use crate::{database::SpeedbMultithreadedDatabase, key_traits::AsKeyExt};
 
 use super::{
-    DeletedIdsStore, InvertedIndexKey, KEY_DELIMITER,
+    DeletedIdsStore, InvertedIndexKey, DOC_ID_KEY_SIZE,
     block_traits::{IndexConfig, SerializableBlock},
 };
 
@@ -41,20 +41,14 @@ impl<Config: IndexConfig> GenericInvertedIndex<Config> {
         self.database.cf_handle(&self.cf_name).unwrap()
     }
 
-    /// Strip everything after the last [`KEY_DELIMITER`], which is the key
-    /// without the last doc_id, but keeping the delimiter.
-    pub fn strip_after_last_delimiter(src: &[u8]) -> &[u8] {
-        let last_key_delimiter_idx = src
-            .iter()
-            .rposition(|byte| *byte == KEY_DELIMITER)
-            .expect("slice doesn't contain KEY_DELIMITER");
-
-        src.split_at(last_key_delimiter_idx + 1).0
-    }
-
-    /// Returns whether `src` contains a [`KEY_DELIMITER`].
-    pub fn contains_key_delimiter(src: &[u8]) -> bool {
-        src.contains(&KEY_DELIMITER)
+    /// Strips the doc_id suffix from a key, returning the prefix portion.
+    /// The key format is: prefix + delimiter (1 byte) + doc_id (8 bytes)
+    pub fn strip_doc_id_suffix(src: &[u8]) -> &[u8] {
+        assert!(
+            src.len() >= DOC_ID_KEY_SIZE,
+            "key too short to contain doc_id suffix"
+        );
+        &src[..src.len() - DOC_ID_KEY_SIZE]
     }
 
     /// Creates a column family descriptor for this inverted index type.
@@ -64,7 +58,7 @@ impl<Config: IndexConfig> GenericInvertedIndex<Config> {
 
     /// Creates a key for the inverted index.
     fn key(prefix: &str, last_doc_id: Option<t_docId>) -> InvertedIndexKey<'_> {
-        InvertedIndexKey { term, last_doc_id }
+        InvertedIndexKey { prefix, last_doc_id }
     }
 
     /// Inserts a document into the postings list for the given item (prefix).

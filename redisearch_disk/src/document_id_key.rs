@@ -42,24 +42,26 @@ impl FromStr for DocumentIdKey {
 
 impl AsKeyExt for DocumentIdKey {
     fn as_key(&self) -> Vec<u8> {
-        self.to_string().into_bytes()
+        // Use big-endian encoding so lexicographic ordering matches numeric ordering
+        self.0.to_be_bytes().to_vec()
     }
 }
 
 #[derive(Debug, Error)]
 pub enum DocumentIdKeyFromKeyError {
-    #[error("Invalid UTF-8 in document ID key")]
-    InvalidUtf8(#[from] std::str::Utf8Error),
-    #[error("Failed to parse document ID")]
-    ParseInt(#[from] std::num::ParseIntError),
+    #[error("Invalid key length: expected 8 bytes, got {0}")]
+    InvalidLength(usize),
 }
 
 impl FromKeyExt for DocumentIdKey {
     type Error = DocumentIdKeyFromKeyError;
 
     fn from_key(key: &[u8]) -> Result<Self, Self::Error> {
-        let s = std::str::from_utf8(key)?;
-        Ok(s.parse()?)
+        // Parse big-endian encoded u64
+        let bytes: [u8; 8] = key
+            .try_into()
+            .map_err(|_| DocumentIdKeyFromKeyError::InvalidLength(key.len()))?;
+        Ok(DocumentIdKey(u64::from_be_bytes(bytes)))
     }
 }
 
@@ -87,15 +89,24 @@ mod tests {
 
     #[test]
     fn document_id_key_lexicographic_ordering() {
-        // Verify that string representations are lexicographically ordered
-        let id9 = DocumentIdKey(9).to_string();
-        let id73 = DocumentIdKey(73).to_string();
-        let id512 = DocumentIdKey(512).to_string();
-        let id1000 = DocumentIdKey(1000).to_string();
+        // Verify that binary key representations are lexicographically ordered
+        let id9 = DocumentIdKey(9).as_key();
+        let id73 = DocumentIdKey(73).as_key();
+        let id512 = DocumentIdKey(512).as_key();
+        let id1000 = DocumentIdKey(1000).as_key();
 
         assert!(id9 < id73);
         assert!(id73 < id512);
         assert!(id512 < id1000);
+    }
+
+    #[test]
+    fn document_id_key_binary_encoding() {
+        // Verify that as_key produces big-endian 8-byte encoding
+        let doc_id = DocumentIdKey(0x0102030405060708);
+        let key = doc_id.as_key();
+        assert_eq!(key.len(), 8);
+        assert_eq!(key, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
     }
 
     #[test]
@@ -165,44 +176,32 @@ mod tests {
     }
 
     #[test]
-    fn document_id_key_from_key_invalid_utf8() {
-        // Test with invalid UTF-8 bytes
-        let invalid_utf8 = vec![0xFF, 0xFE, 0xFD];
-        let result = DocumentIdKey::from_key(&invalid_utf8);
+    fn document_id_key_from_key_invalid_length() {
+        // Test with wrong length (not 8 bytes)
+        let too_short = vec![0x01, 0x02, 0x03];
+        let result = DocumentIdKey::from_key(&too_short);
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            DocumentIdKeyFromKeyError::InvalidUtf8(_)
-        ));
-    }
-
-    #[test]
-    fn document_id_key_from_key_parse_error() {
-        // Test with valid UTF-8 but invalid number
-        let invalid_number = b"not_a_number";
-        let result = DocumentIdKey::from_key(invalid_number);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            DocumentIdKeyFromKeyError::ParseInt(_)
+            DocumentIdKeyFromKeyError::InvalidLength(3)
         ));
 
-        // Test with empty string
-        let empty = b"";
+        // Test with empty slice
+        let empty: &[u8] = &[];
         let result = DocumentIdKey::from_key(empty);
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            DocumentIdKeyFromKeyError::ParseInt(_)
+            DocumentIdKeyFromKeyError::InvalidLength(0)
         ));
 
-        // Test with overflow
-        let overflow = b"18446744073709551616";
-        let result = DocumentIdKey::from_key(overflow);
+        // Test with too long
+        let too_long = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
+        let result = DocumentIdKey::from_key(&too_long);
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            DocumentIdKeyFromKeyError::ParseInt(_)
+            DocumentIdKeyFromKeyError::InvalidLength(9)
         ));
     }
 }

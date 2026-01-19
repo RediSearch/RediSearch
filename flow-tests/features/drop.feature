@@ -17,7 +17,10 @@ Feature: RediSearchDisk Index Deletion
     And I add a document "doc1" with field "content" set to "test data"
     And I add a document "doc2" with field "content" set to "more data"
     And I search the index "idx" for "data"
-    Then I should get 2 results
+    Then the results should only contain:
+      | doc_id |
+      | doc1   |
+      | doc2   |
     When I drop the index "idx"
     Then the index "idx" should not exist
     And the index "idx" database files should be deleted
@@ -27,13 +30,13 @@ Feature: RediSearchDisk Index Deletion
     When I create an index "idx" with schema field "title" as TEXT
     And I add a document "doc1" with field "title" set to "original"
     And I search the index "idx" for "original"
-    Then I should get 1 result
+    Then the only result should be "doc1"
     When I drop the index "idx"
     Then the index "idx" should not exist
     When I create an index "idx" with schema field "title" as TEXT
     Then the index "idx" should exist
     When I search the index "idx" for "original"
-    Then I should get 0 result
+    Then the results should be empty
 
   Scenario: Drop multiple indexes independently
     Given the RediSearchDisk module is loaded
@@ -48,7 +51,7 @@ Feature: RediSearchDisk Index Deletion
     And the index "idx1" database files should be deleted
     And the index "idx2" should exist
     When I search the index "idx2" for "index"
-    Then I should get 1 result
+    Then the only result should be "doc2"
 
   Scenario: Drop index with complex schema
     Given the RediSearchDisk module is loaded
@@ -68,7 +71,7 @@ Feature: RediSearchDisk Index Deletion
       | category | media |
       | price    | 20    |
     When I search the index "idx" for "laptop"
-    Then I should get 1 result
+    Then the only result should be "item1"
     When I drop the index "idx"
     Then the index "idx" should not exist
     And the index "idx" database files should be deleted

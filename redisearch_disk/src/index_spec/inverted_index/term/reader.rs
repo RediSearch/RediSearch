@@ -9,10 +9,15 @@ use crate::{
     key_traits::{AsKeyExt, FromKeyExt},
 };
 
-use super::{super::InvertedIndexKey, block};
+use super::super::InvertedIndexKey;
+use super::block;
 
-/// Delimiter used in inverted index keys between term and last document ID
-const KEY_DELIMETER: u8 = b'_';
+/// Checks if a key belongs to the given term by verifying that the key's prefix
+/// (everything except the doc_id suffix) matches the expected term key prefix.
+fn key_belongs_to_term(key: &[u8], term_key_prefix: &[u8]) -> bool {
+    key.len() >= InvertedIndexKey::DOC_ID_KEY_SIZE
+        && &key[..key.len() - InvertedIndexKey::DOC_ID_KEY_SIZE] == term_key_prefix
+}
 
 /// Error type for posting list construction failures
 #[derive(Debug, Error)]
@@ -83,25 +88,15 @@ impl<'iterator, DBAccess: speedb::DBAccess> Reader<'iterator, DBAccess> {
     /// found, or `false` if there are no more blocks for the current term.
     fn next_block(&mut self) -> bool {
         let (key, value) = match self.iterator.next() {
-            Some(Ok((key, value)))
-                // Make sure we are still in the same term by checking the key's prefix (everything
-                // up to the last underscore) matches the term's key prefix. We specifically
-                // include the underscore to avoid matching terms that are prefixes of other terms.
-                // We also want to use the last underscore because a term may contain underscores
-                // which might affect the number of underscores. But the last underscore is always
-                // the separator between the term and the last document ID.
-                if key.iter().rposition(|&c| {
-                    c == KEY_DELIMETER
-                }).map(|p| &key[..=p])
-                    == Some(&self.key_prefix) =>
-            {
+            Some(Ok((key, value))) if key_belongs_to_term(&key, self.key_prefix.as_slice()) => {
                 (key, value)
             }
             Some(Err(error)) => {
+                // Skip key_prefix + 1 byte delimiter to get the 8-byte doc_id
                 let last_block_document_id = self
                     .current_block_key
                     .as_ref()
-                    .map(|key| &key[self.key_prefix.len()..])
+                    .map(|key| &key[self.key_prefix.len() + InvertedIndexKey::DELIMITER_SIZE..])
                     .and_then(|key| DocumentIdKey::from_key(key).ok());
 
                 error!(
@@ -139,18 +134,7 @@ impl<'iterator, DBAccess: speedb::DBAccess> Reader<'iterator, DBAccess> {
 
         let (key, value) = next?;
 
-        // Make sure we are still in the same term by checking the key's prefix (everything up to
-        // the last underscore) matches the term's key prefix. We specifically include the
-        // underscore to avoid matching terms that are prefixes of other terms. We also want to use
-        // the last underscore because a term may contain underscores which might affect the number
-        // of underscores. But the last underscore is always the separator between the term and the
-        // last document ID.
-        if key
-            .iter()
-            .rposition(|&c| c == KEY_DELIMETER)
-            .map(|p| &key[..=p])
-            != Some(key_prefix)
-        {
+        if !key_belongs_to_term(&key, key_prefix) {
             return Ok(0);
         }
 
@@ -177,10 +161,20 @@ impl<'iterator, DBAccess: speedb::DBAccess> Reader<'iterator, DBAccess> {
             .unwrap()
             .map_err(ReaderCreateError::SpeedbError)?;
 
-        let key = &key[key_prefix.len()..];
-        let last_doc_id = DocumentIdKey::from_key(key)
-            .map_err(|_e| ReaderCreateError::ParseLastKey)?
-            .as_num();
+        // Verify the key belongs to our term
+        let expected_key_len = key_prefix.len() + InvertedIndexKey::DOC_ID_KEY_SIZE;
+        if key.len() != expected_key_len || !key.starts_with(key_prefix) {
+            return Err(ReaderCreateError::ParseLastKey);
+        }
+
+        // Extract doc_id: skip key_prefix and the delimiter byte
+        let doc_id_start = key_prefix.len() + InvertedIndexKey::DELIMITER_SIZE;
+        let doc_id_bytes = &key[doc_id_start..];
+        let last_doc_id = t_docId::from_be_bytes(
+            doc_id_bytes
+                .try_into()
+                .map_err(|_| ReaderCreateError::ParseLastKey)?,
+        );
 
         Ok(last_doc_id - first_id + 1)
     }

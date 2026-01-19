@@ -52,8 +52,8 @@ pub struct IndexSpec {
 }
 
 impl IndexSpec {
-    const DB_WRITE_BUFFER_SIZE: usize = 5 * 1024 * 1024; // 5 MB;
-    const DOC_TABLE_CACHE_SIZE: usize = 30 * 1024 * 1024; // 30 MB;
+    const DB_WRITE_BUFFER_SIZE: usize = 5000 * 1024 * 1024; // 5 GB;
+    const DOC_TABLE_CACHE_SIZE: usize = 300 * 1024 * 1024; // 300 MB;
     const DOC_TABLE_BLOOM_FILTER_BITS_PER_KEY: f64 = 10.0;
 
     /// Creates a new IndexSpec with the given name and document type.

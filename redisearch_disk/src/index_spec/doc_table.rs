@@ -9,6 +9,7 @@ use inverted_index::RSIndexResult;
 
 use speedb::{
     BlockBasedOptions, Cache, ColumnFamilyDescriptor, Options as SpeedbDbOptions, WriteBatch,
+    WriteOptions,
 };
 
 use crate::{
@@ -51,6 +52,9 @@ pub struct DocTable {
     /// tied to the database instance, which complicates ownership (does not compile).
     cf_name: String,
 
+    /// Write options for the document table
+    write_options: WriteOptions,
+
     /// Set of deleted document IDs tracked using a roaring bitmap
     deleted_ids: DeletedIdsStore,
 }
@@ -64,11 +68,14 @@ impl DocTable {
         database: SpeedbMultithreadedDatabase,
         deleted_ids: DeletedIdsStore,
     ) -> Result<Self, speedb::Error> {
+        let mut write_options = WriteOptions::default();
+        write_options.disable_wal(true);
         Ok(Self {
             last_document_id: AtomicU64::new(1),
             document_type,
             database,
             cf_name: Self::COLUMN_FAMILY_NAME.to_string(),
+            write_options,
             deleted_ids,
         })
     }
@@ -179,7 +186,7 @@ impl DocTable {
             new_doc_id.as_key(),
         );
 
-        self.database.write(batch)?;
+        self.database.write_opt(batch, &self.write_options)?;
 
         // Mark old document as deleted only after successful batch write
         // This is safe to do outside the batch since it's an in-memory operation
@@ -259,7 +266,7 @@ impl DocTable {
                 <Vec<u8> as AsRef<[u8]>>::as_ref(&key),
             );
 
-            self.database.write(batch)?;
+            self.database.write_opt(batch, &self.write_options)?;
 
             // Mark the document as deleted in the bitmap after successful database write
             self.deleted_ids.mark_deleted(doc_id);
