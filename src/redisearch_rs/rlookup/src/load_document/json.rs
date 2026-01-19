@@ -7,16 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{
-    RLookup, RLookupKey, RLookupRow,
-    load_document::{LoadDocumentError, UNDERSCORE_KEY},
-};
+use crate::{RLookup, RLookupKey, RLookupKeyFlags, RLookupRow, load_document::LoadDocumentError};
+use lending_iterator::LendingIterator;
 use query_error::QueryError;
 use redis_json_api::{JsonType, JsonValueRef, RedisJsonApi};
 use redis_module::RedisString;
+use std::ffi::CStr;
+use std::iter;
 use std::ptr::NonNull;
-use std::{collections::HashMap, ffi::CStr};
-use value::{RSValueFFI, RSValueTrait};
+use value::RSValueFFI;
 
 const DOCUMENT_OPEN_KEY_QUERY_FLAGS: u32 = ffi::REDISMODULE_READ
     | ffi::REDISMODULE_OPEN_KEY_NOEFFECTS
@@ -24,6 +23,8 @@ const DOCUMENT_OPEN_KEY_QUERY_FLAGS: u32 = ffi::REDISMODULE_READ
     | ffi::REDISMODULE_OPEN_KEY_ACCESS_EXPIRED;
 
 const JSON_ROOT: &CStr = c"$";
+
+const UNDERSCORE_KEY: &CStr = c"__key";
 
 pub fn load_key(
     kk: &RLookupKey<'_>,
@@ -76,14 +77,68 @@ pub fn load_key(
 }
 
 pub fn load_all_keys(
-    _rlookup: &mut RLookup<'_>,
-    _dst_row: &mut RLookupRow<'_>,
-    _ctx: NonNull<ffi::RedisModuleCtx>,
-    _key_name: &RedisString,
-    _api_version: u32,
+    rlookup: &mut RLookup<'_>,
+    dst_row: &mut RLookupRow<'_>,
+    ctx: NonNull<ffi::RedisModuleCtx>,
+    key_name: &RedisString,
+    api_version: u32,
     _status: &mut QueryError,
 ) -> Result<(), LoadDocumentError> {
-    todo!()
+    //   int rc = REDISMODULE_ERR;
+    //   if (!japi) {
+    //     return rc;
+    //   }
+    let japi = unsafe { RedisJsonApi::get() }.ok_or_else(|| LoadDocumentError {})?;
+
+    //   RedisJSON jsonRoot = japi->openKeyWithFlags(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
+    //   RedisModule_FreeString(ctx, keyName);
+    //   if (!jsonRoot) {
+    //     goto done;
+    //   }
+    let json_root = unsafe {
+        japi.open_key_with_flags(
+            ctx.cast().as_ptr(),
+            key_name,
+            DOCUMENT_OPEN_KEY_QUERY_FLAGS as i32,
+        )
+        .ok_or_else(|| LoadDocumentError {})?
+    };
+
+    //   jsonIter = japi->get(jsonRoot, JSON_ROOT);
+    //   if (jsonIter == NULL) {
+    //     goto done;
+    //   }
+    let json_iter = json_root
+        .get(JSON_ROOT)
+        .ok_or_else(|| LoadDocumentError {})?;
+
+    //   RSValue *vptr;
+    //   int res = jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &vptr);
+    //   japi->freeIter(jsonIter);
+    //   if (res == REDISMODULE_ERR) {
+    //     goto done;
+    //   }
+    let value = json_iter_to_value(ctx, json_iter, api_version)?;
+
+    //   RLookupKey *rlk = RLookup_FindKey(it, JSON_ROOT, strlen(JSON_ROOT));
+    let rlk = if let Some(rlk) = rlookup.find_key_by_name(JSON_ROOT) {
+        rlk.into_current().unwrap()
+    } else {
+        //   if (!rlk) {
+        //     // First returned document, create the key.
+        //     rlk = RLookup_GetKey_LoadEx(it, JSON_ROOT, strlen(JSON_ROOT), JSON_ROOT, RLOOKUP_F_NOFLAGS);
+        //   }
+
+        rlookup
+            .get_key_load(JSON_ROOT, JSON_ROOT, RLookupKeyFlags::empty())
+            .unwrap()
+    };
+
+    //   RLookup_WriteOwnKey(rlk, dst, vptr);
+    dst_row.write_key(rlk, value);
+
+    //   rc = REDISMODULE_OK;
+    Ok(())
 }
 
 // // Get the value from an iterator and free the iterator
@@ -132,14 +187,13 @@ fn json_iter_to_value(
                 };
 
                 // RSValue *otherval = RSValue_NewRedisString(serialized);
-                let otherval = RSValueFFI::create_string(serialized.to_vec());
+                let otherval = RSValueFFI::new_string(serialized.to_vec());
 
                 // RSValue *expand = jsonIterToValueExpanded(ctx, iter);
                 let expand = json_iter_to_value_expanded(ctx, iter);
 
                 // *rsv = RSValue_NewTrio(val, otherval, expand);
-                // TODO let rsv = RSValueFFI::create_trio(val, otherval, expand);
-                todo!();
+                let rsv = RSValueFFI::new_trio(val, otherval, expand);
 
                 Ok(rsv)
             } else {
@@ -161,13 +215,9 @@ fn json_iter_to_value_expanded(
     debug_assert!(iter.len() > 0, "should be checked by caller");
     iter.reset();
 
-    let mut arr = Vec::with_capacity(iter.len());
-    while let Some(json) = iter.next() {
-        arr.push(json_val_to_value_expanded(ctx, json))
-    }
+    let iter = iter.map_into_iter(|json_val| json_val_to_value_expanded(ctx, json_val));
 
-    // TODO RSValueFFI::create_array(arr)
-    todo!()
+    RSValueFFI::new_array(iter)
 }
 
 fn json_val_to_value_expanded(ctx: NonNull<ffi::RedisModuleCtx>, json: JsonValueRef) -> RSValueFFI {
@@ -176,53 +226,33 @@ fn json_val_to_value_expanded(ctx: NonNull<ffi::RedisModuleCtx>, json: JsonValue
             let len = json.len().unwrap();
 
             if len > 0 {
-                //       JSONKeyValuesIterator iter = japi->getKeyValues(json);
                 let iter = unsafe { json.key_values(ctx.cast().as_ptr()).unwrap() };
 
-                //       RSValueMap map = RSValueMap_AllocUninit(len);
-                //       for (; (japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK); ++i) {
-                //         value = *value_ptr;
-                //       }
-                let map: HashMap<RSValueFFI, RSValueFFI> = iter
-                    .map(|(key, value)| {
-                        let key = RSValueFFI::create_string(key.to_vec());
-                        let value = json_val_to_value_expanded(ctx, value.as_ref());
+                let iter = iter.map(|(key, value)| {
+                    let key = RSValueFFI::new_string(key.to_vec());
+                    let value = json_val_to_value_expanded(ctx, value.as_ref());
 
-                        (key, value)
-                    })
-                    .collect();
-                debug_assert_eq!(map.len(), len);
-                //       RS_ASSERT(i == len);
+                    (key, value)
+                });
 
-                //       ret = RSValue_NewMap(map);
-                // TODO RSValueFFI::create_map(map)
-                todo!()
+                RSValueFFI::new_map(iter)
             } else {
-                //       ret = RSValue_NewMap(RSValueMap_AllocUninit(0));
-                // TODO RSValueFFI::create_map(HashMap::new())
-                todo!()
+                RSValueFFI::new_map(iter::empty())
             }
         }
         JsonType::Array => {
             let len = json.len().unwrap();
 
             if len > 0 {
-                let mut arr = Vec::with_capacity(len);
-                for i in 0..len {
-                    //         japi->getAt(json, i, value_ptr);
+                let iter = (0..len).map(|i| {
                     let json = json.get_at(i).unwrap();
-                    //         arr[i] = jsonValToValueExpanded(ctx, value);
-                    arr.push(json_val_to_value_expanded(ctx, json.as_ref()));
-                }
 
-                //       ret = RSValue_NewArray(arr, len);
-                // RSValueFFI::create_array(arr)
-                todo!()
+                    json_val_to_value_expanded(ctx, json.as_ref())
+                });
+
+                RSValueFFI::new_array(iter)
             } else {
-                //       // Empty array
-                //       ret = RSValue_NewArray(NULL, 0);
-                // RSValueFFI::create_array(vec![])
-                todo!()
+                RSValueFFI::new_array(iter::empty())
             }
         }
         // Scalar
@@ -238,35 +268,35 @@ fn json_val_to_value(ctx: NonNull<ffi::RedisModuleCtx>, json: JsonValueRef<'_>) 
             // str = rm_strndup(constStr, len);
             // return RSValue_NewString(str, len);
             let v = json.get_str().unwrap();
-            RSValueFFI::create_string(v.to_string().into_bytes())
+            RSValueFFI::new_string(v.to_string().into_bytes())
         }
         JsonType::Int => {
             // japi->getInt(json, &ll);
             // return RSValue_NewNumberFromInt64(ll);
             let v = json.get_int().unwrap();
-            RSValueFFI::create_num(v as f64)
+            RSValueFFI::new_num(v as f64)
         }
         JsonType::Double => {
             // japi->getDouble(json, &dd);
             // return RSValue_NewNumber(dd);
             let v = json.get_double().unwrap();
-            RSValueFFI::create_num(v)
+            RSValueFFI::new_num(v)
         }
         JsonType::Bool => {
             // japi->getBoolean(json, &i);
             // return RSValue_NewNumberFromInt64(i);
             let v = json.get_bool().unwrap();
-            RSValueFFI::create_num(v as u8 as f64)
+            RSValueFFI::new_num(v as u8 as f64)
         }
         JsonType::Object | JsonType::Array => {
             // japi->getJSON(json, ctx, &rstr);
             // return RSValue_NewStolenRedisString(rstr);
             let v = unsafe { json.serialize(ctx.cast().as_ptr()).unwrap() };
-            RSValueFFI::create_string(v.to_string_lossy().into_bytes())
+            RSValueFFI::new_string(v.to_string_lossy().into_bytes())
         }
         JsonType::Null => {
             // return RSValue_NullStatic();
-            return RSValueFFI::create_null();
+            return RSValueFFI::null_static();
         }
     }
 }
