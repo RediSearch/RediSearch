@@ -8,6 +8,8 @@
 */
 
 mod key_values;
+#[cfg(feature = "test-mock")]
+pub mod mock;
 mod path;
 mod results;
 mod value;
@@ -69,6 +71,12 @@ impl RedisJsonApi {
         }
 
         Some(Self { vtable })
+    }
+
+    /// Construct an API handle from a caller-provided vtable.
+    #[cfg(feature = "test-mock")]
+    pub const fn from_vtable(vtable: &'static RedisJsonApiVTable) -> Self {
+        Self { vtable }
     }
 
     /// Returns the current API version.
