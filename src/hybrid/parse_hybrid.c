@@ -31,6 +31,7 @@
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/parse/hybrid_optional_args.h"
+#include "asm_state_machine.h"
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "util/arg_parser.h"
 #include "slot_ranges.h"
@@ -686,7 +687,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Slot ranges info for distributed execution
   const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
-  uint32_t slotsVersion;
+  uint32_t keySpaceVersion = INVALID_KEYSPACE_VERSION;
 
   if (!parseSubqueriesCount(ac, status)) {
     goto error;
@@ -713,7 +714,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .maxResults = &maxHybridResults,
       .prefixes = &prefixes,
       .querySlots = &requestSlotRanges,
-      .slotsVersion = &slotsVersion,
+      .keySpaceVersion = &keySpaceVersion,
   };
   // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
@@ -722,10 +723,17 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Set slots info in both subqueries
   if (internal) {
+    RS_ASSERT(requestSlotRanges != NULL);
     vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
-    vectorRequest->slotsVersion = slotsVersion;
+    vectorRequest->keySpaceVersion = keySpaceVersion;
+    if (vectorRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
+    }
     searchRequest->querySlots = requestSlotRanges;
-    searchRequest->slotsVersion = slotsVersion;
+    searchRequest->keySpaceVersion = keySpaceVersion;
+    if (searchRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
+    }
     requestSlotRanges = NULL; // ownership transferred
   }
 
@@ -819,11 +827,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   prefixes = NULL;
 
   // Apply context to each request
-  if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status, Slots_Clone(parsedCmdCtx->localSlots)) != REDISMODULE_OK) {
+  if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
     AddValidationErrorContext(searchRequest, status);
     goto error;
   }
-  if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status, Slots_Clone(parsedCmdCtx->localSlots)) != REDISMODULE_OK) {
+  if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status) != REDISMODULE_OK) {
     AddValidationErrorContext(vectorRequest, status);
     goto error;
   }

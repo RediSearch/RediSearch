@@ -73,6 +73,8 @@ extern "C" {
   X(QUERY_EWEIGHT_NOT_ALLOWED, "Weight attributes are not allowed")              \
   X(QUERY_EVECTOR_NOT_ALLOWED, "Vector queries are not allowed")                 \
   X(QUERY_EOOM, "Not enough memory available to execute the query")              \
+  X(QUERY_EUNAVAILABLE_SLOTS, "Query requires unavailable slots")               \
+  X(QUERY__TRIM_DELAY_CONFIG_INVALID, "_MIN_TRIM_DELAY_MS must be less than _MAX_TRIM_DELAY_MS") \
 
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"

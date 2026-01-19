@@ -31,7 +31,7 @@ fn main() {
     }
 
     let includes = {
-        let redis_modules = root.join("deps").join("RedisModulesSDK");
+        let redis_modules = root.join("deps").join("RedisModulesSDK").join("8.4");
         let src = root.join("src");
         let deps = root.join("deps");
 
@@ -55,6 +55,7 @@ fn main() {
         root.join("src").join("redisearch.h"),
         root.join("deps")
             .join("RedisModulesSDK")
+            .join("8.4")
             .join("redismodule.h"),
         root.join("src").join("buffer/buffer.h"),
         root.join("src").join("search_result.h"),

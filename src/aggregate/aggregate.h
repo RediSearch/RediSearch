@@ -155,7 +155,7 @@ typedef struct {
   size_t *maxSearchResults;         // Maximum search results
   size_t *maxAggregateResults;      // Maximum aggregate results
   const RedisModuleSlotRangeArray **querySlots; // Slots requested (referenced from AREQ)
-  uint32_t *slotsVersion;                       // Version given by the slots tracker
+  uint32_t *keySpaceVersion;                       // Version given by the slots tracker
 } ParseAggPlanContext;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
@@ -223,9 +223,8 @@ typedef struct AREQ {
   RedisSearchCtx *sctx;
 
   /** Local slots info for this request */
-  const SharedSlotRangeArray *slotRanges;
   const RedisModuleSlotRangeArray *querySlots;
-  uint32_t slotsVersion;
+  uint32_t keySpaceVersion;
 
   /** Context for iterating over the queries themselves */
   QueryProcessingCtx qiter;
@@ -343,7 +342,7 @@ void initializeAREQ(AREQ *req);
  *
  * Note that this function consumes a refcount even if it fails!
  */
-int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status, const SharedSlotRangeArray *localSlots);
+int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
 /**
  * Constructs the pipeline objects needed to actually start processing
