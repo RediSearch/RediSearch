@@ -213,7 +213,7 @@ void Profile_PrintCommon(RedisModule_Reply *reply, AREQ *req, HybridRequest *hre
   // Print coord dispatch time if this is a shard handling a coordinator request.
   if (profile_verbose && isInternal && req) {
     RedisModule_ReplyKV_Double(reply, "Coordinator dispatch time [ms]",
-                               rs_wall_clock_convert_ns_to_ms_d(req->coordDispatchTime));
+                               rs_wall_clock_convert_ns_to_ms_d(req->profileClocks.coordDispatchTime));
   }
 
   // Print whether a warning was raised throughout command execution

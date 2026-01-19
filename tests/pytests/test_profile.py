@@ -1210,8 +1210,10 @@ def CoordDispatchTimeInProfile(env):
   # Implement and remove try/except once FT.PROFILE for FT.HYBRID is implemented
   try:
     query_vector = np.array([0, 0], dtype=np.float32).tobytes()
-    res_hybrid = env.cmd('FT.PROFILE', 'idx', 'HYBRID', 'hello0', 'VSIM', '@v', '$BLOB',
-                                        'PARAMS', '2', 'BLOB', query_vector)
+    res_hybrid = env.cmd('FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
+                         'SEARCH', 'hello0',
+                         'VSIM', '@v', '$BLOB',
+                         'PARAMS', '2', 'BLOB', query_vector)
 
     # shards_profile_hybrid = get_shards_profile(env, res_hybrid)
     # for i, shard_profile in enumerate(shards_profile_hybrid):

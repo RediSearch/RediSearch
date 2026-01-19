@@ -119,11 +119,16 @@ void HybridRequest_SynchronizeLookupKeys(HybridRequest *req) {
 int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params) {
     // Array to collect upstream from each individual request pipeline
     arrayof(ResultProcessor*) upstreams = array_new(ResultProcessor *, req->nrequests);
-    const ResultProcessorType expected = IsProfile(req) ? RP_PROFILE : RP_SAFE_DEPLETER;
+    const ResultProcessorType expected = IsProfile(req) ? RP_PROFILE : RP_SAFE_LOADER;
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
-        if (areq->pipeline.qctx.endProc->type != expected) {
-            QueryError_SetWithoutUserDataFmt(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "Expected %s processor at end of pipeline", RPTypeToString(expected));
+        if (IsProfile(req) && areq->pipeline.qctx.endProc->type != expected) {
+            QueryError_SetWithoutUserDataFmt(
+                &req->tailPipelineError,
+                QUERY_ERROR_CODE_GENERIC,
+                "Expected %s processor at end of pipeline, found %s",
+                RPTypeToString(expected),
+                RPTypeToString(areq->pipeline.qctx.endProc->type));
             array_free(upstreams);
             return REDISMODULE_ERR;
         }

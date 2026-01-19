@@ -416,7 +416,8 @@ void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
 }
 
 static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
-        RedisModuleString **argv, int argc, IndexSpec *sp, QueryError *status) {
+        RedisModuleString **argv, int argc, IndexSpec *sp,
+        struct ConcurrentCmdCtx *cmdCtx, QueryError *status) {
 
     hreq->tailPipeline->qctx.err = status;
     hreq->profile = printDistHybridProfile;
@@ -493,6 +494,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
     xcmd.forProfiling = profileOptions != EXEC_NO_FLAGS;
     xcmd.rootCommand = C_READ;
+    xcmd.coordStartTime = hreq->profileClocks.coordStartTime;
 
     // UPDATED: Use new start function with mappings (no dispatcher needed)
     HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, lookups[0], rpnetNext_StartWithMappings);
@@ -634,9 +636,12 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
 
     // Store coordinator start time for dispatch time tracking
-    hreq->coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+    hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
-    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, &status) != REDISMODULE_OK) {
+    // Store coordinator start time for dispatch time tracking
+    hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+
+    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, cmdCtx, &status) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;
     }

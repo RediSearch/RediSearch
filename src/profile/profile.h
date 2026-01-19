@@ -98,6 +98,10 @@ typedef struct {
   rs_wall_clock_ns_t profileQueueTime;          // Time spent waiting in workers thread pool queue
   rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query
   rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline
+
+  /** Coordinator dispatch time tracking */
+  rs_wall_clock_ns_t coordStartTime;    // Coordinator: when command was received (for dispatch time calc)
+  rs_wall_clock_ns_t coordDispatchTime; // Shard: dispatch latency from coordinator (for profile output)
 } ProfileClocks;
 
 void Profile_PrintDefault(RedisModule_Reply *reply, void *ctx);
