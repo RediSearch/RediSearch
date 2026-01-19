@@ -42,6 +42,7 @@ fn main() {
         let ttl_table = src.join("ttl_table");
         let trie = src.join("trie");
         let rmalloc = deps.join("rmalloc");
+        let hiredis = deps.join("hiredis");
 
         [
             src,
@@ -53,6 +54,7 @@ fn main() {
             ttl_table,
             trie,
             rmalloc,
+            hiredis,
         ]
     };
 

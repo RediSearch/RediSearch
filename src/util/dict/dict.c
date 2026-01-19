@@ -1257,7 +1257,7 @@ void RS_dictGetStats(char *buf, size_t bufsize, dict *d) {
 
 #ifdef DICT_BENCHMARK_MAIN
 
-#include "sds.h"
+#include "hiredis/sds.h"
 
 uint64_t hashCallback(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
