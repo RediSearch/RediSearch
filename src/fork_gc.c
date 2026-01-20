@@ -603,7 +603,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
       RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting a term '%s' from"
                       " trie in index '%s' failed", RSGlobalConfig.hideUserDataFromLog ? Obfuscate_Text(term) : term, name);
     }
-    sctx->spec->stats.numTerms--;
+    sctx->spec->stats.scoringStats.numTerms--;
     sctx->spec->stats.termsSize -= len;
     if (sctx->spec->suffix) {
       deleteSuffixTrie(sctx->spec->suffix, term, len);
