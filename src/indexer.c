@@ -196,7 +196,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     RS_ASSERT(cur->doc);
     const bool hasExpiration = cur->doc->docExpirationTime.tv_sec || cur->doc->docExpirationTime.tv_nsec || cur->doc->fieldExpirations;
     if (hasExpiration) {
-      cur->doc->flags |= Document_HasExpiration;
+      cur->docFlags |= Document_HasExpiration;
     }
 
     if (spec->diskSpec) {
