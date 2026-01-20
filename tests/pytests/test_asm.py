@@ -83,10 +83,14 @@ def query_shards_ft_aggregate_withcursor(env, query, shards, expected):
         # Extract values from aggregation results
         full_result = []
         shard = shards[idx]
-        cursor_id = res[1]
-        while cursor_id != 0:
-            res, cursor_id = shard.execute_command('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
-            full_result.extend(res)
+        try:
+          cursor_id = res[1]
+          while cursor_id != 0:
+              res, cursor_id = shard.execute_command('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 10)
+              full_result.extend(res)
+        except Exception as e:
+            print(f"Error reading cursor: {e} for shard {idx}")
+            raise e
         values = extract_values(full_result)
         dups = set(value for value in values if values.count(value) > 1)
         env.assertEqual(dups, set(), message=f"shard {idx} returned {len(dups)} duplicate values in aggregation results", depth=1)
@@ -377,7 +381,7 @@ def wait_for_migration_complete(env, dest_shard, source_shard, timeout=200, quer
                 try:
                     if query_during_migration:
                         # Pattern with queries during migration
-                        while not is_migration_complete(dest_shard, task_id):
+                        while not is_migration_complete(dest_shard, task_id) or not is_migration_complete(source_shard, task_id):
                             env.debugPrint("Querying shards while migration is in progress")
                             query_shards(env, query_during_migration['query'],
                                        query_during_migration['shards'],
