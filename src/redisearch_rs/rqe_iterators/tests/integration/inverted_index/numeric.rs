@@ -338,6 +338,11 @@ mod not_miri {
         NumericExpirationTest::new(100, false).test_skip_to_expiration();
     }
 
+    #[test]
+    fn numeric_skip_to_expiration_multi() {
+        NumericExpirationTest::new(100, true).test_skip_to_expiration();
+    }
+
     struct NumericRevalidateTest {
         test: RevalidateTest,
     }

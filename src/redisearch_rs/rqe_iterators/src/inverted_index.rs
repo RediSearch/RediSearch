@@ -324,11 +324,13 @@ where
             return Ok(None);
         }
 
-        while self.reader.seek_record(doc_id, &mut self.result)? {
-            if !self.check_current_expiration() {
-                continue;
-            }
+        if !self.reader.seek_record(doc_id, &mut self.result)? {
+            // reached end of iterator
+            self.at_eos = true;
+            return Ok(None);
+        }
 
+        if self.check_current_expiration() {
             // The seeker found a doc id that is greater or equal to the requested doc id
             // and the doc id did not expired.
             self.last_doc_id = self.result.doc_id;
@@ -342,9 +344,20 @@ where
             }
         }
 
-        // exited the while loop so we reached the end of the index
-        self.at_eos = true;
-        Ok(None)
+        // The seeker found a record but it's expired. Fall back to read to get the next valid record.
+        // This matches the C implementation behavior in InvIndIterator_SkipTo_CheckExpiration.
+        match self.read()? {
+            Some(_) => {
+                // Found a valid record, it must be greater than the requested doc_id.
+                // It cannot be equal to the requested doc_id because multi-values indices are only
+                // possible with JSON indices, which don't have field expiration.
+                Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
+            }
+            None => {
+                // No more records
+                Ok(None)
+            }
+        }
     }
 }
 
