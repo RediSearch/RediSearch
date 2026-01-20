@@ -29,7 +29,8 @@ function(setup_cc_options)
     # Common compiler flags
     set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
     set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
-    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_CXX_STANDARD 20 PARENT_SCOPE)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON PARENT_SCOPE)
     # Release/Debug/Profile specific flags
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
@@ -242,6 +243,7 @@ message(STATUS "BOOST_DIR: ${BOOST_DIR}")
 set(BOOST_ROOT ${BOOST_DIR})
 set(Boost_NO_WARN_NEW_VERSIONS ON)
 
+# Note: VectorSimilarity include path is added conditionally below based on USE_RUST_VECSIM
 include_directories(
     ${root}/src
     ${root}/src/buffer
@@ -251,7 +253,6 @@ include_directories(
     ${root}/deps/libuv/include
     ${root}/deps
     ${root}/deps/RedisModulesSDK
-    ${root}/deps/VectorSimilarity/src
     ${root}/src/ttl_table
     ${BOOST_DIR}
     ${root})
@@ -277,8 +278,11 @@ if(USE_RUST_VECSIM)
     # Create an alias to match the C++ target name
     add_library(VectorSimilarity ALIAS vecsim_c_static)
     # Add include directories for the Rust vecsim-c headers
-    include_directories(${VECSIM_C_INCLUDE_DIR})
+    # Use BEFORE to ensure Rust headers take precedence over any C++ VecSim headers
+    include_directories(BEFORE ${VECSIM_C_INCLUDE_DIR})
 else()
+    # Add C++ VectorSimilarity include path only when not using Rust
+    include_directories(${root}/deps/VectorSimilarity/src)
     add_subdirectory(deps/VectorSimilarity)
 endif()
 add_subdirectory(src/geometry)
