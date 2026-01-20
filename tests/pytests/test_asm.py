@@ -9,6 +9,7 @@ import time
 import os
 import signal
 import psutil
+import subprocess
 
 # Random words for generating more diverse text content
 RANDOM_WORDS = [
@@ -213,18 +214,39 @@ def get_child_pids(parent_pid):
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         return []
 
-def send_sigabrt_to_children_and_parents(parent_pids):
-    """Send SIGABRT signal to all children of the given parent PIDs and to the parents themselves"""
+def get_process_status(pid):
+    """Get process status using ps command"""
+    try:
+        result = subprocess.run(['ps', '-o', 'pid,stat,cmd', '-p', str(pid)],
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            print(f"STATUS Result for PID {pid}: {result.stdout}")
+            lines = result.stdout.strip().split('\n')
+            if len(lines) >= 2:  # Header + process line
+                process_line = lines[1].strip()
+                parts = process_line.split(None, 2)  # Split into max 3 parts
+                if len(parts) >= 2:
+                    return parts[1]  # STAT column
+        return "UNKNOWN"
+    except Exception as e:
+        print(f"Failed to get status for PID {pid}: {e}")
+        return "ERROR"
+
+def send_sigalrm_to_children_and_parents(parent_pids):
+    """Send SIGALRM signal to all children of the given parent PIDs and to the parents themselves"""
     if not parent_pids:
-        print("No parent PIDs provided, skipping SIGABRT")
+        print("No parent PIDs provided, skipping SIGALRM")
         return
 
     total_children_killed = 0
     total_parents_killed = 0
 
-    # First, send SIGABRT to all child processes
+    # First, check status and send SIGALRM to all child processes
     for parent_pid in parent_pids:
         try:
+            parent_status = get_process_status(parent_pid)
+            print(f"Parent PID {parent_pid} status: {parent_status}")
+
             child_pids = get_child_pids(parent_pid)
             if not child_pids:
                 print(f"No child processes found for parent PID {parent_pid}")
@@ -232,35 +254,39 @@ def send_sigabrt_to_children_and_parents(parent_pids):
                 print(f"Found {len(child_pids)} child processes for parent PID {parent_pid}: {child_pids}")
                 for child_pid in child_pids:
                     try:
-                        # Verify the process still exists before sending signal
                         if psutil.pid_exists(child_pid):
-                            os.kill(child_pid, signal.SIGABRT)
-                            print(f"Sent SIGABRT to child process {child_pid} of parent {parent_pid}")
+                            child_status = get_process_status(child_pid)
+                            print(f"Child PID {child_pid} status: {child_status}")
+
+                            os.kill(child_pid, signal.SIGALRM)
+                            print(f"Sent SIGALRM to child process {child_pid} of parent {parent_pid}")
                             total_children_killed += 1
                         else:
                             print(f"Child process {child_pid} no longer exists")
                     except (OSError, ProcessLookupError) as e:
-                        print(f"Failed to send SIGABRT to child process {child_pid}: {e}")
+                        print(f"Failed to send SIGALRM to child process {child_pid}: {e}")
         except Exception as e:
             print(f"Error processing children of parent PID {parent_pid}: {e}")
 
-    # Then, send SIGABRT to the parent processes themselves
+    # Then, send SIGALRM to the parent processes themselves
     for parent_pid in parent_pids:
         try:
-            # Verify the parent process still exists before sending signal
             if psutil.pid_exists(parent_pid):
-                os.kill(parent_pid, signal.SIGABRT)
-                print(f"Sent SIGABRT to parent process {parent_pid}")
+                parent_status = get_process_status(parent_pid)
+                print(f"Sending SIGALRM to parent PID {parent_pid} (status: {parent_status})")
+
+                os.kill(parent_pid, signal.SIGALRM)
+                print(f"Sent SIGALRM to parent process {parent_pid}")
                 total_parents_killed += 1
             else:
                 print(f"Parent process {parent_pid} no longer exists")
         except (OSError, ProcessLookupError) as e:
-            print(f"Failed to send SIGABRT to parent process {parent_pid}: {e}")
+            print(f"Failed to send SIGALRM to parent process {parent_pid}: {e}")
         except Exception as e:
             print(f"Error processing parent PID {parent_pid}: {e}")
 
-    print(f"Total child processes sent SIGABRT: {total_children_killed}")
-    print(f"Total parent processes sent SIGABRT: {total_parents_killed}")
+    print(f"Total child processes sent SIGALRM: {total_children_killed}")
+    print(f"Total parent processes sent SIGALRM: {total_parents_killed}")
 
 def import_middle_slot_range(dest: Redis, source: Redis) -> str:
 
@@ -372,9 +398,9 @@ def wait_for_migration_complete(env, dest_shard, source_shard, timeout=200, quer
         # TimeLimit raises Exception with message starting with 'Timeout:'
         print(f"TimeLimit timeout occurred: {e}")
         print(f"Detected timeout with shard PIDs: {shard_pids}")
-        print("Sending SIGABRT to child processes and parent processes of all shards")
-        send_sigabrt_to_children_and_parents(shard_pids)
-        print("SIGABRT signals sent to child and parent processes")
+        print("Sending SIGALRM to child processes and parent processes of all shards")
+        send_sigalrm_to_children_and_parents(shard_pids)
+        print("SIGALRM signals sent to child and parent processes")
         # Re-raise the exception to maintain original behavior
         raise
 
@@ -731,6 +757,7 @@ def test_slots_info_errors(env: Env):
     env.expect('_FT.SEARCH', 'idx', '*').error().contains('Internal query missing slots specification')
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', 'invalid_slots_data').error().contains('Failed to deserialize _SLOTS_INFO data')
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', generate_slots(range(0, 0)), '_SLOTS_INFO', generate_slots(range(0, 0))).error().contains('_SLOTS_INFO already specified')
+    env.expect('_FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@n', '$BLOB', '_SLOTS_INFO', generate_slots(range(0, 0)), '_SLOTS_INFO', generate_slots(range(0, 0)), 'PARAMS', '2', 'BLOB', b'\x00\x00\x00\x00').error().contains('_SLOTS_INFO: Argument specified multiple times')
 
 def info_modules_to_dict(conn):
     res = conn.execute_command('INFO MODULES')
@@ -746,6 +773,21 @@ def info_modules_to_dict(conn):
           info[section_name][data[0]] = data[1]
     return info
 
+def _test_ft_cursors_trimmed_profile_warning(env: Env):
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-_max-trim-delay-ms', 2500)
+
+    n_docs = 2**14
+    create_and_populate_index(env, 'idx', n_docs)
+
+    shard1, shard2 = env.getConnection(1), env.getConnection(2)
+    query = ('_FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR', '_SLOTS_INFO', generate_slots(range(int(2**14/env.shardsCount) + 1, 2 * int(2**14/env.shardsCount) + 2)))
+    shard2.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    _, cursor_id = shard2.execute_command(*query)
+    wait_for_migration_complete(env, shard1, shard2)
+    time.sleep(5)
+    res, cursor_id = shard2.execute_command('_FT.CURSOR', 'PROFILE', 'idx', cursor_id, 'COUNT', 1)
+    env.assertContains('Results may be incomplete due to Atomic Slot Migration', res['Profile']['Shards'][0]['Warning'][0])
+
 def _test_ft_cursors_trimmed(env: Env, protocol: int):
     for shard in env.getOSSMasterNodesConnectionList():
         shard.execute_command('CONFIG', 'SET', 'search-_max-trim-delay-ms', 2500)
@@ -753,10 +795,10 @@ def _test_ft_cursors_trimmed(env: Env, protocol: int):
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
+
     query = ('FT.AGGREGATE', 'idx', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR')
-
+    env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
     expected = get_expected(env, query, 'FT.AGGREGATE.WITHCURSOR', protocol)
-
     _, cursor_id = env.cmd(*query)
     wait_for_migration_complete(env, shard1, shard2)
     time.sleep(5)
@@ -801,8 +843,6 @@ def _test_ft_cursors_trimmed(env: Env, protocol: int):
       env.assertNotEqual(results_set, expected_set)
       env.assertGreater(len(expected_set), len(results_set))
 
-      shard_total_num_warnings = 0
-      coord_total_num_warnings = 0
       for shard_id, shard in enumerate(env.getOSSMasterNodesConnectionList(), 1):
         shard_num_warnings = 0
         coord_num_warnings = 0
@@ -839,6 +879,12 @@ def test_ft_cursors_trimmed_protocol_3():
     _test_ft_cursors_trimmed(env, protocol)
 
 @skip(cluster=False, min_shards=2)
+def test_ft_cursors_trimmed_protocol_3_profile():
+    protocol = 3
+    env = Env(clusterNodeTimeout=cluster_node_timeout, protocol=protocol)
+    _test_ft_cursors_trimmed_profile_warning(env)
+
+@skip(cluster=False, min_shards=2)
 def test_ft_cursors_trimmed_BG_protocol_2():
     protocol = 2
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2', protocol=protocol)
@@ -849,6 +895,12 @@ def test_ft_cursors_trimmed_BG_protocol_3():
     protocol = 3
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2', protocol=protocol)
     _test_ft_cursors_trimmed(env, protocol)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_cursors_trimmed_BG_protocol_3_profile():
+    protocol = 3
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2', protocol=protocol)
+    _test_ft_cursors_trimmed_profile_warning(env)
 
 @skip(cluster=False, min_shards=2)
 def test_migrate_no_indexes():
