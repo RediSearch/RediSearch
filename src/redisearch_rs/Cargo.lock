@@ -198,10 +198,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5dd9dc738b7a8311c7ade152424974d8115f2cdad61e8dab8dac9f2362298510"
 
 [[package]]
-name = "byteorder"
-version = "1.5.0"
+name = "bytecount"
+version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+checksum = "175812e0be2bccb6abe50bb8d566126198344f707e304f45c648fd8f2cc0365e"
 
 [[package]]
 name = "bytes"
@@ -618,6 +618,7 @@ dependencies = [
 name = "fnv"
 version = "0.0.1"
 dependencies = [
+ "hash32",
  "workspace_hack",
 ]
 
@@ -636,15 +637,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf68cef89750956493a66a10f512b9e58d9db21f2a573c079c0bdf1207a54a7"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "fxhash"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
-dependencies = [
- "byteorder",
 ]
 
 [[package]]
@@ -695,12 +687,9 @@ dependencies = [
 
 [[package]]
 name = "hash32"
-version = "0.3.1"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47d60b12902ba28e2730cd37e95b8c9223af2808df9e902d4df49588d1470606"
-dependencies = [
- "byteorder",
-]
+checksum = "8e4e11d13d42fc8d55326b323c63978c75721fbbb695a6e6686765bcb8b33917"
 
 [[package]]
 name = "hashbrown"
@@ -727,22 +716,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
-name = "hll"
-version = "0.0.1"
-dependencies = [
- "ahash",
- "criterion",
- "fnv",
- "fxhash",
- "hash32",
- "proptest",
- "thiserror",
- "workspace_hack",
- "wyhash",
- "xxhash-rust",
-]
-
-[[package]]
 name = "http"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -757,6 +730,23 @@ name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
+
+[[package]]
+name = "hyperloglog"
+version = "0.0.1"
+dependencies = [
+ "ahash",
+ "bytecount",
+ "criterion",
+ "fnv",
+ "hash32",
+ "proptest",
+ "rustc-hash 2.1.1",
+ "thiserror",
+ "workspace_hack",
+ "wyhash",
+ "xxhash-rust",
+]
 
 [[package]]
 name = "icu_casemap"
