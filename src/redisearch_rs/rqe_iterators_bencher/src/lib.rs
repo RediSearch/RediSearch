@@ -18,11 +18,10 @@ use std::ffi::c_void;
 pub mod benchers;
 pub mod ffi;
 
-// Need these symbols to be defined for the benchers to run
-pub use types_ffi::NewVirtualResult;
-
-// Re-export iterators_ffi to ensure the symbols are linked
+// Re-export these symbols to ensure they get linked in
+pub use fnv_ffi::fnv_64a_buf;
 pub use iterators_ffi::id_list::NewSortedIdListIterator;
+pub use types_ffi::NewVirtualResult;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 

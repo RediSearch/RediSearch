@@ -17,6 +17,10 @@ redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 #[expect(unused_imports)]
 pub use types_ffi;
 
+// Re-export these symbols to ensure they get linked in
+#[expect(unused_imports)]
+pub use fnv_ffi::fnv_64a_buf;
+
 // symbols required by the C code we need to redefine
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
