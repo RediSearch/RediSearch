@@ -17,8 +17,9 @@
 
 
 /**
- * Enumeration of the types an
- * `RsValue` can be of.
+ * Enumeration of the types an `RsValue` can be of for
+ * compatibility with the traditional C enum setup.
+ *
  */
 typedef enum RsValueType {
   RsValueType_Undef = 0,
@@ -307,18 +308,92 @@ const struct RsValue *SharedRsValue_NewTrio(const struct RsValue *left,
  */
 double SharedRsValue_Number_Get(const struct RsValue *v);
 
+/**
+ * Get the type of an RSValue.
+ *
+ * @param v The value to inspect
+ * @return The RSValueType of the
+ *
+ * # SAFETY
+ *
+ * - `value` must point to a valid `RSValue` returned by
+ *   one of the `RSValue_` functions and cannot be NULL.
+ */
 enum RsValueType RSValue_Type(const struct RsValue *value);
 
+/**
+ * Check if the RSValue is a reference type.
+ *
+ * @param v The value to check
+ * @return true if the value is of type RSValueType_Reference, false otherwise
+ *
+ * # SAFETY
+ *
+ * - `value` is either NULL or must point to a valid
+ *   `RSValue` returned by one of the `RSValue_` functions.
+ */
 bool RSValue_IsReference(const struct RsValue *value);
 
+/**
+ * Check if the RSValue is a number type.
+ *
+ * @param v The value to check
+ * @return true if the value is of type RSValueType_Number, false otherwise
+ *
+ * # SAFETY
+ *
+ * - `value` is either NULL or must point to a valid
+ *   `RSValue` returned by one of the `RSValue_` functions.
+ */
 bool RSValue_IsNumber(const struct RsValue *value);
 
+/**
+ * Check if the RSValue is of a string type.
+ *
+ * @param v The value to check
+ * @return true if the value is of type RSValueType_String or RSValueType_RedisString, false otherwise
+ *
+ * # SAFETY
+ *
+ * - `value` is either NULL or must point to a valid
+ *   `RSValue` returned by one of the `RSValue_` functions.
+ */
 bool RSValue_IsString(const struct RsValue *value);
 
+/**
+ * Check if the RSValue is an array type.
+ *
+ * @param v The value to check
+ * @return true if the value is of type RSValueType_Array, false otherwise
+ *
+ * # SAFETY
+ *
+ * - `value` is either NULL or must point to a valid
+ *   `RSValue` returned by one of the `RSValue_` functions.
+ */
 bool RSValue_IsArray(const struct RsValue *value);
 
+/**
+ * Check whether the RSValue is of type RSValueType_Trio.
+ *
+ * @param v The value to check
+ * @return true if the value is of type RSValueType_Trio, false otherwise
+ *
+ * # SAFETY
+ *
+ * - `value` is either NULL or must point to a valid
+ *   `RSValue` returned by one of the `RSValue_` functions.
+ */
 bool RSValue_IsTrio(const struct RsValue *value);
 
+/**
+ * Return 1 if the value is NULL, RSValueType_Null or a reference to RSValue_NullStatic
+ *
+ * # SAFETY
+ *
+ * - `value` is either NULL or must point to a valid
+ *   `RSValue` returned by one of the `RSValue_` functions.
+ */
 bool RSValue_IsNull(const struct RsValue *value);
 
 #ifdef __cplusplus
