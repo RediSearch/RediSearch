@@ -310,6 +310,65 @@ fn test_custom_hasher() {
     assert!(hll.count() >= 1);
 }
 
+#[test]
+fn test_large_range_correction() {
+    // Use Hll16 with high register values to trigger large range correction
+    // Large correction applies when estimate > (1/30) * 2^32 ≈ 143 million
+    let mut registers = [0u8; 65536];
+    registers.fill(15); // High values -> small sum -> large raw estimate
+
+    let hll = Hll::<16, 65536, Murmur3Hasher>::from_registers(registers);
+    let count = hll.count();
+
+    // Should produce a reasonable estimate (not overflow or panic)
+    assert!(count > 0, "count should be positive");
+}
+
+#[test]
+fn test_hll4_small_precision() {
+    let mut hll = Hll4::<Murmur3Hasher>::new();
+    let n = 1000u32;
+
+    for i in 0..n {
+        hll.add(&i.to_le_bytes());
+    }
+
+    let count = hll.count();
+    let error = (count as f64 - n as f64).abs() / n as f64;
+    // Hll4 theoretical error ~26%, allow up to 35%
+    assert!(error < 0.35, "error {:.1}% exceeds 35% for Hll4", error * 100.0);
+}
+
+#[test]
+fn test_hll5_small_precision() {
+    let mut hll = Hll::<5, 32, Murmur3Hasher>::new();
+    let n = 1000u32;
+
+    for i in 0..n {
+        hll.add(&i.to_le_bytes());
+    }
+
+    let count = hll.count();
+    let error = (count as f64 - n as f64).abs() / n as f64;
+    // Hll5 theoretical error ~18%, allow up to 25%
+    assert!(error < 0.25, "error {:.1}% exceeds 25% for Hll5", error * 100.0);
+}
+
+#[test]
+fn test_hll6_small_precision() {
+    let mut hll = Hll::<6, 64, Murmur3Hasher>::new();
+    let n = 1000u32;
+
+    for i in 0..n {
+        hll.add(&i.to_le_bytes());
+    }
+
+    let count = hll.count();
+    let error = (count as f64 - n as f64).abs() / n as f64;
+    // Hll6 theoretical error ~13%, allow up to 20%
+    assert!(error < 0.20, "error {:.1}% exceeds 20% for Hll6", error * 100.0);
+}
+
 mod proptests {
     use super::*;
     use proptest::prelude::*;

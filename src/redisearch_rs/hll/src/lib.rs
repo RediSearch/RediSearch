@@ -273,6 +273,14 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Hll<BITS, S
         &self.registers
     }
 
+    /// Sets the register data, replacing existing values.
+    ///
+    /// This invalidates any cached cardinality estimate.
+    pub fn set_registers(&mut self, registers: [u8; SIZE]) {
+        *self.registers = registers;
+        self.cached_card.set(None);
+    }
+
     /// Returns the bit precision.
     #[must_use]
     pub const fn bits() -> u8 {
