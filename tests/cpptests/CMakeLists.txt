@@ -40,3 +40,11 @@ file(GLOB BENCHMARK_SOURCES "benchmark_*.cpp")
 add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp)
 target_link_libraries(rsbench ${TEST_MODULE} redismock ${CMAKE_LD_LIBS} pthread)
 set_target_properties(rsbench PROPERTIES LINKER_LANGUAGE CXX)
+
+# Simple VecSim benchmark for comparing backends
+add_executable(simple_vecsim_bench simple_vecsim_benchmark.cpp)
+target_link_libraries(simple_vecsim_bench ${TEST_MODULE} redismock ${CMAKE_LD_LIBS} pthread)
+set_target_properties(simple_vecsim_bench PROPERTIES LINKER_LANGUAGE CXX)
+if(USE_RUST_VECSIM)
+    target_compile_definitions(simple_vecsim_bench PRIVATE USE_RUST_VECSIM)
+endif()
