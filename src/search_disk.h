@@ -140,13 +140,13 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
  * @param handle Handle to the document table
  * @param key Document key
  * @param keyLen Length of the document key
- * @param score Document score (for ranking)
+ * @param score Document score (used for ranking)
  * @param flags Document flags
  * @param maxTermFreq Maximum frequency of any single term in the document
  * @param totalFreq Total frequency of the document
  * @param oldLen Pointer to an integer to store the length of the deleted document
- * @param ttl Document expiration time (ignored if !(flags & Document_HasExpiration))
- * @return New document ID, or 0 on error/duplicate
+ * @param ttl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
+ * @return New document ID, or 0 on error or if the key already exists
  */
 t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint ttl);
 
