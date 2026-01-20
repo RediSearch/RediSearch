@@ -444,10 +444,11 @@ where
 /// * `R` - The type of the numeric reader.
 pub struct Numeric<'index, R> {
     it: InvIndIterator<'index, R>,
-    /// The numeric range tree used to query the inverted index.
-    range_tree: NonNull<ffi::NumericRangeTree>,
+    /// The numeric range tree used to query the inverted index (optional).
+    range_tree: Option<NonNull<ffi::NumericRangeTree>>,
     /// The revision ID of the numeric range tree. Used to detect changes to the tree when revalidating.
-    revision_id: u32,
+    /// None if there is no range tree.
+    revision_id: Option<u32>,
 }
 
 impl<'index, R> Numeric<'index, R>
@@ -471,19 +472,19 @@ where
     /// 1. `context` is a valid pointer to a `RedisSearchCtx`.
     /// 2. `context.spec` is a valid pointer to an `IndexSpec`.
     /// 3. 1 and 2 must stay valid during the iterator's lifetime.
-    /// 4. `range_tree` is a valid pointer to a `NumericRangeTree`.
-    /// 5. `range_tree` must stay valid during the iterator's lifetime.
+    /// 4. If `range_tree` is Some, it must be a valid pointer to a `NumericRangeTree`.
+    /// 5. If `range_tree` is Some, it must stay valid during the iterator's lifetime.
     pub fn new(
         reader: R,
         context: NonNull<RedisSearchCtx>,
         index: t_fieldIndex,
         predicate: FieldExpirationPredicate,
-        range_tree: NonNull<NumericRangeTree>,
+        range_tree: Option<NonNull<NumericRangeTree>>,
     ) -> Self {
         let result = RSIndexResult::numeric(0.0);
 
         // SAFETY: 4.
-        let rt = unsafe { range_tree.as_ref() };
+        let revision_id = range_tree.map(|rt| unsafe { rt.as_ref().revisionId });
 
         Self {
             it: InvIndIterator::new(
@@ -498,7 +499,7 @@ where
                 }),
             ),
             range_tree,
-            revision_id: rt.revisionId,
+            revision_id,
         }
     }
 
@@ -507,11 +508,19 @@ where
             return false;
         }
 
+        // If there's no range tree or revision ID, we can't check for changes
+        let Some(range_tree) = self.range_tree else {
+            return false;
+        };
+        let Some(revision_id) = self.revision_id else {
+            return false;
+        };
+
         // SAFETY: 5. from [`Self::new`]
-        let rt = unsafe { self.range_tree.as_ref() };
+        let rt = unsafe { range_tree.as_ref() };
         // If the revision id changed the numeric tree was either completely deleted or a node was split or removed.
         // The cursor is invalidated so we cannot revalidate the iterator.
-        rt.revisionId != self.revision_id
+        rt.revisionId != revision_id
     }
 }
 

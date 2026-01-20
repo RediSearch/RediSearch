@@ -44,7 +44,7 @@ impl NumericBaseTest {
             self.test.mock_ctx.sctx(),
             RS_INVALID_FIELD_INDEX,
             FieldExpirationPredicate::Default,
-            self.test.mock_ctx.numeric_range_tree(),
+            Some(self.test.mock_ctx.numeric_range_tree()),
         )
     }
 }
@@ -66,7 +66,7 @@ fn numeric_read() {
         test.test.mock_ctx.sctx(),
         RS_INVALID_FIELD_INDEX,
         FieldExpirationPredicate::Default,
-        test.test.mock_ctx.numeric_range_tree(),
+        Some(test.test.mock_ctx.numeric_range_tree()),
     );
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
@@ -94,7 +94,7 @@ fn numeric_filter() {
         test.test.mock_ctx.sctx(),
         RS_INVALID_FIELD_INDEX,
         FieldExpirationPredicate::Default,
-        test.test.mock_ctx.numeric_range_tree(),
+        Some(test.test.mock_ctx.numeric_range_tree()),
     );
     let docs_ids = test
         .test
@@ -119,7 +119,7 @@ fn skip_multi_id() {
         context.sctx(),
         RS_INVALID_FIELD_INDEX,
         FieldExpirationPredicate::Default,
-        context.numeric_range_tree(),
+        Some(context.numeric_range_tree()),
     );
 
     // Read the first entry. Expect to get the entry with value 1.0
@@ -152,7 +152,7 @@ fn skip_multi_id_and_value() {
         context.sctx(),
         RS_INVALID_FIELD_INDEX,
         FieldExpirationPredicate::Default,
-        context.numeric_range_tree(),
+        Some(context.numeric_range_tree()),
     );
 
     // Read the first entry. Expect to get the entry with value 1.0
@@ -193,7 +193,7 @@ fn get_correct_value() {
         context.sctx(),
         RS_INVALID_FIELD_INDEX,
         FieldExpirationPredicate::Default,
-        context.numeric_range_tree(),
+        Some(context.numeric_range_tree()),
     );
 
     // Read the first entry. Expect to get the entry with value 2.0
@@ -234,7 +234,7 @@ fn eof_after_filtering() {
         context.sctx(),
         RS_INVALID_FIELD_INDEX,
         FieldExpirationPredicate::Default,
-        context.numeric_range_tree(),
+        Some(context.numeric_range_tree()),
     );
 
     // Attempt to skip to the first entry, expecting EOF since no entries match the filter
@@ -282,7 +282,7 @@ mod not_miri {
                 self.test.mock_ctx.sctx(),
                 index,
                 FieldExpirationPredicate::Default,
-                self.test.mock_ctx.numeric_range_tree(),
+                Some(self.test.mock_ctx.numeric_range_tree()),
             )
         }
 
@@ -420,7 +420,7 @@ mod not_miri {
                 context.sctx,
                 fs.index,
                 field::FieldExpirationPredicate::Default,
-                context.numeric_range_tree(),
+                Some(context.numeric_range_tree()),
             )
         }
     }
