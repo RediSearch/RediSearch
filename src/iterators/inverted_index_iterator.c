@@ -531,3 +531,22 @@ QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const Re
 
   return NewInvIndIterator(idx, INV_IDX_MISSING_ITERATOR, record, &fieldCtx, sctx, &decoderCtx, MissingCheckAbort);
 }
+
+/******************************* Accessors *******************************/
+
+IndexFlags InvIndIterator_GetReaderFlags(const InvIndIterator *it) {
+  return IndexReader_Flags(it->reader);
+}
+
+const NumericFilter * NumericInvIndIterator_GetNumericFilter(const NumericInvIndIterator *it) {
+    const InvIndIterator *base = &it->base;
+    return IndexReader_NumericFilter(base->reader);
+}
+
+double InvIndIterator_GetProfileRangeMin(const InvIndIterator *it) {
+  return it->profileCtx.numeric.rangeMin;
+}
+
+double InvIndIterator_GetProfileRangeMax(const InvIndIterator *it) {
+  return it->profileCtx.numeric.rangeMax;
+}

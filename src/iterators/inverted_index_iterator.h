@@ -68,6 +68,12 @@ QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const Re
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                           RSQueryTerm *term, double weight);
 
+// Accessors for InvIndIterator fields
+IndexFlags InvIndIterator_GetReaderFlags(const InvIndIterator *it);
+const NumericFilter * NumericInvIndIterator_GetNumericFilter(const NumericInvIndIterator *it);
+double InvIndIterator_GetProfileRangeMin(const InvIndIterator *it);
+double InvIndIterator_GetProfileRangeMax(const InvIndIterator *it);
+
 #ifdef __cplusplus
 }
 #endif
