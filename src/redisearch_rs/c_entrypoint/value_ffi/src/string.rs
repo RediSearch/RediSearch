@@ -30,10 +30,32 @@ pub unsafe extern "C" fn RSValue_String_Get(value: *const RsValue, lenp: *mut u3
     let value = shared_value.value();
 
     let (ptr, len) = match value {
-        RsValue::RmAllocString(str) => (str.as_ptr() as *mut _, str.len()),
-        RsValue::ConstString(str) => (str.as_ptr() as *mut _, str.len()),
+        RsValue::RmAllocString(str) => {
+            // tracing::info!("RSValue_String_Get: RsValue::RmAllocString({str:?})");
+            let slice = str.as_bytes();
+            (slice.as_ptr() as _, str.len())
+            // (str.as_ptr() as *mut _, str.len())
+        }
+        RsValue::ConstString(str) => {
+            // tracing::info!("RSValue_String_Get: RsValue::ConstString({str:?})");
+            let slice = str.as_bytes();
+            (slice.as_ptr() as _, str.len())
+            // (str.as_ptr() as *mut _, str.len())
+        }
+        RsValue::String2(str) => {
+            // tracing::info!("RSValue_String_Get: RsValue::String2({str:?})");
+            (str.as_ptr() as *mut _, str.count_bytes() as u32)
+        }
         _ => panic!("unsupported RSValue_String_Get type"),
     };
+
+    // tracing::info!("RSValue_String_Get: ptr={ptr:?}, len={len}");
+    // if len > 0 {
+    //     let slice = unsafe { std::slice::from_raw_parts_mut(ptr as *mut u8, len as usize + 1) };
+    //     tracing::info!("RSValue_String_Get: {:?}", slice);
+    //     let string = String::from_utf8_lossy(slice).into_owned();
+    //     tracing::info!("RSValue_String_Get: {:?}", string);
+    // }
 
     if let Some(lenp) = unsafe { lenp.as_mut() } {
         *lenp = len;

@@ -9,9 +9,10 @@
 
 use crate::{
     shared::SharedRsValue,
-    strings::{ConstString, RedisString, RmAllocString, RsValueString},
+    strings::{ConstString, RedisString, RmAllocString},
     trio::RsValueTrio,
 };
+use std::{ffi::CString, fmt::Debug};
 
 /// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
 /// Rust port of the RSValue type.
@@ -45,8 +46,10 @@ pub enum RsValue {
     ConstString(ConstString),
     /// String value backed by a Redis string
     RedisString(RedisString),
-    /// String value
-    String(Box<RsValueString>),
+    // /// String value
+    // String(Box<RsValueString>),
+    /// String2 value
+    String2(CString),
     /// Array value
     Array(Vec<SharedRsValue>),
     /// Reference value

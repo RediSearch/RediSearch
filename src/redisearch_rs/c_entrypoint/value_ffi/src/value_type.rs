@@ -46,7 +46,8 @@ pub const unsafe extern "C" fn RSValue_Type(value: *const RsValue) -> RsValueTyp
         RsValue::RmAllocString(_) => String,
         RsValue::ConstString(_) => String,
         RsValue::RedisString(_) => RedisString,
-        RsValue::String(_) => String,
+        // RsValue::String(_) => String,
+        RsValue::String2(_) => String,
         RsValue::Array(_) => Array,
         RsValue::Ref(_) => Reference,
         RsValue::Trio(_) => Trio,
@@ -101,7 +102,7 @@ pub const unsafe extern "C" fn RSValue_IsString(value: *const RsValue) -> bool {
         RsValue::RmAllocString(_)
             | RsValue::ConstString(_)
             | RsValue::RedisString(_)
-            | RsValue::String(_)
+            | RsValue::String2(_)
     )
 }
 

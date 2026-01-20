@@ -1,10 +1,10 @@
 use ffi::RedisModuleString;
 use libc::{size_t, snprintf};
-use std::ffi::{c_char, c_double, c_int};
+use std::ffi::{CString, c_char, c_double, c_int};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::ptr::NonNull;
-use value::strings::{ConstString, RmAllocString, RsValueString};
+use value::strings::{ConstString, RmAllocString};
 use value::{RsValue, shared::SharedRsValue};
 
 #[unsafe(no_mangle)]
@@ -246,14 +246,14 @@ pub unsafe extern "C" fn RSValue_ConvertStringPtrLen(
     let (ptr, len): (*const c_char, size_t) = if let RsValue::Number(num) = value {
         let n = unsafe { snprintf(buf, buflen, c"%.12g".as_ptr(), num) };
         if n >= (buflen as i32) {
-            ("".as_ptr() as *const _, 0)
+            (b"\0".as_ptr() as *const _, 0)
         } else {
             (buf as *const _, n as usize)
         }
     } else if let Some(str) = crate::util::rsvalue_as_byte_slice(value) {
         (str.as_ptr() as *const c_char, str.len())
     } else {
-        ("".as_ptr() as *const _, 0)
+        (b"\0".as_ptr() as *const _, 0)
     };
 
     if let Some(len_ptr) = unsafe { len_ptr.as_mut() } {
@@ -300,9 +300,11 @@ pub unsafe extern "C" fn RSValue_ToString(dst: *const RsValue, value: *const RsV
         RsValue::Number(number) => {
             let mut buf = [0u8; 128];
             let len = value::util::num_to_string_cstyle(*number, &mut buf);
-            let str_val = std::str::from_utf8(&buf[..(len as usize)]).unwrap();
-            let str_val = str_val.to_owned();
-            let new_val = RsValue::String(Box::new(RsValueString::from_string(str_val)));
+            let cstring = CString::new(&buf[..(len as usize)]).unwrap();
+            // let str_val = std::str::from_utf8(&buf[..(len as usize)]).unwrap();
+            // let str_val = str_val.to_owned();
+            // let new_val = RsValue::String(Box::new(RsValueString::from_string(str_val)));
+            let new_val = RsValue::String2(cstring);
             unsafe { shared_dst.set_value(new_val) };
         }
         _ => unimplemented!("RSValue_ToString for type 'unknown'"),
