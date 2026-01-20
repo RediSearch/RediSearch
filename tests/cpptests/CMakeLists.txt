@@ -22,6 +22,8 @@ add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp iterator_util.c
 target_link_libraries(rstest gtest ${TEST_MODULE} redismock ${CMAKE_LD_LIBS})
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
 add_dependencies(rstest example_extension)
+target_compile_definitions(rstest PRIVATE
+    EXT_TEST_PATH="${CMAKE_BINARY_DIR}/example_extension/libexample_extension.so")
 gtest_discover_tests(rstest
     PROPERTIES TIMEOUT 300  # Timeout for each individual test
 )
