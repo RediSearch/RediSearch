@@ -28,9 +28,7 @@ pub enum RsValueType {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Type(value: *const RsValue) -> RsValueType {
-    debug_assert!(!value.is_null());
-
-    let value = unsafe { &*value };
+    let value = unsafe { value.as_ref() }.expect("value must not be null");
 
     use RsValueType::*;
 
@@ -51,33 +49,27 @@ pub unsafe extern "C" fn RSValue_Type(value: *const RsValue) -> RsValueType {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_IsReference(value: *const RsValue) -> bool {
-    if value.is_null() {
+    let Some(value) = (unsafe { value.as_ref() }) else {
         return false;
-    }
-
-    let value = unsafe { &*value };
+    };
 
     matches!(value, RsValue::Ref(_))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_IsNumber(value: *const RsValue) -> bool {
-    if value.is_null() {
+    let Some(value) = (unsafe { value.as_ref() }) else {
         return false;
-    }
-
-    let value = unsafe { &*value };
+    };
 
     matches!(value, RsValue::Number(_))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_IsString(value: *const RsValue) -> bool {
-    if value.is_null() {
+    let Some(value) = (unsafe { value.as_ref() }) else {
         return false;
-    }
-
-    let value = unsafe { &*value };
+    };
 
     matches!(
         value,
@@ -90,33 +82,27 @@ pub unsafe extern "C" fn RSValue_IsString(value: *const RsValue) -> bool {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_IsArray(value: *const RsValue) -> bool {
-    if value.is_null() {
+    let Some(value) = (unsafe { value.as_ref() }) else {
         return false;
-    }
-
-    let value = unsafe { &*value };
+    };
 
     matches!(value, RsValue::Array(_))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_IsTrio(value: *const RsValue) -> bool {
-    if value.is_null() {
+    let Some(value) = (unsafe { value.as_ref() }) else {
         return false;
-    }
-
-    let value = unsafe { &*value };
+    };
 
     matches!(value, RsValue::Trio(_))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_IsNull(value: *const RsValue) -> bool {
-    if value.is_null() {
+    let Some(value) = (unsafe { value.as_ref() }) else {
         return true;
-    }
-
-    let value = unsafe { &*value };
+    };
 
     matches!(value, RsValue::Null)
 }
