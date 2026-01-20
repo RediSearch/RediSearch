@@ -248,6 +248,10 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
         RS_ASSERT(nc->areq);
         AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
       }
+      if (!strcmp(warning_str, QUERY_WASM_INACCURATE_RESULTS)) {
+        RS_ASSERT(nc->areq);
+        nc->areq->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
+      }
     }
   }
 
