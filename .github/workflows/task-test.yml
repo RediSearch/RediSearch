@@ -528,7 +528,7 @@ jobs:
           echo "=========================="
 
       - name: Decode C++ crash stack traces
-        if: failure() || steps.c_unit_tests.outcome == 'failure'
+        if: always() || steps.c_unit_tests.outcome == 'failure'
         run: |
           chmod +x tests/cpptests/scripts/decode_stacktrace.sh 2>/dev/null || true
           if [[ -x tests/cpptests/scripts/decode_stacktrace.sh ]]; then

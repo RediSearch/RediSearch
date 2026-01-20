@@ -16,13 +16,6 @@
 
 set -euo pipefail
 
-# Check for macOS - skip decoding as gdb is not typically available
-if [[ "$(uname -s)" == "Darwin" ]]; then
-    echo "WARNING: Stack trace decoding is not supported on macOS." >&2
-    echo "Raw stack traces are available in the log files." >&2
-    exit 0
-fi
-
 # Check for gdb
 if ! command -v gdb &>/dev/null; then
     echo "WARNING: gdb not found, skipping stack trace decoding." >&2
