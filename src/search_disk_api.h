@@ -106,7 +106,7 @@ typedef struct DocTableDiskAPI {
    * @param maxTermFreq Maximum frequency of any single term in the document
    * @param docLen Sum of the frequencies of all terms in the document
    * @param oldLen Pointer to an integer to store the length of the deleted document
-   * @param documentTtl Document expiration time (ignored if !(flags & Document_HasExpiration))
+   * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
    * @return New document ID, or 0 on error/duplicate
    */
   t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl);
