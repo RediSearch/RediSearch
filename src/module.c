@@ -3397,7 +3397,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   // Capture start time for coordinator dispatch time tracking
-  rs_wall_clock_ns_t t0 = rs_wall_clock_now_ns();
+  rs_wall_clock_ns_t coordInitialTime = rs_wall_clock_now_ns();
 
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
@@ -3456,7 +3456,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   ConcurrentSearchHandlerCtx handlerCtx = {
-    .coordStartTime = t0,
+    .coordStartTime = coordInitialTime,
     .spec_ref = StrongRef_Demote(spec_ref)
   };
 
@@ -3468,6 +3468,9 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                       struct ConcurrentCmdCtx *cmdCtx);
 
 int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // Capture start time for coordinator dispatch time tracking
+  rs_wall_clock_ns_t coordInitialTime = rs_wall_clock_now_ns();
+
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
@@ -3509,8 +3512,10 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  ConcurrentSearchHandlerCtx handlerCtx = {0};
-  handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
+  ConcurrentSearchHandlerCtx handlerCtx = {
+    .coordStartTime = coordInitialTime,
+    .spec_ref = StrongRef_Demote(spec_ref)
+  };
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
@@ -3878,7 +3883,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   // Capture start time for coordinator dispatch time tracking
-  rs_wall_clock_ns_t t0 = rs_wall_clock_now_ns();
+  rs_wall_clock_ns_t coordInitialTime = rs_wall_clock_now_ns();
 
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
@@ -3936,7 +3941,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
-  sCmdCtx->handlerCtx.coordStartTime = t0;
+  sCmdCtx->handlerCtx.coordStartTime = coordInitialTime;
   RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
