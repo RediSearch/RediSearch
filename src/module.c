@@ -4133,7 +4133,7 @@ static bool checkClusterEnabled(RedisModuleCtx *ctx) {
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int isClusterEnabled) {
+static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int isClusterEnabled) {
   // register the module configuration with redis, use loaded values from command line as defaults
   if (RegisterModuleConfig_Local(ctx) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Error registering module configuration");
