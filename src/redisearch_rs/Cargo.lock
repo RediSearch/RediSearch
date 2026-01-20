@@ -731,6 +731,7 @@ name = "hll"
 version = "0.0.1"
 dependencies = [
  "ahash",
+ "criterion",
  "fnv",
  "fxhash",
  "hash32",
@@ -739,14 +740,6 @@ dependencies = [
  "workspace_hack",
  "wyhash",
  "xxhash-rust",
-]
-
-[[package]]
-name = "hll_bencher"
-version = "0.0.1"
-dependencies = [
- "criterion",
- "hll",
 ]
 
 [[package]]

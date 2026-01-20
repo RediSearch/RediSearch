@@ -19,4 +19,9 @@ fxhash = "0.2"
 wyhash = "0.5"
 
 [dev-dependencies]
+criterion.workspace = true
 proptest = { workspace = true, features = ["std"] }
+
+[[bench]]
+name = "hll_operations"
+harness = false
