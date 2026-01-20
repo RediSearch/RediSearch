@@ -10,8 +10,8 @@
 use std::hash::Hasher;
 
 use criterion::{
-    black_box, criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion,
-    Throughput,
+    BenchmarkGroup, Criterion, Throughput, black_box, criterion_group, criterion_main,
+    measurement::WallTime,
 };
 use hll::{Hll, HllHasher, Murmur3Hasher};
 
@@ -134,7 +134,10 @@ const HASHER_NAMES: &[&str] = &["fnv", "murmur3", "xxhash32", "ahash", "fxhash",
 
 // Generic benchmark implementations - all logic lives here
 
-fn bench_add_impl<H: hash32::Hasher + Default>(group: &mut BenchmarkGroup<'_, WallTime>, name: &str) {
+fn bench_add_impl<H: hash32::Hasher + Default>(
+    group: &mut BenchmarkGroup<'_, WallTime>,
+    name: &str,
+) {
     group.bench_function(name, |b| {
         let mut hll: Hll<12, 4096, H> = Hll::new();
         let mut i = 0u32;
@@ -145,17 +148,30 @@ fn bench_add_impl<H: hash32::Hasher + Default>(group: &mut BenchmarkGroup<'_, Wa
     });
 }
 
-fn bench_count_impl<H: hash32::Hasher + Default>(group: &mut BenchmarkGroup<'_, WallTime>, name: &str) {
-    let mut hll: Hll<12, 4096, H> = Hll::new();
-    for i in 0..10000u32 {
-        hll.add(&i.to_le_bytes());
-    }
+fn bench_count_impl<H: hash32::Hasher + Default>(
+    group: &mut BenchmarkGroup<'_, WallTime>,
+    name: &str,
+) {
     group.bench_function(name, |b| {
-        b.iter(|| black_box(hll.count()));
+        b.iter_batched(
+            || {
+                // Setup: create HLL with data, cache not yet computed
+                let mut hll: Hll<12, 4096, H> = Hll::new();
+                for i in 0..10000u32 {
+                    hll.add(&i.to_le_bytes());
+                }
+                hll
+            },
+            |hll| black_box(hll.count()), // Measure: actual count computation
+            criterion::BatchSize::SmallInput,
+        );
     });
 }
 
-fn bench_merge_impl<H: hash32::Hasher + Default>(group: &mut BenchmarkGroup<'_, WallTime>, name: &str) {
+fn bench_merge_impl<H: hash32::Hasher + Default>(
+    group: &mut BenchmarkGroup<'_, WallTime>,
+    name: &str,
+) {
     group.bench_function(name, |b| {
         b.iter_batched(
             || {
@@ -236,7 +252,14 @@ fn print_accuracy(_c: &mut Criterion) {
                 )+
             };
         }
-        print_accuracy!(HllHasher, Murmur3Hasher, XxHash32Hasher, AHasher, FxHasher, WyHasher);
+        print_accuracy!(
+            HllHasher,
+            Murmur3Hasher,
+            XxHash32Hasher,
+            AHasher,
+            FxHasher,
+            WyHasher
+        );
         println!();
     }
 }

@@ -247,11 +247,15 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Hll<BITS, S
     /// After merging, this HLL will represent the union of both sets.
     /// The other HLL must have the same `BITS` and `SIZE` parameters.
     pub fn merge(&mut self, other: &Self) {
+        let mut changed = false;
         for i in 0..SIZE {
             if other.registers[i] > self.registers[i] {
                 self.registers[i] = other.registers[i];
-                self.cached_card.set(None);
+                changed = true;
             }
+        }
+        if changed {
+            self.cached_card.set(None);
         }
     }
 
@@ -285,9 +289,12 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Hll<BITS, S
     fn compute_estimate(&self) -> usize {
         let alpha_mm = alpha(BITS, SIZE) * (SIZE as f64) * (SIZE as f64);
 
+        // Single-pass: compute sum and count zeros together
         let mut sum = 0.0;
+        let mut zeros = 0usize;
         for &reg in self.registers.iter() {
             sum += 1.0 / ((1u32 << reg) as f64);
+            zeros += (reg == 0) as usize;
         }
 
         let mut estimate = alpha_mm / sum;
@@ -296,7 +303,6 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Hll<BITS, S
         // Only apply when there are many empty registers (> 20% zeros),
         // since linear counting is inaccurate with few zeros.
         // This improves on the original HLL which applied it whenever zeros > 0.
-        let zeros = self.registers.iter().filter(|&&r| r == 0).count();
         if estimate <= 2.5 * (SIZE as f64) && zeros > SIZE / 5 {
             estimate = (SIZE as f64) * ((SIZE as f64) / (zeros as f64)).ln();
         }
@@ -309,7 +315,9 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Hll<BITS, S
     }
 }
 
-impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Default for Hll<BITS, SIZE, H> {
+impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Default
+    for Hll<BITS, SIZE, H>
+{
     fn default() -> Self {
         Self::new()
     }
@@ -340,7 +348,11 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> std::fmt::D
 /// Calculates the rank (trailing zeros + 1, capped at rank_bits).
 #[inline]
 const fn rank(hash: u32, rank_bits: u8) -> u8 {
-    let r = if hash == 0 { 32 } else { hash.trailing_zeros() as u8 };
+    let r = if hash == 0 {
+        32
+    } else {
+        hash.trailing_zeros() as u8
+    };
     let capped = if r > rank_bits { rank_bits } else { r };
     capped + 1
 }

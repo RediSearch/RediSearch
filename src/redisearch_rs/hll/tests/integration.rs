@@ -14,7 +14,7 @@
 
 use std::hash::Hasher;
 
-use hll::{Hll, Hll12, Hll16, Hll4, Hll8, HllError, HllHasher, Murmur3Hasher};
+use hll::{Hll, Hll4, Hll8, Hll12, Hll16, HllError, HllHasher, Murmur3Hasher};
 
 /// Concrete type alias for testing to avoid inference issues with multiple Hasher32 impls.
 type TestHll12 = Hll<12, 4096, HllHasher>;
@@ -64,7 +64,10 @@ fn test_add_many_distinct_elements() {
     // Expected error is ~1.6%, allow for 15% tolerance
     // Note: FNV-1a with sequential integers has some bias
     let error = (count as f64 - n as f64).abs() / n as f64;
-    assert!(error < 0.15, "error {error} too large, count={count}, n={n}");
+    assert!(
+        error < 0.15,
+        "error {error} too large, count={count}, n={n}"
+    );
 }
 
 #[test]
@@ -122,7 +125,10 @@ fn test_hash_distribution() {
     hasher2.write(b"test2");
     let hash2 = hash32::Hasher::finish32(&hasher2);
 
-    assert_ne!(hash1, hash2, "different inputs should produce different hashes");
+    assert_ne!(
+        hash1, hash2,
+        "different inputs should produce different hashes"
+    );
 }
 
 #[test]
@@ -137,7 +143,10 @@ fn test_register_distribution() {
     let count = hll.count();
     let error = (count as f64 - n as f64).abs() / n as f64;
     // With improved small range correction, error should be < 5%
-    assert!(error < 0.05, "error {error} too large for n={n}, count={count}");
+    assert!(
+        error < 0.05,
+        "error {error} too large for n={n}, count={count}"
+    );
 }
 
 #[test]
@@ -154,7 +163,10 @@ fn test_small_cardinality() {
     let error = (count as f64 - n as f64).abs() / n as f64;
 
     // For small cardinalities, allow more error due to variance
-    assert!(error < 0.30, "error {error} too large for n={n}, count={count}");
+    assert!(
+        error < 0.30,
+        "error {error} too large for n={n}, count={count}"
+    );
 }
 
 #[test]
@@ -263,7 +275,10 @@ fn test_murmur3_accuracy() {
     let error = (count as f64 - n as f64).abs() / n as f64;
 
     // Murmur3 should achieve < 5% error with sequential integers
-    assert!(error < 0.05, "error {error} too large, count={count}, n={n}");
+    assert!(
+        error < 0.05,
+        "error {error} too large, count={count}, n={n}"
+    );
 }
 
 /// Custom hasher for testing pluggable hasher support.
