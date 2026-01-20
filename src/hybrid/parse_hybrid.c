@@ -34,6 +34,7 @@
 #include "asm_state_machine.h"
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "util/arg_parser.h"
+#include "rs_wall_clock.h"
 
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
@@ -714,6 +715,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .prefixes = &prefixes,
       .querySlots = &requestSlotRanges,
       .keySpaceVersion = &keySpaceVersion,
+      .coordDispatchTime = parsedCmdCtx->coordDispatchTime,
   };
   // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
