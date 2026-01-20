@@ -329,7 +329,7 @@ unsafe extern "C" fn RLookupRow_Get(
     row.get(key).map(|x| NonNull::new(x.as_ptr()).unwrap())
 }
 
-/// Returns the sorting vector for the row, or `NULL` if none exists.
+/// Returns the sorting vector for the row, or null if none exists.
 ///
 /// # Safety
 ///
@@ -365,7 +365,7 @@ const unsafe extern "C" fn RLookupRow_SetSortingVector(
     let row = unsafe { row.unwrap().as_mut() };
 
     // Safety: ensured by caller (2.)
-    let sv = unsafe { sv.as_ref().unwrap() };
+    let sv = unsafe { sv.as_ref() };
 
     row.set_sorting_vector(sv);
 }
