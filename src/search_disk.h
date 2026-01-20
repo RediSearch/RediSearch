@@ -145,9 +145,10 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
  * @param maxTermFreq Maximum frequency of any single term in the document
  * @param totalFreq Total frequency of the document
  * @param oldLen Pointer to an integer to store the length of the deleted document
+ * @param ttl Document expiration time (ignored if !(flags & Document_HasExpiration))
  * @return New document ID, or 0 on error/duplicate
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint ttl);
 
 /**
  * @brief Get document metadata by document ID

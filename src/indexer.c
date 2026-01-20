@@ -193,6 +193,11 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       continue;
     }
 
+    const bool hasExpiration = cur->doc->docExpirationTime.tv_sec || cur->doc->docExpirationTime.tv_nsec || cur->doc->fieldExpirations;
+    if (hasExpiration) {
+      cur->doc->flags |= Document_HasExpiration;
+    }
+
     if (spec->diskSpec) {
       size_t len;
       const char *key = RedisModule_StringPtrLen(cur->doc->docKey, &len);
@@ -201,7 +206,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       // if it existed.
       t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len,
         cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
-        cur->fwIdx->totalFreq, &oldLen);
+        cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime);
       if (oldLen > 0) {
         // We deleted a document in the above call, update the stats accordingly
         RS_ASSERT(spec->stats.numDocuments > 0);
@@ -241,11 +246,9 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       DocTable_SetByteOffsets(md, cur->byteOffsets);
       cur->byteOffsets = NULL;
     }
-    Document* doc = cur->doc;
-    const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || doc->fieldExpirations;
     if (hasExpiration) {
       md->flags |= Document_HasExpiration;
-      DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime, doc->fieldExpirations);
+      DocTable_UpdateExpiration(&ctx->spec->docs, md, cur->doc->docExpirationTime, cur->doc->fieldExpirations);
     }
     DMD_Return(md);
   }
