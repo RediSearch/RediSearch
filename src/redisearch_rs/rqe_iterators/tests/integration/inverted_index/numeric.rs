@@ -45,6 +45,8 @@ impl NumericBaseTest {
             RS_INVALID_FIELD_INDEX,
             FieldExpirationPredicate::Default,
             Some(self.test.mock_ctx.numeric_range_tree()),
+            None,
+            None,
         )
     }
 }
@@ -67,6 +69,8 @@ fn numeric_read() {
         RS_INVALID_FIELD_INDEX,
         FieldExpirationPredicate::Default,
         Some(test.test.mock_ctx.numeric_range_tree()),
+        None,
+        None,
     );
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
@@ -95,6 +99,8 @@ fn numeric_filter() {
         RS_INVALID_FIELD_INDEX,
         FieldExpirationPredicate::Default,
         Some(test.test.mock_ctx.numeric_range_tree()),
+        None,
+        None,
     );
     let docs_ids = test
         .test
@@ -120,6 +126,8 @@ fn skip_multi_id() {
         RS_INVALID_FIELD_INDEX,
         FieldExpirationPredicate::Default,
         Some(context.numeric_range_tree()),
+        None,
+        None,
     );
 
     // Read the first entry. Expect to get the entry with value 1.0
@@ -153,6 +161,8 @@ fn skip_multi_id_and_value() {
         RS_INVALID_FIELD_INDEX,
         FieldExpirationPredicate::Default,
         Some(context.numeric_range_tree()),
+        None,
+        None,
     );
 
     // Read the first entry. Expect to get the entry with value 1.0
@@ -194,6 +204,8 @@ fn get_correct_value() {
         RS_INVALID_FIELD_INDEX,
         FieldExpirationPredicate::Default,
         Some(context.numeric_range_tree()),
+        None,
+        None,
     );
 
     // Read the first entry. Expect to get the entry with value 2.0
@@ -235,6 +247,8 @@ fn eof_after_filtering() {
         RS_INVALID_FIELD_INDEX,
         FieldExpirationPredicate::Default,
         Some(context.numeric_range_tree()),
+        None,
+        None,
     );
 
     // Attempt to skip to the first entry, expecting EOF since no entries match the filter
@@ -283,6 +297,8 @@ mod not_miri {
                 index,
                 FieldExpirationPredicate::Default,
                 Some(self.test.mock_ctx.numeric_range_tree()),
+                None,
+                None,
             )
         }
 
@@ -421,6 +437,8 @@ mod not_miri {
                 fs.index,
                 field::FieldExpirationPredicate::Default,
                 Some(context.numeric_range_tree()),
+                None,
+                None,
             )
         }
     }

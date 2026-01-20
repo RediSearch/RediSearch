@@ -9,7 +9,7 @@
 
 //! Supporting types for [`Numeric`] and [`Term`].
 
-use std::ptr::NonNull;
+use std::{f64, ptr::NonNull};
 
 use ffi::{
     IndexFlags_Index_WideSchema, NumericRangeTree, RS_INVALID_FIELD_INDEX, RedisSearchCtx, t_docId,
@@ -449,6 +449,10 @@ pub struct Numeric<'index, R> {
     /// The revision ID of the numeric range tree. Used to detect changes to the tree when revalidating.
     /// None if there is no range tree.
     revision_id: Option<u32>,
+    /// Minimum numeric range, only used in debug print.
+    range_min: f64,
+    /// Maximum numeric range, only used in debug print.
+    range_max: f64,
 }
 
 impl<'index, R> Numeric<'index, R>
@@ -467,6 +471,9 @@ where
     /// `range_tree` is the underlying range tree backing the iterator.
     /// It is used during revalidation to check if the iterator is still valid.
     ///
+    /// `range_min` and `range_max` are the minimum and maximum numeric ranges,
+    /// respectively. They are only used in debug print.
+    ///
     /// # Safety
     ///
     /// 1. `context` is a valid pointer to a `RedisSearchCtx`.
@@ -480,6 +487,8 @@ where
         index: t_fieldIndex,
         predicate: FieldExpirationPredicate,
         range_tree: Option<NonNull<NumericRangeTree>>,
+        range_min: Option<f64>,
+        range_max: Option<f64>,
     ) -> Self {
         let result = RSIndexResult::numeric(0.0);
 
@@ -500,6 +509,8 @@ where
             ),
             range_tree,
             revision_id,
+            range_min: range_min.unwrap_or(f64::INFINITY),
+            range_max: range_max.unwrap_or(f64::NEG_INFINITY),
         }
     }
 
@@ -521,6 +532,14 @@ where
         // If the revision id changed the numeric tree was either completely deleted or a node was split or removed.
         // The cursor is invalidated so we cannot revalidate the iterator.
         rt.revisionId != revision_id
+    }
+
+    pub const fn range_min(&self) -> f64 {
+        self.range_min
+    }
+
+    pub const fn range_max(&self) -> f64 {
+        self.range_max
     }
 }
 
