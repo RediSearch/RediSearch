@@ -13,16 +13,16 @@
 //! (number of distinct elements) of a multiset. This implementation provides:
 //!
 //! - Compile-time validation of parameters via const generics
-//! - Pluggable hash functions via the [`Hasher32`] trait
+//! - Pluggable hash functions via the [`hash32::Hasher`] trait
 //! - Optimal memory layout using `Box<[u8; SIZE]>`
 //!
 //! # Example
 //!
 //! ```
-//! use hll::{Hll, HllHasher};
+//! use hyperloglog::{HyperLogLog, CFnvHasher};
 //!
-//! // Create an HLL with 12-bit precision (4096 registers, ~1.6% error)
-//! let mut hll: Hll<12, 4096, HllHasher> = Hll::new();
+//! // Create an instance with 12-bit precision (4096 registers, ~1.6% error)
+//! let mut hll: HyperLogLog<12, 4096, CFnvHasher> = HyperLogLog::new();
 //! hll.add(b"hello");
 //! hll.add(b"world");
 //! hll.add(b"hello"); // duplicate, won't increase count significantly
@@ -33,177 +33,25 @@
 //! ```
 
 use std::cell::Cell;
-use std::hash::Hasher;
 use std::marker::PhantomData;
-
 use thiserror::Error;
 
-/// A 32-bit hasher trait for HyperLogLog.
-///
-/// This trait is similar to [`std::hash::Hasher`] but returns a 32-bit hash
-/// value, which is what HyperLogLog requires.
-pub trait Hasher32: Default {
-    /// Returns the 32-bit hash value.
-    fn finish32(&self) -> u32;
+mod fnv;
 
-    /// Writes bytes into the hasher.
-    fn write(&mut self, bytes: &[u8]);
-}
+pub use fnv::CFnvHasher;
 
-/// The default HLL seed used for compatibility with the C implementation.
-const HLL_SEED: u32 = 0x5f61767a;
-
-/// FNV-32a hasher with a C-compatible seed.
-///
-/// This hasher uses the same seed as the C HLL implementation to ensure
-/// hash compatibility when interoperating with C code.
-pub struct HllHasher(fnv::Fnv32);
-
-impl Default for HllHasher {
-    fn default() -> Self {
-        Self(fnv::Fnv32::with_offset_basis(HLL_SEED))
-    }
-}
-
-impl Hasher32 for HllHasher {
-    #[inline]
-    fn finish32(&self) -> u32 {
-        self.0.finish() as u32
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        Hasher::write(&mut self.0, bytes);
-    }
-}
-
-/// Murmur3 hasher wrapper for better hash distribution.
+/// Murmur3 hasher with good hash distribution.
 ///
 /// This hasher provides better avalanche properties than FNV-1a,
 /// especially for sequential or structured data like integers.
-pub struct Murmur3Hasher(hash32::Murmur3Hasher);
+pub type Murmur3Hasher = hash32::Murmur3Hasher;
 
-impl Default for Murmur3Hasher {
-    fn default() -> Self {
-        Self(hash32::Murmur3Hasher::default())
-    }
-}
-
-impl Hasher32 for Murmur3Hasher {
-    #[inline]
-    fn finish32(&self) -> u32 {
-        <hash32::Murmur3Hasher as hash32::Hasher>::finish32(&self.0)
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        <hash32::Murmur3Hasher as Hasher>::write(&mut self.0, bytes);
-    }
-}
-
-/// xxHash32 hasher wrapper.
-///
-/// xxHash is an extremely fast non-cryptographic hash algorithm.
-pub struct XxHash32Hasher(xxhash_rust::xxh32::Xxh32);
-
-impl Default for XxHash32Hasher {
-    fn default() -> Self {
-        Self(xxhash_rust::xxh32::Xxh32::new(0))
-    }
-}
-
-impl Hasher32 for XxHash32Hasher {
-    #[inline]
-    fn finish32(&self) -> u32 {
-        self.0.digest()
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        self.0.update(bytes);
-    }
-}
-
-/// AHash hasher wrapper (truncated to 32 bits).
-///
-/// AHash is the default hasher for hashbrown/HashMap, optimized for speed.
-pub struct AHasher(ahash::AHasher);
-
-impl Default for AHasher {
-    fn default() -> Self {
-        Self(ahash::AHasher::default())
-    }
-}
-
-impl Hasher32 for AHasher {
-    #[inline]
-    fn finish32(&self) -> u32 {
-        Hasher::finish(&self.0) as u32
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        Hasher::write(&mut self.0, bytes);
-    }
-}
-
-/// FxHash hasher wrapper (truncated to 32 bits).
-///
-/// FxHash is the hasher used by the Rust compiler, optimized for small keys.
-pub struct FxHasher(fxhash::FxHasher);
-
-impl Default for FxHasher {
-    fn default() -> Self {
-        Self(fxhash::FxHasher::default())
-    }
-}
-
-impl Hasher32 for FxHasher {
-    #[inline]
-    fn finish32(&self) -> u32 {
-        Hasher::finish(&self.0) as u32
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        Hasher::write(&mut self.0, bytes);
-    }
-}
-
-/// WyHash hasher wrapper (truncated to 32 bits).
-///
-/// WyHash is an extremely fast hash function with good distribution.
-pub struct WyHasher(wyhash::WyHash);
-
-impl Default for WyHasher {
-    fn default() -> Self {
-        Self(wyhash::WyHash::with_seed(0))
-    }
-}
-
-impl Hasher32 for WyHasher {
-    #[inline]
-    fn finish32(&self) -> u32 {
-        Hasher::finish(&self.0) as u32
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        Hasher::write(&mut self.0, bytes);
-    }
-}
-
-/// Errors that can occur when creating an HLL from a slice.
+/// Errors that can occur when creating an [`HyperLogLog`] instance from a slice.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum HllError {
-    /// The provided slice has an invalid length.
-    #[error("invalid register slice length: expected {expected}, got {got}")]
-    InvalidLength {
-        /// The expected length.
-        expected: usize,
-        /// The actual length provided.
-        got: usize,
-    },
+#[error("Invalid register slice length: expected {EXPECTED}, got {got}")]
+pub struct InvalidBufferLength<const EXPECTED: usize> {
+    /// The actual length provided.
+    pub got: usize,
 }
 
 /// A HyperLogLog probabilistic cardinality estimator.
@@ -213,7 +61,7 @@ pub enum HllError {
 /// - `BITS`: The number of bits used for register indexing (4..=20).
 ///   Higher values give more accuracy but use more memory.
 /// - `SIZE`: The number of registers, must equal `1 << BITS`.
-/// - `H`: The hasher type implementing [`Hasher32`].
+/// - `H`: The hasher type implementing [`hash32::Hasher`].
 ///
 /// # Why Two Const Parameters?
 ///
@@ -222,19 +70,19 @@ pub enum HllError {
 /// (the `generic_const_exprs` feature). This means we cannot write:
 ///
 /// ```ignore
-/// pub struct Hll<const BITS: u8, H: Hasher32 = HllHasher> {
+/// pub struct HyperLogLog<const BITS: u8, H: hash32::Hasher = HllHasher> {
 ///     registers: Box<[u8; 1 << BITS]>,  // ERROR: not allowed on stable
 /// }
 /// ```
 ///
 /// Until this feature stabilizes, we require both `BITS` and `SIZE` as separate
 /// parameters, with a compile-time assertion ensuring `SIZE == 1 << BITS`.
-/// The type aliases (e.g., [`Hll12`]) hide this complexity for common configurations.
+/// The type aliases (e.g., [`HyperLogLog12`]) hide this complexity for common configurations.
 ///
 /// # Memory Usage
 ///
 /// The memory usage is `SIZE` bytes for registers, which equals `2^BITS` bytes.
-/// For example, `Hll12` uses 4096 bytes.
+/// For example, `HyperLogLog12` uses 4096 bytes.
 ///
 /// # Error Rate
 ///
@@ -242,13 +90,14 @@ pub enum HllError {
 /// - `BITS=12`: ~1.6% error
 /// - `BITS=14`: ~0.8% error
 /// - `BITS=16`: ~0.4% error
-pub struct Hll<const BITS: u8, const SIZE: usize, H: Hasher32 = HllHasher> {
+pub struct HyperLogLog<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default = CFnvHasher>
+{
     cached_card: Cell<Option<usize>>,
     registers: Box<[u8; SIZE]>,
     _hasher: PhantomData<H>,
 }
 
-impl<const BITS: u8, const SIZE: usize, H: Hasher32> Hll<BITS, SIZE, H> {
+impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> HyperLogLog<BITS, SIZE, H> {
     /// Compile-time assertion that BITS is in the valid range.
     const _BITS_RANGE_CHECK: () = assert!(BITS >= 4 && BITS <= 20, "BITS must be in 4..=20");
 
@@ -261,7 +110,6 @@ impl<const BITS: u8, const SIZE: usize, H: Hasher32> Hll<BITS, SIZE, H> {
     /// Creates a new empty HLL.
     ///
     /// All registers are initialized to zero, representing an empty set.
-    #[must_use]
     pub fn new() -> Self {
         // Trigger compile-time checks
         let () = Self::_BITS_RANGE_CHECK;
@@ -277,11 +125,13 @@ impl<const BITS: u8, const SIZE: usize, H: Hasher32> Hll<BITS, SIZE, H> {
     /// Creates an HLL from existing register data.
     ///
     /// This is useful for deserializing an HLL or loading from external storage.
-    #[must_use]
     pub fn from_registers(registers: [u8; SIZE]) -> Self {
         // Trigger compile-time checks
         let () = Self::_BITS_RANGE_CHECK;
         let () = Self::_BITS_SIZE_CHECK;
+
+        #[cfg(debug_assertions)]
+        Self::validate_register_values(registers.as_slice());
 
         Self {
             cached_card: Cell::new(None),
@@ -290,47 +140,31 @@ impl<const BITS: u8, const SIZE: usize, H: Hasher32> Hll<BITS, SIZE, H> {
         }
     }
 
-    /// Creates an HLL from a slice of register data.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`HllError::InvalidLength`] if the slice length doesn't match `SIZE`.
-    pub fn try_from_slice(slice: &[u8]) -> Result<Self, HllError> {
-        // Trigger compile-time checks
-        let () = Self::_BITS_RANGE_CHECK;
-        let () = Self::_BITS_SIZE_CHECK;
-
-        if slice.len() != SIZE {
-            return Err(HllError::InvalidLength {
-                expected: SIZE,
-                got: slice.len(),
-            });
-        }
-
-        let mut registers = Box::new([0u8; SIZE]);
-        registers.copy_from_slice(slice);
-
-        Ok(Self {
-            cached_card: Cell::new(None),
-            registers,
-            _hasher: PhantomData,
-        })
-    }
-
     /// Adds an element by hashing it.
     ///
     /// The element is hashed using the configured hasher type `H`.
-    pub fn add(&mut self, data: &[u8]) {
+    pub fn add<E>(&mut self, data: E)
+    where
+        E: std::hash::Hash,
+    {
         let mut hasher = H::default();
-        hasher.write(data);
-        self.add_hash(hasher.finish32());
+        data.hash(&mut hasher);
+        self.add_precomputed_hash(hasher.finish32());
     }
 
     /// Adds a pre-computed 32-bit hash value.
     ///
     /// Use this when you've already computed the hash externally or when
     /// batch-processing many elements.
-    pub fn add_hash(&mut self, hash: u32) {
+    ///
+    /// # Be Careful!
+    ///
+    /// To ensure the correctness of the HyperLogLog algorithm,
+    /// the precomputed hash must have been produced by the same
+    /// hashing function (`H`) used for all the other values.
+    /// Using a different hashing function undermines the uniformity
+    /// of the value distribution in the hashing space.
+    pub fn add_precomputed_hash(&mut self, hash: u32) {
         let index = (hash >> Self::RANK_BITS) as usize;
         let rank = rank(hash, Self::RANK_BITS);
 
@@ -346,7 +180,6 @@ impl<const BITS: u8, const SIZE: usize, H: Hasher32> Hll<BITS, SIZE, H> {
     ///
     /// The result is cached internally and recomputed only when new elements
     /// are added. Multiple calls without modifications are O(1).
-    #[must_use]
     pub fn count(&self) -> usize {
         if let Some(cached) = self.cached_card.get() {
             return cached;
@@ -362,11 +195,15 @@ impl<const BITS: u8, const SIZE: usize, H: Hasher32> Hll<BITS, SIZE, H> {
     /// After merging, this HLL will represent the union of both sets.
     /// The other HLL must have the same `BITS` and `SIZE` parameters.
     pub fn merge(&mut self, other: &Self) {
+        let mut changed = false;
         for i in 0..SIZE {
             if other.registers[i] > self.registers[i] {
                 self.registers[i] = other.registers[i];
-                self.cached_card.set(None);
+                changed = true;
             }
+        }
+        if changed {
+            self.cached_card.set(None);
         }
     }
 
@@ -379,19 +216,46 @@ impl<const BITS: u8, const SIZE: usize, H: Hasher32> Hll<BITS, SIZE, H> {
     /// Returns a reference to the raw register data.
     ///
     /// This is useful for serialization or interop with other HLL implementations.
-    #[must_use]
     pub const fn registers(&self) -> &[u8; SIZE] {
         &self.registers
     }
 
+    /// Sets the register data, replacing existing values.
+    ///
+    /// This invalidates any cached cardinality estimate.
+    pub fn set_registers(&mut self, registers: [u8; SIZE]) {
+        #[cfg(debug_assertions)]
+        Self::validate_register_values(registers.as_slice());
+
+        *self.registers = registers;
+        self.cached_card.set(None);
+    }
+
+    /// Try to set the register data from a slice whose length is not
+    /// known at compile-time, replacing existing values.
+    ///
+    /// This invalidates any cached cardinality estimate.
+    pub fn try_set_registers(&mut self, registers: &[u8]) -> Result<(), InvalidBufferLength<SIZE>> {
+        if registers.len() != SIZE {
+            return Err(InvalidBufferLength {
+                got: registers.len(),
+            });
+        }
+
+        #[cfg(debug_assertions)]
+        Self::validate_register_values(registers);
+
+        self.registers.copy_from_slice(registers);
+        self.cached_card.set(None);
+        Ok(())
+    }
+
     /// Returns the bit precision.
-    #[must_use]
     pub const fn bits() -> u8 {
         BITS
     }
 
     /// Returns the number of registers.
-    #[must_use]
     pub const fn size() -> usize {
         SIZE
     }
@@ -400,6 +264,7 @@ impl<const BITS: u8, const SIZE: usize, H: Hasher32> Hll<BITS, SIZE, H> {
     fn compute_estimate(&self) -> usize {
         let alpha_mm = alpha(BITS, SIZE) * (SIZE as f64) * (SIZE as f64);
 
+        // Single-pass: compute sum and count zeros together
         let mut sum = 0.0;
         for &reg in self.registers.iter() {
             sum += 1.0 / ((1u32 << reg) as f64);
@@ -408,12 +273,11 @@ impl<const BITS: u8, const SIZE: usize, H: Hasher32> Hll<BITS, SIZE, H> {
         let mut estimate = alpha_mm / sum;
 
         // Small range correction using linear counting.
-        // Only apply when there are many empty registers (> 20% zeros),
-        // since linear counting is inaccurate with few zeros.
-        // This improves on the original HLL which applied it whenever zeros > 0.
-        let zeros = self.registers.iter().filter(|&&r| r == 0).count();
-        if estimate <= 2.5 * (SIZE as f64) && zeros > SIZE / 5 {
-            estimate = (SIZE as f64) * ((SIZE as f64) / (zeros as f64)).ln();
+        if estimate <= 2.5 * (SIZE as f64) {
+            let zeros = bytecount::count(self.registers.as_slice(), 0);
+            if zeros > 0 {
+                estimate = (SIZE as f64) * ((SIZE as f64) / (zeros as f64)).ln();
+            }
         }
         // Large range correction
         else if estimate > (1.0 / 30.0) * 4_294_967_296.0 {
@@ -422,15 +286,42 @@ impl<const BITS: u8, const SIZE: usize, H: Hasher32> Hll<BITS, SIZE, H> {
 
         estimate as usize
     }
+
+    /// Panics if any of the register values exceeds the expected cap.
+    fn validate_register_values(registers: &[u8]) {
+        let max_value = Self::RANK_BITS + 1;
+        for (i, entry) in registers.iter().enumerate() {
+            assert!(
+                *entry <= max_value,
+                "The {i}th register values exceeds the expected cap. Got {entry}, expected at most {max_value}.",
+            )
+        }
+    }
 }
 
-impl<const BITS: u8, const SIZE: usize, H: Hasher32> Default for Hll<BITS, SIZE, H> {
+impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> TryFrom<&[u8]>
+    for HyperLogLog<BITS, SIZE, H>
+{
+    type Error = InvalidBufferLength<SIZE>;
+
+    fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
+        let mut self_ = Self::new();
+        self_.try_set_registers(slice)?;
+        Ok(self_)
+    }
+}
+
+impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Default
+    for HyperLogLog<BITS, SIZE, H>
+{
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<const BITS: u8, const SIZE: usize, H: Hasher32> Clone for Hll<BITS, SIZE, H> {
+impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Clone
+    for HyperLogLog<BITS, SIZE, H>
+{
     fn clone(&self) -> Self {
         Self {
             cached_card: self.cached_card.clone(),
@@ -440,9 +331,11 @@ impl<const BITS: u8, const SIZE: usize, H: Hasher32> Clone for Hll<BITS, SIZE, H
     }
 }
 
-impl<const BITS: u8, const SIZE: usize, H: Hasher32> std::fmt::Debug for Hll<BITS, SIZE, H> {
+impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> std::fmt::Debug
+    for HyperLogLog<BITS, SIZE, H>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Hll")
+        f.debug_struct("HyperLogLog")
             .field("bits", &BITS)
             .field("size", &SIZE)
             .field("cached_card", &self.cached_card.get())
@@ -451,9 +344,9 @@ impl<const BITS: u8, const SIZE: usize, H: Hasher32> std::fmt::Debug for Hll<BIT
 }
 
 /// Calculates the rank (trailing zeros + 1, capped at rank_bits).
-#[inline]
 const fn rank(hash: u32, rank_bits: u8) -> u8 {
-    let r = if hash == 0 { 32 } else { hash.trailing_zeros() as u8 };
+    let r = hash.trailing_zeros() as u8;
+    // `std::cmp::min` is not yet `const` on the stable toolchain
     let capped = if r > rank_bits { rank_bits } else { r };
     capped + 1
 }
@@ -470,29 +363,29 @@ const fn alpha(bits: u8, size: usize) -> f64 {
 
 // Type aliases for common configurations
 
-/// HLL with 4-bit precision (16 registers, ~26% error).
-pub type Hll4<H = HllHasher> = Hll<4, 16, H>;
+/// HyperLogLog with 4-bit precision (16 registers, ~26% error).
+pub type HyperLogLog4<H = CFnvHasher> = HyperLogLog<4, 16, H>;
 
-/// HLL with 5-bit precision (32 registers, ~18% error).
-pub type Hll5<H = HllHasher> = Hll<5, 32, H>;
+/// HyperLogLog with 5-bit precision (32 registers, ~18% error).
+pub type HyperLogLog5<H = CFnvHasher> = HyperLogLog<5, 32, H>;
 
-/// HLL with 6-bit precision (64 registers, ~13% error).
-pub type Hll6<H = HllHasher> = Hll<6, 64, H>;
+/// HyperLogLog with 6-bit precision (64 registers, ~13% error).
+pub type HyperLogLog6<H = CFnvHasher> = HyperLogLog<6, 64, H>;
 
-/// HLL with 8-bit precision (256 registers, ~6.5% error).
-pub type Hll8<H = HllHasher> = Hll<8, 256, H>;
+/// HyperLogLog with 8-bit precision (256 registers, ~6.5% error).
+pub type HyperLogLog8<H = CFnvHasher> = HyperLogLog<8, 256, H>;
 
-/// HLL with 10-bit precision (1024 registers, ~3.3% error).
-pub type Hll10<H = HllHasher> = Hll<10, 1024, H>;
+/// HyperLogLog with 10-bit precision (1024 registers, ~3.3% error).
+pub type HyperLogLog10<H = CFnvHasher> = HyperLogLog<10, 1024, H>;
 
-/// HLL with 12-bit precision (4096 registers, ~1.6% error).
-pub type Hll12<H = HllHasher> = Hll<12, 4096, H>;
+/// HyperLogLog with 12-bit precision (4096 registers, ~1.6% error).
+pub type HyperLogLog12<H = CFnvHasher> = HyperLogLog<12, 4096, H>;
 
-/// HLL with 14-bit precision (16384 registers, ~0.8% error).
-pub type Hll14<H = HllHasher> = Hll<14, 16384, H>;
+/// HyperLogLog with 14-bit precision (16384 registers, ~0.8% error).
+pub type HyperLogLog14<H = CFnvHasher> = HyperLogLog<14, 16384, H>;
 
-/// HLL with 16-bit precision (65536 registers, ~0.4% error).
-pub type Hll16<H = HllHasher> = Hll<16, 65536, H>;
+/// HyperLogLog with 16-bit precision (65536 registers, ~0.4% error).
+pub type HyperLogLog16<H = CFnvHasher> = HyperLogLog<16, 65536, H>;
 
 #[cfg(test)]
 mod tests {
