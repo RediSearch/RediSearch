@@ -13,6 +13,7 @@ Commands:
   build            Build artifacts
   lint             Lint Rust code (redisearch_disk)
   lint-vecsim      Lint C++ code (vecsim_disk)
+  format           Fix Rust code formatting (redisearch_disk)
   format-vecsim    Fix C++ code formatting (vecsim_disk)
   test             Run Rust unit tests (redisearch_disk)
   test-vecsim      Run C++ unit tests (vecsim_disk)
@@ -147,6 +148,12 @@ cmd_lint() {
 cmd_lint_vecsim() {
   echo "[lint-vecsim] Linting C++ code (vecsim_disk)"
   _run_clang_format check
+}
+
+cmd_format() {
+  echo "[format] Formatting Rust code (redisearch_disk)"
+  cd "${ROOT_DIR}/redisearch_disk/"
+  cargo fmt -- --color=always
 }
 
 cmd_format_vecsim() {
@@ -333,6 +340,7 @@ main() {
     build) shift; cmd_build "$@" ;;
     lint)  shift; cmd_lint "$@" ;;
     lint-vecsim) shift; cmd_lint_vecsim "$@" ;;
+    format) shift; cmd_format "$@" ;;
     format-vecsim) shift; cmd_format_vecsim "$@" ;;
     test)  shift; cmd_test "$@" ;;
     test-vecsim) shift; cmd_test_vecsim "$@" ;;
