@@ -71,4 +71,8 @@ IndexSpec *createIndex(RedisModuleCtx *ctx, const char *name, Ts... args) {
 std::vector<std::string> search(RSIndex *index, RSQueryNode *qn);
 std::vector<std::string> search(RSIndex *index, const char *s);
 
+// Install a SIGSEGV handler that prints a stack trace to stderr and then
+// re-raises SIGSEGV to preserve normal crash / core-dump behaviour.
+void InstallSegvStackTraceHandler();
+
 }  // namespace RS

@@ -10,6 +10,6 @@ $MODE add-apt-repository ppa:deadsnakes/ppa -y
 $MODE apt update -yqq
 
 $MODE apt install -yqq wget make clang-format gcc lcov git openssl libssl-dev \
-    unzip rsync build-essential gcc-10 g++-10 curl libclang-dev
+    unzip rsync build-essential gcc-10 g++-10 curl libclang-dev gdb
 
 $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 60 --slave /usr/bin/g++ g++ /usr/bin/g++-10
