@@ -133,6 +133,12 @@ cmd_clean() {
 
 cmd_lint() {
   echo "[lint] Linting Rust code (redisearch_disk)"
+
+  # Build SpeedB first so cargo clippy can link against it
+  local profile="${PROFILE:-Debug}"
+  ensure_cmake_configured "${profile}"
+  build_speedb
+
   cd "${ROOT_DIR}/redisearch_disk/"
   cargo clippy --color=always -- -D warnings
   cargo fmt -- --color=always --check
@@ -184,44 +190,102 @@ _run_clang_format() {
   fi
 }
 
+# Ensure CMake is configured with the specified profile
+ensure_cmake_configured() {
+  local profile="${1:-Debug}"
+  if [ ! -f "${BUILD_DIR}/CMakeCache.txt" ]; then
+    echo "[configure] CMake configure (profile=${profile})"
+    cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${profile}" ${CMAKE_ARGS:-}
+  fi
+}
+
+build_speedb() {
+  local speedb_build_dir="${BUILD_DIR}/speedb-build"
+  local speedb_lib="${speedb_build_dir}/libspeedb.so"
+  local rocksdb_symlink="${speedb_build_dir}/librocksdb.so"
+
+  # Check if SpeedB is already built
+  if [ -f "${speedb_lib}" ]; then
+    echo "[speedb] SpeedB already built at ${speedb_lib}"
+  else
+    echo "[speedb] Building SpeedB using CMake target..."
+    cmake --build "${BUILD_DIR}" --target speedb-shared -j"$(nproc)" || { echo "[speedb] Error: SpeedB build failed."; exit 1; }
+  fi
+
+  # Create symlink for Cargo (rust-speedb looks for librocksdb.so)
+  if [ ! -f "${rocksdb_symlink}" ]; then
+    echo "[speedb] Creating librocksdb.so symlink for Cargo..."
+    cd "${speedb_build_dir}"
+    ln -sf libspeedb.so librocksdb.so
+    cd "${ROOT_DIR}"
+  fi
+
+  # Export for Rust build
+  export ROCKSDB_LIB_DIR="${speedb_build_dir}"
+  export ROCKSDB_STATIC=0  # Use shared library
+  export RUSTFLAGS="-C relocation-model=pic"
+  export LD_LIBRARY_PATH="${speedb_build_dir}:${LD_LIBRARY_PATH:-}"
+}
+
 cmd_build() {
-  local profile="${PROFILE:-Debug}"
-  echo "[configure] CMake configure (profile=${profile})"
-  cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${profile}" ${CMAKE_ARGS:-}
   echo "[build] Building"
-  cmake --build "${BUILD_DIR}" -j"$(nproc)"
+
+  local profile="${PROFILE:-Debug}"
+  ensure_cmake_configured "${profile}"
+
+  # Build SpeedB using CMake target - both vecsim_disk (C++) and redisearch_disk (Rust) will use it
+  build_speedb
+
+  cmake --build "${BUILD_DIR}" -j"$(nproc)" || { echo "[build] Error: Build failed."; exit 1; }
 }
 
 cmd_test() {
+  echo "[test] Running Rust unit tests (redisearch_disk)"
+
   local profile="${PROFILE:-Debug}"
+  ensure_cmake_configured "${profile}"
+
+  # Build SpeedB and configure Cargo to use it
+  build_speedb
+
   # Convert CMake build type to Rust profile name
   local rust_profile="dev"
   if [ "${profile}" != "Debug" ]; then
     rust_profile="release"
   fi
 
-  echo "[test] Running Rust unit tests (redisearch_disk)"
   cd "${ROOT_DIR}/redisearch_disk/"
   # Enable unittest feature to link C static libraries needed by tests
   cargo test --profile="${rust_profile}" --features unittest --color=always "$@"
 }
 
 cmd_test_vecsim() {
-  local profile="${PROFILE:-Debug}"
   echo "[test-vecsim] Running C++ unit tests (vecsim_disk)"
 
-  # Build vecsim_disk and test executable
-  cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${profile}" ${CMAKE_ARGS:-}
-  cmake --build "${BUILD_DIR}" --target vecsim_disk -j"$(nproc)"
-  cmake --build "${BUILD_DIR}" --target test_hnsw_disk -j"$(nproc)" 2>/dev/null || true
+  local profile="${PROFILE:-Debug}"
+  ensure_cmake_configured "${profile}"
 
-  # Run CTest
+  # Build SpeedB dependency using CMake target
+  build_speedb
+
+  echo "[test-vecsim] Building vecsim_disk and all tests..."
+  cmake --build "${BUILD_DIR}" --target vecsim_disk -j"$(nproc)" || { echo "[test-vecsim] Error: Build failed."; exit 1; }
+
+  # Run CTest with LD_LIBRARY_PATH set so tests can find libspeedb.so
+  echo "[test-vecsim] Running tests..."
   cd "${BUILD_DIR}/vecsim_disk"
   ctest --output-on-failure
 }
 
 cmd_test_miri() {
   echo "[test-miri] Running Rust tests with Miri"
+
+  local profile="${PROFILE:-Debug}"
+  ensure_cmake_configured "${profile}"
+
+  # Build SpeedB and configure Cargo to use it
+  build_speedb
+
   cd "${ROOT_DIR}/redisearch_disk/"
   # Set default MIRIFLAGS if not already set
   # -Zmiri-disable-isolation allows tests to access the file system and environment
@@ -238,6 +302,14 @@ cmd_test_flow() {
 
 cmd_bench() {
   echo "[bench] Running micro benchmarks"
+
+  # Use Release for benchmarks
+  local profile="Release"
+  ensure_cmake_configured "${profile}"
+
+  # Build SpeedB and configure Cargo to use it
+  build_speedb
+
   cd "${ROOT_DIR}/redisearch_disk/"
   # Benchmarks always run in release mode for accurate performance measurement
   # Use --benches to only run benchmark binaries, not library unit tests

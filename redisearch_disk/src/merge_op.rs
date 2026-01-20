@@ -1,4 +1,7 @@
-use speedb::{MergeOperands, merge_operator::MergeFn};
+use speedb::{
+    MergeOperands,
+    merge_operator::{MergeFn, MergeResult},
+};
 
 use crate::{
     debug,
@@ -18,9 +21,10 @@ impl DeletedIdsMergeOperator {
         move |key: &[u8],
               existing_value: Option<&[u8]>, // single block
               operand_list: &MergeOperands| // list of blocks
-              -> Option<Vec<u8>> {
+              -> Option<MergeResult> {
             let merge_inner = Self::full_merge_inner(deleted_ids.clone());
             merge_inner(key, existing_value, operand_list.into_iter())
+                .map(|result| (result, None)) // None means use original key
         }
     }
 

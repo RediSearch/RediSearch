@@ -116,13 +116,15 @@ def test_info_search_basic(redis_env):
     )
 
     # Doc table metrics
+    # Note: memtable sizes can vary across platforms due to SpeedB/RocksDB
+    # internal allocation patterns, so we only check for positivity.
     disk_doc_after_pop = info_after_pop['search_disk_doc_table']
+    redis_env.assertGreater(disk_doc_after_pop.pop('active_memtable_size'), 0)
+    redis_env.assertGreater(disk_doc_after_pop.pop('size_all_mem_tables'), 0)
     expected_dt = {
         'num_immutable_memtables': 0,
         'num_immutable_memtables_flushed': 0,
         'mem_table_flush_pending': 0,
-        'active_memtable_size': 1050624,
-        'size_all_mem_tables': 1050624,
         'num_entries_active_memtable': 1000,
         'num_entries_imm_memtables': 0,
         'num_deletes_active_memtable': 0,
@@ -141,12 +143,12 @@ def test_info_search_basic(redis_env):
 
     # Inverted index metrics
     disk_inv_after_pop = info_after_pop['search_disk_text_inverted_index']
+    redis_env.assertGreater(disk_inv_after_pop.pop('active_memtable_size'), 0)
+    redis_env.assertGreater(disk_inv_after_pop.pop('size_all_mem_tables'), 0)
     expected_ii = {
         'num_immutable_memtables': 0,
         'num_immutable_memtables_flushed': 0,
         'mem_table_flush_pending': 0,
-        'active_memtable_size': 1050624,
-        'size_all_mem_tables': 1050624,
         'num_entries_active_memtable': 1000,
         'num_entries_imm_memtables': 0,
         'num_deletes_active_memtable': 0,

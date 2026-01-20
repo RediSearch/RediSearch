@@ -96,7 +96,7 @@ jobs:
           path: redis
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 1
-          ref: rl_big2_8.4
+          ref: RediSearchDisk
           submodules: recursive
 
       # Build and install Redis

@@ -7,17 +7,36 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-// SpeeDBStore implementation - creates VectorStore from SpeeDBHandles
+// HNSWStorage implementation - creates HNSWStorage from SpeeDBHandles
 // This file requires linking against SpeedB/RocksDB.
 
-#include "vector_storage.h"
+#include "storage/hnsw_storage.h"
 #include "vecsim_disk_api.h"
+#include "rocksdb/c.h"
 
 #include <memory>
 
-std::unique_ptr<VectorStore> CreateSpeeDBStore(const SpeeDBHandles* handles) {
-    if (!handles) {
+// Internal C API wrapper structures (from rocksdb/c.cc)
+// These wrap the C++ types for the C API
+struct rocksdb_t {
+    rocksdb::DB* rep;
+};
+
+struct rocksdb_column_family_handle_t {
+    rocksdb::ColumnFamilyHandle* rep;
+};
+
+template <typename DataType>
+std::unique_ptr<HNSWStorage<DataType>> CreateHNSWStorage(const SpeeDBHandles* handles) {
+    if (!handles || !handles->db || !handles->cf) {
         return nullptr;
     }
-    return std::make_unique<SpeeDBStore>(handles->db, handles->cf);
+    // Extract C++ pointers from C API wrappers
+    rocksdb::DB* db = handles->db->rep;
+    rocksdb::ColumnFamilyHandle* cf = handles->cf->rep;
+    return std::make_unique<HNSWStorage<DataType>>(db, cf);
 }
+
+// Explicit template instantiations for supported types
+template std::unique_ptr<HNSWStorage<float>> CreateHNSWStorage<float>(const SpeeDBHandles* handles);
+template std::unique_ptr<HNSWStorage<double>> CreateHNSWStorage<double>(const SpeeDBHandles* handles);

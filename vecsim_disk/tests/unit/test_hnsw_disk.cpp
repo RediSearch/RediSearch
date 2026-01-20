@@ -17,8 +17,12 @@ class HNSWDiskTest : public ::testing::Test {
 protected:
     static constexpr size_t DIM = 4;
 
-    VecSimIndex* createIndex(const HNSWParams& hnsw_params) {
+    VecSimIndex* createIndex(const HNSWParams& hnsw_params, const SpeeDBHandles* handles = nullptr) {
         auto params_disk_holder = createDiskParams(hnsw_params);
+        // Set storage handles if provided
+        if (handles) {
+            params_disk_holder->diskContext.storage = const_cast<void*>(static_cast<const void*>(handles));
+        }
         return VecSimDisk_CreateIndex(&params_disk_holder->params_disk);
     }
 };
@@ -64,14 +68,14 @@ TEST_F(HNSWDiskTest, DeleteVectorStub) {
 // =============================================================================
 //
 // This test verifies that the HNSWDiskIndex correctly takes ownership of
-// storage via unique_ptr. The TestIndex helper creates a MockStorage and
+// storage via unique_ptr. The TestIndex helper creates a SpeeDBStore and
 // passes ownership to the index.
 
 TEST_F(HNSWDiskTest, IndexOwnsStorage) {
     TestIndex<float, float> index(DIM);
 
     // The index should have a valid storage pointer
-    VectorStore* storage = index->getStorage();
+    HNSWStorage<float>* storage = index->getStorage();
     EXPECT_NE(storage, nullptr);
 
     // The storage should be the same as what TestIndex created
@@ -110,11 +114,16 @@ TEST_F(HNSWDiskTest, FactoryWithNullStorage) {
 }
 
 TEST_F(HNSWDiskTest, FactoryWithSpeeDBHandles) {
-    // In production, the factory creates SpeeDBStore from handles.
-    // In unit tests, the stub returns nullptr (SpeedB not linked).
+    // Test that factory creates HNSWStorage from valid handles
+    TempSpeeDB tempDb;
+
+    // Wrap C++ pointers in C API structs for SpeeDBHandles
+    rocksdb_t db_wrapper{tempDb.db()};
+    rocksdb_column_family_handle_t cf_wrapper{tempDb.cf()};
+
     SpeeDBHandles handles;
-    handles.db = reinterpret_cast<rocksdb_t*>(0xDEADBEEF);
-    handles.cf = reinterpret_cast<rocksdb_column_family_handle_t*>(0xCAFEBABE);
+    handles.db = &db_wrapper;
+    handles.cf = &cf_wrapper;
 
     HNSWParams hnsw_params = {
         .type = VecSimType_FLOAT32,
@@ -127,15 +136,17 @@ TEST_F(HNSWDiskTest, FactoryWithSpeeDBHandles) {
         .efRuntime = 10,
     };
 
-    auto* handle = this->createIndex(hnsw_params);
+    // Pass handles to createIndex
+    auto* handle = this->createIndex(hnsw_params, &handles);
     ASSERT_NE(handle, nullptr);
 
     auto* index = static_cast<HNSWDiskIndex<float, float>*>(handle);
 
-    // In unit tests, the stub returns nullptr (no SpeedB)
-    // In production, this would be a valid SpeeDBStore
-    // IMPORTANT: The storage is NOT the same pointer as handles (bug is fixed)
-    VectorStore* storage = index->getStorage();
+    // Verify that storage was created successfully
+    HNSWStorage<float>* storage = index->getStorage();
+    ASSERT_NE(storage, nullptr);
+
+    // Verify storage is NOT the same pointer as handles (it's an HNSWStorage instance)
     EXPECT_NE(static_cast<void*>(storage), static_cast<void*>(&handles));
 
     VecSimDisk_FreeIndex(handle);

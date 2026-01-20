@@ -93,7 +93,7 @@ jobs:
           path: Redis
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 1
-          ref: rl_big2_8.4
+          ref: RediSearchDisk
           submodules: recursive
 
       # Cache Redis compilation and bs_speedb.so library
@@ -152,8 +152,11 @@ jobs:
         run: PROFILE=Debug ./build.sh test-vecsim
 
       # Run integration tests with RLTest
+      # Set LD_LIBRARY_PATH so Redis can find libspeedb.so.2
       - name: Test (Integration tests with RLTest)
         working-directory: flow-tests
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/build/speedb-build:${{ env.LD_LIBRARY_PATH }}
         run: |
           python3 runtests.py --module ../build/redisearch.so --redis-lib-path /usr/local/lib --parallel
 

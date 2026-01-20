@@ -11,16 +11,12 @@
 // Disk-based HNSW index. Inherits from VecSimIndexAbstract so all standard
 // VecSimIndex_* operations work via polymorphism.
 
-/* ================================================== */
-/* This file will be moved to src/algorithms/hnsw/hnsw_disk.h in a following PR ! */
-/* ================================================== */
-
 #include "VecSim/vec_sim_index.h"
 #include "VecSim/index_factories/components/components_factory.h"
 #include "VecSim/query_result_definitions.h"
 #include "VecSim/utils/vec_utils.h"
 #include "VecSim/info_iterator_struct.h"
-#include "vector_storage.h"
+#include "storage/hnsw_storage.h"
 
 #include <memory>
 #include <string>
@@ -30,7 +26,8 @@ class HNSWDiskIndex : public VecSimIndexAbstract<DataType, DistType> {
 public:
     // Constructor for factory use - takes ownership of storage
     HNSWDiskIndex(const VecSimParamsDisk* params, const AbstractIndexInitParams& abstractInitParams,
-                  const IndexComponents<DataType, DistType>& components, std::unique_ptr<VectorStore> storage);
+                  const IndexComponents<DataType, DistType>& components,
+                  std::unique_ptr<HNSWStorage<DataType>> storage);
     ~HNSWDiskIndex() override = default;
 
     // VecSimIndexInterface - stubs for MOD-13164
@@ -63,7 +60,7 @@ public:
     size_t getEf() const { return efRuntime_; }
     void setEf(size_t ef) { efRuntime_ = ef; }
 
-    VectorStore* getStorage() const { return storage_.get(); }
+    HNSWStorage<DataType>* getStorage() const { return storage_.get(); }
 
 private:
     size_t M_;
@@ -73,7 +70,7 @@ private:
     size_t curElementCount_ = 0;
 
     // Storage backend (owned by this index)
-    std::unique_ptr<VectorStore> storage_;
+    std::unique_ptr<HNSWStorage<DataType>> storage_;
 
     HNSWDiskIndex(const HNSWDiskIndex&) = delete;
     HNSWDiskIndex& operator=(const HNSWDiskIndex&) = delete;
@@ -85,7 +82,7 @@ template <typename DataType, typename DistType>
 HNSWDiskIndex<DataType, DistType>::HNSWDiskIndex(const VecSimParamsDisk* params,
                                                  const AbstractIndexInitParams& abstractInitParams,
                                                  const IndexComponents<DataType, DistType>& components,
-                                                 std::unique_ptr<VectorStore> storage)
+                                                 std::unique_ptr<HNSWStorage<DataType>> storage)
     : VecSimIndexAbstract<DataType, DistType>(abstractInitParams, components),
       indexName_(params->diskContext->indexName, params->diskContext->indexNameLen), storage_(std::move(storage)) {
     const HNSWParams& hnswParams = params->indexParams->algoParams.hnswParams;

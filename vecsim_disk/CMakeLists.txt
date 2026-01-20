@@ -29,10 +29,24 @@ target_include_directories(vecsim_disk PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${VECSIM_ROOT}/src  # VectorSimilarity headers - PUBLIC since vecsim_disk extends VecSim
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/speedb-ent/include  # SpeedB/RocksDB C API headers
 )
 
 # Link against VectorSimilarity for base class and types
 target_link_libraries(vecsim_disk PUBLIC VectorSimilarity)
+
+# Link against SpeedB (built by CMake speedb-shared target in root CMakeLists.txt)
+target_link_libraries(vecsim_disk PUBLIC ${SPEEDB_LIB})
+
+# Add dependency on speedb-shared target to ensure it's built first
+add_dependencies(vecsim_disk speedb-shared)
+
+# SpeedB requires C++ standard library
+if(APPLE)
+    target_link_libraries(vecsim_disk PUBLIC c++)
+else()
+    target_link_libraries(vecsim_disk PUBLIC stdc++)
+endif()
 
 # =============================================================================
 # Unit Tests (optional, enabled via VECSIM_DISK_BUILD_TESTS)
@@ -43,44 +57,6 @@ if(VECSIM_DISK_BUILD_TESTS)
     # Enable testing
     enable_testing()
 
-    # Fetch GoogleTest
-    include(FetchContent)
-    FetchContent_Declare(
-        googletest
-        URL https://github.com/google/googletest/archive/refs/tags/v1.16.0.zip
-    )
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(googletest)
-
-    # Create a test-only library without SpeeDBStore (avoids SpeedB dependency)
-    # Uses a stub that returns nullptr for CreateSpeeDBStore
-    add_library(vecsim_disk_test_lib STATIC
-        ${FACTORY_SOURCES}
-        src/vecsim_disk_api.cpp
-        tests/unit/speedb_store_stub.cpp
-    )
-
-    target_include_directories(vecsim_disk_test_lib PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${VECSIM_ROOT}/src
-    )
-
-    target_link_libraries(vecsim_disk_test_lib PUBLIC VectorSimilarity)
-
-    # Test executables - link against test lib (no SpeedB required)
-    add_executable(test_hnsw_disk tests/unit/test_hnsw_disk.cpp)
-    add_executable(test_tiered_hnsw_disk tests/unit/test_tiered_hnsw_disk.cpp)
-
-    # Only add tests/unit - other includes inherited from vecsim_disk_test_lib (PUBLIC)
-    target_include_directories(test_hnsw_disk PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit)
-    target_include_directories(test_tiered_hnsw_disk PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit)
-
-    target_link_libraries(test_hnsw_disk PRIVATE gtest gtest_main vecsim_disk_test_lib)
-    target_link_libraries(test_tiered_hnsw_disk PRIVATE gtest gtest_main vecsim_disk_test_lib)
-
-    # Register tests with CTest
-    include(GoogleTest)
-    gtest_discover_tests(test_hnsw_disk)
-    gtest_discover_tests(test_tiered_hnsw_disk)
+    # Add tests subdirectory
+    add_subdirectory(tests)
 endif()

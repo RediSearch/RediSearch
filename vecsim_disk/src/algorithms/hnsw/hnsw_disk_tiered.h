@@ -10,7 +10,7 @@
 #pragma once
 
 #include "VecSim/vec_sim_tiered_index.h"
-#include "hnsw_disk.h"
+#include "algorithms/hnsw/hnsw_disk.h"
 
 template <typename DataType, typename DistType>
 class TieredHNSWDiskIndex : public VecSimTieredIndex<DataType, DistType> {

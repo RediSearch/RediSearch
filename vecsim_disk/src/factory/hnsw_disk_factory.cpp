@@ -9,21 +9,23 @@
 
 #include "hnsw_disk_factory.h"
 #include "disk_index_factory.h"
-#include "hnsw_disk.h"
+#include "algorithms/hnsw/hnsw_disk.h"
+#include "storage/hnsw_storage.h"
 
 namespace HNSWDiskFactory {
 VecSimIndex* NewIndex(const VecSimParamsDisk* params, bool is_input_normalized) {
     auto allocator = VecSimAllocator::newVecsimAllocator();
 
     const HNSWParams* hnswParams = &params->indexParams->algoParams.hnswParams;
+    assert(hnswParams->type == VecSimType_FLOAT32 && "Only FLOAT32 type is currently supported");
 
     // Create storage from SpeeDBHandles if provided
-    // params->storage is a SpeeDBHandles* from Rust FFI
-    // CreateSpeeDBStore is defined in speedb_store.cpp (requires SpeedB linkage)
-    std::unique_ptr<VectorStore> storage;
+    // params->diskContext->storage is a SpeeDBHandles* from Rust FFI
+    // CreateHNSWStorage is defined in speedb_store.cpp (requires SpeedB linkage)
+    std::unique_ptr<HNSWStorage<float>> storage;
     if (params->diskContext->storage) {
         auto* handles = static_cast<const SpeeDBHandles*>(params->diskContext->storage);
-        storage = CreateSpeeDBStore(handles);
+        storage = CreateHNSWStorage<float>(handles);
     }
 
     // Create abstract params

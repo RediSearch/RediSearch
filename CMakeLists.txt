@@ -47,6 +47,52 @@ else()
 endif()
 
 #----------------------------------------------------------------------------------------------
+# 0. Build Speedb shared library
+#----------------------------------------------------------------------------------------------
+
+# Speedb source directory
+set(SPEEDB_SOURCE_DIR "${CMAKE_SOURCE_DIR}/deps/speedb-ent")
+set(SPEEDB_BUILD_DIR "${CMAKE_BINARY_DIR}/speedb-build")
+# Create SPEEDB_BUILD_DIR if it doesn't exist
+file(MAKE_DIRECTORY "${SPEEDB_BUILD_DIR}")
+
+# Determine build type for Speedb (match main project)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(SPEEDB_BUILD_TYPE "Debug")
+else()
+    set(SPEEDB_BUILD_TYPE "RelWithDebInfo")
+endif()
+
+# Get number of processors for parallel build
+include(ProcessorCount)
+ProcessorCount(NPROC)
+if(NPROC EQUAL 0)
+    set(NPROC 1)
+endif()
+
+# Build Speedb shared library as a custom target
+# This runs cmake configure and build during the build phase
+set(SPEEDB_LIB "${SPEEDB_BUILD_DIR}/libspeedb.so")
+add_custom_target(speedb-shared
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${SPEEDB_BUILD_DIR}"
+    COMMAND ${CMAKE_COMMAND}
+        -DCMAKE_BUILD_TYPE=${SPEEDB_BUILD_TYPE}
+        -DWITH_GFLAGS=0
+        -DUSE_ASYNC=1
+        -DPORTABLE=1
+        ${SPEEDB_SOURCE_DIR}
+        WORKING_DIRECTORY ${SPEEDB_BUILD_DIR}
+    COMMAND ${CMAKE_COMMAND} --build . --target speedb-shared -j${NPROC}
+        WORKING_DIRECTORY ${SPEEDB_BUILD_DIR}
+    COMMENT "Building Speedb shared library"
+    BYPRODUCTS "${SPEEDB_LIB}"
+)
+
+set(SPEEDB_LIB_DIR "${SPEEDB_BUILD_DIR}")
+
+message(STATUS "Speedb library will be built at: ${SPEEDB_LIB}")
+
+#----------------------------------------------------------------------------------------------
 # 1. Build RediSearch as static library
 #----------------------------------------------------------------------------------------------
 
@@ -89,6 +135,8 @@ set_target_properties(redisearch-module PROPERTIES
     LINK_FLAGS "${SHARED_LINKER_FLAGS}"
 )
 
+# SPEEDB_LIB and SPEEDB_LIB_DIR are set above when building speedb-shared
+
 # Link the static libraries with selective whole-archive
 # macOS uses -force_load, Linux uses --whole-archive
 if(APPLE)
@@ -96,6 +144,12 @@ if(APPLE)
         -Wl,-force_load,$<TARGET_FILE:redisearch>
         -Wl,-force_load,$<TARGET_FILE:redisearch-disk>
         -Wl,-force_load,$<TARGET_FILE:vecsim_disk>
+        ${SPEEDB_LIB}
+    )
+    # Set rpath for macOS
+    set_target_properties(redisearch-module PROPERTIES
+        INSTALL_RPATH "${SPEEDB_LIB_DIR}"
+        BUILD_WITH_INSTALL_RPATH TRUE
     )
 else()
     target_link_libraries(redisearch-module
@@ -104,8 +158,14 @@ else()
         redisearch-disk     # Disk code static library
         vecsim_disk         # VecSim disk code static library
         -Wl,--no-whole-archive
+        ${SPEEDB_LIB}       # Link libspeedb.so dynamically
+    )
+    # Set rpath for Linux so the library can be found at runtime
+    set_target_properties(redisearch-module PROPERTIES
+        INSTALL_RPATH "${SPEEDB_LIB_DIR}"
+        BUILD_WITH_INSTALL_RPATH TRUE
     )
 endif()
 
-# Ensure dependencies are built first
-add_dependencies(redisearch-module redisearch redisearch-disk vecsim_disk)
+# Ensure dependencies are built first (including speedb-shared)
+add_dependencies(redisearch-module redisearch redisearch-disk vecsim_disk speedb-shared)

@@ -11,7 +11,7 @@
 #include "disk_index_factory.h"
 #include "hnsw_disk_factory.h"
 #include "VecSim/index_factories/factory_utils.h"
-#include "hnsw_disk.h"
+#include "algorithms/hnsw/hnsw_disk.h"
 #include "VecSim/algorithms/brute_force/brute_force.h"
 #include "VecSim/index_factories/brute_force_factory.h"
 #include "algorithms/hnsw/hnsw_disk_tiered.h"

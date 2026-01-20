@@ -8,15 +8,31 @@
  */
 #pragma once
 
-#include "hnsw_disk.h"
-#include "vector_storage.h"
+#include "algorithms/hnsw/hnsw_disk.h"
+#include "storage/hnsw_storage.h"
 #include "VecSim/memory/vecsim_malloc.h"
+#include "rocksdb/db.h"
+#include "rocksdb/options.h"
 #include "factory/disk_index_factory.h"
+#include "vecsim_disk_api.h"
 
 #include <cstring>
 #include <memory>
 #include <string>
-#include <unordered_map>
+#include <filesystem>
+#include <iostream>
+#include <unistd.h>
+
+// C API wrapper structures (from rocksdb/c.cc)
+struct rocksdb_t {
+    rocksdb::DB* rep;
+};
+
+struct rocksdb_column_family_handle_t {
+    rocksdb::ColumnFamilyHandle* rep;
+};
+
+namespace fs = std::filesystem;
 
 namespace test_utils {
 
@@ -29,44 +45,87 @@ struct DiskParamsHolder {
 std::unique_ptr<DiskParamsHolder> createDiskParams(const HNSWParams& hnsw_params);
 
 /**
- * @brief In-memory VectorStore implementation for testing.
+ * @brief RAII wrapper for temporary SpeedB database.
+ *
+ * Creates a temporary database directory and manages the lifecycle of
+ * RocksDB handles for testing.
  */
-class MockStorage : public VectorStore {
+class TempSpeeDB {
 public:
-    bool put(labelType label, const void* data, size_t size) override {
-        data_[label] = std::string(static_cast<const char*>(data), size);
-        return true;
+    TempSpeeDB() {
+        // Create temporary directory for test database
+        db_path_ =
+            fs::temp_directory_path() / ("test_speedb_" + std::to_string(getpid()) + "_" + std::to_string(counter_++));
+
+        // Destroy old database if it exists
+        rocksdb::Options options;
+        rocksdb::Status status = rocksdb::DestroyDB(db_path_, options);
+        // Ignore errors from DestroyDB (database might not exist)
+
+        // Configure options
+        options.create_if_missing = true;
+
+        // Open database with default column family
+        std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
+        column_families.push_back(
+            rocksdb::ColumnFamilyDescriptor(rocksdb::kDefaultColumnFamilyName, rocksdb::ColumnFamilyOptions()));
+
+        std::vector<rocksdb::ColumnFamilyHandle*> handles;
+        status = rocksdb::DB::Open(options, db_path_, column_families, &handles, &db_);
+        if (!status.ok()) {
+            throw std::runtime_error("Failed to open database: " + status.ToString());
+        }
+
+        cf_ = handles[0];
+        std::cout << "[TempSpeeDB] Database created successfully at: " << db_path_ << std::endl;
     }
 
-    bool get(labelType label, void* data, size_t size) const override {
-        auto it = data_.find(label);
-        if (it == data_.end())
-            return false;
-        if (it->second.size() != size)
-            return false;
-        std::memcpy(data, it->second.data(), size);
-        return true;
+    ~TempSpeeDB() {
+        if (cf_) {
+            delete cf_;
+        }
+        if (db_) {
+            delete db_;
+        }
+
+        // Clean up test directory
+        if (!db_path_.empty() && fs::exists(db_path_)) {
+            fs::remove_all(db_path_);
+            std::cout << "[TempSpeeDB] Cleaned up directory: " << db_path_ << std::endl;
+        }
     }
 
-    bool del(labelType label) override { return data_.erase(label) > 0; }
+    rocksdb::DB* db() { return db_; }
+    rocksdb::ColumnFamilyHandle* cf() { return cf_; }
 
-    size_t size() const { return data_.size(); }
+    template <typename DataType = float>
+    std::unique_ptr<HNSWStorage<DataType>> createStorage() {
+        return std::make_unique<HNSWStorage<DataType>>(db_, cf_);
+    }
+
+    // Disable copy
+    TempSpeeDB(const TempSpeeDB&) = delete;
+    TempSpeeDB& operator=(const TempSpeeDB&) = delete;
 
 private:
-    std::unordered_map<labelType, std::string> data_;
+    rocksdb::DB* db_ = nullptr;
+    rocksdb::ColumnFamilyHandle* cf_ = nullptr;
+    std::string db_path_;
+    static inline int counter_ = 0;
 };
 
 /**
- * @brief RAII wrapper for HNSWDiskIndex with MockStorage.
+ * @brief RAII wrapper for HNSWDiskIndex with real SpeedB storage.
  *
  * The index takes ownership of the storage via unique_ptr.
+ * Creates a temporary SpeedB database for each test.
  */
 template <typename DataType = float, typename DistType = float>
 class TestIndex {
 public:
     TestIndex(size_t dim, VecSimMetric metric = VecSimMetric_L2, size_t M = 16, size_t efConstruction = 200,
               size_t efRuntime = 10)
-        : allocator_(VecSimAllocator::newVecsimAllocator()) {
+        : allocator_(VecSimAllocator::newVecsimAllocator()), db_(std::make_unique<TempSpeeDB>()) {
 
         HNSWParams params = {
             .type = VecSimType_FLOAT32,
@@ -84,10 +143,10 @@ public:
         auto abstractInitParams = VecSimDiskFactory::NewAbstractInitParams(&params, nullptr, false);
 
         // Create components
-        auto indexComponents = CreateIndexComponents<float, float>(allocator_, params.metric, params.dim, false);
+        auto indexComponents = CreateIndexComponents<DataType, DistType>(allocator_, params.metric, params.dim, false);
 
-        // Create storage and pass ownership to the index
-        auto storage = std::make_unique<MockStorage>();
+        // Create SpeedB storage and pass ownership to the index
+        auto storage = db_->createStorage<DataType>();
         storagePtr_ = storage.get(); // Keep raw pointer for test access
         index_ = new (allocator_) HNSWDiskIndex<DataType, DistType>(
             &params_disk_holder->params_disk, abstractInitParams, indexComponents, std::move(storage));
@@ -96,11 +155,13 @@ public:
     ~TestIndex() {
         delete index_;
         // storage_ is owned by index_, deleted automatically
+        // db_ is cleaned up by unique_ptr
     }
 
     HNSWDiskIndex<DataType, DistType>* get() { return index_; }
     HNSWDiskIndex<DataType, DistType>* operator->() { return index_; }
-    MockStorage* storage() { return storagePtr_; }
+    HNSWStorage<DataType>* storage() { return storagePtr_; }
+    TempSpeeDB* db() { return db_.get(); }
 
     // Disable copy
     TestIndex(const TestIndex&) = delete;
@@ -108,8 +169,9 @@ public:
 
 private:
     std::shared_ptr<VecSimAllocator> allocator_;
+    std::unique_ptr<TempSpeeDB> db_;
     HNSWDiskIndex<DataType, DistType>* index_;
-    MockStorage* storagePtr_; // Raw pointer for test access (index owns storage)
+    HNSWStorage<DataType>* storagePtr_; // Raw pointer for test access (index owns storage)
 };
 
 inline VecSimParams createParams(const HNSWParams& params) {

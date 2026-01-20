@@ -9,7 +9,6 @@
 
 #include <memory>
 
-#include "vector_storage.h"
 #include "vecsim_disk_api.h"
 #include "factory/disk_index_factory.h"
 

@@ -10,17 +10,13 @@ if(NOT DEFINED RUST_PROFILE)
     set(RUST_PROFILE "release")
 endif()
 
-# Detect sccache for Rust compilation caching
+# Use sccache for Rust if available (detected in root CMakeLists.txt)
 # Note: ccache doesn't work with Rust, only sccache does
-find_program(SCCACHE_PROGRAM sccache)
 if(SCCACHE_PROGRAM AND NOT DEFINED ENV{RUSTC_WRAPPER})
-    message(STATUS "Found sccache for Rust: ${SCCACHE_PROGRAM}")
     set(RUSTC_WRAPPER_ENV "RUSTC_WRAPPER=${SCCACHE_PROGRAM}")
 elseif(DEFINED ENV{RUSTC_WRAPPER})
-    message(STATUS "Using RUSTC_WRAPPER from environment: $ENV{RUSTC_WRAPPER}")
     set(RUSTC_WRAPPER_ENV "RUSTC_WRAPPER=$ENV{RUSTC_WRAPPER}")
 else()
-    message(STATUS "No sccache found for Rust. Consider installing sccache for faster Rust rebuilds.")
     set(RUSTC_WRAPPER_ENV "")
 endif()
 
@@ -40,10 +36,14 @@ add_custom_target(redisearch-disk_build
     COMMENT "Building Rust crate with profile ${RUST_PROFILE}"
 )
 
+# Ensure SpeedB is built before Cargo runs (Rust links against libspeedb.so)
+add_dependencies(redisearch-disk_build speedb-shared)
+
 add_library(redisearch-disk STATIC IMPORTED GLOBAL)
 set_target_properties(redisearch-disk PROPERTIES
     IMPORTED_LOCATION "${RUST_LIB_PATH}"
 )
+
 add_dependencies(redisearch-disk redisearch-disk_build)
 
 message(STATUS "Rust configuration:")
