@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use crate::util::expect_value;
 use value::RsValue;
 
 /// Enumeration of the types an
@@ -28,7 +29,7 @@ pub enum RsValueType {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Type(value: *const RsValue) -> RsValueType {
-    let value = unsafe { value.as_ref() }.expect("value must not be null");
+    let value = unsafe { expect_value(value) };
 
     use RsValueType::*;
 
