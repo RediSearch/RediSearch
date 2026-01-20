@@ -138,11 +138,9 @@ void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* reply) {
   gc->callbacks.renderStats(reply, gc->gcCtx);
 }
 
-#ifdef FTINFO_FOR_INFO_MODULES
 void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx) {
   gc->callbacks.renderStatsForInfo(ctx, gc->gcCtx);
 }
-#endif
 
 void GCContext_OnDelete(GCContext* gc) {
   if (gc->callbacks.onDelete) {
