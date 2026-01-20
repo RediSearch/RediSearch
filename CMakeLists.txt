@@ -269,8 +269,18 @@ set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE) # Forc
 add_subdirectory(deps/libuv)
 
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
+option(USE_RUST_VECSIM "Use Rust VecSim implementation instead of C++" OFF)
 
-add_subdirectory(deps/VectorSimilarity)
+if(USE_RUST_VECSIM)
+    message(STATUS "Using Rust VecSim implementation")
+    add_subdirectory(deps/VectorSimilarity/rust/vecsim-c)
+    # Create an alias to match the C++ target name
+    add_library(VectorSimilarity ALIAS vecsim_c_static)
+    # Add include directories for the Rust vecsim-c headers
+    include_directories(${VECSIM_C_INCLUDE_DIR})
+else()
+    add_subdirectory(deps/VectorSimilarity)
+endif()
 add_subdirectory(src/geometry)
 add_subdirectory(src/buffer)
 add_subdirectory(src/iterators)
@@ -398,7 +408,11 @@ target_link_libraries(redisearch
         ${CMAKE_LD_LIBS})
 
 extract_debug_symbols(redisearch)
-add_dependencies(redisearch VectorSimilarity)
+if(USE_RUST_VECSIM)
+    add_dependencies(redisearch vecsim_c_rust_build)
+else()
+    add_dependencies(redisearch VectorSimilarity)
+endif()
 add_dependencies(redisearch generate_command_info)
 add_dependencies(redisearch uv_a)
 add_dependencies(redisearch redisearch_rs)
