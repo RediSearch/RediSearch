@@ -84,8 +84,7 @@ TEST_F(TrieTest, testBasicRange) {
     auto n = trieInsert(t, buf);
     ASSERT_TRUE(n);
   }
-  const char *number = "i am a number";
-  *((char *)(number + 3)) = 'a';
+
   //TrieNode_Print(t->root, 0, 0);
 
   // Get all numbers within the lexical range of 1 and 1Z
@@ -123,7 +122,6 @@ TEST_F(TrieTest, testBasicRangeWithScore) {
     auto n = trieInsert(t, buf);
     ASSERT_TRUE(n);
   }
-  ASSERT_EQ(1, 0);
 
   //TrieNode_Print(t->root, 0, 0);
 
