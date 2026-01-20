@@ -7,18 +7,134 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::hash::Hasher;
+
 use criterion::{
     black_box, criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion,
     Throughput,
 };
-use hll::{AHasher, FxHasher, Hasher32, Hll, HllHasher, Murmur3Hasher, WyHasher, XxHash32Hasher};
+use hll::{Hll, HllHasher, Murmur3Hasher};
+
+// Benchmark-only hasher wrappers (not used in production)
+
+/// xxHash32 hasher wrapper.
+struct XxHash32Hasher(xxhash_rust::xxh32::Xxh32);
+
+impl Default for XxHash32Hasher {
+    fn default() -> Self {
+        Self(xxhash_rust::xxh32::Xxh32::new(0))
+    }
+}
+
+impl Hasher for XxHash32Hasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        u64::from(self.0.digest())
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        self.0.update(bytes);
+    }
+}
+
+impl hash32::Hasher for XxHash32Hasher {
+    #[inline]
+    fn finish32(&self) -> u32 {
+        self.0.digest()
+    }
+}
+
+/// AHash hasher wrapper (truncated to 32 bits).
+struct AHasher(ahash::AHasher);
+
+impl Default for AHasher {
+    fn default() -> Self {
+        Self(ahash::AHasher::default())
+    }
+}
+
+impl Hasher for AHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0.finish()
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        self.0.write(bytes);
+    }
+}
+
+impl hash32::Hasher for AHasher {
+    #[inline]
+    fn finish32(&self) -> u32 {
+        self.0.finish() as u32
+    }
+}
+
+/// FxHash hasher wrapper (truncated to 32 bits).
+struct FxHasher(fxhash::FxHasher);
+
+impl Default for FxHasher {
+    fn default() -> Self {
+        Self(fxhash::FxHasher::default())
+    }
+}
+
+impl Hasher for FxHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0.finish()
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        self.0.write(bytes);
+    }
+}
+
+impl hash32::Hasher for FxHasher {
+    #[inline]
+    fn finish32(&self) -> u32 {
+        self.0.finish() as u32
+    }
+}
+
+/// WyHash hasher wrapper (truncated to 32 bits).
+struct WyHasher(wyhash::WyHash);
+
+impl Default for WyHasher {
+    fn default() -> Self {
+        Self(wyhash::WyHash::with_seed(0))
+    }
+}
+
+impl Hasher for WyHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0.finish()
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        self.0.write(bytes);
+    }
+}
+
+impl hash32::Hasher for WyHasher {
+    #[inline]
+    fn finish32(&self) -> u32 {
+        self.0.finish() as u32
+    }
+}
 
 const CARDINALITIES: &[u32] = &[100, 1000, 10000, 100000];
 const HASHER_NAMES: &[&str] = &["fnv", "murmur3", "xxhash32", "ahash", "fxhash", "wyhash"];
 
 // Generic benchmark implementations - all logic lives here
 
-fn bench_add_impl<H: Hasher32>(group: &mut BenchmarkGroup<'_, WallTime>, name: &str) {
+fn bench_add_impl<H: hash32::Hasher + Default>(group: &mut BenchmarkGroup<'_, WallTime>, name: &str) {
     group.bench_function(name, |b| {
         let mut hll: Hll<12, 4096, H> = Hll::new();
         let mut i = 0u32;
@@ -29,7 +145,7 @@ fn bench_add_impl<H: Hasher32>(group: &mut BenchmarkGroup<'_, WallTime>, name: &
     });
 }
 
-fn bench_count_impl<H: Hasher32>(group: &mut BenchmarkGroup<'_, WallTime>, name: &str) {
+fn bench_count_impl<H: hash32::Hasher + Default>(group: &mut BenchmarkGroup<'_, WallTime>, name: &str) {
     let mut hll: Hll<12, 4096, H> = Hll::new();
     for i in 0..10000u32 {
         hll.add(&i.to_le_bytes());
@@ -39,7 +155,7 @@ fn bench_count_impl<H: Hasher32>(group: &mut BenchmarkGroup<'_, WallTime>, name:
     });
 }
 
-fn bench_merge_impl<H: Hasher32>(group: &mut BenchmarkGroup<'_, WallTime>, name: &str) {
+fn bench_merge_impl<H: hash32::Hasher + Default>(group: &mut BenchmarkGroup<'_, WallTime>, name: &str) {
     group.bench_function(name, |b| {
         b.iter_batched(
             || {
@@ -57,7 +173,7 @@ fn bench_merge_impl<H: Hasher32>(group: &mut BenchmarkGroup<'_, WallTime>, name:
     });
 }
 
-fn measure_accuracy<H: Hasher32>(n: u32) -> (usize, f64) {
+fn measure_accuracy<H: hash32::Hasher + Default>(n: u32) -> (usize, f64) {
     let mut hll: Hll<12, 4096, H> = Hll::new();
     for i in 0..n {
         hll.add(&i.to_le_bytes());

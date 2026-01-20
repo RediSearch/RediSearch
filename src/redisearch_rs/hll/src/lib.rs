@@ -13,7 +13,7 @@
 //! (number of distinct elements) of a multiset. This implementation provides:
 //!
 //! - Compile-time validation of parameters via const generics
-//! - Pluggable hash functions via the [`Hasher32`] trait
+//! - Pluggable hash functions via the [`hash32::Hasher`] trait
 //! - Optimal memory layout using `Box<[u8; SIZE]>`
 //!
 //! # Example
@@ -38,18 +38,6 @@ use std::marker::PhantomData;
 
 use thiserror::Error;
 
-/// A 32-bit hasher trait for HyperLogLog.
-///
-/// This trait is similar to [`std::hash::Hasher`] but returns a 32-bit hash
-/// value, which is what HyperLogLog requires.
-pub trait Hasher32: Default {
-    /// Returns the 32-bit hash value.
-    fn finish32(&self) -> u32;
-
-    /// Writes bytes into the hasher.
-    fn write(&mut self, bytes: &[u8]);
-}
-
 /// The default HLL seed used for compatibility with the C implementation.
 const HLL_SEED: u32 = 0x5f61767a;
 
@@ -65,133 +53,30 @@ impl Default for HllHasher {
     }
 }
 
-impl Hasher32 for HllHasher {
+impl Hasher for HllHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0.finish()
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        self.0.write(bytes);
+    }
+}
+
+impl hash32::Hasher for HllHasher {
     #[inline]
     fn finish32(&self) -> u32 {
         self.0.finish() as u32
     }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        Hasher::write(&mut self.0, bytes);
-    }
 }
 
-/// Murmur3 hasher wrapper for better hash distribution.
+/// Murmur3 hasher with good hash distribution.
 ///
 /// This hasher provides better avalanche properties than FNV-1a,
 /// especially for sequential or structured data like integers.
-pub struct Murmur3Hasher(hash32::Murmur3Hasher);
-
-impl Default for Murmur3Hasher {
-    fn default() -> Self {
-        Self(hash32::Murmur3Hasher::default())
-    }
-}
-
-impl Hasher32 for Murmur3Hasher {
-    #[inline]
-    fn finish32(&self) -> u32 {
-        <hash32::Murmur3Hasher as hash32::Hasher>::finish32(&self.0)
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        <hash32::Murmur3Hasher as Hasher>::write(&mut self.0, bytes);
-    }
-}
-
-/// xxHash32 hasher wrapper.
-///
-/// xxHash is an extremely fast non-cryptographic hash algorithm.
-pub struct XxHash32Hasher(xxhash_rust::xxh32::Xxh32);
-
-impl Default for XxHash32Hasher {
-    fn default() -> Self {
-        Self(xxhash_rust::xxh32::Xxh32::new(0))
-    }
-}
-
-impl Hasher32 for XxHash32Hasher {
-    #[inline]
-    fn finish32(&self) -> u32 {
-        self.0.digest()
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        self.0.update(bytes);
-    }
-}
-
-/// AHash hasher wrapper (truncated to 32 bits).
-///
-/// AHash is the default hasher for hashbrown/HashMap, optimized for speed.
-pub struct AHasher(ahash::AHasher);
-
-impl Default for AHasher {
-    fn default() -> Self {
-        Self(ahash::AHasher::default())
-    }
-}
-
-impl Hasher32 for AHasher {
-    #[inline]
-    fn finish32(&self) -> u32 {
-        Hasher::finish(&self.0) as u32
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        Hasher::write(&mut self.0, bytes);
-    }
-}
-
-/// FxHash hasher wrapper (truncated to 32 bits).
-///
-/// FxHash is the hasher used by the Rust compiler, optimized for small keys.
-pub struct FxHasher(fxhash::FxHasher);
-
-impl Default for FxHasher {
-    fn default() -> Self {
-        Self(fxhash::FxHasher::default())
-    }
-}
-
-impl Hasher32 for FxHasher {
-    #[inline]
-    fn finish32(&self) -> u32 {
-        Hasher::finish(&self.0) as u32
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        Hasher::write(&mut self.0, bytes);
-    }
-}
-
-/// WyHash hasher wrapper (truncated to 32 bits).
-///
-/// WyHash is an extremely fast hash function with good distribution.
-pub struct WyHasher(wyhash::WyHash);
-
-impl Default for WyHasher {
-    fn default() -> Self {
-        Self(wyhash::WyHash::with_seed(0))
-    }
-}
-
-impl Hasher32 for WyHasher {
-    #[inline]
-    fn finish32(&self) -> u32 {
-        Hasher::finish(&self.0) as u32
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        Hasher::write(&mut self.0, bytes);
-    }
-}
+pub type Murmur3Hasher = hash32::Murmur3Hasher;
 
 /// Errors that can occur when creating an HLL from a slice.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -213,7 +98,7 @@ pub enum HllError {
 /// - `BITS`: The number of bits used for register indexing (4..=20).
 ///   Higher values give more accuracy but use more memory.
 /// - `SIZE`: The number of registers, must equal `1 << BITS`.
-/// - `H`: The hasher type implementing [`Hasher32`].
+/// - `H`: The hasher type implementing [`hash32::Hasher`].
 ///
 /// # Why Two Const Parameters?
 ///
@@ -222,7 +107,7 @@ pub enum HllError {
 /// (the `generic_const_exprs` feature). This means we cannot write:
 ///
 /// ```ignore
-/// pub struct Hll<const BITS: u8, H: Hasher32 = HllHasher> {
+/// pub struct Hll<const BITS: u8, H: hash32::Hasher = HllHasher> {
 ///     registers: Box<[u8; 1 << BITS]>,  // ERROR: not allowed on stable
 /// }
 /// ```
@@ -242,13 +127,13 @@ pub enum HllError {
 /// - `BITS=12`: ~1.6% error
 /// - `BITS=14`: ~0.8% error
 /// - `BITS=16`: ~0.4% error
-pub struct Hll<const BITS: u8, const SIZE: usize, H: Hasher32 = HllHasher> {
+pub struct Hll<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default = HllHasher> {
     cached_card: Cell<Option<usize>>,
     registers: Box<[u8; SIZE]>,
     _hasher: PhantomData<H>,
 }
 
-impl<const BITS: u8, const SIZE: usize, H: Hasher32> Hll<BITS, SIZE, H> {
+impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Hll<BITS, SIZE, H> {
     /// Compile-time assertion that BITS is in the valid range.
     const _BITS_RANGE_CHECK: () = assert!(BITS >= 4 && BITS <= 20, "BITS must be in 4..=20");
 
@@ -424,13 +309,13 @@ impl<const BITS: u8, const SIZE: usize, H: Hasher32> Hll<BITS, SIZE, H> {
     }
 }
 
-impl<const BITS: u8, const SIZE: usize, H: Hasher32> Default for Hll<BITS, SIZE, H> {
+impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Default for Hll<BITS, SIZE, H> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<const BITS: u8, const SIZE: usize, H: Hasher32> Clone for Hll<BITS, SIZE, H> {
+impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Clone for Hll<BITS, SIZE, H> {
     fn clone(&self) -> Self {
         Self {
             cached_card: self.cached_card.clone(),
@@ -440,7 +325,9 @@ impl<const BITS: u8, const SIZE: usize, H: Hasher32> Clone for Hll<BITS, SIZE, H
     }
 }
 
-impl<const BITS: u8, const SIZE: usize, H: Hasher32> std::fmt::Debug for Hll<BITS, SIZE, H> {
+impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> std::fmt::Debug
+    for Hll<BITS, SIZE, H>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Hll")
             .field("bits", &BITS)

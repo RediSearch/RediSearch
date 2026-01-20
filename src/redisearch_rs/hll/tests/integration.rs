@@ -12,7 +12,9 @@
 //! These tests use only the public API and verify the behavior
 //! of the HyperLogLog implementation from an external perspective.
 
-use hll::{Hasher32, Hll, Hll12, Hll16, Hll4, Hll8, HllError, HllHasher, Murmur3Hasher};
+use std::hash::Hasher;
+
+use hll::{Hll, Hll12, Hll16, Hll4, Hll8, HllError, HllHasher, Murmur3Hasher};
 
 /// Concrete type alias for testing to avoid inference issues with multiple Hasher32 impls.
 type TestHll12 = Hll<12, 4096, HllHasher>;
@@ -105,7 +107,7 @@ fn test_hash_distribution() {
     for (data, name) in test_cases {
         let mut hasher = HllHasher::default();
         hasher.write(data);
-        let hash = hasher.finish32();
+        let hash = hash32::Hasher::finish32(&hasher);
         let index = hash >> 20;
         let trailing = hash.trailing_zeros();
         eprintln!("{name}: hash={hash:#010x}, index={index}, trailing_zeros={trailing}");
@@ -114,11 +116,11 @@ fn test_hash_distribution() {
     // Check that different inputs produce different hashes
     let mut hasher1 = HllHasher::default();
     hasher1.write(b"test1");
-    let hash1 = hasher1.finish32();
+    let hash1 = hash32::Hasher::finish32(&hasher1);
 
     let mut hasher2 = HllHasher::default();
     hasher2.write(b"test2");
-    let hash2 = hasher2.finish32();
+    let hash2 = hash32::Hasher::finish32(&hasher2);
 
     assert_ne!(hash1, hash2, "different inputs should produce different hashes");
 }
@@ -268,15 +270,21 @@ fn test_murmur3_accuracy() {
 #[derive(Default)]
 struct CustomTestHasher(u32);
 
-impl Hasher32 for CustomTestHasher {
-    fn finish32(&self) -> u32 {
-        self.0
+impl Hasher for CustomTestHasher {
+    fn finish(&self) -> u64 {
+        self.0 as u64
     }
 
     fn write(&mut self, bytes: &[u8]) {
         for &b in bytes {
             self.0 = self.0.wrapping_add(b as u32);
         }
+    }
+}
+
+impl hash32::Hasher for CustomTestHasher {
+    fn finish32(&self) -> u32 {
+        self.0
     }
 }
 

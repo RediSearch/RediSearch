@@ -10,17 +10,17 @@ workspace = true
 
 [dependencies]
 fnv = { workspace = true }
-hash32 = "0.3"
+hash32 = "1"
 thiserror = { workspace = true }
 workspace_hack.workspace = true
-xxhash-rust = { version = "0.8", features = ["xxh32"] }
-ahash = "0.8"
-fxhash = "0.2"
-wyhash = "0.5"
 
 [dev-dependencies]
+ahash = "0.8"
 criterion.workspace = true
+fxhash = "0.2"
 proptest = { workspace = true, features = ["std"] }
+wyhash = "0.5"
+xxhash-rust = { version = "0.8", features = ["xxh32"] }
 
 [[bench]]
 name = "hll_operations"

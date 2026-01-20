@@ -618,6 +618,7 @@ dependencies = [
 name = "fnv"
 version = "0.0.1"
 dependencies = [
+ "hash32",
  "workspace_hack",
 ]
 
@@ -695,12 +696,9 @@ dependencies = [
 
 [[package]]
 name = "hash32"
-version = "0.3.1"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47d60b12902ba28e2730cd37e95b8c9223af2808df9e902d4df49588d1470606"
-dependencies = [
- "byteorder",
-]
+checksum = "8e4e11d13d42fc8d55326b323c63978c75721fbbb695a6e6686765bcb8b33917"
 
 [[package]]
 name = "hashbrown"
