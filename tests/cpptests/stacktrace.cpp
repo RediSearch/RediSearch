@@ -33,6 +33,9 @@ void CrashSignalHandler(int sig, siginfo_t *info, void *ucontext) {
   (void)info;
   (void)ucontext;
 
+  // this headeer is detected by decode_stacktrace.sh to extract the stack trace,
+  // and task-test.yml to identidy files with stack traces.
+  // Keep them in sync.
   const char header[] =
       "=== Caught fatal signal in C++ test, stack trace ===\n";
   WriteIgnore(STDERR_FILENO, header, sizeof(header) - 1);
