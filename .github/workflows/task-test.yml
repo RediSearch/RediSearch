@@ -273,6 +273,21 @@ jobs:
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
 
+      - name: Decode C++ crash stack traces
+        if: failure() || steps.c_unit_tests.outcome == 'failure'
+        run: |
+          chmod +x tests/cpptests/scripts/decode_stacktrace.sh 2>/dev/null || true
+          if [[ -x tests/cpptests/scripts/decode_stacktrace.sh ]]; then
+            # Find all log files containing stack trace markers and decode them separately
+            # Processing each file separately avoids test name cross-contamination between binaries
+            find tests -name "*.log" -exec grep -l "=== Caught fatal signal in C++ test" {} \; 2>/dev/null | \
+              while read -r logfile; do
+                tests/cpptests/scripts/decode_stacktrace.sh "$logfile" || true
+              done
+          else
+            echo "Decode script not found or not executable"
+          fi
+
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
