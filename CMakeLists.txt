@@ -251,7 +251,7 @@ include_directories(
     ${root}/deps/libuv/include
     ${root}/deps
     ${root}/deps/RedisModulesSDK
-    ${root}/deps/VectorSimilarity/src
+    ${root}/deps/VectorSimilarity/rust/vecsim-c/include
     ${root}/src/ttl_table
     ${BOOST_DIR}
     ${root})
