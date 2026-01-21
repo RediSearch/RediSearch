@@ -47,10 +47,6 @@ fn is_cfg_test(attrs: &[syn::Attribute]) -> bool {
 
 impl<'ast> Visit<'ast> for UnsafeVisitor {
     fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
-        // Skip #[test] functions
-        if node.attrs.iter().any(|a| a.path().is_ident("test")) {
-            return;
-        }
         // Skip #[cfg(test)] functions
         if is_cfg_test(&node.attrs) {
             return;
@@ -71,6 +67,9 @@ impl<'ast> Visit<'ast> for UnsafeVisitor {
     }
 
     fn visit_impl_item_fn(&mut self, node: &'ast syn::ImplItemFn) {
+        if is_cfg_test(&node.attrs) {
+            return;
+        }
         if node.sig.unsafety.is_some() {
             self.unsafe_fns += 1;
         }
@@ -78,6 +77,9 @@ impl<'ast> Visit<'ast> for UnsafeVisitor {
     }
 
     fn visit_trait_item_fn(&mut self, node: &'ast syn::TraitItemFn) {
+        if is_cfg_test(&node.attrs) {
+            return;
+        }
         if node.sig.unsafety.is_some() {
             self.unsafe_fns += 1;
         }
@@ -101,6 +103,9 @@ impl<'ast> Visit<'ast> for UnsafeVisitor {
     }
 
     fn visit_item_trait(&mut self, node: &'ast syn::ItemTrait) {
+        if is_cfg_test(&node.attrs) {
+            return;
+        }
         if node.unsafety.is_some() {
             self.unsafe_traits += 1;
         }
