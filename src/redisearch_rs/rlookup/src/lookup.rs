@@ -476,10 +476,10 @@ fn create_key_from_data<'a>(
     }
 }
 
-fn load_many_keys(
-    lookup: &mut RLookup,
+fn load_many_keys<'a>(
+    lookup: &mut RLookup<'a>,
     module_ctx: &mut ffi::RedisModuleCtx,
-    dst_row: &mut RLookupRow<value::RSValueFFI>,
+    dst_row: &mut RLookupRow<'a, value::RSValueFFI>,
     index_spec: &IndexSpec,
     key: &CStr,
     keys: Vec<Pin<&mut RLookupKey>>,
