@@ -134,6 +134,67 @@ impl CrateStats {
     }
 }
 
+/// Count lines of code, excluding comments and blank lines
+fn count_code_lines(content: &str) -> u64 {
+    let mut lines = 0u64;
+    let mut in_block_comment = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        // Handle block comments
+        if in_block_comment {
+            if let Some(pos) = trimmed.find("*/") {
+                // Block comment ends on this line
+                in_block_comment = false;
+                // Check if there's code after the block comment
+                let after = trimmed[pos + 2..].trim();
+                if !after.is_empty() && !after.starts_with("//") {
+                    lines += 1;
+                }
+            }
+            continue;
+        }
+
+        // Skip empty lines
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // Skip line comments (// and /// and //!)
+        if trimmed.starts_with("//") {
+            continue;
+        }
+
+        // Check for block comment start
+        if let Some(pos) = trimmed.find("/*") {
+            // Check if it's a single-line block comment
+            if let Some(end_pos) = trimmed[pos + 2..].find("*/") {
+                // Single-line block comment - check if there's code around it
+                let before = trimmed[..pos].trim();
+                let after = trimmed[pos + 2 + end_pos + 2..].trim();
+                if !before.is_empty() || !after.is_empty() {
+                    lines += 1;
+                }
+            } else {
+                // Multi-line block comment starts
+                in_block_comment = true;
+                // Check if there's code before the comment
+                let before = trimmed[..pos].trim();
+                if !before.is_empty() {
+                    lines += 1;
+                }
+            }
+            continue;
+        }
+
+        // Regular code line
+        lines += 1;
+    }
+
+    lines
+}
+
 fn main() -> Result<()> {
     let manifest_path = std::env::args()
         .nth(1)
@@ -292,8 +353,8 @@ fn analyze_directory(dir: &Path) -> (u64, UnsafeVisitor) {
     {
         let path = entry.path();
         if let Ok(content) = std::fs::read_to_string(path) {
-            // Count non-empty lines
-            total_lines += content.lines().filter(|l| !l.trim().is_empty()).count() as u64;
+            // Count non-empty, non-comment lines
+            total_lines += count_code_lines(&content);
 
             // Parse and visit
             match syn::parse_file(&content) {
