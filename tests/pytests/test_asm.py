@@ -377,7 +377,7 @@ def wait_for_migration_complete(env, dest_shard, source_shard, timeout=200, quer
                 try:
                     if query_during_migration:
                         # Pattern with queries during migration
-                        while not is_migration_complete(dest_shard, task_id):
+                        while not is_migration_complete(dest_shard, task_id) or not is_migration_complete(source_shard, task_id):
                             env.debugPrint("Querying shards while migration is in progress")
                             query_shards(env, query_during_migration['query'],
                                        query_during_migration['shards'],
