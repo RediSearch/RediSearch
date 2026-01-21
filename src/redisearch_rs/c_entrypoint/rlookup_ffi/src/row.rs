@@ -30,7 +30,7 @@ pub type RLookupRow<'a> = rlookup::RLookupRow<'a, RSValueFFI>;
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookup_WriteKey(
+pub unsafe extern "C" fn RLookup_WriteKey(
     key: *const RLookupKey,
     row: Option<NonNull<RLookupRow>>,
     value: Option<NonNull<ffi::RSValue>>,
@@ -59,7 +59,7 @@ unsafe extern "C" fn RLookup_WriteKey(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookup_WriteOwnKey(
+pub unsafe extern "C" fn RLookup_WriteOwnKey(
     key: *const RLookupKey,
     row: Option<NonNull<RLookupRow>>,
     value: Option<NonNull<ffi::RSValue>>,
@@ -82,7 +82,7 @@ unsafe extern "C" fn RLookup_WriteOwnKey(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Wipe(row: Option<NonNull<RLookupRow>>) {
+pub unsafe extern "C" fn RLookupRow_Wipe(row: Option<NonNull<RLookupRow>>) {
     // Safety: ensured by caller (1.)
     let row = unsafe { row.expect("`row` must not be null").as_mut() };
     row.wipe();
@@ -98,7 +98,7 @@ unsafe extern "C" fn RLookupRow_Wipe(row: Option<NonNull<RLookupRow>>) {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<RLookupRow>>) {
+pub unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<RLookupRow>>) {
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
     let vec = unsafe { row.expect("`row` must not be null").as_mut() };
     vec.reset_dyn_values();

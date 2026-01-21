@@ -96,33 +96,29 @@ pub fn run_cbinden(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-/// Links static libraries
+/// Link all the relevant C dependencies to allow Rust (testing and benchmarking) code to invoke
+/// RediSearch C symbols.
 ///
-/// This function configures the linker to include static libraries built by the main
-/// RediSearch build system.
-/// It's meant to be called from the `build.rs` script using `bindgen` to generate Rust bindings.
-///
-/// # Arguments
-/// * `libs` - A slice of tuples where each tuple contains:
-///   - Library subdirectory path relative to the build output directory
-///   - Library name (without lib prefix and .a suffix)
-///
-/// # Panics
-/// Panics if any required static library is not found in the expected location.
-pub fn link_static_libraries(libs: &[(&str, &str)]) {
+/// This links a single combined static library (`libredisearch_all.a`) that bundles
+/// all C code and dependencies together. The combined library is created by CMake
+/// during the build process.
+pub fn bind_foreign_c_symbols() {
+    force_link_time_symbol_resolution();
+    link_redisearch_all();
+    link_c_plusplus();
+}
+
+/// Require all symbols to be resolved at link time.
+fn force_link_time_symbol_resolution() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
-
-    // There may be several symbols exposed by the static library that we are trying to link
-    // that we don't actually invoke (either directly or indirectly) in our benchmarks.
-    // We will provide a definition for the ones we need (e.g. Redis' allocation functions),
-    // but we don't want to be forced to add dummy definitions for the ones we don't rely on.
-    // We prefer to fail at runtime if we try to use a symbol that's undefined.
     if target_os == "macos" {
-        println!("cargo::rustc-link-arg=-Wl,-undefined,dynamic_lookup");
+        println!("cargo::rustc-link-arg=-Wl,-undefined,error");
     } else {
-        println!("cargo::rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
+        println!("cargo::rustc-link-arg=-Wl,--unresolved-symbols=report-all");
     }
+}
 
+fn link_redisearch_all() {
     let bin_root = if let Ok(bin_root) = std::env::var("BINDIR") {
         // The directory changes depending on a variety of factors: target architecture, target OS,
         // optimization level, coverage, etc.
@@ -138,14 +134,30 @@ pub fn link_static_libraries(libs: &[(&str, &str)]) {
             Some("x86_64") | None => "x64".to_owned(),
             Some(a) => a.to_owned(),
         };
+        let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
         root.join(format!(
             "bin/{target_os}-{target_arch}-release/search-community/"
         ))
     };
 
-    for &(lib_subdir, lib_name) in libs {
-        link_static_lib(&bin_root, lib_subdir, lib_name).unwrap();
-    }
+    link_static_lib(&bin_root, "src", "redisearch_all").unwrap();
+}
+
+/// Link the C++ standard library using the platform's default.
+///
+/// This is needed for VectorSimilarity and other C++ code that RediSearch depends on.
+/// We compile a dummy C++ file which causes cc to emit the appropriate link flags,
+/// using the same approach as the `link-c-plusplus` crate.
+fn link_c_plusplus() {
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
+    let dummy_path = std::path::Path::new(&out_dir).join("dummy.cc");
+    // Define a symbol to avoid "empty archive" warnings from ranlib
+    std::fs::write(&dummy_path, "void __link_cplusplus_dummy() {}\n")
+        .expect("Failed to write dummy C++ file");
+    cc::Build::new()
+        .cpp(true)
+        .file(&dummy_path)
+        .compile("link-cplusplus");
 }
 
 fn link_static_lib(

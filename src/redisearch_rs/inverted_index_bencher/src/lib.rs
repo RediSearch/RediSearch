@@ -15,7 +15,7 @@
 
 pub mod benchers;
 
-redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]

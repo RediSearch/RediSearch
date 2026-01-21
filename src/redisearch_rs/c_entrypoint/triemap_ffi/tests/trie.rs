@@ -7,11 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 use libc::size_t;
-use redis_mock::bind_redis_alloc_symbols_to_mock_impl;
+use redis_mock::mock_or_stub_missing_redis_c_symbols;
 use std::ffi::{c_char, c_int, c_void};
 use triemap_ffi::*;
 
-bind_redis_alloc_symbols_to_mock_impl!();
+mock_or_stub_missing_redis_c_symbols!();
 
 macro_rules! assert_entries {
     ($pattern:literal, $mode:expr, $expected:expr $(,)?) => {

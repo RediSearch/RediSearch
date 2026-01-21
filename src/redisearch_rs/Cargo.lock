@@ -184,6 +184,7 @@ version = "0.0.1"
 dependencies = [
  "bindgen 0.72.1",
  "cbindgen",
+ "cc",
  "workspace_hack",
 ]
 
@@ -1494,18 +1495,23 @@ name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
  "buffer",
+ "build_utils",
  "fnv_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
  "module_init_ffi",
  "query_error_ffi",
+ "quote 1.0.43",
  "redis-module",
  "result_processor_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
+ "syn 2.0.114",
+ "toml",
  "triemap_ffi",
  "types_ffi",
  "varint_ffi",
+ "walkdir",
  "workspace_hack",
 ]
 
@@ -1635,6 +1641,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "redis_mock",
+ "redisearch_rs",
  "rqe_iterators",
  "thiserror",
  "types_ffi",
@@ -1658,11 +1665,8 @@ dependencies = [
  "itertools 0.14.0",
  "rand",
  "redis_mock",
+ "redisearch_rs",
  "rqe_iterators",
- "triemap_ffi",
- "types_ffi",
- "value_ffi",
- "varint_ffi",
  "workspace_hack",
 ]
 
@@ -2685,6 +2689,7 @@ dependencies = [
  "syn 1.0.109",
  "syn 2.0.114",
  "thiserror",
+ "toml",
  "tracing-core",
  "zerocopy",
 ]
@@ -2807,6 +2812,6 @@ dependencies = [
 
 [[package]]
 name = "zmij"
-version = "1.0.15"
+version = "1.0.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94f63c051f4fe3c1509da62131a678643c5b6fbdc9273b2b79d4378ebda003d2"
+checksum = "dfcd145825aace48cff44a8844de64bf75feec3080e0aa5cdbde72961ae51a65"
