@@ -542,6 +542,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
 }
 
 static FGCError FGC_parentHandleTerms(ForkGC *gc) {
+  //TODO: Does it run on SearchDisk (is it properly handled?)
   FGCError status = FGC_COLLECTED;
   size_t len;
   char *term = NULL;

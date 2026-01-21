@@ -101,12 +101,11 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   size_t prevNumTerms = spec->stats.scoringStats.numTerms;
 
   while (entry != NULL) {
-    bool isNew;
     if (spec->diskSpec) {
+      IndexSpec_AddTerm(spec, entry->term, entry->len);
       SearchDisk_IndexDocument(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask);
-      // assume all terms are new, avoid the disk io to check
-      isNew = true;
     } else {
+      bool isNew;
       InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
       if (isNew && strlen(entry->term) != 0) {
         IndexSpec_AddTerm(spec, entry->term, entry->len);
@@ -133,7 +132,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoringStats.numTerms - prevNumTerms);
 }
 
-/** Assigns a document ID to a single document. */
+/** Assigns a document ID to a single document. Handles only RAM index */
 static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx *aCtx, IndexSpec *spec,
                                           int replace, QueryError *status) {
   DocTable *table = &spec->docs;
@@ -216,38 +215,37 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       } else {
         cur->stateFlags |= ACTX_F_ERRORED;
       }
-      continue;
-    }
+    } else {
+      RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
+      RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,
+                                              cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
+      if (!md) {
+        cur->stateFlags |= ACTX_F_ERRORED;
+        continue;
+      }
 
-    RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
-    RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,
-                                            cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
-    if (!md) {
-      cur->stateFlags |= ACTX_F_ERRORED;
-      continue;
-    }
+      md->maxTermFreq = cur->fwIdx->maxTermFreq;
+      md->docLen = cur->fwIdx->totalFreq;
+      spec->stats.scoringStats.totalDocsLen += md->docLen;
 
-    md->maxTermFreq = cur->fwIdx->maxTermFreq;
-    md->docLen = cur->fwIdx->totalFreq;
-    spec->stats.scoringStats.totalDocsLen += md->docLen;
+      if (cur->sv) {
+        DocTable_SetSortingVector(&spec->docs, md, cur->sv);
+        cur->sv = NULL;
+      }
 
-    if (cur->sv) {
-      DocTable_SetSortingVector(&spec->docs, md, cur->sv);
-      cur->sv = NULL;
+      if (cur->byteOffsets) {
+        ByteOffsetWriter_Move(&cur->offsetsWriter, cur->byteOffsets);
+        DocTable_SetByteOffsets(md, cur->byteOffsets);
+        cur->byteOffsets = NULL;
+      }
+      Document* doc = cur->doc;
+      const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || doc->fieldExpirations;
+      if (hasExpiration) {
+        md->flags |= Document_HasExpiration;
+        DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime, doc->fieldExpirations);
+      }
+      DMD_Return(md);
     }
-
-    if (cur->byteOffsets) {
-      ByteOffsetWriter_Move(&cur->offsetsWriter, cur->byteOffsets);
-      DocTable_SetByteOffsets(md, cur->byteOffsets);
-      cur->byteOffsets = NULL;
-    }
-    Document* doc = cur->doc;
-    const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || doc->fieldExpirations;
-    if (hasExpiration) {
-      md->flags |= Document_HasExpiration;
-      DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime, doc->fieldExpirations);
-    }
-    DMD_Return(md);
   }
 }
 

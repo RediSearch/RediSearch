@@ -260,6 +260,7 @@ void RediSearch_FreeDocument(RSDoc* doc) {
 }
 
 int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
+  // TODO: Should this handle disk?
   RWLOCK_ACQUIRE_WRITE();
   IndexSpec* sp = __RefManager_Get_Object(rm);
   int rc = REDISMODULE_OK;
