@@ -7,8 +7,6 @@
  * which parses the addresses and calls addr2line.
  */
 
-#include "common.h"
-
 // execinfo.h (backtrace) is a glibc extension, not available on musl (Alpine)
 #if defined(__APPLE__) || (defined(__unix__) && defined(__GLIBC__))
 
