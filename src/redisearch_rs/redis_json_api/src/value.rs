@@ -20,6 +20,8 @@ use std::ffi::c_void;
 use std::ptr::NonNull;
 
 /// The type of a JSON value.
+///
+/// Keep in sync with the C enum `JSONType` in `rejson_api.h`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum JsonType {
     /// A JSON string.
