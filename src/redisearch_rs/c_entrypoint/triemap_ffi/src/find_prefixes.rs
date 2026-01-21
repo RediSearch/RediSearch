@@ -8,9 +8,9 @@
 */
 
 use super::{TrieMap, tm_len_t};
-use low_memory_thin_vec::LowMemoryThinVec;
 use std::ffi::c_char;
 use std::ffi::c_void;
+use thin_vec::SmallThinVec;
 
 /// Find nodes that have a given prefix. Results are placed in an array.
 /// The `results` buffer is initialized by this function using the Redis allocator
@@ -50,12 +50,12 @@ pub unsafe extern "C" fn TrieMap_FindPrefixes(
     };
 
     let iter = trie.prefixes_iter(prefix).copied();
-    TrieMapResultBuf(LowMemoryThinVec::from_iter(iter))
+    TrieMapResultBuf(SmallThinVec::from_iter(iter))
 }
 
 /// Opaque type TrieMapResultBuf. Holds the results of [`TrieMap_FindPrefixes`].
 #[repr(transparent)]
-pub struct TrieMapResultBuf(pub LowMemoryThinVec<*mut c_void>);
+pub struct TrieMapResultBuf(pub SmallThinVec<*mut c_void>);
 
 /// Free the [`TrieMapResultBuf`] and its contents.
 #[unsafe(no_mangle)]

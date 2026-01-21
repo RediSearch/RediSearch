@@ -12,7 +12,7 @@
 //! Dense = child covers the full range (all real results, weight applied)
 //! Sparse = no child (all virtual results)
 
-use std::time::Duration;
+use std::{hint::black_box, time::Duration};
 
 use ::ffi::t_docId;
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
@@ -64,7 +64,7 @@ impl Bencher {
                 },
                 |it| {
                     while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                     it.free();
                 },
@@ -81,9 +81,9 @@ impl Bencher {
                 |it| {
                     while let Ok(Some(current)) = it.read() {
                         // touch fields to avoid elision
-                        criterion::black_box(current.doc_id);
-                        criterion::black_box(current.weight);
-                        criterion::black_box(current.freq);
+                        black_box(current.doc_id);
+                        black_box(current.weight);
+                        black_box(current.freq);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -101,7 +101,7 @@ impl Bencher {
                 || ffi::QueryIterator::new_optional_virtual_only(Self::LARGE_MAX, Self::WEIGHT),
                 |it| {
                     while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                     it.free();
                 },
@@ -114,9 +114,9 @@ impl Bencher {
                 || Optional::new(Self::LARGE_MAX, Self::WEIGHT, Empty),
                 |it| {
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current.doc_id);
-                        criterion::black_box(current.weight);
-                        criterion::black_box(current.freq);
+                        black_box(current.doc_id);
+                        black_box(current.weight);
+                        black_box(current.freq);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -141,7 +141,7 @@ impl Bencher {
                 |it| {
                     while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF
                     {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                     it.free();
                 },
@@ -161,9 +161,9 @@ impl Bencher {
                         match outcome {
                             rqe_iterators::SkipToOutcome::Found(r)
                             | rqe_iterators::SkipToOutcome::NotFound(r) => {
-                                criterion::black_box(r.doc_id);
-                                criterion::black_box(r.weight);
-                                criterion::black_box(r.freq);
+                                black_box(r.doc_id);
+                                black_box(r.weight);
+                                black_box(r.freq);
                             }
                         }
                     }
@@ -185,7 +185,7 @@ impl Bencher {
                 |it| {
                     while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF
                     {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                     it.free();
                 },
@@ -202,9 +202,9 @@ impl Bencher {
                         match outcome {
                             rqe_iterators::SkipToOutcome::Found(r)
                             | rqe_iterators::SkipToOutcome::NotFound(r) => {
-                                criterion::black_box(r.doc_id);
-                                criterion::black_box(r.weight);
-                                criterion::black_box(r.freq);
+                                black_box(r.doc_id);
+                                black_box(r.weight);
+                                black_box(r.freq);
                             }
                         }
                     }
@@ -234,9 +234,9 @@ impl Bencher {
                     |mut it| {
                         // measurement, full scan
                         while let Ok(Some(current)) = it.read() {
-                            criterion::black_box(current.doc_id);
-                            criterion::black_box(current.weight);
-                            criterion::black_box(current.freq);
+                            black_box(current.doc_id);
+                            black_box(current.weight);
+                            black_box(current.freq);
                         }
                     },
                     criterion::BatchSize::SmallInput,
@@ -248,7 +248,7 @@ impl Bencher {
                     || Self::make_c_optional_with_id_list(child_ratio_f),
                     |it| {
                         while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                            criterion::black_box(it.current());
+                            black_box(it.current());
                         }
                         it.free();
                     },
@@ -294,14 +294,14 @@ impl Bencher {
         (out, n as u64)
     }
 
-    fn make_c_optional_with_id_list<'index>(child_ratio: f64) -> ffi::QueryIterator {
+    fn make_c_optional_with_id_list(child_ratio: f64) -> ffi::QueryIterator {
         let (child_doc_ids_array, ids_len) = unsafe { Self::make_c_child_doc_ids(child_ratio) };
 
         // SAFETY: our wrapper ensures to free the child doc ids array
         let child = unsafe {
             iterators_ffi::id_list::NewSortedIdListIterator(
                 child_doc_ids_array,
-                ids_len as u64,
+                ids_len,
                 Self::WEIGHT,
             ) as *mut ffi::QueryIterator
         };

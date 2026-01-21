@@ -260,7 +260,7 @@ typedef struct AREQ {
   /** Time when command was received on coordinator in ns (for dispatch time tracking) */
   rs_wall_clock_ns_t coordStartTime;
 
-  /** Dispatch time from coordinator to shard in ns (for timeout adjustment) */
+  /** Dispatch time from coordinator to shard in ns (for timeout adjustment) for internal commands */
   rs_wall_clock_ns_t coordDispatchTime;
 
   /** Cursor configuration */

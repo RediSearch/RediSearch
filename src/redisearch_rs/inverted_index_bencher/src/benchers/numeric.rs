@@ -7,11 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{collections::HashMap, io::Cursor};
+use std::{collections::HashMap, hint::black_box, io::Cursor};
 
-use criterion::{
-    BatchSize, BenchmarkGroup, BenchmarkId, Criterion, black_box, measurement::Measurement,
-};
+use criterion::{BatchSize, BenchmarkGroup, BenchmarkId, Criterion, measurement::Measurement};
 use inverted_index::{
     Decoder, Encoder, IdDelta, RSIndexResult,
     numeric::{Numeric, NumericDelta},

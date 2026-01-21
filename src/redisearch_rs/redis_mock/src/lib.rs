@@ -24,7 +24,7 @@ pub mod log;
 pub mod scan_key_cursor;
 pub mod string;
 
-use std::ffi::CString;
+use std::ffi::{CString, c_char};
 
 use call::*;
 use context::*;
@@ -128,7 +128,7 @@ pub fn init_redis_module_mock() {
             *const (),
             unsafe extern "C" fn(
                 *mut redis_module::RedisModuleCtx,
-                *const ::std::os::raw::c_char,
+                *const c_char,
                 ...
             ) -> *mut redis_module::RedisModuleString,
         >(raw_ptr)
@@ -173,8 +173,8 @@ pub fn init_redis_module_mock() {
             *const (),
             unsafe extern "C" fn(
                 *mut redis_module::RedisModuleCtx,
-                *const ::std::ffi::c_char,
-                *const ::std::ffi::c_char,
+                *const c_char,
+                *const c_char,
                 ...
             ) -> *mut redis_module::RedisModuleCallReply,
         >(raw_ptr)
@@ -195,8 +195,8 @@ pub fn init_redis_module_mock() {
             *const (),
             unsafe extern "C" fn(
                 *mut redis_module::RedisModuleCtx,
-                *const ::std::os::raw::c_char,
-                *const ::std::os::raw::c_char,
+                *const c_char,
+                *const c_char,
                 ...
             ),
         >(raw_ptr)

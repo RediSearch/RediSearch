@@ -10,11 +10,14 @@
 
 #include "redismodule.h"
 #include "redisearch.h"
-#include "iterators/iterator_api.h"
+#include "VecSim/vec_sim_common.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Forward declarations to avoid circular dependencies
+typedef struct QueryIterator QueryIterator;
 
 // Helper opaque types for the disk API
 typedef const void* RedisSearchDisk;
@@ -103,9 +106,10 @@ typedef struct DocTableDiskAPI {
    * @param maxTermFreq Maximum frequency of any single term in the document
    * @param docLen Sum of the frequencies of all terms in the document
    * @param oldLen Pointer to an integer to store the length of the deleted document
+   * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
    * @return New document ID, or 0 on error/duplicate
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl);
 
   /**
    * @brief Returns whether the docId is in the deleted set
@@ -169,11 +173,72 @@ typedef struct VectorDiskAPI {
   void (*freeVectorIndex)(void* vecIndex);
 } VectorDiskAPI;
 
+/**
+ * @brief Column family metrics for RocksDB/SpeeDB
+ *
+ * All metrics are non-string (integer) properties that can be queried efficiently.
+ * These metrics are specific to individual column families (doc_table or inverted_index).
+ */
+typedef struct DiskColumnFamilyMetrics {
+  // Memtable metrics
+  uint64_t num_immutable_memtables;
+  uint64_t num_immutable_memtables_flushed;
+  uint64_t mem_table_flush_pending;
+  uint64_t active_memtable_size;
+  uint64_t size_all_mem_tables;
+  uint64_t num_entries_active_memtable;
+  uint64_t num_entries_imm_memtables;
+  uint64_t num_deletes_active_memtable;
+  uint64_t num_deletes_imm_memtables;
+
+  // Compaction metrics
+  uint64_t compaction_pending;
+  uint64_t num_running_compactions;
+  uint64_t num_running_flushes;
+  uint64_t estimate_pending_compaction_bytes;
+
+  // Data size estimates
+  uint64_t estimate_num_keys;
+  uint64_t estimate_live_data_size;
+  uint64_t live_sst_files_size;
+
+  // Version tracking
+  uint64_t num_live_versions;
+
+  // Memory usage
+  uint64_t estimate_table_readers_mem;
+
+  // TODO: Add field for deleted-ids.
+} DiskColumnFamilyMetrics;
+
+typedef struct MetricsDiskAPI {
+  /**
+   * @brief Collect metrics for the doc_table column family
+   *
+   * @param index Pointer to the index spec
+   * @param metrics Pointer to the metrics structure to populate
+   * @return true if successful, false on error
+   */
+  bool (*collectDocTableMetrics)(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics);
+
+  /**
+   * @brief Collect metrics for the inverted_index (fulltext) column family
+   *
+   * @param index Pointer to the index spec
+   * @param metrics Pointer to the metrics structure to populate
+   * @return true if successful, false on error
+   */
+  bool (*collectTextInvertedIndexMetrics)(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics);
+
+  // TODO: Add db-level metrics exposure (num-snapshots etc..)
+} MetricsDiskAPI;
+
 typedef struct RedisSearchDiskAPI {
   BasicDiskAPI basic;
   IndexDiskAPI index;
   DocTableDiskAPI docTable;
   VectorDiskAPI vector;
+  MetricsDiskAPI metrics;
 } RedisSearchDiskAPI;
 
 #ifdef __cplusplus

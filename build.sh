@@ -146,7 +146,7 @@ parse_arguments() {
       BUILD_INTEL_SVS_OPT=*)
         BUILD_INTEL_SVS_OPT="${arg#*=}"
         ;;
-      LTO|lto)
+      LTO?(=1))
         LTO=1
         ;;
       *)
@@ -356,9 +356,60 @@ prepare_cmake_arguments() {
     fi
 
     # Enable Rust/C LTO by using clang and lld
-    # Check LLVM version compatibility between Rust and Clang
+
+    # Determine compilers and linker:
+    # 1. Use CC/CXX/LD if set by user
+    # 2. Otherwise, try clang-$VERSION matching Rust's LLVM version
+    # 3. Otherwise, fall back to clang/clang++/lld
     RUSTC_LLVM_VERSION=$(rustc --version --verbose | grep "LLVM version" | awk '{print $3}' | cut -d. -f1)
-    CLANG_LLVM_VERSION=$(clang --version | head -n1 | grep -oP 'version \K[0-9]+' | head -n1)
+    if [[ -z "$CC" ]]; then
+      if command -v "clang-$RUSTC_LLVM_VERSION" &>/dev/null; then
+        C_COMPILER="clang-$RUSTC_LLVM_VERSION"
+      else
+        C_COMPILER="clang"
+      fi
+    else
+      C_COMPILER="$CC"
+      if [[ ! "$C_COMPILER" =~ ^clang ]]; then
+        echo "Error: LTO requires clang as the C compiler"
+        echo "Current CC: $C_COMPILER"
+        echo "Please set CC to a clang-based compiler (e.g., clang, clang-21)"
+        exit 1
+      fi
+    fi
+    if [[ -z "$CXX" ]]; then
+      if command -v "clang++-$RUSTC_LLVM_VERSION" &>/dev/null; then
+        CXX_COMPILER="clang++-$RUSTC_LLVM_VERSION"
+      else
+        CXX_COMPILER="clang++"
+      fi
+    else
+      CXX_COMPILER="$CXX"
+      if [[ ! "$CXX_COMPILER" =~ ^clang ]]; then
+        echo "Error: LTO requires clang++ as the C++ compiler"
+        echo "Current CXX: $CXX_COMPILER"
+        echo "Please set CXX to a clang-based compiler (e.g., clang++, clang++-21)"
+        exit 1
+      fi
+    fi
+    if [[ -z "$LD" ]]; then
+      if command -v "lld-$RUSTC_LLVM_VERSION" &>/dev/null; then
+        LINKER="lld-$RUSTC_LLVM_VERSION"
+      else
+        LINKER="lld"
+      fi
+    else
+      LINKER="$LD"
+      if [[ ! "$LINKER" =~ ^lld ]]; then
+        echo "Error: LTO requires lld as the linker"
+        echo "Current LD: $LINKER"
+        echo "Please set LD to lld or a versioned lld (e.g., lld, lld-21)"
+        exit 1
+      fi
+    fi
+
+    # Check LLVM version compatibility between Rust and Clang
+    CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | sed -n 's/.*version \([0-9]\+\).*/\1/p' | head -n1)
 
     if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" ]]; then
         echo "Error: Could not detect LLVM versions for Rust and Clang."
@@ -371,7 +422,7 @@ prepare_cmake_arguments() {
     if [[ "$RUSTC_LLVM_VERSION" != "$CLANG_LLVM_VERSION" ]]; then
         echo "Error: LLVM version mismatch between Rust and Clang"
         echo "Rust uses LLVM $RUSTC_LLVM_VERSION (from: rustc --version --verbose)"
-        echo "Clang uses LLVM $CLANG_LLVM_VERSION (from: clang --version)"
+        echo "Clang uses LLVM $CLANG_LLVM_VERSION (from: $C_COMPILER --version)"
         echo ""
         echo "Cross-language LTO requires matching LLVM major versions."
         echo "Please either:"
@@ -381,7 +432,9 @@ prepare_cmake_arguments() {
     fi
 
     echo "Enabling C/Rust LTO"
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=$C_COMPILER -DCMAKE_CXX_COMPILER=$CXX_COMPILER -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
+    # Include LLVM bitcode information for cross-language LTO
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C linker-plugin-lto -C linker=$C_COMPILER -C link-arg=-fuse-ld=$LINKER"
   fi
 
   if [[ "$BUILD_TESTS" == "1" ]]; then
@@ -433,11 +486,7 @@ prepare_cmake_arguments() {
   # Handle RUST_DYN_CRT flag for Alpine Linux compatibility
   if [[ "$RUST_DYN_CRT" == "1" ]]; then
     # Add the dynamic C runtime flag to RUSTFLAGS
-    if [[ "$RUSTFLAGS" == "" ]]; then
-      RUSTFLAGS="-C target-feature=-crt-static"
-    else
-      RUSTFLAGS="$RUSTFLAGS -C target-feature=-crt-static"
-    fi
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-feature=-crt-static"
   fi
   # Set up RUSTFLAGS for warnings
   if [[ "$RUST_DENY_WARNS" == "1" ]]; then
@@ -452,12 +501,6 @@ prepare_cmake_arguments() {
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
     # -Zsanitizer=address enables ASAN in Rust
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Zsanitizer=address"
-  fi
-
-
-  if [[ "$LTO" == "1" ]]; then
-    # Include LLVM bitcode information for cross-language LTO
-    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C linker-plugin-lto -C linker=clang -C link-arg=-fuse-ld=lld"
   fi
 
   # Export RUSTFLAGS so it's available to the Rust build process

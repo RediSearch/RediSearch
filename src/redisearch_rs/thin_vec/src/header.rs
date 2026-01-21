@@ -1,6 +1,6 @@
 use crate::{capacity::VecCapacity, layout::header_field_padding};
 
-/// The header of a `LowMemoryThinVec`.
+/// The header of a [`ThinVec`](crate::ThinVec).
 #[repr(C)]
 pub struct Header<S: VecCapacity> {
     len: S,

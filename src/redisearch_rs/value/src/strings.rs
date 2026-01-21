@@ -9,10 +9,10 @@
 
 use std::{
     alloc::{self, Layout},
+    ffi::c_char,
     fmt,
     mem::MaybeUninit,
     num::NonZeroUsize,
-    os::raw::c_char,
     ptr::{NonNull, copy_nonoverlapping},
     slice,
 };

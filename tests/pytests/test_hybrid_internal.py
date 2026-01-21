@@ -1,6 +1,9 @@
 from common import *
 from includes import *
 
+# Constant value for _COORD_DISPATCH_TIME argument in internal commands
+COORD_DISPATCH_TIME = '1000000'  # 1ms in nanoseconds
+
 def remove_warnings(result):
     """Remove any warnings from the result and return the rest"""
 
@@ -185,12 +188,14 @@ def test_basic_hybrid_internal_withcursor(env):
             shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
             result = shard_conn.execute_command('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
                                               'VSIM', '@embedding', '$BLOB',
-                                              'WITHCURSOR', '_SLOTS_INFO', slots_data, 'PARAMS', '2', 'BLOB', query_vec.tobytes())
+                                              'WITHCURSOR', '_SLOTS_INFO', slots_data, 'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+                                              '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
         else:
             # In standalone mode, send to main connection
             result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
                            'VSIM', '@embedding', '$BLOB',
-                           'WITHCURSOR', '_SLOTS_INFO', slots_data, 'PARAMS', '2', 'BLOB', query_vec.tobytes())
+                           'WITHCURSOR', '_SLOTS_INFO', slots_data, 'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+                           '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
 
         # Should return a map with VSIM and SEARCH cursor IDs
         env.assertTrue(isinstance(result, list))
@@ -226,10 +231,12 @@ def test_hybrid_internal_with_count_parameter(env):
             shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
             result = shard_conn.execute_command('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
                                               'VSIM', '@embedding', '$BLOB',
-                                              'WITHCURSOR', 'COUNT', str(count_param), '_SLOTS_INFO', slots_data, 'PARAMS', '2', 'BLOB', query_vec.tobytes())
+                                              'WITHCURSOR', 'COUNT', str(count_param), '_SLOTS_INFO', slots_data, 'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+                                              '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
         else:
             result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-                              'VSIM', '@embedding', '$BLOB', 'WITHCURSOR', 'COUNT', str(count_param), '_SLOTS_INFO', generate_slots(), 'PARAMS', '2', 'BLOB', query_vec.tobytes())
+                              'VSIM', '@embedding', '$BLOB', 'WITHCURSOR', 'COUNT', str(count_param), '_SLOTS_INFO', generate_slots(), 'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+                              '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
 
         # Should return a map with cursor IDs
         env.assertTrue(isinstance(result, list))
@@ -278,12 +285,14 @@ def test_hybrid_internal_cursor_interaction(env):
             shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
             hybrid_result = shard_conn.execute_command('_FT.HYBRID', 'idx', 'SEARCH', '@description:shoes',
                                                      'VSIM', '@embedding', '$BLOB',
-                                                     'WITHCURSOR', '_SLOTS_INFO', slots_data, 'PARAMS', '2', 'BLOB', query_vec.tobytes())
+                                                     'WITHCURSOR', '_SLOTS_INFO', slots_data, 'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+                                                     '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
         else:
             # In standalone mode, send to main connection
             hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:shoes',
                                   'VSIM', '@embedding', '$BLOB',
-                                  'WITHCURSOR', '_SLOTS_INFO', slots_data, 'PARAMS', '2', 'BLOB', query_vec.tobytes())
+                                  'WITHCURSOR', '_SLOTS_INFO', slots_data, 'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+                                  '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
         hybrid_result = remove_warnings(hybrid_result)
         # Should return a map with cursor IDs
         env.assertTrue(isinstance(hybrid_result, list))
@@ -340,7 +349,8 @@ def test_hybrid_internal_cursor_with_scores():
     hybrid_cursor_dict = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:shoes',
                            'VSIM', '@embedding', '$vec_param', 'KNN', '2', 'K', '10',
                            'WITHCURSOR', 'WITHSCORES',
-                           'PARAMS', '2', 'vec_param', query_vec.tobytes(), '_SLOTS_INFO', slots)
+                           'PARAMS', '2', 'vec_param', query_vec.tobytes(), '_SLOTS_INFO', slots,
+                           '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
 
     hybrid_cursor_dict = remove_warnings(hybrid_cursor_dict)
     # Should return a map with cursor IDs
@@ -385,12 +395,14 @@ def test_hybrid_internal_with_params(env):
             shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
             hybrid_result = shard_conn.execute_command('_FT.HYBRID', 'idx', 'SEARCH', '@description:($term)',
                                                      'VSIM', '@embedding', '$BLOB', 'WITHCURSOR',
-                                                     'PARAMS', '4', 'term', 'shoes', 'BLOB', query_vec.tobytes(),'_SLOTS_INFO', slots_data)
+                                                     'PARAMS', '4', 'term', 'shoes', 'BLOB', query_vec.tobytes(),'_SLOTS_INFO', slots_data,
+                                                     '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
         else:
             # In standalone mode, send to main connection
             hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:($term)',
                                   'VSIM', '@embedding', '$BLOB', 'WITHCURSOR',
-                                  'PARAMS', '4', 'term', 'shoes', 'BLOB', query_vec.tobytes(), '_SLOTS_INFO', slots_data)
+                                  'PARAMS', '4', 'term', 'shoes', 'BLOB', query_vec.tobytes(), '_SLOTS_INFO', slots_data,
+                                  '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
         hybrid_result = remove_warnings(hybrid_result)
 
         # Should return cursor map
@@ -436,18 +448,22 @@ def test_hybrid_internal_error_cases(env):
     # Test with non-existent index using direct vector specification
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     env.expect('_FT.HYBRID', 'nonexistent', 'SEARCH', '@description:running',
-               'VSIM', '@embedding', '$BLOB', '_SLOTS_INFO', generate_slots(range(0, 0)), 'PARAMS', '2', 'BLOB', query_vec.tobytes()).error().contains('No such index nonexistent')
+               'VSIM', '@embedding', '$BLOB', '_SLOTS_INFO', generate_slots(range(0, 0)), 'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+               '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME).error().contains('No such index nonexistent')
 
     # Test with invalid vector field using direct vector specification
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-               'VSIM', '@nonexistent', '$BLOB', '_SLOTS_INFO', generate_slots(range(0, 0)), 'PARAMS', '2', 'BLOB', query_vec.tobytes()).error().contains('Unknown field `nonexistent`')
+               'VSIM', '@nonexistent', '$BLOB', '_SLOTS_INFO', generate_slots(range(0, 0)), 'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+               '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME).error().contains('Unknown field `nonexistent`')
 
     # Test with bad slots data
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-               'VSIM', '@embedding', '$BLOB', '_SLOTS_INFO', 'BAD_SLOTS_DATA', 'PARAMS', '2', 'BLOB', query_vec.tobytes()).error().contains('Failed to deserialize _SLOTS_INFO data')
+               'VSIM', '@embedding', '$BLOB', '_SLOTS_INFO', 'BAD_SLOTS_DATA', 'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+               '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME).error().contains('Failed to deserialize _SLOTS_INFO data')
     # Edge case: Test syntax error after parsing _SLOTS_INFO (for coverage and memory leaks)
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-               'VSIM', '@embedding', '$BLOB', '_SLOTS_INFO', generate_slots(range(0, 0)), 'PARAMS', '2', 'BLOB', query_vec.tobytes(), 'INVALID_SYNTAX').error().contains('Unknown argument')
+               'VSIM', '@embedding', '$BLOB', '_SLOTS_INFO', generate_slots(range(0, 0)), 'PARAMS', '2', 'BLOB', query_vec.tobytes(), 'INVALID_SYNTAX',
+               '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME).error().contains('Unknown argument')
 
 
 def test_hybrid_internal_cursor_limit(env):
@@ -466,7 +482,8 @@ def test_hybrid_internal_cursor_limit(env):
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
                'VSIM', '@embedding', '$BLOB',
                'PARAMS', '2', 'BLOB', query_vec.tobytes(),
-               'WITHCURSOR', '_SLOTS_INFO', generate_slots(range(0, 0))).error().contains('INDEX_CURSOR_LIMIT of 1 has been reached for an index')
+               'WITHCURSOR', '_SLOTS_INFO', generate_slots(range(0, 0)),
+               '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME).error().contains('INDEX_CURSOR_LIMIT of 1 has been reached for an index')
 
 
 def test_hybrid_internal_empty_search_results(env):
@@ -487,12 +504,14 @@ def test_hybrid_internal_empty_search_results(env):
             shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
             hybrid_result = shard_conn.execute_command('_FT.HYBRID', 'idx', 'SEARCH', '@description:nonexistent',
                                                      'VSIM', '@embedding', '$BLOB',  'WITHCURSOR',
-                                                     '_SLOTS_INFO', slots_data, 'PARAMS', '2', 'BLOB', query_vec.tobytes())
+                                                     '_SLOTS_INFO', slots_data, 'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+                                                     '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
         else:
             # In standalone mode, send to main connection
             hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:nonexistent',
                                   'VSIM', '@embedding', '$BLOB',
-                                  'WITHCURSOR', '_SLOTS_INFO', slots_data, 'PARAMS', '2', 'BLOB', query_vec.tobytes())
+                                  'WITHCURSOR', '_SLOTS_INFO', slots_data, 'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+                                  '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
 
         hybrid_result = remove_warnings(hybrid_result)
         # Should return a map with cursor IDs
@@ -539,7 +558,8 @@ def test_hybrid_internal_withcursor_with_load():
                      'VSIM', '@embedding', '$BLOB',
                      'PARAMS', '2', 'BLOB', query_vec.tobytes(),
                      'LOAD', '2', '@__key', '@description',
-                     'WITHCURSOR', '_SLOTS_INFO', generate_slots())
+                     'WITHCURSOR', '_SLOTS_INFO', generate_slots(),
+                     '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
 
     # Should return a map with VSIM and SEARCH cursor IDs
     env.assertTrue(isinstance(result, list))

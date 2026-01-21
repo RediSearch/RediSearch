@@ -18,7 +18,8 @@ pub struct RSValueMock(Arc<RSValueMockInner>);
 enum RSValueMockInner {
     Null,
     Number(f64),
-    String(String),
+    // NB: `Vec<u8>` rather than `String` because we cannot assume the contents are always valid UTF-8.
+    String(Vec<u8>),
     Reference(Box<RSValueMock>),
 }
 
@@ -33,7 +34,7 @@ impl RSValueTrait for RSValueMock {
         Self(Arc::new(RSValueMockInner::Null))
     }
 
-    fn create_string(s: String) -> Self {
+    fn create_string(s: Vec<u8>) -> Self {
         Self(Arc::new(RSValueMockInner::String(s)))
     }
 
@@ -57,7 +58,7 @@ impl RSValueTrait for RSValueMock {
         }
     }
 
-    fn as_str(&self) -> Option<&str> {
+    fn as_str_bytes(&self) -> Option<&[u8]> {
         if let RSValueMockInner::String(s) = self.0.as_ref() {
             Some(s)
         } else {

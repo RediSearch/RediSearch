@@ -31,6 +31,10 @@
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/parse/hybrid_optional_args.h"
+#include "asm_state_machine.h"
+#include "hybrid/parse/hybrid_callbacks.h"
+#include "util/arg_parser.h"
+#include "rs_wall_clock.h"
 
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
@@ -672,6 +676,13 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   AREQ *vectorRequest = parsedCmdCtx->vector;
   AREQ *searchRequest = parsedCmdCtx->search;
 
+  // Slot tracking info (used for internal/coordinator requests). Initialize to "unset".
+  // Hybrid optional args parsing will populate these when parsing internal SLOTS payload.
+  searchRequest->querySlots = NULL;
+  searchRequest->keySpaceVersion = INVALID_KEYSPACE_VERSION;
+  vectorRequest->querySlots = NULL;
+  vectorRequest->keySpaceVersion = INVALID_KEYSPACE_VERSION;
+
   searchRequest->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
   vectorRequest->reqflags |= QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
 
@@ -705,11 +716,19 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
       .prefixes = &prefixes,
+      // Referenced from the AREQ. We'll copy it to the vector subquery after parsing.
+      .querySlots = &searchRequest->querySlots,
+      .keySpaceVersion = &searchRequest->keySpaceVersion,
+      .coordDispatchTime = parsedCmdCtx->coordDispatchTime,
   };
   // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     goto error;
   }
+
+  // Ensure both subqueries see the same slots information (when present).
+  vectorRequest->querySlots = searchRequest->querySlots;
+  vectorRequest->keySpaceVersion = searchRequest->keySpaceVersion;
 
   // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
   // otherwise, store the vector score in a default key.

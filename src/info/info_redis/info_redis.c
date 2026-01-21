@@ -17,6 +17,7 @@
 #include "info/info_redis/types/blocked_queries.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
+#include "search_disk.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
@@ -34,6 +35,7 @@ static inline void AddToInfo_Dialects(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx);
+static inline void AddToInfo_Disk(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 /* ========================== MAIN FUNC ============================ */
 
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
@@ -84,6 +86,11 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
   // Run time configuration
   AddToInfo_RSConfig(ctx);
+
+  // Disk metrics, on Flex only.
+  if (SearchDisk_IsEnabled()) {
+    AddToInfo_Disk(ctx, &total_info);
+  }
 
   // Active operations
   if (for_crash_report) {
@@ -191,7 +198,7 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
                                      FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_GEOMETRY));
     RedisModule_InfoEndDictField(ctx);
   }
-  // Total number of documents indexed by each field type
+  // Total number of indexing operations by each field type, doc can be counted multiple times if it has multiple fields of the same type.
   RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_text_fields",
                                   RSGlobalStats.fieldsStats.textTotalDocsIndexed);
   RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_tag_fields",
@@ -359,7 +366,7 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
                                    RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor);
 }
 
-// IF the crashing thread worked on a spec, output the spec name
+// IF the crashing thread worked on a spec, output the spec name and info
 void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
   SpecInfo *specInfo = CurrentThread_TryGetSpecInfo();
   RedisModule_InfoAddSection(ctx, "current_thread");
@@ -369,13 +376,21 @@ void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
   if (specInfo) {
     StrongRef strong = WeakRef_Promote(specInfo->specRef);
     IndexSpec *spec = StrongRef_Get(strong);
+
+    // Gives us a sense of how long this thread was active on this index before we crashed.
+    // Note: This duration includes the entire lifetime from when the thread started working
+    // on the index until the crash report is generated, including signal handling time.
+    rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&specInfo->runningTime);
+    RedisModule_InfoAddFieldULongLong(ctx, "run_time_ns", duration);
+
     // spec can be null if the spec was deleted,
     // e.g in gc thread: it manages to take a strong ref but the invalidation flag was later turned on and no more strong refs can be taken
     if (!spec) {
       RedisModule_InfoAddFieldCString(ctx, "index", specInfo->specName ? specInfo->specName : "n/a");
     } else {
-      RedisModule_InfoAddFieldCString(ctx, "index", IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
-      // output FT.INFO
+      // Output FT.INFO in a crash-safe manner (no allocations, no locks)
+      // This includes the index name, so no need to output it separately
+      IndexSpec_AddToInfo(ctx, spec, RSGlobalConfig.hideUserDataFromLog, true);
     }
   }
 }
@@ -427,4 +442,53 @@ void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddSection(ctx, "blocked_cursors");
   // Assumes no other thread is currently accessing the active-threads container
   AddCursorsToInfo(ctx, blockedQueries);
+}
+
+/**
+ * @brief Adds disk column family metrics to Redis INFO output
+ *
+ * @param ctx Redis module info context
+ * @param metrics Disk metrics structure to report
+ */
+static void addDiskColumnFamilyMetrics(RedisModuleInfoCtx *ctx, const DiskColumnFamilyMetrics *metrics) {
+  // Memtable metrics
+  RedisModule_InfoAddFieldULongLong(ctx, "num_immutable_memtables", metrics->num_immutable_memtables);
+  RedisModule_InfoAddFieldULongLong(ctx, "num_immutable_memtables_flushed", metrics->num_immutable_memtables_flushed);
+  RedisModule_InfoAddFieldULongLong(ctx, "mem_table_flush_pending", metrics->mem_table_flush_pending);
+  RedisModule_InfoAddFieldULongLong(ctx, "active_memtable_size", metrics->active_memtable_size);
+  RedisModule_InfoAddFieldULongLong(ctx, "size_all_mem_tables", metrics->size_all_mem_tables);
+  RedisModule_InfoAddFieldULongLong(ctx, "num_entries_active_memtable", metrics->num_entries_active_memtable);
+  RedisModule_InfoAddFieldULongLong(ctx, "num_entries_imm_memtables", metrics->num_entries_imm_memtables);
+  RedisModule_InfoAddFieldULongLong(ctx, "num_deletes_active_memtable", metrics->num_deletes_active_memtable);
+  RedisModule_InfoAddFieldULongLong(ctx, "num_deletes_imm_memtables", metrics->num_deletes_imm_memtables);
+
+  // Compaction metrics
+  RedisModule_InfoAddFieldULongLong(ctx, "compaction_pending", metrics->compaction_pending);
+  RedisModule_InfoAddFieldULongLong(ctx, "num_running_compactions", metrics->num_running_compactions);
+  RedisModule_InfoAddFieldULongLong(ctx, "num_running_flushes", metrics->num_running_flushes);
+  RedisModule_InfoAddFieldULongLong(ctx, "estimate_pending_compaction_bytes", metrics->estimate_pending_compaction_bytes);
+
+  // Data size estimates
+  RedisModule_InfoAddFieldULongLong(ctx, "estimate_num_keys", metrics->estimate_num_keys);
+  RedisModule_InfoAddFieldULongLong(ctx, "estimate_live_data_size", metrics->estimate_live_data_size);
+  RedisModule_InfoAddFieldULongLong(ctx, "live_sst_files_size", metrics->live_sst_files_size);
+
+  // Version tracking
+  RedisModule_InfoAddFieldULongLong(ctx, "num_live_versions", metrics->num_live_versions);
+
+  // Memory usage
+  RedisModule_InfoAddFieldULongLong(ctx, "estimate_table_readers_mem", metrics->estimate_table_readers_mem);
+}
+
+void AddToInfo_Disk(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
+  // Doc table metrics
+  RedisModule_InfoAddSection(ctx, "disk");
+  RedisModule_InfoBeginDictField(ctx, "disk_doc_table");
+  addDiskColumnFamilyMetrics(ctx, &total_info->disk_doc_table);
+  RedisModule_InfoEndDictField(ctx);
+
+  // Inverted index metrics
+  RedisModule_InfoBeginDictField(ctx, "disk_text_inverted_index");
+  addDiskColumnFamilyMetrics(ctx, &total_info->disk_inverted_index);
+  RedisModule_InfoEndDictField(ctx);
 }

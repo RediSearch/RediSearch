@@ -14,7 +14,7 @@ pub use ffi::RSQueryTerm;
 use ffi::{
     FieldMask, RS_FIELDMASK_ALL, RSDocumentMetadata, RSYieldableMetric, t_docId, t_fieldMask,
 };
-use low_memory_thin_vec::LowMemoryThinVec;
+use thin_vec::SmallThinVec;
 
 // Manually define some C functions, because we'll create a circular dependency if we use the FFI
 // crate to make them automatically.
@@ -353,7 +353,7 @@ pub type RSResultKindMask = BitFlags<RSResultKind, u8>;
 ///
 /// The C code should always use `AggregateResult_New` to construct a new instance of this type
 /// using Rust since the internals cannot be constructed directly in C. The reason is because of
-/// the `LowMemoryThinVec` which needs to exist in Rust's memory space to ensure its memory is
+/// the `ThinVec` which needs to exist in Rust's memory space to ensure its memory is
 /// managed correctly.
 /// cbindgen:prefix-with-name=true
 #[repr(u8)]
@@ -364,16 +364,16 @@ pub enum RSAggregateResult<'index> {
         ///
         /// The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
         /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
-        /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
+        /// own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
         ///
         /// This requires `'index` on the reference because adding a new lifetime will cause the
-        /// type to be `LowMemoryThinVec<&'refs RSIndexResult<'index, 'refs>>` which will require
+        /// type to be `ThinVec<&'refs RSIndexResult<'index, 'refs>>` which will require
         /// `'index: 'refs` else it would mean the `'index` can be cleaned up while some reference
         /// will still try to access it (ie a dangling pointer). Now the decoders will never return
         /// any aggregate results so `'refs == 'static` when decoding. Because of the requirement
         /// above, this means `'index: 'static` which is just incorrect since the index data will
         /// never be `'static` when decoding.
-        records: LowMemoryThinVec<&'index RSIndexResult<'index>>,
+        records: SmallThinVec<&'index RSIndexResult<'index>>,
 
         /// A map of the aggregate kind of the underlying records
         kind_mask: RSResultKindMask,
@@ -383,8 +383,8 @@ pub enum RSAggregateResult<'index> {
         ///
         /// The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
         /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
-        /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
-        records: LowMemoryThinVec<Box<RSIndexResult<'static>>>,
+        /// own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
+        records: SmallThinVec<Box<RSIndexResult<'static>>>,
 
         /// A map of the aggregate kind of the underlying records
         kind_mask: RSResultKindMask,
@@ -395,7 +395,7 @@ impl<'index> RSAggregateResult<'index> {
     /// Create a new empty aggregate result with the given capacity
     pub fn with_capacity(cap: usize) -> Self {
         Self::Borrowed {
-            records: LowMemoryThinVec::with_capacity(cap),
+            records: SmallThinVec::with_capacity(cap),
             kind_mask: RSResultKindMask::empty(),
         }
     }
@@ -518,7 +518,7 @@ impl<'index> RSAggregateResult<'index> {
     pub fn to_owned(&self) -> RSAggregateResult<'static> {
         match self {
             RSAggregateResult::Borrowed { records, kind_mask } => {
-                let mut new_records = LowMemoryThinVec::with_capacity(records.len());
+                let mut new_records = SmallThinVec::with_capacity(records.len());
 
                 new_records.extend(
                     records
@@ -533,7 +533,7 @@ impl<'index> RSAggregateResult<'index> {
                 }
             }
             RSAggregateResult::Owned { records, kind_mask } => {
-                let mut new_records = LowMemoryThinVec::with_capacity(records.len());
+                let mut new_records = SmallThinVec::with_capacity(records.len());
 
                 new_records.extend(
                     records

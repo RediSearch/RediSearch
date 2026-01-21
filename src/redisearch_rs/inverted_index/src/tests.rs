@@ -27,9 +27,9 @@ use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
 };
-use low_memory_thin_vec::low_memory_thin_vec;
 use pretty_assertions::assert_eq;
 use smallvec::smallvec;
+use thin_vec::medium_thin_vec;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
@@ -480,7 +480,7 @@ impl Decoder for Dummy {
 #[test]
 fn reading_records() {
     // Make two blocks. The first with two records and the second with one record
-    let blocks = low_memory_thin_vec![
+    let blocks = medium_thin_vec![
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
             num_entries: 2,
@@ -526,7 +526,7 @@ fn reading_records() {
 fn reading_over_empty_blocks() {
     // Make three blocks with the second one being empty and the other two containing one entries.
     // The second should automatically continue from the third block
-    let blocks = low_memory_thin_vec![
+    let blocks = medium_thin_vec![
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
@@ -606,7 +606,7 @@ fn read_using_the_first_block_id_as_the_base() {
     }
 
     // Make a block with three different doc IDs
-    let blocks = low_memory_thin_vec![IndexBlock {
+    let blocks = medium_thin_vec![IndexBlock {
         buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2],
         num_entries: 3,
         first_doc_id: 10,
@@ -638,7 +638,7 @@ fn read_using_the_first_block_id_as_the_base() {
 #[test]
 fn seeking_records() {
     // Make two blocks - the last one with four records
-    let blocks = low_memory_thin_vec![
+    let blocks = medium_thin_vec![
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
             num_entries: 3,
@@ -694,7 +694,7 @@ fn index_reader_construction_with_no_blocks() {
 
 #[test]
 fn index_reader_skip_to() {
-    let blocks = low_memory_thin_vec![
+    let blocks = medium_thin_vec![
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 5],
             num_entries: 2,
@@ -777,7 +777,7 @@ fn index_reader_skip_to() {
 
 #[test]
 fn reader_reset() {
-    let blocks = low_memory_thin_vec![
+    let blocks = medium_thin_vec![
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
             num_entries: 2,
@@ -836,7 +836,7 @@ fn reader_needs_revalidation() {
 
 #[test]
 fn reader_unique_docs() {
-    let blocks = low_memory_thin_vec![
+    let blocks = medium_thin_vec![
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
             num_entries: 2,
@@ -1575,7 +1575,7 @@ fn ii_scan_gc() {
     // - One which will be completely deleted
     // - One which will be partially deleted
     // - Two which will be unchanged
-    let blocks = low_memory_thin_vec![
+    let blocks = medium_thin_vec![
         IndexBlock {
             buffer: encode_ids!(Dummy, 10, 11),
             num_entries: 2,
@@ -1645,7 +1645,7 @@ fn ii_scan_gc() {
 #[test]
 fn ii_scan_gc_no_change() {
     // Create 2 blocks which will be unchanged
-    let blocks = low_memory_thin_vec![
+    let blocks = medium_thin_vec![
         IndexBlock {
             buffer: encode_ids!(Dummy, 10, 11),
             num_entries: 2,
@@ -1680,7 +1680,7 @@ fn ii_apply_gc() {
     // - One which will be partially deleted
     // - One which will be unchanged
     // - One which will be split into multiple blocks
-    let blocks = low_memory_thin_vec![
+    let blocks = medium_thin_vec![
         IndexBlock {
             buffer: encode_ids!(Dummy, 10, 11),
             num_entries: 2,
@@ -1829,7 +1829,7 @@ fn ii_apply_gc() {
 #[test]
 fn ii_apply_gc_last_block_updated() {
     // Create 2 blocks where the last block will have new entries since the GC scan
-    let blocks = low_memory_thin_vec![
+    let blocks = medium_thin_vec![
         IndexBlock {
             buffer: encode_ids!(Dummy, 10, 11),
             num_entries: 2,

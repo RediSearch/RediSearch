@@ -141,6 +141,11 @@ impl<'a> RLookup<'a> {
     /// - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
     /// - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
     pub fn add_keys_from(&mut self, src: &RLookup<'a>, flags: RLookupKeyFlags) {
+        debug_assert!(
+            !flags.contains(RLookupKeyFlag::NameAlloc),
+            "The NameAlloc flag should have been handled in the FFI function. This is a bug."
+        );
+
         // Manually iterate through all keys including hidden ones
         let mut c = src.cursor();
         while let Some(src_key) = c.current() {
@@ -263,8 +268,9 @@ impl<'a> RLookup<'a> {
         Ok(key)
     }
 
-    /// Writes a key to the lookup table, if the key already exists, it is either overwritten if flags is set to `RLookupKeyFlag::Override`
-    /// or returns `None` if the key is in exclusive mode.
+    /// Writes a key to the lookup table. If the key already exists
+    /// - it is overwritten and returned if flags are set to `RLookupKeyFlag::Override`
+    /// - `None` is returned if the key is in exclusive mode (the opposite of Override)
     ///
     /// This will never get a key from the cache, it will either create a new key, override an existing key or return `None` if the key
     /// is in exclusive mode.
@@ -279,17 +285,17 @@ impl<'a> RLookup<'a> {
         let name = name.into();
 
         if let Some(c) = self.keys.find_by_name_mut(&name) {
-            // A. we found the key at the lookup table:
+            // A. we found the key in the lookup table:
             if flags.contains(RLookupKeyFlag::Override) {
                 // We are in create mode, overwrite the key (remove schema related data, mark with new flags)
                 c.override_current(flags | RLookupKeyFlag::QuerySrc)
                     .unwrap();
             } else {
-                // 1. if we are in exclusive mode, return None
+                // We are in exclusive mode, return None
                 return None;
             }
         } else {
-            // B. we didn't find the key at the lookup table:
+            // B. we didn't find the key in the lookup table:
             // create a new key with the name and flags
             let key = RLookupKey::new(self, name.clone(), flags | RLookupKeyFlag::QuerySrc);
             self.keys.push(key);

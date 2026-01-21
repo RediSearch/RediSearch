@@ -249,9 +249,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   RedisModule_Reply_ArrayEnd(reply); // >attributes
 
-  REPLY_KVINT("num_docs", sp->stats.numDocuments);
+  REPLY_KVINT("num_docs", sp->stats.scoringStats.numDocuments);
   REPLY_KVINT("max_doc_id", sp->docs.maxDocId);
-  REPLY_KVINT("num_terms", sp->stats.numTerms);
+  REPLY_KVINT("num_terms", sp->stats.scoringStats.numTerms);
   REPLY_KVINT("num_records", sp->stats.numRecords);
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
@@ -273,7 +273,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     tags_overhead, text_overhead, vector_indexes_size) / (float)0x100000);
   REPLY_KVNUM("geoshapes_sz_mb", geom_idx_sz / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
-              (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
+              (float)sp->stats.numRecords / (float)sp->stats.scoringStats.numDocuments);
   REPLY_KVNUM("bytes_per_record_avg",
               (float)sp->stats.invertedSize / (float)sp->stats.numRecords);
   REPLY_KVNUM("offsets_per_term_avg",

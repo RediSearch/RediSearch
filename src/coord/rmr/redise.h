@@ -15,6 +15,14 @@
 extern "C" {
 #endif
 
+/* Parse the cluster topology from the given arguments.
+ * On success, returns the parsed topology. On failure, replies with an error
+ * using the provided context and returns NULL.
+ *
+ * The `my_shard_idx` output parameter is set to the index of the shard
+ * corresponding to MYID, or UINT32_MAX if MYID does not correspond to any shard
+ * in the topology.
+ */
 MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, uint32_t *my_shard_idx);
 
 #ifdef __cplusplus

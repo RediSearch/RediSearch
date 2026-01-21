@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
-#include "low_memory_thin_vec.h"
+#include "thin_vec.h"
 
 /**
  * Used by [`TrieMapIterator`] to determine type of query.
@@ -48,14 +48,22 @@ typedef void (*freeCB)(void*);
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct LowMemoryThinVecCVoid {
+typedef struct ThinVec_____c_void__u16 {
   Header_u16 *ptr;
-} LowMemoryThinVecCVoid;
+} ThinVec_____c_void__u16;
+
+/**
+ * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
+ *
+ * This is useful when you know the vector will never exceed 65,535 elements
+ * and want to minimize header overhead (4 bytes instead of 16).
+ */
+typedef struct ThinVec_____c_void__u16 SmallThinVecCVoid;
 
 /**
  * Opaque type TrieMapResultBuf. Holds the results of [`TrieMap_FindPrefixes`].
  */
-typedef struct LowMemoryThinVecCVoid TrieMapResultBuf;
+typedef SmallThinVecCVoid TrieMapResultBuf;
 
 /**
  * Callback type for passing to [`TrieMap_IterateRange`].

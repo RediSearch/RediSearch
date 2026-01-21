@@ -7,9 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::io::{Cursor, Seek, SeekFrom};
+use std::{
+    hint::black_box,
+    io::{Cursor, Seek, SeekFrom},
+};
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use qint::{ValidQIntSize, qint_encode};
 
 /// inserts benchmarks for encoding and decoding using a minimal set of inputs

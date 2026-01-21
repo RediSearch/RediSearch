@@ -212,9 +212,7 @@ void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const IndexSpec *
  */
 void CursorList_MarkASMInaccuracy();
 
-#ifdef FTINFO_FOR_INFO_MODULES
 void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const IndexSpec *spec, RedisModuleInfoCtx *ctx);
-#endif
 
 #define getCursorList(coord) ((coord) ? &g_CursorsListCoord : &g_CursorsList)
 

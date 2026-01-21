@@ -149,7 +149,7 @@ pub struct RLookupKey<'a> {
     _path: Option<Cow<'a, CStr>>,
 
     #[cfg(debug_assertions)]
-    rlookup_id: RLookupId,
+    pub(crate) rlookup_id: RLookupId,
 }
 
 #[derive(Debug)]
@@ -207,23 +207,18 @@ impl<'a> DerefMut for RLookupKey<'a> {
 // reference `Pin<&mut CStr>` which safe Rust also cannot move out of.
 // This means you may NEVER EVER hand out a `&mut CStr` EVER.
 impl<'a> RLookupKey<'a> {
-    /// Constructs a new `RLookupKey` using the provided `CStr` and flags.
-    ///
-    /// If the [`RLookupKeyFlag::NameAlloc`] is given, then the provided `CStr` will be cloned into
-    /// a new allocation that is owned by this key. If the flag is *not* provided the key
-    /// will simply borrow the provided string.
-    #[cfg_attr(not(debug_assertions), allow(unused_variables))]
+    /// Constructs a new `RLookupKey` using the provided `name` and `flags`.
     pub fn new(
         parent: &RLookup<'_>,
         name: impl Into<Cow<'a, CStr>>,
         flags: RLookupKeyFlags,
     ) -> Self {
-        let name = match name.into() {
-            Cow::Borrowed(name) if flags.contains(RLookupKeyFlag::NameAlloc) => {
-                Cow::Owned(name.to_owned())
-            }
-            name => name,
-        };
+        debug_assert!(
+            !flags.contains(RLookupKeyFlag::NameAlloc),
+            "The NameAlloc flag should have been handled in the FFI function. This is a bug."
+        );
+
+        let name = name.into();
 
         Self {
             header: RLookupKeyHeader {
@@ -242,44 +237,24 @@ impl<'a> RLookupKey<'a> {
         }
     }
 
-    /// Construct an `RLookupKey` from its main parts. Prefer Self::new if you are unsure which to use.
-    pub(crate) fn from_parts(
-        name: Cow<'a, CStr>,
-        path: Option<Cow<'a, CStr>>,
-        dstidx: u16,
+    /// Constructs a new `RLookupKey` using the provided `name`, `path` and `flags`.
+    pub fn new_with_path(
+        parent: &RLookup<'_>,
+        name: impl Into<Cow<'a, CStr>>,
+        path: impl Into<Cow<'a, CStr>>,
         flags: RLookupKeyFlags,
-        #[cfg(debug_assertions)] rlookup_id: RLookupId,
     ) -> Self {
-        debug_assert_eq!(
-            matches!(name, Cow::Owned(_)),
-            flags.contains(RLookupKeyFlag::NameAlloc),
-            "`RLookupKeyFlag::NameAlloc` was provided, but `name` was not `Cow::Owned`"
+        debug_assert!(
+            !flags.contains(RLookupKeyFlag::NameAlloc),
+            "The NameAlloc flag should have been handled in the FFI function. This is a bug."
         );
-        if let Some(path) = &path {
-            debug_assert_eq!(
-                matches!(path, Cow::Owned(_)),
-                flags.contains(RLookupKeyFlag::NameAlloc),
-                "`RLookupKeyFlag::NameAlloc` was provided, but `path` was not `Cow::Owned`"
-            );
-        }
 
-        Self {
-            header: RLookupKeyHeader {
-                dstidx,
-                svidx: 0,
-                flags: flags & !TRANSIENT_FLAGS,
-                name: name.as_ptr(),
-                // if a separate path was provided we should set the pointer accordingly
-                // if not, we fall back to the name as usual
-                path: path.as_ref().map_or(name.as_ptr(), |path| path.as_ptr()),
-                name_len: name.count_bytes(),
-                next: UnsafeCell::new(None),
-            },
-            _name: name,
-            _path: path,
-            #[cfg(debug_assertions)]
-            rlookup_id,
-        }
+        let mut new = Self::new(parent, name, flags);
+        let path = path.into();
+        new.path = path.as_ptr();
+        new._path = Some(path);
+
+        new
     }
 
     /// Constructs a `Pin<Box<RLookupKey>>` from a raw pointer.
@@ -556,21 +531,8 @@ mod tests {
         assert_eq!(key.flags, RLookupKeyFlags::empty());
     }
 
-    // Assert that creating a RLookupKey with the NameAlloc flag indeed allocates a new string
     #[test]
-    fn rlookupkey_new_with_namealloc() {
-        let name = c"test";
-
-        let rlookup = RLookup::new();
-
-        let key = RLookupKey::new(&rlookup, name, make_bitflags!(RLookupKeyFlag::NameAlloc));
-        assert_ne!(key.name, name.as_ptr());
-        assert!(matches!(key._name, Cow::Owned(_)));
-    }
-
-    // Assert that creating a RLookupKey *without* the NameAlloc flag keeps the provided string
-    #[test]
-    fn rlookupkey_new_without_namealloc() {
+    fn rlookupkey_new_ascii() {
         let name = c"test";
 
         let rlookup = RLookup::new();
@@ -580,22 +542,8 @@ mod tests {
         assert!(matches!(key._name, Cow::Borrowed(_)));
     }
 
-    // Assert that creating a RLookupKey with the NameAlloc flag indeed allocates a new string
     #[test]
-    fn rlookupkey_new_utf8_with_namealloc() {
-        let name = c"🔍🔥🎶";
-
-        let rlookup = RLookup::new();
-
-        let key = RLookupKey::new(&rlookup, name, make_bitflags!(RLookupKeyFlag::NameAlloc));
-        assert_ne!(key.name, name.as_ptr());
-        assert_eq!(key.name_len, 12); // 3 characters, 4 bytes each
-        assert!(matches!(key._name, Cow::Owned(_)));
-    }
-
-    // Assert that creating a RLookupKey *without* the NameAlloc flag keeps the provided string
-    #[test]
-    fn rlookupkey_new_utf8_without_namealloc() {
+    fn rlookupkey_new_utf8() {
         let name = c"🔍🔥🎶";
 
         let rlookup = RLookup::new();
@@ -721,161 +669,20 @@ mod tests {
         }
     }
 
-    // `update_from_field_spec` clones the name if key`RLookupKey.flags` contains `NameAlloc`
     #[test]
-    fn update_from_field_spec_namealloc() {
-        let rlookup = RLookup::new();
-
-        let mut key = RLookupKey::new(&rlookup, c"test", make_bitflags!(RLookupKeyFlag::NameAlloc));
-
-        let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
-        let field_name = c"this is the field name";
-        fs.fieldName =
-            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
-        let field_path = c"this is the field path";
-        fs.fieldPath =
-            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
-
-        key.update_from_field_spec(&fs);
-
-        assert!(
-            key.flags
-                .contains(RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc)
-        );
-        assert_ne!(key.path, key.name);
-        assert_eq!(
-            unsafe { CStr::from_ptr(key.path) },
-            c"this is the field path"
-        );
-        assert!(matches!(key._path.as_ref().unwrap(), Cow::Owned(_)));
-
-        // cleanup
-        unsafe {
-            ffi::HiddenString_Free(fs.fieldName, false);
-        }
-        unsafe {
-            ffi::HiddenString_Free(fs.fieldPath, false);
-        }
-    }
-
-    #[test]
-    fn key_from_parts_only_name() {
+    fn new_only_name() {
         let name = Cow::Borrowed(c"foo");
-        let key = RLookupKey::from_parts(
-            name,
-            None,
-            0,
-            RLookupKeyFlags::empty(),
-            #[cfg(debug_assertions)]
-            RLookupId::next(),
-        );
+        let key = RLookupKey::new(&RLookup::new(), name, RLookupKeyFlags::empty());
 
         assert_eq!(key.name, key._name.as_ptr());
         assert_eq!(key.path, key._name.as_ptr());
     }
 
     #[test]
-    fn key_from_parts_name_and_path() {
+    fn new_name_and_path() {
         let name = Cow::Borrowed(c"foo");
         let path = Cow::Borrowed(c"bar");
-        let key = RLookupKey::from_parts(
-            name,
-            Some(path),
-            0,
-            RLookupKeyFlags::empty(),
-            #[cfg(debug_assertions)]
-            RLookupId::next(),
-        );
-
-        assert_eq!(key.name, key._name.as_ptr());
-        assert_eq!(key.path, key._path.as_ref().unwrap().as_ptr());
-    }
-
-    // Assert that `RLookupKey::from_parts` catches the mismatch between owned name & missing namealloc flag
-    #[test]
-    #[allow(unreachable_code, unused)]
-    #[cfg_attr(debug_assertions, should_panic)]
-    fn key_from_parts_name_namealloc_fail() {
-        let name = Cow::Owned(c"foo".to_owned());
-        let key = RLookupKey::from_parts(
-            name,
-            None,
-            0,
-            RLookupKeyFlags::empty(),
-            #[cfg(debug_assertions)]
-            RLookupId::next(),
-        );
-
-        #[cfg(debug_assertions)]
-        unreachable!();
-
-        assert_eq!(key.name, key._name.as_ptr());
-        assert_eq!(key.path, key._name.as_ptr());
-    }
-
-    // Assert that `RLookupKey::from_parts` catches the mismatch between owned path & missing namealloc flag
-    #[test]
-    #[allow(unreachable_code, unused)]
-    #[cfg_attr(debug_assertions, should_panic)]
-    fn key_from_parts_name_nonamealloc_fail() {
-        let name = Cow::Borrowed(c"foo");
-        let key = RLookupKey::from_parts(
-            name,
-            None,
-            0,
-            make_bitflags!(RLookupKeyFlag::NameAlloc),
-            #[cfg(debug_assertions)]
-            RLookupId::next(),
-        );
-
-        #[cfg(debug_assertions)]
-        unreachable!();
-
-        assert_eq!(key.name, key._name.as_ptr());
-        assert_eq!(key.path, key._name.as_ptr());
-    }
-
-    // Assert that `RLookupKey::from_parts` catches the mismatch between borrowed name & namealloc flag
-    #[test]
-    #[allow(unreachable_code, unused)]
-    #[cfg_attr(debug_assertions, should_panic)]
-    fn key_from_parts_path_namealloc_fail() {
-        let name = Cow::Borrowed(c"foo");
-        let path = Cow::Owned(c"bar".to_owned());
-        let key = RLookupKey::from_parts(
-            name,
-            Some(path),
-            0,
-            RLookupKeyFlags::empty(),
-            #[cfg(debug_assertions)]
-            RLookupId::next(),
-        );
-
-        #[cfg(debug_assertions)]
-        unreachable!();
-
-        assert_eq!(key.name, key._name.as_ptr());
-        assert_eq!(key.path, key._path.as_ref().unwrap().as_ptr());
-    }
-
-    // Assert that `RLookupKey::from_parts` catches the mismatch between borrowed path & namealloc flag
-    #[test]
-    #[allow(unreachable_code, unused)]
-    #[cfg_attr(debug_assertions, should_panic)]
-    fn key_from_parts_path_nonamealloc_fail() {
-        let name = Cow::Owned(c"foo".to_owned());
-        let path = Cow::Borrowed(c"bar");
-        let key = RLookupKey::from_parts(
-            name,
-            Some(path),
-            0,
-            make_bitflags!(RLookupKeyFlag::NameAlloc),
-            #[cfg(debug_assertions)]
-            RLookupId::next(),
-        );
-
-        #[cfg(debug_assertions)]
-        unreachable!();
+        let key = RLookupKey::new_with_path(&RLookup::new(), name, path, RLookupKeyFlags::empty());
 
         assert_eq!(key.name, key._name.as_ptr());
         assert_eq!(key.path, key._path.as_ref().unwrap().as_ptr());

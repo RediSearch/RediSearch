@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "low_memory_thin_vec.h"
+#include "thin_vec.h"
 /**
  * Forward declarations which will be defined in `redisearch.h`
  */
@@ -87,9 +87,17 @@ typedef struct NumericFilter {
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct LowMemoryThinVecRSIndexResult {
+typedef struct ThinVec______RSIndexResult__u16 {
   Header_u16 *ptr;
-} LowMemoryThinVecRSIndexResult;
+} ThinVec______RSIndexResult__u16;
+
+/**
+ * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
+ *
+ * This is useful when you know the vector will never exceed 65,535 elements
+ * and want to minimize header overhead (4 bytes instead of 16).
+ */
+typedef struct ThinVec______RSIndexResult__u16 SmallThinVecRSIndexResult;
 
 /**
  * Represents a set of flags of some type `T`.
@@ -211,16 +219,24 @@ typedef BitFlags_RSResultKind__u8 RSResultKindMask;
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct LowMemoryThinVecRSIndexResultOwned {
+typedef struct ThinVec_____RSIndexResult__u16 {
   Header_u16 *ptr;
-} LowMemoryThinVecRSIndexResultOwned;
+} ThinVec_____RSIndexResult__u16;
+
+/**
+ * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
+ *
+ * This is useful when you know the vector will never exceed 65,535 elements
+ * and want to minimize header overhead (4 bytes instead of 16).
+ */
+typedef struct ThinVec_____RSIndexResult__u16 SmallThinVecRSIndexResultOwned;
 
 /**
  * Represents an aggregate array of values in an index record.
  *
  * The C code should always use `AggregateResult_New` to construct a new instance of this type
  * using Rust since the internals cannot be constructed directly in C. The reason is because of
- * the `LowMemoryThinVec` which needs to exist in Rust's memory space to ensure its memory is
+ * the `ThinVec` which needs to exist in Rust's memory space to ensure its memory is
  * managed correctly.
  */
 enum RSAggregateResult_Tag
@@ -242,17 +258,17 @@ typedef struct RSAggregateResult_Borrowed_Body {
    *
    * The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
-   * own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
+   * own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
    *
    * This requires `'index` on the reference because adding a new lifetime will cause the
-   * type to be `LowMemoryThinVec<&'refs RSIndexResult<'index, 'refs>>` which will require
+   * type to be `ThinVec<&'refs RSIndexResult<'index, 'refs>>` which will require
    * `'index: 'refs` else it would mean the `'index` can be cleaned up while some reference
    * will still try to access it (ie a dangling pointer). Now the decoders will never return
    * any aggregate results so `'refs == 'static` when decoding. Because of the requirement
    * above, this means `'index: 'static` which is just incorrect since the index data will
    * never be `'static` when decoding.
    */
-  struct LowMemoryThinVecRSIndexResult records;
+  SmallThinVecRSIndexResult records;
   /**
    * A map of the aggregate kind of the underlying records
    */
@@ -266,9 +282,9 @@ typedef struct RSAggregateResult_Owned_Body {
    *
    * The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
-   * own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
+   * own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
    */
-  struct LowMemoryThinVecRSIndexResultOwned records;
+  SmallThinVecRSIndexResultOwned records;
   /**
    * A map of the aggregate kind of the underlying records
    */
