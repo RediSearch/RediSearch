@@ -198,6 +198,51 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
  */
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
 
+// Async Read Pool API
+
+/**
+ * @brief Create an async read pool for batched document metadata reads
+ *
+ * @param handle Handle to the index
+ * @param max_concurrent Maximum number of concurrent pending reads
+ * @return Opaque handle to the pool, or NULL on error
+ */
+void* SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, uint16_t max_concurrent);
+
+/**
+ * @brief Add an async read request to the pool
+ *
+ * @param pool Pool handle from SearchDisk_CreateAsyncReadPool
+ * @param docId Document ID to read
+ * @return true if added, false if pool is at capacity
+ */
+bool SearchDisk_AddAsyncRead(void *pool, t_docId docId);
+
+/**
+ * @brief Poll the pool for ready results
+ *
+ * @param pool Pool handle
+ * @param timeout_ms 0 for non-blocking, >0 to wait
+ * @param results Buffer to fill with ready DMDs
+ * @param results_capacity Size of results buffer
+ * @return AsyncPollResult with ready_count and pending_count
+ */
+AsyncPollResult SearchDisk_PollAsyncReads(void *pool, int timeout_ms, RSDocumentMetadata *results, uint16_t results_capacity);
+
+/**
+ * @brief Free the async read pool
+ *
+ * @param pool Pool handle
+ */
+void SearchDisk_FreeAsyncReadPool(void *pool);
+
+/**
+ * @brief Check if async I/O is supported by the underlying storage engine
+ *
+ * @return true if async I/O operations are available, false otherwise
+ */
+bool SearchDisk_IsAsyncIOSupported(void);
+
 /**
  * @brief Check if the search disk module is enabled from configuration
  *
