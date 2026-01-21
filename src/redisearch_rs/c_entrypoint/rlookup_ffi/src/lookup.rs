@@ -448,7 +448,7 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
     unsafe { lookup.unwrap().drop_in_place() };
 }
 
-/// Initialize the lookup with fields from hash.
+/// Initialize the lookup with fields from a Redis hash.
 ///
 /// # Safety
 ///
