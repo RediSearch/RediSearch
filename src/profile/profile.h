@@ -12,6 +12,9 @@
 #include "util/timeout.h"
 #include "iterators/profile_iterator.h"
 
+// Forward declaration
+typedef struct ResultProcessor ResultProcessor;
+
 #define printProfileType(vtype) RedisModule_ReplyKV_SimpleString(reply, "Type", (vtype))
 #define printProfileTime(vtime) RedisModule_ReplyKV_Double(reply, "Time", (vtime))
 #define printProfileIteratorCounter(vcount) RedisModule_ReplyKV_LongLong(reply, "Number of reading operations", (vcount))
@@ -111,3 +114,14 @@ typedef void (*ProfilePrinterCB)(RedisModule_Reply *reply, void *ctx);
 void Profile_PrintInFormat(RedisModule_Reply *reply,
                            ProfilePrinterCB shards_cb, void *shards_ctx,
                            ProfilePrinterCB coordinator_cb, void *coordinator_ctx);
+
+// Print result processors chain - useful for printing additional RP chains
+void Profile_PrintResultProcessors(RedisModule_Reply *reply,
+                                   ResultProcessor *rp, bool verbose);
+
+// Extended version of Profile_PrintHybrid that allows adding extra content
+// before closing the map
+// extraCB is called after printing the main profile content but before closing
+// the map
+void Profile_PrintHybridExtra(RedisModule_Reply *reply, void *ctx,
+                           ProfilePrinterCB extraCB, void *extraCtx);

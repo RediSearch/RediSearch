@@ -128,7 +128,15 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
   }
   double totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPProfile_GetClock(rp));
   if (printProfileClock) {
-    printProfileTime(totalRPTime - upstreamTime);
+    double deltaTime = totalRPTime - upstreamTime;
+    // For async RPs (like RPSafeDepleter in coordinator), the delta can be
+    // negative because the upstream work happens in a background thread.
+    // Cap at 0 to avoid confusing negative times for these specific cases.
+    if (deltaTime < 0 &&
+        rp->upstream && rp->upstream->type == RP_SAFE_DEPLETER) {
+      deltaTime = 0;
+    }
+    printProfileTime(deltaTime);
   }
   printProfileRPCounter(RPProfile_GetCount(rp) - 1);
   RedisModule_Reply_MapEnd(reply); // end of recursive map
@@ -139,7 +147,13 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
   return _recursiveProfilePrint(reply, rp, printProfileClock);
 }
 
-void Profile_PrintCommon(RedisModule_Reply *reply, AREQ *req, HybridRequest *hreq) {
+void Profile_PrintResultProcessors(RedisModule_Reply *reply, ResultProcessor *rp, bool verbose) {
+  printProfileRP(reply, rp, verbose);
+}
+
+// Internal implementation that supports an optional callback for adding extra content
+static void Profile_PrintCommonExtra_Internal(RedisModule_Reply *reply, AREQ *req, HybridRequest *hreq,
+                                           ProfilePrinterCB extraCB, void *extraCtx) {
   RS_ASSERT(req || hreq);
   ProfilePrinterCtx *profileCtx = NULL;
   ProfileClocks *clocks = NULL;
@@ -259,6 +273,12 @@ void Profile_PrintCommon(RedisModule_Reply *reply, AREQ *req, HybridRequest *hre
                          AREQ_RequestFlags(req) & QEXEC_F_PROFILE_LIMITED, &config);
   }
 
+  // Call extra content callback if provided
+  // (before printing main result processors)
+  if (extraCB) {
+    extraCB(reply, extraCtx);
+  }
+
   // Print profile of result processors
   ResultProcessor *rp = qctx->endProc;
   RedisModule_ReplyKV_Array(reply, "Result processors profile");
@@ -267,14 +287,24 @@ void Profile_PrintCommon(RedisModule_Reply *reply, AREQ *req, HybridRequest *hre
   RedisModule_Reply_MapEnd(reply);
 }
 
+void Profile_PrintCommon(RedisModule_Reply *reply, AREQ *req, HybridRequest *hreq) {
+  Profile_PrintCommonExtra_Internal(reply, req, hreq, NULL, NULL);
+}
+
 void Profile_PrintHybrid(RedisModule_Reply *reply, void *ctx) {
   HybridRequest *hreq = ctx;
-  Profile_PrintCommon(reply, NULL, hreq);
+  Profile_PrintCommonExtra_Internal(reply, NULL, hreq, NULL, NULL);
+}
+
+void Profile_PrintHybridExtra(RedisModule_Reply *reply, void *ctx,
+                           ProfilePrinterCB extraCB, void *extraCtx) {
+  HybridRequest *hreq = ctx;
+  Profile_PrintCommonExtra_Internal(reply, NULL, hreq, extraCB, extraCtx);
 }
 
 void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   AREQ *req = ctx;
-  Profile_PrintCommon(reply, req, NULL);
+  Profile_PrintCommonExtra_Internal(reply, req, NULL, NULL, NULL);
 }
 
 void Profile_PrepareMapForReply(RedisModule_Reply *reply) {
