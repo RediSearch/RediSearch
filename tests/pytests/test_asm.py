@@ -541,7 +541,6 @@ def test_ft_search_import_slot_range_BG():
     import_slot_range_test(env, 'FT.SEARCH')
 
 @skip(cluster=False, min_shards=2)
-@skip
 def test_ft_aggregate_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.AGGREGATE')
