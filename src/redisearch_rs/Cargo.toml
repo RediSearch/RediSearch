@@ -68,6 +68,7 @@ publish = false
 
 [workspace.dependencies]
 buffer = { path = "./buffer" }
+build_utils = { path = "./build_utils" }
 c_ffi_utils = { path = "./c_entrypoint/c_ffi_utils" }
 document = { path = "./document" }
 ffi = { path = "./ffi", default-features = false }
@@ -77,6 +78,7 @@ inverted_index = { path = "./inverted_index" }
 qint = { path = "./qint" }
 query_error = { path = "./query_error" }
 redis_mock = { path = "./redis_mock" }
+redisearch_rs = { path = "./c_entrypoint/redisearch_rs" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
 rqe_iterators = { path = "./rqe_iterators" }
