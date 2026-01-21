@@ -30,7 +30,7 @@ members = [
     "varint_bencher",
     "wildcard",
     "workspace_hack"
-]
+, "tools/safety_report"]
 
 resolver = "3"
 

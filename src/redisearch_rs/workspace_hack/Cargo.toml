@@ -33,6 +33,7 @@ regex-automata = { version = "0.4", default-features = false, features = ["dfa-b
 regex-syntax = { version = "0.8" }
 serde = { version = "1", features = ["alloc", "derive"] }
 serde_core = { version = "1", features = ["alloc"] }
+serde_json = { version = "1", features = ["unbounded_depth"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 thiserror = { version = "2" }
 tracing-core = { version = "0.1" }
@@ -57,6 +58,7 @@ regex-automata = { version = "0.4", default-features = false, features = ["dfa-b
 regex-syntax = { version = "0.8" }
 serde = { version = "1", features = ["alloc", "derive"] }
 serde_core = { version = "1", features = ["alloc"] }
+serde_json = { version = "1", features = ["unbounded_depth"] }
 syn-dff4ba8e3ae991db = { package = "syn", version = "1", features = ["extra-traits", "full", "visit-mut"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 thiserror = { version = "2" }

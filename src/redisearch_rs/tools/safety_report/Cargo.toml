@@ -1,0 +1,16 @@
+[package]
+name = "safety_report"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+cargo_metadata = "0.19"
+syn = { version = "2", features = ["full", "visit"] }
+anyhow = "1"
+walkdir = "2"
+workspace_hack.workspace = true
+
+[lints]
+workspace = true
