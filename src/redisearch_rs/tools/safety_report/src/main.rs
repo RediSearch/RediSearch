@@ -10,6 +10,7 @@
 use anyhow::{Context, Result, bail};
 use cargo_metadata::MetadataCommand;
 use std::path::Path;
+use syn::spanned::Spanned;
 use syn::visit::Visit;
 use walkdir::WalkDir;
 
@@ -128,35 +129,35 @@ impl<'ast> Visit<'ast> for UnsafeVisitor {
 
     fn visit_item_struct(&mut self, node: &'ast syn::ItemStruct) {
         if !is_cfg_test(&node.attrs) {
-            self.lines += span_lines(node.ident.span());
+            self.lines += span_lines(node.span());
         }
         syn::visit::visit_item_struct(self, node);
     }
 
     fn visit_item_enum(&mut self, node: &'ast syn::ItemEnum) {
         if !is_cfg_test(&node.attrs) {
-            self.lines += span_lines(node.brace_token.span.join());
+            self.lines += span_lines(node.span());
         }
         syn::visit::visit_item_enum(self, node);
     }
 
     fn visit_item_const(&mut self, node: &'ast syn::ItemConst) {
         if !is_cfg_test(&node.attrs) {
-            self.lines += 1;
+            self.lines += span_lines(node.span());
         }
         syn::visit::visit_item_const(self, node);
     }
 
     fn visit_item_static(&mut self, node: &'ast syn::ItemStatic) {
         if !is_cfg_test(&node.attrs) {
-            self.lines += 1;
+            self.lines += span_lines(node.span());
         }
         syn::visit::visit_item_static(self, node);
     }
 
     fn visit_item_type(&mut self, node: &'ast syn::ItemType) {
         if !is_cfg_test(&node.attrs) {
-            self.lines += 1;
+            self.lines += span_lines(node.span());
         }
         syn::visit::visit_item_type(self, node);
     }
