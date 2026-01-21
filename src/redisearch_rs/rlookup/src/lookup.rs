@@ -433,7 +433,7 @@ impl<'a> RLookup<'a> {
 }
 
 fn create_keys_from_spec<'a>(
-    lookup: &mut RLookup,
+    lookup: &mut RLookup<'a>,
     index_spec: &'a IndexSpec,
 ) -> Vec<RLookupKey<'a>> {
     let rule = index_spec.rule();
@@ -448,7 +448,7 @@ fn create_keys_from_spec<'a>(
 }
 
 fn create_key_from_data<'a>(
-    lookup: &mut RLookup,
+    lookup: &mut RLookup<'a>,
     index: i32,
     filter_field: &'a CStr,
     field_specs: &'a [FieldSpec],
