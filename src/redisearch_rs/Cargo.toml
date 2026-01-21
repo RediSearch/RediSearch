@@ -74,7 +74,6 @@ ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
 fnv = { path = "./fnv" }
 inverted_index = { path = "./inverted_index" }
-thin_vec = { path = "./thin_vec" }
 qint = { path = "./qint" }
 query_error = { path = "./query_error" }
 redis_mock = { path = "./redis_mock" }
@@ -85,6 +84,7 @@ rqe_iterators_interop = { path = "./rqe_iterators_interop" }
 search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
+thin_vec = { path = "./thin_vec" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
 value = { path = "./value" }
