@@ -706,10 +706,7 @@ TEST_F(NotIteratorReducerTest, TestNotWithReaderWildcardChild) {
     };
     InvertedIndex_WriteEntryGeneric(idx, &res);
   }
-  // Create an iterator that reads only entries with field mask 2
-  QueryIterator *wildcardChild = NewInvIndIterator_TermQuery(idx, nullptr, {.mask_tag = FieldMaskOrIndex_Mask, .mask = 2}, nullptr, 1.0);
-  InvIndIterator* invIdxIt = (InvIndIterator *)wildcardChild;
-  invIdxIt->isWildcard = true;
+  QueryIterator *wildcardChild = NewInvIndIterator_WildcardQuery(idx, nullptr, 1.0);
   MockQueryEvalCtx mockQctx(maxDocId, maxDocId);
   QueryIterator *it = NewNotIterator(wildcardChild, maxDocId, 1.0, timeout, &mockQctx.qctx);
 
