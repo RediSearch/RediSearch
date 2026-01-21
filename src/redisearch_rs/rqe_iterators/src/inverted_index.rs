@@ -254,6 +254,10 @@ where
                     current_time,
                 )
             },
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "we check against `IndexFlags_Index_WideSchema` to ensure this fits into u32."
+            )]
             FieldMaskOrIndex::Mask(mask)
                 if self.reader.flags() & IndexFlags_Index_WideSchema == 0 =>
             // SAFETY:
@@ -263,7 +267,7 @@ where
                 ffi::TimeToLiveTable_VerifyDocAndFieldMask(
                     spec.docs.ttl,
                     self.result.doc_id,
-                    u32::try_from(self.result.field_mask & mask).unwrap(),
+                    (self.result.field_mask & mask) as u32,
                     query_ctx.filter_ctx.predicate.as_u32(),
                     current_time,
                     spec.fieldIdToIndex,
