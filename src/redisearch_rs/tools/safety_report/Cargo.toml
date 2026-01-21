@@ -6,10 +6,10 @@ license-file.workspace = true
 publish.workspace = true
 
 [dependencies]
-cargo_metadata = "0.19"
-syn = { version = "2", features = ["full", "visit"] }
-anyhow = "1"
-walkdir = "2"
+anyhow.workspace = true
+cargo_metadata.workspace = true
+syn = { workspace = true, features = ["full", "visit"] }
+walkdir.workspace = true
 workspace_hack.workspace = true
 
 [lints]

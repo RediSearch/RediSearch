@@ -22,6 +22,7 @@ members = [
     "slots_tracker",
     "sorting_vector",
     "tools/license_header_linter",
+    "tools/safety_report",
     "tracing_redismodule",
     "trie_bencher",
     "trie_rs",
@@ -29,8 +30,7 @@ members = [
     "varint",
     "varint_bencher",
     "wildcard",
-    "workspace_hack"
-, "tools/safety_report"]
+    "workspace_hack"]
 
 resolver = "3"
 
@@ -93,7 +93,9 @@ wildcard = { path = "./wildcard" }
 workspace_hack = { path = "./workspace_hack" }
 
 anstyle-query = "1.1.5"
+anyhow = "1"
 bindgen = { version = "0.72", default-features = false }
+cargo_metadata = "0.19"
 cbindgen = "0.29"
 cc = "1.2.53"
 crc32fast = "1.5.0"
@@ -116,6 +118,7 @@ rmp-serde = "1.3.1"
 serde = { version = "1.0.228", features = ["derive"] }
 smallvec = "1.15.1"
 strum = { version = "0.27.2", features = ["derive"] }
+syn = "2"
 # need "unstable" for the "default_log_filter" attribute allowing to override the default level (info).
 test-log = { version = "0.2", features = ["trace", "unstable"] }
 thiserror = "2.0.18"
@@ -124,6 +127,7 @@ tracing-core = "0.1"
 tracing-subscriber = { version = "0.3.22", default-features = false, features = ["std", "fmt", "ansi", "env-filter"] }
 unsafe-tools = "0.1.2"
 ureq = "3.1"
+walkdir = "2"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 
 [workspace.dependencies.redis-module]
