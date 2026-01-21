@@ -20,6 +20,49 @@
 
 #include <memory>
 #include <string>
+#include <atomic>
+
+template <typename DistType>
+using candidatesList = vecsim_stl::vector<std::pair<DistType, idType>>;
+
+// Vectors flags (for marking a specific vector)
+using elementFlags = uint8_t;
+typedef enum : elementFlags {
+    DELETE_MARK = 0x1, // element is logically deleted, but still exists in the graph
+    IN_PROCESS = 0x2,  // element is being inserted into the graph
+} Flags;
+
+#pragma pack(1)
+struct ElementMetaData {
+    labelType label;
+    elementFlags flags;
+
+private:
+    std::atomic_bool lock_flag;
+
+public:
+    explicit ElementMetaData(labelType label = SIZE_MAX) noexcept : label(label), flags(IN_PROCESS), lock_flag(false) {}
+
+    void lock() noexcept {
+        bool expected = false;
+        while (!lock_flag.compare_exchange_weak(expected, true, std::memory_order_acquire)) {
+            expected = false;
+        }
+    }
+    void unlock() noexcept { lock_flag.store(false, std::memory_order_release); }
+};
+#pragma pack() // restore default packing
+
+// RAII lock guard for ElementMetaData
+class ElementLockGuard {
+    ElementMetaData& element;
+
+public:
+    explicit ElementLockGuard(ElementMetaData& elem) noexcept : element(elem) { element.lock(); }
+    ~ElementLockGuard() noexcept { element.unlock(); }
+    ElementLockGuard(const ElementLockGuard&) = delete;
+    ElementLockGuard& operator=(const ElementLockGuard&) = delete;
+};
 
 template <typename DataType, typename DistType>
 class HNSWDiskIndex : public VecSimIndexAbstract<DataType, DistType> {
@@ -62,12 +105,36 @@ public:
 
     HNSWStorage<DataType>* getStorage() const { return storage_.get(); }
 
+    void repairNode(idType id, levelType level);
+
+protected:
+    void getNeighborsByHeuristic2(candidatesList<DistType>& top_candidates, size_t M,
+                                  vecsim_stl::vector<idType>& not_chosen_candidates) const;
+
+    // Flagging API
+    template <Flags FLAG>
+    void markAs(idType internalId) {
+        __atomic_fetch_or(&idToMetaData[internalId].flags, FLAG, 0);
+    }
+    template <Flags FLAG>
+    void unmarkAs(idType internalId) {
+        __atomic_fetch_and(&idToMetaData[internalId].flags, ~FLAG, 0);
+    }
+    template <Flags FLAG>
+    bool isMarkedAs(idType internalId) const {
+        return __atomic_load_n(&idToMetaData[internalId].flags, 0) & FLAG;
+    }
+
 private:
     size_t M_;
+    size_t M0_;
     size_t efConstruction_;
     size_t efRuntime_;
     std::string indexName_;
     size_t curElementCount_ = 0;
+
+    // Index data
+    vecsim_stl::vector<ElementMetaData> idToMetaData;
 
     // Storage backend (owned by this index)
     std::unique_ptr<HNSWStorage<DataType>> storage_;
@@ -79,15 +146,33 @@ private:
 // Template Implementation
 
 template <typename DataType, typename DistType>
+void HNSWDiskIndex<DataType, DistType>::getNeighborsByHeuristic2(
+    candidatesList<DistType>& top_candidates, size_t M, vecsim_stl::vector<idType>& not_chosen_candidates) const {
+
+    // Stub - To be implemented correctly
+    not_chosen_candidates.clear();
+    if (top_candidates.size() <= M) {
+        return;
+    }
+    // Extract the IDs from the pairs that are beyond M
+    for (size_t i = M; i < top_candidates.size(); ++i) {
+        not_chosen_candidates.push_back(top_candidates[i].second);
+    }
+    top_candidates.resize(M);
+}
+
+template <typename DataType, typename DistType>
 HNSWDiskIndex<DataType, DistType>::HNSWDiskIndex(const VecSimParamsDisk* params,
                                                  const AbstractIndexInitParams& abstractInitParams,
                                                  const IndexComponents<DataType, DistType>& components,
                                                  std::unique_ptr<HNSWStorage<DataType>> storage)
     : VecSimIndexAbstract<DataType, DistType>(abstractInitParams, components),
-      indexName_(params->diskContext->indexName, params->diskContext->indexNameLen), storage_(std::move(storage)) {
+      indexName_(params->diskContext->indexName, params->diskContext->indexNameLen), idToMetaData(this->allocator),
+      storage_(std::move(storage)) {
     const HNSWParams& hnswParams = params->indexParams->algoParams.hnswParams;
     // Apply defaults for zero values (uses the public VectorSimilarity definitions)
     M_ = hnswParams.M ? hnswParams.M : HNSW_DEFAULT_M;
+    M0_ = M_ * 2;
     efConstruction_ = hnswParams.efConstruction ? hnswParams.efConstruction : HNSW_DEFAULT_EF_C;
     efRuntime_ = hnswParams.efRuntime ? hnswParams.efRuntime : HNSW_DEFAULT_EF_RT;
 }
@@ -128,6 +213,75 @@ VecSimQueryReply* HNSWDiskIndex<DataType, DistType>::rangeQuery(const void* quer
     (void)radius;
     (void)queryParams;
     return new VecSimQueryReply(this->allocator);
+}
+
+template <class DataType, class DistType>
+void HNSWDiskIndex<DataType, DistType>::repairNode(idType id, levelType level) {
+    if (isMarkedAs<DELETE_MARK>(id)) {
+        return; // Node is deleted, no need to repair
+    }
+    auto& metaData = idToMetaData[id];
+    ElementLockGuard lock(metaData);
+
+    // Get outgoing edges
+    vecsim_stl::vector<idType> outgoingEdges(this->allocator);
+    if (!storage_->get_outgoing_edges(id, level, outgoingEdges)) {
+        throw std::runtime_error("Failed to get outgoing edges from storage");
+    }
+    // Collect candidates for neighbors. We take:
+    // 1. The current not deleted neighbors
+    // 2. The not deleted neighbors of the current deleted neighbors
+    vecsim_stl::vector<idType> candidates(this->allocator);
+    vecsim_stl::unordered_set<idType> uniqueCandidates(this->allocator);
+    for (idType neighborId : outgoingEdges) {
+        if (!isMarkedAs<DELETE_MARK>(neighborId)) {
+            if (uniqueCandidates.find(neighborId) != uniqueCandidates.end()) {
+                continue;
+            }
+            uniqueCandidates.insert(neighborId);
+            candidates.push_back(neighborId);
+        } else {
+            // Get neighbors of the deleted neighbor
+            vecsim_stl::vector<idType> neighborNeighbors(this->allocator);
+            if (!storage_->get_outgoing_edges(neighborId, level, neighborNeighbors)) {
+                throw std::runtime_error("Failed to get outgoing edges from storage");
+            }
+            for (idType neighborNeighborId : neighborNeighbors) {
+                if (neighborNeighborId == id || uniqueCandidates.find(neighborNeighborId) != uniqueCandidates.end()) {
+                    continue;
+                }
+                uniqueCandidates.insert(neighborNeighborId);
+                if (!isMarkedAs<DELETE_MARK>(neighborNeighborId)) {
+                    candidates.push_back(neighborNeighborId);
+                }
+            }
+        }
+    }
+    size_t M = (level == 0) ? M0_ : M_;
+    if (candidates.size() > M) {
+        // Compute distances to candidates
+        candidatesList<DistType> candidateDistances(this->allocator);
+        candidateDistances.reserve(candidates.size());
+        for (idType candidateId : candidates) {
+            // Compute distance - TODO: Use SQ distance
+            DistType distance = 0.042; // Placeholder
+            candidateDistances.push_back(std::make_pair(distance, candidateId));
+        }
+        // Select neighbors using heuristic
+        vecsim_stl::vector<idType> notChosenCandidates(this->allocator);
+        this->getNeighborsByHeuristic2(candidateDistances, M, notChosenCandidates);
+        // Update candidates to chosen ones
+        candidates.clear();
+        for (const auto& pair : candidateDistances) {
+            candidates.push_back(pair.second);
+        }
+        // TODO: For ids we were not connected to, but are now connected to, add `id` to their incoming edges
+        // TODO: For ids we were connected to, but are not connected to anymore, remove `id` from their incoming edges
+    }
+    auto success = storage_->put_outgoing_edges(id, level, candidates);
+    if (!success) {
+        throw std::runtime_error("Failed to put outgoing edges to storage");
+    }
 }
 
 template <typename DataType, typename DistType>
