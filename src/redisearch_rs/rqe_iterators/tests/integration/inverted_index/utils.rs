@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{pin::Pin, ptr};
+use std::ptr;
 
 use ffi::{
     IndexFlags, IndexSpec, NumericRangeTree, QueryEvalCtx, RedisSearchCtx, SchemaRule, t_docId,
@@ -22,83 +22,108 @@ use rqe_iterators::{RQEIterator, SkipToOutcome};
 /// Mock search context creating fake objects for testing.
 /// It can be used to test expiration but not validation.
 /// Use [`TestContext`] instead to test revalidation.
+///
+/// Uses raw pointers for storage to avoid Stacked Borrows violations.
+/// Box would claim Unique ownership which gets invalidated when the library
+/// code creates references through the pointer chain (e.g., `sctx.spec.as_ref()`).
+/// Raw pointers don't participate in borrow tracking, so they're compatible
+/// with the library's reference creation.
 pub(crate) struct MockContext {
-    rule: SchemaRule,
-    spec: IndexSpec,
-    sctx: RedisSearchCtx,
-    qctx: QueryEvalCtx,
+    #[allow(dead_code)] // Holds allocation that spec.rule points to
+    rule: *mut SchemaRule,
+    spec: *mut IndexSpec,
+    sctx: *mut RedisSearchCtx,
+    #[allow(dead_code)]
+    qctx: *mut QueryEvalCtx,
     /// fake NumericRangeTree, cannot be used but those tests do not call revalidate()
-    numeric_range_tree: NumericRangeTree,
+    numeric_range_tree: *mut NumericRangeTree,
 }
 
-impl Default for MockContext {
-    fn default() -> Self {
-        let rule: SchemaRule = unsafe { std::mem::zeroed() };
-        let spec: IndexSpec = unsafe { std::mem::zeroed() };
-        let sctx: RedisSearchCtx = unsafe { std::mem::zeroed() };
-        let qctx: QueryEvalCtx = unsafe { std::mem::zeroed() };
-        let numeric_range_tree: NumericRangeTree = unsafe { std::mem::zeroed() };
-
-        Self {
-            rule,
-            spec,
-            sctx,
-            qctx,
-            numeric_range_tree,
-        }
-    }
-}
-
-// Only the miri version will allocate those as it needs to do ffi calls
-#[cfg(not(miri))]
 impl Drop for MockContext {
     fn drop(&mut self) {
+        // For non-miri builds, clean up ffi-allocated resources first
+        #[cfg(not(miri))]
         unsafe {
-            ffi::array_free(self.spec.fieldIdToIndex as _);
+            ffi::array_free((*self.spec).fieldIdToIndex as _);
+            if !(*self.spec).docs.ttl.is_null() {
+                ffi::TimeToLiveTable_Destroy(&mut (*self.spec).docs.ttl as _);
+            }
         }
 
+        // Deallocate all the structs using the global allocator directly.
+        // We can't use Box::from_raw because that would create a Box with a Unique
+        // tag, but the memory's borrow stack may have been modified by SharedReadOnly
+        // tags from the library code's reference creation.
         unsafe {
-            if !self.spec.docs.ttl.is_null() {
-                ffi::TimeToLiveTable_Destroy(&mut self.spec.docs.ttl as _);
-            }
+            std::alloc::dealloc(
+                self.rule as *mut u8,
+                std::alloc::Layout::new::<SchemaRule>(),
+            );
+            std::alloc::dealloc(self.spec as *mut u8, std::alloc::Layout::new::<IndexSpec>());
+            std::alloc::dealloc(
+                self.sctx as *mut u8,
+                std::alloc::Layout::new::<RedisSearchCtx>(),
+            );
+            std::alloc::dealloc(
+                self.qctx as *mut u8,
+                std::alloc::Layout::new::<QueryEvalCtx>(),
+            );
+            std::alloc::dealloc(
+                self.numeric_range_tree as *mut u8,
+                std::alloc::Layout::new::<NumericRangeTree>(),
+            );
         }
     }
 }
 
 impl MockContext {
-    pub(crate) fn new(max_doc_id: t_docId, num_docs: usize) -> Pin<Box<Self>> {
-        // Need to Pin the whole struct so pointers remain valid.
-        let mut boxed = Box::pin(Self::default());
+    pub(crate) fn new(max_doc_id: t_docId, num_docs: usize) -> Self {
+        // Allocate each struct using Box::into_raw to get raw pointers.
+        // We store raw pointers (not Boxes) because the library code creates
+        // references through the pointer chain which would invalidate Box's
+        // Unique ownership tag under Stacked Borrows.
 
-        // SAFETY: We need to set up self-referential pointers after pinning.
-        // The struct is now pinned and won't move, so these pointers will remain valid.
+        // Create boxes and immediately convert to raw pointers
+        let rule_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<SchemaRule>() }));
+        let spec_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<IndexSpec>() }));
+        let sctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<RedisSearchCtx>() }));
+        let qctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<QueryEvalCtx>() }));
+        let numeric_range_tree_ptr =
+            Box::into_raw(Box::new(unsafe { std::mem::zeroed::<NumericRangeTree>() }));
+
+        // Initialize all structs through raw pointers
         unsafe {
-            let ptr = boxed.as_mut().get_unchecked_mut();
-
             // Initialize SchemaRule
-            ptr.rule.index_all = false;
+            (*rule_ptr).index_all = false;
 
             // Initialize IndexSpec
-            ptr.spec.rule = &mut ptr.rule;
-            ptr.spec.monitorDocumentExpiration = true; // Only depends on API availability, so always true
-            ptr.spec.monitorFieldExpiration = true; // Only depends on API availability, so always true
-            ptr.spec.docs.maxDocId = max_doc_id;
-            ptr.spec.docs.size = if num_docs > 0 {
+            (*spec_ptr).rule = rule_ptr;
+            (*spec_ptr).monitorDocumentExpiration = true; // Only depends on API availability, so always true
+            (*spec_ptr).monitorFieldExpiration = true; // Only depends on API availability, so always true
+            (*spec_ptr).docs.maxDocId = max_doc_id;
+            (*spec_ptr).docs.size = if num_docs > 0 {
                 num_docs
             } else {
                 max_doc_id as usize
             };
-            ptr.spec.stats.scoring.numDocuments = ptr.spec.docs.size;
+            (*spec_ptr).stats.scoring.numDocuments = (*spec_ptr).docs.size;
 
             // Initialize RedisSearchCtx
-            ptr.sctx.spec = &mut ptr.spec;
+            (*sctx_ptr).spec = spec_ptr;
 
             // Initialize QueryEvalCtx
-            ptr.qctx.sctx = &mut ptr.sctx;
-            ptr.qctx.docTable = &mut ptr.spec.docs;
-        }
+            (*qctx_ptr).sctx = sctx_ptr;
+            (*qctx_ptr).docTable = ptr::addr_of_mut!((*spec_ptr).docs);
 
-        boxed
+            // Store raw pointers directly (don't convert back to Box)
+            Self {
+                rule: rule_ptr,
+                spec: spec_ptr,
+                sctx: sctx_ptr,
+                qctx: qctx_ptr,
+                numeric_range_tree: numeric_range_tree_ptr,
+            }
+        }
     }
 
     #[cfg(not(miri))] // those functions do ffi calls which are not supported by miri
@@ -117,10 +142,13 @@ impl MockContext {
         }
 
         // Set up the mock current time further in the future than the expiration point.
-        self.sctx.time.current = t_expirationTimePoint {
-            tv_sec: 100,
-            tv_nsec: 100,
-        };
+        // SAFETY: self.sctx is a valid pointer allocated in new()
+        unsafe {
+            (*self.sctx).time.current = t_expirationTimePoint {
+                tv_sec: 100,
+                tv_nsec: 100,
+            };
+        }
     }
 
     #[cfg(not(miri))]
@@ -190,8 +218,9 @@ impl MockContext {
             tv_nsec: i64::MAX,
         };
 
+        // SAFETY: self.spec is a valid pointer allocated in new()
         unsafe {
-            ffi::TimeToLiveTable_Add(self.spec.docs.ttl, doc_id, doc_expiration_time, fe as _);
+            ffi::TimeToLiveTable_Add((*self.spec).docs.ttl, doc_id, doc_expiration_time, fe as _);
         }
     }
 
@@ -200,34 +229,31 @@ impl MockContext {
     fn verify_ttl_init(&mut self) {
         use ffi::t_fieldIndex;
 
-        if !self.spec.fieldIdToIndex.is_null() {
-            return;
-        }
+        // SAFETY: self.spec is a valid pointer allocated in new()
+        unsafe {
+            if !(*self.spec).fieldIdToIndex.is_null() {
+                return;
+            }
 
-        // By default, set a max-length array (128 text fields) with fieldId(i) -> index(i)
-        let arr = unsafe { ffi::array_new_sz(std::mem::size_of::<t_fieldIndex>() as u16, 0, 128) };
-        let arr = arr.cast::<t_fieldIndex>();
+            // By default, set a max-length array (128 text fields) with fieldId(i) -> index(i)
+            let arr = ffi::array_new_sz(std::mem::size_of::<t_fieldIndex>() as u16, 0, 128);
+            let arr = arr.cast::<t_fieldIndex>();
 
-        for i in 0..128 as t_fieldIndex {
-            unsafe {
+            for i in 0..128 as t_fieldIndex {
                 arr.offset(i as isize).write(i);
             }
-        }
 
-        self.spec.fieldIdToIndex = arr as _;
-        unsafe {
-            ffi::TimeToLiveTable_VerifyInit(&mut self.spec.docs.ttl);
+            (*self.spec).fieldIdToIndex = arr as _;
+            ffi::TimeToLiveTable_VerifyInit(&mut (*self.spec).docs.ttl);
         }
     }
 
     pub(crate) fn sctx(&self) -> ptr::NonNull<RedisSearchCtx> {
-        ptr::NonNull::new(&self.sctx as *const _ as *mut _)
-            .expect("mock context should not be null")
+        ptr::NonNull::new(self.sctx).expect("mock context should not be null")
     }
 
     pub(crate) fn numeric_range_tree(&self) -> ptr::NonNull<NumericRangeTree> {
-        ptr::NonNull::new(&self.numeric_range_tree as *const _ as *mut _)
-            .expect("NumericRangeTree should not be null")
+        ptr::NonNull::new(self.numeric_range_tree).expect("NumericRangeTree should not be null")
     }
 }
 
@@ -236,7 +262,7 @@ pub(super) struct BaseTest<E> {
     doc_ids: Vec<t_docId>,
     pub(super) ii: InvertedIndex<E>,
     expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
-    pub(super) mock_ctx: Pin<Box<MockContext>>,
+    pub(super) mock_ctx: MockContext,
 }
 
 /// assert that both records are equal
@@ -409,7 +435,6 @@ pub(super) mod not_miri {
     use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
     use std::{
         ffi::CString,
-        pin::Pin,
         ptr,
         sync::atomic::{AtomicBool, Ordering},
     };
@@ -421,7 +446,7 @@ pub(super) mod not_miri {
         pub(crate) doc_ids: Vec<t_docId>,
         pub(crate) ii: InvertedIndex<E>,
         expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
-        pub(crate) mock_ctx: Pin<Box<MockContext>>,
+        pub(crate) mock_ctx: MockContext,
     }
 
     impl<E: Encoder> ExpirationTest<E> {
@@ -458,8 +483,7 @@ pub(super) mod not_miri {
 
         /// Mark the index as expired for the given document IDs.
         pub(crate) fn mark_index_expired(&mut self, ids: Vec<t_docId>, index: FieldMaskOrIndex) {
-            let mock_ctx = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.mock_ctx)) };
-            mock_ctx.mark_index_expired(ids, index);
+            self.mock_ctx.mark_index_expired(ids, index);
         }
 
         /// test read of expired documents.
