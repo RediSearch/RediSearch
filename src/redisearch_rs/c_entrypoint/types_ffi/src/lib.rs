@@ -521,6 +521,20 @@ pub unsafe extern "C" fn AggregateResult_GetRecordsSlice(
 ) -> AggregateRecordsSlice {
     debug_assert!(!agg.is_null(), "agg must not be null");
 
+    // Assert that we can safely cast `Box<RSIndexResult<'static>>` into `*mut RSIndexResult<'static>`
+    // which we can only do when the Global allocator remains a zero-sized type by extension ensuring
+    // the size and alignment remain the same. If this ever changes, we'll fail to compile.
+    const {
+        assert!(
+            size_of::<*mut RSIndexResult<'static>>() - size_of::<Box<RSIndexResult<'static>>>()
+                == 0
+        );
+        assert!(
+            align_of::<*mut RSIndexResult<'static>>() - align_of::<Box<RSIndexResult<'static>>>()
+                == 0
+        );
+    };
+
     // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
     // an `RSAggregateResult`.
     let agg = unsafe { &*agg };
