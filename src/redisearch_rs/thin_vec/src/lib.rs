@@ -126,7 +126,7 @@ fn allocate_for_capacity<T, S: VecCapacity>(cap: S) -> NonNull<Header<S>> {
         // SAFETY:
         // `layout.size()` is greater than zero, since `cap` is greater than zero
         // and we always allocate a header, even if `T` is a zero-sized type.
-        unsafe { alloc(layout) as *mut Header<S> }
+        unsafe { alloc(layout).cast::<Header<S>>() }
     };
 
     let Some(header) = NonNull::new(header) else {
@@ -295,15 +295,8 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
     ///
     /// This will not allocate.
     pub const fn new() -> ThinVec<T, S> {
-        // SAFETY:
-        // The pointer is not null since it comes from a (static) reference.
-        let ptr = unsafe {
-            // TODO: Use [NonNull::from_ref](https://doc.rust-lang.org/std/ptr/struct.NonNull.html#method.from_ref)
-            //   when it stabilizes
-            NonNull::new_unchecked(S::EMPTY_HEADER as *const Header<S> as *mut Header<S>)
-        };
         ThinVec {
-            ptr,
+            ptr: NonNull::from_ref(S::EMPTY_HEADER),
             _phantom: PhantomData,
         }
     }
@@ -409,12 +402,16 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
             // This could technically result in overflow, but padding
             // would have to be absurdly large for this to occur.
             let header_size = mem::size_of::<Header<S>>();
-            let header_ptr = self.ptr.as_ptr() as *mut u8;
+            let header_ptr = self.ptr.as_ptr().cast::<u8>();
             // SAFETY:
             // Due to all the reasoning above, we know that offsetted
             // pointer is valid and aligned in both the singleton and
             // the non-singleton cases.
-            unsafe { header_ptr.add(header_size + header_field_padding) as *mut T }
+            unsafe {
+                header_ptr
+                    .add(header_size + header_field_padding)
+                    .cast::<T>()
+            }
         }
     }
 
@@ -1313,10 +1310,11 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
             //   and we always allocate a header, even for zero-sized types.
             let ptr = unsafe {
                 realloc(
-                    self.ptr.as_ptr() as *mut u8,
+                    self.ptr.as_ptr().cast::<u8>(),
                     allocation_layout::<T, S>(old_cap),
                     new_layout.size(),
-                ) as *mut Header<S>
+                )
+                .cast::<Header<S>>()
             };
 
             let Some(ptr) = NonNull::new(ptr) else {
@@ -1339,7 +1337,7 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
 
     #[inline]
     fn is_singleton(&self) -> bool {
-        self.ptr.as_ptr() as *const Header<S> == S::EMPTY_HEADER
+        self.ptr.as_ptr().cast::<Header<S>>().cast_const() == S::EMPTY_HEADER
     }
 }
 
@@ -1435,7 +1433,7 @@ impl<T: Copy + std::fmt::Debug, S: VecCapacity> ThinVec<T, S> {
         let prefix_len = prefix.len();
         let self_len = self.len();
         let new_len = prefix_len + self_len;
-        debug_assert!(new_len <= isize::MAX as usize);
+        debug_assert!(isize::try_from(new_len).is_ok());
 
         if prefix.is_empty() {
             return;
@@ -1494,7 +1492,7 @@ impl<T, S: VecCapacity> Drop for ThinVec<T, S> {
             //   we're using to deallocate it.
             unsafe {
                 dealloc(
-                    self.ptr.as_ptr() as *mut u8,
+                    self.ptr.as_ptr().cast::<u8>(),
                     allocation_layout::<T, S>(self.header_ref().capacity()),
                 )
             }

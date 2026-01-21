@@ -1700,14 +1700,16 @@ impl<'filter, 'index, IR: NumericReader<'index>> FilterGeoReader<'filter, IR> {
     /// The caller should ensure the `geo_filter` pointer in the numeric filter is set and a valid
     /// pointer to a `GeoFilter` struct for the lifetime of this reader.
     pub fn new(filter: &'filter NumericFilter, inner: IR) -> Self {
+        // Safety: the caller is to ensure it is a valid `GeoFilter` instance
+        let maybe_geo_filter = unsafe { filter.geo_filter.cast::<GeoFilter>().as_ref() };
+
         debug_assert!(
-            !filter.geo_filter.is_null(),
+            maybe_geo_filter.is_some(),
             "FilterGeoReader needs the geo filter to be set on the numeric filter"
         );
 
-        // SAFETY: we just asserted the filter is set and the caller is to ensure it is a valid
-        // `GeoFilter` instance
-        let geo_filter = unsafe { &*(filter.geo_filter as *const GeoFilter) };
+        // SAFETY: we just asserted the filter is set
+        let geo_filter = unsafe { maybe_geo_filter.unwrap_unchecked() };
 
         Self {
             filter,

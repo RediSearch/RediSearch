@@ -261,7 +261,7 @@ impl<'a, T: RSValueTrait> LoadDocumentOptionsBuilder<'a, T> {
 
     #[cfg_attr(not(test), expect(unused, reason = "Used in follow-up PRs"))]
     pub const fn with_key_ptr(mut self, key_ptr: *const std::ffi::c_char) -> Self {
-        self.key_ptr = NonNull::new(key_ptr as *mut std::ffi::c_char);
+        self.key_ptr = NonNull::new(key_ptr.cast_mut());
         self
     }
 

@@ -184,7 +184,7 @@ pub unsafe extern "C" fn QueryError_CloneFrom(
     {
         // Safety: see safety requirement above.
         let dest_query_error =
-            unsafe { QueryError::from_opaque_ptr(dest as *const _) }.expect("dest is null");
+            unsafe { QueryError::from_opaque_ptr(dest.cast_const()) }.expect("dest is null");
 
         if !dest_query_error.is_ok() {
             return;

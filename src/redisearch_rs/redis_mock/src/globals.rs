@@ -37,5 +37,5 @@ pub const fn redis_module_ctx() -> *mut ffi::RedisModuleCtx {
     // - DUMMY_CONTEXT is only in scope within this function
     // - `redis_module::Context` is a wrapper around `redis_module::RedisModuleCtx`
     //   which in fact is the same as `ffi::RedisModuleCtx`
-    unsafe { DUMMY_CONTEXT.ctx as *mut _ }
+    unsafe { DUMMY_CONTEXT.ctx.cast::<ffi::RedisModuleCtx>() }
 }

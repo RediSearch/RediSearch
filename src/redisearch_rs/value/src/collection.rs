@@ -72,8 +72,9 @@ impl<T> RsValueCollection<T> {
         // Safety: the size of `layout` is always greater than 0
         // as we return early if `cap` equals 0.
         let ptr = unsafe { alloc(layout) };
-        let entries =
-            NonNull::new(ptr as *mut T).expect("error allocating space for RsValueCollection");
+        let entries = NonNull::new(ptr)
+            .expect("error allocating space for RsValueCollection")
+            .cast::<T>();
         Self { entries, cap }
     }
 
@@ -213,7 +214,7 @@ impl<T> Drop for RsValueCollection<T> {
         //   in `Self::reserve_uninit`.
         unsafe {
             dealloc(
-                self.entries.as_ptr() as *mut _,
+                self.entries.as_ptr().cast::<u8>(),
                 Self::entry_layout(self.cap),
             )
         };

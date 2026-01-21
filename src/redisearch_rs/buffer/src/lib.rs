@@ -13,7 +13,10 @@
 //! from `buffer.h`.
 
 use ffi::{Buffer_Free, Buffer_Grow};
-use std::{ptr::NonNull, slice};
+use std::{
+    ptr::{self, NonNull},
+    slice,
+};
 
 pub use reader::BufferReader;
 pub use writer::BufferWriter;
@@ -57,7 +60,7 @@ impl Buffer {
     /// Returns the initialized portion of the buffer as a mutable slice.
     pub const fn as_mut_slice(&mut self) -> &mut [u8] {
         // Safety: We assume `self.0.offset` is a valid length within the allocated memory.
-        unsafe { slice::from_raw_parts_mut(self.0.data as *mut u8, self.len()) }
+        unsafe { slice::from_raw_parts_mut(self.0.data.cast::<u8>(), self.len()) }
     }
 
     /// Returns the length of the buffer (number of initialized bytes).
@@ -103,7 +106,7 @@ impl Buffer {
         // Safety: `Buffer_Grow` is a C function that increases the buffer's capacity. It
         // expects a valid buffer pointer and returns the number of bytes added to capacity.
         // This number can be 0 if the buffer is already large enough.
-        unsafe { Buffer_Grow(&mut self.0 as *mut _, additional_capacity) };
+        unsafe { Buffer_Grow(ptr::from_mut(&mut self.0), additional_capacity) };
     }
 
     /// Advance the buffer by `n` bytes.
@@ -126,7 +129,7 @@ impl Drop for Buffer {
     fn drop(&mut self) {
         // Safety: `Buffer_Free` is a C function that frees the buffer's memory. It expects a valid
         // buffer pointer.
-        unsafe { Buffer_Free(&mut self.0 as *mut _) };
+        unsafe { Buffer_Free(ptr::from_mut(&mut self.0)) };
     }
 }
 

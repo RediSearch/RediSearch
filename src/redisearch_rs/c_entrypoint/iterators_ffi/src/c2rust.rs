@@ -186,7 +186,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             IteratorStatus_ITERATOR_EOF => Ok(None),
             IteratorStatus_ITERATOR_TIMEOUT => Err(RQEIteratorError::TimedOut),
             IteratorStatus_ITERATOR_OK => {
-                let data = self.current as *mut RSIndexResult;
+                let data = self.current.cast::<RSIndexResult>();
                 // SAFETY:
                 // - We have a unique handle over this iterator.
                 let data = unsafe {
@@ -223,7 +223,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             IteratorStatus_ITERATOR_EOF => Ok(None),
             IteratorStatus_ITERATOR_TIMEOUT => Err(RQEIteratorError::TimedOut),
             IteratorStatus_ITERATOR_OK => {
-                let data = self.current as *mut RSIndexResult;
+                let data = self.current.cast::<RSIndexResult>();
                 // SAFETY:
                 // - We have a unique handle over this iterator.
                 let data = unsafe {
@@ -233,7 +233,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
                 Ok(Some(SkipToOutcome::Found(data)))
             }
             IteratorStatus_ITERATOR_NOTFOUND => {
-                let data = self.current as *mut RSIndexResult;
+                let data = self.current.cast::<RSIndexResult>();
                 // SAFETY:
                 // - We have a unique handle over this iterator.
                 let data = unsafe {

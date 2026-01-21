@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ptr;
+
 use crate::{
     key::UserKey,
     string::{RedisModule_CreateString, RedisModule_FreeString},
@@ -57,7 +59,7 @@ pub unsafe extern "C" fn RedisModule_ScanKey(
     _privdata: *mut ::std::ffi::c_void,
 ) -> ::std::ffi::c_int {
     // Safety: Caller has to ensure 1
-    let key = unsafe { &*(key.cast::<UserKey>()) };
+    let key = unsafe { key.cast::<UserKey>().as_mut().unwrap() };
     let ctx = key.get_ctx();
 
     // Safety: Caller is has to ensure 2 and thus we can cast the context as [crate::TestContext]
@@ -85,7 +87,7 @@ pub unsafe extern "C" fn RedisModule_ScanKey(
 
         // call the callback,
         // Safety: if the user-code wants to use field or value after the loop it is their responsibility to copy them
-        unsafe { cb(key as *const _ as *mut _, field, value, _privdata) };
+        unsafe { cb(ptr::from_mut(key).cast(), field, value, _privdata) };
 
         // free the created strings
 

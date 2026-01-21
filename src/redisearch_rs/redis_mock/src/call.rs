@@ -92,7 +92,7 @@ pub unsafe extern "C" fn RedisModule_CallHgetAll(
     }
 
     let reply = Box::new(MockCallReply::new_array_from_strings(elements));
-    Box::into_raw(reply) as *mut redis_module::raw::RedisModuleCallReply
+    Box::into_raw(reply).cast::<redis_module::raw::RedisModuleCallReply>()
 }
 
 /// Mock functions to handle the call reply operations.

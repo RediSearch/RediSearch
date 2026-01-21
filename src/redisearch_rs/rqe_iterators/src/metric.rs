@@ -9,6 +9,8 @@
 
 //! Supporting types for [`Metric`].
 
+use std::ptr;
+
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdList};
 use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
 use inverted_index::RSIndexResult;
@@ -69,7 +71,9 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey
     }
 
     // SAFETY: set the C metrics array
-    unsafe { ffi::ResetAndPushMetricData(result as *mut _ as *mut ffi::RSIndexResult, val, key) };
+    unsafe {
+        ffi::ResetAndPushMetricData(ptr::from_mut(result).cast::<ffi::RSIndexResult>(), val, key)
+    };
 }
 
 impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {

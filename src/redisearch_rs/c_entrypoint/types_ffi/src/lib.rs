@@ -526,11 +526,11 @@ pub unsafe extern "C" fn AggregateResult_GetRecordsSlice(
     let agg = unsafe { &*agg };
     match agg {
         RSAggregateResult::Borrowed { records, .. } => AggregateRecordsSlice {
-            ptr: records.as_slice().as_ptr() as *const *const RSIndexResult,
+            ptr: records.as_slice().as_ptr().cast::<*const RSIndexResult>(),
             len: records.len(),
         },
         RSAggregateResult::Owned { records, .. } => AggregateRecordsSlice {
-            ptr: records.as_slice().as_ptr() as *const *const RSIndexResult,
+            ptr: records.as_slice().as_ptr().cast::<*const RSIndexResult>(),
             len: records.len(),
         },
     }
@@ -599,7 +599,7 @@ pub unsafe extern "C" fn RSOffsetVector_SetData(
     // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid RSOffsetVector.
     let offsets = unsafe { &mut *offsets };
 
-    offsets.data = data as _;
+    offsets.data = data.cast_mut();
     offsets.len = len;
 }
 

@@ -798,7 +798,7 @@ pub unsafe extern "C" fn IndexBlock_Data(ib: *const IndexBlock) -> *const c_char
     // SAFETY: The caller must ensure that `ib` is a valid pointer to an `IndexBlock`
     let ib = unsafe { &*ib };
 
-    ib.data().as_ptr() as *const _
+    ib.data().as_ptr().cast::<c_char>()
 }
 
 /// An opaque inverted index reader structure. The actual implementation is determined at runtime

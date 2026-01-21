@@ -146,6 +146,7 @@ impl RSValueTrait for RSValueFFI {
             let ref_ptr = unsafe { p.__bindgen_anon_1._ref };
 
             // Safety: We assume that a valid pointer is given by the C side
+            #[allow(clippy::cast_ptr_alignment)]
             Some(unsafe { &*(ref_ptr as *const RSValueFFI) })
         } else {
             None

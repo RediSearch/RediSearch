@@ -60,6 +60,13 @@ missing_const_for_fn = "warn"
 # These types are specified in clippy.toml.
 disallowed_types = "warn"
 
+# pointer safety
+cast_ptr_alignment = "deny"
+ptr_as_ptr = "deny"
+ptr_cast_constness = "deny"
+ref_as_ptr = "deny"
+transmute_ptr_to_ptr = "deny"
+
 [workspace.package]
 version = "0.0.1"
 edition = "2024"

@@ -9,7 +9,7 @@
 
 use std::{
     alloc::{self, Layout},
-    ffi::c_char,
+    ffi::{c_char, c_void},
     fmt,
     mem::MaybeUninit,
     num::NonZeroUsize,
@@ -75,7 +75,7 @@ impl RmAllocString {
         // Safety: caller must ensure (2)
         let rm_alloc = unsafe { RedisModule_Alloc.expect("Redis allocator not available") };
         // Safety: call to C function
-        let buf = unsafe { rm_alloc(length) } as *mut c_char;
+        let buf = unsafe { rm_alloc(length).cast::<c_char>() };
 
         let buf = NonNull::new(buf).expect("Failed to allocate memory");
 
@@ -132,7 +132,7 @@ impl Drop for RmAllocString {
         // uphold the safety requirements of accessing `RedisModule_Free`.
         let rm_free = unsafe { RedisModule_Free.expect("Redis allocator not available") };
         // Safety: call to C function
-        unsafe { rm_free(self.str.as_ptr() as *mut _) };
+        unsafe { rm_free(self.str.as_ptr().cast::<c_void>()) };
     }
 }
 
@@ -174,7 +174,7 @@ impl ConstString {
 
         // Safety: invariants (1) and (2) uphold the safety requirements
         // of `slice::from_raw_parts`
-        unsafe { slice::from_raw_parts(self.str as *const u8, self.len as usize) }
+        unsafe { slice::from_raw_parts(self.str.cast::<u8>(), self.len as usize) }
     }
 }
 
@@ -254,7 +254,7 @@ impl RedisString {
         let len = unsafe { len.assume_init() };
 
         // Safety: `str_ptr` is valid for reads of `len` bytes.
-        unsafe { slice::from_raw_parts(str_ptr as *const u8, len) }
+        unsafe { slice::from_raw_parts(str_ptr.cast::<u8>(), len) }
     }
 }
 
@@ -367,7 +367,7 @@ impl RsValueStringData {
         // Validate UTF-8-ness of s only in debug mode
         #[cfg(debug_assertions)]
         // Safety: caller must ensure (1)
-        str::from_utf8(unsafe { slice::from_raw_parts(s as *const u8, len.get()) })
+        str::from_utf8(unsafe { slice::from_raw_parts(s.cast::<u8>(), len.get()) })
             .expect("Invalid UTF-8 sequence");
 
         // Safety: caller must ensure (3), guaranteeing that the passed layout's
@@ -379,7 +379,7 @@ impl RsValueStringData {
         // - `s_cpy` is valid for writes of `len` bytes;
         // - `s` is valid for reads of `len` bytes (1);
         // - `s_cpy` was freshly allocated and does not overlap with `s`.
-        unsafe { s_cpy.copy_from_nonoverlapping(s as *const u8, len.get()) };
+        unsafe { s_cpy.copy_from_nonoverlapping(s.cast::<u8>(), len.get()) };
 
         Self { len, data: s_cpy }
     }
@@ -420,7 +420,7 @@ impl Drop for RsValueStringData {
         //   was upon allocation.
         unsafe {
             alloc::dealloc(
-                self.data as *mut u8,
+                self.data.cast_mut(),
                 Layout::array::<u8>(self.len.get()).unwrap(),
             );
         }

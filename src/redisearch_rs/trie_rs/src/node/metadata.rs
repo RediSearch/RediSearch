@@ -233,7 +233,13 @@ impl<Data> PtrMetadata<Data> {
         let ptr = {
             // SAFETY:
             // `layout.size()` is greater than zero, see 1. in [`AllocationInfo::layout`]
-            unsafe { std::alloc::alloc(self.layout()) as *mut NodeHeader }
+            unsafe {
+                #[expect(
+                    clippy::cast_ptr_alignment,
+                    reason = "casting *mut u8 to *mut NodeHeader is fine since the layout we pass to `alloc` guarantees correct alignment."
+                )]
+                std::alloc::alloc(self.layout()).cast::<NodeHeader>()
+            }
         };
         let Some(ptr) = NonNull::new(ptr) else {
             std::alloc::handle_alloc_error(self.layout())

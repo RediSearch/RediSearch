@@ -24,7 +24,7 @@ use std::hash::Hasher;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rs_fnv_32a_buf(buf: *const c_void, len: usize, hval: u32) -> u32 {
     // Safety: see safety point 1 above.
-    let bytes = unsafe { std::slice::from_raw_parts(buf as *const u8, len) };
+    let bytes = unsafe { std::slice::from_raw_parts(buf.cast::<u8>(), len) };
     let mut fnv = Fnv32::with_offset_basis(hval);
 
     fnv.write(bytes);
@@ -43,7 +43,7 @@ pub unsafe extern "C" fn rs_fnv_32a_buf(buf: *const c_void, len: usize, hval: u3
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fnv_64a_buf(buf: *const c_void, len: usize, hval: u64) -> u64 {
     // Safety: see safety point 1 above.
-    let bytes = unsafe { std::slice::from_raw_parts(buf as *const u8, len) };
+    let bytes = unsafe { std::slice::from_raw_parts(buf.cast::<u8>(), len) };
     let mut fnv = Fnv64::with_offset_basis(hval);
 
     fnv.write(bytes);
