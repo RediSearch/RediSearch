@@ -214,6 +214,9 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         spec->stats.scoringStats.numDocuments--;
         RS_ASSERT(spec->stats.scoringStats.totalDocsLen >= oldLen);
         spec->stats.scoringStats.totalDocsLen -= oldLen;
+        if (cur->options & DOCUMENT_ADD_REPLACE && spec->gc) {
+          GCContext_OnDelete(spec->gc);
+        }
       }
       if (docId) {
         cur->doc->docId = docId;
