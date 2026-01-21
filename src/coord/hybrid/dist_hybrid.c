@@ -497,8 +497,42 @@ void printShardsHybridProfile(RedisModule_Reply *reply, void *ctx) {
   }
 }
 
+// Callback to print subquery result processors for the coordinator profile
+static void printDistHybridSubqueryRPs(RedisModule_Reply *reply, void *ctx) {
+  HybridRequest *hreq = ctx;
+  bool profile_verbose = hreq->reqConfig.printProfileClock;
+
+  // Print subqueries result processors
+  // (SEARCH and VSIM pipelines in coordinator)
+  RedisModule_ReplyKV_Map(reply, "Subqueries result processors profile");
+
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ *areq = hreq->requests[i];
+    const char *subqueryType = "N/A";
+    if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) {
+      subqueryType = "SEARCH";
+    } else if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY) {
+      subqueryType = "VSIM";
+    }
+
+    ResultProcessor *rp = AREQ_QueryProcessingCtx(areq)->endProc;
+    RedisModule_ReplyKV_Array(reply, subqueryType);
+    Profile_PrintResultProcessors(reply, rp, profile_verbose);
+    RedisModule_Reply_ArrayEnd(reply);
+  }
+
+  RedisModule_Reply_MapEnd(reply);
+}
+
+// Coordinator profile printer that includes subquery result processors
+static void printDistHybridCoordinatorProfile(RedisModule_Reply *reply,
+                                              void *ctx) {
+  Profile_PrintHybridExtra(reply, ctx, printDistHybridSubqueryRPs, ctx);
+}
+
 void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
-  Profile_PrintInFormat(reply, printShardsHybridProfile, ctx, Profile_PrintHybrid, ctx);
+  Profile_PrintInFormat(reply, printShardsHybridProfile, ctx,
+                        printDistHybridCoordinatorProfile, ctx);
 }
 
 static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
