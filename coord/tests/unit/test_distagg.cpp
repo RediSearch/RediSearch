@@ -3,7 +3,6 @@
 #include "dist_plan.h"
 #include "aggregate/aggregate.h"
 #include "tests/cpptests/redismock/util.h"
-#include "cpptests/common.h"
 
 #include <vector>
 
