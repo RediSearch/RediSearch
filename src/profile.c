@@ -320,7 +320,11 @@ void Profile_AddIters(QueryIterator **root) {
       break;
     }
     case WILDCARD_ITERATOR:
-    case INV_IDX_ITERATOR:
+    case INV_IDX_NUMERIC_ITERATOR:
+    case INV_IDX_TERM_ITERATOR:
+    case INV_IDX_WILDCARD_ITERATOR:
+    case INV_IDX_MISSING_ITERATOR:
+    case INV_IDX_TAG_ITERATOR:
     case EMPTY_ITERATOR:
     case ID_LIST_ITERATOR:
     case METRIC_ITERATOR:
@@ -515,7 +519,12 @@ void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, Profile
 
   switch (root->type) {
     // Reader
-    case INV_IDX_ITERATOR:    { printInvIdxIt(reply, root, counters, cpuTime, config);                     break; }
+    case INV_IDX_NUMERIC_ITERATOR:
+    case INV_IDX_TERM_ITERATOR:
+    case INV_IDX_WILDCARD_ITERATOR:
+    case INV_IDX_MISSING_ITERATOR:
+    case INV_IDX_TAG_ITERATOR:
+      { printInvIdxIt(reply, root, counters, cpuTime, config);                     break; }
     // Multi values
     case UNION_ITERATOR:      { printUnionIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
     case INTERSECT_ITERATOR:  { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);  break; }

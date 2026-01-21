@@ -22,9 +22,6 @@ typedef struct InvIndIterator {
 
   IndexReader *reader;
 
-  // Whether this iterator is result of a wildcard query
-  bool isWildcard;
-
   union {
     struct {
       double rangeMin;
