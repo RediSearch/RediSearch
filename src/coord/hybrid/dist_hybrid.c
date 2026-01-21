@@ -386,29 +386,115 @@ static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorReques
   }
 }
 
-void printShardsHybridProfile(RedisModule_Reply *reply, void *ctx) {
-  HybridRequest *hreq = ctx;
-  // [{"SEARCH": [#1, #2, #3], "VSIM": [#1, #2, #3]"}]
+// Helper function to extract shard profile from a reply based on protocol version
+static MRReply *extractShardProfile(MRReply *current, bool resp3) {
+  if (MRReply_Type(current) == MR_REPLY_ERROR) {
+    return current;
+  }
+  if (resp3) {
+    // RESP3: profile -> Shards -> [shard_profile]
+    MRReply *shards = MRReply_MapElement(current, PROFILE_SHARDS_STR);
+    return MRReply_ArrayElement(shards, 0);
+  } else {
+    // RESP2: [results, shards_array] -> shards_array[0] is the shard profile
+    MRReply *shards_array_profile = MRReply_ArrayElement(current, 1);
+    MRReply *profile = MRReply_ArrayElement(shards_array_profile, 0);
+    // Convert to map for easier access (modifies in place)
+    MRReply_ArrayToMap(profile);
+    return profile;
+  }
+}
+
+// Helper function to extract Shard ID MRReply from a shard profile
+// Returns the MRReply for the Shard ID value (for use with MR_ReplyWithMRReply)
+static MRReply *extractShardIdReply(MRReply *shardProfile) {
+  if (!shardProfile || MRReply_Type(shardProfile) == MR_REPLY_ERROR) {
+    return NULL;
+  }
+  return MRReply_MapElement(shardProfile, "Shard ID");
+}
+
+// Helper function to print a profile map excluding the "Shard ID" field
+static void printProfileExcludingShardId(RedisModule_Reply *reply, MRReply *profile) {
+  if (!profile || MRReply_Type(profile) == MR_REPLY_ERROR) {
+    MR_ReplyWithMRReply(reply, profile);
+    return;
+  }
+
+  // Profile should be a map at this point
   RedisModule_Reply_Map(reply);
-  for (size_t i = 0; i < hreq->nrequests; i++) {
-    AREQ *areq = hreq->requests[i];
-    RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(areq)->rootProc;
-    PrintShardProfile_ctx sCtx = {
-      .count = array_len(rpnet->shardsProfile),
-      .replies = rpnet->shardsProfile,
-      .isSearch = false,
-    };
-    const char *subqueryType = "N/A";
-    if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) {
-      subqueryType = "SEARCH";
-    } else if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY) {
-      subqueryType = "VSIM";
+  size_t len = MRReply_Length(profile);
+  // Iterate through key-value pairs (len is total elements, so len/2 pairs)
+  for (size_t i = 0; i < len; i += 2) {
+    MRReply *key = MRReply_ArrayElement(profile, i);
+    MRReply *value = MRReply_ArrayElement(profile, i + 1);
+
+    // Skip "Shard ID" field
+    if (MRReply_StringEquals(key, "Shard ID", 1)) {
+      continue;
     }
-    RedisModule_ReplyKV_Array(reply, subqueryType);
-    PrintShardProfile(reply, &sCtx);
-    RedisModule_Reply_ArrayEnd(reply);
+
+    // Print key and value
+    MR_ReplyWithMRReply(reply, key);
+    MR_ReplyWithMRReply(reply, value);
   }
   RedisModule_Reply_MapEnd(reply);
+}
+
+void printShardsHybridProfile(RedisModule_Reply *reply, void *ctx) {
+  HybridRequest *hreq = ctx;
+  // New format: group by shard with Shard ID printed once per shard
+  // [{"Shard ID": "id", "SEARCH": profile (without Shard ID), "VSIM": profile (without Shard ID)}, ...]
+
+  // Get RPNets for SEARCH and VSIM requests
+  AREQ *searchAreq = hreq->requests[SEARCH_INDEX];
+  AREQ *vsimAreq = hreq->requests[VECTOR_INDEX];
+  RPNet *searchRpnet = (RPNet *)AREQ_QueryProcessingCtx(searchAreq)->rootProc;
+  RPNet *vsimRpnet = (RPNet *)AREQ_QueryProcessingCtx(vsimAreq)->rootProc;
+
+  size_t searchCount = array_len(searchRpnet->shardsProfile);
+  size_t vsimCount = array_len(vsimRpnet->shardsProfile);
+
+  // Use the maximum of the two counts to handle cases where one might have fewer responses
+  size_t maxShards = searchCount > vsimCount ? searchCount : vsimCount;
+
+  bool resp3 = reply->resp3;
+
+  // Iterate over shards and print both SEARCH and VSIM profiles for each shard
+  for (size_t i = 0; i < maxShards; i++) {
+    RedisModule_Reply_Map(reply);  // Start shard map
+
+    // Extract shard profiles
+    MRReply *searchProfile = (i < searchCount) ? extractShardProfile(searchRpnet->shardsProfile[i], resp3) : NULL;
+    MRReply *vsimProfile = (i < vsimCount) ? extractShardProfile(vsimRpnet->shardsProfile[i], resp3) : NULL;
+
+    // Extract and print Shard ID once (prefer from SEARCH profile, fallback to VSIM)
+    MRReply *shardIdReply = NULL;
+    if (searchProfile) {
+      shardIdReply = extractShardIdReply(searchProfile);
+    }
+    if (!shardIdReply && vsimProfile) {
+      shardIdReply = extractShardIdReply(vsimProfile);
+    }
+    if (shardIdReply) {
+      RedisModule_Reply_SimpleString(reply, "Shard ID");
+      MR_ReplyWithMRReply(reply, shardIdReply);
+    }
+
+    // Print SEARCH profile for this shard (excluding Shard ID)
+    if (searchProfile) {
+      RedisModule_Reply_SimpleString(reply, "SEARCH");
+      printProfileExcludingShardId(reply, searchProfile);
+    }
+
+    // Print VSIM profile for this shard (excluding Shard ID)
+    if (vsimProfile) {
+      RedisModule_Reply_SimpleString(reply, "VSIM");
+      printProfileExcludingShardId(reply, vsimProfile);
+    }
+
+    RedisModule_Reply_MapEnd(reply);  // End shard map
+  }
 }
 
 void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {

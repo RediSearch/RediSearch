@@ -621,20 +621,15 @@ void printHybridProfileCoordinator(RedisModule_Reply *reply, void *ctx) {
   }
 }
 
-// output "SEARCH", "VSIM" and "COMBINE"(if we are standalone)
+// output "SEARCH" and "VSIM" profiles grouped together for standalone mode
+// Format: {SEARCH: profile, VSIM: profile} - single shard with both profiles
 void printHybridProfileShards(RedisModule_Reply *reply, void *ctx) {
   HybridRequest *hreq = ctx;
-  RedisModule_Reply_Map(reply);
+  // For standalone mode, output as a single shard map containing both SEARCH
+  // and VSIM
+  RedisModule_Reply_Map(reply);  // Start shard map
   for (size_t i = 0; i < hreq->nrequests; i++) {
     AREQ *areq = hreq->requests[i];
-    // ProfilePrinterCtx sCtx = {
-    //   .req = areq,
-    //   .hreq = NULL,
-    //   .timedout = printerCtx->timedout,
-    //   .reachedMaxPrefixExpansions = printerCtx->reachedMaxPrefixExpansions,
-    //   .bgScanOOM = printerCtx->bgScanOOM,
-    //   .queryOOM = printerCtx->queryOOM,
-    // };
     const char *subqueryType = "N/A";
     if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) {
       subqueryType = "SEARCH";
