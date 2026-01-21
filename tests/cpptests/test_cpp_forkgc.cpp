@@ -236,7 +236,7 @@ TEST_F(FGCTestTag, testRemoveEntryFromLastBlock) {
 
   // numDocuments is updated in the indexing process, while all other fields are only updated if
   // their memory was cleaned by the gc.
-  ASSERT_EQ(0, (get_spec(ism))->stats.scoringStats.numDocuments);
+  ASSERT_EQ(0, (get_spec(ism))->stats.numDocuments);
   ASSERT_EQ(1, (get_spec(ism))->stats.numRecords);
   ASSERT_EQ(invertedSizeBeforeApply - fgc->stats.totalCollected, (get_spec(ism))->stats.invertedSize);
   ASSERT_EQ(1, TotalIIBlocks() - startValue);
@@ -277,7 +277,7 @@ TEST_F(FGCTestTag, testRemoveLastBlockWhileUpdate) {
 
   // numDocuments is updated in the indexing process, while all other fields are only updated if
   // their memory was cleaned by the gc.
-  ASSERT_EQ(1, (get_spec(ism))->stats.scoringStats.numDocuments);
+  ASSERT_EQ(1, (get_spec(ism))->stats.numDocuments);
   ASSERT_EQ(2, (get_spec(ism))->stats.numRecords);
   ASSERT_EQ(invertedSizeBeforeApply, (get_spec(ism))->stats.invertedSize);
   ASSERT_EQ(1, TotalIIBlocks() - startValue);
@@ -331,7 +331,7 @@ TEST_F(FGCTestTag, testModifyLastBlockWhileAddingNewBlocks) {
 
   // numDocuments is updated in the indexing process, while all other fields are only updated if
   // their memory was cleaned by the gc.
-  ASSERT_EQ(addedDocs - 1, (get_spec(ism))->stats.scoringStats.numDocuments);
+  ASSERT_EQ(addedDocs - 1, (get_spec(ism))->stats.numDocuments);
   // All other updates are ignored.
   ASSERT_EQ(3, TotalIIBlocks() - startValue);
   ASSERT_EQ(addedDocs, (get_spec(ism))->stats.numRecords);
@@ -366,7 +366,7 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
     ASSERT_TRUE(RS::deleteDocument(ctx, ism, buf));
   }
 
-  ASSERT_EQ(0, sctx.spec->stats.scoringStats.numDocuments);
+  ASSERT_EQ(0, sctx.spec->stats.numDocuments);
 
   /**
    * This function allows the GC to perform fork(2), but makes it wait
@@ -400,7 +400,7 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   // numDocuments is updated in the indexing process, while all other fields are only updated if
   // their memory was cleaned by the gc.
   // In this case the spec contains only one valid document.
-  ASSERT_EQ(1, sctx.spec->stats.scoringStats.numDocuments);
+  ASSERT_EQ(1, sctx.spec->stats.numDocuments);
   // But the last block deletion was skipped.
   ASSERT_EQ(2, sctx.spec->stats.numRecords);
   // 24 bytes is the base size of an inverted index, 8 is the header of the block vector
@@ -462,7 +462,7 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
 
   // curId - 1 = total added documents
   size_t valid_docs = curId - 1 - total_deletions;
-  ASSERT_EQ(valid_docs, sctx.spec->stats.scoringStats.numDocuments);
+  ASSERT_EQ(valid_docs, sctx.spec->stats.numDocuments);
 
   size_t lastBlockEntries = IndexBlock_NumEntries(InvertedIndex_BlockRef(iv, 2));
   FGC_ForkAndWaitBeforeApply(fgc);
@@ -478,7 +478,7 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   // The deletion in the last block was ignored,
   ASSERT_EQ(1 + valid_docs, sctx.spec->stats.numRecords);
   // Other updates should take place.
-  ASSERT_EQ(valid_docs, sctx.spec->stats.scoringStats.numDocuments);
+  ASSERT_EQ(valid_docs, sctx.spec->stats.numDocuments);
   // We are left with the first + last block.
   ASSERT_EQ(2, InvertedIndex_NumBlocks(iv));
   // The first entry was deleted. first block starts from docId = 2.

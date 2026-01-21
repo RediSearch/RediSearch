@@ -759,6 +759,7 @@ def test_slots_info_errors(env: Env):
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', generate_slots(range(0, 0)), '_SLOTS_INFO', generate_slots(range(0, 0))).error().contains('_SLOTS_INFO already specified')
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@n', '$BLOB', '_SLOTS_INFO', generate_slots(range(0, 0)), '_SLOTS_INFO', generate_slots(range(0, 0)), 'PARAMS', '2', 'BLOB', b'\x00\x00\x00\x00').error().contains('_SLOTS_INFO: Argument specified multiple times')
 
+
 def info_modules_to_dict(conn):
     res = conn.execute_command('INFO MODULES')
     info = dict()
