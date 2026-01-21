@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 cargo_metadata.workspace = true
+proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { workspace = true, features = ["full", "visit"] }
 walkdir.workspace = true
 workspace_hack.workspace = true

@@ -1798,6 +1798,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "cargo_metadata",
+ "proc-macro2",
  "syn 2.0.114",
  "walkdir",
  "workspace_hack",

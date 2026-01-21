@@ -13,17 +13,19 @@ use std::path::Path;
 use syn::visit::Visit;
 use walkdir::WalkDir;
 
-/// Counts unsafe usage in Rust code
+/// Counts unsafe usage and lines of code in Rust code
 #[derive(Default, Debug)]
 struct UnsafeVisitor {
-    /// unsafe fn declarations
+    /// number of unsafe fn declarations
     unsafe_fns: u64,
-    /// unsafe blocks
-    unsafe_blocks: u64,
-    /// unsafe impl blocks
+    /// lines inside unsafe blocks
+    unsafe_block_lines: u64,
+    /// unsafe impl declarations (count)
     unsafe_impls: u64,
-    /// unsafe trait declarations
+    /// unsafe trait declarations (count)
     unsafe_traits: u64,
+    /// total lines of code (excluding test code)
+    lines: u64,
 }
 
 /// Check if attributes contain #[cfg(test)]
@@ -45,16 +47,30 @@ fn is_cfg_test(attrs: &[syn::Attribute]) -> bool {
     })
 }
 
+/// Count the lines spanned by a syntax node
+fn span_lines(span: proc_macro2::Span) -> u64 {
+    let start = span.start().line;
+    let end = span.end().line;
+    (end - start + 1) as u64
+}
+
 impl<'ast> Visit<'ast> for UnsafeVisitor {
     fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
+        // Skip #[test] functions
+        if node.attrs.iter().any(|a| a.path().is_ident("test")) {
+            return;
+        }
         // Skip #[cfg(test)] functions
         if is_cfg_test(&node.attrs) {
             return;
         }
+
+        let fn_lines = span_lines(node.block.brace_token.span.join());
+        self.lines += fn_lines;
+
         if node.sig.unsafety.is_some() {
             self.unsafe_fns += 1;
         }
-        // Continue visiting inside the function
         syn::visit::visit_item_fn(self, node);
     }
 
@@ -67,9 +83,9 @@ impl<'ast> Visit<'ast> for UnsafeVisitor {
     }
 
     fn visit_impl_item_fn(&mut self, node: &'ast syn::ImplItemFn) {
-        if is_cfg_test(&node.attrs) {
-            return;
-        }
+        let fn_lines = span_lines(node.block.brace_token.span.join());
+        self.lines += fn_lines;
+
         if node.sig.unsafety.is_some() {
             self.unsafe_fns += 1;
         }
@@ -77,8 +93,9 @@ impl<'ast> Visit<'ast> for UnsafeVisitor {
     }
 
     fn visit_trait_item_fn(&mut self, node: &'ast syn::TraitItemFn) {
-        if is_cfg_test(&node.attrs) {
-            return;
+        if let Some(block) = &node.default {
+            let fn_lines = span_lines(block.brace_token.span.join());
+            self.lines += fn_lines;
         }
         if node.sig.unsafety.is_some() {
             self.unsafe_fns += 1;
@@ -87,7 +104,7 @@ impl<'ast> Visit<'ast> for UnsafeVisitor {
     }
 
     fn visit_expr_unsafe(&mut self, node: &'ast syn::ExprUnsafe) {
-        self.unsafe_blocks += 1;
+        self.unsafe_block_lines += span_lines(node.block.brace_token.span.join());
         syn::visit::visit_expr_unsafe(self, node);
     }
 
@@ -103,13 +120,45 @@ impl<'ast> Visit<'ast> for UnsafeVisitor {
     }
 
     fn visit_item_trait(&mut self, node: &'ast syn::ItemTrait) {
-        if is_cfg_test(&node.attrs) {
-            return;
-        }
         if node.unsafety.is_some() {
             self.unsafe_traits += 1;
         }
         syn::visit::visit_item_trait(self, node);
+    }
+
+    fn visit_item_struct(&mut self, node: &'ast syn::ItemStruct) {
+        if !is_cfg_test(&node.attrs) {
+            self.lines += span_lines(node.ident.span());
+        }
+        syn::visit::visit_item_struct(self, node);
+    }
+
+    fn visit_item_enum(&mut self, node: &'ast syn::ItemEnum) {
+        if !is_cfg_test(&node.attrs) {
+            self.lines += span_lines(node.brace_token.span.join());
+        }
+        syn::visit::visit_item_enum(self, node);
+    }
+
+    fn visit_item_const(&mut self, node: &'ast syn::ItemConst) {
+        if !is_cfg_test(&node.attrs) {
+            self.lines += 1;
+        }
+        syn::visit::visit_item_const(self, node);
+    }
+
+    fn visit_item_static(&mut self, node: &'ast syn::ItemStatic) {
+        if !is_cfg_test(&node.attrs) {
+            self.lines += 1;
+        }
+        syn::visit::visit_item_static(self, node);
+    }
+
+    fn visit_item_type(&mut self, node: &'ast syn::ItemType) {
+        if !is_cfg_test(&node.attrs) {
+            self.lines += 1;
+        }
+        syn::visit::visit_item_type(self, node);
     }
 }
 
@@ -118,86 +167,26 @@ impl<'ast> Visit<'ast> for UnsafeVisitor {
 struct CrateStats {
     name: String,
     version: String,
+    /// Total lines of code
     lines: u64,
+    /// Number of unsafe fn declarations
     unsafe_fns: u64,
-    unsafe_blocks: u64,
+    /// Lines inside unsafe blocks
+    unsafe_block_lines: u64,
+    /// Number of unsafe impl declarations
     unsafe_impls: u64,
+    /// Number of unsafe trait declarations
     unsafe_traits: u64,
 }
 
 impl CrateStats {
-    const fn total_unsafe(&self) -> u64 {
-        self.unsafe_fns + self.unsafe_blocks + self.unsafe_impls + self.unsafe_traits
-    }
-
     fn unsafe_ratio(&self) -> f64 {
         if self.lines == 0 {
             0.0
         } else {
-            (self.total_unsafe() as f64) / (self.lines as f64) * 100.0
+            (self.unsafe_block_lines as f64) / (self.lines as f64) * 100.0
         }
     }
-}
-
-/// Count lines of code, excluding comments and blank lines
-fn count_code_lines(content: &str) -> u64 {
-    let mut lines = 0u64;
-    let mut in_block_comment = false;
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-
-        // Handle block comments
-        if in_block_comment {
-            if let Some(pos) = trimmed.find("*/") {
-                // Block comment ends on this line
-                in_block_comment = false;
-                // Check if there's code after the block comment
-                let after = trimmed[pos + 2..].trim();
-                if !after.is_empty() && !after.starts_with("//") {
-                    lines += 1;
-                }
-            }
-            continue;
-        }
-
-        // Skip empty lines
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        // Skip line comments (// and /// and //!)
-        if trimmed.starts_with("//") {
-            continue;
-        }
-
-        // Check for block comment start
-        if let Some(pos) = trimmed.find("/*") {
-            // Check if it's a single-line block comment
-            if let Some(end_pos) = trimmed[pos + 2..].find("*/") {
-                // Single-line block comment - check if there's code around it
-                let before = trimmed[..pos].trim();
-                let after = trimmed[pos + 2 + end_pos + 2..].trim();
-                if !before.is_empty() || !after.is_empty() {
-                    lines += 1;
-                }
-            } else {
-                // Multi-line block comment starts
-                in_block_comment = true;
-                // Check if there's code before the comment
-                let before = trimmed[..pos].trim();
-                if !before.is_empty() {
-                    lines += 1;
-                }
-            }
-            continue;
-        }
-
-        // Regular code line
-        lines += 1;
-    }
-
-    lines
 }
 
 fn main() -> Result<()> {
@@ -246,14 +235,14 @@ fn main() -> Result<()> {
     for pkg in workspace_packages {
         // Only analyze src/ directory, not tests/
         let src_dir = pkg.manifest_path.parent().unwrap().join("src");
-        let (lines, visitor) = analyze_directory(src_dir.as_std_path());
+        let visitor = analyze_directory(src_dir.as_std_path());
 
         let stats = CrateStats {
             name: pkg.name.clone(),
             version: pkg.version.to_string(),
-            lines,
+            lines: visitor.lines,
             unsafe_fns: visitor.unsafe_fns,
-            unsafe_blocks: visitor.unsafe_blocks,
+            unsafe_block_lines: visitor.unsafe_block_lines,
             unsafe_impls: visitor.unsafe_impls,
             unsafe_traits: visitor.unsafe_traits,
         };
@@ -297,27 +286,31 @@ fn main() -> Result<()> {
 fn print_report(stats: &[CrateStats]) {
     println!();
     println!(
-        "| {:<38} | {:>8} | {:>8} | {:>10} | {:>8} | {:>8} | {:>10} |",
-        "Crate", "Lines", "Fns", "Blocks", "Impls", "Traits", "Ratio (%)"
+        "| {:<38} | {:>8} | {:>11} | {:>18} | {:>12} | {:>13} | {:>10} |",
+        "Crate",
+        "Lines",
+        "Unsafe Fn",
+        "Unsafe Block Lines",
+        "Unsafe Impls",
+        "Unsafe Traits",
+        "Ratio (%)"
     );
     println!(
-        "|{:-<40}|{:->10}|{:->10}|{:->12}|{:->10}|{:->10}|{:->12}|",
+        "|{:-<40}|{:->10}|{:->13}|{:->20}|{:->14}|{:->15}|{:->12}|",
         "", "", "", "", "", "", ""
     );
 
     let mut total_lines = 0u64;
-    let mut total_unsafe = 0u64;
 
     for s in stats {
         total_lines += s.lines;
-        total_unsafe += s.total_unsafe();
 
         println!(
-            "| {:<38} | {:>8} | {:>8} | {:>10} | {:>8} | {:>8} | {:>10.4} |",
+            "| {:<38} | {:>8} | {:>11} | {:>18} | {:>12} | {:>13} | {:>10.4} |",
             format!("{} v{}", s.name, s.version),
             s.lines,
             s.unsafe_fns,
-            s.unsafe_blocks,
+            s.unsafe_block_lines,
             s.unsafe_impls,
             s.unsafe_traits,
             s.unsafe_ratio()
@@ -325,26 +318,26 @@ fn print_report(stats: &[CrateStats]) {
     }
 
     let overall_ratio = if total_lines > 0 {
-        (total_unsafe as f64) / (total_lines as f64) * 100.0
+        (stats.iter().map(|s| s.unsafe_block_lines).sum::<u64>() as f64) / (total_lines as f64)
+            * 100.0
     } else {
         0.0
     };
     println!(
-        "| {:<38} | {:>8} | {:>8} | {:>10} | {:>8} | {:>8} | {:>10.4} |",
+        "| {:<38} | {:>8} | {:>11} | {:>18} | {:>12} | {:>13} | {:>10.4} |",
         "**TOTAL**",
         total_lines,
         stats.iter().map(|s| s.unsafe_fns).sum::<u64>(),
-        stats.iter().map(|s| s.unsafe_blocks).sum::<u64>(),
+        stats.iter().map(|s| s.unsafe_block_lines).sum::<u64>(),
         stats.iter().map(|s| s.unsafe_impls).sum::<u64>(),
         stats.iter().map(|s| s.unsafe_traits).sum::<u64>(),
         overall_ratio
     );
 }
 
-/// Analyze all .rs files in a directory, returning (lines, unsafe counts)
+/// Analyze all .rs files in a directory, returning unsafe counts (including lines)
 /// Excludes tests/ directory and files under it
-fn analyze_directory(dir: &Path) -> (u64, UnsafeVisitor) {
-    let mut total_lines = 0u64;
+fn analyze_directory(dir: &Path) -> UnsafeVisitor {
     let mut visitor = UnsafeVisitor::default();
 
     for entry in WalkDir::new(dir)
@@ -358,9 +351,6 @@ fn analyze_directory(dir: &Path) -> (u64, UnsafeVisitor) {
     {
         let path = entry.path();
         if let Ok(content) = std::fs::read_to_string(path) {
-            // Count non-empty, non-comment lines
-            total_lines += count_code_lines(&content);
-
             // Parse and visit
             match syn::parse_file(&content) {
                 Ok(file) => visitor.visit_file(&file),
@@ -371,5 +361,5 @@ fn analyze_directory(dir: &Path) -> (u64, UnsafeVisitor) {
         }
     }
 
-    (total_lines, visitor)
+    visitor
 }
