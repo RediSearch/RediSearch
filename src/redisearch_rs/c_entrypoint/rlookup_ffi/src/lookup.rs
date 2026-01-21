@@ -470,7 +470,7 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
 pub unsafe extern "C" fn RLookup_LoadRuleFields(
     module_ctx: Option<NonNull<ffi::RedisModuleCtx>>,
     lookup: Option<NonNull<RLookup<'_>>>,
-    dst_row: Option<NonNull<RLookupRow>>,
+    dst_row: Option<NonNull<RLookupRow<'_>>>,
     index_spec: Option<NonNull<ffi::IndexSpec>>,
     key: *const c_char,
 ) -> i32 {
