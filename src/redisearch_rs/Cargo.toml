@@ -68,16 +68,17 @@ publish = false
 
 [workspace.dependencies]
 buffer = { path = "./buffer" }
+build_utils = { path = "./build_utils" }
 c_ffi_utils = { path = "./c_entrypoint/c_ffi_utils" }
 document = { path = "./document" }
 ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
 fnv = { path = "./fnv" }
 inverted_index = { path = "./inverted_index" }
-thin_vec = { path = "./thin_vec" }
 qint = { path = "./qint" }
 query_error = { path = "./query_error" }
 redis_mock = { path = "./redis_mock" }
+redisearch_rs = { path = "./c_entrypoint/redisearch_rs" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
 rqe_iterators = { path = "./rqe_iterators" }
@@ -85,6 +86,7 @@ rqe_iterators_interop = { path = "./rqe_iterators_interop" }
 search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
+thin_vec = { path = "./thin_vec" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
 value = { path = "./value" }
