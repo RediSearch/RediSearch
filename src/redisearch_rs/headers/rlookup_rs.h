@@ -429,7 +429,7 @@ void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
 void RLookup_Cleanup(struct RLookup *lookup);
 
 /**
- * Initialize the lookup with fields from hash.
+ * Initialize the lookup with fields from a Redis hash.
  *
  * # Safety
  *
