@@ -5,4 +5,4 @@ export DEBIAN_FRONTEND=noninteractive
 
 $MODE dnf update -y
 $MODE dnf install -y wget tar gzip git which gcc gcc-c++ libstdc++-static make rsync unzip clang clang-devel
-$MODE dnf install -y openssl openssl-devel
+$MODE dnf install -y openssl openssl-devel gdb
