@@ -17,7 +17,6 @@ use std::ptr::NonNull;
 ///
 /// This iterator is returned by [`JsonValueRef::get`] and yields
 /// all values matching a JSON path expression.
-// TODO should be lending iterator
 pub struct ResultsIter<'a> {
     ptr: NonNull<c_void>,
     next: unsafe extern "C" fn(ffi::JSONResultsIterator) -> ffi::RedisJSON,
