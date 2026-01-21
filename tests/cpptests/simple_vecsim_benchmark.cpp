@@ -12,15 +12,6 @@
 
 #include "VecSim/vec_sim.h"
 
-// Rust debug functions (only available when using Rust backend)
-#ifdef USE_RUST_VECSIM
-extern "C" {
-    size_t VecSim_GetRangeSearchIterations();
-    size_t VecSim_GetRangeSearchCalls();
-    void VecSim_ResetRangeSearchCounters();
-}
-#endif
-
 using namespace std;
 using namespace std::chrono;
 
@@ -105,17 +96,6 @@ int main(int argc, char** argv) {
         print_result(results.back());
 
         // Range search
-        // First, do a single range query to check results
-        {
-            VecSimQueryReply* reply = VecSimIndex_RangeQuery(index, queries.data(), RANGE, nullptr, BY_SCORE);
-            size_t num_results = VecSimQueryReply_Len(reply);
-            cout << "  (First range query returned " << num_results << " results)" << endl;
-            VecSimQueryReply_Free(reply);
-        }
-
-#ifdef USE_RUST_VECSIM
-        VecSim_ResetRangeSearchCounters();
-#endif
         start = high_resolution_clock::now();
         for (size_t i = 0; i < NUM_QUERIES; i++) {
             VecSimQueryReply* reply = VecSimIndex_RangeQuery(index, queries.data() + i * DIM, RANGE, nullptr, BY_SCORE);
@@ -124,14 +104,6 @@ int main(int argc, char** argv) {
         elapsed = duration_cast<microseconds>(high_resolution_clock::now() - start).count();
         results.push_back({"HNSW: Range search (r=" + to_string(RANGE) + ")", elapsed, NUM_QUERIES, (double)NUM_QUERIES * 1e6 / elapsed});
         print_result(results.back());
-#ifdef USE_RUST_VECSIM
-        {
-            size_t total_iters = VecSim_GetRangeSearchIterations();
-            size_t total_calls = VecSim_GetRangeSearchCalls();
-            cout << "  (Rust range search: " << total_calls << " calls, " << total_iters << " total iterations, "
-                 << (total_calls > 0 ? total_iters / total_calls : 0) << " avg iters/call)" << endl;
-        }
-#endif
 
         VecSimIndex_Free(index);
     }
