@@ -71,7 +71,7 @@ public:
     spec.monitorFieldExpiration = true; // Only depends on API availability, so always true
     spec.docs.maxDocId = maxDocId;
     spec.docs.size = numDocs ?: maxDocId;
-    spec.stats.scoringStats.numDocuments = spec.docs.size;
+    spec.stats.numDocuments = spec.docs.size;
 
     // Initialize RedisSearchCtx
     sctx = {0};
@@ -88,7 +88,7 @@ public:
     docs.erase(std::unique(docs.begin(), docs.end()), docs.end());
     spec.docs.maxDocId = docs.empty() ? 0 : docs.back();
     spec.docs.size = docs.size();
-    spec.stats.scoringStats.numDocuments = docs.size();
+    spec.stats.numDocuments = docs.size();
     rule.index_all = true; // Enable index_all for wildcard iterator tests
     spec.existingDocs = NewInvertedIndex(Index_DocIdsOnly, &spec.stats.invertedSize);
     for (t_docId docId : docs) {
