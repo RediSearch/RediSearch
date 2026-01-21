@@ -181,7 +181,7 @@ macro_rules! impl_encode {
                 // expected integer size. We'll progressively shift
                 // bits to the left to make space for the
                 // coming blocks.
-                let mut val: Self = (c & 0b0111_1111) as _;
+                let mut val: Self = Self::from(c & 0b0111_1111);
                 // Is the continuation bit set?
                 while c & 0b1000_0000 != 0 {
                     // Mirror the range optimization
@@ -197,7 +197,7 @@ macro_rules! impl_encode {
                         (val << 7)
                         // To make space for the 7 value bits
                         // from the current block.
-                        | ((c & 0b0111_1111) as Self);
+                        | Self::from(c & 0b0111_1111);
                 }
 
                 Ok(val)

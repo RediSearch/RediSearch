@@ -32,7 +32,7 @@ impl VarintBencher {
         let u64_values = test_values
             .iter()
             .map(|input| BenchInputs {
-                values: input.values.iter().map(|&v| v as u64).collect(),
+                values: input.values.iter().map(|&v| u64::from(v)).collect(),
                 n_bytes: input.n_bytes,
             })
             .collect();

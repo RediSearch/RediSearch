@@ -327,7 +327,7 @@ impl RsValueStringData {
         #[cfg(not(debug_assertions))]
         // Safety: caller ensures s is not empty.
         let len = unsafe { NonZeroUsize::new_unchecked(s.len()) };
-        debug_assert!(s.len() <= isize::MAX as usize);
+        debug_assert!(isize::try_from(s.len()).is_ok());
 
         // Safety:
         // Caller ensures that the length of `s` is greater than 0,
@@ -357,7 +357,7 @@ impl RsValueStringData {
     /// - (4) `len` must not exceed `isize::MAX`
     unsafe fn copy_from_c_chars_unchecked(s: *const c_char, len: usize) -> Self {
         debug_assert!(!s.is_null());
-        debug_assert!(len <= isize::MAX as usize);
+        debug_assert!(isize::try_from(len).is_ok());
         #[cfg(debug_assertions)]
         let len = NonZeroUsize::new(len).expect("s cannot empty");
         #[cfg(not(debug_assertions))]
@@ -398,7 +398,7 @@ impl RsValueStringData {
     }
 
     fn layout(len: usize) -> Layout {
-        debug_assert!(len <= isize::MAX as usize);
+        debug_assert!(isize::try_from(len).is_ok());
         Layout::array::<u8>(len).expect("Length exceeds `isize::MAX`")
     }
 }

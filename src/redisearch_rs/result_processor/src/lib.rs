@@ -167,16 +167,16 @@ impl Upstream<'_> {
         // the QueryIterator and other result processors are implemented correctly, this should be safe.
         let ret_code = unsafe { next(self.ptr.as_ptr(), res) };
 
-        match ret_code as ffi::RPStatus {
-            ffi::RPStatus_RS_RESULT_OK => Ok(Some(())),
-            ffi::RPStatus_RS_RESULT_EOF => Ok(None),
-            ffi::RPStatus_RS_RESULT_PAUSED => {
+        match ffi::RPStatus::try_from(ret_code) {
+            Ok(ffi::RPStatus_RS_RESULT_OK) => Ok(Some(())),
+            Ok(ffi::RPStatus_RS_RESULT_EOF) => Ok(None),
+            Ok(ffi::RPStatus_RS_RESULT_PAUSED) => {
                 unimplemented!("result processor returned unsupported error code PAUSED")
             }
-            ffi::RPStatus_RS_RESULT_TIMEDOUT => Err(Error::TimedOut),
-            ffi::RPStatus_RS_RESULT_ERROR => Err(Error::Error),
-            code => {
-                unimplemented!("result processor returned unknown error code {code}")
+            Ok(ffi::RPStatus_RS_RESULT_TIMEDOUT) => Err(Error::TimedOut),
+            Ok(ffi::RPStatus_RS_RESULT_ERROR) => Err(Error::Error),
+            _ => {
+                unimplemented!("result processor returned unknown error code {ret_code}")
             }
         }
     }
@@ -369,10 +369,10 @@ where
         let res = unsafe { res.as_mut() };
 
         match me.result_processor.next(cx, res) {
-            Ok(Some(())) => ffi::RPStatus_RS_RESULT_OK as c_int,
-            Ok(None) => ffi::RPStatus_RS_RESULT_EOF as c_int,
-            Err(Error::TimedOut) => ffi::RPStatus_RS_RESULT_TIMEDOUT as c_int,
-            Err(Error::Error) => ffi::RPStatus_RS_RESULT_ERROR as c_int,
+            Ok(Some(())) => c_int::try_from(ffi::RPStatus_RS_RESULT_OK).unwrap(),
+            Ok(None) => c_int::try_from(ffi::RPStatus_RS_RESULT_EOF).unwrap(),
+            Err(Error::TimedOut) => c_int::try_from(ffi::RPStatus_RS_RESULT_TIMEDOUT).unwrap(),
+            Err(Error::Error) => c_int::try_from(ffi::RPStatus_RS_RESULT_ERROR).unwrap(),
         }
     }
 

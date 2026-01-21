@@ -22,13 +22,17 @@ use rqe_iterators_interop::RQEIteratorWrapper;
 /// 2. The caller must ensure that `ids` is not null unless `num` is zero.
 /// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "redis does not support 32bit"
+)]
 pub unsafe extern "C" fn NewSortedIdListIterator(
     ids: *const t_docId,
     num: u64,
     weight: f64,
 ) -> *mut QueryIterator {
     // SAFETY: All safety preconditions are guaranteed by the caller.
-    unsafe { new_id_list_iterator::<true>(ids, num, weight) }
+    unsafe { new_id_list_iterator::<true>(ids, num as usize, weight) }
 }
 
 #[unsafe(no_mangle)]
@@ -40,13 +44,17 @@ pub unsafe extern "C" fn NewSortedIdListIterator(
 /// 2. The caller must ensure that `ids` is not null unless `num` is zero.
 /// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "redis does not support 32bit"
+)]
 pub unsafe extern "C" fn NewUnsortedIdListIterator(
     ids: *const t_docId,
     num: u64,
     weight: f64,
 ) -> *mut QueryIterator {
     // SAFETY: All safety preconditions are guaranteed by the caller.
-    unsafe { new_id_list_iterator::<false>(ids, num, weight) }
+    unsafe { new_id_list_iterator::<false>(ids, num as usize, weight) }
 }
 
 /// # Safety
@@ -57,15 +65,15 @@ pub unsafe extern "C" fn NewUnsortedIdListIterator(
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
 unsafe fn new_id_list_iterator<const SORTED: bool>(
     ids: *const t_docId,
-    num: u64,
+    num: usize,
     weight: f64,
 ) -> *mut QueryIterator {
     // TODO: Figure out a mechanism to avoid re-allocating ids on the Rust side.
-    let mut vec = Vec::with_capacity(num as usize);
+    let mut vec = Vec::with_capacity(num);
     // We assume that `num` is the number of elements in `ids`.
     if !ids.is_null() {
         // SAFETY: Safe thanks to 1. + 2.
-        let slice = unsafe { std::slice::from_raw_parts(ids, num as usize) };
+        let slice = unsafe { std::slice::from_raw_parts(ids, num) };
         vec.extend_from_slice(slice);
         // SAFETY: The free function has been initialized at this stage.
         let free_fn = unsafe { RedisModule_Free.unwrap() };

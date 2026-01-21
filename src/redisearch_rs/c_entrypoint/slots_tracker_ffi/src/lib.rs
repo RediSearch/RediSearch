@@ -147,7 +147,10 @@ unsafe fn parse_slot_ranges<'a>(ranges: *const SlotRangeArray) -> &'a [SlotRange
     );
 
     // SAFETY: Caller guarantees the flexible array has num_ranges elements
-    unsafe { std::slice::from_raw_parts(ranges.ranges.as_ptr(), ranges.num_ranges as usize) }
+    #[expect(clippy::cast_sign_loss, reason = "manually checked above")]
+    unsafe {
+        std::slice::from_raw_parts(ranges.ranges.as_ptr(), ranges.num_ranges as usize)
+    }
 }
 
 // ============================================================================

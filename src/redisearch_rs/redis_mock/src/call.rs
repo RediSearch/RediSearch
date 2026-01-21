@@ -28,7 +28,7 @@ struct MockCallReply {
 impl MockCallReply {
     fn new_array_from_strings(strings: Vec<CString>) -> Self {
         Self {
-            reply_type: redis_module::raw::REDISMODULE_REPLY_ARRAY as c_int,
+            reply_type: c_int::try_from(redis_module::raw::REDISMODULE_REPLY_ARRAY).unwrap(),
             string_data: CString::default(), // Empty for arrays
             array_data: strings,
             gc: vec![],
@@ -38,7 +38,7 @@ impl MockCallReply {
 
     fn new_string(s: &str) -> Self {
         Self {
-            reply_type: redis_module::raw::REDISMODULE_REPLY_STRING as c_int,
+            reply_type: c_int::try_from(redis_module::raw::REDISMODULE_REPLY_STRING).unwrap(),
             string_data: CString::new(s).unwrap(),
             array_data: Vec::new(),
             gc: vec![],

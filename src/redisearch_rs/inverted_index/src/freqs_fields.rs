@@ -55,8 +55,8 @@ impl Decoder for FreqsFields {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, freq, field_mask] = decoded_values;
 
-        result.doc_id = base + delta as t_docId;
-        result.field_mask = field_mask as t_fieldMask;
+        result.doc_id = base + t_docId::from(delta);
+        result.field_mask = t_fieldMask::from(field_mask);
         result.freq = freq;
         Ok(())
     }
@@ -104,7 +104,7 @@ impl Decoder for FreqsFieldsWide {
         let [delta, freq] = decoded_values;
         let field_mask = t_fieldMask::read_as_varint(cursor)?;
 
-        result.doc_id = base + delta as t_docId;
+        result.doc_id = base + t_docId::from(delta);
         result.field_mask = field_mask;
         result.freq = freq;
         Ok(())

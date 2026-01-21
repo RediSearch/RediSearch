@@ -263,7 +263,7 @@ where
                 ffi::TimeToLiveTable_VerifyDocAndFieldMask(
                     spec.docs.ttl,
                     self.result.doc_id,
-                    (self.result.field_mask & mask) as u32,
+                    u32::try_from(self.result.field_mask & mask).unwrap(),
                     query_ctx.filter_ctx.predicate.as_u32(),
                     current_time,
                     spec.fieldIdToIndex,
@@ -380,7 +380,7 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.reader.unique_docs() as usize
+        usize::try_from(self.reader.unique_docs()).unwrap()
     }
 
     fn last_doc_id(&self) -> t_docId {

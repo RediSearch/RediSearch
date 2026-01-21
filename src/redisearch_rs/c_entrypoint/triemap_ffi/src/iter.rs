@@ -230,7 +230,10 @@ pub unsafe extern "C" fn TrieMapIterator_Next(
     // SAFETY: caller is to ensure that `len` is
     // a mutable, well-aligned pointer to a `tm_len_t`
     unsafe {
-        len.write(k.len() as tm_len_t);
+        len.write(
+            tm_len_t::try_from(k.len())
+                .expect("iterator returned entry longer than u16::MAX bytes long. this is a bug!"),
+        );
     }
     // SAFETY: caller is to ensure that `ptr` is
     // a mutable, well-aligned pointer to a `*mut c_void`
