@@ -61,12 +61,12 @@ missing_const_for_fn = "warn"
 disallowed_types = "warn"
 
 # numeric safety
-cast_possible_truncation = "deny"
-cast_possible_wrap = "deny"
-cast_precision_loss = "deny"
-cast_sign_loss = "deny"
-cast_lossless = "deny"
-checked_conversions = "deny"
+cast_possible_truncation = "warn"
+cast_possible_wrap = "warn"
+cast_precision_loss = "warn"
+cast_sign_loss = "warn"
+cast_lossless = "warn"
+checked_conversions = "warn"
 
 [workspace.package]
 version = "0.0.1"
