@@ -139,146 +139,145 @@ add_dependencies(redisearch_c generate_command_info)
 # by RediSearch or by one of its dependencies (either direct or transitive).
 # This static library will be linked by Rust tests and benchmarks whenever
 # they have to invoke a foreign symbol.
-if(BUILD_SEARCH_UNIT_TESTS)
-    # A helper function to recursively collect all static library dependencies from a target.
-    # Accumulates results in _COLLECT_LIBS (library paths) and _COLLECT_TARGETS (target names).
-    function(_collect_static_libs_recurse target)
-        # Skip if already visited or not a valid target
-        if(target IN_LIST _COLLECT_TARGETS OR NOT TARGET ${target})
-            return()
-        endif()
 
-        # Mark as visited immediately to avoid cycles
-        list(APPEND _COLLECT_TARGETS ${target})
-        set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
+# A helper function to recursively collect all static library dependencies from a target.
+# Accumulates results in _COLLECT_LIBS (library paths) and _COLLECT_TARGETS (target names).
+function(_collect_static_libs_recurse target)
+    # Skip if already visited or not a valid target
+    if(target IN_LIST _COLLECT_TARGETS OR NOT TARGET ${target})
+        return()
+    endif()
 
-        # Get target properties
-        get_target_property(target_type ${target} TYPE)
-        get_target_property(is_imported ${target} IMPORTED)
+    # Mark as visited immediately to avoid cycles
+    list(APPEND _COLLECT_TARGETS ${target})
+    set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
 
-        # Try to get library file path for static libraries
-        set(lib_path "")
-        if(target_type STREQUAL "STATIC_LIBRARY")
-            if(is_imported)
-                # Try various IMPORTED_LOCATION properties
-                foreach(loc_prop IMPORTED_LOCATION IMPORTED_LOCATION_RELEASE IMPORTED_LOCATION_NOCONFIG)
-                    get_target_property(lib_path ${target} ${loc_prop})
-                    if(lib_path)
-                        break()
-                    endif()
-                endforeach()
-            else()
-                set(lib_path $<TARGET_FILE:${target}>)
-            endif()
-        elseif(target_type STREQUAL "UNKNOWN_LIBRARY")
-            # IMPORTED target with unknown type - check if it's a static library
-            foreach(loc_prop IMPORTED_LOCATION IMPORTED_LOCATION_RELEASE)
+    # Get target properties
+    get_target_property(target_type ${target} TYPE)
+    get_target_property(is_imported ${target} IMPORTED)
+
+    # Try to get library file path for static libraries
+    set(lib_path "")
+    if(target_type STREQUAL "STATIC_LIBRARY")
+        if(is_imported)
+            # Try various IMPORTED_LOCATION properties
+            foreach(loc_prop IMPORTED_LOCATION IMPORTED_LOCATION_RELEASE IMPORTED_LOCATION_NOCONFIG)
                 get_target_property(lib_path ${target} ${loc_prop})
                 if(lib_path)
                     break()
                 endif()
             endforeach()
+        else()
+            set(lib_path $<TARGET_FILE:${target}>)
         endif()
-
-        # Add to collection if we found a static library
-        if(lib_path AND (lib_path MATCHES "\\.(a|lib)$" OR NOT is_imported))
-            list(APPEND _COLLECT_LIBS ${lib_path})
-            set(_COLLECT_LIBS ${_COLLECT_LIBS} PARENT_SCOPE)
-        endif()
-
-        # Recurse into link dependencies
-        foreach(prop LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
-            get_target_property(deps ${target} ${prop})
-            if(NOT deps)
-                continue()
+    elseif(target_type STREQUAL "UNKNOWN_LIBRARY")
+        # IMPORTED target with unknown type - check if it's a static library
+        foreach(loc_prop IMPORTED_LOCATION IMPORTED_LOCATION_RELEASE)
+            get_target_property(lib_path ${target} ${loc_prop})
+            if(lib_path)
+                break()
             endif()
-            foreach(dep IN LISTS deps)
-                # Skip generator expressions
-                if(dep MATCHES "^\\$<")
-                    continue()
-                endif()
-                # Recurse if it's a valid target
-                if(TARGET ${dep})
-                    # Resolve ALIAS targets to their real name
-                    get_target_property(aliased ${dep} ALIASED_TARGET)
-                    if(aliased)
-                        set(dep ${aliased})
-                    endif()
-                    _collect_static_libs_recurse(${dep})
-                    set(_COLLECT_LIBS ${_COLLECT_LIBS} PARENT_SCOPE)
-                    set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
-                endif()
-            endforeach()
         endforeach()
-    endfunction()
-
-    macro(collect_static_libs target out_libs out_targets)
-        set(_COLLECT_LIBS "")
-        set(_COLLECT_TARGETS "")
-        _collect_static_libs_recurse(${target})
-        set(${out_libs} ${_COLLECT_LIBS})
-        set(${out_targets} ${_COLLECT_TARGETS})
-    endmacro()
-
-    set(REDISEARCH_ALL_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/libredisearch_all.a")
-
-    # Collect all static library dependencies from redisearch_c
-    set(LIBS_TO_MERGE "")
-    set(VISITED_TARGETS "")
-    collect_static_libs(redisearch_c LIBS_TO_MERGE VISITED_TARGETS)
-
-    # On Linux, SVS may be precompiled and fetched via FetchContent.
-    # As a consequence, its IMPORTED targets aren't visible from this scope and won't
-    # be picked up by `collect_static_libs`, causing undefined symbol errors at link
-    # time when building Rust tests.
-    # To fix the issue, we add SVS and its dependencies using their known path.
-    set(_svs_lib_dir "${CMAKE_BINARY_DIR}/_deps/svs-src/lib")
-    if(EXISTS "${_svs_lib_dir}")
-        file(GLOB _svs_static_libs "${_svs_lib_dir}/*.a")
-        list(APPEND LIBS_TO_MERGE ${_svs_static_libs})
-        message(STATUS "SVS static libraries found: ${_svs_static_libs}")
-    else()
-        message(STATUS "SVS lib directory not found: ${_svs_lib_dir}")
     endif()
 
-    list(REMOVE_DUPLICATES LIBS_TO_MERGE)
-    list(REMOVE_DUPLICATES VISITED_TARGETS)
-    message(STATUS "Static libraries for libredisearch_all.a: ${LIBS_TO_MERGE}")
+    # Add to collection if we found a static library
+    if(lib_path AND (lib_path MATCHES "\\.(a|lib)$" OR NOT is_imported))
+        list(APPEND _COLLECT_LIBS ${lib_path})
+        set(_COLLECT_LIBS ${_COLLECT_LIBS} PARENT_SCOPE)
+    endif()
 
-    # Combine targets and library paths for DEPENDS
-    set(MERGE_DEPENDS ${VISITED_TARGETS} ${LIBS_TO_MERGE})
-    list(REMOVE_DUPLICATES MERGE_DEPENDS)
+    # Recurse into link dependencies
+    foreach(prop LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+        get_target_property(deps ${target} ${prop})
+        if(NOT deps)
+            continue()
+        endif()
+        foreach(dep IN LISTS deps)
+            # Skip generator expressions
+            if(dep MATCHES "^\\$<")
+                continue()
+            endif()
+            # Recurse if it's a valid target
+            if(TARGET ${dep})
+                # Resolve ALIAS targets to their real name
+                get_target_property(aliased ${dep} ALIASED_TARGET)
+                if(aliased)
+                    set(dep ${aliased})
+                endif()
+                _collect_static_libs_recurse(${dep})
+                set(_COLLECT_LIBS ${_COLLECT_LIBS} PARENT_SCOPE)
+                set(_COLLECT_TARGETS ${_COLLECT_TARGETS} PARENT_SCOPE)
+            endif()
+        endforeach()
+    endforeach()
+endfunction()
 
-    # Create the combined library using platform-specific tools
-    if(APPLE)
-        # macOS: use libtool to merge static libraries
-        add_custom_command(
-            OUTPUT ${REDISEARCH_ALL_OUTPUT}
-            COMMAND libtool -static -o ${REDISEARCH_ALL_OUTPUT} ${LIBS_TO_MERGE}
-            DEPENDS ${MERGE_DEPENDS}
-            COMMENT "Creating unified libredisearch_all.a with libtool"
-            VERBATIM
-            COMMAND_EXPAND_LISTS
-        )
-    else()
-        # Linux: use ar with MRI script to merge static libraries
-        set(MRI_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/merge_libs.mri")
-        string(REPLACE ";" "\nADDLIB " ADDLIB_COMMANDS "${LIBS_TO_MERGE}")
-        file(GENERATE OUTPUT ${MRI_SCRIPT} CONTENT
+macro(collect_static_libs target out_libs out_targets)
+    set(_COLLECT_LIBS "")
+    set(_COLLECT_TARGETS "")
+    _collect_static_libs_recurse(${target})
+    set(${out_libs} ${_COLLECT_LIBS})
+    set(${out_targets} ${_COLLECT_TARGETS})
+endmacro()
+
+set(REDISEARCH_ALL_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/libredisearch_all.a")
+
+# Collect all static library dependencies from redisearch_c
+set(LIBS_TO_MERGE "")
+set(VISITED_TARGETS "")
+collect_static_libs(redisearch_c LIBS_TO_MERGE VISITED_TARGETS)
+
+# On Linux, SVS may be precompiled and fetched via FetchContent.
+# As a consequence, its IMPORTED targets aren't visible from this scope and won't
+# be picked up by `collect_static_libs`, causing undefined symbol errors at link
+# time when building Rust tests.
+# To fix the issue, we add SVS and its dependencies using their known path.
+set(_svs_lib_dir "${CMAKE_BINARY_DIR}/_deps/svs-src/lib")
+if(EXISTS "${_svs_lib_dir}")
+    file(GLOB _svs_static_libs "${_svs_lib_dir}/*.a")
+    list(APPEND LIBS_TO_MERGE ${_svs_static_libs})
+    message(STATUS "SVS static libraries found: ${_svs_static_libs}")
+else()
+    message(STATUS "SVS lib directory not found: ${_svs_lib_dir}")
+endif()
+
+list(REMOVE_DUPLICATES LIBS_TO_MERGE)
+list(REMOVE_DUPLICATES VISITED_TARGETS)
+message(STATUS "Static libraries for libredisearch_all.a: ${LIBS_TO_MERGE}")
+
+# Combine targets and library paths for DEPENDS
+set(MERGE_DEPENDS ${VISITED_TARGETS} ${LIBS_TO_MERGE})
+list(REMOVE_DUPLICATES MERGE_DEPENDS)
+
+# Create the combined library using platform-specific tools
+if(APPLE)
+    # macOS: use libtool to merge static libraries
+    add_custom_command(
+        OUTPUT ${REDISEARCH_ALL_OUTPUT}
+        COMMAND libtool -static -o ${REDISEARCH_ALL_OUTPUT} ${LIBS_TO_MERGE}
+        DEPENDS ${MERGE_DEPENDS}
+        COMMENT "Creating unified libredisearch_all.a with libtool"
+        VERBATIM
+        COMMAND_EXPAND_LISTS
+    )
+else()
+    # Linux: use ar with MRI script to merge static libraries
+    set(MRI_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/merge_libs.mri")
+    string(REPLACE ";" "\nADDLIB " ADDLIB_COMMANDS "${LIBS_TO_MERGE}")
+    file(GENERATE OUTPUT ${MRI_SCRIPT} CONTENT
 "CREATE ${REDISEARCH_ALL_OUTPUT}
 ADDLIB ${ADDLIB_COMMANDS}
 SAVE
 END
 ")
-        add_custom_command(
-            OUTPUT ${REDISEARCH_ALL_OUTPUT}
-            COMMAND ${CMAKE_COMMAND} -E rm -f ${REDISEARCH_ALL_OUTPUT}
-            COMMAND ar -M < ${MRI_SCRIPT}
-            DEPENDS ${MERGE_DEPENDS} ${MRI_SCRIPT}
-            COMMENT "Creating unified libredisearch_all.a with ar"
-            VERBATIM
-        )
-    endif()
-
-    add_custom_target(redisearch_all ALL DEPENDS ${REDISEARCH_ALL_OUTPUT})
+    add_custom_command(
+        OUTPUT ${REDISEARCH_ALL_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E rm -f ${REDISEARCH_ALL_OUTPUT}
+        COMMAND ar -M < ${MRI_SCRIPT}
+        DEPENDS ${MERGE_DEPENDS} ${MRI_SCRIPT}
+        COMMENT "Creating unified libredisearch_all.a with ar"
+        VERBATIM
+    )
 endif()
+
+add_custom_target(redisearch_all ALL DEPENDS ${REDISEARCH_ALL_OUTPUT})
