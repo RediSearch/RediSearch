@@ -24,6 +24,7 @@ typedef const void* RedisSearchDisk;
 typedef const void* RedisSearchDiskIndexSpec;
 typedef const void* RedisSearchDiskInvertedIndex;
 typedef const void* RedisSearchDiskIterator;
+typedef const void* RedisSearchDiskAsyncReadPool;
 
 // Callback function to allocate memory for the key in the scope of the search module memory
 typedef char* (*AllocateKeyCallback)(const void*, size_t len);
@@ -44,10 +45,10 @@ typedef struct BasicDiskAPI {
 
   /**
    * @brief Check if async I/O is supported by the underlying storage engine
-   *
+   * @param disk Pointer to the disk
    * @return true if async I/O operations are available, false otherwise
    */
-  bool (*isAsyncIOSupported)(void);
+  bool (*isAsyncIOSupported)(RedisSearchDisk *disk);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
@@ -174,7 +175,7 @@ typedef struct DocTableDiskAPI {
    * @param max_concurrent Maximum number of concurrent pending reads
    * @return Opaque handle to the pool, or NULL on error. Must be freed with freeAsyncReadPool.
    */
-  void* (*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent);
+  RedisSearchDiskAsyncReadPool *(*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent);
 
   /**
    * @brief Adds an async read request to the pool for the given document ID
@@ -183,7 +184,7 @@ typedef struct DocTableDiskAPI {
    * @param docId Document ID to read
    * @return true if the request was added, false if the pool is at capacity
    */
-  bool (*addAsyncRead)(void* pool, t_docId docId);
+  bool (*addAsyncRead)(RedisSearchDiskAsyncReadPool pool, t_docId docId);
 
   /**
    * @brief Polls the pool for ready results
@@ -198,7 +199,7 @@ typedef struct DocTableDiskAPI {
    * @param allocateKey Callback to allocate memory for document keys
    * @return AsyncPollResult with counts of ready and pending reads
    */
-  AsyncPollResult (*pollAsyncReads)(void* pool, int timeout_ms, RSDocumentMetadata* results,
+  AsyncPollResult (*pollAsyncReads)(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, RSDocumentMetadata* results,
                                     uint16_t results_capacity, AllocateKeyCallback allocateKey);
 
   /**
@@ -206,7 +207,7 @@ typedef struct DocTableDiskAPI {
    *
    * @param pool Pool handle from createAsyncReadPool
    */
-  void (*freeAsyncReadPool)(void* pool);
+  void (*freeAsyncReadPool)(RedisSearchDiskAsyncReadPool pool);
 } DocTableDiskAPI;
 
 typedef struct VectorDiskAPI {
