@@ -192,15 +192,22 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       continue;
     }
 
+    RS_ASSERT(cur->doc);
+
     if (spec->diskSpec) {
       size_t len;
       const char *key = RedisModule_StringPtrLen(cur->doc->docKey, &len);
       uint32_t oldLen = 0;
+
+      // Check if the document has expiration time (disk does not support field-level expiration yet)
+      if (cur->doc->docExpirationTime.tv_sec || cur->doc->docExpirationTime.tv_nsec) {
+        cur->docFlags |= Document_HasExpiration;
+      }
       // Put the document and get a new doc-id, and remove the old id->dmd entry
       // if it existed.
       t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len,
         cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
-        cur->fwIdx->totalFreq, &oldLen);
+        cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime);
       if (oldLen > 0) {
         // We deleted a document in the above call, update the stats accordingly
         RS_ASSERT(spec->stats.scoringStats.numDocuments > 0);

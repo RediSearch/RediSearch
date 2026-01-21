@@ -814,11 +814,11 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
-  CurrentThread_SetIndexSpec(ref);
-
   if (!sp->smap) {
     return RedisModule_ReplyWithMap(ctx, 0);
   }
+  
+  CurrentThread_SetIndexSpec(ref);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisSearchCtx_LockSpecRead(&sctx);
@@ -3397,7 +3397,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   // Capture start time for coordinator dispatch time tracking
-  rs_wall_clock_ns_t t0 = rs_wall_clock_now_ns();
+  rs_wall_clock_ns_t coordInitialTime = rs_wall_clock_now_ns();
 
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
@@ -3456,7 +3456,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   ConcurrentSearchHandlerCtx handlerCtx = {
-    .coordStartTime = t0,
+    .coordStartTime = coordInitialTime,
     .spec_ref = StrongRef_Demote(spec_ref)
   };
 
@@ -3468,6 +3468,9 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                       struct ConcurrentCmdCtx *cmdCtx);
 
 int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // Capture start time for coordinator dispatch time tracking
+  rs_wall_clock_ns_t coordInitialTime = rs_wall_clock_now_ns();
+
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
@@ -3509,8 +3512,10 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  ConcurrentSearchHandlerCtx handlerCtx = {0};
-  handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
+  ConcurrentSearchHandlerCtx handlerCtx = {
+    .coordStartTime = coordInitialTime,
+    .spec_ref = StrongRef_Demote(spec_ref)
+  };
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
@@ -3878,7 +3883,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   // Capture start time for coordinator dispatch time tracking
-  rs_wall_clock_ns_t t0 = rs_wall_clock_now_ns();
+  rs_wall_clock_ns_t coordInitialTime = rs_wall_clock_now_ns();
 
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
@@ -3936,7 +3941,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
-  sCmdCtx->handlerCtx.coordStartTime = t0;
+  sCmdCtx->handlerCtx.coordStartTime = coordInitialTime;
   RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
@@ -4022,15 +4027,23 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_Log(ctx, "notice", "Received new cluster topology with %u shards (%s)", topo->numShards, ranges_info);
 
-  // Take a reference to our own shard slot ranges (MR_UpdateTopology won't consume it)
-  RS_ASSERT(my_shard_idx < topo->numShards);
-  const RedisModuleSlotRangeArray *my_slots = topo->shards[my_shard_idx].slotRanges;
+  if (my_shard_idx != UINT32_MAX) {
+    // Take a reference to our own shard slot ranges (MR_UpdateTopology won't consume it)
+    RS_ASSERT(my_shard_idx < topo->numShards);
+    const RedisModuleSlotRangeArray *my_slots = topo->shards[my_shard_idx].slotRanges;
 
-  // Store the local shard id
-  MR_SetLocalNodeId(topo->shards[my_shard_idx].node.id);
+    // Store the local shard id
+    MR_SetLocalNodeId(topo->shards[my_shard_idx].node.id);
 
-  // send the topology to the cluster
-  MR_UpdateTopology(topo, my_slots);
+    // send the topology to the cluster
+    MR_UpdateTopology(topo, my_slots);
+
+  } else {
+    // Valid topology but this node is not part of it.
+    // We cannot pass NULL as local slots, so we pass an empty slot array.
+    static const RedisModuleSlotRangeArray empty_slots = {0, {{0, 0}}};
+    MR_UpdateTopology(topo, &empty_slots);
+  }
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

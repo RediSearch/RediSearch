@@ -37,12 +37,14 @@ jobs:
         continue-on-error: true
         run: make lint
 
-      - name: Diff
+      - name: Generated files
         id: git-diff
         continue-on-error: true
-        # error if there is uncommitted changes as it's likely generated code which has not been committed
-        run: git diff --exit-code
-
+        run: |
+          if ! git diff --exit-code; then
+            echo "Uncommitted changes found. This is likely because of automatically generated code which has not been committed."
+            exit 1
+          fi
       - name: License header
         id: license-header
         continue-on-error: true
@@ -88,7 +90,7 @@ jobs:
         run: |
           echo "Linting: ${{ steps.lint.outcome }}"
           echo "License header: ${{ steps.license-header.outcome }}"
-          echo "Diff: ${{ steps.git-diff.outcome }}"
+          echo "Generated files: ${{ steps.git-diff.outcome }}"
           echo "Formatting: ${{ steps.fmt.outcome }}"
           echo "Security advisories: ${{ steps.advisories.outcome }}"
           echo "Dependency licenses: ${{ steps.dep-licenses.outcome }}"

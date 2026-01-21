@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{RLookupKey, RLookupKeyFlags};
+use crate::{RLookup, RLookupKey, RLookupKeyFlags};
 use std::ptr;
 use std::{ffi::CStr, pin::Pin, ptr::NonNull};
 
@@ -335,17 +335,19 @@ impl<'list, 'a> CursorMut<'list, 'a> {
 
         let new = {
             let (name, path) = old.as_mut().make_tombstone();
+            let mut key = if let Some(path) = path {
+                RLookupKey::new_with_path(&RLookup::new(), name, path, flags)
+            } else {
+                RLookupKey::new(&RLookup::new(), name, flags)
+            };
+            key.dstidx = old.dstidx;
 
-            RLookupKey::from_parts(
-                name,
-                path,
-                old.dstidx,
-                // NAME_ALLOC is a transient flag in Rust and must not be copied over,
-                // thus we can safely just set the provided flags here.
-                flags,
-                #[cfg(debug_assertions)]
-                old.rlookup_id(),
-            )
+            #[cfg(debug_assertions)]
+            {
+                key.rlookup_id = old.rlookup_id();
+            }
+
+            key
         };
 
         // Safety: we treat the pointer as pinned below and only hand out a pinned mutable reference.
