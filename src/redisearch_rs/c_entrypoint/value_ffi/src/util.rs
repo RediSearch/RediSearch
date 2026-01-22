@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use libc::c_char;
 use value::RsValue;
+// use value::strings::{ConstString, RedisString, RmAllocString};
 
 /// Get a reference to an [`RsValue`] from a pointer.
 ///
@@ -45,7 +47,24 @@ pub fn rsvalue_any_str(value: &RsValue) -> bool {
     }
 }
 
-pub fn rsvalue_as_byte_slice(value: &RsValue) -> Option<&[u8]> {
+pub fn rsvalue_as_str_ptr_len(value: &RsValue) -> Option<(*const c_char, u32)> {
+    match value {
+        RsValue::Undefined => None,
+        RsValue::Null => None,
+        RsValue::Number(_) => None,
+        RsValue::RmAllocString(string) => Some(string.as_ptr_len()),
+        RsValue::ConstString(string) => Some(string.as_ptr_len()),
+        RsValue::RedisString(string) => Some(string.as_ptr_len()),
+        // RsValue::String(string) => Some(string.as_bytes()),
+        RsValue::String2(string) => Some((string.as_ptr(), string.count_bytes() as u32)),
+        RsValue::Array(_) => None,
+        RsValue::Ref(_) => None,
+        RsValue::Trio(_) => None,
+        RsValue::Map(_) => None,
+    }
+}
+
+pub fn rsvalue_as_byte_slice2(value: &RsValue) -> Option<&[u8]> {
     match value {
         RsValue::Undefined => None,
         RsValue::Null => None,

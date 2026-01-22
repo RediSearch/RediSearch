@@ -54,7 +54,7 @@ pub unsafe extern "C" fn RSValue_BoolTest(value: *const RsValue) -> c_int {
         RsValue::Number(num) => *num != 0.0,
         RsValue::Array(arr) => arr.len() != 0,
         _ if crate::util::rsvalue_any_str(value) => {
-            crate::util::rsvalue_as_byte_slice(value).unwrap().len() != 0
+            crate::util::rsvalue_as_str_ptr_len(value).unwrap().1 != 0
         }
         _ => false,
     };
@@ -69,7 +69,7 @@ fn cmp(v1: &RsValue, v2: &RsValue) -> Ordering {
         (_, RsValue::Null) => Ordering::Greater,
         (RsValue::Number(n1), RsValue::Number(n2)) => cmp_float(*n1, *n2),
         (RsValue::Number(n1), right) if crate::util::rsvalue_any_str(right) => {
-            let slice = crate::util::rsvalue_as_byte_slice(right).unwrap();
+            let slice = crate::util::rsvalue_as_byte_slice2(right).unwrap();
             if let Some(n2) = crate::util::rsvalue_str_to_float(slice) {
                 cmp_float(*n1, n2)
             } else {
@@ -77,7 +77,7 @@ fn cmp(v1: &RsValue, v2: &RsValue) -> Ordering {
             }
         }
         (left, RsValue::Number(n2)) if crate::util::rsvalue_any_str(left) => {
-            let slice = crate::util::rsvalue_as_byte_slice(left).unwrap();
+            let slice = crate::util::rsvalue_as_byte_slice2(left).unwrap();
             if let Some(n1) = crate::util::rsvalue_str_to_float(slice) {
                 cmp_float(n1, *n2)
             } else {
@@ -87,8 +87,8 @@ fn cmp(v1: &RsValue, v2: &RsValue) -> Ordering {
         (left, right)
             if crate::util::rsvalue_any_str(left) && crate::util::rsvalue_any_str(right) =>
         {
-            let slice1 = crate::util::rsvalue_as_byte_slice(left).unwrap();
-            let slice2 = crate::util::rsvalue_as_byte_slice(right).unwrap();
+            let slice1 = crate::util::rsvalue_as_byte_slice2(left).unwrap();
+            let slice2 = crate::util::rsvalue_as_byte_slice2(right).unwrap();
             slice1.cmp(slice2)
         }
         (RsValue::Trio(t1), RsValue::Trio(t2)) => cmp(t1.left().value(), t2.left().value()),

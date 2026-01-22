@@ -3,7 +3,6 @@ use libc::{size_t, snprintf};
 use std::ffi::{CString, c_char, c_double, c_int};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
-use std::ptr::NonNull;
 use value::strings::{ConstString, RmAllocString};
 use value::{RsValue, shared::SharedRsValue};
 
@@ -164,7 +163,7 @@ pub unsafe extern "C" fn RSValue_ToNumber(value: *const RsValue, d: *mut c_doubl
         match value {
             RsValue::Number(n) => Some(*n),
             val if crate::util::rsvalue_any_str(val) => {
-                let slice = crate::util::rsvalue_as_byte_slice(value).unwrap();
+                let slice = crate::util::rsvalue_as_byte_slice2(value).unwrap();
                 crate::util::rsvalue_str_to_float(slice)
             }
             RsValue::Trio(trio) => to_number(trio.left().value()),
@@ -250,8 +249,8 @@ pub unsafe extern "C" fn RSValue_ConvertStringPtrLen(
         } else {
             (buf as *const _, n as usize)
         }
-    } else if let Some(str) = crate::util::rsvalue_as_byte_slice(value) {
-        (str.as_ptr() as *const c_char, str.len())
+    } else if let Some((ptr, len)) = crate::util::rsvalue_as_str_ptr_len(value) {
+        (ptr, len as usize)
     } else {
         (b"\0".as_ptr() as *const _, 0)
     };
@@ -272,8 +271,8 @@ pub unsafe extern "C" fn RSValue_StringPtrLen(
     let value = shared_value.fully_dereferenced_value();
 
     fn string_ptr_len(value: &RsValue) -> (*const c_char, size_t) {
-        if let Some(str) = crate::util::rsvalue_as_byte_slice(value) {
-            (str.as_ptr() as *const c_char, str.len())
+        if let Some((ptr, len)) = crate::util::rsvalue_as_str_ptr_len(value) {
+            (ptr, len as usize)
         } else if let RsValue::Trio(trio) = value {
             string_ptr_len(trio.left().value())
         } else {
@@ -332,9 +331,8 @@ pub unsafe extern "C" fn RSValue_NumToString(
 pub unsafe extern "C" fn RSValue_SetString(value: *const RsValue, str: *mut c_char, len: size_t) {
     let shared_value = unsafe { SharedRsValue::from_raw(value) };
     let mut shared_value = ManuallyDrop::new(shared_value);
-    let str = NonNull::new(str).expect("str is null");
-    let owned_rm_alloc_string = unsafe { RmAllocString::take_unchecked(str, len as u32) };
-    let value = RsValue::RmAllocString(owned_rm_alloc_string);
+    let rm_alloc_string = unsafe { RmAllocString::from_raw(str, len as u32) };
+    let value = RsValue::RmAllocString(rm_alloc_string);
     unsafe { shared_value.set_value(value) };
 }
 
@@ -346,7 +344,7 @@ pub unsafe extern "C" fn RSValue_SetConstString(
 ) {
     let shared_value = unsafe { SharedRsValue::from_raw(value) };
     let mut shared_value = ManuallyDrop::new(shared_value);
-    let const_string = unsafe { ConstString::new(str, len as u32) };
+    let const_string = unsafe { ConstString::from_raw(str, len as u32) };
     let value = RsValue::ConstString(const_string);
     unsafe { shared_value.set_value(value) };
 }

@@ -1,9 +1,10 @@
-use ffi::RedisModuleString;
+use ffi::{RedisModule_Alloc, RedisModuleString};
 use std::ffi::{c_char, c_double};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
-use std::ptr::NonNull;
+use std::ptr::copy_nonoverlapping;
 use value::strings::{RedisString, RmAllocString};
+// use value::strings::RmAllocString;
 use value::trio::RsValueTrio;
 use value::{RsValue, shared::SharedRsValue};
 
@@ -31,18 +32,21 @@ pub unsafe extern "C" fn RSValue_NewNumber(value: c_double) -> *mut RsValue {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewRedisString(str: *const RedisModuleString) -> *mut RsValue {
-    let redis_string = unsafe { RedisString::take(NonNull::new(str as *mut _).unwrap()) };
-    SharedRsValue::from_value(RsValue::RedisString(redis_string)).into_raw() as *mut _
+    let redis_string = unsafe { RedisString::from_raw(str) };
+    let value = RsValue::RedisString(redis_string);
+    let shared_value = SharedRsValue::from_value(value);
+    shared_value.into_raw() as *mut _
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -> *mut RsValue {
-    debug_assert!(!str.is_null(), "`str` must not be NULL");
-    // Safety: caller must uphold the safety requirements of
-    // [`RmAllocString::copy_from_string`].
-    let string = unsafe { RmAllocString::copy_from_string(str, len) };
+    let rm_alloc = unsafe { RedisModule_Alloc.expect("Redis allocator not available") };
+    let buf = unsafe { rm_alloc(len as usize) } as *mut c_char;
+    unsafe { copy_nonoverlapping(str, buf, len as usize) };
+    let string = unsafe { RmAllocString::from_raw(buf, len) };
     let value = RsValue::RmAllocString(string);
-    SharedRsValue::from_value(value).into_raw() as *mut _
+    let shared_value = SharedRsValue::from_value(value);
+    shared_value.into_raw() as *mut _
 }
 
 #[unsafe(no_mangle)]

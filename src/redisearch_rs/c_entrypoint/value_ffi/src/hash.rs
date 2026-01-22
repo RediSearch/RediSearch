@@ -28,7 +28,7 @@ fn hash(value: &RsValue, hval: u64) -> u64 {
             fnv_hash(&num.to_ne_bytes(), hval)
         }
         val if crate::util::rsvalue_any_str(val) => {
-            let slice = crate::util::rsvalue_as_byte_slice(value).unwrap();
+            let slice = crate::util::rsvalue_as_byte_slice2(value).unwrap();
             fnv_hash(slice, hval)
         }
         RsValue::Array(array) => array.iter().fold(hval, |acc, item| hash(item.value(), acc)),
