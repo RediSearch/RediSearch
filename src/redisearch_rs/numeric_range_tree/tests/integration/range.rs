@@ -82,3 +82,123 @@ fn test_overlaps() {
     assert!(!range.overlaps(11.0, 20.0)); // completely right
     assert!(!range.overlaps(0.0, 4.0));   // completely left
 }
+
+#[test]
+fn test_default_impl() {
+    let range: NumericRange = Default::default();
+    assert_eq!(range.min_val(), f64::INFINITY);
+    assert_eq!(range.max_val(), f64::NEG_INFINITY);
+    assert_eq!(range.num_entries(), 0);
+    assert_eq!(range.cardinality(), 0);
+}
+
+#[test]
+fn test_add_without_cardinality() {
+    let mut range = NumericRange::new();
+
+    // Add entries without updating cardinality
+    range.add_without_cardinality(1, 5.0).unwrap();
+    range.add_without_cardinality(2, 10.0).unwrap();
+    range.add_without_cardinality(3, 2.0).unwrap();
+
+    // Bounds should be updated
+    assert_eq!(range.min_val(), 2.0);
+    assert_eq!(range.max_val(), 10.0);
+    assert_eq!(range.num_entries(), 3);
+
+    // Cardinality should be 0 (HLL not updated)
+    assert_eq!(range.cardinality(), 0);
+}
+
+#[test]
+fn test_add_without_cardinality_vs_add() {
+    let mut range_with_card = NumericRange::new();
+    let mut range_without_card = NumericRange::new();
+
+    // Add same values to both
+    range_with_card.add(1, 5.0).unwrap();
+    range_with_card.add(2, 10.0).unwrap();
+
+    range_without_card.add_without_cardinality(1, 5.0).unwrap();
+    range_without_card.add_without_cardinality(2, 10.0).unwrap();
+
+    // Bounds should be the same
+    assert_eq!(range_with_card.min_val(), range_without_card.min_val());
+    assert_eq!(range_with_card.max_val(), range_without_card.max_val());
+    assert_eq!(range_with_card.num_entries(), range_without_card.num_entries());
+
+    // Cardinality differs
+    assert!(range_with_card.cardinality() > 0);
+    assert_eq!(range_without_card.cardinality(), 0);
+}
+
+#[test]
+fn test_num_docs() {
+    let mut range = NumericRange::new();
+    assert_eq!(range.num_docs(), 0);
+
+    range.add(1, 5.0).unwrap();
+    assert_eq!(range.num_docs(), 1);
+
+    range.add(2, 10.0).unwrap();
+    assert_eq!(range.num_docs(), 2);
+
+    // Adding same doc_id multiple times
+    range.add(3, 15.0).unwrap();
+    assert_eq!(range.num_docs(), 3);
+}
+
+#[test]
+fn test_entries_accessor() {
+    let mut range = NumericRange::new();
+    range.add(1, 5.0).unwrap();
+    range.add(2, 10.0).unwrap();
+
+    let entries = range.entries();
+    assert_eq!(entries.number_of_entries(), 2);
+    assert!(entries.memory_usage() > 0);
+}
+
+#[test]
+fn test_hll_accessor() {
+    let mut range = NumericRange::new();
+    range.add(1, 5.0).unwrap();
+    range.add(2, 10.0).unwrap();
+    range.add(3, 15.0).unwrap();
+
+    let hll = range.hll();
+    // HLL count should approximate the number of distinct values
+    let count = hll.count();
+    assert!(count >= 2 && count <= 4, "HLL count {count} not in expected range");
+}
+
+#[test]
+fn test_update_cardinality() {
+    let mut range = NumericRange::new();
+
+    // Manually update cardinality without adding entries
+    range.update_cardinality(1.0);
+    range.update_cardinality(2.0);
+    range.update_cardinality(3.0);
+
+    // Cardinality should be updated
+    let card = range.cardinality();
+    assert!(card >= 2 && card <= 4, "Cardinality {card} not in expected range");
+
+    // But no entries should be added
+    assert_eq!(range.num_entries(), 0);
+}
+
+#[test]
+fn test_inverted_index_size() {
+    let mut range = NumericRange::new();
+    let initial_size = range.inverted_index_size();
+
+    range.add(1, 5.0).unwrap();
+    let size_after_one = range.inverted_index_size();
+    assert!(size_after_one >= initial_size);
+
+    range.add(2, 10.0).unwrap();
+    let size_after_two = range.inverted_index_size();
+    assert!(size_after_two >= size_after_one);
+}
