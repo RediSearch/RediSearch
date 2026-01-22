@@ -47,6 +47,10 @@ static inline void RLookupKey_SetPath(RLookupKey* key, const char * path) {
     key->_path = path;
 }
 
+static inline RLookupKey* RLookupKey_GetNext(RLookupKey* key) {
+    return key->_next;
+}
+
 // Allocate a new RLookupKey and add it to the RLookup table.
 static RLookupKey *overrideKey(RLookup *lk, RLookupKey *old, uint32_t flags) {
   RLookupKey *new = rm_calloc(1, sizeof(*new));
@@ -400,7 +404,7 @@ void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *d
 void RLookup_Cleanup(RLookup *lk) {
   RLookupKey *next, *cur = lk->_head;
   while (cur) {
-    next = cur->_next;
+    next = RLookupKey_GetNext(cur);
     RLookupKey_Free(cur);
     cur = next;
   }
