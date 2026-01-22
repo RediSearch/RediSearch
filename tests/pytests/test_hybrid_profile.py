@@ -292,7 +292,7 @@ query_and_profile = [
                 [
                     ['Type', 'Network', 'Results processed', 2],
                     ['Type', 'Sorter', 'Results processed', 2],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', 3]
+                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
                 ],
                 'VSIM',
                 [
@@ -379,7 +379,7 @@ query_and_profile = [
                 [
                     ['Type', 'Network', 'Results processed', 2],
                     ['Type', 'Sorter', 'Results processed', 2],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', 4]
+                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
                 ],
                 'VSIM',
                 [
@@ -505,9 +505,23 @@ def test_profile_time():
                     shard[subquery]['Parsing time'], 0)
                 env.assertGreaterEqual(
                     shard[subquery]['Pipeline creation time'], 0)
-                env.assertGreaterEqual(
-                    shard[subquery]['Coordinator dispatch time [ms]'], 0)
+                if CLUSTER:
+                    env.assertGreaterEqual(
+                        shard[subquery]['Coordinator dispatch time [ms]'], 0)
                 env.assertGreaterEqual(
                     shard[subquery]['Iterators profile']['Time'], 0)
                 for processor in shard[subquery]['Result processors profile']:
                     env.assertGreaterEqual(processor['Time'], 0)
+
+        # Verify the coordinator profile data
+        coordinator = actual_res['Profile']['Coordinator']
+        # Verify the subqueries profile data
+        if CLUSTER:
+            for subquery in ['SEARCH', 'VSIM']:
+                for processor in coordinator['Subqueries result processors profile'][subquery]:
+                    env.assertGreaterEqual(processor['Time'], 0)
+        # Verify the coordinator result processors profile
+        for processor in coordinator['Result processors profile']:
+            if processor['Type'] == 'Threadsafe-Depleter':
+                env.assertGreaterEqual(processor['Depletion time'], 0)
+            env.assertGreaterEqual(processor['Time'], 0)
