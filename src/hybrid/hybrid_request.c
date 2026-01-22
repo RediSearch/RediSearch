@@ -80,10 +80,6 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
           ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
           QITR_PushRP(qctx, depleter);
         }
-        // TODO: Add profile RP here?
-        // if (isProfile) {
-        //   QITR_PushRP(qctx, RPProfile_New(qctx->endProc, qctx));
-        // }
     }
     if (depleteInBackground) {
       // Release the sync reference as depleters now hold their own references

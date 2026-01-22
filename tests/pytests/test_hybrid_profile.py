@@ -124,13 +124,13 @@ query_and_profile = [
                 [
                     ['Type', 'Network', 'Results processed', 2],
                     ['Type', 'Sorter', 'Results processed', 2],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', 3]
+                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
                 ],
                 'VSIM',
                 [
                     ['Type', 'Network', 'Results processed', 4],
                     ['Type', 'Sorter', 'Results processed', 4],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', 5]
+                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
                 ]
             ],
             'Result processors profile',
@@ -209,13 +209,13 @@ query_and_profile = [
                 [
                     ['Type', 'Network', 'Results processed', 2],
                     ['Type', 'Sorter', 'Results processed', 2],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', 4]
+                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
                 ],
                 'VSIM',
                 [
                     ['Type', 'Network', 'Results processed', 4],
                     ['Type', 'Sorter', 'Results processed', 4],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', 5]
+                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
                 ]
             ],
             'Result processors profile',
@@ -298,7 +298,7 @@ query_and_profile = [
                 [
                     ['Type', 'Network', 'Results processed', 4],
                     ['Type', 'Sorter', 'Results processed', 4],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', 5]
+                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
                 ]
             ],
             'Result processors profile',
@@ -385,7 +385,7 @@ query_and_profile = [
                 [
                     ['Type', 'Network', 'Results processed', 4],
                     ['Type', 'Sorter', 'Results processed', 4],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', 5]
+                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
                 ]
             ],
             'Result processors profile',

@@ -304,15 +304,6 @@ done:
     const rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock);
     double executionTime = rs_wall_clock_convert_ns_to_ms_d(duration);
     RedisModule_ReplyKV_Double(reply, "execution_time", executionTime);
-    // // Prepare profile printer context
-    // ProfilePrinterCtx profileCtx = {
-    //   .req = NULL,
-    //   .hreq = hreq,
-    //   .timedout = rc == RS_RESULT_TIMEDOUT,
-    //   .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
-    //   .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
-    //   .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
-    // };
 
     if (IsProfile(hreq)) {
       hreq->profile(reply, hreq);
@@ -573,10 +564,8 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     }
     // Mark the requests as thread safe, so that the pipeline will be built in a thread safe manner
     for (size_t i = 0; i < hreq->nrequests; i++) {
-      AREQ *areq = hreq->requests[i];
-      AREQ_AddRequestFlags(areq, QEXEC_F_RUN_IN_BACKGROUND);
-      // to keep things consistent, we need to copy the GIL time from the tail pipeline
-      AREQ_QueryProcessingCtx(areq)->queryGILTime = hreq->tailPipeline->qctx.queryGILTime;
+      AREQ_AddRequestFlags(hreq->requests[i], QEXEC_F_RUN_IN_BACKGROUND);
+      AREQ_QueryProcessingCtx(hreq->requests[i])->queryGILTime = hreq->tailPipeline->qctx.queryGILTime;
     }
 
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, BCHCtx);
@@ -607,14 +596,6 @@ void printHybridProfileCoordinator(RedisModule_Reply *reply, void *ctx) {
   // only print the coordinator if we are not internal
   HybridRequest *hreq = ctx;
   if ((hreq->reqflags & QEXEC_F_INTERNAL) != QEXEC_F_INTERNAL) {
-    // ProfilePrinterCtx combine = {
-    //   .hreq = cCtx->hreq,
-    //   .req = NULL,
-    //   .timedout = cCtx->timedout,
-    //   .reachedMaxPrefixExpansions = cCtx->reachedMaxPrefixExpansions,
-    //   .bgScanOOM = cCtx->bgScanOOM,
-    //   .queryOOM = cCtx->queryOOM,
-    // };
     Profile_PrintHybrid(reply, ctx);
   } else {
     RedisModule_Reply_EmptyMap(reply);
