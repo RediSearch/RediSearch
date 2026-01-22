@@ -65,6 +65,24 @@ jobs:
           fi
           echo "date=$TARGET_DATE" >> $GITHUB_OUTPUT
       
+      - name: Determine Slack webhook
+        id: slack
+        env:
+          SLACK_CHANNEL: ${{ inputs.slack_channel }}
+        run: |
+          case "$SLACK_CHANNEL" in
+            rqe_ci_discussions)
+              echo "webhook_secret=SLACK_WEBHOOK_URL_RQE_CI_ISSUES" >> $GITHUB_OUTPUT
+              ;;
+            rqe_ci_failures)
+              echo "webhook_secret=SLACK_WEBHOOK_URL_RQE_CI_FAILURES" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "Unknown channel: $SLACK_CHANNEL, defaulting to rqe_ci_discussions" >&2
+              echo "webhook_secret=SLACK_WEBHOOK_URL_RQE_CI_ISSUES" >> $GITHUB_OUTPUT
+              ;;
+          esac
+      
       - name: Run collect_nightly_results.py
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -77,8 +95,10 @@ jobs:
           DATE="${{ steps.date.outputs.date }}"
           SUMMARY_FILE="merge-to-queue_${DATE}/merge-to-queue_${DATE}_summary.txt"
           if [ -f "$SUMMARY_FILE" ]; then
-            echo "summary_exists=true" >> $GITHUB_OUTPUT           
-            echo "summary_file=$SUMMARY_FILE" >> $GITHUB_OUTPUT
+            echo "summary_exists=true" >> $GITHUB_OUTPUT
+            # Capture file content, escape for JSON
+            CONTENT=$(cat "$SUMMARY_FILE" | jq -Rs .)
+            echo "summary_content=$CONTENT" >> $GITHUB_OUTPUT
           else
             echo "summary_exists=false" >> $GITHUB_OUTPUT
             echo "⚠️ Summary file not found: $SUMMARY_FILE"
@@ -91,7 +111,9 @@ jobs:
           FAILURE_FILE="merge-to-queue_${DATE}/merge-to-queue_${DATE}_failure_report.txt"
           if [ -f "$FAILURE_FILE" ]; then
             echo "failure_exists=true" >> $GITHUB_OUTPUT
-            echo "failure_file=$FAILURE_FILE" >> $GITHUB_OUTPUT
+            # Capture file content, escape for JSON
+            CONTENT=$(cat "$FAILURE_FILE" | jq -Rs .)
+            echo "failure_content=$CONTENT" >> $GITHUB_OUTPUT
           else
             echo "failure_exists=false" >> $GITHUB_OUTPUT
             echo "⚠️ Failure report file not found: $FAILURE_FILE"
@@ -111,11 +133,18 @@ jobs:
                     "type": "mrkdwn",
                     "text": "*Daily CI Summary - ${{ steps.date.outputs.date }}*"
                   }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": ${{ steps.summary.outputs.summary_content }}
+                  }
                 }
               ]
             }
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
+          SLACK_WEBHOOK_URL: ${{ secrets[steps.slack.outputs.webhook_secret] }}
 
       - name: Send failure report to Slack
         if: steps.failure_report.outputs.failure_exists == 'true'
@@ -131,11 +160,18 @@ jobs:
                     "type": "mrkdwn",
                     "text": "*Daily Failure Report - ${{ steps.date.outputs.date }}*"
                   }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": ${{ steps.failure_report.outputs.failure_content }}
+                  }
                 }
               ]
             }
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
+          SLACK_WEBHOOK_URL: ${{ secrets[steps.slack.outputs.webhook_secret] }}
       
       - name: Upload artifacts
         if: always()
