@@ -456,7 +456,9 @@ impl LoadDocumentError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pretty_assertions::assert_eq;
     use redis_mock::{TestContext, TestContextBuilder};
+    use rstest::rstest;
     use value::RSValueMock;
 
     /// A test context implementation for load document tests, allowing to mock out various features.
@@ -636,90 +638,51 @@ mod tests {
         two_fields_empty_row_and_lookup(&mut ctx)
     }
 
-    #[test]
+    #[rstest]
+    #[case(true, KeyType::Empty, KeyError::DoesNotExist)]
+    #[case(false, KeyType::Empty, KeyError::DoesNotExistOrIsWrongType)]
+    #[case(true, KeyType::String, KeyError::IsNoHash)]
+    #[case(false, KeyType::String, KeyError::DoesNotExistOrIsWrongType)]
     #[cfg_attr(miri, ignore)]
-    fn error_paths() -> Result<(), LoadDocumentError> {
+    fn error_paths(
+        #[case] has_scan_key_feature: bool,
+        #[case] key_type: KeyType,
+        #[case] expected_sub_error: KeyError,
+    ) -> Result<(), LoadDocumentError> {
         redis_mock::init_redis_module_mock();
         let mut ctx = LoadDocumentTestContext::default();
         let key_name = c"TestKey";
 
-        struct TestCase {
-            has_scan_key_feature: bool,
-            key_type: KeyType,
-            expected_error: Result<(), LoadDocumentError>,
-        }
+        ctx.with_scan_key_feature(has_scan_key_feature);
+        ctx.construct_redis_test_ctx(|ctx| {
+            ctx.set_key_values(vec![]);
+            ctx.with_key_type(&key_type);
+        });
 
-        let cases = vec![
-            TestCase {
-                has_scan_key_feature: true,
-                key_type: KeyType::Empty,
-                expected_error: Err(LoadDocumentError::InvalidKey {
-                    sub_error: KeyError::DoesNotExist,
-                    #[cfg(debug_assertions)]
-                    key: Some("TestKey".to_string()),
-                }),
-            },
-            TestCase {
-                has_scan_key_feature: false,
-                key_type: KeyType::Empty,
-                expected_error: Err(LoadDocumentError::InvalidKey {
-                    sub_error: KeyError::DoesNotExistOrIsWrongType,
-                    #[cfg(debug_assertions)]
-                    key: Some("TestKey".to_string()),
-                }),
-            },
-            TestCase {
-                has_scan_key_feature: true,
-                key_type: KeyType::String,
-                expected_error: Err(LoadDocumentError::InvalidKey {
-                    sub_error: KeyError::IsNoHash,
-                    #[cfg(debug_assertions)]
-                    key: Some("TestKey".to_string()),
-                }),
-            },
-            TestCase {
-                has_scan_key_feature: false,
-                key_type: KeyType::String,
-                expected_error: Err(LoadDocumentError::InvalidKey {
-                    sub_error: KeyError::DoesNotExistOrIsWrongType,
-                    #[cfg(debug_assertions)]
-                    key: Some("TestKey".to_string()),
-                }),
-            },
-        ];
+        let test_ctx = &mut ctx.redis_ctx;
+        let redis_ctx = std::ptr::from_mut(test_ctx).cast::<redis_module::raw::RedisModuleCtx>();
+        let sv = RSSortingVector::new(0);
+        type TOpt<'a> = LoadDocumentOptions<'a, RSValueMock>;
+        let opt: TOpt = LoadDocumentOptionsBuilder::new(
+            redis_ctx as *mut TestContext as *mut redis_module::raw::RedisModuleCtx,
+            &sv,
+            DocumentType::Hash,
+        )
+        .set_mode(RLookupLoadMode::AllKeys as u32)
+        .with_key_ptr(key_name.as_ptr() as *const _)
+        .build()?;
 
-        for case in &cases {
-            ctx.with_scan_key_feature(case.has_scan_key_feature);
-            ctx.construct_redis_test_ctx(|ctx| {
-                ctx.set_key_values(vec![]);
-                ctx.with_key_type(&case.key_type);
-            });
+        let mut lookup = RLookup::new();
+        let mut row = RLookupRow::new(&lookup);
+        let res = load_document_int(&mut lookup, &mut row, &opt, &ctx);
 
-            let test_ctx = &mut ctx.redis_ctx;
-            let redis_ctx =
-                std::ptr::from_mut(test_ctx).cast::<redis_module::raw::RedisModuleCtx>();
-            let sv = RSSortingVector::new(0);
-            type TOpt<'a> = LoadDocumentOptions<'a, RSValueMock>;
-            let opt: TOpt = LoadDocumentOptionsBuilder::new(
-                redis_ctx as *mut TestContext as *mut redis_module::raw::RedisModuleCtx,
-                &sv,
-                DocumentType::Hash,
-            )
-            .set_mode(RLookupLoadMode::AllKeys as u32)
-            .with_key_ptr(key_name.as_ptr() as *const _)
-            .build()?;
+        let expected_error = Err(LoadDocumentError::InvalidKey {
+            sub_error: expected_sub_error,
+            #[cfg(debug_assertions)]
+            key: Some("TestKey".into()),
+        });
 
-            let mut lookup = RLookup::new();
-            let mut row = RLookupRow::new(&lookup);
-            let res = load_document_int(&mut lookup, &mut row, &opt, &ctx);
-            if res != case.expected_error {
-                println!(
-                    "Test case failed: has_scan_key_feature = {}, key_type = {:?}",
-                    case.has_scan_key_feature, case.key_type
-                );
-            }
-            assert_eq!(res, case.expected_error);
-        }
+        assert_eq!(res, expected_error);
 
         Ok(())
     }
