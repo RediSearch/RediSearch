@@ -5,8 +5,6 @@ name: Nightly Flow
 on:
   schedule:
     - cron: "20 20 * * *"
-  workflow_dispatch:
-
 
 # TODO: Use RedisJSON's `master` branch when testing on nightly
 
