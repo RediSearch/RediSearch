@@ -426,8 +426,13 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
     req->stateflags |= QEXEC_S_ITERDONE;
   }
 
+  rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
+  // Accumulate profile time for intermediate cursor reads (final read is added in Profile_Print)
+  if (IsProfile(req) && !cursor_done && (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR)) {
+    req->profileTotalTime += duration;
+  }
+
   if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
-    rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
     TotalGlobalStats_CountQuery(req->reqflags, duration);
   }
 
