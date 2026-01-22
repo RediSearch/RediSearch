@@ -57,64 +57,31 @@ typedef enum {
  * This is used for data generated on the fly, or for data not stored within
  * the sorting vector.
  */
-typedef struct RLookupKey {
-  /** DO NOT ACCESS DIRECTLY. USE RLookupKey_DstIdx INSTEAD! */
-  uint16_t _dstidx;
-
-  /**DO NOT ACCESS DIRECTLY. USE RLookupKey_GetSvIdx INSTEAD! */
-  uint16_t _svidx;
-
-  /** DO NOT ACCESS DIRECTLY. USE RLookupKey_GetFlags INSTEAD! */
-  uint32_t _flags;
-
-  /** DO NOT ACCESS DIRECTLY. USE RLookupKey_GetPath INSTEAD! */
-  const char *_path;
-  /** DO NOT ACCESS DIRECTLY. USE RLookupKey_GetName INSTEAD! */
-  const char *_name;
-  /** DO NOT ACCESS DIRECTLY. USE RLookupKey_GetNameLen INSTEAD! */
-  size_t _name_len;
-
-  /** Pointer to next field in the list.
-   * DO NOT ACCESS DIRECTLY. USE RLookup_Iter or RLookup_IterMut INSTEAD!
-   */
-  struct RLookupKey *_next;
-} RLookupKey;
+typedef struct RLookupKey RLookupKey;
 
 /** The index into the array where the value resides  */
-static inline uint16_t RLookupKey_GetDstIdx(const RLookupKey* key) {
-    return key->_dstidx;
-}
+uint16_t RLookupKey_GetDstIdx(const RLookupKey* key);
 
 /**
  * If the source of this value points to a sort vector, then this is the
  * index within the sort vector that the value is located
  */
-static inline uint16_t RLookupKey_GetSvIdx(const RLookupKey* key) {
-    return key->_svidx;
-}
+uint16_t RLookupKey_GetSvIdx(const RLookupKey* key);
 
 /** The name of this field. */
-static inline const char * RLookupKey_GetName(const RLookupKey* key) {
-    return key->_name;
-}
+const char * RLookupKey_GetName(const RLookupKey* key);
 
 /** The path of this field. */
-static inline const char * RLookupKey_GetPath(const RLookupKey* key) {
-    return key->_path;
-}
+const char * RLookupKey_GetPath(const RLookupKey* key);
 
 /** The length of the name field in bytes. */
-static inline size_t RLookupKey_GetNameLen(const RLookupKey* key) {
-    return key->_name_len;
-}
+size_t RLookupKey_GetNameLen(const RLookupKey* key);
 
 /**
  * Indicate the type and other attributes
  * Can be F_SVSRC which means the target array is a sorting vector)
  */
-static inline uint32_t RLookupKey_GetFlags(const RLookupKey* key) {
-    return key->_flags;
-}
+uint32_t RLookupKey_GetFlags(const RLookupKey* key);
 
 typedef struct RLookup {
   /** DO NOT ACCESS DIRECTLY. USE RLookup_Iter or RLookup_IterMut INSTEAD! */
@@ -152,17 +119,7 @@ typedef struct RLookupIterator {
  * Returns `true` while there are more keys or `false` to indicate the
  * last key ways returned and the caller should not call this function anymore.
  */
-static inline bool RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** key) {
-    const RLookupKey *current = iterator->current;
-    if (current == NULL) {
-        return false;
-    } else {
-        *key = current;
-        iterator->current = current->_next;
-
-        return true;
-    }
-}
+bool RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** key);
 
 /** A iterator over the keys in an `RLookup` returning mutable pointers. */
 typedef struct RLookupIteratorMut {
@@ -175,31 +132,13 @@ typedef struct RLookupIteratorMut {
  * Returns `true` while there are more keys or `false` to indicate the
  * last key ways returned and the caller should not call this function anymore.
  */
-static inline bool RLookupIteratorMut_Next(RLookupIteratorMut* iterator, RLookupKey** key) {
-    RLookupKey *current = iterator->current;
-    if (current == NULL) {
-        return false;
-    } else {
-        *key = current;
-        iterator->current = current->_next;
-
-        return true;
-    }
-}
+bool RLookupIteratorMut_Next(RLookupIteratorMut* iterator, RLookupKey** key);
 
 /** Returns an immutable iterator over the keys in this RLookup */
-static inline RLookupIterator RLookup_Iter(const RLookup* rlookup) {
-    RLookupIterator iter = { 0 };
-    iter.current = rlookup->_head;
-    return iter;
-}
+RLookupIterator RLookup_Iter(const RLookup* rlookup);
 
 /** Returns an mutable iterator over the keys in this RLookup */
-static inline RLookupIteratorMut RLookup_IterMut(const RLookup* rlookup) {
-    RLookupIteratorMut iter = { 0 };
-    iter.current = rlookup->_head;
-    return iter;
-}
+RLookupIteratorMut RLookup_IterMut(const RLookup* rlookup);
 
 /**
  * Returns the length of the data row.
@@ -480,7 +419,7 @@ typedef struct {
 
   /* Needed for rule filter where dmd does not exist */
   const char *keyPtr;
-  
+
   DocumentType type;
 
   /** Keys to load. If present, then loadNonCached and loadAllFields is ignored */

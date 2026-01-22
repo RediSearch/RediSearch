@@ -15,6 +15,68 @@
 #include "value.h"
 #include "util/arr.h"
 
+typedef struct RLookupKey {
+  uint16_t _dstidx;
+  uint16_t _svidx;
+
+  uint32_t _flags;
+
+  const char *_path;
+  const char *_name;
+  size_t _name_len;
+
+  /** Pointer to next field in the list. */
+  struct RLookupKey *_next;
+} RLookupKey;
+
+/** The index into the array where the value resides  */
+inline uint16_t RLookupKey_GetDstIdx(const RLookupKey* key) {
+    return key->_dstidx;
+}
+
+/**
+ * If the source of this value points to a sort vector, then this is the
+ * index within the sort vector that the value is located
+ */
+inline uint16_t RLookupKey_GetSvIdx(const RLookupKey* key) {
+    return key->_svidx;
+}
+
+/** The name of this field. */
+inline const char * RLookupKey_GetName(const RLookupKey* key) {
+    return key->_name;
+}
+
+/** The path of this field. */
+inline const char * RLookupKey_GetPath(const RLookupKey* key) {
+    return key->_path;
+}
+
+/** The length of the name field in bytes. */
+inline size_t RLookupKey_GetNameLen(const RLookupKey* key) {
+    return key->_name_len;
+}
+
+/**
+ * Indicate the type and other attributes
+ * Can be F_SVSRC which means the target array is a sorting vector)
+ */
+inline uint32_t RLookupKey_GetFlags(const RLookupKey* key) {
+    return key->_flags;
+}
+
+static inline RLookupKey* RLookupKey_GetNext(RLookupKey* key) {
+    return key->_next;
+}
+
+static inline void RLookupKey_MergeFlags(RLookupKey* key, uint32_t flags) {
+    key->_flags |= flags;
+}
+
+static inline void RLookupKey_SetPath(RLookupKey* key, const char * path) {
+    key->_path = path;
+}
+
 // Allocate a new RLookupKey and add it to the RLookup table.
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
   RLookupKey *ret = rm_calloc(1, sizeof(*ret));
@@ -37,18 +99,6 @@ static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_l
   ++(lookup->_rowlen);
 
   return ret;
-}
-
-static inline void RLookupKey_MergeFlags(RLookupKey* key, uint32_t flags) {
-    key->_flags |= flags;
-}
-
-static inline void RLookupKey_SetPath(RLookupKey* key, const char * path) {
-    key->_path = path;
-}
-
-static inline RLookupKey* RLookupKey_GetNext(RLookupKey* key) {
-    return key->_next;
 }
 
 // Allocate a new RLookupKey and add it to the RLookup table.
@@ -164,6 +214,56 @@ static RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t nam
     }
   }
   return NULL;
+}
+
+/**
+ * Advances the iterator to the next key places a pointer to it into `key`.
+ *
+ * Returns `true` while there are more keys or `false` to indicate the
+ * last key ways returned and the caller should not call this function anymore.
+ */
+inline bool RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** key) {
+    const RLookupKey *current = iterator->current;
+    if (current == NULL) {
+        return false;
+    } else {
+        *key = current;
+        iterator->current = current->_next;
+
+        return true;
+    }
+}
+
+/**
+ * Advances the iterator to the next key places a pointer to it into `key`.
+ *
+ * Returns `true` while there are more keys or `false` to indicate the
+ * last key ways returned and the caller should not call this function anymore.
+ */
+inline bool RLookupIteratorMut_Next(RLookupIteratorMut* iterator, RLookupKey** key) {
+    RLookupKey *current = iterator->current;
+    if (current == NULL) {
+        return false;
+    } else {
+        *key = current;
+        iterator->current = RLookupKey_GetNext(current);
+
+        return true;
+    }
+}
+
+/** Returns an immutable iterator over the keys in this RLookup */
+inline RLookupIterator RLookup_Iter(const RLookup* rlookup) {
+    RLookupIterator iter = { 0 };
+    iter.current = rlookup->_head;
+    return iter;
+}
+
+/** Returns an mutable iterator over the keys in this RLookup */
+inline RLookupIteratorMut RLookup_IterMut(const RLookup* rlookup) {
+    RLookupIteratorMut iter = { 0 };
+    iter.current = rlookup->_head;
+    return iter;
 }
 
 static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size_t name_len, const char *field_name, RLookupMode mode, uint32_t flags) {
