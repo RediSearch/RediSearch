@@ -13,7 +13,7 @@ endif()
 # add_definitions(-DEXT_TEST_PATH="\\"${binroot}/search/tests/cpptests/example_extension/libexample_extension.so\\"")
 
 file(GLOB TEST_SOURCES "test_cpp_*.cpp")
-add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp)
+add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp stacktrace.cpp)
 target_link_libraries(rstest gtest ${TEST_MODULE} ${CMAKE_LD_LIBS} redismock)
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
 
@@ -24,6 +24,6 @@ endif()
 add_test(NAME rstest COMMAND rstest)
 
 file(GLOB BENCHMARK_SOURCES "benchmark_*.cpp")
-add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp)
+add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp stacktrace.cpp)
 target_link_libraries(rsbench ${TEST_MODULE} redismock ${CMAKE_LD_LIBS} pthread)
 set_target_properties(rsbench PROPERTIES LINKER_LANGUAGE CXX)
