@@ -1661,7 +1661,10 @@ dependencies = [
  "build_utils",
  "cbindgen",
  "ffi",
+ "redis_mock",
+ "redisearch_rs",
  "result_processor",
+ "result_processor_ffi",
  "workspace_hack",
 ]
 
@@ -1710,7 +1713,10 @@ dependencies = [
  "cbindgen",
  "ffi",
  "libc",
+ "redis_mock",
+ "redisearch_rs",
  "rlookup",
+ "rlookup_ffi",
  "sorting_vector",
  "value",
  "workspace_hack",

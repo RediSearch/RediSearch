@@ -16,6 +16,14 @@ sorting_vector.workspace = true
 value = { workspace = true, features = ["c_ffi_impl"] }
 workspace_hack.workspace = true
 
+[dev-dependencies]
+rlookup_ffi = { path = ".", features = ["unittest"] }
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+redis_mock.workspace = true
+
 [build-dependencies]
 cbindgen.workspace = true
 build_utils = { path = "../../build_utils" }
+
+[features]
+unittest = []

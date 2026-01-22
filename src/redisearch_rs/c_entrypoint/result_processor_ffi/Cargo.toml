@@ -10,9 +10,17 @@ result_processor.workspace = true
 ffi.workspace = true
 workspace_hack.workspace = true
 
+[dev-dependencies]
+result_processor_ffi = { path = ".", features = ["unittest"] }
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+redis_mock.workspace = true
+
 [build-dependencies]
 cbindgen.workspace = true
 build_utils = { path = "../../build_utils" }
 
 [lints]
 workspace = true
+
+[features]
+unittest = []
