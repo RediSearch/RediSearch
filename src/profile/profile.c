@@ -127,8 +127,10 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     return upstreamTime;
   }
   double totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPProfile_GetClock(rp));
+
   if (printProfileClock) {
     double deltaTime = totalRPTime - upstreamTime;
+
     // For async RPs (like RPSafeDepleter in coordinator), the delta can be
     // negative because the upstream work happens in a background thread.
     // Cap at 0 to avoid confusing negative times for these specific cases.
@@ -136,7 +138,15 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
         rp->upstream && rp->upstream->type == RP_SAFE_DEPLETER) {
       deltaTime = 0;
     }
+
     printProfileTime(deltaTime);
+
+    // For RP_SAFE_DEPLETER, also print the actual background depletion time
+    if (rp->upstream && rp->upstream->type == RP_SAFE_DEPLETER) {
+      rs_wall_clock_ns_t depletionTime_ns = RPSafeDepleter_GetDepletionTime(rp->upstream);
+      double depletionTime_ms = rs_wall_clock_convert_ns_to_ms_d(depletionTime_ns);
+      RedisModule_ReplyKV_Double(reply, "Depletion time", depletionTime_ms);
+    }
   }
   printProfileRPCounter(RPProfile_GetCount(rp) - 1);
   RedisModule_Reply_MapEnd(reply); // end of recursive map
