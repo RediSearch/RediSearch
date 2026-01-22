@@ -9,10 +9,10 @@
 
 use ffi::{IteratorType_ID_LIST_ITERATOR, QueryIterator, RedisModule_Free, t_docId};
 use inverted_index::RSIndexResult;
+use libc::size_t;
 use rqe_iterators::id_list::IdList;
 use rqe_iterators_interop::RQEIteratorWrapper;
 
-#[unsafe(no_mangle)]
 /// Creates a new iterator over a list of sorted document IDs.
 ///
 /// # Safety
@@ -22,20 +22,16 @@ use rqe_iterators_interop::RQEIteratorWrapper;
 /// 2. The caller must ensure that `ids` is not null unless `num` is zero.
 /// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "redis does not support 32bit"
-)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewSortedIdListIterator(
     ids: *const t_docId,
-    num: u64,
+    num: size_t,
     weight: f64,
 ) -> *mut QueryIterator {
     // SAFETY: All safety preconditions are guaranteed by the caller.
-    unsafe { new_id_list_iterator::<true>(ids, num as usize, weight) }
+    unsafe { new_id_list_iterator::<true>(ids, num, weight) }
 }
 
-#[unsafe(no_mangle)]
 /// Creates a new iterator over a list of unsorted document IDs.
 ///
 /// # Safety
@@ -44,17 +40,14 @@ pub unsafe extern "C" fn NewSortedIdListIterator(
 /// 2. The caller must ensure that `ids` is not null unless `num` is zero.
 /// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "redis does not support 32bit"
-)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewUnsortedIdListIterator(
     ids: *const t_docId,
-    num: u64,
+    num: size_t,
     weight: f64,
 ) -> *mut QueryIterator {
     // SAFETY: All safety preconditions are guaranteed by the caller.
-    unsafe { new_id_list_iterator::<false>(ids, num as usize, weight) }
+    unsafe { new_id_list_iterator::<false>(ids, num, weight) }
 }
 
 /// # Safety

@@ -38,7 +38,7 @@ QueryIterator *NewEmptyIterator(void);
  * 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that the pointer was allocated in a compatible manner.
  */
-QueryIterator *NewSortedIdListIterator(const t_docId *ids, uint64_t num, double weight);
+QueryIterator *NewSortedIdListIterator(const t_docId *ids, size_t num, double weight);
 
 /**
  * Creates a new iterator over a list of unsorted document IDs.
@@ -50,7 +50,7 @@ QueryIterator *NewSortedIdListIterator(const t_docId *ids, uint64_t num, double 
  * 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that the pointer was allocated in a compatible manner.
  */
-QueryIterator *NewUnsortedIdListIterator(const t_docId *ids, uint64_t num, double weight);
+QueryIterator *NewUnsortedIdListIterator(const t_docId *ids, size_t num, double weight);
 
 /**
  * Creates a new metric iterator sorted by ID.

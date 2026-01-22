@@ -874,6 +874,7 @@ dependencies = [
  "cbindgen",
  "ffi",
  "inverted_index",
+ "libc",
  "rqe_iterators",
  "rqe_iterators_interop",
  "workspace_hack",
