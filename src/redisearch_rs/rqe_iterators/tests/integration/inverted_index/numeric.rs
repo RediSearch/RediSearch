@@ -300,6 +300,19 @@ fn eof_after_filtering() {
     assert_eq!(it.skip_to(1).expect("skip_to failed"), None);
 }
 
+#[test]
+fn numeric_range() {
+    let ii = InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let context = MockContext::new(0, 0);
+
+    let it = NumericBuilder::new(ii.reader(), context.sctx())
+        .range_min(1.0)
+        .range_max(10.0)
+        .build();
+    assert_eq!(it.range_min(), 1.0);
+    assert_eq!(it.range_max(), 10.0);
+}
+
 #[cfg(not(miri))]
 mod not_miri {
     use super::*;
