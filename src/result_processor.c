@@ -417,7 +417,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
 
   // Determine which Next function to use based on disk configuration
   if (sctx->spec->diskSpec) {
-    if (SearchDisk_IsAsyncIOSupported()) {
+    if (SearchDisk_IsAsyncIOSupported() && SearchDisk_GetAsyncIOEnabled()) {
       // Async disk flow
       ret->asyncPool = SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, ASYNC_POOL_SIZE);
       if (ret->asyncPool) {

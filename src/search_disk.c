@@ -150,7 +150,7 @@ bool SearchDisk_IsAsyncIOSupported() {
         return false;
     }
     // Check both the global flag and the underlying disk support
-    return asyncIOEnabled && disk->basic.isAsyncIOSupported(disk_db);
+    return disk->basic.isAsyncIOSupported(disk_db);
 }
 
 void SearchDisk_SetAsyncIOEnabled(bool enabled) {
