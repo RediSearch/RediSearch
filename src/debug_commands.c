@@ -2176,6 +2176,11 @@ DEBUG_COMMAND(DiskIOControl) {
 
   if (!strcmp("enable", op)) {
     SearchDisk_SetAsyncIOEnabled(true);
+    // Check if async I/O is actually supported after enabling
+    if (!SearchDisk_IsAsyncIOSupported()) {
+      SearchDisk_SetAsyncIOEnabled(false);  // Revert
+      return RedisModule_ReplyWithError(ctx, "Async I/O is not supported by the underlying disk implementation");
+    }
     return RedisModule_ReplyWithSimpleString(ctx, "OK - Async I/O enabled");
   } else if (!strcmp("disable", op)) {
     SearchDisk_SetAsyncIOEnabled(false);

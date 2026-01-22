@@ -146,7 +146,9 @@ void SearchDisk_FreeAsyncReadPool(RedisSearchDiskAsyncReadPool *pool) {
 }
 
 bool SearchDisk_IsAsyncIOSupported() {
-    RS_ASSERT(disk);
+    if (!disk || !disk_db) {
+        return false;
+    }
     // Check both the global flag and the underlying disk support
     return asyncIOEnabled && disk->basic.isAsyncIOSupported(disk_db);
 }
