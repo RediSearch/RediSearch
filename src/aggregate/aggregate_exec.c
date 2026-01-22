@@ -434,6 +434,10 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
   if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
     rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
     TotalGlobalStats_CountQuery(req->reqflags, duration);
+    // Accumulate profile time at end of each cursor read (before cursor pauses)
+    if (IsProfile(req) && !cursor_done) {
+      req->profileTotalTime += duration;
+    }
   }
 
   // Reset the total results length:
