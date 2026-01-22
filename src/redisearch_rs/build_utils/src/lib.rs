@@ -160,7 +160,7 @@ fn link_c_plusplus() {
         .compile("link-cplusplus");
 }
 
-fn link_static_lib(
+pub fn link_static_lib(
     bin_root: &Path,
     lib_subdir: &str,
     lib_name: &str,
