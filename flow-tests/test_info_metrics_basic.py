@@ -119,8 +119,11 @@ def test_info_search_basic(redis_env):
     # Note: memtable sizes can vary across platforms due to SpeedB/RocksDB
     # internal allocation patterns, so we only check for positivity.
     disk_doc_after_pop = info_after_pop['search_disk_doc_table']
+
+    # Assert frequently updated fields loosely
     redis_env.assertGreater(disk_doc_after_pop.pop('active_memtable_size'), 0)
     redis_env.assertGreater(disk_doc_after_pop.pop('size_all_mem_tables'), 0)
+
     expected_dt = {
         'num_immutable_memtables': 0,
         'num_immutable_memtables_flushed': 0,
@@ -143,8 +146,11 @@ def test_info_search_basic(redis_env):
 
     # Inverted index metrics
     disk_inv_after_pop = info_after_pop['search_disk_text_inverted_index']
+
+    # Assert frequently updated fields loosely
     redis_env.assertGreater(disk_inv_after_pop.pop('active_memtable_size'), 0)
     redis_env.assertGreater(disk_inv_after_pop.pop('size_all_mem_tables'), 0)
+
     expected_ii = {
         'num_immutable_memtables': 0,
         'num_immutable_memtables_flushed': 0,

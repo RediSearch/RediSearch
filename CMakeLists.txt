@@ -112,6 +112,7 @@ add_subdirectory(deps/RediSearch)
 #----------------------------------------------------------------------------------------------
 
 add_subdirectory(redisearch_disk)
+add_dependencies(redisearch-disk_build speedb-shared)
 
 #----------------------------------------------------------------------------------------------
 # 3. Build vecsim_disk as static library

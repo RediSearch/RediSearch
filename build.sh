@@ -141,6 +141,9 @@ cmd_lint() {
   build_speedb
 
   cd "${ROOT_DIR}/redisearch_disk/"
+  # Allow linting to proceed without the speedb library built
+  # This is needed for CI where we lint before building
+  export SPEEDB_SKIP_LINK=1
   cargo clippy --color=always -- -D warnings
   cargo fmt -- --color=always --check
 }
@@ -262,6 +265,25 @@ cmd_test() {
   fi
 
   cd "${ROOT_DIR}/redisearch_disk/"
+  
+  # Set up rpath for speedb library so test binaries can find it at runtime
+  # The speedb library is built by CMake at build/speedb-build/libspeedb.so
+  # Note: build_speedb() is called above, so the directory should already exist
+  local speedb_lib_dir="${BUILD_DIR}/speedb-build"
+  # Get absolute path to speedb library directory
+  # Use realpath if available, otherwise construct from ROOT_DIR
+  local speedb_lib_dir_abs
+  if command -v realpath >/dev/null 2>&1; then
+    speedb_lib_dir_abs="$(realpath "${speedb_lib_dir}")"
+  else
+    # Construct absolute path manually
+    speedb_lib_dir_abs="${ROOT_DIR}/build/speedb-build"
+  fi
+  # Add rpath to RUSTFLAGS for test binaries
+  # This ensures test executables can find libspeedb.so at runtime
+  export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C link-arg=-Wl,-rpath,${speedb_lib_dir_abs}"
+  echo "[test] Setting rpath to speedb library: ${speedb_lib_dir_abs}"
+  
   # Enable unittest feature to link C static libraries needed by tests
   cargo test --profile="${rust_profile}" --features unittest --color=always "$@"
 }

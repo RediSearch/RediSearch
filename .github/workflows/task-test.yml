@@ -112,6 +112,7 @@ jobs:
           ${{ steps.mode.outputs.mode }} cp ~/redis-cache/redis-server /usr/local/bin/
           ${{ steps.mode.outputs.mode }} cp ~/redis-cache/redis-cli /usr/local/bin/
           ${{ steps.mode.outputs.mode }} cp ~/redis-cache/bs_speedb.so /usr/local/lib/
+          ${{ steps.mode.outputs.mode }} cp ~/redis-cache/libspeedb.so.2 /usr/local/lib/
           ${{ steps.mode.outputs.mode }} chmod +x /usr/local/bin/redis-server /usr/local/bin/redis-cli
 
       # Build and install Redis (only if cache miss)
@@ -125,11 +126,13 @@ jobs:
             SANITIZER=${{ env.SAN }}
           # Copy bs_speedb.so to /usr/local/lib for runtime use
           ${{ steps.mode.outputs.mode }} cp src/bs_speedb.so /usr/local/lib/
+          ${{ steps.mode.outputs.mode }} cp src/libspeedb.so.2 /usr/local/lib/
           # Copy binaries to cache directory for saving
           mkdir -p ~/redis-cache
           cp /usr/local/bin/redis-server ~/redis-cache/
           cp /usr/local/bin/redis-cli ~/redis-cache/
           cp /usr/local/lib/bs_speedb.so ~/redis-cache/
+          cp /usr/local/lib/libspeedb.so.2 ~/redis-cache/
 
       # Save Redis to cache (only if cache miss)
       - name: Cache Redis (save)
