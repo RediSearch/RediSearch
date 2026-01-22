@@ -415,11 +415,16 @@ impl<Data> Node<Data> {
             //   and `new_metadata.layout()` already includes the required
             //   padding. See 2. in [`PtrMetadata::layout`]
             let new_ptr = unsafe {
+                #[expect(
+                    clippy::cast_ptr_alignment,
+                    reason = "casting *mut u8 to *mut NodeHeader is fine since the layout we pass to `realloc` guarantees correct alignment."
+                )]
                 realloc(
                     old_ptr.as_ptr().cast(),
                     old_metadata.layout(),
                     new_root_size,
-                ) as *mut NodeHeader
+                )
+                .cast::<NodeHeader>()
             };
             let Some(new_ptr) = NonNull::new(new_ptr) else {
                 handle_alloc_error(new_metadata.layout());
@@ -530,11 +535,16 @@ impl<Data> Node<Data> {
             //   and `new_metadata.layout()` already includes the required
             //   padding. See 2. in [`PtrMetadata::layout`]
             let new_ptr = unsafe {
+                #[expect(
+                    clippy::cast_ptr_alignment,
+                    reason = "casting *mut u8 to *mut NodeHeader is fine since the layout we pass to `realloc` guarantees correct alignment."
+                )]
                 realloc(
                     old_ptr.as_ptr().cast(),
                     old_metadata.layout(),
                     new_metadata.layout().size(),
-                ) as *mut NodeHeader
+                )
+                .cast::<NodeHeader>()
             };
 
             let Some(raw_ptr) = NonNull::new(new_ptr) else {
@@ -670,11 +680,16 @@ impl<Data> Node<Data> {
             //   and `new_metadata.layout()` already includes the required
             //   padding. See 2. in [`PtrMetadata::layout`]
             let raw_ptr = unsafe {
+                #[expect(
+                    clippy::cast_ptr_alignment,
+                    reason = "casting *mut u8 to *mut NodeHeader is fine since the layout we pass to `realloc` guarantees correct alignment."
+                )]
                 realloc(
                     old_ptr.as_ptr().cast(),
                     old_metadata.layout(),
                     new_root_size,
-                ) as *mut NodeHeader
+                )
+                .cast::<NodeHeader>()
             };
 
             let Some(raw_ptr) = NonNull::new(raw_ptr) else {
@@ -974,7 +989,12 @@ impl<Data> Node<Data> {
             //   and `new_metadata.layout()` already includes the required
             //   padding. See 2. in [`PtrMetadata::layout`]
             unsafe {
-                realloc(old_ptr.as_ptr().cast(), old_metadata.layout(), new_size) as *mut NodeHeader
+                #[expect(
+                    clippy::cast_ptr_alignment,
+                    reason = "casting *mut u8 to *mut NodeHeader is fine since the layout we pass to `realloc` guarantees correct alignment."
+                )]
+                realloc(old_ptr.as_ptr().cast(), old_metadata.layout(), new_size)
+                    .cast::<NodeHeader>()
             }
         };
 

@@ -82,7 +82,7 @@ pub unsafe extern "C" fn RedisModule_Strdup(s: *const c_char) -> *mut c_char {
         // Need an extra byte for null terminator
         let len = c_str.count_bytes() + 1;
         // Allocate memory using the mock allocator
-        let out = crate::allocator::alloc_shim(len) as *mut c_char;
+        let out = crate::allocator::alloc_shim(len).cast::<c_char>();
         assert!(!out.is_null());
 
         // Safety:

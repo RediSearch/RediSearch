@@ -76,7 +76,7 @@ impl Debug for RSOffsetVector<'_> {
         }
         // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
         let offsets =
-            unsafe { std::slice::from_raw_parts(self.data as *const i8, self.len as usize) };
+            unsafe { std::slice::from_raw_parts(self.data.cast_const(), self.len as usize) };
 
         write!(f, "RSOffsetVector {offsets:?}")
     }

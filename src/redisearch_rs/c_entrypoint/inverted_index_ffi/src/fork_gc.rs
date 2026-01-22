@@ -31,7 +31,7 @@ impl Write for InvertedIndexGCWriter {
         let f = self.write;
         f(
             self.ctx,
-            buf.as_ptr() as *const c_void,
+            buf.as_ptr().cast::<c_void>(),
             buf.len() as c_size_t,
         );
         Ok(buf.len())
@@ -60,7 +60,7 @@ impl Read for InvertedIndexGCReader {
         let f = self.read;
         let rc = f(
             self.ctx,
-            buf.as_mut_ptr() as *mut c_void,
+            buf.as_mut_ptr().cast::<c_void>(),
             buf.len() as c_size_t,
         );
         if rc == 0 {

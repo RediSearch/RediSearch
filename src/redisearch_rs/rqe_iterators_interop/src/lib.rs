@@ -7,13 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ptr;
+
 use ffi::{
     IteratorStatus, IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND,
     IteratorStatus_ITERATOR_OK, IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus,
     ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
     t_docId,
 };
-use inverted_index::RSIndexResult;
 use rqe_iterators::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 #[repr(C)]
@@ -59,11 +60,11 @@ where
         if let Some(current) = wrapper
             .inner
             .current()
-            .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult)
+            .map(|c| ptr::from_mut(c).cast::<ffi::RSIndexResult>())
         {
             wrapper.header.current = current;
         }
-        Box::into_raw(wrapper) as *mut QueryIterator
+        Box::into_raw(wrapper).cast::<QueryIterator>()
     }
 
     /// Convert a type-erased iterator "header" into a wrapper around a specific Rust iterator type.
@@ -117,7 +118,7 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
     let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
     match wrapper.inner.read() {
         Ok(Some(result)) => {
-            wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
+            wrapper.header.current = ptr::from_mut(result).cast::<ffi::RSIndexResult>();
             wrapper.header.lastDocId = result.doc_id;
             IteratorStatus_ITERATOR_OK
         }
@@ -144,12 +145,12 @@ extern "C" fn skip_to<'index, I: RQEIterator<'index> + 'index>(
     let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
     match wrapper.inner.skip_to(doc_id) {
         Ok(Some(SkipToOutcome::Found(result))) => {
-            wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
+            wrapper.header.current = ptr::from_mut(result).cast::<ffi::RSIndexResult>();
             wrapper.header.lastDocId = result.doc_id;
             IteratorStatus_ITERATOR_OK
         }
         Ok(Some(SkipToOutcome::NotFound(result))) => {
-            wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
+            wrapper.header.current = ptr::from_mut(result).cast::<ffi::RSIndexResult>();
             wrapper.header.lastDocId = result.doc_id;
             IteratorStatus_ITERATOR_NOTFOUND
         }
@@ -177,7 +178,7 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
         Ok(RQEValidateStatus::Ok) => ValidateStatus_VALIDATE_OK,
         Ok(RQEValidateStatus::Moved { current }) => {
             if let Some(result) = current {
-                wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
+                wrapper.header.current = ptr::from_mut(result).cast::<ffi::RSIndexResult>();
                 wrapper.header.lastDocId = result.doc_id;
             } else {
                 wrapper.header.atEOF = true;
@@ -200,7 +201,7 @@ extern "C" fn rewind<'index, I: RQEIterator<'index> + 'index>(base: *mut QueryIt
     wrapper.header.current = wrapper
         .inner
         .current()
-        .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult)
+        .map(|c| ptr::from_mut(c).cast::<ffi::RSIndexResult>())
         .unwrap_or(std::ptr::null_mut());
 }
 
@@ -220,6 +221,6 @@ extern "C" fn free_iterator<'index, I: RQEIterator<'index> + 'index>(base: *mut 
         // SAFETY: Callbacks are guaranteed to get a header pointer created by
         //  [`RQEIteratorWrapper::new`], which (internally) uses `Box::into_raw` to
         //  return a raw header pointer.
-        let _ = unsafe { Box::from_raw(base as *mut RQEIteratorWrapper<I>) };
+        let _ = unsafe { Box::from_raw(base.cast::<RQEIteratorWrapper<I>>()) };
     }
 }

@@ -25,6 +25,8 @@
     clippy::approx_constant,
     clippy::missing_const_for_fn,
     clippy::disallowed_types,
+    clippy::ref_as_ptr,
+    clippy::ptr_as_ptr,
     rustdoc::invalid_html_tags,
     rustdoc::broken_intra_doc_links
 )]

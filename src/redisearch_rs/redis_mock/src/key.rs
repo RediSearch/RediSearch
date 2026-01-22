@@ -94,9 +94,11 @@ pub unsafe extern "C" fn RedisModule_CloseKey(key: *mut redis_module::raw::Redis
 ///
 /// 1. key must be a valid pointer to a RedisModuleKey created by this mock implementation, thus a pointer to [UserKey].
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn RedisModule_KeyType(key: *mut redis_module::raw::RedisModuleKey) -> i32 {
+pub const unsafe extern "C" fn RedisModule_KeyType(
+    key: *mut redis_module::raw::RedisModuleKey,
+) -> i32 {
     // Safety: Caller has to ensure 1
-    let key = unsafe { &*(key as *mut UserKey) };
+    let key = unsafe { key.cast::<UserKey>().as_ref().unwrap() };
     let res = match key.ty {
         KeyType::Empty => redis_module::raw::REDISMODULE_KEYTYPE_EMPTY,
         KeyType::String => redis_module::raw::REDISMODULE_KEYTYPE_STRING,

@@ -521,16 +521,30 @@ pub unsafe extern "C" fn AggregateResult_GetRecordsSlice(
 ) -> AggregateRecordsSlice {
     debug_assert!(!agg.is_null(), "agg must not be null");
 
+    // Assert that we can safely cast `Box<RSIndexResult<'static>>` into `*mut RSIndexResult<'static>`
+    // which we can only do when the Global allocator remains a zero-sized type by extension ensuring
+    // the size and alignment remain the same. If this ever changes, we'll fail to compile.
+    const {
+        assert!(
+            size_of::<*mut RSIndexResult<'static>>() - size_of::<Box<RSIndexResult<'static>>>()
+                == 0
+        );
+        assert!(
+            align_of::<*mut RSIndexResult<'static>>() - align_of::<Box<RSIndexResult<'static>>>()
+                == 0
+        );
+    };
+
     // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
     // an `RSAggregateResult`.
     let agg = unsafe { &*agg };
     match agg {
         RSAggregateResult::Borrowed { records, .. } => AggregateRecordsSlice {
-            ptr: records.as_slice().as_ptr() as *const *const RSIndexResult,
+            ptr: records.as_slice().as_ptr().cast::<*const RSIndexResult>(),
             len: records.len(),
         },
         RSAggregateResult::Owned { records, .. } => AggregateRecordsSlice {
-            ptr: records.as_slice().as_ptr() as *const *const RSIndexResult,
+            ptr: records.as_slice().as_ptr().cast::<*const RSIndexResult>(),
             len: records.len(),
         },
     }
@@ -599,7 +613,7 @@ pub unsafe extern "C" fn RSOffsetVector_SetData(
     // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid RSOffsetVector.
     let offsets = unsafe { &mut *offsets };
 
-    offsets.data = data as _;
+    offsets.data = data.cast_mut();
     offsets.len = len;
 }
 

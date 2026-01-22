@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ptr;
+
 use ffi::{
     IteratorType_METRIC_ITERATOR, QueryIterator, RLookupKey, RLookupKeyHandle, RedisModule_Free,
     t_docId,
@@ -145,7 +147,7 @@ pub unsafe extern "C" fn GetMetricOwnKeyRef(header: *mut QueryIterator) -> *mut 
     // SAFETY: Safe thanks to 1 + 2.
     let wrapper =
         unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
-    wrapper.inner.key_mut_ref() as *mut _
+    ptr::from_mut(wrapper.inner.key_mut_ref())
 }
 
 /// Get the metric type used by this metric iterator.

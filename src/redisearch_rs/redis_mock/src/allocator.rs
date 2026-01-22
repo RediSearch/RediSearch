@@ -51,12 +51,22 @@ pub extern "C" fn alloc_shim(size: usize) -> *mut c_void {
         return ptr::null_mut();
     }
 
-    let h0 = base as *mut usize;
+    #[expect(
+        clippy::cast_ptr_alignment,
+        reason = "ALIGNMENT ensures this ptr is properly aligned"
+    )]
+    let h0 = base.cast::<usize>();
     // Safety: `h0` points into the allocated block and we write exactly one `usize`
     // that fits within the first `HEADER_SIZE` bytes we reserved for the header.
     unsafe { *h0 = alloc_size };
 
-    let h1 = base.wrapping_add(std::mem::size_of::<usize>()) as *mut usize;
+    #[expect(
+        clippy::cast_ptr_alignment,
+        reason = "ALIGNMENT ensures this ptr is properly aligned"
+    )]
+    let h1 = base
+        .wrapping_add(std::mem::size_of::<usize>())
+        .cast::<usize>();
     // Safety: `h1` is within the allocated header region and disjoint from `h0`.
     // Since the header is two words-long, and we only need one word
     // for required metadata (i.e. the actual allocated space),
@@ -66,7 +76,7 @@ pub extern "C" fn alloc_shim(size: usize) -> *mut c_void {
     unsafe { *h1 = size };
 
     // Compute user pointer just after the header while preserving alignment.
-    base.wrapping_add(HEADER_SIZE) as *mut c_void
+    base.wrapping_add(HEADER_SIZE).cast::<c_void>()
 }
 
 /// Allocates the required memory of `size`*`count` bytes for the caller usage. The caller must invoke `free_shim`
@@ -96,11 +106,21 @@ pub extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
         return ptr::null_mut();
     }
 
-    let h0 = base as *mut usize;
+    #[expect(
+        clippy::cast_ptr_alignment,
+        reason = "ALIGNMENT ensures this ptr is properly aligned"
+    )]
+    let h0 = base.cast::<usize>();
     // Safety: `h0` is within the allocated header region.
     unsafe { *h0 = alloc_size };
 
-    let h1 = base.wrapping_add(std::mem::size_of::<usize>()) as *mut usize;
+    #[expect(
+        clippy::cast_ptr_alignment,
+        reason = "ALIGNMENT ensures this ptr is properly aligned"
+    )]
+    let h1 = base
+        .wrapping_add(std::mem::size_of::<usize>())
+        .cast::<usize>();
     // Safety: `h1` is within the allocated header region and disjoint from `h0`.
     // Since the header is two words-long, and we only need one word
     // for required metadata (i.e. the actual allocated space),
@@ -110,7 +130,7 @@ pub extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
     unsafe { *h1 = req };
 
     // pointer after header, alignment preserved since HEADER_SIZE is a multiple of ALIGNMENT.
-    base.wrapping_add(HEADER_SIZE) as *mut c_void
+    base.wrapping_add(HEADER_SIZE).cast::<c_void>()
 }
 
 /// Frees the memory allocated by the `alloc_shim`, `calloc_shim` or `realloc_shim` functions.
@@ -127,10 +147,14 @@ pub extern "C" fn free_shim(ptr_user: *mut c_void) {
         return;
     }
 
-    let user = ptr_user as *mut u8;
+    let user = ptr_user.cast::<u8>();
     let base = user.wrapping_sub(HEADER_SIZE);
 
-    let h0 = base as *mut usize;
+    #[expect(
+        clippy::cast_ptr_alignment,
+        reason = "ALIGNMENT ensures this ptr is properly aligned"
+    )]
+    let h0 = base.cast::<usize>();
 
     // Safety: `h0` points to the header we wrote at allocation time.
     let alloc_size = unsafe { *h0 };
@@ -169,10 +193,14 @@ pub extern "C" fn realloc_shim(ptr_user: *mut c_void, new_size: usize) -> *mut c
         return ptr::null_mut();
     }
 
-    let user = ptr_user as *mut u8;
+    let user = ptr_user.cast::<u8>();
     let base = user.wrapping_sub(HEADER_SIZE);
 
-    let h0_old = base as *mut usize;
+    #[expect(
+        clippy::cast_ptr_alignment,
+        reason = "ALIGNMENT ensures this ptr is properly aligned"
+    )]
+    let h0_old = base.cast::<usize>();
 
     // Safety: `h0_old` points to the header we wrote for this allocation.
     let old_alloc_size = unsafe { *h0_old };
@@ -190,11 +218,21 @@ pub extern "C" fn realloc_shim(ptr_user: *mut c_void, new_size: usize) -> *mut c
         return ptr::null_mut();
     }
 
-    let h0_new = new_base as *mut usize;
+    #[expect(
+        clippy::cast_ptr_alignment,
+        reason = "ALIGNMENT ensures this ptr is properly aligned"
+    )]
+    let h0_new = new_base.cast::<usize>();
     // Safety: `h0_new` points to the start of the new header block.
     unsafe { *h0_new = new_alloc_size };
 
-    let h1_new = new_base.wrapping_add(std::mem::size_of::<usize>()) as *mut usize;
+    #[expect(
+        clippy::cast_ptr_alignment,
+        reason = "ALIGNMENT ensures this ptr is properly aligned"
+    )]
+    let h1_new = new_base
+        .wrapping_add(std::mem::size_of::<usize>())
+        .cast::<usize>();
     // Safety: `h1_new` is within the allocated header region and disjoint from `h0_new`.
     // Since the header is two words-long, and we only need one word
     // for required metadata (i.e. the actual allocated space),
@@ -204,7 +242,7 @@ pub extern "C" fn realloc_shim(ptr_user: *mut c_void, new_size: usize) -> *mut c
     unsafe { *h1_new = new_size };
 
     // pointer just after the header
-    new_base.wrapping_add(HEADER_SIZE) as *mut c_void
+    new_base.wrapping_add(HEADER_SIZE).cast::<c_void>()
 }
 
 #[cfg(test)]

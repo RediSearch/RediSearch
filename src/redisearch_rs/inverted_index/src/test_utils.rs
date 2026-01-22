@@ -9,6 +9,8 @@
 
 //! Utilities used only in tests and benchmarks.
 
+use std::ffi::CStr;
+
 use ffi::t_fieldMask;
 
 use crate::{RSIndexResult, RSOffsetVector, RSResultData};
@@ -26,18 +28,17 @@ pub struct TestTermRecord<'index> {
 impl TestTermRecord<'_> {
     /// Create a new `TestTermRecord` with the given parameters.
     pub fn new(doc_id: u64, field_mask: t_fieldMask, freq: u32, offsets: Vec<i8>) -> Self {
-        const TEST_STR: &str = "test";
-        let test_str_ptr = TEST_STR.as_ptr() as *mut _;
+        const TEST_STR: &CStr = c"test";
         let mut term = Box::new(ffi::RSQueryTerm {
-            str_: test_str_ptr,
-            len: TEST_STR.len(),
+            str_: TEST_STR.as_ptr().cast_mut(),
+            len: TEST_STR.count_bytes(),
             idf: 5.0,
             id: 1,
             flags: 0,
             bm25_idf: 10.0,
         });
 
-        let offsets_ptr = offsets.as_ptr() as *mut _;
+        let offsets_ptr = offsets.as_ptr().cast_mut();
         let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
         let record =

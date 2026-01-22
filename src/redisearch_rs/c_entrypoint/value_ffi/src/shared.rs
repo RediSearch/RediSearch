@@ -155,7 +155,7 @@ pub unsafe extern "C" fn SharedRsValue_NewParsedNumber(
     }
 
     // Safety: caller must ensure (1).
-    let str = unsafe { std::slice::from_raw_parts(str as *const u8, len) };
+    let str = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
     let Ok(str) = std::str::from_utf8(str) else {
         return SharedRsValue::undefined().into_raw();
     };

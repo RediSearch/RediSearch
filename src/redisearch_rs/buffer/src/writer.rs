@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ptr;
+
 use crate::Buffer;
 
 /// A cursor to write data into a `Buffer`.
@@ -71,7 +73,7 @@ impl<'a> BufferWriter<'a> {
     pub const fn as_mut_ptr(&mut self) -> *mut ffi::BufferWriter {
         // Safety: `BufferWriter` has the same memory layout as [`ffi::BufferWriter`]
         // so we can safely cast one into the other.
-        self as *const _ as *mut _
+        ptr::from_mut(self).cast::<ffi::BufferWriter>()
     }
 }
 
