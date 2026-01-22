@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(unused)]
+
 use ffi::RSValue;
 use libc::size_t;
 use rlookup::{RLookup, RLookupKey};
