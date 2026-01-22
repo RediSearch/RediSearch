@@ -16,6 +16,17 @@ on:
         required: false
         type: string
         default: 'rqe_ci_discussions'
+  workflow_call:  # Allow this workflow to be called from other workflows
+    inputs:
+      date:
+        description: 'Date to generate report for (YYYY-MM-DD). Leave empty for yesterday.'
+        required: false
+        type: string
+      slack_channel:
+        description: 'Slack channel to send reports to (default: rqe_ci_discussions)'
+        required: false
+        type: string
+        default: 'rqe_ci_discussions'
 
 jobs:
   generate-and-send-report:
