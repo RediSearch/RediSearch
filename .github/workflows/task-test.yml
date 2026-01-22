@@ -111,7 +111,7 @@ jobs:
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
       - name: Start EC2 runner
         id: start-ec2-runner
-        uses: machulav/ec2-github-runner@v2.4.3
+        uses: machulav/ec2-github-runner@v2
         with:
           mode: start
           github-token: ${{ secrets.CI_GH_P_TOKEN }}
@@ -120,30 +120,6 @@ jobs:
           subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
           security-group-id: ${{ secrets.AWS_EC2_SG_ID_BENCHMARK }}
           aws-resource-tags: ${{ env.TAGS }}
-          pre-runner-script: |
-            #!/bin/bash
-            set -u
-
-            exec > >(tee -a /var/log/pre-runner.log) 2>&1
-
-            echo "=== pre-runner-script started ==="
-            date
-
-            echo "Installing curl if missing"
-            if ! command -v curl >/dev/null 2>&1; then
-              apt-get update || echo "apt-get update failed"
-              apt-get install -y curl ca-certificates || echo "apt-get install failed"
-            fi
-
-            echo "Checking GitHub API connectivity"
-            if curl -fsS --connect-timeout 5 https://api.github.com >/dev/null; then
-              echo "GitHub reachable"
-            else
-              echo "GitHub NOT reachable"
-            fi
-
-            echo "=== pre-runner-script finished ==="
-
 
   build-image:
     needs: get-config
@@ -695,7 +671,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
       - name: Stop EC2 runner
-        uses: machulav/ec2-github-runner@v2.4.3
+        uses: machulav/ec2-github-runner@v2
         with:
           mode: stop
           github-token: ${{ secrets.CI_GH_P_TOKEN }}
