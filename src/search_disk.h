@@ -242,9 +242,30 @@ void SearchDisk_FreeAsyncReadPool(RedisSearchDiskAsyncReadPool *pool);
 /**
  * @brief Check if async I/O is supported by the underlying storage engine
  *
- * @return true if async I/O operations are available, false otherwise
+ * This checks both the global async I/O flag (controlled by debug commands) and
+ * the underlying disk support.
+ *
+ * @return true if async I/O operations are available and enabled, false otherwise
  */
 bool SearchDisk_IsAsyncIOSupported();
+
+/**
+ * @brief Enable or disable async I/O globally
+ *
+ * This allows runtime control of async I/O behavior for testing and debugging.
+ * Note: This only affects new queries; existing queries continue with their
+ * original configuration.
+ *
+ * @param enabled true to enable async I/O, false to disable
+ */
+void SearchDisk_SetAsyncIOEnabled(bool enabled);
+
+/**
+ * @brief Get the current async I/O enabled state
+ *
+ * @return true if async I/O is enabled, false otherwise
+ */
+bool SearchDisk_GetAsyncIOEnabled();
 
 /**
  * @brief Check if the search disk module is enabled from configuration

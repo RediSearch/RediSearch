@@ -13,6 +13,9 @@
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
+// Global flag to control async I/O (enabled by default, can be toggled via debug command)
+static bool asyncIOEnabled = true;
+
 // Weak default implementations for when disk API is not available
 __attribute__((weak))
 bool SearchDisk_HasAPI() {
@@ -144,7 +147,16 @@ void SearchDisk_FreeAsyncReadPool(RedisSearchDiskAsyncReadPool *pool) {
 
 bool SearchDisk_IsAsyncIOSupported() {
     RS_ASSERT(disk);
-    return disk->basic.isAsyncIOSupported(disk_db);
+    // Check both the global flag and the underlying disk support
+    return asyncIOEnabled && disk->basic.isAsyncIOSupported(disk_db);
+}
+
+void SearchDisk_SetAsyncIOEnabled(bool enabled) {
+    asyncIOEnabled = enabled;
+}
+
+bool SearchDisk_GetAsyncIOEnabled() {
+    return asyncIOEnabled;
 }
 
 void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, uint32_t *oldLen, t_docId *id) {
