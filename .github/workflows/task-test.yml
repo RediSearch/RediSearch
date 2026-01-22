@@ -120,6 +120,26 @@ jobs:
           subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
           security-group-id: ${{ secrets.AWS_EC2_SG_ID_BENCHMARK }}
           aws-resource-tags: ${{ env.TAGS }}
+          pre-runner-script: |
+            #!/bin/bash
+            set -euxo pipefail
+
+            echo "=== Installing curl if missing ==="
+            if ! command -v curl >/dev/null 2>&1; then
+              apt-get update
+              apt-get install -y curl ca-certificates
+            fi
+
+            echo "=== Network diagnostics ==="
+            date
+            hostname
+            ip addr || true
+            ip route || true
+            resolvectl status || cat /etc/resolv.conf
+
+            echo "=== Testing GitHub connectivity ==="
+            curl -Iv https://github.com
+            curl -Iv https://api.github.com
 
   build-image:
     needs: get-config
