@@ -33,6 +33,7 @@ default-features = true
 
 [dev-dependencies]
 proptest = { workspace = true, features = ["std"] }
+rstest.workspace = true
 value = { workspace = true, features = ["test_utils"] }
 
 [lints]
