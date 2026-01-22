@@ -122,24 +122,28 @@ jobs:
           aws-resource-tags: ${{ env.TAGS }}
           pre-runner-script: |
             #!/bin/bash
-            set -euxo pipefail
+            set -u
 
-            echo "=== Installing curl if missing ==="
+            exec > >(tee -a /var/log/pre-runner.log) 2>&1
+
+            echo "=== pre-runner-script started ==="
+            date
+
+            echo "Installing curl if missing"
             if ! command -v curl >/dev/null 2>&1; then
-              apt-get update
-              apt-get install -y curl ca-certificates
+              apt-get update || echo "apt-get update failed"
+              apt-get install -y curl ca-certificates || echo "apt-get install failed"
             fi
 
-            echo "=== Network diagnostics ==="
-            date
-            hostname
-            ip addr || true
-            ip route || true
-            resolvectl status || cat /etc/resolv.conf
+            echo "Checking GitHub API connectivity"
+            if curl -fsS --connect-timeout 5 https://api.github.com >/dev/null; then
+              echo "GitHub reachable"
+            else
+              echo "GitHub NOT reachable"
+            fi
 
-            echo "=== Testing GitHub connectivity ==="
-            curl -Iv https://github.com
-            curl -Iv https://api.github.com
+            echo "=== pre-runner-script finished ==="
+
 
   build-image:
     needs: get-config
