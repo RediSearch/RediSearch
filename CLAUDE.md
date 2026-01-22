@@ -50,6 +50,7 @@ cd src/redisearch_rs && cargo license-fix # Add missing license headers
 ### C
 - 2-space indentation, 100-char line limit
 - Pointer alignment: left (`int* p;`)
+- No trailing spaces
 
 ## Project Structure
 
