@@ -28,7 +28,7 @@ pub enum RsValueType {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Type(value: *const RsValue) -> RsValueType {
+pub const unsafe extern "C" fn RSValue_Type(value: *const RsValue) -> RsValueType {
     let value = unsafe { expect_value(value) };
 
     use RsValueType::*;
@@ -49,7 +49,7 @@ pub unsafe extern "C" fn RSValue_Type(value: *const RsValue) -> RsValueType {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_IsReference(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsReference(value: *const RsValue) -> bool {
     let Some(value) = (unsafe { value.as_ref() }) else {
         return false;
     };
@@ -58,7 +58,7 @@ pub unsafe extern "C" fn RSValue_IsReference(value: *const RsValue) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_IsNumber(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsNumber(value: *const RsValue) -> bool {
     let Some(value) = (unsafe { value.as_ref() }) else {
         return false;
     };
@@ -67,7 +67,7 @@ pub unsafe extern "C" fn RSValue_IsNumber(value: *const RsValue) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_IsString(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsString(value: *const RsValue) -> bool {
     let Some(value) = (unsafe { value.as_ref() }) else {
         return false;
     };
@@ -82,7 +82,7 @@ pub unsafe extern "C" fn RSValue_IsString(value: *const RsValue) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_IsArray(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsArray(value: *const RsValue) -> bool {
     let Some(value) = (unsafe { value.as_ref() }) else {
         return false;
     };
@@ -91,7 +91,7 @@ pub unsafe extern "C" fn RSValue_IsArray(value: *const RsValue) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_IsTrio(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsTrio(value: *const RsValue) -> bool {
     let Some(value) = (unsafe { value.as_ref() }) else {
         return false;
     };
@@ -100,7 +100,7 @@ pub unsafe extern "C" fn RSValue_IsTrio(value: *const RsValue) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_IsNull(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsNull(value: *const RsValue) -> bool {
     let Some(value) = (unsafe { value.as_ref() }) else {
         return true;
     };
