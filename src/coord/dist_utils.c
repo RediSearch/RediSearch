@@ -11,6 +11,7 @@
 #include "util/misc.h"
 #include "util/strconv.h"
 #include "rpnet.h"
+#include "rmr/reply_pool.h"
 
 // Helper function to extract total_results from a shard reply
 // Returns true if total_results was found, false otherwise
@@ -50,13 +51,15 @@ static bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_tot
 void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
   ShardResponseBarrier *barrier = (ShardResponseBarrier *)MRIteratorCallback_GetPrivateData(ctx);
+  // Take the pool that was used to allocate this reply
+  ReplyPool *pool = ReplyPool_TakeCurrentPool();
 
   // If the root command of this reply is a DEL command, we don't want to
   // propagate it up the chain to the client
   if (cmd->rootCommand == C_DEL) {
     // Discard the response, and return REDIS_OK
     MRIteratorCallback_Done(ctx, MRReply_Type(rep) == MR_REPLY_ERROR);
-    MRReply_Free(rep);
+    ReplyPool_Free(pool);
     return;
   }
 
@@ -69,7 +72,7 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       // Notify an error was received
       barrier->notifyCallback(cmd->targetShard, 0, true, barrier);
     }
-    MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
+    MRIteratorCallback_AddReply(ctx, rep, pool); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return;
   }
@@ -98,7 +101,7 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
   if (bail_out) {
     RedisModule_Log(RSDummyContext, "warning", "An unexpected reply was received from a shard");
-    MRReply_Free(rep);
+    ReplyPool_Free(pool);
     MRIteratorCallback_Done(ctx, 1);
     return;
   }
@@ -143,7 +146,7 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   }
 
   // Push the reply down the chain, to be picked up by getNextReply
-  MRIteratorCallback_AddReply(ctx, rep); // take ownership of the reply
+  MRIteratorCallback_AddReply(ctx, rep, pool); // take ownership of the reply and pool
 
   // rewrite and resend the cursor command if needed
   // should only be determined based on the cursor and not on the set of results we get

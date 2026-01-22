@@ -8,9 +8,11 @@
 */
 #include "conn.h"
 #include "reply.h"
+#include "reply_pool.h"
 #include "src/coord/config.h"
 #include "module.h"
 #include "hiredis/adapters/libuv.h"
+#include "hiredis/read.h"
 
 #include <uv.h>
 #include <signal.h>
@@ -389,6 +391,9 @@ activate_timer:
 static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRConn *conn = c->data;
   redisReply *rep = r;
+  // Take the pool that was used to allocate this reply
+  ReplyPool *pool = ReplyPool_TakeCurrentPool();
+
   if (!conn || conn->state == MRConn_Freeing) {
     // Will be picked up by disconnect callback
     goto cleanup;
@@ -414,8 +419,8 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRConn_SwitchState(conn, MRConn_Connected);
 
 cleanup:
-  // We run with `REDIS_OPT_NOAUTOFREEREPLIES` so we need to free the reply ourselves
-  MRReply_Free(rep);
+  // Free the pool (which frees all reply objects allocated from it)
+  ReplyPool_Free(pool);
 }
 
 static int MRConn_SendAuth(MRConn *conn) {
@@ -674,6 +679,9 @@ static int MRConn_Connect(MRConn *conn) {
   conn->conn = c;
   conn->conn->data = conn;
   conn->state = MRConn_Connecting;
+
+  // Set custom reply object functions for pooled allocation
+  c->c.reader->fn = ReplyPool_GetFunctions();
 
   redisLibuvAttach(conn->conn, uv_default_loop());
   redisAsyncSetConnectCallback(conn->conn, MRConn_ConnectCallback);

@@ -13,6 +13,7 @@
 #include "config.h"
 #include "result_processor.h"
 #include "rmr/rmr.h"
+#include "rmr/reply_pool.h"
 #include "aggregate/aggregate.h"
 
 #ifdef __cplusplus
@@ -48,6 +49,7 @@ typedef struct {
     MRReply *root;  // Root reply. We need to free this when done with the rows
     MRReply *rows;  // Array containing reply rows for quick access
     MRReply *meta;  // Metadata for the current reply, if any (RESP3)
+    ReplyPool *pool;  // Pool for the current reply (freed when done with rows)
   } current;
   // Lookup - the rows are written in here
   RLookup *lookup;
@@ -63,7 +65,7 @@ typedef struct {
   ShardResponseBarrier *shardResponseBarrier;  // NULL if not using WITHCOUNT
 
   // Pending replies while waiting for all shards' first responses
-  arrayof(MRReply *) pendingReplies;   // Replies accumulated while waiting
+  arrayof(PooledReply *) pendingReplies;   // Replies accumulated while waiting
   bool waitedForAllShards;             // True once all shards have sent their first response
 } RPNet;
 

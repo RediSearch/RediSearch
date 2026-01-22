@@ -228,7 +228,8 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // and now we're waiting for the profile results.
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
     do {
-      MRReply_Free(rpnet->current.root);
+      ReplyPool_Free(rpnet->current.pool);
+      RPNet_resetCurrent(rpnet);
     } while (getNextReply(rpnet) != RS_RESULT_EOF);
   }
 

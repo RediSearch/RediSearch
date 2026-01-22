@@ -8,6 +8,7 @@
 */
 #define __RMR_REPLY_C__
 #include "reply.h"
+#include "reply_pool.h"
 
 #include "redismodule.h"
 #include "hiredis/hiredis.h"
@@ -224,9 +225,11 @@ inline MRReply *MRReply_ArrayElement(const MRReply *reply, size_t idx) {
 
 inline MRReply *MRReply_TakeArrayElement(const MRReply *reply, size_t idx) {
   RS_ASSERT(reply->elements > idx);
-  MRReply *ret = reply->element[idx];
-  reply->element[idx] = NULL; // Take ownership
-  return ret;
+  MRReply *original = reply->element[idx];
+  // Deep copy the element out of the pool so it can outlive the pool
+  MRReply *copy = MRReply_DeepCopy(original);
+  reply->element[idx] = NULL; // Null the slot to prevent logical double-access
+  return copy;
 }
 
 static inline int MRReply_FindMapElement(const MRReply *reply, const char *key) {

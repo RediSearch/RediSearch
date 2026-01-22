@@ -166,7 +166,7 @@ static void shardResponseBarrier_UpdateTotalResults(RPNet *nc) {
 
 static void shardResponseBarrier_PendingReplies_Free(RPNet *nc) {
   if (nc->pendingReplies) {
-    array_foreach(nc->pendingReplies, reply, MRReply_Free(reply));
+    array_foreach(nc->pendingReplies, pr, PooledReply_Free(pr));
     array_free(nc->pendingReplies);
     nc->pendingReplies = NULL;
   }
@@ -210,10 +210,12 @@ static bool shardResponseBarrier_HandleError(RPNet *nc) {
     // Find the first error reply in pendingReplies and return it
     if (nc->pendingReplies) {
       for (size_t i = 0; i < array_len(nc->pendingReplies); i++) {
-        MRReply *reply = nc->pendingReplies[i];
-        if (MRReply_Type(reply) == MR_REPLY_ERROR) {
+        PooledReply *pr = nc->pendingReplies[i];
+        if (MRReply_Type(pr->reply) == MR_REPLY_ERROR) {
           // Move error reply to current
-          nc->current.root = reply;
+          nc->current.root = pr->reply;
+          nc->current.pool = pr->pool;
+          rm_free(pr);  // Free the PooledReply wrapper, not the pool
           array_del(nc->pendingReplies, i);
           shardResponseBarrier_PendingReplies_Free(nc);
           return true;  // Error found
@@ -250,17 +252,17 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3, size_t numResults
     }
   }
 
-  // Measure MRReply_Free time
+  // Measure ReplyPool_Free time
   rs_wall_clock freeClock;
   rs_wall_clock_init(&freeClock);
 
-  MRReply_Free(nc->current.root);
+  ReplyPool_Free(nc->current.pool);
 
   rs_wall_clock_ns_t freeElapsed_ns = rs_wall_clock_elapsed_ns(&freeClock);
   double freeElapsed_ms = rs_wall_clock_convert_ns_to_ms_d(freeElapsed_ns);
   int16_t shardId = nc->cmd.targetShard;
   RedisModule_Log(RSDummyContext, "warning",
-                  "Coordinator MRReply_Free time: %.3f ms for %zu results from shard %d",
+                  "Coordinator ReplyPool_Free time: %.3f ms for %zu results from shard %d",
                   freeElapsed_ms, numResults, shardId);
 
   RPNet_resetCurrent(nc);
@@ -275,7 +277,7 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3, size_t numResults
 int getNextReply(RPNet *nc) {
   // Wait for all shards' first responses before returning any results
   // This ensures accurate total_results from the start
-  MRReply *root = NULL;
+  PooledReply *pr = NULL;
   if (nc->shardResponseBarrier && !nc->waitedForAllShards) {
     // Get at least 1 response from each shard
     // Notice: numShards is re-read on each iteration because it may initially be 0
@@ -290,14 +292,14 @@ int getNextReply(RPNet *nc) {
       }
       // Get next reply with timeout (uses CLOCK_MONOTONIC_RAW based timeout)
       bool nextTimedOut = false;
-      MRReply *reply = MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), &nextTimedOut);
+      PooledReply *reply = MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), &nextTimedOut);
       if (reply == NULL) {
         break;  // No more replies or timed out
       }
 
       // Store reply for later processing
       if (!nc->pendingReplies) {
-        nc->pendingReplies = array_new(MRReply *, numShards);
+        nc->pendingReplies = array_new(PooledReply *, numShards);
       }
       array_append(nc->pendingReplies, reply);
 
@@ -321,7 +323,7 @@ int getNextReply(RPNet *nc) {
   // First, return any pending replies collected during the wait
   if (nc->pendingReplies && array_len(nc->pendingReplies) > 0) {
     // Pop the first pending reply
-    root = nc->pendingReplies[0];
+    pr = nc->pendingReplies[0];
     array_del(nc->pendingReplies, 0);
   } else {
     // No pending replies, get from channel
@@ -334,14 +336,18 @@ int getNextReply(RPNet *nc) {
         return RS_RESULT_EOF;
       }
     }
-    root = MRIterator_Next(nc->it);
+    pr = MRIterator_Next(nc->it);
   }
 
-  if (root == NULL) {
+  if (pr == NULL) {
     // No more replies
     RPNet_resetCurrent(nc);
     return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
   }
+
+  MRReply *root = pr->reply;
+  nc->current.pool = pr->pool;
+  rm_free(pr);  // Free the PooledReply wrapper, pool is now owned by nc->current
 
   // Check if an error was returned
   if (MRReply_Type(root) == MR_REPLY_ERROR) {
@@ -424,12 +430,15 @@ void rpnetFree(ResultProcessor *rp) {
     MRIterator_Release(nc->it);
   }
 
+  // shardsProfile contains deep-copied replies (via MRReply_TakeArrayElement/TakeMapElement)
+  // so they must be freed with MRReply_Free, not pool free
   if (nc->shardsProfile) {
     array_foreach(nc->shardsProfile, reply, MRReply_Free(reply));
     array_free(nc->shardsProfile);
   }
 
-  MRReply_Free(nc->current.root);
+  // Free the current pool (which frees all reply objects in it)
+  ReplyPool_Free(nc->current.pool);
   MRCommand_Free(&nc->cmd);
 
   rm_free(rp);
@@ -489,6 +498,7 @@ void RPNet_resetCurrent(RPNet *nc) {
     nc->current.root = NULL;
     nc->current.rows = NULL;
     nc->current.meta = NULL;
+    nc->current.pool = NULL;
 }
 
 int rpnetNext(ResultProcessor *self, SearchResult *r) {
@@ -558,7 +568,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
         QueryError_SetError(nc->areq->qiter.err, errCode, MRReply_String(nc->current.root, NULL));
         return RS_RESULT_ERROR;
       } else {
-        MRReply_Free(nc->current.root);
+        ReplyPool_Free(nc->current.pool);
         RPNet_resetCurrent(nc);
       }
     }

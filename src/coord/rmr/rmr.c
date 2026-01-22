@@ -8,6 +8,7 @@
 */
 #include "rmr.h"
 #include "reply.h"
+#include "reply_pool.h"
 #include "reply_macros.h"
 #include "redismodule.h"
 #include "module.h"
@@ -50,6 +51,7 @@ typedef struct MRCtx {
   int numErrored;
   int repliesCap;
   MRReply **replies;
+  ReplyPool **pools;  // Pools for each reply (parallel array to replies)
   MRReduceFunc reducer;
   void *privdata;
   RedisModuleCtx *redisCtx;
@@ -81,6 +83,7 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->numExpected = 0;
   ret->repliesCap = replyCap;
   ret->replies = rm_calloc(ret->repliesCap, sizeof(redisReply *));
+  ret->pools = rm_calloc(ret->repliesCap, sizeof(ReplyPool *));
   ret->reducer = NULL;
   ret->privdata = privdata;
   ret->mastersOnly = true; // default to masters only
@@ -96,13 +99,15 @@ void MRCtx_Free(MRCtx *ctx) {
 
   MRCommand_Free(&ctx->cmd);
 
+  // Free pools (which frees all reply objects allocated from them)
   for (int i = 0; i < ctx->numReplied; i++) {
-    if (ctx->replies[i] != NULL) {
-      MRReply_Free(ctx->replies[i]);
-      ctx->replies[i] = NULL;
+    if (ctx->pools[i] != NULL) {
+      ReplyPool_Free(ctx->pools[i]);
+      ctx->pools[i] = NULL;
     }
   }
   rm_free(ctx->replies);
+  rm_free(ctx->pools);
 
   // free the context
   rm_free(ctx);
@@ -159,17 +164,23 @@ static int unblockHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 /* The callback called from each fanout request to aggregate their replies */
 static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRCtx *ctx = privdata;
+  // Take the pool that was used to allocate this reply
+  ReplyPool *pool = ReplyPool_TakeCurrentPool();
 
   if (!r) {
     ctx->numErrored++;
+    ReplyPool_Free(pool);  // Free the pool if no reply
 
   } else {
     /* If needed - double the capacity for replies */
     if (ctx->numReplied == ctx->repliesCap) {
       ctx->repliesCap *= 2;
       ctx->replies = rm_realloc(ctx->replies, ctx->repliesCap * sizeof(MRReply *));
+      ctx->pools = rm_realloc(ctx->pools, ctx->repliesCap * sizeof(ReplyPool *));
     }
-    ctx->replies[ctx->numReplied++] = r;
+    ctx->replies[ctx->numReplied] = r;
+    ctx->pools[ctx->numReplied] = pool;
+    ctx->numReplied++;
   }
 
   // If we've received the last reply - unblock the client
@@ -544,8 +555,11 @@ MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx) {
   return &ctx->it->ctx;
 }
 
-void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-  MRChannel_Push(ctx->it->ctx.chan, rep);
+void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep, ReplyPool *pool) {
+  PooledReply *pr = rm_malloc(sizeof(PooledReply));
+  pr->reply = rep;
+  pr->pool = pool;
+  MRChannel_Push(ctx->it->ctx.chan, pr);
 }
 
 void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx) {
@@ -676,11 +690,11 @@ MRIteratorCtx *MRIterator_GetCtx(MRIterator *it) {
   return &it->ctx;
 }
 
-MRReply *MRIterator_Next(MRIterator *it) {
+PooledReply *MRIterator_Next(MRIterator *it) {
   return MRChannel_Pop(it->ctx.chan);
 }
 
-MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime, bool *timedOut) {
+PooledReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime, bool *timedOut) {
   return MRChannel_PopWithTimeout(it->ctx.chan, abstime, timedOut);
 }
 
@@ -701,9 +715,9 @@ static void MRIterator_Free(MRIterator *it) {
   for (size_t i = 0; i < it->len; i++) {
     MRCommand_Free(&it->cbxs[i].cmd);
   }
-  MRReply *reply;
-  while ((reply = MRChannel_UnsafeForcePop(it->ctx.chan))) {
-    MRReply_Free(reply);
+  PooledReply *pr;
+  while ((pr = MRChannel_UnsafeForcePop(it->ctx.chan))) {
+    PooledReply_Free(pr);
   }
   MRChannel_Free(it->ctx.chan);
   rm_free(it->cbxs);

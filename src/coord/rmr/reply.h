@@ -51,11 +51,13 @@ int MRReply_StringEquals(MRReply *r, const char *s, int caseSensitive);
 const char *MRReply_String(const MRReply *reply, size_t *len);
 
 MRReply *MRReply_ArrayElement(const MRReply *reply, size_t idx);
-// Same as `MRReply_ArrayElement`, but takes ownership of the element.
+// Same as `MRReply_ArrayElement`, but deep copies the element out of the pool.
+// The returned MRReply must be freed with MRReply_Free.
 MRReply *MRReply_TakeArrayElement(const MRReply *reply, size_t idx);
 
 MRReply *MRReply_MapElement(const MRReply *reply, const char *key);
-// Same as `MRReply_MapElement`, but takes ownership of the element.
+// Same as `MRReply_MapElement`, but deep copies the element out of the pool.
+// The returned MRReply must be freed with MRReply_Free.
 MRReply *MRReply_TakeMapElement(const MRReply *reply, const char *key);
 
 // Converts an array reply to a map reply type. The array must be of the form
