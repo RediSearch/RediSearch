@@ -35,6 +35,12 @@ typedef struct AsyncPollResult {
   uint16_t pending_count; // Number of reads still in flight
 } AsyncPollResult;
 
+// Result structure containing both DMD and user data
+typedef struct AsyncReadResult {
+  RSDocumentMetadata dmd;
+  uint64_t user_data;  // Generic user data passed to addAsyncRead (e.g., index, pointer, flags)
+} AsyncReadResult;
+
 typedef struct BasicDiskAPI {
   RedisSearchDisk *(*open)(RedisModuleCtx *ctx, const char *path);
   void (*close)(RedisSearchDisk *disk);
@@ -182,24 +188,25 @@ typedef struct DocTableDiskAPI {
    *
    * @param pool Pool handle from createAsyncReadPool
    * @param docId Document ID to read
+   * @param user_data Generic user data to associate with this read (returned in AsyncReadResult)
    * @return true if the request was added, false if the pool is at capacity
    */
-  bool (*addAsyncRead)(RedisSearchDiskAsyncReadPool pool, t_docId docId);
+  bool (*addAsyncRead)(RedisSearchDiskAsyncReadPool pool, t_docId docId, uint64_t user_data);
 
   /**
    * @brief Polls the pool for ready results
    *
-   * Checks for completed async reads and fills the results buffer with ready DMDs.
-   * Documents not found or with errors are silently omitted (treated as deleted).
+   * Checks for completed async reads and fills the results buffer with ready DMDs and their
+   * associated user_data. Documents not found or with errors are silently omitted (treated as deleted).
    *
    * @param pool Pool handle from createAsyncReadPool
    * @param timeout_ms 0 for non-blocking, >0 to wait up to that many milliseconds
-   * @param results Buffer to fill with ready document metadata
+   * @param results Buffer to fill with ready AsyncReadResult structures (DMD + user_data)
    * @param results_capacity Size of the results buffer
    * @param allocateKey Callback to allocate memory for document keys
    * @return AsyncPollResult with counts of ready and pending reads
    */
-  AsyncPollResult (*pollAsyncReads)(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, RSDocumentMetadata* results,
+  AsyncPollResult (*pollAsyncReads)(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, AsyncReadResult* results,
                                     uint16_t results_capacity, AllocateKeyCallback allocateKey);
 
   /**

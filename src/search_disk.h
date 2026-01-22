@@ -214,20 +214,23 @@ RedisSearchDiskAsyncReadPool *SearchDisk_CreateAsyncReadPool(RedisSearchDiskInde
  *
  * @param pool Pool handle from SearchDisk_CreateAsyncReadPool
  * @param docId Document ID to read
+ * @param user_data Generic user data to associate with this read (returned in AsyncReadResult)
  * @return true if added, false if pool is at capacity
  */
-bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool *pool, t_docId docId);
+bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool *pool, t_docId docId, uint64_t user_data);
 
 /**
  * @brief Poll the pool for ready results
  *
+ * Returns AsyncReadResult structures containing both DMD and the associated user_data.
+ *
  * @param pool Pool handle
  * @param timeout_ms 0 for non-blocking, >0 to wait
- * @param results Buffer to fill with ready DMDs
+ * @param results Buffer to fill with ready AsyncReadResult structures
  * @param results_capacity Size of results buffer
  * @return AsyncPollResult with ready_count and pending_count
  */
-AsyncPollResult SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool *pool, uint32_t timeout_ms, RSDocumentMetadata *results, uint16_t results_capacity);
+AsyncPollResult SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool *pool, uint32_t timeout_ms, AsyncReadResult *results, uint16_t results_capacity);
 
 /**
  * @brief Free the async read pool

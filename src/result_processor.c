@@ -32,6 +32,7 @@
 #include "search_result.h"
 #include "redisearch.h"
 #include "asm_state_machine.h"
+#include "index_result.h"
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -56,11 +57,13 @@ typedef struct {
   uint32_t keySpaceVersion;                     // version of the Keyspace slot ranges used for filtering
   const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
   // Async pool for disk-based indexes (NULL if not using disk)
-  void *asyncPool;
-  // Buffer to hold ready DMDs from async poll
-  RSDocumentMetadata *readyDmds;
-  uint16_t readyDmdsCount;
-  uint16_t readyDmdsIndex;
+  RedisSearchDiskAsyncReadPool *asyncPool;
+  // Buffer to hold ready results from async poll (DMD + user_data pairs)
+  AsyncReadResult *readyResults;
+  uint16_t readyResultsCount;
+  uint16_t readyResultsIndex;
+  // Array of RSIndexResult pointers indexed by user_data
+  RSIndexResult **pendingIndexResults;
 } RPQueryIterator;
 
 
@@ -101,26 +104,28 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
   return true;
 }
 
-// Helper to get DMD from async pool ready buffer and set it up as RSDocumentMetadata
-static const RSDocumentMetadata* popReadyDmd(RPQueryIterator *self) {
-  if (self->readyDmdsIndex >= self->readyDmdsCount) {
-    return NULL;  // No more ready DMDs
+// Helper to get DMD and IndexResult from async pool ready buffer
+static const RSDocumentMetadata* popReadyResult(RPQueryIterator *self, RSIndexResult **outIndexResult) {
+  if (self->readyResultsIndex >= self->readyResultsCount) {
+    return NULL;  // No more ready results
   }
 
-  RSDocumentMetadata *srcDmd = &self->readyDmds[self->readyDmdsIndex++];
+  AsyncReadResult *result = &self->readyResults[self->readyResultsIndex++];
 
-  // Allocate a new DMD and copy data from the buffer
+  // Allocate a new DMD and copy all fields from the buffer
   RSDocumentMetadata *dmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
-  dmd->ref_count = 1;
-  dmd->keyPtr = srcDmd->keyPtr;  // Transfer ownership of keyPtr
-  dmd->score = srcDmd->score;
-  dmd->flags = srcDmd->flags;
-  dmd->maxTermFreq = srcDmd->maxTermFreq;
-  dmd->docLen = srcDmd->docLen;
-  dmd->id = srcDmd->id;
+  memcpy(dmd, &result->dmd, sizeof(RSDocumentMetadata));
+  dmd->ref_count = 1;  // Set ref count for the new DMD
 
-  // Clear the source so it doesn't get double-freed
-  srcDmd->keyPtr = NULL;
+  // Clear pointers in source to transfer ownership and prevent double-free
+  result->dmd.keyPtr = NULL;
+  result->dmd.sortVector = NULL;
+  result->dmd.byteOffsets = NULL;
+  result->dmd.payload = NULL;
+
+  // Look up the IndexResult using the user_data as an index
+  uint64_t index = result->user_data;
+  *outIndexResult = self->pendingIndexResults[index];
 
   return dmd;
 }
@@ -154,13 +159,13 @@ static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadat
 }
 
 /**
- * Set the search result data from a DMD.
+ * Set the search result data from a DMD and IndexResult.
  */
-static void setSearchResult(ResultProcessor *base, SearchResult *res, QueryIterator *it,
+static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexResult *indexResult,
                             const RSDocumentMetadata *dmd, t_docId docId) {
   base->parent->totalResults++;
   SearchResult_SetDocId(res, docId);
-  SearchResult_SetIndexResult(res, it->current);
+  SearchResult_SetIndexResult(res, indexResult);
   SearchResult_SetScore(res, 0);
   SearchResult_SetDocumentMetadata(res, dmd);
   RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(res), dmd->sortVector);
@@ -191,8 +196,84 @@ static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
   return false;
 }
 
-/* Next implementation */
-static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
+/* Next implementation for async disk flow */
+static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
+  RPQueryIterator *self = (RPQueryIterator *)base;
+  QueryIterator *it = self->iterator;
+  RedisSearchCtx *sctx = self->sctx;
+  const RSDocumentMetadata *dmd;
+
+  // Handle spec lock and revalidation
+  if (handleSpecLockAndRevalidate(self)) {
+    // validateCurrent is not needed for async disk path
+  }
+  // Always update it after revalidation as iterator may have been replaced
+  it = self->iterator;
+
+  IndexSpec* spec = sctx->spec;
+
+  while (1) {
+    if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+    }
+
+    // Try to return a ready result first
+    RSIndexResult *indexResult = NULL;
+    dmd = popReadyResult(self, &indexResult);
+    if (dmd) {
+      if (!validateDmdSlot(self, dmd)) {
+        DMD_Return(dmd);
+        continue;
+      }
+      setSearchResult(base, res, indexResult, dmd, dmd->id);
+      return RS_RESULT_OK;
+    }
+
+    // No ready results - fill the pool with more doc IDs
+    bool poolHasSpace = true;
+    uint16_t pendingIndex = 0;
+    while (poolHasSpace && !it->atEOF && pendingIndex < ASYNC_POOL_SIZE) {
+      IteratorStatus rc = it->Read(it);
+      if (rc == ITERATOR_EOF) {
+        break;
+      } else if (rc == ITERATOR_TIMEOUT) {
+        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+      }
+
+      t_docId docId = it->current->docId;
+      // Skip deleted documents (in-memory check, no IO)
+      if (SearchDisk_DocIdDeleted(spec->diskSpec, docId)) {
+        continue;
+      }
+
+      // Store the IndexResult pointer and pass the index as user_data
+      self->pendingIndexResults[pendingIndex] = it->current;
+      if (!SearchDisk_AddAsyncRead(self->asyncPool, docId, (uint64_t)pendingIndex)) {
+        poolHasSpace = false;
+      }
+      pendingIndex++;
+    }
+
+    // Poll for results
+    int timeout_ms = it->atEOF ? 1000 : 0;
+    AsyncPollResult pollResult = SearchDisk_PollAsyncReads(
+        self->asyncPool, timeout_ms, self->readyResults, ASYNC_POOL_SIZE);
+
+    self->readyResultsCount = pollResult.ready_count;
+    self->readyResultsIndex = 0;
+
+    if (pollResult.ready_count > 0) {
+      continue;
+    }
+
+    if (pollResult.pending_count == 0 && it->atEOF) {
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
+    }
+  }
+}
+
+/* Next implementation for sync disk flow */
+static int rpQueryItNext_SyncDisk(ResultProcessor *base, SearchResult *res) {
   RPQueryIterator *self = (RPQueryIterator *)base;
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
@@ -202,69 +283,71 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   // Handle spec lock and revalidation
   if (handleSpecLockAndRevalidate(self)) {
     validateCurrent = true;
-    it = self->iterator;  // May have changed
   }
+  // Always update it after revalidation as iterator may have been replaced
+  it = self->iterator;
 
-  // For disk indexes with async pool, use async read path
-  if (self->asyncPool) {
-    IndexSpec* spec = sctx->spec;
+  IndexSpec* spec = sctx->spec;
 
-    while (1) {
-      if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
-        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
-      }
+  while (1) {
+    if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+    }
 
-      // Try to return a ready DMD first
-      dmd = popReadyDmd(self);
-      if (dmd) {
-        if (!validateDmdSlot(self, dmd)) {
-          DMD_Return(dmd);
-          continue;
-        }
-        setSearchResult(base, res, it, dmd, dmd->id);
-        return RS_RESULT_OK;
-      }
-
-      // No ready DMDs - fill the pool with more doc IDs
-      bool poolHasSpace = true;
-      while (poolHasSpace && !it->atEOF) {
-        IteratorStatus rc = it->Read(it);
-        if (rc == ITERATOR_EOF) {
-          break;
-        } else if (rc == ITERATOR_TIMEOUT) {
-          return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
-        }
-
-        t_docId docId = it->current->docId;
-        // Skip deleted documents (in-memory check, no IO)
-        if (SearchDisk_DocIdDeleted(spec->diskSpec, docId)) {
-          continue;
-        }
-
-        if (!SearchDisk_AddAsyncRead(self->asyncPool, docId)) {
-          poolHasSpace = false;
-        }
-      }
-
-      // Poll for results
-      int timeout_ms = it->atEOF ? 1000 : 0;
-      AsyncPollResult pollResult = SearchDisk_PollAsyncReads(
-          self->asyncPool, timeout_ms, self->readyDmds, ASYNC_POOL_SIZE);
-
-      self->readyDmdsCount = pollResult.ready_count;
-      self->readyDmdsIndex = 0;
-
-      if (pollResult.ready_count > 0) {
-        continue;
-      }
-
-      if (pollResult.pending_count == 0 && it->atEOF) {
+    if (!validateCurrent) {
+      IteratorStatus rc = it->Read(it);
+      switch (rc) {
+      case ITERATOR_EOF:
         return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
+      case ITERATOR_TIMEOUT:
+        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+      default:
+        RS_ASSERT(rc == ITERATOR_OK);
       }
     }
-  }
+    validateCurrent = false;
 
-  // Non-disk path (original implementation)
+    t_docId docId = it->current->docId;
+
+    // Skip deleted documents (in-memory check, no IO)
+    if (SearchDisk_DocIdDeleted(spec->diskSpec, docId)) {
+      continue;
+    }
+
+    // Read DMD from disk synchronously
+    RSDocumentMetadata *diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+    diskDmd->ref_count = 1;
+    if (!SearchDisk_GetDocumentMetadata(spec->diskSpec, docId, diskDmd)) {
+      DMD_Return(diskDmd);
+      continue;  // Document not found
+    }
+    dmd = diskDmd;
+
+    if (!validateDmdSlot(self, dmd)) {
+      DMD_Return(dmd);
+      continue;
+    }
+
+    setSearchResult(base, res, it->current, dmd, it->lastDocId);
+    return RS_RESULT_OK;
+  }
+}
+
+/* Next implementation for regular (in-memory) flow */
+static int rpQueryItNext_Regular(ResultProcessor *base, SearchResult *res) {
+  RPQueryIterator *self = (RPQueryIterator *)base;
+  QueryIterator *it = self->iterator;
+  RedisSearchCtx *sctx = self->sctx;
+  const RSDocumentMetadata *dmd;
+  bool validateCurrent = false;
+
+  // Handle spec lock and revalidation
+  if (handleSpecLockAndRevalidate(self)) {
+    validateCurrent = true;
+  }
+  // Always update it after revalidation as iterator may have been replaced
+  it = self->iterator;
+
   DocTable* docs = &sctx->spec->docs;
 
   while (1) {
@@ -295,7 +378,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
       continue;
     }
 
-    setSearchResult(base, res, it, dmd, it->lastDocId);
+    setSearchResult(base, res, it->current, dmd, it->lastDocId);
     return RS_RESULT_OK;
   }
 }
@@ -307,14 +390,17 @@ static void rpQueryItFree(ResultProcessor *iter) {
   if (self->asyncPool) {
     SearchDisk_FreeAsyncReadPool(self->asyncPool);
   }
-  if (self->readyDmds) {
-    // Free any remaining DMDs that weren't consumed
-    for (uint16_t i = self->readyDmdsIndex; i < self->readyDmdsCount; i++) {
-      if (self->readyDmds[i].keyPtr) {
-        sdsfree(self->readyDmds[i].keyPtr);
+  if (self->readyResults) {
+    // Free any remaining results that weren't consumed
+    for (uint16_t i = self->readyResultsIndex; i < self->readyResultsCount; i++) {
+      if (self->readyResults[i].dmd.keyPtr) {
+        sdsfree(self->readyResults[i].dmd.keyPtr);
       }
     }
-    rm_free(self->readyDmds);
+    rm_free(self->readyResults);
+  }
+  if (self->pendingIndexResults) {
+    rm_free(self->pendingIndexResults);
   }
   rm_free(iter);
 }
@@ -325,17 +411,30 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->iterator = root;
   ret->querySlots = querySlots;
   ret->keySpaceVersion = keySpaceVersion;
-  ret->base.Next = rpQueryItNext;
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
 
-  // Initialize async pool for disk-based indexes if async IO is supported
-  if (sctx->spec->diskSpec && SearchDisk_IsAsyncIOSupported()) {
-    ret->asyncPool = SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, ASYNC_POOL_SIZE);
-    if (ret->asyncPool) {
-      ret->readyDmds = rm_calloc(ASYNC_POOL_SIZE, sizeof(RSDocumentMetadata));
+  // Determine which Next function to use based on disk configuration
+  if (sctx->spec->diskSpec) {
+    if (SearchDisk_IsAsyncIOSupported()) {
+      // Async disk flow
+      ret->asyncPool = SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, ASYNC_POOL_SIZE);
+      if (ret->asyncPool) {
+        ret->readyResults = rm_calloc(ASYNC_POOL_SIZE, sizeof(AsyncReadResult));
+        ret->pendingIndexResults = rm_calloc(ASYNC_POOL_SIZE, sizeof(RSIndexResult*));
+        ret->base.Next = rpQueryItNext_AsyncDisk;
+      } else {
+        // Fallback to sync disk if async pool creation failed
+        ret->base.Next = rpQueryItNext_SyncDisk;
+      }
+    } else {
+      // Sync disk flow
+      ret->base.Next = rpQueryItNext_SyncDisk;
     }
+  } else {
+    // Regular in-memory flow
+    ret->base.Next = rpQueryItNext_Regular;
   }
 
   return &ret->base;

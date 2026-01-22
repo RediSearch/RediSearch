@@ -125,12 +125,12 @@ RedisSearchDiskAsyncReadPool *SearchDisk_CreateAsyncReadPool(RedisSearchDiskInde
     return disk->docTable.createAsyncReadPool(handle, max_concurrent);
 }
 
-bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool *pool, t_docId docId) {
+bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool *pool, t_docId docId, uint64_t user_data) {
     RS_ASSERT(disk && pool);
-    return disk->docTable.addAsyncRead(pool, docId);
+    return disk->docTable.addAsyncRead(pool, docId, user_data);
 }
 
-AsyncPollResult SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool *pool, uint32_t timeout_ms, RSDocumentMetadata *results, uint16_t results_capacity) {
+AsyncPollResult SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool *pool, uint32_t timeout_ms, AsyncReadResult *results, uint16_t results_capacity) {
     RS_ASSERT(disk && pool);
     return disk->docTable.pollAsyncReads(pool, timeout_ms, results, results_capacity, &sdsnewlen);
 }
