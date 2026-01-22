@@ -428,10 +428,10 @@ QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const Re
     numIt->rt = rt;
   }
 
+  numIt->rangeMin = rangeMin;
+  numIt->rangeMax = rangeMax;
+
   QueryIterator *ret = &numIt->base.base;
-  InvIndIterator *it = (InvIndIterator *)ret;
-  it->profileCtx.numeric.rangeMin = rangeMin;
-  it->profileCtx.numeric.rangeMax = rangeMax;
   return ret;
 }
 
@@ -543,10 +543,10 @@ const NumericFilter * NumericInvIndIterator_GetNumericFilter(const NumericInvInd
     return IndexReader_NumericFilter(base->reader);
 }
 
-double InvIndIterator_GetProfileRangeMin(const InvIndIterator *it) {
-  return it->profileCtx.numeric.rangeMin;
+double NumericInvIndIterator_GetProfileRangeMin(const NumericInvIndIterator *it) {
+  return it->rangeMin;
 }
 
-double InvIndIterator_GetProfileRangeMax(const InvIndIterator *it) {
-  return it->profileCtx.numeric.rangeMax;
+double NumericInvIndIterator_GetProfileRangeMax(const NumericInvIndIterator *it) {
+  return it->rangeMax;
 }

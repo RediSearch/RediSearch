@@ -46,14 +46,14 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
     if (!flt || flt->geoFilter == NULL) {
       printProfileType("NUMERIC");
       RedisModule_Reply_SimpleString(reply, "Term");
-      RedisModule_Reply_SimpleStringf(reply, "%g - %g", InvIndIterator_GetProfileRangeMin(it), InvIndIterator_GetProfileRangeMax(it));
+      RedisModule_Reply_SimpleStringf(reply, "%g - %g", NumericInvIndIterator_GetProfileRangeMin(numIt), NumericInvIndIterator_GetProfileRangeMax(numIt));
     } else {
       printProfileType("GEO");
       RedisModule_Reply_SimpleString(reply, "Term");
       double se[2];
       double nw[2];
-      decodeGeo(InvIndIterator_GetProfileRangeMin(it), se);
-      decodeGeo(InvIndIterator_GetProfileRangeMax(it), nw);
+      decodeGeo(NumericInvIndIterator_GetProfileRangeMin(numIt), se);
+      decodeGeo(NumericInvIndIterator_GetProfileRangeMax(numIt), nw);
       RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
     }
   } else {

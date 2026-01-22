@@ -21,14 +21,6 @@ typedef struct InvIndIterator {
   QueryIterator base;
 
   IndexReader *reader;
-
-  union {
-    struct {
-      double rangeMin;
-      double rangeMax;
-    } numeric;
-  } profileCtx;
-
   const RedisSearchCtx *sctx;
 
   // The context for the field/s filter, used to determine if the field/s is/are expired
@@ -42,6 +34,8 @@ typedef struct {
   InvIndIterator base;
   const NumericRangeTree *rt;
   uint32_t revisionId;
+  double rangeMin;
+  double rangeMax;
 } NumericInvIndIterator;
 
 typedef struct {
@@ -68,11 +62,11 @@ QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const Re
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                           RSQueryTerm *term, double weight);
 
-// Accessors for InvIndIterator fields
+// Accessors for InvIndIterator and NumericInvIndIterator fields
 IndexFlags InvIndIterator_GetReaderFlags(const InvIndIterator *it);
 const NumericFilter * NumericInvIndIterator_GetNumericFilter(const NumericInvIndIterator *it);
-double InvIndIterator_GetProfileRangeMin(const InvIndIterator *it);
-double InvIndIterator_GetProfileRangeMax(const InvIndIterator *it);
+double NumericInvIndIterator_GetProfileRangeMin(const NumericInvIndIterator *it);
+double NumericInvIndIterator_GetProfileRangeMax(const NumericInvIndIterator *it);
 
 #ifdef __cplusplus
 }
