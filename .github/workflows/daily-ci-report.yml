@@ -121,8 +121,9 @@ jobs:
       
       - name: Send summary to Slack
         if: steps.summary.outputs.summary_exists == 'true'
-        uses: slackapi/slack-github-action@v1
+        uses: slackapi/slack-github-action@v1.24.0
         with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
           payload: |
             {
               "text": "📊 Daily CI Summary - ${{ steps.date.outputs.date }}",
@@ -143,13 +144,12 @@ jobs:
                 }
               ]
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets[steps.slack.outputs.webhook_secret] }}
 
       - name: Send failure report to Slack
         if: steps.failure_report.outputs.failure_exists == 'true'
-        uses: slackapi/slack-github-action@v1
+        uses: slackapi/slack-github-action@v1.24.0
         with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
           payload: |
             {
               "text": "❌ Daily Failure Report - ${{ steps.date.outputs.date }}",
@@ -170,8 +170,6 @@ jobs:
                 }
               ]
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets[steps.slack.outputs.webhook_secret] }}
       
       - name: Upload artifacts
         if: always()
