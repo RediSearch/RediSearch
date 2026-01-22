@@ -674,7 +674,7 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
   params->algoParams.hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
   if (params->algoParams.hnswParams.blockSize == 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Vector index element size",
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_VECTOR_ELEMENT_SIZE_EXCEEDED: Vector index element size",
       " %zu exceeded maximum size allowed by server limit which is %zu", elementSize, maxBlockSize);
     return 0;
   }
@@ -694,7 +694,7 @@ static int parseVectorField_validate_flat(VecSimParams *params, QueryError *stat
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
   params->algoParams.bfParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
   if (params->algoParams.bfParams.blockSize == 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Vector index element size",
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_VECTOR_ELEMENT_SIZE_EXCEEDED: Vector index element size",
       " %zu exceeded maximum size allowed by server limit which is %zu", elementSize, maxBlockSize);
     return 0;
   }
@@ -719,7 +719,7 @@ static int parseVectorField_validate_svs(VecSimParams *params, QueryError *statu
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
   index_size_estimation += elementSize * params->algoParams.svsParams.blockSize;
   if (params->algoParams.svsParams.blockSize == 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Vector index element size",
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_VECTOR_ELEMENT_SIZE_EXCEEDED: Vector index element size",
       " %zu exceeded maximum size allowed by server limit which is %zu", elementSize, maxBlockSize);
     return 0;
   }
@@ -757,7 +757,7 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
   // Get number of parameters
   size_t expNumParam, numParam = 0;
   if ((rc = AC_GetSize(ac, &expNumParam, 0)) != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for vector similarity number of parameters: %s", AC_Strerror(rc));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_VECTOR_PARAMS_INVALID: Bad arguments", " for vector similarity number of parameters: %s", AC_Strerror(rc));
     return 0;
   } else if (expNumParam % 2) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Bad number of arguments for vector similarity index: got %d but expected even number (as algorithm parameters should be submitted as named arguments)", expNumParam);
@@ -811,7 +811,7 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
         return 0;
       }
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(ac, NULL));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ALGORITHM_ARG_INVALID: Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(ac, NULL));
       return 0;
     }
     numParam++;
@@ -849,10 +849,10 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
   // Get number of parameters
   size_t expNumParam, numParam = 0;
   if ((rc = AC_GetSize(ac, &expNumParam, 0)) != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for vector similarity number of parameters: %s", AC_Strerror(rc));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_VECTOR_PARAMS_INVALID: Bad arguments", " for vector similarity number of parameters: %s", AC_Strerror(rc));
     return 0;
   } else if (expNumParam % 2) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad number of arguments for vector similarity index", ": got %d but expected even number as algorithm parameters (should be submitted as named arguments)", expNumParam);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_VECTOR_PARAM_COUNT_INVALID: Bad number of arguments for vector similarity index", ": got %d but expected even number as algorithm parameters (should be submitted as named arguments)", expNumParam);
     return 0;
   } else {
     expNumParam /= 2;
@@ -888,7 +888,7 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
         return 0;
       }
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_BF, AC_GetStringNC(ac, NULL));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ALGORITHM_ARG_INVALID: Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_BF, AC_GetStringNC(ac, NULL));
       return 0;
     }
     numParam++;
@@ -931,7 +931,7 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
     QERR_MKBADARGS_AC(status, "vector similarity number of parameters", rc);
     return 0;
   } else if (expNumParam % 2) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad number of arguments for vector similarity index:", " got %d but expected even number as algorithm parameters (should be submitted as named arguments)", expNumParam);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_VECTOR_PARAM_COUNT_INVALID: Bad number of arguments for vector similarity index:", " got %d but expected even number as algorithm parameters (should be submitted as named arguments)", expNumParam);
     return 0;
   } else {
     expNumParam /= 2;
@@ -944,7 +944,7 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
         return 0;
       } else if (params->algoParams.svsParams.type != VecSimType_FLOAT16 &&
                  params->algoParams.svsParams.type != VecSimType_FLOAT32){
-            QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Not supported data type is given. ", "Expected: FLOAT16, FLOAT32");
+            QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_DATA_TYPE_UNSUPPORTED: Not supported data type is given. ", "Expected: FLOAT16, FLOAT32");
             return 0;
       }
       mandtype = true;
@@ -995,11 +995,11 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_TRAINING_THRESHOLD), rc);
         return 0;
       } else if (tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold < DEFAULT_BLOCK_SIZE) {
-           QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid TRAINING_THRESHOLD: cannot be lower than DEFAULT_BLOCK_SIZE ", "(%d)", DEFAULT_BLOCK_SIZE);
+           QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_TRAINING_THRESHOLD_INVALID: Invalid TRAINING_THRESHOLD: cannot be lower than DEFAULT_BLOCK_SIZE ", "(%d)", DEFAULT_BLOCK_SIZE);
           return 0;
       }
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_SVS, AC_GetStringNC(ac, NULL));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ALGORITHM_ARG_INVALID: Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_SVS, AC_GetStringNC(ac, NULL));
       return 0;
     }
     numParam++;
@@ -1021,11 +1021,11 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
     return 0;
   }
   if (params->algoParams.svsParams.quantBits == 0 && tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold > 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "TRAINING_THRESHOLD is irrelevant when compression was not requested", "");
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_TRAINING_THRESHOLD_IRRELEVANT: TRAINING_THRESHOLD is irrelevant when compression was not requested", "");
     return 0;
   }
   if (!VecSim_IsLeanVecCompressionType(params->algoParams.svsParams.quantBits) && params->algoParams.svsParams.leanvec_dim > 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "REDUCE is irrelevant when compression is not of type LeanVec", "");
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_REDUCE_IRRELEVANT: REDUCE is irrelevant when compression is not of type LeanVec", "");
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.
@@ -1049,7 +1049,7 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     } else if (AC_AdvanceIfMatch(ac, SPEC_WEIGHT_STR)) {
       double d;
       if ((rc = AC_GetDouble(ac, &d, 0)) != AC_OK) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for weight: %s", AC_Strerror(rc));
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_WEIGHT_ARG_INVALID: Bad arguments", " for weight: %s", AC_Strerror(rc));
         return 0;
       }
       fs->ftWeight = d;
@@ -1057,7 +1057,7 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
 
     } else if (AC_AdvanceIfMatch(ac, SPEC_PHONETIC_STR)) {
       if (AC_IsAtEnd(ac)) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SPEC_PHONETIC_STR " requires an argument");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_MISSING: " SPEC_PHONETIC_STR " requires an argument");
         return 0;
       }
 
@@ -1098,7 +1098,7 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     while (!AC_IsAtEnd(ac)) {
       if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
         if (AC_IsAtEnd(ac)) {
-          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SPEC_TAG_SEPARATOR_STR " requires an argument");
+          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_NONE: " SPEC_TAG_SEPARATOR_STR " requires an argument");
           rc = 0;
           break;
         }
@@ -1157,7 +1157,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   int rc;
   int result;
   if ((rc = AC_GetString(ac, &algStr, &len, 0)) != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for vector similarity algorithm: %s", AC_Strerror(rc));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_VECTOR_ALGORITHM_ARG_INVALID: Bad arguments", " for vector similarity algorithm: %s", AC_Strerror(rc));
     return 0;
   }
   VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
@@ -1226,7 +1226,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     }
 
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for vector similarity algorithm: %s", AC_Strerror(AC_ERR_ENOENT));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_VECTOR_ALGORITHM_ARG_INVALID: Bad arguments", " for vector similarity algorithm: %s", AC_Strerror(AC_ERR_ENOENT));
     return 0;
   }
 
@@ -1263,7 +1263,8 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
  *  Returns 1 on successful parse, 0 otherwise */
 static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Field", " `%s` does not have a type", HiddenString_GetUnsafe(fs->fieldName, NULL));
+
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_FIELD_TYPE_MISSING: Field", " `%s` does not have a type", HiddenString_GetUnsafe(fs->fieldName, NULL));
     return 0;
   }
 
@@ -1298,7 +1299,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
       fs->options |= FieldSpec_IndexMissing;
     }
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid field type for field", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_FIELD_TYPE_INVALID: Invalid field type for field", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
     goto error;
   }
 
@@ -1321,14 +1322,14 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   // We don't allow both NOINDEX and INDEXMISSING, since the missing values will
   // not contribute and thus this doesn't make sense.
   if (!FieldSpec_IsIndexable(fs) && FieldSpec_IndexesMissing(fs)) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "'Field cannot be defined with both `NOINDEX` and `INDEXMISSING`", " `%s` '", HiddenString_GetUnsafe(fs->fieldName, NULL));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_FIELD_CONFIG_CONFLICT: Field cannot be defined with both `NOINDEX` and `INDEXMISSING`", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
     goto error;
   }
   return 1;
 
 error:
   if (!QueryError_HasError(status)) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Could not parse schema for field", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_FIELD_SCHEMA_PARSE_FAILED: Could not parse schema for field", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
   }
   return 0;
 }
@@ -1352,7 +1353,7 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCursor *ac,
                                        QueryError *status, int isNew) {
   if (AC_IsAtEnd(ac)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Fields arguments are missing");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_FIELDS_MISSING: Fields arguments are missing");
     return 0;
   }
 
@@ -1373,7 +1374,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     const char *fieldName = fieldPath;
     if (AC_AdvanceIfMatch(ac, SPEC_AS_STR)) {
       if (AC_IsAtEnd(ac)) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SPEC_AS_STR " requires an argument");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_MISSING: " SPEC_AS_STR " requires an argument");
         goto reset;
       }
       fieldName = AC_GetStringNC(ac, &namelen);
@@ -1385,13 +1386,13 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     }
 
     if (IndexSpec_GetFieldWithLength(sp, fieldName, namelen)) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Duplicate field in schema", " - %s", fieldName);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "SEARCH_FIELD_DUPLICATE: Duplicate field in schema", " - %s", fieldName);
       goto reset;
     }
 
     FieldSpec *fs = IndexSpec_CreateField(sp, fieldName, fieldPath);
     if (!fs) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Schema is currently limited", " to %d fields",
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SEARCH_SCHEMA_FIELD_LIMIT_EXCEEDED: Schema is currently limited", " to %d fields",
                              sp->numFields);
       goto reset;
     }
@@ -1615,12 +1616,12 @@ void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status,
     }
     if (isKnownArg) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
-        "Unsupported argument for Flex index:", " `%s`", badarg);
+        "SEARCH_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT: Unsupported argument for Flex index:", " `%s`", badarg);
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_UNRECOGNIZED: Unknown argument", " `%s`", badarg);
     }
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_UNRECOGNIZED: Unknown argument", " `%s`", badarg);
   }
 }
 
@@ -1686,7 +1687,8 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     }
   }
   if (invalid_flex_on_type) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT, "Only HASH is supported as index data type for Flex indexes");
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
+                        "SEARCH_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT: Only HASH is supported as index data type for Flex indexes");
     goto failure;
   }
 
@@ -1719,7 +1721,8 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     spec->diskSpec = SearchDisk_OpenIndex(name, len, spec->rule->type);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
     if (!spec->diskSpec) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
+                          "SEARCH_DISK_CREATION: Could not open disk index");
       goto failure;
     }
   }
@@ -1737,7 +1740,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
       const char *badarg = AC_GetStringNC(&ac, NULL);
       handleBadArguments(spec, badarg, status, non_flex_argopts);
     } else {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No schema found");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_SCHEMA_NOT_FOUND: No schema found");
     }
     goto failure;
   }
@@ -1751,7 +1754,8 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   }
 
   if (isSpecOnDiskForValidation(spec) && !(spec->flags & Index_SkipInitialScan)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT, "Flex index requires SKIPINITIALSCAN argument");
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT,
+                        "SEARCH_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT: Flex index requires SKIPINITIALSCAN argument");
     goto failure;
   }
 
@@ -3162,7 +3166,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver) != REDISMODULE_OK) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load index field", " %d", i);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_INDEX_FIELD_LOAD_FAILED: Failed to load index field", " %d", i);
       goto cleanup;
     }
     if (fs->ftId != RS_INVALID_FIELD_ID) {
@@ -3184,7 +3188,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 
   if (SchemaRule_RdbLoad(spec_ref, rdb, encver, status) != REDISMODULE_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load schema rule");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_SCHEMA_RULE_LOAD_FAILED: Failed to load schema rule");
     goto cleanup;
   }
 
@@ -3250,7 +3254,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
 cleanup:
   StrongRef_Release(spec_ref);
 cleanup_no_index:
-  QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
+  QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_INDEX_READ_FAILED: while reading an index");
   return NULL;
 }
 

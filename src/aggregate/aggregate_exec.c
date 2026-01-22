@@ -19,7 +19,7 @@
 #include "profile.h"
 #include "query_optimizer.h"
 #include "resp3.h"
-#include "query_error.h"
+#include "redisearch_rs/headers/query_error.h"
 #include "info/global_stats.h"
 #include "aggregate_debug.h"
 #include "info/info_redis/block_client.h"
@@ -29,8 +29,6 @@
 #include "hybrid/hybrid_request.h"
 #include "module.h"
 #include "result_processor.h"
-#include "reply_empty.h"
-
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
@@ -244,12 +242,13 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       // Excludes hidden fields, fields not included in RETURN and, score and language fields.
       RedisSearchCtx *sctx = AREQ_SearchCtx(req);
       SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
-      uint32_t excludeFlags = RLOOKUP_F_HIDDEN;
-      uint32_t requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
+      int excludeFlags = RLOOKUP_F_HIDDEN;
+      int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
+      bool skipFieldIndex[lk->rowlen]; // Array has `false` for fields which will be skipped
+      memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
       size_t skipFieldIndex_len = lk->rowlen;
-      bool skipFieldIndex[skipFieldIndex_len]; // After calling `RLookup_GetLength` will contain `false` for fields which we should skip below
-      memset(skipFieldIndex, 0, skipFieldIndex_len * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, skipFieldIndex_len, requiredFlags, excludeFlags, rule);
+      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex,
+                                         skipFieldIndex_len, requiredFlags, excludeFlags, rule);
 
       RedisModule_Reply_Map(reply);
         int i = 0;
@@ -418,14 +417,10 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (ShouldReplyWithError(QueryError_GetCode(rp->parent->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
-      // Track errors in global statistics
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), 1, !IsInternal(req));
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
       goto done_2_err;
     } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
-      // Track timeout error in global statistics
-      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
       ReplyWithTimeoutError(reply);
       cursor_done = true;
       goto done_2_err;
@@ -502,7 +497,6 @@ done_2:
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
     }
     if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
     }
 
@@ -569,7 +563,6 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
   }
   if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   }
@@ -592,14 +585,10 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &results, &r, &rc);
 
     if (ShouldReplyWithError(QueryError_GetCode(rp->parent->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
-      // Track errors in global statistics
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(rp->parent->err), 1, !IsInternal(req));
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
       goto done_3_err;
     } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
-      // Track errors in global statistics
-      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
       ReplyWithTimeoutError(reply);
       cursor_done = true;
       goto done_3_err;
@@ -664,7 +653,23 @@ done_3:
     RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
     // <error>
-    _replyWarnings(req, reply, rc);
+    RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
+    // qctx->bgScanOOM for coordinator, sctx->spec->scan_failed_OOM for shards
+    if ((qctx->bgScanOOM)||(sctx->spec && sctx->spec->scan_failed_OOM)) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
+    }
+    if (QueryError_HasQueryOOMWarning(qctx->err)) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
+    }
+    if (rc == RS_RESULT_TIMEDOUT) {
+      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    } else if (rc == RS_RESULT_ERROR) {
+      // Non-fatal error
+      RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
+    } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
+    }
+    RedisModule_Reply_ArrayEnd(reply); // >warnings
 
     cursor_done = (rc != RS_RESULT_OK
                    && !(rc == RS_RESULT_TIMEDOUT
@@ -781,7 +786,6 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
 
     if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
       RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
     }
@@ -835,7 +839,6 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
 
     if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
     }
 
@@ -1035,7 +1038,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_INDEX, "No such index", " %s", indexname);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_INDEX, QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), " %s", indexname);
     goto done;
   }
 
@@ -1109,9 +1112,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
-    if (AREQ_QueryProcessingCtx(r)->isProfile ){
-      // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
-      AREQ_QueryProcessingCtx(r)->queryGILTime += rs_wall_clock_elapsed_ns(&(AREQ_QueryProcessingCtx(r)->initTime)) + 1;
+    if (r->qiter.isProfile){
+      r->qiter.queryGILTime += rs_wall_clock_elapsed_ns(&r->qiter.initTime);
     }
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(rc == 0);
@@ -1159,13 +1161,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
-    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
-      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, GetNumShards_UnSafe() == 1);
-      return QueryMemoryGuardFailure_WithReply(ctx);
-    }
-    // Assuming OOM policy is return since we didn't ignore the memory guardrail
-    RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
-    return single_shard_common_query_reply_empty(ctx, argv, argc, execOptions, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+    QueryError_SetCode(&status, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    return QueryError_ReplyAndClear(ctx, &status);
   }
 
   AREQ *r = AREQ_New();
@@ -1181,14 +1179,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 
 error:
-  // Update global query errors statistics
-  // If num shards == 1 we are in SA, and we count it as a coord error
-  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, GetNumShards_UnSafe() == 1);
-
   if (r) {
     AREQ_Free(r);
   }
-
   return QueryError_ReplyAndClear(ctx, &status);
 }
 
@@ -1208,15 +1201,11 @@ RedisModuleString **_profileArgsDup(RedisModuleString **argv, int argc, int para
   memcpy(newArgv, argv, PROFILE_1ST_PARAM * sizeof(*newArgv));
   // copy non-profile commands
   memcpy(newArgv + PROFILE_1ST_PARAM, argv + PROFILE_1ST_PARAM + params,
-         (argc - PROFILE_1ST_PARAM - params) * sizeof(*newArgv));
+          (argc - PROFILE_1ST_PARAM - params) * sizeof(*newArgv));
   return newArgv;
 }
 
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return RSProfileCommandImp(ctx, argv, argc, false);
-}
-
-int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1224,13 +1213,6 @@ int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   CommandType cmdType;
   int curArg = PROFILE_1ST_PARAM;
   int withProfile = EXEC_WITH_PROFILE;
-  execCommandCommonHandler execCommandHandlerFunc = execCommandCommon;
-
-  // Check if this is a debug command
-  if (isDebug) {
-    execCommandHandlerFunc = DEBUG_execCommandCommon;
-    withProfile |= EXEC_DEBUG;
-  }
 
   // Check the command type
   const char *cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
@@ -1239,7 +1221,7 @@ int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
     cmdType = COMMAND_AGGREGATE;
   } else {
-    RedisModule_ReplyWithError(ctx, "No `SEARCH` or `AGGREGATE` provided");
+    RedisModule_ReplyWithError(ctx, "SEARCH_CMD_TYPE_MISSING: No `SEARCH` or `AGGREGATE` provided");
     return REDISMODULE_OK;
   }
 
@@ -1250,15 +1232,13 @@ int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
   if (strcasecmp(cmd, "QUERY") != 0) {
-    RedisModule_ReplyWithError(ctx, "The QUERY keyword is expected");
+    RedisModule_ReplyWithError(ctx, "SEARCH_CMD_QUERY_KEYWORD_MISSING: The QUERY keyword is expected");
     return REDISMODULE_OK;
   }
 
   int newArgc = argc - curArg + PROFILE_1ST_PARAM;
   RedisModuleString **newArgv = _profileArgsDup(argv, argc, curArg - PROFILE_1ST_PARAM);
-
-  execCommandHandlerFunc(ctx, newArgv, newArgc, cmdType, withProfile);
-
+  execCommandCommon(ctx, newArgv, newArgc, cmdType, withProfile);
   rm_free(newArgv);
   return REDISMODULE_OK;
 }
@@ -1339,7 +1319,7 @@ static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader,
   return qctx;
 }
 
-static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool bg) {
+static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, bool bg) {
 
   QueryError status = QueryError_Default();
 
@@ -1356,8 +1336,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
-      Cursor_Free(cursor);
-      RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
+      RedisModule_Reply_Error(reply, "SEARCH_INDEX_DROPPED_DURING_CURSOR: The index was dropped while the cursor was idle");
       return;
     }
 
@@ -1382,9 +1361,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   }
 
   if (req) {
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     runCursor(reply, cursor, count);
-    RedisModule_EndReply(reply);
   } else {
     // TODO: run hybrid cursor - this needs to be implemented for the coordinator
   }
@@ -1401,7 +1378,9 @@ typedef struct {
 
 static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
-  cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  cursorRead(reply, cr_ctx->cursor, cr_ctx->count, true);
+  RedisModule_EndReply(reply);
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
   void *privdata = RedisModule_BlockClientGetPrivateData(cr_ctx->bc);
@@ -1428,17 +1407,17 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // Verify that the 4'th argument is `COUNT`.
     const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
     if (strcasecmp(count_str, "count") != 0) {
-      return RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
+      return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_UNKNOWN_ARG: Unknown argument `%s`", count_str);
     }
 
     if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
-      return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
+      return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_VALUE_BAD: Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
     }
   }
 
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
   if (cursor == NULL) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
+    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_CURSOR_NOT_FOUND: Cursor not found, id: %d", cid);
   }
 
   // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
@@ -1449,7 +1428,9 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     cr_ctx->count = count;
     workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
   } else {
-    cursorRead(ctx, cursor, count, false);
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    cursorRead(reply, cursor, count, false);
+    RedisModule_EndReply(reply);
   }
 
   return REDISMODULE_OK;
@@ -1471,7 +1452,7 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   // Return profile
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
   if (cursor == NULL) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
+    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_CURSOR_NOT_FOUND: Cursor not found, id: %d", cid);
   }
 
   AREQ *req = cursor->execState;
@@ -1502,53 +1483,93 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   return REDISMODULE_OK;
 }
 
+int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
+// Shard-side cursor subcommands (used by coordinator fanout).
+// These are thin wrappers around the legacy cursor dispatcher.
+int RSCursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return RSCursorCommand(ctx, argv, argc);
+}
+
+int RSCursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return RSCursorCommand(ctx, argv, argc);
+}
+
 /**
  * FT.CURSOR DEL {index} {CID}
+ * FT.CURSOR GC {index}
  */
-int RSCursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   }
 
-  long long cid;
+  const char *cmd = RedisModule_StringPtrLen(argv[1], NULL);
+  long long cid = 0;
+  // argv[0] - FT.CURSOR
+  // argv[1] - subcommand
+  // argv[2] - index
+  // argv[3] - cursor ID
+
   if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
+    RedisModule_ReplyWithError(ctx, "SEARCH_CURSOR_INVALID_ID: Bad cursor ID");
+    return REDISMODULE_OK;
   }
-  int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
-  if (rc != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "Cursor does not exist");
+
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+
+  if (strcasecmp(cmd, "READ") == 0) {
+    long long count = 0;
+    if (argc > 5) {
+      // e.g. 'COUNT <timeout>'
+      // Verify that the 4'th argument is `COUNT`.
+      const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
+      if (strcasecmp(count_str, "count") != 0) {
+        RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_ARG_NOT_FOUND: Argument not found: `%s`", count_str);
+        RedisModule_EndReply(reply);
+        return REDISMODULE_OK;
+      }
+
+      if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
+        RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_ARG_COUNT_INVALID: Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
+        RedisModule_EndReply(reply);
+        return REDISMODULE_OK;
+      }
+    }
+
+    Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+    if (cursor == NULL) {
+      RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_CURSOR_NOT_FOUND: Cursor not found: %d", cid);
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
+    }
+
+    // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
+    if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
+      CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
+      cr_ctx->bc = BlockCursorClient(ctx, cursor, count, 0);
+      cr_ctx->cursor = cursor;
+      cr_ctx->count = count;
+      workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
+    } else {
+      cursorRead(reply, cursor, count, false);
+    }
+  } else if (strcasecmp(cmd, "DEL") == 0) {
+    int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
+    if (rc != REDISMODULE_OK) {
+      RedisModule_Reply_Error(reply, "SEARCH_CURSOR_NOT_FOUND: Cursor not found");
+    } else {
+      RedisModule_Reply_SimpleString(reply, "OK");
+    }
+  } else if (strcasecmp(cmd, "GC") == 0) {
+    int rc = Cursors_CollectIdle(&g_CursorsList);
+    rc += Cursors_CollectIdle(&g_CursorsListCoord);
+    RedisModule_Reply_LongLong(reply, rc);
   } else {
-    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    RedisModule_Reply_Error(reply, "SEARCH_SUBCOMMAND_NOT_FOUND: Subcommand not found");
   }
-}
-
-/**
- * FT.CURSOR GC {index}
- */
-int RSCursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  // Collect idle cursors from both local and coord lists
-  int ret_local = Cursors_CollectIdle(&g_CursorsList);
-  int ret_coord = Cursors_CollectIdle(&g_CursorsListCoord);
-
-  // `Cursors_CollectIdle` returns -1 if no cursors were expired (quick check),
-  // otherwise it returns the number of collected cursors (which can be 0, if there were no idle+expired cursors).
-  // We want to return -1 only if both lists returned -1, otherwise we sum the non-negative results.
-  int ret;
-  if (ret_local < 0 && ret_coord < 0) {
-    ret = -1;
-  } else if (ret_local < 0) {
-    ret = ret_coord;
-  } else if (ret_coord < 0) {
-    ret = ret_local;
-  } else {
-    ret = ret_local + ret_coord;
-  }
-
-  return RedisModule_ReplyWithLongLong(ctx, ret);
+  RedisModule_EndReply(reply);
+  return REDISMODULE_OK;
 }
 
 /* ======================= DEBUG ONLY ======================= */

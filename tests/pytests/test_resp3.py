@@ -123,11 +123,10 @@ def test_search_timeout():
     for i in range(num_range):
         conn.execute_command('HSET', f'doc{i}', 't', f'aa{i}', 'geo', f"{i/10000},{i/1000}")
 
-    # TODO: Add these tests again once MOD-5965 is merged
-    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range)). \
-    #   contains('Timeout limit was reached')
-    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range), 'timeout', 1).\
-    #   contains('Timeout limit was reached')
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range)). \
+      contains('SEARCH_TIMEOUT: Timeout limit was reached')
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range), 'timeout', 1).\
+      contains('SEARCH_TIMEOUT: Timeout limit was reached')
 
     # (coverage) Later failure than the above tests - in pipeline execution
     # phase. For this, we need more documents in the index, such that we will
@@ -168,7 +167,7 @@ def test_profile(env):
           'Total profile time': ANY,
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
-          'Warning': ['None'],
+          'Warning': 'None',
           'Iterators profile':
             {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': 2},
           'Result processors profile': [
@@ -240,7 +239,7 @@ def test_coord_profile():
           'Total profile time': ANY,
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
-          'Warning': ['None'],
+          'Warning': 'None',
           'Result processors profile': [{'Type': 'Network', 'Time': ANY, 'Results processed': 2}]
         }
       }
@@ -382,7 +381,7 @@ def test_list():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
-    env.expect('FT._LIST').equal(['idx2', 'idx1'])
+    env.expect('FT._LIST').equal({'idx2', 'idx1'})
 
 @skip(redis_less_than="7.0.0")
 def test_info():
@@ -639,7 +638,7 @@ def test_profile_crash_mod5323():
             },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
-          'Warning': ['None'],
+          'Warning': 'None',
           'Result processors profile': [
             { 'Results processed': 3, 'Time': ANY, 'Type': 'Index' },
             { 'Results processed': 3, 'Time': ANY, 'Type': 'Scorer' },
@@ -687,7 +686,7 @@ def test_profile_child_itrerators_array():
             },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
-          'Warning': ['None'],
+          'Warning': 'None',
           'Result processors profile': [
             {'Results processed': 2, 'Time': ANY, 'Type': 'Index'},
             {'Results processed': 2, 'Time': ANY, 'Type': 'Scorer'},
@@ -724,7 +723,7 @@ def test_profile_child_itrerators_array():
             },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
-          'Warning': ['None'],
+          'Warning': 'None',
           'Result processors profile': [
             { 'Results processed': 0, 'Time': ANY, 'Type': 'Index'},
             { 'Results processed': 0, 'Time': ANY, 'Type': 'Scorer'},
@@ -1573,7 +1572,7 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['Results']['warning'], ['Max prefix expansions limit was reached'])
   n_warnings = 0
   for i, shard in enumerate(res['Profile']['Shards']):
-      if 'Max prefix expansions limit was reached' in shard['Warning']:
+      if shard['Warning']== 'Max prefix expansions limit was reached':
          n_warnings += 1
   env.assertEqual(n_warnings, 1)
 
@@ -1583,7 +1582,7 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['Results']['warning'], ['Max prefix expansions limit was reached'])
   n_warnings = 0
   for i, shard in enumerate(res['Profile']['Shards']):
-    if 'Max prefix expansions limit was reached' in shard['Warning']:
+    if shard['Warning']== 'Max prefix expansions limit was reached':
          n_warnings += 1
   env.assertEqual(n_warnings, 1)
 

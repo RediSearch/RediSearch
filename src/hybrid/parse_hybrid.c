@@ -17,7 +17,7 @@
 #include "aggregate/aggregate.h"
 #include "vector_query_utils.h"
 #include "vector_index.h"
-#include "query_error.h"
+#include "redisearch_rs/headers/query_error.h"
 #include "spec.h"
 #include "param.h"
 #include "rmalloc.h"
@@ -39,7 +39,7 @@
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
   const char *verb = (provided == 1) ? "was" : "were";
-  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Expected arguments", " %u, but %d %s provided", expected, provided, verb);
+  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_ARG_COUNT_BAD: Expected arguments", " %u, but %d %s provided", expected, provided, verb);
 }
 
 // Check if we're at the end of arguments in the middle of a clause and set appropriate error for missing argument
@@ -68,9 +68,42 @@ static void addVectorQueryParam(VectorQuery *vq, const char *name, size_t nameLe
   vq->params.needResolve = array_ensure_append_1(vq->params.needResolve, needResolve);
 }
 
+/**
+ * Parse optional subqueries count (currently only 2 supported) in FT.HYBRID.
+ *
+ * Supported formats:
+ *   - FT.HYBRID <index> SEARCH <query> ...          (no explicit count)
+ *   - FT.HYBRID <index> <count> SEARCH <query> ... (count is treated as subqueries count)
+ *
+ * After this function returns successfully, the cursor will be positioned right
+ * after the SEARCH keyword.
+ */
+static bool parseSubqueriesCount(ArgsCursor *ac, QueryError *status) {
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_ARG_REQ: SEARCH argument is required");
+    return false;
+  }
+
+  unsigned int subqueriesCount = 0;
+  const bool hasSubqueryCount = (AC_GetUnsigned(ac, &subqueriesCount, AC_F_GE1) == AC_OK); // advances only on success
+
+  if (hasSubqueryCount && subqueriesCount != HYBRID_REQUEST_NUM_SUBQUERIES) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "SEARCH_HYBRID_SUBQUERY_COUNT_UNSUPPORTED: FT.HYBRID currently supports only two subqueries");
+    return false;
+  }
+
+  if (!AC_AdvanceIfMatch(ac, "SEARCH")) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_ARG_REQ: SEARCH argument is required");
+    return false;
+  }
+
+  return true;
+}
+
 static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No query string provided for SEARCH");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_QUERY_STRING_NONE: No query string provided for SEARCH");
     return REDISMODULE_ERR;
   }
 
@@ -111,7 +144,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
     }
 
     // Unknown argument that's not VSIM - this is an error
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s` in SEARCH", cur);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_UNKNOWN: Unknown argument", " `%s` in SEARCH", cur);
     return REDISMODULE_ERR;
   }
   if (searchOpts->scoreAlias) {
@@ -125,16 +158,16 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   // VSIM @vectorfield vector KNN ...
   //                              ^
   if (AC_IsAtEnd(ac)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument count");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_COUNT_NONE: Missing argument count");
     return REDISMODULE_ERR;
   }
   // Try to get number of arguments
   unsigned int argumentCount;
   if (AC_GetUnsigned(ac, &argumentCount, 0) != AC_OK ) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid argument count: expected an unsigned integer");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_COUNT_INVALID: Invalid argument count: expected an unsigned integer");
     return REDISMODULE_ERR;
   } else if (argumentCount == 0 || argumentCount % 2 != 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid argument count", ": %u (must be a positive even number for key/value pairs)", argumentCount);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_ARG_COUNT_INVALID: Invalid argument count", ": %u (must be a positive even number for key/value pairs)", argumentCount);
     return REDISMODULE_ERR;
   }
 
@@ -149,13 +182,13 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
 
     if (AC_AdvanceIfMatch(ac, "K")) {
       if (pvd->hasExplicitK) { // codespell:ignore
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate K argument");
+        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "SEARCH_PARAM_DUPLICATE: Duplicate K argument");
         return REDISMODULE_ERR;
       }
       if (CheckEnd(ac, "K", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       long long kValue;
       if (AC_GetLongLong(ac, &kValue, AC_F_GE1) != AC_OK) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid K value");
+        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_K_VALUE_INVALID: Invalid K value");
         return REDISMODULE_ERR;
       }
       vq->knn.k = (size_t)kValue;
@@ -163,13 +196,13 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
 
     } else if (AC_AdvanceIfMatch(ac, "EF_RUNTIME")) {
       if (hasEF) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate EF_RUNTIME argument");
+        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "SEARCH_PARAM_DUPLICATE: Duplicate EF_RUNTIME argument");
         return REDISMODULE_ERR;
       }
       if (CheckEnd(ac, "EF_RUNTIME", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       long long efValue;
       if (AC_GetLongLong(ac, &efValue, AC_F_GE1 | AC_F_NOADVANCE) != AC_OK) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid EF_RUNTIME value");
+        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_EF_RUNTIME_VALUE_INVALID: Invalid EF_RUNTIME value");
         return REDISMODULE_ERR;
       }
       const char *value;
@@ -179,15 +212,35 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
       hasEF = true;
 
+    } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+      if (pvd->vectorScoreFieldAlias != NULL) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "SEARCH_PARAM_DUPLICATE: Duplicate YIELD_SCORE_AS argument");
+        return REDISMODULE_ERR;
+      }
+      if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
+      const char *value;
+      if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "SEARCH_YIELD_SCORE_AS_VALUE_INVALID: Invalid YIELD_SCORE_AS value");
+        return REDISMODULE_ERR;
+      }
+      // Add as QueryAttribute (for query node processing, not vector-specific)
+      QueryAttribute attr = {
+        .name = YIELD_DISTANCE_ATTR,
+        .namelen = strlen(YIELD_DISTANCE_ATTR),
+        .value = rm_strdup(value),
+        .vallen = strlen(value)
+      };
+      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
+      pvd->vectorScoreFieldAlias = rm_strdup(value);
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s` in KNN", current);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_UNKNOWN: Unknown argument", " `%s` in KNN", current);
       return REDISMODULE_ERR;
     }
   }
   if (!pvd->hasExplicitK) { // codespell:ignore
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing required argument K");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_K_ARG_MISSING: Missing required argument K");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
@@ -197,16 +250,16 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
   // VSIM @vectorfield vector RANGE ...
   //                                ^
   if (AC_IsAtEnd(ac)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument count");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_COUNT_MISSING: Missing argument count");
     return REDISMODULE_ERR;
   }
   // Try to get number of arguments
   unsigned int argumentCount;
   if (AC_GetUnsigned(ac, &argumentCount, 0) != AC_OK ) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid argument count: expected an unsigned integer");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_COUNT_INVALID: Invalid argument count: expected an unsigned integer");
     return REDISMODULE_ERR;
   } else if (argumentCount == 0 || argumentCount % 2 != 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid argument count", ": %u (must be a positive even number for key/value pairs)", argumentCount);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_ARG_COUNT_INVALID: Invalid argument count", ": %u (must be a positive even number for key/value pairs)", argumentCount);
     return REDISMODULE_ERR;
   }
 
@@ -222,13 +275,13 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
 
     if (AC_AdvanceIfMatch(ac, "RADIUS")) {
       if (hasRadius) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate RADIUS argument");
+        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "SEARCH_PARAM_DUPLICATE: Duplicate RADIUS argument");
         return REDISMODULE_ERR;
       }
       if (CheckEnd(ac, "RADIUS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       double radiusValue;
       if (AC_GetDouble(ac, &radiusValue, AC_F_GE0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid RADIUS value");
+        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_RADIUS_VALUE_INVALID: Invalid RADIUS value");
         return REDISMODULE_ERR;
       }
       vq->range.radius = radiusValue;
@@ -236,13 +289,13 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
 
     } else if (AC_AdvanceIfMatch(ac, "EPSILON")) {
       if (hasEpsilon) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate EPSILON argument");
+        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "SEARCH_PARAM_DUPLICATE: Duplicate EPSILON argument");
         return REDISMODULE_ERR;
       }
       if (CheckEnd(ac, "EPSILON", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       double epsilonValue;
       if (AC_GetDouble(ac, &epsilonValue, AC_F_GE0 | AC_F_NOADVANCE) != AC_OK || epsilonValue == 0.0) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid EPSILON value");
+        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_EPSILON_VALUE_INVALID: Invalid EPSILON value");
         return REDISMODULE_ERR;
       }
       const char *value;
@@ -252,72 +305,44 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, valueLen);
       hasEpsilon = true;
 
+    } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+      if (pvd->vectorScoreFieldAlias != NULL) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "SEARCH_PARAM_DUPLICATE: Duplicate YIELD_SCORE_AS argument");
+        return REDISMODULE_ERR;
+      }
+      if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
+      const char *value;
+      if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "SEARCH_YIELD_SCORE_AS_VALUE_INVALID: Invalid YIELD_SCORE_AS value");
+        return REDISMODULE_ERR;
+      }
+      // Add as QueryAttribute (for query node processing, not vector-specific)
+      QueryAttribute attr = {
+        .name = YIELD_DISTANCE_ATTR,
+        .namelen = strlen(YIELD_DISTANCE_ATTR),
+        .value = rm_strdup(value),
+        .vallen = strlen(value)
+      };
+      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
+      pvd->vectorScoreFieldAlias = rm_strdup(value);
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s` in RANGE", current);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_ARG_UNKNOWN: Unknown argument", " `%s` in RANGE", current);
       return REDISMODULE_ERR;
     }
   }
   if (!hasRadius) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing required argument RADIUS");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_RADIUS_ARG_MISSING: Missing required argument RADIUS");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }
 
-static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, QueryError *status, unsigned long long count) {
-  // VSIM @vectorfield vector [KNN/RANGE ...] [FILTER <count> "filter-expression" [POLICY ADHOC/BATCHES] [BATCH_SIZE batch-size-value]]
+static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
+  // VSIM @vectorfield vector [KNN/RANGE ...] FILTER ...
   //                                                 ^
-
-  ArgsCursor argCursor= {0};
-  int res = AC_GetSlice(ac, &argCursor, count);
-  if (res == AC_ERR_NOARG) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Not enough arguments", " in %s, specified %llu but provided only %u", "FILTER", count, AC_NumRemaining(ac));
-    return REDISMODULE_ERR;
-  } else if (res != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Bad arguments", " in %s: %s", "FILTER", AC_Strerror(res));
-    return REDISMODULE_ERR;
-  }
-
-  // Parse filter-expression (required, positional) - store in vreq->query directly
-  vreq->query = AC_GetStringNC(&argCursor, NULL);
-  if (!vreq->query) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing filter-expression for FILTER");
-    return REDISMODULE_ERR;
-  }
-
-  // Use ArgParser for optional POLICY and BATCH_SIZE
-  ArgParser *parser = ArgParser_New(&argCursor, "FILTER");
-  if (!parser) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to create argument parser for FILTER");
-    return REDISMODULE_ERR;
-  }
-
-  // Parse POLICY (optional, enum)
-  const char *policy = NULL;
-  static const char *allowedPolicies[] = {"ADHOC", "BATCHES", NULL};
-  ArgParser_AddStringV(parser, "POLICY", "Filter policy",
-                      &policy, ARG_OPT_OPTIONAL,
-                      ARG_OPT_ALLOWED_VALUES, allowedPolicies,
-                      ARG_OPT_CALLBACK, handleFilterPolicy, pvd,
-                      ARG_OPT_END);
-
-  // Parse BATCH_SIZE (optional)
-  const char *batchSize = NULL;
-  ArgParser_AddStringV(parser, "BATCH_SIZE", "Batch size",
-                      &batchSize, ARG_OPT_OPTIONAL,
-                      ARG_OPT_CALLBACK, handleFilterBatchSize, pvd,
-                      ARG_OPT_END);
-
-  ArgParseResult result = ArgParser_Parse(parser);
-  if (!result.success) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, ArgParser_GetErrorString(parser));
-    ArgParser_Free(parser);
-    return REDISMODULE_ERR;
-  }
-
-  ArgParser_Free(parser);
+  vreq->query = AC_GetStringNC(ac, NULL);
   return REDISMODULE_OK;
 }
 
@@ -353,7 +378,7 @@ static int parseYieldScoreClause(ArgsCursor *ac, ParsedVectorData *pvd, QueryErr
 static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   // Check for required VSIM keyword
   if (!AC_AdvanceIfMatch(ac, "VSIM")) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "VSIM argument is required");
+    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_VSIM_ARG_REQUIRED: VSIM argument is required");
     return REDISMODULE_ERR;
   }
 
@@ -369,13 +394,13 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   const char *fieldNameWithPrefix;
   size_t fieldNameLen;
   if (AC_GetString(ac, &fieldNameWithPrefix, &fieldNameLen, 0) != AC_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Missing vector field name");
+    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_VECTOR_FIELD_NAME_MISSING: Missing vector field name");
     goto error;
   }
 
   // Check if field name starts with @ prefix
   if (fieldNameLen == 0 || fieldNameWithPrefix[0] != '@') {
-    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Missing @ prefix for vector field name");
+    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_VECTOR_FIELD_PREFIX_MISSING: Missing @ prefix for vector field name");
     goto error;
   }
 
@@ -385,7 +410,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   const char *vectorParam;
   size_t vectorParamLen;
   if (AC_GetString(ac, &vectorParam, &vectorParamLen, 0) != AC_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Missing vector argument");
+    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH_VECTOR_ARG_MISSING: Missing vector argument");
     goto error;
   }
 
@@ -394,9 +419,6 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     vectorParam++;  // Skip '$'
     vectorParamLen--;  // Adjust length for skipped '$'
     pvd->isParameter = true;
-  } else {
-    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid vector argument, expected a parameter name starting with $");
-    goto error;
   }
 
   // Set default KNN values before checking for more arguments
@@ -424,19 +446,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
 
   // Check for optional FILTER clause - argument may not be in our scope
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
-    unsigned long long count = 0;
-    if (AC_IsAtEnd(ac)) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument count for FILTER");
-      goto error;
-    }
-    if (AC_GetUnsignedLongLong(ac, &count, 0) != AC_OK) {
-      // it's a string, not a number, preserving some degree of backward compatibility
-      vreq->query = AC_GetStringNC(ac, NULL);
-      if (!vreq->query) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid filter-expression for FILTER");
-        goto error;
-      }
-    } else if (parseFilterClause(ac, vreq, pvd, status, count) != REDISMODULE_OK) {
+    if (parseFilterClause(ac, vreq, status) != REDISMODULE_OK) {
       goto error;
     }
   }
@@ -556,6 +566,39 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
     return implicitLoadStep;
 }
 
+// This cannot be easily merged with IsIndexCoherent from aggregate_request.c since aggregate request parses prefixes differently.
+// Unifying would require some refactor on the aggregate flow.
+static bool IsIndexCoherentWithQuery(arrayof(sds) prefixes, IndexSpec *spec)  {
+
+  size_t n_prefixes = array_len(prefixes);
+  if (n_prefixes == 0) {
+    // No prefixes in the query --> No validation needed.
+    return true;
+  }
+
+  if ((!spec || !spec->rule || !spec->rule->prefixes)) {
+    // Index has no prefixes, but query has prefixes --> Incoherent
+    return false;
+  }
+
+  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
+  if (n_prefixes != array_len(spec_prefixes)) {
+    return false;
+  }
+
+  // Validate that the prefixes in the arguments are the same as the ones in the
+  // index (also in the same order)
+  for (uint i = 0; i < n_prefixes; i++) {
+    int cmp_result = HiddenUnicodeString_CompareC(spec_prefixes[i], prefixes[i]);
+    if (cmp_result != 0) {
+      // Unmatching prefixes
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /**
  * Handle load step distribution for hybrid search pipelines.
  *
@@ -594,53 +637,10 @@ static void handleLoadStepForHybridPipelines(AGGPlan *tailPlan, AGGPlan *searchP
 }
 
 /**
- * Parse the subqueries count at the beginning of the FT.HYBRID command.
- *
- * Expected position in command:
- *   FT.HYBRID <index> <subqueries_count> SEARCH ...
- *                    ^
- *
- * Currently supports only 2 subqueries. We also support the old format without
- * the subqueries count for backward compatibility:
- *   FT.HYBRID <index> SEARCH <query> VSIM <vector_args>
- *
- * @param ac ArgsCursor for parsing - should be right after the index name
- * @param status Output parameter for error reporting
- * @return true if parsing succeeded, false if an error occurred (error is set in status)
- */
-static bool parseSubqueriesCount(ArgsCursor *ac, QueryError *status) {
-  if (AC_IsAtEnd(ac)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing subqueries count for FT.HYBRID");
-    return false;
-  }
-
-  unsigned int subqueriesCount = 0;
-  bool hasSubqueryCount = AC_GetUnsigned(ac, &subqueriesCount, AC_F_GE1) == AC_OK; // Advances the cursor only if parsing succeeded
-
-  if (hasSubqueryCount) {
-    if (subqueriesCount != HYBRID_REQUEST_NUM_SUBQUERIES) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.HYBRID currently supports only two subqueries");
-      return false;
-    } else if (!AC_AdvanceIfMatch(ac, "SEARCH")) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH keyword is required");
-      return false;
-    }
-  } else if (!AC_AdvanceIfMatch(ac, "SEARCH")) { // Old format: FT.HYBRID <index> <search_query> <vsim_query>
-    // error according to the new format
-    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid subqueries count: expected an unsigned integer");
-    return false;
-  }
-
-  return true;
-}
-
-/**
  * Parse FT.HYBRID command arguments and build a complete HybridRequest structure.
  *
  * Expected format: FT.HYBRID <index> SEARCH <query> [SCORER <scorer>] VSIM <vector_args>
  *                  [COMBINE <method> [params]] [aggregation_options]
- *
- * Can be called from the main thread or from a background thread. (Note: access RSGlobalConfig which is not thread safe)
  *
  * @param ctx Redis module context
  * @param ac ArgsCursor for parsing command arguments - should start after the index name
@@ -676,6 +676,13 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   AREQ *vectorRequest = parsedCmdCtx->vector;
   AREQ *searchRequest = parsedCmdCtx->search;
 
+  // Slot tracking info (used for internal/coordinator requests). Initialize to "unset".
+  // Hybrid optional args parsing will populate these when parsing internal SLOTS payload.
+  searchRequest->querySlots = NULL;
+  searchRequest->keySpaceVersion = INVALID_KEYSPACE_VERSION;
+  vectorRequest->querySlots = NULL;
+  vectorRequest->keySpaceVersion = INVALID_KEYSPACE_VERSION;
+
   searchRequest->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
   vectorRequest->reqflags |= QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
 
@@ -684,10 +691,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Prefixes for the index
   arrayof(sds) prefixes = array_new(sds, 0);
-
-  // Slot ranges info for distributed execution
-  const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
-  uint32_t keySpaceVersion = INVALID_KEYSPACE_VERSION;
 
   if (!parseSubqueriesCount(ac, status)) {
     goto error;
@@ -713,8 +716,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
       .prefixes = &prefixes,
-      .querySlots = &requestSlotRanges,
-      .keySpaceVersion = &keySpaceVersion,
+      // Referenced from the AREQ. We'll copy it to the vector subquery after parsing.
+      .querySlots = &searchRequest->querySlots,
+      .keySpaceVersion = &searchRequest->keySpaceVersion,
       .coordDispatchTime = parsedCmdCtx->coordDispatchTime,
   };
   // may change prefixes in internal array_ensure_append_1
@@ -722,21 +726,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     goto error;
   }
 
-  // Set slots info in both subqueries
-  if (internal) {
-    RS_ASSERT(requestSlotRanges != NULL);
-    vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
-    vectorRequest->keySpaceVersion = keySpaceVersion;
-    if (vectorRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
-      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
-    }
-    searchRequest->querySlots = requestSlotRanges;
-    searchRequest->keySpaceVersion = keySpaceVersion;
-    if (searchRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
-      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
-    }
-    requestSlotRanges = NULL; // ownership transferred
-  }
+  // Ensure both subqueries see the same slots information (when present).
+  vectorRequest->querySlots = searchRequest->querySlots;
+  vectorRequest->keySpaceVersion = searchRequest->keySpaceVersion;
 
   // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
   // otherwise, store the vector score in a default key.
@@ -818,9 +810,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  IndexSpec *spec = parsedCmdCtx->search->sctx->spec;
-  const size_t prefixCount = array_len(*hybridParseCtx.prefixes);
-  if (prefixCount && !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, *hybridParseCtx.prefixes, prefixCount)) {
+  if (!IsIndexCoherentWithQuery(*hybridParseCtx.prefixes, parsedCmdCtx->search->sctx->spec)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
     goto error;
   }
@@ -858,9 +848,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 error:
   array_free_ex(prefixes, sdsfree(*(sds *)ptr));
   prefixes = NULL;
-  if (requestSlotRanges) {
-    rm_free((void *)requestSlotRanges);
-  }
   if (mergeSearchopts.params) {
     Param_DictFree(mergeSearchopts.params);
   }
