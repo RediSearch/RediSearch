@@ -5,6 +5,7 @@
       "Bash(make:*)",
       "Bash(cargo build:*)",
       "Bash(cargo check:*)",
+      "Bash(cargo llvm-cov:*)",
       "Bash(cargo test:*)",
       "Bash(cargo nextest:*)",
       "Bash(cargo +nightly miri test:*)",
