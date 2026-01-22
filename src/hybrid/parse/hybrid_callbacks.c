@@ -19,7 +19,6 @@
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
 #include "rmalloc.h"
-#include "coord/rmr/command.h"  // For COORD_DISPATCH_TIME_STR
 
 // Helper function to append a sort entry - extracted from original code
 static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, bool ascending) {
@@ -509,24 +508,4 @@ void handleSlotsInfo(ArgParser *parser, const void *value, void *user_data) {
 
   *ctx->querySlots = slot_array;
   *ctx->keySpaceVersion = version.version;
-}
-
-// _COORD_DISPATCH_TIME callback - parses and stores the coordinator dispatch time
-// Used for profiling to show coordinator-to-shard latency
-void handleCoordDispatchTime(ArgParser *parser, const void *value, void *user_data) {
-  HybridParseContext *ctx = (HybridParseContext*)user_data;
-  ArgsCursor *ac = (ArgsCursor*)value;
-  QueryError *status = ctx->status;
-
-  unsigned long long dispatchTime;
-  if (AC_GetUnsignedLongLong(ac, &dispatchTime, 0) != AC_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-                        COORD_DISPATCH_TIME_STR " requires a numeric value");
-    return;
-  }
-
-  if (ctx->coordDispatchTime) {
-    *ctx->coordDispatchTime = dispatchTime;
-  }
-  (void)parser;
 }

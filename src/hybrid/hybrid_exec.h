@@ -65,10 +65,6 @@ static inline uint32_t HREQ_RequestFlags(HybridRequest *hreq) {
   return hreq->reqflags;
 }
 
-static inline ProfilePrinterCtx *HREQ_ProfilePrinterCtx(HybridRequest *hreq) {
-  return &hreq->profileCtx;
-}
-
 #ifdef __cplusplus
 }
 #endif
