@@ -453,30 +453,21 @@ void printShardsHybridProfile(RedisModule_Reply *reply, void *ctx) {
   RPNet *vsimRpnet = (RPNet *)AREQ_QueryProcessingCtx(vsimAreq)->rootProc;
 
   size_t searchCount = array_len(searchRpnet->shardsProfile);
-  size_t vsimCount = array_len(vsimRpnet->shardsProfile);
-
-  // Use the maximum of the two counts to handle cases where one might have fewer responses
-  size_t maxShards = searchCount > vsimCount ? searchCount : vsimCount;
 
   bool resp3 = reply->resp3;
 
   // Iterate over shards and print both SEARCH and VSIM profiles for each shard
-  for (size_t i = 0; i < maxShards; i++) {
+  for (size_t i = 0; i < searchCount; i++) {
     RedisModule_Reply_Map(reply);  // Start shard map
 
     // Extract shard profiles
-    MRReply *searchProfile = (i < searchCount) ? extractShardProfile(searchRpnet->shardsProfile[i], resp3) : NULL;
-    MRReply *vsimProfile = (i < vsimCount) ? extractShardProfile(vsimRpnet->shardsProfile[i], resp3) : NULL;
+    MRReply *searchProfile = extractShardProfile(searchRpnet->shardsProfile[i], resp3);
+    MRReply *vsimProfile = extractShardProfile(vsimRpnet->shardsProfile[i], resp3);
 
-    // Extract and print Shard ID once (prefer from SEARCH profile, fallback to VSIM)
+    // Extract and print Shard ID from SEARCH profile
     MRReply *shardIdReply = NULL;
     if (searchProfile) {
       shardIdReply = extractShardIdReply(searchProfile);
-    }
-    if (!shardIdReply && vsimProfile) {
-      shardIdReply = extractShardIdReply(vsimProfile);
-    }
-    if (shardIdReply) {
       RedisModule_Reply_SimpleString(reply, "Shard ID");
       MR_ReplyWithMRReply(reply, shardIdReply);
     }
