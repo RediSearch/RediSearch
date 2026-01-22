@@ -25,7 +25,6 @@
 #include "info/info_redis/block_client.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "module.h"
-#include "rs_wall_clock.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -739,25 +738,10 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   // Set the chunk size limit for the query
   req->qiter.resultLimit = limit;
 
-  // Measure serialization time for internal (shard) queries
-  rs_wall_clock serializationClock;
-  bool measureSerialization = IsInternal(req);
-  if (measureSerialization) {
-    rs_wall_clock_init(&serializationClock);
-  }
-
   if (reply->resp3) {
     sendChunk_Resp3(req, reply, limit, cv);
   } else {
     sendChunk_Resp2(req, reply, limit, cv);
-  }
-
-  if (measureSerialization) {
-    rs_wall_clock_ns_t elapsed_ns = rs_wall_clock_elapsed_ns(&serializationClock);
-    double elapsed_ms = rs_wall_clock_convert_ns_to_ms_d(elapsed_ns);
-    size_t resultsSent = limit - req->qiter.resultLimit;
-    RedisModule_Log(req->sctx->redisCtx, "warning",
-                    "Shard serialization time: %.3f ms for %zu results", elapsed_ms, resultsSent);
   }
 
   if (req->sctx->spec) {

@@ -136,12 +136,6 @@ int main() {
 #include <string.h>
 #include <limits.h>
 
-// Optional resize logging hook - define KH_RESIZE_LOG to enable
-// Example: #define KH_RESIZE_LOG(old_buckets, new_buckets) printf("resize %u -> %u\n", old_buckets, new_buckets)
-#ifndef KH_RESIZE_LOG
-#define KH_RESIZE_LOG(old_buckets, new_buckets) ((void)0)
-#endif
-
 /* compiler specific configuration */
 
 #if UINT_MAX == 0xffffffffu
@@ -263,7 +257,6 @@ static const double __ac_HASH_UPPER = 0.77;
                                                          [sizeof(key_t+val_t)+.25]*n_buckets. */ \
     khint32_t *new_flags = 0;                                                                    \
     khint_t j = 1;                                                                               \
-    khint_t old_n_buckets = h->n_buckets;                                                        \
     {                                                                                            \
       kroundup32(new_n_buckets);                                                                 \
       if (new_n_buckets < 4) new_n_buckets = 4;                                                  \
@@ -339,7 +332,6 @@ static const double __ac_HASH_UPPER = 0.77;
       h->n_buckets = new_n_buckets;                                                              \
       h->n_occupied = h->size;                                                                   \
       h->upper_bound = (khint_t)(h->n_buckets * __ac_HASH_UPPER + 0.5);                          \
-      KH_RESIZE_LOG(old_n_buckets, new_n_buckets);                                               \
     }                                                                                            \
     return 0;                                                                                    \
   }                                                                                              \
