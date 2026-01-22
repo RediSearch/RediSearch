@@ -176,6 +176,7 @@ pub unsafe extern "C" fn RSValue_ToNumber(value: *const RsValue, d: *mut c_doubl
         *d = num;
         return 1;
     } else {
+        *d = 0.0;
         return 0;
     }
 }
