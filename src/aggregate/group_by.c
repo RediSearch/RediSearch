@@ -9,6 +9,14 @@
 #include <redisearch.h>
 #include <result_processor.h>
 #include <util/block_alloc.h>
+#include "module.h"
+
+// Enable khash resize logging for groupby hash table
+#define KH_RESIZE_LOG(old_buckets, new_buckets) \
+  RedisModule_Log(RSDummyContext, "warning", \
+                  "Groupby khash resize: %u -> %u buckets", \
+                  (unsigned)(old_buckets), (unsigned)(new_buckets))
+
 #include <util/khash.h>
 #include <util/wyhash.h>
 #include "reducer.h"
@@ -267,8 +275,16 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
     if (!preSized) {
       size_t sizeHint = base->parent->totalResults;
-      if (sizeHint > kh_n_buckets(g->groups)) {
+      khint_t currentBuckets = kh_n_buckets(g->groups);
+      if (sizeHint > currentBuckets) {
+        rs_wall_clock resize_clock;
+        rs_wall_clock_init(&resize_clock);
         kh_resize(khid, g->groups, sizeHint);
+        rs_wall_clock_ns_t elapsed_ns = rs_wall_clock_elapsed_ns(&resize_clock);
+        double elapsed_ms = rs_wall_clock_convert_ns_to_ms_d(elapsed_ns);
+        RedisModule_Log(RSDummyContext, "warning",
+                        "Groupby hash table pre-size: %u -> %u buckets (hint: %zu, %.3f ms)",
+                        currentBuckets, kh_n_buckets(g->groups), sizeHint, elapsed_ms);
       }
       preSized = true;
     }

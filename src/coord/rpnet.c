@@ -227,7 +227,8 @@ static bool shardResponseBarrier_HandleError(RPNet *nc) {
 // Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
 // Warning handling requires nc->current.meta to be set. Cleanup is done regardless of protocol.
 // Returns RS_RESULT_TIMEDOUT if timeout warning found, RS_RESULT_OK otherwise.
-static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
+// numResults: number of results in the batch being freed (for timing logs)
+static int processWarningsAndCleanup(RPNet *nc, bool is_resp3, size_t numResults) {
   bool timed_out = false;
   // Check for warnings (resp3 only)
   if (is_resp3) {
@@ -249,7 +250,19 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
     }
   }
 
+  // Measure MRReply_Free time
+  rs_wall_clock freeClock;
+  rs_wall_clock_init(&freeClock);
+
   MRReply_Free(nc->current.root);
+
+  rs_wall_clock_ns_t freeElapsed_ns = rs_wall_clock_elapsed_ns(&freeClock);
+  double freeElapsed_ms = rs_wall_clock_convert_ns_to_ms_d(freeElapsed_ns);
+  int16_t shardId = nc->cmd.targetShard;
+  RedisModule_Log(RSDummyContext, "warning",
+                  "Coordinator MRReply_Free time: %.3f ms for %zu results from shard %d",
+                  freeElapsed_ms, numResults, shardId);
+
   RPNet_resetCurrent(nc);
 
   if (timed_out) {
@@ -386,7 +399,7 @@ int getNextReply(RPNet *nc) {
   RS_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY);
   if (MRReply_Length(rows) <= empty_rows_len) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
-    int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3);
+    int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3, 0);
 
     if (ret == RS_RESULT_TIMEDOUT) {
       return RS_RESULT_TIMEDOUT;
@@ -502,7 +515,10 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     size_t len = MRReply_Length(rows);
 
     if (nc->curIdx == len) {
-      if (processWarningsAndCleanup(nc, resp3) == RS_RESULT_TIMEDOUT) {
+      // For RESP2, first element is count, so actual results = len - 1
+      // For RESP3, all elements are results
+      size_t numResults = resp3 ? len : (len > 0 ? len - 1 : 0);
+      if (processWarningsAndCleanup(nc, resp3, numResults) == RS_RESULT_TIMEDOUT) {
         return RS_RESULT_TIMEDOUT;
       }
 
