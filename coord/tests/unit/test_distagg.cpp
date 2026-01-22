@@ -3,6 +3,7 @@
 #include "dist_plan.h"
 #include "aggregate/aggregate.h"
 #include "tests/cpptests/redismock/util.h"
+#include "cpptests/common.h"
 
 #include <vector>
 
@@ -135,6 +136,7 @@ static void testSplit() {
 int main(int, char **) {
   const char *arguments[] = {""};
   RMCK_Bootstrap(my_OnLoad, arguments, 1);
+  RS::InstallSegvStackTraceHandler();
   testAverage();
   testCountDistinct();
   RMCK_Shutdown();
