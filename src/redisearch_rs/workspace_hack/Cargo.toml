@@ -18,6 +18,7 @@ publish = false
 clap = { version = "4" }
 clap_builder = { version = "4", default-features = false, features = ["color", "help", "std", "suggestions", "usage"] }
 either = { version = "1", default-features = false, features = ["use_std"] }
+itertools = { version = "0.13" }
 libc = { version = "0.2", features = ["extra_traits"] }
 memchr = { version = "2" }
 num-traits = { version = "0.2" }
@@ -34,6 +35,7 @@ serde = { version = "1", features = ["alloc", "derive"] }
 serde_core = { version = "1", features = ["alloc"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 thiserror = { version = "2" }
+toml = { version = "0.9" }
 tracing-core = { version = "0.1" }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 
@@ -41,6 +43,7 @@ zerocopy = { version = "0.8", default-features = false, features = ["derive", "s
 clap = { version = "4" }
 clap_builder = { version = "4", default-features = false, features = ["color", "help", "std", "suggestions", "usage"] }
 either = { version = "1", default-features = false, features = ["use_std"] }
+itertools = { version = "0.13" }
 libc = { version = "0.2", features = ["extra_traits"] }
 memchr = { version = "2" }
 num-traits = { version = "0.2" }
@@ -58,6 +61,7 @@ serde_core = { version = "1", features = ["alloc"] }
 syn-dff4ba8e3ae991db = { package = "syn", version = "1", features = ["extra-traits", "full", "visit-mut"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 thiserror = { version = "2" }
+toml = { version = "0.9" }
 tracing-core = { version = "0.1" }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 

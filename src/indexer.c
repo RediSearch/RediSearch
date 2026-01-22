@@ -21,6 +21,7 @@
 #include "redismodule.h"
 #include "debug_commands.h"
 #include "search_disk.h"
+#include "info/global_stats.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -96,6 +97,9 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
 
+  // Save the number of terms before indexing the current document for metrics
+  size_t prevNumTerms = spec->stats.numTerms;
+
   while (entry != NULL) {
     bool isNew;
     if (spec->diskSpec) {
@@ -124,6 +128,9 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
     entry = ForwardIndexIterator_Next(&it);
   }
+
+  // Update the number of terms added for metrics
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.numTerms - prevNumTerms);
 }
 
 /** Assigns a document ID to a single document. */
@@ -186,15 +193,22 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       continue;
     }
 
+    RS_ASSERT(cur->doc);
+
     if (spec->diskSpec) {
       size_t len;
       const char *key = RedisModule_StringPtrLen(cur->doc->docKey, &len);
       uint32_t oldLen = 0;
+
+      // Check if the document has expiration time (disk does not support field-level expiration yet)
+      if (cur->doc->docExpirationTime.tv_sec || cur->doc->docExpirationTime.tv_nsec) {
+        cur->docFlags |= Document_HasExpiration;
+      }
       // Put the document and get a new doc-id, and remove the old id->dmd entry
       // if it existed.
       t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len,
         cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
-        cur->fwIdx->totalFreq, &oldLen);
+        cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime);
       if (oldLen > 0) {
         // We deleted a document in the above call, update the stats accordingly
         RS_ASSERT(spec->stats.numDocuments > 0);
@@ -234,7 +248,8 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       DocTable_SetByteOffsets(md, cur->byteOffsets);
       cur->byteOffsets = NULL;
     }
-    Document* doc = cur->doc;
+
+    Document *doc = cur->doc;
     const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || doc->fieldExpirations;
     if (hasExpiration) {
       md->flags |= Document_HasExpiration;

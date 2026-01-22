@@ -24,6 +24,13 @@ bench = false
 default = []
 mock_allocator = []
 
+[build-dependencies]
+build_utils = { path = "../../build_utils" }
+quote.workspace = true
+syn = { workspace = true, features = ["full", "parsing"] }
+toml.workspace = true
+walkdir.workspace = true
+
 [dependencies]
 buffer = { workspace = true }
 fnv_ffi = { path = "../fnv_ffi" }
@@ -32,6 +39,7 @@ iterators_ffi = { path = "../iterators_ffi" }
 query_error_ffi = { path = "../query_error_ffi" }
 result_processor_ffi = { path = "../result_processor_ffi" }
 slots_tracker_ffi = { path = "../slots_tracker_ffi" }
+sorting_vector_ffi = { path = "../sorting_vector_ffi" }
 triemap_ffi = { path = "../triemap_ffi" }
 types_ffi = { path = "../types_ffi" }
 varint_ffi = { path = "../varint_ffi" }

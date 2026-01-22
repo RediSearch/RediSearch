@@ -10,6 +10,7 @@
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "config.h"
 #include "util/arg_parser.h"
+#include "coord/rmr/command.h"
 #include <string.h>
 
 /**
@@ -135,6 +136,14 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                             &subArgs, 1, 1,
                             ARG_OPT_REQUIRED,
                             ARG_OPT_CALLBACK, handleSlotsInfo, ctx,
+                            ARG_OPT_END);
+
+        // Mandatory _COORD_DISPATCH_TIME argument for internal requests
+        static_assert(sizeof(unsigned long long) == sizeof(rs_wall_clock_ns_t),
+                      "rs_wall_clock_ns_t must be the same size as unsigned long long");
+        ArgParser_AddULongLongV(parser, COORD_DISPATCH_TIME_STR, "Coordinator dispatch time",
+                            (unsigned long long *)ctx->coordDispatchTime,
+                            ARG_OPT_REQUIRED,
                             ARG_OPT_END);
 
     }

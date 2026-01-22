@@ -2,12 +2,12 @@
 use crate::{VecCapacity, header::Header};
 use std::alloc::Layout;
 
-/// Gets the layout of the allocated memory for a `LowMemoryThinVec<T, S>` with the given capacity.
+/// Gets the layout of the allocated memory for a `ThinVec<T, S>` with the given capacity.
 pub(crate) fn allocation_layout<T, S: VecCapacity>(cap: S) -> Layout {
     _allocation_layout::<T, S>(cap.to_usize())
 }
 
-/// Gets the layout of the allocated memory for a `LowMemoryThinVec<T, S>` with the given `usize` capacity.
+/// Gets the layout of the allocated memory for a `ThinVec<T, S>` with the given `usize` capacity.
 ///
 /// # Implementation details
 ///
@@ -22,7 +22,7 @@ const fn _allocation_layout<T, S: VecCapacity>(cap: usize) -> Layout {
         // The panic message must be known at compile-time if we want `allocation_layout` to be a `const fn`.
         // Therefore we can't capture the error (nor the faulty capacity value) in the panic message.
         panic!(
-            "The size of the array of elements within `LowMemoryThinVec<T>` would exceed `isize::MAX`, \
+            "The size of the array of elements within `ThinVec<T>` would exceed `isize::MAX`, \
             which is the maximum size that can be allocated."
         )
     };
@@ -32,7 +32,7 @@ const fn _allocation_layout<T, S: VecCapacity>(cap: usize) -> Layout {
             // The panic message must be known at compile-time if we want `allocation_layout` to be a `const fn`.
             // Therefore we can't capture the error (nor the faulty capacity value) in the panic message.
             panic!(
-                "The size of the allocated buffer for `LowMemoryThinVec` would exceed `isize::MAX`, \
+                "The size of the allocated buffer for `ThinVec` would exceed `isize::MAX`, \
                 which is the maximum size that can be allocated."
             )
         }
@@ -40,7 +40,7 @@ const fn _allocation_layout<T, S: VecCapacity>(cap: usize) -> Layout {
     vec.pad_to_align()
 }
 
-/// Gets the alignment for the allocation owned by `LowMemoryThinVec<T, S>`.
+/// Gets the alignment for the allocation owned by `ThinVec<T, S>`.
 pub(crate) const fn allocation_alignment<T, S: VecCapacity>() -> usize {
     // Alignment doesn't change with capacity, so we can use an arbitrary value.
     // Since:
@@ -48,7 +48,7 @@ pub(crate) const fn allocation_alignment<T, S: VecCapacity>() -> usize {
     // - `allocation_layout` is a `const` function
     // we can mark `alloc_align` as `const` and be sure that `alloc_align` will be
     // computed at compile time for any `T` that may end up being used in our
-    // program as a type for the elements within `LowMemoryThinVec<T, S>`.
+    // program as a type for the elements within `ThinVec<T, S>`.
     _allocation_layout::<T, S>(1).align()
 }
 
@@ -58,7 +58,7 @@ pub(crate) const fn allocation_alignment<T, S: VecCapacity>() -> usize {
 /// # Performance
 ///
 /// This value will be computed at compile time for any `T` and `S` that may end up being used in our
-/// program as types within `LowMemoryThinVec<T, S>`, since the function is `const`
+/// program as types within `ThinVec<T, S>`, since the function is `const`
 /// and takes no runtime arguments.
 pub(crate) const fn header_field_padding<T, S: VecCapacity>() -> usize {
     let alloc_align = allocation_alignment::<T, S>();

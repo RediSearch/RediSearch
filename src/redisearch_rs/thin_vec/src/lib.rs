@@ -1,9 +1,9 @@
-//! `LowMemoryThinVec` is exactly the same as `Vec`, except that it stores its `len` and `capacity` in the buffer
+//! `ThinVec` is exactly the same as `Vec`, except that it stores its `len` and `capacity` in the buffer
 //! it allocates.
 //!
 //! # Memory layout
 //!
-//! The memory layout of a local variable of type `LowMemoryThinVec<u64>` looks as follows:
+//! The memory layout of a local variable of type `ThinVec<u64>` looks as follows:
 //!
 //!```text
 //!   Stack               |              Heap
@@ -11,9 +11,8 @@
 //!                       |
 //!  +---------------+    |
 //!  | ptr (8 bytes) | ------->  Header +----------------------+
-//!  +---------------+    |             | 3 (len)     (2 bytes)|
-//!                       |             | 4 (cap)     (2 bytes)|
-//!                       |             | (padding)   (4 bytes)|
+//!  +---------------+    |             | 3 (len)     (8 bytes)|
+//!                       |             | 4 (cap)     (8 bytes)|
 //!                       |             +----------------------+
 //!                       |      Data   | 12          (8 bytes)|
 //!                       |             | 151         (8 bytes)|
@@ -38,34 +37,34 @@
 //!
 //! # Memory footprint
 //!
-//! The memory footprint of `LowMemoryThinVec<T>` is smaller than `Vec<T>` ; notably in cases where space is reserved for
-//! the non-existence of `LowMemoryThinVec<T>`. So `Vec<LowMemoryThinVec<T>>` and `Option<LowMemoryThinVec<T>>::None` will waste less
+//! The memory footprint of `ThinVec<T>` is smaller than `Vec<T>` ; notably in cases where space is reserved for
+//! the non-existence of `ThinVec<T>`. So `Vec<ThinVec<T>>` and `Option<ThinVec<T>>::None` will waste less
 //! space. Being pointer-sized also means it can be passed/stored in registers.
 //!
-//! Of course, any actually constructed `LowMemoryThinVec` will theoretically have a bigger allocation, but
+//! Of course, any actually constructed `ThinVec` will theoretically have a bigger allocation, but
 //! the fuzzy nature of allocators means that might not actually be the case.
 //!
 //! Properties of `Vec` that are preserved:
-//! * `LowMemoryThinVec::new()` doesn't allocate (it points to a statically allocated singleton)
+//! * `ThinVec::new()` doesn't allocate (it points to a statically allocated singleton)
 //! * reallocation can be done in place
-//! * `size_of::<LowMemoryThinVec<T>>()` == `size_of::<Option<LowMemoryThinVec<T>>>()`
+//! * `size_of::<ThinVec<T>>()` == `size_of::<Option<ThinVec<T>>>()`
 //!
 //! Properties of `Vec` that aren't preserved:
-//! * `LowMemoryThinVec<T>` can't ever be zero-cost roundtripped to a `Box<[T]>`, `String`, or `*mut T`
+//! * `ThinVec<T>` can't ever be zero-cost roundtripped to a `Box<[T]>`, `String`, or `*mut T`
 //! * `from_raw_parts` doesn't exist
-//! * `LowMemoryThinVec` currently doesn't bother to not-allocate for Zero Sized Types (e.g. `LowMemoryThinVec<()>`),
+//! * `ThinVec` currently doesn't bother to not-allocate for Zero Sized Types (e.g. `ThinVec<()>`),
 //!   but it could be done.
 //!
 //! # Generic capacity type
 //!
-//! `LowMemoryThinVec<T, S>` supports a generic capacity type `S` which can be `u8`, `u16`, `u32`, or `u64`.
-//! The default is `u16`, which limits capacity to 65,535 elements but keeps the header small (4 bytes).
+//! `ThinVec<T, S>` supports a generic capacity type `S` which can be `u8`, `u16`, `u32`, or `u64`.
+//! The default is `u64`, which provides virtually unlimited capacity with a 16-byte header.
 //!
 //! Use different capacity types based on your needs:
-//! - `u8`: Maximum 255 elements, 2-byte header (saves memory for small vectors)
-//! - `u16`: Maximum 65,535 elements, 4-byte header (default)
-//! - `u32`: Maximum ~4 billion elements, 8-byte header
-//! - `u64`: Maximum ~18 quintillion elements, 16-byte header
+//! - `u8`: Maximum 255 elements, 2-byte header (use [`TinyThinVec`] or [`tiny_thin_vec!`])
+//! - `u16`: Maximum 65,535 elements, 4-byte header (use [`SmallThinVec`] or [`small_thin_vec!`])
+//! - `u32`: Maximum ~4 billion elements, 8-byte header (use [`MediumThinVec`] or [`medium_thin_vec!`])
+//! - `u64`: Maximum ~18 quintillion elements, 16-byte header (default, use [`ThinVec`] or [`thin_vec!`])
 //!
 //! ## Differences with the original `thin_vec`
 //!
@@ -103,7 +102,7 @@ pub(crate) mod layout;
 pub use capacity::VecCapacity;
 pub use header::Header;
 
-/// Allocates a header (and array) for a `LowMemoryThinVec<T, S>` with the given capacity.
+/// Allocates a header (and array) for a `ThinVec<T, S>` with the given capacity.
 ///
 /// # Panics
 ///
@@ -151,7 +150,7 @@ fn allocate_for_capacity<T, S: VecCapacity>(cap: S) -> NonNull<Header<S>> {
 
 /// See the crate's top level documentation for a description of this type.
 #[repr(C)]
-pub struct LowMemoryThinVec<T, S: VecCapacity = u16> {
+pub struct ThinVec<T, S: VecCapacity = u64> {
     // # Invariants
     //
     // It is always safe to convert this pointer to a `&Header<S>`,
@@ -179,56 +178,123 @@ pub struct LowMemoryThinVec<T, S: VecCapacity = u16> {
     _phantom: PhantomData<T>,
 }
 
+/// A [`ThinVec`] with `u8` capacity, supporting up to 255 elements.
+///
+/// This is useful when you know the vector will never exceed 255 elements
+/// and want to minimize header overhead (2 bytes instead of 16).
+pub type TinyThinVec<T> = ThinVec<T, u8>;
+
+/// A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
+///
+/// This is useful when you know the vector will never exceed 65,535 elements
+/// and want to minimize header overhead (4 bytes instead of 16).
+pub type SmallThinVec<T> = ThinVec<T, u16>;
+
+/// A [`ThinVec`] with `u32` capacity, supporting up to ~4 billion elements.
+///
+/// This is useful when you want a balance between capacity and header size
+/// (8 bytes instead of 16).
+pub type MediumThinVec<T> = ThinVec<T, u32>;
+
 // SAFETY:
-// `LowMemoryThinVec<T, S>` is, for all `Send` intents and purposes, equivalent to a `Vec<T>`.
+// `ThinVec<T, S>` is, for all `Send` intents and purposes, equivalent to a `Vec<T>`.
 // This `Send` implementation is therefore safe for the same reasons as the one
 // provided by `Vec<T>` when `T` is `Send`.
-unsafe impl<T: Send, S: VecCapacity> Send for LowMemoryThinVec<T, S> {}
+unsafe impl<T: Send, S: VecCapacity> Send for ThinVec<T, S> {}
 
 // SAFETY:
-// `LowMemoryThinVec<T, S>` is, for all `Sync` intents and purposes, equivalent to a `Vec<T>`.
+// `ThinVec<T, S>` is, for all `Sync` intents and purposes, equivalent to a `Vec<T>`.
 // This `Sync` implementation is therefore safe for the same reasons as the one
 // provided by `Vec<T>` when `T` is `Sync`.
-unsafe impl<T: Sync, S: VecCapacity> Sync for LowMemoryThinVec<T, S> {}
+unsafe impl<T: Sync, S: VecCapacity> Sync for ThinVec<T, S> {}
 
-/// Creates a `LowMemoryThinVec` containing the arguments.
+/// Internal implementation macro - not part of public API.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __thin_vec_impl {
+    (@UNIT $($t:tt)*) => (());
+
+    ($ty:ty; $elem:expr; $n:expr) => ({
+        let mut vec = <$ty>::new();
+        vec.resize($n, $elem);
+        vec
+    });
+    ($ty:ty;) => { <$ty>::new() };
+    ($ty:ty; $($x:expr),+ $(,)?) => ({
+        let len = [$($crate::__thin_vec_impl!(@UNIT $x)),+].len();
+        let mut vec = <$ty>::with_capacity(len);
+        $(vec.push($x);)+
+        vec
+    });
+}
+
+/// Creates a [`ThinVec`] containing the arguments.
 ///
 /// ```rust
-/// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+/// use thin_vec::{thin_vec, ThinVec};
 ///
-/// let v: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+/// let v: ThinVec<i32> = thin_vec![1, 2, 3];
 /// assert_eq!(v.len(), 3);
 /// assert_eq!(v[0], 1);
 /// assert_eq!(v[1], 2);
 /// assert_eq!(v[2], 3);
 ///
-/// let v: LowMemoryThinVec<i32> = low_memory_thin_vec![1; 3];
+/// let v: ThinVec<i32> = thin_vec![1; 3];
 /// assert_eq!(v, [1, 1, 1]);
 /// ```
 #[macro_export]
-macro_rules! low_memory_thin_vec {
-    (@UNIT $($t:tt)*) => (());
-
-    ($elem:expr; $n:expr) => ({
-        let mut vec = $crate::LowMemoryThinVec::new();
-        vec.resize($n, $elem);
-        vec
-    });
-    () => {$crate::LowMemoryThinVec::new()};
-    ($($x:expr),*) => ({
-        let len = [$(low_memory_thin_vec!(@UNIT $x)),*].len();
-        let mut vec = $crate::LowMemoryThinVec::with_capacity(len);
-        $(vec.push($x);)*
-        vec
-    });
-    ($($x:expr,)*) => (low_memory_thin_vec![$($x),*]);
+macro_rules! thin_vec {
+    () => { $crate::__thin_vec_impl![$crate::ThinVec<_>;] };
+    ($($args:tt)+) => { $crate::__thin_vec_impl![$crate::ThinVec<_>; $($args)+] };
 }
 
-impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
-    /// Creates a new empty LowMemoryThinVec.
+/// Creates a [`TinyThinVec`] (capacity `u8`) containing the arguments.
+///
+/// ```rust
+/// use thin_vec::{tiny_thin_vec, TinyThinVec};
+///
+/// let v: TinyThinVec<i32> = tiny_thin_vec![1, 2, 3];
+/// assert_eq!(v.len(), 3);
+/// ```
+#[macro_export]
+macro_rules! tiny_thin_vec {
+    () => { $crate::__thin_vec_impl![$crate::TinyThinVec<_>;] };
+    ($($args:tt)+) => { $crate::__thin_vec_impl![$crate::TinyThinVec<_>; $($args)+] };
+}
+
+/// Creates a [`SmallThinVec`] (capacity `u16`) containing the arguments.
+///
+/// ```rust
+/// use thin_vec::{small_thin_vec, SmallThinVec};
+///
+/// let v: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
+/// assert_eq!(v.len(), 3);
+/// ```
+#[macro_export]
+macro_rules! small_thin_vec {
+    () => { $crate::__thin_vec_impl![$crate::SmallThinVec<_>;] };
+    ($($args:tt)+) => { $crate::__thin_vec_impl![$crate::SmallThinVec<_>; $($args)+] };
+}
+
+/// Creates a [`MediumThinVec`] (capacity `u32`) containing the arguments.
+///
+/// ```rust
+/// use thin_vec::{medium_thin_vec, MediumThinVec};
+///
+/// let v: MediumThinVec<i32> = medium_thin_vec![1, 2, 3];
+/// assert_eq!(v.len(), 3);
+/// ```
+#[macro_export]
+macro_rules! medium_thin_vec {
+    () => { $crate::__thin_vec_impl![$crate::MediumThinVec<_>;] };
+    ($($args:tt)+) => { $crate::__thin_vec_impl![$crate::MediumThinVec<_>; $($args)+] };
+}
+
+impl<T, S: VecCapacity> ThinVec<T, S> {
+    /// Creates a new empty ThinVec.
     ///
     /// This will not allocate.
-    pub const fn new() -> LowMemoryThinVec<T, S> {
+    pub const fn new() -> ThinVec<T, S> {
         // SAFETY:
         // The pointer is not null since it comes from a (static) reference.
         let ptr = unsafe {
@@ -236,13 +302,13 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
             //   when it stabilizes
             NonNull::new_unchecked(S::EMPTY_HEADER as *const Header<S> as *mut Header<S>)
         };
-        LowMemoryThinVec {
+        ThinVec {
             ptr,
             _phantom: PhantomData,
         }
     }
 
-    /// Constructs a new, empty `LowMemoryThinVec<T, S>` with at least the specified capacity.
+    /// Constructs a new, empty `ThinVec<T, S>` with at least the specified capacity.
     ///
     /// The vector will be able to hold at least `capacity` elements without
     /// reallocating. This method is allowed to allocate for more elements than
@@ -251,10 +317,10 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// It is important to note that although the returned vector has the
     /// minimum *capacity* specified, the vector will have a zero *length*.
     ///
-    /// If it is important to know the exact allocated capacity of a `LowMemoryThinVec`,
+    /// If it is important to know the exact allocated capacity of a `ThinVec`,
     /// always use the [`capacity`] method after construction.
     ///
-    /// **NOTE**: unlike `Vec`, `LowMemoryThinVec` **MUST** allocate once to keep track of non-zero
+    /// **NOTE**: unlike `Vec`, `ThinVec` **MUST** allocate once to keep track of non-zero
     /// lengths. As such, we cannot provide the same guarantees about ThinVecs
     /// of ZSTs not allocating. However the allocation never needs to be resized
     /// to add more ZSTs, since the underlying array is still length 0.
@@ -269,9 +335,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::LowMemoryThinVec;
+    /// use thin_vec::ThinVec;
     ///
-    /// let mut vec: LowMemoryThinVec<i32> = LowMemoryThinVec::with_capacity(10);
+    /// let mut vec: ThinVec<i32> = ThinVec::with_capacity(10);
     ///
     /// // The vector contains no items, even though it has capacity for more
     /// assert_eq!(vec.len(), 0);
@@ -291,15 +357,15 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     ///
     /// // A vector of a zero-sized type will always over-allocate, since no
     /// // space is needed to store the actual elements.
-    /// let vec_units = LowMemoryThinVec::<()>::with_capacity(10);
+    /// let vec_units = ThinVec::<()>::with_capacity(10);
     /// ```
-    pub fn with_capacity(cap: usize) -> LowMemoryThinVec<T, S> {
+    pub fn with_capacity(cap: usize) -> ThinVec<T, S> {
         if cap == 0 {
-            LowMemoryThinVec::new()
+            ThinVec::new()
         } else {
             let cap = S::from_usize(cap);
             let ptr = allocate_for_capacity::<T, S>(cap);
-            LowMemoryThinVec {
+            ThinVec {
                 ptr,
                 _phantom: PhantomData,
             }
@@ -312,7 +378,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     const fn header_ref(&self) -> &Header<S> {
         // SAFETY:
         // Guaranteed by the invariants on the `ptr` field.
-        // Check out [`LowMemoryThinVec::ptr`] for more details.
+        // Check out [`ThinVec::ptr`] for more details.
         unsafe { self.ptr.as_ref() }
     }
     /// Return a pointer to the data array located after the header.
@@ -371,9 +437,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let a: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let a: ThinVec<i32> = thin_vec![1, 2, 3];
     /// assert_eq!(a.len(), 3);
     /// ```
     pub fn len(&self) -> usize {
@@ -385,9 +451,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::LowMemoryThinVec;
+    /// use thin_vec::ThinVec;
     ///
-    /// let mut v: LowMemoryThinVec<i32> = LowMemoryThinVec::new();
+    /// let mut v: ThinVec<i32> = ThinVec::new();
     /// assert!(v.is_empty());
     ///
     /// v.push(1);
@@ -403,9 +469,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::LowMemoryThinVec;
+    /// use thin_vec::ThinVec;
     ///
-    /// let vec: LowMemoryThinVec<i32> = LowMemoryThinVec::with_capacity(10);
+    /// let vec: ThinVec<i32> = ThinVec::with_capacity(10);
     /// assert_eq!(vec.capacity(), 10);
     /// ```
     pub fn capacity(&self) -> usize {
@@ -421,12 +487,12 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::LowMemoryThinVec;
+    /// use thin_vec::ThinVec;
     ///
-    /// let vec: LowMemoryThinVec<i32> = LowMemoryThinVec::with_capacity(5);
-    /// assert_eq!(vec.mem_usage(), 24);
+    /// let vec: ThinVec<i32> = ThinVec::with_capacity(5);
+    /// assert_eq!(vec.mem_usage(), 40);
     ///
-    /// assert_eq!(LowMemoryThinVec::<u64>::new().mem_usage(), 0);
+    /// assert_eq!(ThinVec::<u64>::new().mem_usage(), 0);
     /// ```
     pub fn mem_usage(&self) -> usize {
         if !self.has_allocated() {
@@ -449,10 +515,10 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// is done using one of the safe operations instead, such as
     /// [`truncate`], [`resize`], [`extend`], or [`clear`].
     ///
-    /// [`truncate`]: LowMemoryThinVec::truncate
-    /// [`resize`]: LowMemoryThinVec::resize
-    /// [`extend`]: LowMemoryThinVec::extend
-    /// [`clear`]: LowMemoryThinVec::clear
+    /// [`truncate`]: ThinVec::truncate
+    /// [`resize`]: ThinVec::resize
+    /// [`extend`]: ThinVec::extend
+    /// [`clear`]: ThinVec::clear
     ///
     /// # Safety
     ///
@@ -461,7 +527,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     ///   This is trivially true if `new_len` is less than or equal to the current length,
     ///   but it is not guaranteed to be true if `new_len` is greater than the current length.
     ///
-    /// [`capacity()`]: LowMemoryThinVec::capacity
+    /// [`capacity()`]: ThinVec::capacity
     ///
     /// # Examples
     ///
@@ -469,7 +535,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// is serving as a buffer for other code, particularly over FFI:
     ///
     /// ```no_run
-    /// use low_memory_thin_vec::LowMemoryThinVec;
+    /// use thin_vec::ThinVec;
     ///
     /// # // This is just a minimal skeleton for the doc example;
     /// # // don't use this as a starting point for a real library.
@@ -483,9 +549,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// #     ) -> i32;
     /// # }
     /// # impl StreamWrapper {
-    /// pub fn get_dictionary(&self) -> Option<LowMemoryThinVec<u8>> {
+    /// pub fn get_dictionary(&self) -> Option<ThinVec<u8>> {
     ///     // Per the FFI method's docs, "32768 bytes is always enough".
-    ///     let mut dict = LowMemoryThinVec::with_capacity(32_768);
+    ///     let mut dict = ThinVec::with_capacity(32_768);
     ///     let mut dict_length = 0;
     ///     // SAFETY: When `deflateGetDictionary` returns `Z_OK`, it holds that:
     ///     // 1. `dict_length` elements were initialized.
@@ -510,11 +576,11 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// the inner vectors were not freed prior to the `set_len` call:
     ///
     /// ```no_run
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let mut vec: LowMemoryThinVec<LowMemoryThinVec<i32>> = low_memory_thin_vec![low_memory_thin_vec![1, 0, 0],
-    ///                    low_memory_thin_vec![0, 1, 0],
-    ///                    low_memory_thin_vec![0, 0, 1]];
+    /// let mut vec: ThinVec<ThinVec<i32>> = thin_vec![thin_vec![1, 0, 0],
+    ///                    thin_vec![0, 1, 0],
+    ///                    thin_vec![0, 0, 1]];
     /// // SAFETY:
     /// // 1. `old_len..0` is empty so no elements need to be initialized.
     /// // 2. `0 <= capacity` always holds whatever `capacity` is.
@@ -529,7 +595,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
         if self.is_singleton() {
             // A prerequisite of `Vec::set_len` is that `new_len` must be
             // less than or equal to capacity(). The same applies here.
-            debug_assert!(len == 0, "invalid set_len({len}) on empty LowMemoryThinVec",);
+            debug_assert!(len == 0, "invalid set_len({len}) on empty ThinVec",);
         } else {
             // SAFETY:
             // - We're not in the singleton case.
@@ -564,9 +630,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let mut vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2];
+    /// let mut vec: ThinVec<i32> = thin_vec![1, 2];
     /// vec.push(3);
     /// assert_eq!(vec, [1, 2, 3]);
     /// ```
@@ -609,9 +675,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let mut vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let mut vec: ThinVec<i32> = thin_vec![1, 2, 3];
     /// assert_eq!(vec.pop(), Some(3));
     /// assert_eq!(vec, [1, 2]);
     /// ```
@@ -655,9 +721,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let mut vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let mut vec: ThinVec<i32> = thin_vec![1, 2, 3];
     /// vec.insert(1, 4);
     /// assert_eq!(vec, [1, 4, 2, 3]);
     /// vec.insert(4, 5);
@@ -718,9 +784,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// Note: Because this shifts over the remaining elements, it has a
     /// worst-case performance of *O*(*n*). If you don't need the order of elements
     /// to be preserved, use [`swap_remove`] instead. If you'd like to remove
-    /// elements from the beginning of the `LowMemoryThinVec`, consider using `std::collections::VecDeque`.
+    /// elements from the beginning of the `ThinVec`, consider using `std::collections::VecDeque`.
     ///
-    /// [`swap_remove`]: LowMemoryThinVec::swap_remove
+    /// [`swap_remove`]: ThinVec::swap_remove
     ///
     /// # Panics
     ///
@@ -729,9 +795,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let mut v: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let mut v: ThinVec<i32> = thin_vec![1, 2, 3];
     /// assert_eq!(v.remove(1), 2);
     /// assert_eq!(v, [1, 3]);
     /// ```
@@ -790,7 +856,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// This does not preserve ordering, but is *O*(1).
     /// If you need to preserve the element order, use [`remove`] instead.
     ///
-    /// [`remove`]: LowMemoryThinVec::remove
+    /// [`remove`]: ThinVec::remove
     ///
     /// # Panics
     ///
@@ -799,9 +865,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let mut v: LowMemoryThinVec<&str> = low_memory_thin_vec!["foo", "bar", "baz", "qux"];
+    /// let mut v: ThinVec<&str> = thin_vec!["foo", "bar", "baz", "qux"];
     ///
     /// assert_eq!(v.swap_remove(1), "bar");
     /// assert_eq!(v, ["foo", "qux", "baz"]);
@@ -860,9 +926,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// Truncating a five element vector to two elements:
     ///
     /// ```
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let mut vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3, 4, 5];
+    /// let mut vec: ThinVec<i32> = thin_vec![1, 2, 3, 4, 5];
     /// vec.truncate(2);
     /// assert_eq!(vec, [1, 2]);
     /// ```
@@ -871,9 +937,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// length:
     ///
     /// ```
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let mut vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let mut vec: ThinVec<i32> = thin_vec![1, 2, 3];
     /// vec.truncate(8);
     /// assert_eq!(vec, [1, 2, 3]);
     /// ```
@@ -882,14 +948,14 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// method.
     ///
     /// ```
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let mut vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let mut vec: ThinVec<i32> = thin_vec![1, 2, 3];
     /// vec.truncate(0);
     /// assert_eq!(vec, []);
     /// ```
     ///
-    /// [`clear`]: LowMemoryThinVec::clear
+    /// [`clear`]: ThinVec::clear
     pub fn truncate(&mut self, len: usize) {
         // drop any extra elements
         while len < self.len() {
@@ -934,9 +1000,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let mut v: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let mut v: ThinVec<i32> = thin_vec![1, 2, 3];
     /// v.clear();
     /// assert!(v.is_empty());
     /// ```
@@ -972,9 +1038,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     /// use std::io::{self, Write};
-    /// let buffer: LowMemoryThinVec<u8> = low_memory_thin_vec![1, 2, 3, 5, 8];
+    /// let buffer: ThinVec<u8> = thin_vec![1, 2, 3, 5, 8];
     /// io::sink().write(buffer.as_slice()).unwrap();
     /// ```
     pub fn as_slice(&self) -> &[T] {
@@ -983,7 +1049,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
         //  `T` elements, as guaranteed by [`Self::data_raw`].
         //   They all belong to the same allocation.
         // - All elements are initialized, as guaranteed by the length-related
-        //   invariant of the `LowMemoryThinVec` type.
+        //   invariant of the `ThinVec` type.
         // - There are no mutable references to the elements, since
         //   `as_slice` takes a shared reference to `self`.
         unsafe { slice::from_raw_parts(self.data_raw(), self.len()) }
@@ -996,7 +1062,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::low_memory_thin_vec;
+    /// use thin_vec::thin_vec;
     /// use std::io::{self, Read};
     /// let mut buffer = vec![0; 3];
     /// io::repeat(0b101).read_exact(buffer.as_mut_slice()).unwrap();
@@ -1007,7 +1073,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
         //  `T` elements, as guaranteed by [`Self::data_raw`].
         //   They all belong to the same allocation.
         // - All elements are initialized, as guaranteed by the length-related
-        //   invariant of the `LowMemoryThinVec` type.
+        //   invariant of the `ThinVec` type.
         // - There are no other shared or mutable references to the elements, since
         //   `as_mut_slice` takes a shared reference to `self`.
         unsafe { slice::from_raw_parts_mut(self.data_raw(), self.len()) }
@@ -1076,9 +1142,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::LowMemoryThinVec;
+    /// use thin_vec::ThinVec;
     ///
-    /// let mut vec: LowMemoryThinVec<i32> = LowMemoryThinVec::with_capacity(10);
+    /// let mut vec: ThinVec<i32> = ThinVec::with_capacity(10);
     /// vec.extend([1, 2, 3]);
     /// assert_eq!(vec.capacity(), 10);
     /// vec.shrink_to_fit();
@@ -1090,7 +1156,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
         if new_cap < old_cap {
             if new_cap == S::ZERO {
                 // No need to allocate memory for an empty vector.
-                *self = LowMemoryThinVec::new();
+                *self = ThinVec::new();
             } else {
                 // SAFETY:
                 // `new_cap` *is* `len`.
@@ -1110,9 +1176,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```rust
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let mut vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3, 4];
+    /// let mut vec: ThinVec<i32> = thin_vec![1, 2, 3, 4];
     /// vec.retain(|&x| x%2 == 0);
     /// assert_eq!(vec, [2, 4]);
     /// ```
@@ -1132,9 +1198,9 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```rust
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let mut vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3, 4, 5];
+    /// let mut vec: ThinVec<i32> = thin_vec![1, 2, 3, 4, 5];
     /// vec.retain_mut(|x| {
     ///     *x += 1;
     ///     (*x)%2 == 0
@@ -1176,20 +1242,20 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let mut vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let mut vec: ThinVec<i32> = thin_vec![1, 2, 3];
     /// let vec2 = vec.split_off(1);
     /// assert_eq!(vec, [1]);
     /// assert_eq!(vec2, [2, 3]);
     /// ```
-    pub fn split_off(&mut self, at: usize) -> LowMemoryThinVec<T, S> {
+    pub fn split_off(&mut self, at: usize) -> ThinVec<T, S> {
         let old_len = self.len();
         let remaining_vec_len = old_len - at;
 
         assert!(at <= old_len, "Index out of bounds");
 
-        let mut remaining_vec = LowMemoryThinVec::with_capacity(remaining_vec_len);
+        let mut remaining_vec = ThinVec::with_capacity(remaining_vec_len);
 
         // SAFETY:
         // The pointer is within the allocated memory since `at` is in bounds.
@@ -1277,7 +1343,7 @@ impl<T, S: VecCapacity> LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T: Clone, S: VecCapacity> LowMemoryThinVec<T, S> {
+impl<T: Clone, S: VecCapacity> ThinVec<T, S> {
     /// Resizes the `Vec` in-place so that `len()` is equal to `new_len`.
     ///
     /// If `new_len` is greater than `len()`, the `Vec` is extended by the
@@ -1287,13 +1353,13 @@ impl<T: Clone, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```rust
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let mut vec: LowMemoryThinVec<&str> = low_memory_thin_vec!["hello"];
+    /// let mut vec: ThinVec<&str> = thin_vec!["hello"];
     /// vec.resize(3, "world");
     /// assert_eq!(vec, ["hello", "world", "world"]);
     ///
-    /// let mut vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3, 4];
+    /// let mut vec: ThinVec<i32> = thin_vec![1, 2, 3, 4];
     /// vec.resize(2, 0);
     /// assert_eq!(vec, [1, 2]);
     /// ```
@@ -1319,26 +1385,26 @@ impl<T: Clone, S: VecCapacity> LowMemoryThinVec<T, S> {
         }
     }
 
-    /// Creates a `LowMemoryThinVec` from a slice, cloning the elements.
+    /// Creates a `ThinVec` from a slice, cloning the elements.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use low_memory_thin_vec::LowMemoryThinVec;
+    /// use thin_vec::ThinVec;
     ///
-    /// let vec: LowMemoryThinVec<i32> = LowMemoryThinVec::from_slice(&[1, 2, 3]);
+    /// let vec: ThinVec<i32> = ThinVec::from_slice(&[1, 2, 3]);
     /// assert_eq!(vec, [1, 2, 3]);
     /// ```
     pub fn from_slice(slice: &[T]) -> Self {
-        let mut vec = LowMemoryThinVec::with_capacity(slice.len());
+        let mut vec = ThinVec::with_capacity(slice.len());
         vec.extend_from_slice(slice);
         vec
     }
 
-    /// Clones and appends all elements in a slice to the `LowMemoryThinVec`.
+    /// Clones and appends all elements in a slice to the `ThinVec`.
     ///
     /// Iterates over the slice `other`, clones each element, and then appends
-    /// it to this `LowMemoryThinVec`. The `other` slice is traversed in-order.
+    /// it to this `ThinVec`. The `other` slice is traversed in-order.
     ///
     /// Note that this function is same as [`extend`] except that it is
     /// specialized to work with slices instead. If and when Rust gets
@@ -1348,20 +1414,20 @@ impl<T: Clone, S: VecCapacity> LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let mut vec: LowMemoryThinVec<i32> = low_memory_thin_vec![1];
+    /// let mut vec: ThinVec<i32> = thin_vec![1];
     /// vec.extend_from_slice(&[2, 3, 4]);
     /// assert_eq!(vec, [1, 2, 3, 4]);
     /// ```
     ///
-    /// [`extend`]: LowMemoryThinVec::extend
+    /// [`extend`]: ThinVec::extend
     pub fn extend_from_slice(&mut self, other: &[T]) {
         self.extend(other.iter().cloned())
     }
 }
 
-impl<T: Copy + std::fmt::Debug, S: VecCapacity> LowMemoryThinVec<T, S> {
+impl<T: Copy + std::fmt::Debug, S: VecCapacity> ThinVec<T, S> {
     /// Reserves capacity to fit the given `prefix` slice,
     /// moves the current elements back to make room for the prefix
     /// and copies the prefix to the front of the vector.
@@ -1408,7 +1474,7 @@ impl<T: Copy + std::fmt::Debug, S: VecCapacity> LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T, S: VecCapacity> Drop for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> Drop for ThinVec<T, S> {
     #[inline]
     fn drop(&mut self) {
         if !self.is_singleton() {
@@ -1436,7 +1502,7 @@ impl<T, S: VecCapacity> Drop for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T, S: VecCapacity> Deref for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> Deref for ThinVec<T, S> {
     type Target = [T];
 
     fn deref(&self) -> &[T] {
@@ -1444,31 +1510,31 @@ impl<T, S: VecCapacity> Deref for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T, S: VecCapacity> DerefMut for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> DerefMut for ThinVec<T, S> {
     fn deref_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
     }
 }
 
-impl<T, S: VecCapacity> Borrow<[T]> for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> Borrow<[T]> for ThinVec<T, S> {
     fn borrow(&self) -> &[T] {
         self.as_slice()
     }
 }
 
-impl<T, S: VecCapacity> BorrowMut<[T]> for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> BorrowMut<[T]> for ThinVec<T, S> {
     fn borrow_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
     }
 }
 
-impl<T, S: VecCapacity> AsRef<[T]> for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> AsRef<[T]> for ThinVec<T, S> {
     fn as_ref(&self) -> &[T] {
         self.as_slice()
     }
 }
 
-impl<T, S: VecCapacity> Extend<T> for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> Extend<T> for ThinVec<T, S> {
     #[inline]
     fn extend<I>(&mut self, iter: I)
     where
@@ -1485,13 +1551,13 @@ impl<T, S: VecCapacity> Extend<T> for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T: fmt::Debug, S: VecCapacity> fmt::Debug for LowMemoryThinVec<T, S> {
+impl<T: fmt::Debug, S: VecCapacity> fmt::Debug for ThinVec<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.as_slice(), f)
     }
 }
 
-impl<T, S: VecCapacity> Hash for LowMemoryThinVec<T, S>
+impl<T, S: VecCapacity> Hash for ThinVec<T, S>
 where
     T: Hash,
 {
@@ -1503,37 +1569,37 @@ where
     }
 }
 
-impl<T, S: VecCapacity> PartialOrd for LowMemoryThinVec<T, S>
+impl<T, S: VecCapacity> PartialOrd for ThinVec<T, S>
 where
     T: PartialOrd,
 {
     #[inline]
-    fn partial_cmp(&self, other: &LowMemoryThinVec<T, S>) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &ThinVec<T, S>) -> Option<Ordering> {
         self.as_slice().partial_cmp(other.as_slice())
     }
 }
 
-impl<T, S: VecCapacity> Ord for LowMemoryThinVec<T, S>
+impl<T, S: VecCapacity> Ord for ThinVec<T, S>
 where
     T: Ord,
 {
     #[inline]
-    fn cmp(&self, other: &LowMemoryThinVec<T, S>) -> Ordering {
+    fn cmp(&self, other: &ThinVec<T, S>) -> Ordering {
         self.as_slice().cmp(other.as_slice())
     }
 }
 
-impl<A, B, S: VecCapacity> PartialEq<LowMemoryThinVec<B, S>> for LowMemoryThinVec<A, S>
+impl<A, B, S: VecCapacity> PartialEq<ThinVec<B, S>> for ThinVec<A, S>
 where
     A: PartialEq<B>,
 {
     #[inline]
-    fn eq(&self, other: &LowMemoryThinVec<B, S>) -> bool {
+    fn eq(&self, other: &ThinVec<B, S>) -> bool {
         self.as_slice() == other.as_slice()
     }
 }
 
-impl<A, B, S: VecCapacity> PartialEq<Vec<B>> for LowMemoryThinVec<A, S>
+impl<A, B, S: VecCapacity> PartialEq<Vec<B>> for ThinVec<A, S>
 where
     A: PartialEq<B>,
 {
@@ -1543,7 +1609,7 @@ where
     }
 }
 
-impl<A, B, S: VecCapacity> PartialEq<[B]> for LowMemoryThinVec<A, S>
+impl<A, B, S: VecCapacity> PartialEq<[B]> for ThinVec<A, S>
 where
     A: PartialEq<B>,
 {
@@ -1553,7 +1619,7 @@ where
     }
 }
 
-impl<'a, A, B, S: VecCapacity> PartialEq<&'a [B]> for LowMemoryThinVec<A, S>
+impl<'a, A, B, S: VecCapacity> PartialEq<&'a [B]> for ThinVec<A, S>
 where
     A: PartialEq<B>,
 {
@@ -1563,7 +1629,7 @@ where
     }
 }
 
-impl<const N: usize, A, B, S: VecCapacity> PartialEq<[B; N]> for LowMemoryThinVec<A, S>
+impl<const N: usize, A, B, S: VecCapacity> PartialEq<[B; N]> for ThinVec<A, S>
 where
     A: PartialEq<B>,
 {
@@ -1573,7 +1639,7 @@ where
     }
 }
 
-impl<'a, const N: usize, A, B, S: VecCapacity> PartialEq<&'a [B; N]> for LowMemoryThinVec<A, S>
+impl<'a, const N: usize, A, B, S: VecCapacity> PartialEq<&'a [B; N]> for ThinVec<A, S>
 where
     A: PartialEq<B>,
 {
@@ -1583,9 +1649,9 @@ where
     }
 }
 
-impl<T, S: VecCapacity> Eq for LowMemoryThinVec<T, S> where T: Eq {}
+impl<T, S: VecCapacity> Eq for ThinVec<T, S> where T: Eq {}
 
-impl<T, S: VecCapacity> IntoIterator for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> IntoIterator for ThinVec<T, S> {
     type Item = T;
     type IntoIter = IntoIter<T, S>;
 
@@ -1597,7 +1663,7 @@ impl<T, S: VecCapacity> IntoIterator for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<'a, T, S: VecCapacity> IntoIterator for &'a LowMemoryThinVec<T, S> {
+impl<'a, T, S: VecCapacity> IntoIterator for &'a ThinVec<T, S> {
     type Item = &'a T;
     type IntoIter = slice::Iter<'a, T>;
 
@@ -1606,7 +1672,7 @@ impl<'a, T, S: VecCapacity> IntoIterator for &'a LowMemoryThinVec<T, S> {
     }
 }
 
-impl<'a, T, S: VecCapacity> IntoIterator for &'a mut LowMemoryThinVec<T, S> {
+impl<'a, T, S: VecCapacity> IntoIterator for &'a mut ThinVec<T, S> {
     type Item = &'a mut T;
     type IntoIter = slice::IterMut<'a, T>;
 
@@ -1615,95 +1681,93 @@ impl<'a, T, S: VecCapacity> IntoIterator for &'a mut LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T, S: VecCapacity> Clone for LowMemoryThinVec<T, S>
+impl<T, S: VecCapacity> Clone for ThinVec<T, S>
 where
     T: Clone,
 {
     #[inline]
-    fn clone(&self) -> LowMemoryThinVec<T, S> {
+    fn clone(&self) -> ThinVec<T, S> {
         #[cold]
         #[inline(never)]
-        fn clone_non_singleton<T: Clone, S: VecCapacity>(
-            this: &LowMemoryThinVec<T, S>,
-        ) -> LowMemoryThinVec<T, S> {
+        fn clone_non_singleton<T: Clone, S: VecCapacity>(this: &ThinVec<T, S>) -> ThinVec<T, S> {
             this.iter().cloned().collect()
         }
 
         if self.is_singleton() {
-            LowMemoryThinVec::new()
+            ThinVec::new()
         } else {
             clone_non_singleton(self)
         }
     }
 }
 
-impl<T, S: VecCapacity> Default for LowMemoryThinVec<T, S> {
-    fn default() -> LowMemoryThinVec<T, S> {
-        LowMemoryThinVec::new()
+impl<T, S: VecCapacity> Default for ThinVec<T, S> {
+    fn default() -> ThinVec<T, S> {
+        ThinVec::new()
     }
 }
 
-impl<T, S: VecCapacity> FromIterator<T> for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> FromIterator<T> for ThinVec<T, S> {
     #[inline]
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> LowMemoryThinVec<T, S> {
-        let mut vec = LowMemoryThinVec::new();
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> ThinVec<T, S> {
+        let mut vec = ThinVec::new();
         vec.extend(iter);
         vec
     }
 }
 
-impl<T: Clone, S: VecCapacity> From<&[T]> for LowMemoryThinVec<T, S> {
-    /// Allocate a `LowMemoryThinVec<T, S>` and fill it by cloning `s`'s items.
+impl<T: Clone, S: VecCapacity> From<&[T]> for ThinVec<T, S> {
+    /// Allocate a `ThinVec<T, S>` and fill it by cloning `s`'s items.
     ///
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
+    /// use thin_vec::{ThinVec, thin_vec};
     ///
-    /// let v: LowMemoryThinVec<i32> = LowMemoryThinVec::from(&[1, 2, 3][..]);
-    /// let expected: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let v: ThinVec<i32> = ThinVec::from(&[1, 2, 3][..]);
+    /// let expected: ThinVec<i32> = thin_vec![1, 2, 3];
     /// assert_eq!(v, expected);
     /// ```
-    fn from(s: &[T]) -> LowMemoryThinVec<T, S> {
+    fn from(s: &[T]) -> ThinVec<T, S> {
         s.iter().cloned().collect()
     }
 }
 
-impl<T: Clone, S: VecCapacity> From<&mut [T]> for LowMemoryThinVec<T, S> {
-    /// Allocate a `LowMemoryThinVec<T, S>` and fill it by cloning `s`'s items.
+impl<T: Clone, S: VecCapacity> From<&mut [T]> for ThinVec<T, S> {
+    /// Allocate a `ThinVec<T, S>` and fill it by cloning `s`'s items.
     ///
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
+    /// use thin_vec::{ThinVec, thin_vec};
     ///
-    /// let v: LowMemoryThinVec<i32> = LowMemoryThinVec::from(&mut [1, 2, 3][..]);
-    /// let expected: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let v: ThinVec<i32> = ThinVec::from(&mut [1, 2, 3][..]);
+    /// let expected: ThinVec<i32> = thin_vec![1, 2, 3];
     /// assert_eq!(v, expected);
     /// ```
-    fn from(s: &mut [T]) -> LowMemoryThinVec<T, S> {
+    fn from(s: &mut [T]) -> ThinVec<T, S> {
         s.iter().cloned().collect()
     }
 }
 
-impl<T, S: VecCapacity, const N: usize> From<[T; N]> for LowMemoryThinVec<T, S> {
-    /// Allocate a `LowMemoryThinVec<T, S>` and move `s`'s items into it.
+impl<T, S: VecCapacity, const N: usize> From<[T; N]> for ThinVec<T, S> {
+    /// Allocate a `ThinVec<T, S>` and move `s`'s items into it.
     ///
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
+    /// use thin_vec::{ThinVec, thin_vec};
     ///
-    /// let v: LowMemoryThinVec<i32> = LowMemoryThinVec::from([1, 2, 3]);
-    /// let expected: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let v: ThinVec<i32> = ThinVec::from([1, 2, 3]);
+    /// let expected: ThinVec<i32> = thin_vec![1, 2, 3];
     /// assert_eq!(v, expected);
     /// ```
-    fn from(s: [T; N]) -> LowMemoryThinVec<T, S> {
+    fn from(s: [T; N]) -> ThinVec<T, S> {
         core::iter::IntoIterator::into_iter(s).collect()
     }
 }
 
-impl<T, S: VecCapacity> From<Box<[T]>> for LowMemoryThinVec<T, S> {
+impl<T, S: VecCapacity> From<Box<[T]>> for ThinVec<T, S> {
     /// Convert a boxed slice into a vector by transferring ownership of
     /// the existing heap allocation.
     ///
@@ -1712,12 +1776,12 @@ impl<T, S: VecCapacity> From<Box<[T]>> for LowMemoryThinVec<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
+    /// use thin_vec::{ThinVec, thin_vec};
     ///
-    /// let v: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let v: ThinVec<i32> = thin_vec![1, 2, 3];
     /// let b: Box<[i32]> = v.into_iter().collect();
-    /// let v2: LowMemoryThinVec<i32> = LowMemoryThinVec::from(b);
-    /// let expected: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let v2: ThinVec<i32> = ThinVec::from(b);
+    /// let expected: ThinVec<i32> = thin_vec![1, 2, 3];
     /// assert_eq!(v2, expected);
     /// ```
     fn from(s: Box<[T]>) -> Self {
@@ -1726,19 +1790,19 @@ impl<T, S: VecCapacity> From<Box<[T]>> for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T, S: VecCapacity> From<Vec<T>> for LowMemoryThinVec<T, S> {
-    /// Convert a `std::Vec` into a `LowMemoryThinVec`.
+impl<T, S: VecCapacity> From<Vec<T>> for ThinVec<T, S> {
+    /// Convert a `std::Vec` into a `ThinVec`.
     ///
     /// **NOTE:** this must reallocate to change the layout!
     ///
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
+    /// use thin_vec::{ThinVec, thin_vec};
     ///
     /// let b: Vec<i32> = vec![1, 2, 3];
-    /// let v: LowMemoryThinVec<i32> = LowMemoryThinVec::from(b);
-    /// let expected: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let v: ThinVec<i32> = ThinVec::from(b);
+    /// let expected: ThinVec<i32> = thin_vec![1, 2, 3];
     /// assert_eq!(v, expected);
     /// ```
     fn from(s: Vec<T>) -> Self {
@@ -1746,25 +1810,25 @@ impl<T, S: VecCapacity> From<Vec<T>> for LowMemoryThinVec<T, S> {
     }
 }
 
-impl<T, S: VecCapacity> From<LowMemoryThinVec<T, S>> for Vec<T> {
-    /// Convert a `LowMemoryThinVec` into a `std::Vec`.
+impl<T, S: VecCapacity> From<ThinVec<T, S>> for Vec<T> {
+    /// Convert a `ThinVec` into a `std::Vec`.
     ///
     /// **NOTE:** this must reallocate to change the layout!
     ///
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
+    /// use thin_vec::{ThinVec, thin_vec};
     ///
-    /// let b: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let b: ThinVec<i32> = thin_vec![1, 2, 3];
     /// assert_eq!(Vec::from(b), vec![1, 2, 3]);
     /// ```
-    fn from(s: LowMemoryThinVec<T, S>) -> Self {
+    fn from(s: ThinVec<T, S>) -> Self {
         s.into_iter().collect()
     }
 }
 
-impl<T, S: VecCapacity> From<LowMemoryThinVec<T, S>> for Box<[T]> {
+impl<T, S: VecCapacity> From<ThinVec<T, S>> for Box<[T]> {
     /// Convert a vector into a boxed slice.
     ///
     /// If `v` has excess capacity, its items will be moved into a
@@ -1775,81 +1839,81 @@ impl<T, S: VecCapacity> From<LowMemoryThinVec<T, S>> for Box<[T]> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
+    /// use thin_vec::{ThinVec, thin_vec};
     ///
-    /// let v: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let v: ThinVec<i32> = thin_vec![1, 2, 3];
     /// let b: Box<[i32]> = Box::from(v);
-    /// let v2: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let v2: ThinVec<i32> = thin_vec![1, 2, 3];
     /// let expected: Box<[i32]> = v2.into_iter().collect();
     /// assert_eq!(b, expected);
     /// ```
-    fn from(v: LowMemoryThinVec<T, S>) -> Self {
+    fn from(v: ThinVec<T, S>) -> Self {
         v.into_iter().collect()
     }
 }
 
-impl<S: VecCapacity> From<&str> for LowMemoryThinVec<u8, S> {
-    /// Allocate a `LowMemoryThinVec<u8, S>` and fill it with a UTF-8 string.
+impl<S: VecCapacity> From<&str> for ThinVec<u8, S> {
+    /// Allocate a `ThinVec<u8, S>` and fill it with a UTF-8 string.
     ///
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
+    /// use thin_vec::{ThinVec, thin_vec};
     ///
-    /// let v: LowMemoryThinVec<u8> = LowMemoryThinVec::from("123");
-    /// let expected: LowMemoryThinVec<u8> = low_memory_thin_vec![b'1', b'2', b'3'];
+    /// let v: ThinVec<u8> = ThinVec::from("123");
+    /// let expected: ThinVec<u8> = thin_vec![b'1', b'2', b'3'];
     /// assert_eq!(v, expected);
     /// ```
-    fn from(s: &str) -> LowMemoryThinVec<u8, S> {
+    fn from(s: &str) -> ThinVec<u8, S> {
         From::from(s.as_bytes())
     }
 }
 
-impl<T, S: VecCapacity, const N: usize> TryFrom<LowMemoryThinVec<T, S>> for [T; N] {
-    type Error = LowMemoryThinVec<T, S>;
+impl<T, S: VecCapacity, const N: usize> TryFrom<ThinVec<T, S>> for [T; N] {
+    type Error = ThinVec<T, S>;
 
-    /// Gets the entire contents of the `LowMemoryThinVec<T, S>` as an array,
+    /// Gets the entire contents of the `ThinVec<T, S>` as an array,
     /// if its size exactly matches that of the requested array.
     ///
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
+    /// use thin_vec::{ThinVec, thin_vec};
     /// use std::convert::TryInto;
     ///
-    /// let v: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+    /// let v: ThinVec<i32> = thin_vec![1, 2, 3];
     /// let arr: Result<[i32; 3], _> = v.try_into();
     /// assert_eq!(arr, Ok([1, 2, 3]));
-    /// let empty: LowMemoryThinVec<i32> = LowMemoryThinVec::new();
+    /// let empty: ThinVec<i32> = ThinVec::new();
     /// let arr: Result<[i32; 0], _> = empty.try_into();
     /// assert_eq!(arr, Ok([]));
     /// ```
     ///
     /// If the length doesn't match, the input comes back in `Err`:
     /// ```
-    /// use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
+    /// use thin_vec::{ThinVec, thin_vec};
     /// use std::convert::TryInto;
     ///
-    /// let v: LowMemoryThinVec<i32> = (0..10).collect();
+    /// let v: ThinVec<i32> = (0..10).collect();
     /// let r: Result<[i32; 4], _> = v.try_into();
-    /// let expected: LowMemoryThinVec<i32> = low_memory_thin_vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    /// let expected: ThinVec<i32> = thin_vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     /// assert_eq!(r, Err(expected));
     /// ```
     ///
-    /// If you're fine with just getting a prefix of the `LowMemoryThinVec<T, S>`,
-    /// you can call [`.truncate(N)`](LowMemoryThinVec::truncate) first.
+    /// If you're fine with just getting a prefix of the `ThinVec<T, S>`,
+    /// you can call [`.truncate(N)`](ThinVec::truncate) first.
     /// ```
-    /// use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
+    /// use thin_vec::{ThinVec, thin_vec};
     /// use std::convert::TryInto;
     ///
-    /// let mut v: LowMemoryThinVec<u8> = LowMemoryThinVec::from("hello world");
+    /// let mut v: ThinVec<u8> = ThinVec::from("hello world");
     /// v.sort();
     /// v.truncate(2);
     /// let [a, b]: [_; 2] = v.try_into().unwrap();
     /// assert_eq!(a, b' ');
     /// assert_eq!(b, b'd');
     /// ```
-    fn try_from(mut vec: LowMemoryThinVec<T, S>) -> Result<[T; N], LowMemoryThinVec<T, S>> {
+    fn try_from(mut vec: ThinVec<T, S>) -> Result<[T; N], ThinVec<T, S>> {
         if vec.len() != N {
             return Err(vec);
         }
@@ -1857,11 +1921,11 @@ impl<T, S: VecCapacity, const N: usize> TryFrom<LowMemoryThinVec<T, S>> for [T; 
         // SAFETY: `.set_len(0)` is always sound.
         unsafe { vec.set_len(0) };
 
-        // SAFETY: A `LowMemoryThinVec`'s pointer is always aligned properly, and
+        // SAFETY: A `ThinVec`'s pointer is always aligned properly, and
         // the alignment the array needs is the same as the items.
         // We checked earlier that we have sufficient items.
         // The items will not double-drop as the `set_len`
-        // tells the `LowMemoryThinVec` not to also drop them.
+        // tells the `ThinVec` not to also drop them.
         let array = unsafe { ptr::read(vec.data_raw() as *const [T; N]) };
         Ok(array)
     }
@@ -1869,19 +1933,19 @@ impl<T, S: VecCapacity, const N: usize> TryFrom<LowMemoryThinVec<T, S>> for [T; 
 
 /// An iterator that moves out of a vector.
 ///
-/// This `struct` is created by the [`LowMemoryThinVec::into_iter`][]
+/// This `struct` is created by the [`ThinVec::into_iter`][]
 /// (provided by the [`IntoIterator`] trait).
 ///
 /// # Example
 ///
 /// ```
-/// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+/// use thin_vec::{thin_vec, ThinVec};
 ///
-/// let v: LowMemoryThinVec<i32> = low_memory_thin_vec![0, 1, 2];
-/// let iter: low_memory_thin_vec::IntoIter<i32> = v.into_iter();
+/// let v: ThinVec<i32> = thin_vec![0, 1, 2];
+/// let iter: thin_vec::IntoIter<i32> = v.into_iter();
 /// ```
-pub struct IntoIter<T, S: VecCapacity = u16> {
-    vec: LowMemoryThinVec<T, S>,
+pub struct IntoIter<T, S: VecCapacity = u64> {
+    vec: ThinVec<T, S>,
     start: usize,
 }
 
@@ -1891,9 +1955,9 @@ impl<T, S: VecCapacity> IntoIter<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let vec: LowMemoryThinVec<char> = low_memory_thin_vec!['a', 'b', 'c'];
+    /// let vec: ThinVec<char> = thin_vec!['a', 'b', 'c'];
     /// let mut into_iter = vec.into_iter();
     /// assert_eq!(into_iter.as_slice(), &['a', 'b', 'c']);
     /// let _ = into_iter.next().unwrap();
@@ -1922,9 +1986,9 @@ impl<T, S: VecCapacity> IntoIter<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use low_memory_thin_vec::{low_memory_thin_vec, LowMemoryThinVec};
+    /// use thin_vec::{thin_vec, ThinVec};
     ///
-    /// let vec: LowMemoryThinVec<char> = low_memory_thin_vec!['a', 'b', 'c'];
+    /// let vec: ThinVec<char> = thin_vec!['a', 'b', 'c'];
     /// let mut into_iter = vec.into_iter();
     /// assert_eq!(into_iter.as_slice(), &['a', 'b', 'c']);
     /// into_iter.as_mut_slice()[2] = 'z';
@@ -2038,19 +2102,19 @@ impl<T, S: VecCapacity> AsRef<[T]> for IntoIter<T, S> {
 impl<T: Clone, S: VecCapacity> Clone for IntoIter<T, S> {
     #[allow(clippy::into_iter_on_ref)]
     fn clone(&self) -> Self {
-        // Just create a new `LowMemoryThinVec` from the remaining elements and IntoIter it
+        // Just create a new `ThinVec` from the remaining elements and IntoIter it
         self.as_slice()
             .into_iter()
             .cloned()
-            .collect::<LowMemoryThinVec<_, S>>()
+            .collect::<ThinVec<_, S>>()
             .into_iter()
     }
 }
 
-/// Write is implemented for `LowMemoryThinVec<u8, S>` by appending to the vector.
+/// Write is implemented for `ThinVec<u8, S>` by appending to the vector.
 /// The vector will grow as needed.
 /// This implementation is identical to the one for `Vec<u8>`.
-impl<S: VecCapacity> std::io::Write for LowMemoryThinVec<u8, S> {
+impl<S: VecCapacity> std::io::Write for ThinVec<u8, S> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.extend_from_slice(buf);
@@ -2071,7 +2135,7 @@ impl<S: VecCapacity> std::io::Write for LowMemoryThinVec<u8, S> {
 
 #[cfg(test)]
 mod tests {
-    //! Tests that rely on access to `LowMemoryThinVec`'s internals to
+    //! Tests that rely on access to `ThinVec`'s internals to
     //! perform their assertions.
     //!
     //! All other tests are located in the `tests` module, as they only
@@ -2080,13 +2144,13 @@ mod tests {
 
     #[test]
     fn test_data_ptr_alignment() {
-        let v = LowMemoryThinVec::<u16>::new();
+        let v = ThinVec::<u16>::new();
         assert!(v.data_raw() as usize % 2 == 0);
 
-        let v = LowMemoryThinVec::<u32>::new();
+        let v = ThinVec::<u32>::new();
         assert!(v.data_raw() as usize % 4 == 0);
 
-        let v = LowMemoryThinVec::<u64>::new();
+        let v = ThinVec::<u64>::new();
         assert!(v.data_raw() as usize % 8 == 0);
     }
 
@@ -2094,8 +2158,7 @@ mod tests {
     fn test_header_data() {
         macro_rules! assert_aligned_head_ptr {
             ($typename:ty) => {{
-                let v: LowMemoryThinVec<$typename> =
-                    LowMemoryThinVec::with_capacity(1 /* ensure allocation */);
+                let v: ThinVec<$typename> = ThinVec::with_capacity(1 /* ensure allocation */);
                 let head_ptr: *mut $typename = v.data_raw();
                 assert_eq!(
                     head_ptr as usize % core::mem::align_of::<$typename>(),
@@ -2132,8 +2195,8 @@ mod tests {
 
     #[test]
     fn test_clone() {
-        let v: LowMemoryThinVec<i32> = low_memory_thin_vec![];
-        let w: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+        let v: ThinVec<i32> = thin_vec![];
+        let w: ThinVec<i32> = thin_vec![1, 2, 3];
 
         assert_eq!(v, v.clone());
 
@@ -2148,13 +2211,13 @@ mod tests {
         #[repr(align(16))]
         struct Align16(#[allow(dead_code)] u8);
 
-        let v = LowMemoryThinVec::<Align16>::new();
+        let v = ThinVec::<Align16>::new();
         assert!(v.data_raw() as usize % 16 == 0);
     }
 
     #[test]
     fn test_resize_same_length() {
-        let mut v: LowMemoryThinVec<i32> = low_memory_thin_vec![1, 2, 3];
+        let mut v: ThinVec<i32> = thin_vec![1, 2, 3];
         let old_ptr = v.as_ptr();
         v.resize(v.len(), 0);
         // No reallocation has taken place.
@@ -2163,7 +2226,7 @@ mod tests {
 
     #[test]
     fn test_prepend_with_slice() {
-        let mut v: LowMemoryThinVec<i32> = low_memory_thin_vec![4, 5, 6, 7];
+        let mut v: ThinVec<i32> = thin_vec![4, 5, 6, 7];
         v.prepend_with_slice(&[1, 2, 3]);
         assert_eq!(v, [1, 2, 3, 4, 5, 6, 7]);
 
@@ -2174,26 +2237,26 @@ mod tests {
     #[test]
     fn test_different_size_types() {
         // Test u8
-        let mut v8: LowMemoryThinVec<i32, u8> = LowMemoryThinVec::new();
+        let mut v8: ThinVec<i32, u8> = ThinVec::new();
         v8.push(1);
         v8.push(2);
         assert_eq!(v8.len(), 2);
         assert_eq!(v8[0], 1);
 
         // Test u16 (default)
-        let mut v16: LowMemoryThinVec<i32> = LowMemoryThinVec::new();
+        let mut v16: ThinVec<i32> = ThinVec::new();
         v16.push(1);
         v16.push(2);
         assert_eq!(v16.len(), 2);
 
         // Test u32
-        let mut v32: LowMemoryThinVec<i32, u32> = LowMemoryThinVec::new();
+        let mut v32: ThinVec<i32, u32> = ThinVec::new();
         v32.push(1);
         v32.push(2);
         assert_eq!(v32.len(), 2);
 
         // Test u64
-        let mut v64: LowMemoryThinVec<i32, u64> = LowMemoryThinVec::new();
+        let mut v64: ThinVec<i32, u64> = ThinVec::new();
         v64.push(1);
         v64.push(2);
         assert_eq!(v64.len(), 2);

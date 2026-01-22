@@ -24,6 +24,9 @@ pub use module_init_ffi as tracing_redismodule;
 pub use query_error_ffi as query_error;
 pub use result_processor_ffi as result_processor;
 pub use slots_tracker_ffi as slots_tracker;
+pub use sorting_vector_ffi as sorting_vector;
 pub use triemap_ffi as triemap;
 pub use types_ffi as types;
 pub use varint_ffi as varint;
+
+include!(concat!(env!("OUT_DIR"), "/link_guard.rs"));
