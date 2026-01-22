@@ -270,7 +270,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_WriteFieldsFrom<'a>(
+pub unsafe extern "C" fn RLookupRow_WriteFieldsFrom<'a>(
     src_row: *const RLookupRow<'a>,
     src_lookup: *const RLookup<'a>,
     dst_row: Option<NonNull<RLookupRow<'a>>>,
@@ -316,7 +316,7 @@ unsafe extern "C" fn RLookupRow_WriteFieldsFrom<'a>(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Get(
+pub unsafe extern "C" fn RLookupRow_Get(
     key: *const RLookupKey,
     row: *const RLookupRow,
 ) -> Option<NonNull<RSValue>> {
