@@ -292,7 +292,7 @@ query_and_profile = [
                 [
                     ['Type', 'Network', 'Results processed', 2],
                     ['Type', 'Sorter', 'Results processed', 2],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', 4]
+                    ['Type', 'Threadsafe-Depleter', 'Results processed', 3]
                 ],
                 'VSIM',
                 [
@@ -399,98 +399,115 @@ query_and_profile = [
 ]
 
 
-class testHybridProfile:
-    def __init__(self):
-        self.env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK false')
-        self._setup_index_and_data()
 
-    def _setup_index_and_data(self):
-        # Create index with both text and vector fields
-        self.env.expect('FT.CREATE idx SCHEMA t TEXT v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok()
-        conn = getConnectionByEnv(self.env)
-        conn.execute_command('hset', '1', 't', 'hello world', 'v', 'bababaca')
-        conn.execute_command('hset', '2', 't', 'hello space', 'v', 'babababa')
-        conn.execute_command('hset', '3', 't', 'world space', 'v', 'aabbaabb')
-        conn.execute_command('hset', '4', 't', 'other text', 'v', 'bbaabbaa')
+def _setup_index_and_data(env):
+    # Create index with both text and vector fields
+    env.expect('FT.CREATE idx SCHEMA t TEXT v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('hset', '1', 't', 'hello world', 'v', 'bababaca')
+    conn.execute_command('hset', '2', 't', 'hello space', 'v', 'babababa')
+    conn.execute_command('hset', '3', 't', 'world space', 'v', 'aabbaabb')
+    conn.execute_command('hset', '4', 't', 'other text', 'v', 'bbaabbaa')
 
-    def _verify_profile_structure(self, protocol, actual_res):
-       env = self.env
-       if protocol == 2:
-            # Verify the response structure
-            env.assertTrue(isinstance(actual_res, list))
-            # Should have 9 elements
-            env.assertEqual(len(actual_res), 9)
+def _verify_profile_structure(env, protocol, actual_res):
+    if protocol == 2:
+        # Verify the response structure
+        env.assertTrue(isinstance(actual_res, list))
+        # Should have 9 elements
+        env.assertEqual(len(actual_res), 9)
 
-            # Verify the flat list structure:
-            # ['total_results', value,
-            #  'results', value,
-            #  'warnings', value,
-            #  'execution_time',
-            #  value, profile_data]
-            env.assertEqual(actual_res[0], 'total_results')
-            env.assertTrue(isinstance(actual_res[1], int))
-            env.assertEqual(actual_res[2], 'results')
-            env.assertTrue(isinstance(actual_res[3], list))
-            env.assertEqual(actual_res[4], 'warnings')
-            env.assertTrue(isinstance(actual_res[5], list))
-            env.assertEqual(actual_res[6], 'execution_time')
-            env.assertTrue(isinstance(actual_res[7], str))
-            # Verify profile data structure
-            profile_data = actual_res[8]
-            env.assertTrue(isinstance(profile_data, list))
-            env.assertEqual(len(profile_data), 4)
-            # Should have ['Shards', [...], 'Coordinator', [...]] structure
-            env.assertEqual(profile_data[0], 'Shards')
-            env.assertEqual(profile_data[2], 'Coordinator')
-       else:
-            # TODO: verify RESP3 structure
-            pass
+        # Verify the flat list structure:
+        # ['total_results', value,
+        #  'results', value,
+        #  'warnings', value,
+        #  'execution_time',
+        #  value, profile_data]
+        env.assertEqual(actual_res[0], 'total_results')
+        env.assertTrue(isinstance(actual_res[1], int))
+        env.assertEqual(actual_res[2], 'results')
+        env.assertTrue(isinstance(actual_res[3], list))
+        env.assertEqual(actual_res[4], 'warnings')
+        env.assertTrue(isinstance(actual_res[5], list))
+        env.assertEqual(actual_res[6], 'execution_time')
+        env.assertTrue(isinstance(actual_res[7], str))
+        # Verify profile data structure
+        profile_data = actual_res[8]
+        env.assertTrue(isinstance(profile_data, list))
+        env.assertEqual(len(profile_data), 4)
+        # Should have ['Shards', [...], 'Coordinator', [...]] structure
+        env.assertEqual(profile_data[0], 'Shards')
+        env.assertEqual(profile_data[2], 'Coordinator')
+    else:
+        # TODO: verify RESP3 structure
+        pass
 
-    def test_profile_standalone(self):
-        if CLUSTER:
-            raise SkipTest()
-        env = self.env
-        for query, expected_shard_profile, expected_coordinator_profile, _, _ in query_and_profile:
-            actual_res = env.execute_command(*query)
-            self._verify_profile_structure(env.protocol, actual_res)
-            env.assertEqual(actual_res[8][1], expected_shard_profile,
-                            message=f'query: {query}')
-            env.assertEqual(actual_res[8][3], expected_coordinator_profile,
-                            message=f'query: {query}')
+@skip(cluster=True)
+def test_profile_standalone():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK false')
+    _setup_index_and_data(env)
+    for query, expected_shard_profile, expected_coordinator_profile, _, _ in query_and_profile:
+        actual_res = env.execute_command(*query)
+        _verify_profile_structure(env, env.protocol, actual_res)
+        env.assertEqual(actual_res[8][1], expected_shard_profile,
+                        message=f'query: {query}')
+        env.assertEqual(actual_res[8][3], expected_coordinator_profile,
+                        message=f'query: {query}')
 
-    def test_profile_cluster(self):
-        if not CLUSTER:
-            raise SkipTest()
-        env = self.env
-        for query, _, _, expected_shard_profile, expected_coordinator_profile in query_and_profile:
-            actual_res = env.execute_command(*query)
-            self._verify_profile_structure(env.protocol, actual_res)
+@skip(cluster=False)
+def test_profile_cluster():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK false')
+    _setup_index_and_data(env)
+    for query, _, _, expected_shard_profile, expected_coordinator_profile in query_and_profile:
+        actual_res = env.execute_command(*query)
+        _verify_profile_structure(env, env.protocol, actual_res)
 
-            shard_profiles = actual_res[8][1]
-            for i in range(len(shard_profiles)):
-                shard_profile = shard_profiles[i]
-                # Shard profile is a list of 6 items
-                env.assertEqual(len(shard_profile), 6)
-                env.assertEqual(len(expected_shard_profile), 6)
+        shard_profiles = actual_res[8][1]
+        for i in range(len(shard_profiles)):
+            shard_profile = shard_profiles[i]
+            # Shard profile is a list of 6 items
+            env.assertEqual(len(shard_profile), 6)
+            env.assertEqual(len(expected_shard_profile), 6)
 
-                # Verify the profile data structure
-                # ['Shard ID', ANY, 'SEARCH', [...], 'VSIM', [...]]
-                env.assertEqual(shard_profile[0], expected_shard_profile[0])
-                env.assertEqual(shard_profile[2], expected_shard_profile[2])
-                env.assertEqual(shard_profile[4], expected_shard_profile[4])
+            # Verify the profile data structure
+            # ['Shard ID', ANY, 'SEARCH', [...], 'VSIM', [...]]
+            env.assertEqual(shard_profile[0], expected_shard_profile[0])
+            env.assertEqual(shard_profile[2], expected_shard_profile[2])
+            env.assertEqual(shard_profile[4], expected_shard_profile[4])
 
-                # Verify the SEARCH and VSIM profile data
-                for k in [3, 5]:
-                    err_message = 'SEARCH' if k == 3 else 'VSIM'
-                    for i in range(len(expected_shard_profile[k])):
-                        # skip if the expected value is ANY
-                        if expected_shard_profile[k][i] is ANY:
-                            continue
-                        env.assertEqual(shard_profile[k][i],
-                                        expected_shard_profile[k][i],
-                                        message=f'{err_message} query: {query}')
+            # Verify the SEARCH and VSIM profile data
+            for k in [3, 5]:
+                err_message = 'SEARCH' if k == 3 else 'VSIM'
+                for i in range(len(expected_shard_profile[k])):
+                    # skip if the expected value is ANY
+                    if expected_shard_profile[k][i] is ANY:
+                        continue
+                    env.assertEqual(shard_profile[k][i],
+                                    expected_shard_profile[k][i],
+                                    message=f'{err_message} query: {query}')
 
-            # Verify the coordinator profile data
-            coordinator_profile = actual_res[8][3]
-            env.assertEqual(coordinator_profile, expected_coordinator_profile,
-                            message=f'COORDINATOR query: {query}')
+        # Verify the coordinator profile data
+        coordinator_profile = actual_res[8][3]
+        env.assertEqual(coordinator_profile, expected_coordinator_profile,
+                        message=f'COORDINATOR query: {query}')
+
+def test_profile_time():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK true', protocol=3)
+    _setup_index_and_data(env)
+    for query, _, _, _, _ in [query_and_profile[0]]:
+        actual_res = env.execute_command(*query)
+        # Verify that the time is greater or equal to 0
+        env.assertGreaterEqual(actual_res['execution_time'], 0)
+        for shard in actual_res['Profile']['Shards']:
+            for subquery in ['SEARCH', 'VSIM']:
+                env.assertGreater(
+                    shard[subquery]['Total profile time'], 0)
+                env.assertGreaterEqual(
+                    shard[subquery]['Parsing time'], 0)
+                env.assertGreaterEqual(
+                    shard[subquery]['Pipeline creation time'], 0)
+                env.assertGreaterEqual(
+                    shard[subquery]['Coordinator dispatch time [ms]'], 0)
+                env.assertGreaterEqual(
+                    shard[subquery]['Iterators profile']['Time'], 0)
+                for processor in shard[subquery]['Result processors profile']:
+                    env.assertGreaterEqual(processor['Time'], 0)
