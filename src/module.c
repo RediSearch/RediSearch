@@ -1575,7 +1575,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
       RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
       return REDISMODULE_ERR;
     }
-    // Disable GC when running in Flex mode
+#ifndef TRACK_NUMDOCS_IN_TRIE_NODE
+    RedisModule_Log(ctx, "error", "TRACK_NUMDOCS_IN_TRIE_NODE is disabled and Search Disk is enabled. This is not supported.");
+    return REDISMODULE_ERR;
+#endif
     RSGlobalConfig.gcConfigParams.enableGC = false;
     RedisModule_Log(ctx, "notice", "GC disabled when running in Flex");
   }

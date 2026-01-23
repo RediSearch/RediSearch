@@ -32,7 +32,11 @@
 #define INITIAL_DOC_TABLE_SIZE 1000
 // 3 `uintptr_t` fields (Rust TrieMap struct: root, n_unique_keys, memory_usage)
 #define EMPTY_TRIE_SIZE 24
+#ifdef TRACK_NUMDOCS_IN_TRIE_NODE
 #define TRIE_ENTRY_NUM_DOCS_OVERHEAD 8
+#else
+#define TRIE_ENTRY_NUM_DOCS_OVERHEAD 0
+#endif
 
 class LLApiTest : public ::testing::Test {
   virtual void SetUp() {
