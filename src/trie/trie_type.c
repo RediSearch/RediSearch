@@ -349,8 +349,9 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
     t_len len;
     float score;
     RSPayload payload = {.data = NULL, .len = 0};
+    size_t numDocs = 0;
 
-    while (TrieIterator_Next(it, &rstr, &len, &payload, &score, NULL, NULL)) {
+    while (TrieIterator_Next(it, &rstr, &len, &payload, &score, &numDocs, NULL)) {
       size_t slen = 0;
       char *s = runesToStr(rstr, len, &slen);
       RedisModule_SaveStringBuffer(rdb, s, slen + 1);
@@ -366,6 +367,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
         }
       }
       // TODO: Save a marker for empty payload!
+      RedisModule_SaveUnsigned(rdb, numDocs);
       rm_free(s);
       count++;
     }

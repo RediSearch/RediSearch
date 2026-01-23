@@ -428,6 +428,34 @@ int testNumDocsWithAddition() {
   ASSERT(node != NULL);
   ASSERT_EQUAL(1, node->numDocs);
 
+  // Verify numDocs via iterator
+  TrieIterator *it = TrieNode_Iterate(t->root, NULL, NULL, NULL);
+  rune *s;
+  t_len len;
+  float score;
+  size_t numDocs;
+  RSPayload payload = {.data = NULL, .len = 0};
+  int count = 0;
+  while (TrieIterator_Next(it, &s, &len, &payload, &score, &numDocs, NULL)) {
+    count++;
+    // Check numDocs values based on the term
+    if (len == helpLen && runeCmp(s, len, helpRunes, helpLen) == 0) {
+      ASSERT_EQUAL(3, numDocs);
+    } else if (len == helpingLen && runeCmp(s, len, helpingRunes, helpingLen) == 0) {
+      ASSERT_EQUAL(1, numDocs);
+    } else if (len == helperLen && runeCmp(s, len, helperRunes, helperLen) == 0) {
+      ASSERT_EQUAL(1, numDocs);
+    } else if (len == aLen && runeCmp(s, len, aRunes, aLen) == 0) {
+      ASSERT_EQUAL(1, numDocs);
+    } else if (len == abLen && runeCmp(s, len, abRunes, abLen) == 0) {
+      ASSERT_EQUAL(2, numDocs);
+    } else if (len == abcLen && runeCmp(s, len, abcRunes, abcLen) == 0) {
+      ASSERT_EQUAL(1, numDocs);
+    }
+  }
+  ASSERT_EQUAL(6, count);  // Should have iterated over all 6 terms
+  TrieIterator_Free(it);
+
   // Cleanup
   free(helpRunes);
   free(helpingRunes);
@@ -524,6 +552,34 @@ int testNumDocsWithSet() {
   node = TrieNode_Get(t->root, abcRunes, abcLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(300, node->numDocs);
+
+  // Verify numDocs via iterator
+  TrieIterator *it = TrieNode_Iterate(t->root, NULL, NULL, NULL);
+  rune *s;
+  t_len len;
+  float score;
+  size_t numDocs;
+  RSPayload payload = {.data = NULL, .len = 0};
+  int count = 0;
+  while (TrieIterator_Next(it, &s, &len, &payload, &score, &numDocs, NULL)) {
+    count++;
+    // Check numDocs values based on the term
+    if (len == helpLen && runeCmp(s, len, helpRunes, helpLen) == 0) {
+      ASSERT_EQUAL(10, numDocs);
+    } else if (len == helpingLen && runeCmp(s, len, helpingRunes, helpingLen) == 0) {
+      ASSERT_EQUAL(20, numDocs);
+    } else if (len == helperLen && runeCmp(s, len, helperRunes, helperLen) == 0) {
+      ASSERT_EQUAL(30, numDocs);
+    } else if (len == aLen && runeCmp(s, len, aRunes, aLen) == 0) {
+      ASSERT_EQUAL(100, numDocs);
+    } else if (len == abLen && runeCmp(s, len, abRunes, abLen) == 0) {
+      ASSERT_EQUAL(999, numDocs);
+    } else if (len == abcLen && runeCmp(s, len, abcRunes, abcLen) == 0) {
+      ASSERT_EQUAL(300, numDocs);
+    }
+  }
+  ASSERT_EQUAL(6, count);  // Should have iterated over all 6 terms
+  TrieIterator_Free(it);
 
   // Cleanup
   free(helpRunes);
