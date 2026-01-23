@@ -583,10 +583,10 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       RedisJSON value;
       RedisJSONPtr value_ptr = japi->allocJson();
 
-      RSValueMap map = RSValueMap_AllocUninit(len);
+      RSValueMap *map = RSValueMap_AllocUninit(len);
       for (; (japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK); ++i) {
         value = *value_ptr;
-        RSValueMap_SetEntry(&map, i, RSValue_NewRedisString(keyName),
+        RSValueMap_SetEntry(map, i, RSValue_NewRedisString(keyName),
           jsonValToValueExpanded(ctx, value));
       }
       japi->freeJson(value_ptr);
