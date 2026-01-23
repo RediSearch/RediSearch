@@ -809,3 +809,121 @@ TEST_F(TrieTest, testRdbSaveLoadLexSortedTrie) {
   // which expects the same iteration order. Instead, we verify that all entries exist
   // and the size matches.
 }
+
+// Helper function to insert with numDocs
+static bool trieInsertWithNumDocs(Trie *t, const char *s, float score, size_t numDocsToSet, size_t numDocsToAdd) {
+  return Trie_InsertStringBuffer(t, s, strlen(s), score, 0, NULL, numDocsToSet, numDocsToAdd);
+}
+
+// Helper function to get numDocs from a trie node
+static size_t trieGetNumDocs(Trie *t, const char *s) {
+  runeBuf buf;
+  size_t runeLen = strlen(s);
+  rune *runes = runeBufFill(s, runeLen, &buf, &runeLen);
+  TrieNode *node = TrieNode_Get(t->root, runes, runeLen, true, NULL);
+  runeBufFree(&buf);
+  if (node == NULL) {
+    return 0;
+  }
+  return node->numDocs;
+}
+
+TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
+  // Create a trie with numDocs values
+  Trie *originalTrie = NewTrie(NULL, Trie_Sort_Score);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> originalTriePtr(originalTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+
+  // Insert words with common prefixes and various numDocs values
+  trieInsertWithNumDocs(originalTrie, "help", 1.0, 10, 0);     // numDocs = 10
+  trieInsertWithNumDocs(originalTrie, "helping", 2.0, 20, 0);  // numDocs = 20
+  trieInsertWithNumDocs(originalTrie, "helper", 3.0, 30, 0);   // numDocs = 30
+  trieInsertWithNumDocs(originalTrie, "A", 4.0, 100, 0);       // numDocs = 100
+  trieInsertWithNumDocs(originalTrie, "AB", 5.0, 200, 0);      // numDocs = 200
+  trieInsertWithNumDocs(originalTrie, "ABC", 6.0, 300, 0);     // numDocs = 300
+
+  ASSERT_EQ(6, originalTrie->size);
+
+  // Verify original numDocs values
+  EXPECT_EQ(10, trieGetNumDocs(originalTrie, "help"));
+  EXPECT_EQ(20, trieGetNumDocs(originalTrie, "helping"));
+  EXPECT_EQ(30, trieGetNumDocs(originalTrie, "helper"));
+  EXPECT_EQ(100, trieGetNumDocs(originalTrie, "A"));
+  EXPECT_EQ(200, trieGetNumDocs(originalTrie, "AB"));
+  EXPECT_EQ(300, trieGetNumDocs(originalTrie, "ABC"));
+
+  // Create RDB IO context
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(io != nullptr);
+
+  // Save the trie to RDB
+  TrieType_RdbSave(io, originalTrie);
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // Reset read position to load it back
+  io->read_pos = 0;
+
+  // Load the trie from RDB
+  Trie *loadedTrie = (Trie *)TrieType_RdbLoad(io, TRIE_ENCVER_CURRENT);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+  ASSERT_TRUE(loadedTrie != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // Verify the loaded trie has the same size
+  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+
+  // Verify all entries are present
+  EXPECT_TRUE(trieContains(loadedTrie, "help"));
+  EXPECT_TRUE(trieContains(loadedTrie, "helping"));
+  EXPECT_TRUE(trieContains(loadedTrie, "helper"));
+  EXPECT_TRUE(trieContains(loadedTrie, "A"));
+  EXPECT_TRUE(trieContains(loadedTrie, "AB"));
+  EXPECT_TRUE(trieContains(loadedTrie, "ABC"));
+
+  // Verify numDocs values are preserved after RDB load
+  EXPECT_EQ(10, trieGetNumDocs(loadedTrie, "help"));
+  EXPECT_EQ(20, trieGetNumDocs(loadedTrie, "helping"));
+  EXPECT_EQ(30, trieGetNumDocs(loadedTrie, "helper"));
+  EXPECT_EQ(100, trieGetNumDocs(loadedTrie, "A"));
+  EXPECT_EQ(200, trieGetNumDocs(loadedTrie, "AB"));
+  EXPECT_EQ(300, trieGetNumDocs(loadedTrie, "ABC"));
+
+  // Verify numDocs via iterator as well
+  TrieIterator *it = TrieNode_Iterate(loadedTrie->root, NULL, NULL, NULL);
+  rune *rstr;
+  t_len len;
+  float score;
+  size_t numDocs;
+  RSPayload payload = {.data = NULL, .len = 0};
+  int count = 0;
+
+  while (TrieIterator_Next(it, &rstr, &len, &payload, &score, &numDocs, NULL)) {
+    count++;
+    size_t slen;
+    char *s = runesToStr(rstr, len, &slen);
+    std::string term(s, slen);
+    free(s);
+
+    if (term == "help") {
+      EXPECT_EQ(10, numDocs);
+    } else if (term == "helping") {
+      EXPECT_EQ(20, numDocs);
+    } else if (term == "helper") {
+      EXPECT_EQ(30, numDocs);
+    } else if (term == "A") {
+      EXPECT_EQ(100, numDocs);
+    } else if (term == "AB") {
+      EXPECT_EQ(200, numDocs);
+    } else if (term == "ABC") {
+      EXPECT_EQ(300, numDocs);
+    }
+  }
+  EXPECT_EQ(6, count);
+  TrieIterator_Free(it);
+}
