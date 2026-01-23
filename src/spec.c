@@ -1777,7 +1777,6 @@ static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoringStats,
 /* Initialize some index stats that might be useful for scoring functions */
 // Assuming the spec is properly locked before calling this function
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
-  // TODO: If SearchDisk_API exists, extract scoring stats info from disk API
   RSIndexStats_FromScoringStats(&sp->stats.scoringStats, stats);
 }
 

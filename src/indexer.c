@@ -102,7 +102,6 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
   while (entry != NULL) {
     if (spec->diskSpec) {
-      IndexSpec_AddTerm(spec, entry->term, entry->len);
       SearchDisk_IndexDocument(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask);
     } else {
       bool isNew;
