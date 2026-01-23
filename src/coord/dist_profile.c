@@ -16,7 +16,7 @@ int ParseProfile(ArgsCursor *ac, QueryError *status, ProfileOptions *options) {
         *options |= EXEC_WITH_PROFILE_LIMITED;
     }
     if (!AC_AdvanceIfMatch(ac, "QUERY")) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No QUERY keyword provided");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "The QUERY keyword is expected");
       return REDISMODULE_ERR;
     }
   }

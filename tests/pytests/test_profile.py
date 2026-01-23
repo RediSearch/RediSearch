@@ -191,8 +191,7 @@ def testProfileErrors(env):
   # wrong `query` type
   env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('No `SEARCH`, `AGGREGATE`, or `HYBRID` provided')
   # miss `QUERY` keyword
-  if not env.isCluster():
-    env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyword is expected')
+  env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyword is expected')
 
 @skip(cluster=True)
 def testProfileNumeric(env):

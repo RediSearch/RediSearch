@@ -60,7 +60,7 @@ int coord_search_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv
     rs_wall_clock_init(&req.initClock);
 
     // PROFILE for FT.SEARCH requires no additional parsing
-    if (rscParseProfile(&req, argv) != REDISMODULE_OK) {
+    if (rscParseProfile(&req, argv, &errCode) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
     }
 
