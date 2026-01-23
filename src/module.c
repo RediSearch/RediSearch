@@ -817,7 +817,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (!sp->smap) {
     return RedisModule_ReplyWithMap(ctx, 0);
   }
-
+  
   CurrentThread_SetIndexSpec(ref);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
@@ -1190,8 +1190,8 @@ int RegisterRestoreIfNxCommands(RedisModuleCtx *ctx, RedisModuleCommand *restore
 
 Version supportedVersion = {
     .majorVersion = 8,
-    .minorVersion = 5,
-    .patchVersion = 0,
+    .minorVersion = 3,
+    .patchVersion = 200,
 };
 
 static void GetRedisVersion(RedisModuleCtx *ctx) {
