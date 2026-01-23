@@ -624,7 +624,6 @@ void printHybridProfileShards(RedisModule_Reply *reply, void *ctx) {
 }
 
 void printHybridProfile(RedisModule_Reply *reply, void *ctx) {
-  ProfilePrinterCtx *cCtx = ctx;
   Profile_PrintInFormat(reply, printHybridProfileShards, ctx, printHybridProfileCoordinator, ctx);
 }
 

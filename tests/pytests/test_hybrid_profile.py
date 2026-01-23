@@ -12,7 +12,14 @@ search_result_processors = [
     ['Type', 'Loader', 'Results processed', ANY]
 ]
 
-# This is common for all test with `SEARCH hello`
+search_result_processors_background_depletion = [
+    ['Type', 'Index', 'Results processed', ANY],
+    ['Type', 'Scorer', 'Results processed', ANY],
+    ['Type', 'Sorter', 'Results processed', ANY],
+    ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY, 'Results processed', ANY],
+    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
+]
+# This is common for all test with `SEARCH hello`, no background depletion
 expected_shard_standalone_profile = [[
     'SEARCH',
     [
@@ -48,12 +55,50 @@ expected_shard_standalone_profile = [[
     ]
 ]]
 
+expected_shard_standalone_profile_background_depletion = [[
+    'SEARCH',
+    [
+        'Warning',
+        ['None'],
+        'Iterators profile',
+        [
+            'Type', 'TEXT',
+            'Term', 'hello',
+            'Number of reading operations', 1,
+            'Estimated number of matches', 1
+        ],
+        'Result processors profile',
+        search_result_processors_background_depletion
+    ],
+    'VSIM',
+    [
+        'Warning',
+        ['None'],
+        'Iterators profile',
+        [
+            'Type', 'VECTOR',
+            'Number of reading operations', 4,
+            'Vector search mode', 'STANDARD_KNN'
+        ],
+        'Result processors profile',
+        [
+            ['Type', 'Index', 'Results processed', ANY],
+            ['Type', 'Metrics Applier', 'Results processed', ANY],
+            ['Type', 'Vector Normalizer', 'Results processed', ANY],
+            ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY, 'Results processed', ANY],
+            ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
+        ]
+    ]
+]]
+
+
 query_and_profile = [
     # Tuple items:
     # Query:
     #   - query,
     # Standalone expected profile:
-    #   - expected_shard_standalone_profile,
+    #   - expected_shard_standalone_profile (Without background depletion),
+    #   - expected_shard_standalone_profile (With background depletion),
     #   - expected_coordinator_standalone_profile
     # Cluster expected profile:
     #   - expected_shard_cluster_profile,
@@ -66,8 +111,10 @@ query_and_profile = [
          'VSIM', '@v', '$blob',
          'PARAMS', 2, 'blob', 'aaaaaaaa'
         ],
-        # expected_shard_standalone_profile
+        # expected_shard_standalone_profile (Without background depletion)
         expected_shard_standalone_profile,
+        # expected_shard_standalone_profile (With background depletion WORKERS=2)
+        expected_shard_standalone_profile_background_depletion,
         # expected_coordinator_standalone_profile
         [
             'Warning', ['None'],
@@ -157,8 +204,10 @@ query_and_profile = [
          'PARAMS', 2, 'blob', 'aaaaaaaa',
          'LOAD', '*', 'NOSORT'
         ],
-        # expected_shard_standalone_profile
+        # expected_shard_standalone_profile (Without background depletion)
         expected_shard_standalone_profile,
+        # expected_shard_standalone_profile (With background depletion)
+        expected_shard_standalone_profile_background_depletion,
         # expected_coordinator_standalone_profile
         [
             'Warning', ['None'],
@@ -254,8 +303,10 @@ query_and_profile = [
          'PARAMS', 2, 'blob', 'aaaaaaaa',
          'LIMIT', 0, 2
         ],
-        # expected_shard_standalone_profile
+        # expected_shard_standalone_profile (Without background depletion)
         expected_shard_standalone_profile,
+        # expected_shard_standalone_profile (With background depletion)
+        expected_shard_standalone_profile_background_depletion,
         # expected_coordinator_standalone_profile.
         [
             'Warning', ['None'],
@@ -346,8 +397,10 @@ query_and_profile = [
          'REDUCE', 'COUNT', 0, 'AS', 'count',
          'PARAMS', 2, 'blob', 'aaaaaaaa',
         ],
-        # expected_shard_standalone_profile
+        # expected_shard_standalone_profile (Without background depletion)
         expected_shard_standalone_profile,
+        # expected_shard_standalone_profile (With background depletion)
+        expected_shard_standalone_profile_background_depletion,
         # expected_coordinator_standalone_profile.
         [
             'Warning', ['None'],
@@ -486,6 +539,8 @@ query_and_profile = [
                 ]
             ]
         ]],
+        # expected_shard_standalone_profile (With background depletion)
+        ANY, # Ignored
         # expected_coordinator_standalone_profile.
         [
             'Warning', ['None'],
@@ -647,6 +702,8 @@ query_and_profile = [
                 ]
             ]
         ]],
+        # expected_shard_standalone_profile (With background depletion)
+        ANY, # Ignored
         # expected_coordinator_standalone_profile.
         [
             'Warning', ['None'],
@@ -794,7 +851,7 @@ def _verify_profile_structure(env, protocol, actual_res):
 def test_profile_standalone():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK false')
     _setup_index_and_data(env)
-    for query, expected_shard_profile, expected_coordinator_profile, _, _ in query_and_profile:
+    for query, expected_shard_profile, _, expected_coordinator_profile, _, _ in query_and_profile:
         actual_res = env.execute_command(*query)
         _verify_profile_structure(env, env.protocol, actual_res)
         env.assertEqual(actual_res[8][1], expected_shard_profile,
@@ -802,11 +859,27 @@ def test_profile_standalone():
         env.assertEqual(actual_res[8][3], expected_coordinator_profile,
                         message=f'query: {query}')
 
+@skip(cluster=True)
+def test_profile_standalone_with_background_depletion():
+    """Test profiling with background depletion enabled"""
+    env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK false',
+              enableDebugCommand=True)
+    _setup_index_and_data(env)
+    for query, _, expected_shard_profile, expected_coordinator_profile, _, _ in query_and_profile[0:3]:
+        actual_res = env.execute_command(*query)
+        _verify_profile_structure(env, env.protocol, actual_res)
+        env.assertEqual(actual_res[8][1], expected_shard_profile,
+                        message=f'query: {query}')
+        env.assertEqual(actual_res[8][3], expected_coordinator_profile,
+                        message=f'query: {query}')
+        # Drain the thread pool to make sure all background jobs are done
+        env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+
 @skip(cluster=False)
 def test_profile_cluster():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK false')
     _setup_index_and_data(env)
-    for query, _, _, expected_shard_profile, expected_coordinator_profile in query_and_profile:
+    for query, _, _, _, expected_shard_profile, expected_coordinator_profile in query_and_profile:
         actual_res = env.execute_command(*query)
         _verify_profile_structure(env, env.protocol, actual_res)
 
@@ -855,7 +928,7 @@ def test_profile_time():
     # Test that the time is greater or equal to 0 for all timings in the profile
     env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK true', protocol=3)
     _setup_index_and_data(env)
-    for query, _, _, _, _ in query_and_profile:
+    for query, _, _, _, _, _ in query_and_profile:
         actual_res = env.execute_command(*query)
         # Verify that the time is greater or equal to 0
         env.assertGreaterEqual(actual_res['execution_time'], 0)
