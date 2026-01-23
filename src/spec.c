@@ -1783,7 +1783,7 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
 
 // Assuming the spec is properly locked for writing before calling this function.
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
-  int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL, 0, 0);
+  int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL, 0, 1);
   if (isNew) {
     sp->stats.numTerms++;
     sp->stats.termsSize += len;
@@ -3027,7 +3027,7 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   size_t termLen;
 
   TrieIterator *it = Trie_Iterate(ctx.spec->terms, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModuleString *keyName = Legacy_fmtRedisTermKey(&ctx, res, strlen(res));
     Redis_LegacyDropScanHandler(ctx.redisCtx, keyName, &ctx);

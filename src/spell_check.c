@@ -119,7 +119,7 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   if (it == NULL) {
     return retVal;
   }
-  if (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+  if (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
     retVal = true;
   }
   TrieIterator_Free(it);
@@ -142,7 +142,7 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
   if (it == NULL) {
     return;
   }
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
     char *res = runesToStr(rstr, slen, &suggestionLen);
     double score;
     if ((score = SpellCheck_GetScore(scCtx, res, suggestionLen, fieldMask)) != -1) {
@@ -161,7 +161,7 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
   float score = 0;
   int dist = 0;
   size_t termLen;
-  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
+  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, NULL, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     array_append(ret, RS_SuggestionCreate(res, termLen, score));
   }

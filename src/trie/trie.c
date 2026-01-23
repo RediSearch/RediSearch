@@ -678,7 +678,7 @@ void TrieIterator_Free(TrieIterator *it) {
 }
 
 int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score,
-                      void *matchCtx) {
+                      size_t *numDocs, void *matchCtx) {
   int rc;
   while ((rc = __ti_step(it, matchCtx)) != __STEP_STOP) {
     if (rc == __STEP_MATCH) {
@@ -689,6 +689,9 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
         *ptr = it->buf;
         *len = it->bufOffset;
         *score = sn->n->score;
+        if (numDocs != NULL) {
+          *numDocs = sn->n->numDocs;
+        }
         if (payload != NULL) {
           if (sn->n->payload != NULL) {
             payload->data = sn->n->payload->data;

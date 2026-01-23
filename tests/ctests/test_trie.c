@@ -139,7 +139,7 @@ int testPayload() {
   int matches = 0;
   int dist = 0;
 
-  while (TrieIterator_Next(it, &s, &len, &payload, &score, &dist)) {
+  while (TrieIterator_Next(it, &s, &len, &payload, &score, NULL, &dist)) {
     ASSERT(score == 1);
     ASSERT(len > 0);
     ASSERT(payload.len == 2);
@@ -282,7 +282,7 @@ int testDFAFilter() {
     int dist = 0;
 
     clock_gettime(CLOCK_REALTIME, &start_time);
-    while (TrieIterator_Next(it, &s, &len, NULL, &score, &dist)) {
+    while (TrieIterator_Next(it, &s, &len, NULL, &score, NULL, &dist)) {
       ASSERT(score > 0);
       ASSERT(dist <= 2 && dist >= 0)
       ASSERT(len > 0);
@@ -313,7 +313,7 @@ int testDFAFilter() {
     int matches = 0;
     int dist = 0;
 
-    while (TrieIterator_Next(it, &s, &len, NULL, &score, &dist)) {
+    while (TrieIterator_Next(it, &s, &len, NULL, &score, NULL, &dist)) {
       ASSERT(score > 0);
       ASSERT(dist <= 1 && dist >= 0)
       ASSERT(len > 0);
@@ -539,10 +539,10 @@ int testNumDocsWithSet() {
 TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testRuneUtil);
-  TESTFUNC(testDFAFilter);
   TESTFUNC(testTrie);
   TESTFUNC(testPayload);
   TESTFUNC(testUnicode);
   TESTFUNC(testNumDocsWithAddition);
   TESTFUNC(testNumDocsWithSet);
+  TESTFUNC(testDFAFilter);
 });

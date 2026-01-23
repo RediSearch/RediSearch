@@ -163,7 +163,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
 
   TrieSearchResult *pooledEntry = NULL;
   int dist = maxDist + 1;
-  while (TrieIterator_Next(it, &rstr, &slen, &payload, &score, &dist)) {
+  while (TrieIterator_Next(it, &rstr, &slen, &payload, &score, NULL, &dist)) {
     if (pooledEntry == NULL) {
       pooledEntry = rm_malloc(sizeof(TrieSearchResult));
       pooledEntry->str = NULL;
@@ -317,7 +317,8 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
       // load an extra space for the null terminator
       payload.len--;
     }
-    Trie_InsertStringBuffer(tree, str, len - 1, score, 0, payload.len ? &payload : NULL, 0, 0);
+    size_t numDocsToSet = LoadUnsigned_IOError(rdb, goto cleanup);
+    Trie_InsertStringBuffer(tree, str, len - 1, score, 0, payload.len ? &payload : NULL, numDocsToSet, 0);
     RedisModule_Free(str);
     if (payload.data != NULL) RedisModule_Free(payload.data);
   }
@@ -349,7 +350,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
     float score;
     RSPayload payload = {.data = NULL, .len = 0};
 
-    while (TrieIterator_Next(it, &rstr, &len, &payload, &score, NULL)) {
+    while (TrieIterator_Next(it, &rstr, &len, &payload, &score, NULL, NULL)) {
       size_t slen = 0;
       char *s = runesToStr(rstr, len, &slen);
       RedisModule_SaveStringBuffer(rdb, s, slen + 1);

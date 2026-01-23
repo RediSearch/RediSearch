@@ -78,7 +78,7 @@ void Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName) {
   RedisModule_ReplyWithSet(ctx, t->size);
 
   TrieIterator *it = Trie_Iterate(t, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
@@ -162,7 +162,7 @@ static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* trie
   size_t termsCount = 0;
 
   TrieIterator *it = Trie_Iterate(trie, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     terms[termsCount++] = RedisModule_CreateString(NULL, res, termLen);
     rm_free(res);

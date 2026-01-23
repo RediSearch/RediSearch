@@ -263,7 +263,7 @@ void checkNext(TrieIterator *iter, const char *str) {
   float score;
   RSPayload payload;
 
-  TrieIterator_Next(iter, &rstr, &rlen, &payload, &score, NULL);
+  TrieIterator_Next(iter, &rstr, &rlen, &payload, &score, NULL, NULL);
   size_t len;
   char *res_str = runesToStr(rstr, rlen, &len);
   ASSERT_STREQ(res_str, str);
@@ -387,8 +387,8 @@ static bool compareTrieContents(Trie *original, Trie *loaded) {
   RSPayload origPayload, loadedPayload;
 
   while (true) {
-    int origHasNext = TrieIterator_Next(origIter, &origRstr, &origLen, &origPayload, &origScore, NULL);
-    int loadedHasNext = TrieIterator_Next(loadedIter, &loadedRstr, &loadedLen, &loadedPayload, &loadedScore, NULL);
+    int origHasNext = TrieIterator_Next(origIter, &origRstr, &origLen, &origPayload, &origScore, NULL, NULL);
+    int loadedHasNext = TrieIterator_Next(loadedIter, &loadedRstr, &loadedLen, &loadedPayload, &loadedScore, NULL, NULL);
 
     if (origHasNext != loadedHasNext) {
       return false;

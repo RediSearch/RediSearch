@@ -227,7 +227,7 @@ void TrieIterator_Free(TrieIterator *it);
  * or 0 if we're done
  * and should exit */
 int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score,
-                      void *matchCtx);
+                      size_t *numDocs, void *matchCtx);
 
 TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len);
 
