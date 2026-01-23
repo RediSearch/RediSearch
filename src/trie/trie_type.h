@@ -20,7 +20,8 @@ extern "C" {
 
 extern RedisModuleType *TrieType;
 
-#define TRIE_ENCVER_CURRENT 1
+#define TRIE_ENCVER_CURRENT 2
+#define TRIE_ENCVER_NONUMDOCS 1
 #define TRIE_ENCVER_NOPAYLOADS 0
 
 typedef struct {
@@ -76,8 +77,8 @@ int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score);
 
 /* Commands related to the redis TrieType registration */
 int TrieType_Register(RedisModuleCtx *ctx);
-void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads);
-void TrieType_GenericSave(RedisModuleIO *rdb, Trie *t, int savePayloads);
+void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDocs);
+void TrieType_GenericSave(RedisModuleIO *rdb, Trie *t, bool savePayloads, bool saveNumDocs);
 void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver);
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value);
 size_t TrieType_MemUsage(const void *value);

@@ -201,7 +201,7 @@ static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   size_t len = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t i = 0; i < len; i++) {
     char *key = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
-    Trie *val = TrieType_GenericLoad(rdb, false);
+    Trie *val = TrieType_GenericLoad(rdb, false, false);
     if (val == NULL) {
       RedisModule_Free(key);
       goto cleanup;
@@ -232,7 +232,7 @@ static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
     Trie *val = dictGetVal(entry);
     RS_LOG_ASSERT(val->size != 0, "Empty dictionary should not exist in the dictionary list");
     RedisModule_SaveStringBuffer(rdb, key, strlen(key) + 1 /* we save the /0*/);
-    TrieType_GenericSave(rdb, val, false);
+    TrieType_GenericSave(rdb, val, false, false);
   }
   dictReleaseIterator(iter);
 }

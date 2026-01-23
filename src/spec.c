@@ -3342,7 +3342,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   DocTable_LegacyRdbLoad(&sp->docs, rdb, encver);
   /* For version 3 or up - load the generic trie */
   if (encver >= 3) {
-    sp->terms = TrieType_GenericLoad(rdb, 0);
+    sp->terms = TrieType_GenericLoad(rdb, false, false);
   } else {
     sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   }
