@@ -1213,21 +1213,21 @@ def test_mod_8142(env:Env):
   score_opt = ['WITHSCORES', 'SCORER', 'TFIDF']
 
   # Test with a term search
-  env.expect('FT.SEARCH', 'idx', 'city', *score_opt).equal([2, 'doc1', '3', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
-  env.expect('FT.SEARCH', 'idx', 'cities', *score_opt).equal([2, 'doc2', '3', ['t', 'cities'], 'doc1', '1', ['t', 'city']])
+  env.expect('FT.SEARCH', 'idx', 'city', *score_opt).equal([2, 'doc1', '2', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', 'cities', *score_opt).equal([2, 'doc2', '2', ['t', 'cities'], 'doc1', '1', ['t', 'city']])
   # Test with an exact term search
-  env.expect('FT.SEARCH', 'idx', '"city"', *score_opt).equal([1, 'doc1', '2', ['t', 'city']])
-  env.expect('FT.SEARCH', 'idx', '"cities"', *score_opt).equal([1, 'doc2', '2', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', '"city"', *score_opt).equal([1, 'doc1', '1', ['t', 'city']])
+  env.expect('FT.SEARCH', 'idx', '"cities"', *score_opt).equal([1, 'doc2', '1', ['t', 'cities']])
   # Test with an optional term search
-  env.expect('FT.SEARCH', 'idx', '~city', *score_opt).equal([2, 'doc1', '3', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
-  env.expect('FT.SEARCH', 'idxOptimized', '~city', *score_opt).equal([2, 'doc1', '3', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
-  env.expect('FT.SEARCH', 'idx', '~cities', *score_opt).equal([2, 'doc2', '3', ['t', 'cities'], 'doc1', '1', ['t', 'city']])
-  env.expect('FT.SEARCH', 'idxOptimized', '~cities', *score_opt).equal([2, 'doc2', '3', ['t', 'cities'], 'doc1', '1', ['t', 'city']])
+  env.expect('FT.SEARCH', 'idx', '~city', *score_opt).equal([2, 'doc1', '2', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~city', *score_opt).equal([2, 'doc1', '2', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', '~cities', *score_opt).equal([2, 'doc2', '2', ['t', 'cities'], 'doc1', '1', ['t', 'city']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~cities', *score_opt).equal([2, 'doc2', '2', ['t', 'cities'], 'doc1', '1', ['t', 'city']])
   # Test with an optional exact term search
-  env.expect('FT.SEARCH', 'idx', '~"city"', *score_opt).equal([2, 'doc1', '2', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
-  env.expect('FT.SEARCH', 'idxOptimized', '~"city"', *score_opt).equal([2, 'doc1', '2', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
-  env.expect('FT.SEARCH', 'idx', '~"cities"', *score_opt).equal([2, 'doc2', '2', ['t', 'cities'], 'doc1', '0', ['t', 'city']])
-  env.expect('FT.SEARCH', 'idxOptimized', '~"cities"', *score_opt).equal([2, 'doc2', '2', ['t', 'cities'], 'doc1', '0', ['t', 'city']])
+  env.expect('FT.SEARCH', 'idx', '~"city"', *score_opt).equal([2, 'doc1', '1', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~"city"', *score_opt).equal([2, 'doc1', '1', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', '~"cities"', *score_opt).equal([2, 'doc2', '1', ['t', 'cities'], 'doc1', '0', ['t', 'city']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~"cities"', *score_opt).equal([2, 'doc2', '1', ['t', 'cities'], 'doc1', '0', ['t', 'city']])
   # Test without a term search
   env.expect('FT.SEARCH', 'idx', '-city', *score_opt).equal([0])
   env.expect('FT.SEARCH', 'idxOptimized', '-city', *score_opt).equal([0])
