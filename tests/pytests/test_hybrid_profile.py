@@ -30,8 +30,8 @@ expected_shard_standalone_profile = [[
         [
             'Type', 'TEXT',
             'Term', 'hello',
-            'Number of reading operations', 2,
-            'Estimated number of matches', 2
+            'Number of reading operations', 1,
+            'Estimated number of matches', 1
         ],
         'Result processors profile',
         search_result_processors
@@ -53,11 +53,14 @@ expected_shard_standalone_profile = [[
 
 query_and_profile = [
     # Tuple items:
-    # - query,
-    # - expected_shard_standalone_profile,
-    # - expected_coordinator_standalone_profile
-    # - expected_shard_cluster_profile,
-    # - expected_coordinator_cluster_profile
+    # Query:
+    #   - query,
+    # Standalone expected profile:
+    #   - expected_shard_standalone_profile,
+    #   - expected_coordinator_standalone_profile
+    # Cluster expected profile:
+    #   - expected_shard_cluster_profile,
+    #   - expected_coordinator_cluster_profile
 
     # Test: Minimal hybrid query
     (
@@ -85,12 +88,20 @@ query_and_profile = [
                 'Warning', ['None'],
                 'Internal cursor reads', 1,
                 'Iterators profile',
-                ANY,
-                # Iterators profile can be one of:
-                # ['Type', 'EMPTY', 'Number of reading operations', 0],
-                # ['Type', 'TEXT', 'Term', 'hello',
-                #  'Number of reading operations', 2,
-                #  'Estimated number of matches', 2],
+                {
+                    # Each shard can have different iterator profile, so we
+                    # check that one of the following values is in the profile
+                    'Valid Values':
+                    [
+                        ['Type', 'EMPTY', 'Number of reading operations', 0],
+                        [
+                            'Type', 'TEXT',
+                            'Term', 'hello',
+                            'Number of reading operations', 1,
+                            'Estimated number of matches', 1
+                        ]
+                    ]
+                },
                 'Result processors profile',
                 search_result_processors
             ],
@@ -122,8 +133,8 @@ query_and_profile = [
             [
                 'SEARCH',
                 [
-                    ['Type', 'Network', 'Results processed', 2],
-                    ['Type', 'Sorter', 'Results processed', 2],
+                    ['Type', 'Network', 'Results processed', 1],
+                    ['Type', 'Sorter', 'Results processed', 1],
                     ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
                 ],
                 'VSIM',
@@ -167,7 +178,20 @@ query_and_profile = [
                 'Warning', ['None'],
                 'Internal cursor reads', 1,
                 'Iterators profile',
-                ANY,
+                 {
+                     # Each shard can have different iterator profile, so we
+                    # check that one of the following values is in the profile
+                    'Valid Values':
+                    [
+                        ['Type', 'EMPTY', 'Number of reading operations', 0],
+                        [
+                            'Type', 'TEXT',
+                            'Term', 'hello',
+                            'Number of reading operations', 1,
+                            'Estimated number of matches', 1
+                        ]
+                    ]
+                },
                 'Result processors profile',
                 [
                     ['Type', 'Index', 'Results processed', ANY],
@@ -207,8 +231,8 @@ query_and_profile = [
             [
                 'SEARCH',
                 [
-                    ['Type', 'Network', 'Results processed', 2],
-                    ['Type', 'Sorter', 'Results processed', 2],
+                    ['Type', 'Network', 'Results processed', 1],
+                    ['Type', 'Sorter', 'Results processed', 1],
                     ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
                 ],
                 'VSIM',
@@ -253,12 +277,20 @@ query_and_profile = [
                 'Warning', ['None'],
                 'Internal cursor reads', 1,
                 'Iterators profile',
-                ANY,
-                # Iterators profile can be one of:
-                # ['Type', 'EMPTY', 'Number of reading operations', 0],
-                # ['Type', 'TEXT', 'Term', 'hello',
-                #  'Number of reading operations', 2,
-                #  'Estimated number of matches', 2],
+                 {
+                     # Each shard can have different iterator profile, so we
+                    # check that one of the following values is in the profile
+                    'Valid Values':
+                    [
+                        ['Type', 'EMPTY', 'Number of reading operations', 0],
+                        [
+                            'Type', 'TEXT',
+                            'Term', 'hello',
+                            'Number of reading operations', 1,
+                            'Estimated number of matches', 1
+                        ]
+                    ]
+                },
                 'Result processors profile',
                 search_result_processors
             ],
@@ -290,8 +322,8 @@ query_and_profile = [
             [
                 'SEARCH',
                 [
-                    ['Type', 'Network', 'Results processed', 2],
-                    ['Type', 'Sorter', 'Results processed', 2],
+                    ['Type', 'Network', 'Results processed', 1],
+                    ['Type', 'Sorter', 'Results processed', 1],
                     ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
                 ],
                 'VSIM',
@@ -377,8 +409,8 @@ query_and_profile = [
             [
                 'SEARCH',
                 [
-                    ['Type', 'Network', 'Results processed', 2],
-                    ['Type', 'Sorter', 'Results processed', 2],
+                    ['Type', 'Network', 'Results processed', 1],
+                    ['Type', 'Sorter', 'Results processed', 1],
                     ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
                 ],
                 'VSIM',
@@ -396,8 +428,328 @@ query_and_profile = [
             ]
         ]
     ),
+    # Test: Hybrid query with wildcard query and fuzzy (without LIMITED)
+    (
+        ['FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
+         'SEARCH', '%hell% hel*',
+         'VSIM', '@v', '$blob',
+         'PARAMS', 2, 'blob', 'aaaaaaaa',
+        ],
+        # expected_shard_standalone_profile
+        [[
+            'SEARCH',
+            [
+                'Warning',
+                ['None'],
+                'Iterators profile',
+                [
+                    'Type', 'INTERSECT', 'Number of reading operations', 2,
+                    'Child iterators',
+                    [
+                        [
+                            'Type', 'UNION', 'Query type', 'FUZZY - hell',
+                            'Number of reading operations', 2,
+                            'Child iterators',
+                            [
+                                ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 1, 'Estimated number of matches', 1],
+                                ['Type', 'TEXT', 'Term', 'help', 'Number of reading operations', 1, 'Estimated number of matches', 1]
+                            ]
+                        ],
+                        [
+                            'Type', 'UNION', 'Query type', 'PREFIX - hel',
+                            'Number of reading operations', 2,
+                            'Child iterators',
+                            [
+                                ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 1, 'Estimated number of matches', 1],
+                                ['Type', 'TEXT', 'Term', 'help', 'Number of reading operations', 1, 'Estimated number of matches', 1]
+                            ]
+                        ]
+                    ]
+                ],
+                'Result processors profile',
+                [
+                    ['Type', 'Index', 'Results processed', 2],
+                    ['Type', 'Scorer', 'Results processed', 2],
+                    ['Type', 'Sorter', 'Results processed', 2],
+                    ['Type', 'Loader', 'Results processed', 2]
+                ]
+            ],
+            'VSIM',
+            [
+                'Warning',
+                ['None'],
+                'Iterators profile',
+                ['Type', 'VECTOR', 'Number of reading operations', 4, 'Vector search mode', 'STANDARD_KNN'],
+                'Result processors profile',
+                [
+                    ['Type', 'Index', 'Results processed', 4],
+                    ['Type', 'Metrics Applier', 'Results processed', 4],
+                    ['Type', 'Vector Normalizer', 'Results processed', 4],
+                    ['Type', 'Loader', 'Results processed', 4]
+                ]
+            ]
+        ]],
+        # expected_coordinator_standalone_profile.
+        [
+            'Warning', ['None'],
+            'Result processors profile',
+            [
+                ['Type', 'Hybrid Merger', 'Results processed', 4],
+                ['Type', 'Sorter', 'Results processed', 4]
+            ]
+        ],
+        # expected_shard_cluster_profile
+        [
+            'Shard ID', ANY,
+            'SEARCH',
+            [
+                'Warning', ['None'],
+                'Internal cursor reads', 1,
+                'Iterators profile',
+                {
+                    # Each shard can have different iterator profile, so we
+                    # check that one of the following values is in the profile
+                    'Valid Values':
+                    [
+                        ['Type', 'EMPTY', 'Number of reading operations', 0],
+                        [
+                            'Type', 'INTERSECT',
+                            'Number of reading operations', 2,
+                            'Child iterators',
+                            [
+                                [
+                                    'Type', 'UNION',
+                                    'Query type', 'FUZZY - hell',
+                                    'Number of reading operations', 2,
+                                    'Child iterators',
+                                    [
+                                        ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 1, 'Estimated number of matches', 1],
+                                        ['Type', 'TEXT', 'Term', 'help', 'Number of reading operations', 1, 'Estimated number of matches', 1]
+                                    ]
+                                ],
+                                [
+                                    'Type', 'UNION',
+                                    'Query type', 'PREFIX - hel',
+                                    'Number of reading operations', 2,
+                                    'Child iterators',
+                                    [
+                                        ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 1, 'Estimated number of matches', 1],
+                                        ['Type', 'TEXT', 'Term', 'help', 'Number of reading operations', 1, 'Estimated number of matches', 1]
+                                    ]
+                                ]
+                            ]
+                        ],
+                    ],
+                },
+                'Result processors profile',
+                [
+                    ['Type', 'Index', 'Results processed', ANY],
+                    ['Type', 'Scorer', 'Results processed', ANY],
+                    ['Type', 'Sorter', 'Results processed', ANY],
+                    ['Type', 'Loader', 'Results processed', ANY],
+                ]
+            ],
+            'VSIM',
+            [
+                'Warning', ['None'],
+                'Internal cursor reads', 1,
+                'Iterators profile',
+                [
+                    'Type', 'VECTOR',
+                    'Number of reading operations', ANY,
+                    'Vector search mode', 'STANDARD_KNN'
+                ],
+                'Result processors profile',
+                [
+                    ['Type', 'Index', 'Results processed', ANY],
+                    ['Type', 'Metrics Applier', 'Results processed', ANY],
+                    ['Type', 'Scorer', 'Results processed', ANY],
+                    ['Type', 'Vector Normalizer', 'Results processed', ANY],
+                    ['Type', 'Loader', 'Results processed', ANY],
+                ]
+            ]
+        ],
+        # expected_coordinator_cluster_profile
+        [
+            'Shard ID', ANY,
+            'Warning', ['None'],
+            'Subqueries result processors profile',
+            [
+                'SEARCH',
+                [
+                    ['Type', 'Network', 'Results processed', 2],
+                    ['Type', 'Sorter', 'Results processed', 2],
+                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
+                ],
+                'VSIM',
+                [
+                    ['Type', 'Network', 'Results processed', 4],
+                    ['Type', 'Sorter', 'Results processed', 4],
+                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY],
+                ]
+            ],
+            'Result processors profile',
+            [
+                ['Type', 'Hybrid Merger', 'Results processed', 4],
+                ['Type', 'Sorter', 'Results processed', 4]
+            ]
+        ]
+    ),
+    # Test: Hybrid query with wildcard query and fuzzy (LIMITED)
+    (
+        ['FT.PROFILE', 'idx', 'HYBRID', 'LIMITED', 'QUERY',
+         'SEARCH', '%hell% hel*',
+         'VSIM', '@v', '$blob',
+         'PARAMS', 2, 'blob', 'aaaaaaaa',
+        ],
+        # expected_shard_standalone_profile
+        [[
+            'SEARCH',
+            [
+                'Warning',
+                ['None'],
+                'Iterators profile',
+                [
+                    'Type', 'INTERSECT', 'Number of reading operations', 2,
+                    'Child iterators',
+                    [
+                        [
+                            'Type', 'UNION', 'Query type', 'FUZZY - hell',
+                            'Number of reading operations', 2,
+                            'Child iterators',
+                            'The number of iterators in the union is 2'
+                        ],
+                        [
+                            'Type', 'UNION', 'Query type', 'PREFIX - hel',
+                            'Number of reading operations', 2,
+                            'Child iterators',
+                            'The number of iterators in the union is 2'
+                        ]
+                    ]
+                ],
+                'Result processors profile',
+                [
+                    ['Type', 'Index', 'Results processed', 2],
+                    ['Type', 'Scorer', 'Results processed', 2],
+                    ['Type', 'Sorter', 'Results processed', 2],
+                    ['Type', 'Loader', 'Results processed', 2]
+                ]
+            ],
+            'VSIM',
+            [
+                'Warning',
+                ['None'],
+                'Iterators profile',
+                ['Type', 'VECTOR', 'Number of reading operations', 4, 'Vector search mode', 'STANDARD_KNN'],
+                'Result processors profile',
+                [
+                    ['Type', 'Index', 'Results processed', 4],
+                    ['Type', 'Metrics Applier', 'Results processed', 4],
+                    ['Type', 'Vector Normalizer', 'Results processed', 4],
+                    ['Type', 'Loader', 'Results processed', 4]
+                ]
+            ]
+        ]],
+        # expected_coordinator_standalone_profile.
+        [
+            'Warning', ['None'],
+            'Result processors profile',
+            [
+                ['Type', 'Hybrid Merger', 'Results processed', 4],
+                ['Type', 'Sorter', 'Results processed', 4]
+            ]
+        ],
+        # expected_shard_cluster_profile
+        [
+            'Shard ID', ANY,
+            'SEARCH',
+            [
+                'Warning', ['None'],
+                'Internal cursor reads', 1,
+                'Iterators profile',
+                {
+                    # Each shard can have different iterator profile, so we
+                    # check that one of the following values is in the profile
+                    'Valid Values':
+                    [
+                        ['Type', 'EMPTY', 'Number of reading operations', 0],
+                        [
+                            'Type', 'INTERSECT', 'Number of reading operations', 2,
+                            'Child iterators',
+                            [
+                                [
+                                    'Type', 'UNION',
+                                    'Query type', 'FUZZY - hell',
+                                    'Number of reading operations', 2,
+                                    'Child iterators',
+                                    'The number of iterators in the union is 2'
+                                ],
+                                [
+                                    'Type', 'UNION',
+                                    'Query type', 'PREFIX - hel',
+                                    'Number of reading operations', 2,
+                                    'Child iterators',
+                                    'The number of iterators in the union is 2'
+                                ]
+                            ]
+                        ],
+                    ]
+                },
+                'Result processors profile',
+                [
+                    ['Type', 'Index', 'Results processed', ANY],
+                    ['Type', 'Scorer', 'Results processed', ANY],
+                    ['Type', 'Sorter', 'Results processed', ANY],
+                    ['Type', 'Loader', 'Results processed', ANY],
+                ]
+            ],
+            'VSIM',
+            [
+                'Warning', ['None'],
+                'Internal cursor reads', 1,
+                'Iterators profile',
+                [
+                    'Type', 'VECTOR',
+                    'Number of reading operations', ANY,
+                    'Vector search mode', 'STANDARD_KNN'
+                ],
+                'Result processors profile',
+                [
+                    ['Type', 'Index', 'Results processed', ANY],
+                    ['Type', 'Metrics Applier', 'Results processed', ANY],
+                    ['Type', 'Scorer', 'Results processed', ANY],
+                    ['Type', 'Vector Normalizer', 'Results processed', ANY],
+                    ['Type', 'Loader', 'Results processed', ANY],
+                ]
+            ]
+        ],
+        # expected_coordinator_cluster_profile
+        [
+            'Shard ID', ANY,
+            'Warning', ['None'],
+            'Subqueries result processors profile',
+            [
+                'SEARCH',
+                [
+                    ['Type', 'Network', 'Results processed', 2],
+                    ['Type', 'Sorter', 'Results processed', 2],
+                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
+                ],
+                'VSIM',
+                [
+                    ['Type', 'Network', 'Results processed', 4],
+                    ['Type', 'Sorter', 'Results processed', 4],
+                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY],
+                ]
+            ],
+            'Result processors profile',
+            [
+                ['Type', 'Hybrid Merger', 'Results processed', 4],
+                ['Type', 'Sorter', 'Results processed', 4]
+            ]
+        ]
+    )
 ]
-
 
 
 def _setup_index_and_data(env):
@@ -405,7 +757,7 @@ def _setup_index_and_data(env):
     env.expect('FT.CREATE idx SCHEMA t TEXT v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok()
     conn = getConnectionByEnv(env)
     conn.execute_command('hset', '1', 't', 'hello world', 'v', 'bababaca')
-    conn.execute_command('hset', '2', 't', 'hello space', 'v', 'babababa')
+    conn.execute_command('hset', '2', 't', 'help space', 'v', 'babababa')
     conn.execute_command('hset', '3', 't', 'world space', 'v', 'aabbaabb')
     conn.execute_command('hset', '4', 't', 'other text', 'v', 'bbaabbaa')
 
@@ -478,11 +830,23 @@ def test_profile_cluster():
             for k in [3, 5]:
                 err_message = 'SEARCH' if k == 3 else 'VSIM'
                 for i in range(len(expected_shard_profile[k])):
+                    expected_value = expected_shard_profile[k][i]
                     # skip if the expected value is ANY
-                    if expected_shard_profile[k][i] is ANY:
+                    if expected_value is ANY:
                         continue
+
+                    # If the expected value is a dict, check that the current
+                    # value is in the valid values.
+                    # This is used for the iterator profile, where each shard
+                    # can have different iterator profile.
+                    if isinstance(expected_value, dict):
+                        valid_values = expected_value['Valid Values']
+                        env.assertIn(shard_profile[k][i], valid_values,
+                                    message=f'{err_message} query: {query}')
+                        continue
+
                     env.assertEqual(shard_profile[k][i],
-                                    expected_shard_profile[k][i],
+                                    expected_value,
                                     message=f'{err_message} query: {query}')
 
         # Verify the coordinator profile data
@@ -491,9 +855,10 @@ def test_profile_cluster():
                         message=f'COORDINATOR query: {query}')
 
 def test_profile_time():
+    # Test that the time is greater or equal to 0 for all timings in the profile
     env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK true', protocol=3)
     _setup_index_and_data(env)
-    for query, _, _, _, _ in [query_and_profile[0]]:
+    for query, _, _, _, _ in query_and_profile:
         actual_res = env.execute_command(*query)
         # Verify that the time is greater or equal to 0
         env.assertGreaterEqual(actual_res['execution_time'], 0)
