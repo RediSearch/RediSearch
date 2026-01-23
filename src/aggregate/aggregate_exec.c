@@ -60,8 +60,8 @@ typedef int (*execCommandCommonHandler)(RedisModuleCtx *ctx, RedisModuleString *
  */
 static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
   const RSSortingVector* sv = RLookupRow_GetSortingVector(SearchResult_GetRowData(r));
-  if ((kk->flags & RLOOKUP_F_SVSRC) && (sv && RSSortingVector_Length(sv) > kk->svidx)) {
-    return RSSortingVector_Get(sv, kk->svidx);
+  if ((RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC) && (sv && RSSortingVector_Length(sv) > RLookupKey_GetSvIdx(kk))) {
+    return RSSortingVector_Get(sv, RLookupKey_GetSvIdx(kk));
   } else {
     return RLookup_GetItem(kk, SearchResult_GetRowData(r));
   }
@@ -207,7 +207,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         // For duo value, we use the left value here (not the right value)
         v = RSValue_Trio_GetLeft(v);
       }
-      if (rlk && (rlk->flags & RLOOKUP_T_NUMERIC) && v && !RSValue_IsNumber(v) && !RSValue_IsNull(v)) {
+      if (rlk && (RLookupKey_GetFlags(rlk) & RLOOKUP_T_NUMERIC) && v && !RSValue_IsNumber(v) && !RSValue_IsNull(v)) {
         double d;
         RSValue_ToNumber(v, &d);
         if (rsv == NULL) {
@@ -246,48 +246,48 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
       uint32_t excludeFlags = RLOOKUP_F_HIDDEN;
       uint32_t requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
-      size_t skipFieldIndex_len = lk->rowlen;
+      size_t skipFieldIndex_len = RLookup_GetRowLen(lk);
       bool skipFieldIndex[skipFieldIndex_len]; // After calling `RLookup_GetLength` will contain `false` for fields which we should skip below
       memset(skipFieldIndex, 0, skipFieldIndex_len * sizeof(*skipFieldIndex));
       size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, skipFieldIndex_len, requiredFlags, excludeFlags, rule);
 
       RedisModule_Reply_Map(reply);
-        int i = 0;
-        for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-          if (!kk->name || !skipFieldIndex[i++]) {
-            continue;
-          }
-          const RSValue *v = RLookup_GetItem(kk, SearchResult_GetRowData(r));
-          RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
-
-          RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
-
-          QEFlags reqFlags = AREQ_RequestFlags(req);
-          SendReplyFlags flags = (reqFlags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
-          flags |= (reqFlags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
-
-          unsigned int apiVersion = sctx->apiVersion;
-          if (RSValue_IsTrio(v)) {
-            // Which value to use for duo value
-            if (!(flags & SENDREPLY_FLAG_EXPAND)) {
-              // STRING
-              if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
-                // Multi
-                v = RSValue_Trio_GetMiddle(v);
-              } else {
-                // Single
-                v = RSValue_Trio_GetLeft(v);
-              }
-            } else {
-              // EXPAND
-              v = RSValue_Trio_GetRight(v);
-            }
-          }
-          RedisModule_Reply_RSValue(reply, v, flags);
+      int i = 0;
+      RLOOKUP_FOREACH(kk, lk, {
+        if (!RLookupKey_GetName(kk) || !skipFieldIndex[i++]) {
+          continue;
         }
-      RedisModule_Reply_MapEnd(reply);
-    }
+        const RSValue *v = RLookup_GetItem(kk, SearchResult_GetRowData(r));
+        RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
+
+        RedisModule_Reply_StringBuffer(reply, RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
+
+        QEFlags reqFlags = AREQ_RequestFlags(req);
+        SendReplyFlags flags = (reqFlags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
+        flags |= (reqFlags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
+
+        unsigned int apiVersion = sctx->apiVersion;
+        if (RSValue_IsTrio(v)) {
+        // Which value to use for duo value
+        if (!(flags & SENDREPLY_FLAG_EXPAND)) {
+          // STRING
+          if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
+            // Multi
+            v = RSValue_Trio_GetMiddle(v);
+          } else {
+            // Single
+            v = RSValue_Trio_GetLeft(v);
+          }
+        } else {
+          // EXPAND
+          v = RSValue_Trio_GetRight(v);
+        }
+      }
+      RedisModule_Reply_RSValue(reply, v, flags);
+    });
+    RedisModule_Reply_MapEnd(reply);
   }
+}
 
   if (has_map) {
     // placeholder for fields_values. (possible optimization)
