@@ -12,15 +12,7 @@ search_result_processors = [
     ['Type', 'Loader', 'Results processed', ANY]
 ]
 
-# vsim result processors
-vsim_result_processors = [
-    ['Type', 'Index', 'Results processed', ANY],
-    ['Type', 'Metrics Applier', 'Results processed', ANY],
-    ['Type', 'Vector Normalizer', 'Results processed', ANY],
-    ['Type', 'Loader', 'Results processed', ANY]
-]
-
-# This is common for all test queries
+# This is common for all test with `SEARCH hello`
 expected_shard_standalone_profile = [[
     'SEARCH',
     [
@@ -47,7 +39,12 @@ expected_shard_standalone_profile = [[
             'Vector search mode', 'STANDARD_KNN'
         ],
         'Result processors profile',
-        vsim_result_processors
+        [
+            ['Type', 'Index', 'Results processed', ANY],
+            ['Type', 'Metrics Applier', 'Results processed', ANY],
+            ['Type', 'Vector Normalizer', 'Results processed', ANY],
+            ['Type', 'Loader', 'Results processed', ANY]
+        ]
     ]
 ]]
 
@@ -890,3 +887,51 @@ def test_profile_time():
             if processor['Type'] == 'Threadsafe-Depleter':
                 env.assertGreaterEqual(processor['Depletion time'], 0)
             env.assertGreaterEqual(processor['Time'], 0)
+
+def test_profile_errors():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _setup_index_and_data(env)
+
+    # Invalid number of arguments
+    env.expect('FT.PROFILE').error()\
+        .contains("wrong number of arguments for 'FT.PROFILE' command")
+    env.expect('FT.PROFILE idx').error()\
+        .contains("wrong number of arguments for 'FT.PROFILE' command")
+    # Missing QUERY
+    env.expect(
+        'FT.PROFILE', 'idx', 'HYBRID',
+        'SEARCH', 'world',
+        'VSIM', '@v', '$blob',
+        'PARAMS', 2, 'blob', 'aaaaaaaa').error()\
+            .contains('The QUERY keyword is expected')
+    # Missing HYBRID
+    env.expect(
+        'FT.PROFILE', 'idx', 'QUERY',
+        'SEARCH', 'world',
+        'VSIM', '@v', '$blob',
+        'PARAMS', 2, 'blob', 'aaaaaaaa').error()\
+            .contains('No `SEARCH`, `AGGREGATE`, or `HYBRID` provided')
+    # Missing SEARCH
+    env.expect(
+        'FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
+        'VSIM', '@v', '$blob',
+        'PARAMS', 2, 'blob', 'aaaaaaaa').error()\
+            .contains('Invalid subqueries count: expected an unsigned integer')
+    # Missing VSIM
+    env.expect(
+        'FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
+        'SEARCH', '$blob',
+        'PARAMS', 2, 'blob', 'aaaaaaaa').error()\
+            .contains('Unknown argument `PARAMS` in SEARCH')
+    # Missing PARAMS
+    env.expect(
+        'FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
+        'SEARCH', 'world',
+        'VSIM', '@v', '$blob').error()\
+            .contains('No such parameter `blob`')
+    # Invalid vector argument
+    env.expect(
+        'FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
+        'SEARCH', 'world',
+        'VSIM', '@v', 'aaaaaaaa').error()\
+            .contains('Invalid vector argument, expected a parameter name starting with $')

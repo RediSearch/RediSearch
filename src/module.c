@@ -2071,7 +2071,7 @@ static void searchRequestCtx_Free(searchRequestCtx *r) {
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies);
 
-int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
+int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv, QueryError *status) {
   req->profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     req->profileArgs += 2;
@@ -2081,6 +2081,7 @@ int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
       req->profileArgs++;
     }
     if (RMUtil_ArgIndex("QUERY", argv + 3, 2) == -1) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "The QUERY keyword is expected");
       return REDISMODULE_ERR;
     }
   }

@@ -297,10 +297,6 @@ static void Profile_PrintCommonExtra_Internal(RedisModule_Reply *reply, AREQ *re
   RedisModule_Reply_MapEnd(reply);
 }
 
-void Profile_PrintCommon(RedisModule_Reply *reply, AREQ *req, HybridRequest *hreq) {
-  Profile_PrintCommonExtra_Internal(reply, req, hreq, NULL, NULL);
-}
-
 void Profile_PrintHybrid(RedisModule_Reply *reply, void *ctx) {
   HybridRequest *hreq = ctx;
   Profile_PrintCommonExtra_Internal(reply, NULL, hreq, NULL, NULL);
