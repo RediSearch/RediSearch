@@ -12,8 +12,10 @@
 #include "util/timeout.h"
 #include "iterators/profile_iterator.h"
 
-// Forward declaration
+// Forward declarations
 typedef struct ResultProcessor ResultProcessor;
+typedef struct AREQ AREQ;
+typedef struct HybridRequest HybridRequest;
 
 #define printProfileType(vtype) RedisModule_ReplyKV_SimpleString(reply, "Type", (vtype))
 #define printProfileTime(vtime) RedisModule_ReplyKV_Double(reply, "Time", (vtime))
@@ -106,6 +108,21 @@ typedef struct {
   rs_wall_clock_ns_t coordStartTime;    // Coordinator: when command was received (for dispatch time calc)
   rs_wall_clock_ns_t coordDispatchTime; // Shard: dispatch latency from coordinator (for profile output)
 } ProfileClocks;
+
+// Type of request for profile printing
+typedef enum {
+  PROFILE_REQUEST_TYPE_AREQ,    // Standard AREQ request
+  PROFILE_REQUEST_TYPE_HYBRID   // HybridRequest
+} ProfileRequestType;
+
+ // Tagged union for profile printing requests
+typedef struct {
+  ProfileRequestType type;
+  union {
+    AREQ *req;
+    HybridRequest *hreq;
+  };
+} ProfileRequest;
 
 void Profile_PrintDefault(RedisModule_Reply *reply, void *ctx);
 

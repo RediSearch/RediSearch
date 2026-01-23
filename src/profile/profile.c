@@ -162,27 +162,34 @@ void Profile_PrintResultProcessors(RedisModule_Reply *reply, ResultProcessor *rp
 }
 
 // Internal implementation that supports an optional callback for adding extra content
-static void Profile_PrintCommonExtra_Internal(RedisModule_Reply *reply, AREQ *req, HybridRequest *hreq,
-                                           ProfilePrinterCB extraCB, void *extraCtx) {
-  RS_ASSERT(req || hreq);
+static void Profile_PrintCommon(RedisModule_Reply *reply, ProfileRequest *request,
+                                ProfilePrinterCB extraCB, void *extraCtx) {
   ProfilePrinterCtx *profileCtx = NULL;
   ProfileClocks *clocks = NULL;
   QueryProcessingCtx *qctx = NULL;
   QEFlags reqFlags = 0;
   bool profile_verbose = false;
+  AREQ *req = NULL;  // Keep for iterator access
 
-  if (req) {
-    profileCtx = AREQ_ProfilePrinterCtx(req);
-    profile_verbose = req->reqConfig.printProfileClock;
-    clocks = &(req->profileClocks);
-    qctx = AREQ_QueryProcessingCtx(req);
-    reqFlags = AREQ_RequestFlags(req);
-  } else if (hreq) {
-    profileCtx = &(hreq->profileCtx);
-    profile_verbose = hreq->reqConfig.printProfileClock;
-    clocks = &(hreq->profileClocks);
-    qctx = &hreq->tailPipeline->qctx;
-    reqFlags = (QEFlags)hreq->reqflags;
+  switch (request->type) {
+    case PROFILE_REQUEST_TYPE_AREQ:
+      req = request->req;
+      profileCtx = AREQ_ProfilePrinterCtx(req);
+      profile_verbose = req->reqConfig.printProfileClock;
+      clocks = &(req->profileClocks);
+      qctx = AREQ_QueryProcessingCtx(req);
+      reqFlags = AREQ_RequestFlags(req);
+      break;
+
+    case PROFILE_REQUEST_TYPE_HYBRID: {
+      HybridRequest *hreq = request->hreq;
+      profileCtx = &(hreq->profileCtx);
+      profile_verbose = hreq->reqConfig.printProfileClock;
+      clocks = &(hreq->profileClocks);
+      qctx = &hreq->tailPipeline->qctx;
+      reqFlags = (QEFlags)hreq->reqflags;
+      break;
+    }
   }
 
   bool timedout = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
@@ -299,18 +306,30 @@ static void Profile_PrintCommonExtra_Internal(RedisModule_Reply *reply, AREQ *re
 
 void Profile_PrintHybrid(RedisModule_Reply *reply, void *ctx) {
   HybridRequest *hreq = ctx;
-  Profile_PrintCommonExtra_Internal(reply, NULL, hreq, NULL, NULL);
+  ProfileRequest request = {
+    .type = PROFILE_REQUEST_TYPE_HYBRID,
+    .hreq = hreq
+  };
+  Profile_PrintCommon(reply, &request, NULL, NULL);
 }
 
 void Profile_PrintHybridExtra(RedisModule_Reply *reply, void *ctx,
                            ProfilePrinterCB extraCB, void *extraCtx) {
   HybridRequest *hreq = ctx;
-  Profile_PrintCommonExtra_Internal(reply, NULL, hreq, extraCB, extraCtx);
+  ProfileRequest request = {
+    .type = PROFILE_REQUEST_TYPE_HYBRID,
+    .hreq = hreq
+  };
+  Profile_PrintCommon(reply, &request, extraCB, extraCtx);
 }
 
 void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   AREQ *req = ctx;
-  Profile_PrintCommonExtra_Internal(reply, req, NULL, NULL, NULL);
+  ProfileRequest request = {
+    .type = PROFILE_REQUEST_TYPE_AREQ,
+    .req = req
+  };
+  Profile_PrintCommon(reply, &request, NULL, NULL);
 }
 
 void Profile_PrepareMapForReply(RedisModule_Reply *reply) {
