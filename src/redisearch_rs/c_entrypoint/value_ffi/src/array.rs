@@ -1,4 +1,4 @@
-use std::mem::ManuallyDrop;
+use crate::util::expect_value;
 use value::{RsValue, shared::SharedRsValue};
 
 #[unsafe(no_mangle)]
@@ -24,9 +24,7 @@ pub unsafe extern "C" fn RSValue_NewArray(values: *mut *mut RsValue, len: u32) -
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_ArrayLen(value: *const RsValue) -> u32 {
-    let shared_value = unsafe { SharedRsValue::from_raw(value) };
-    let shared_value = ManuallyDrop::new(shared_value);
-    let value = shared_value.value();
+    let value = unsafe { expect_value(value) };
 
     if let RsValue::Array(array) = value {
         array.len() as u32
@@ -37,9 +35,7 @@ pub unsafe extern "C" fn RSValue_ArrayLen(value: *const RsValue) -> u32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_ArrayItem(value: *const RsValue, index: u32) -> *mut RsValue {
-    let shared_value = unsafe { SharedRsValue::from_raw(value) };
-    let shared_value = ManuallyDrop::new(shared_value);
-    let value = shared_value.value();
+    let value = unsafe { expect_value(value) };
 
     if let RsValue::Array(array) = value {
         let shared = &array[index as usize];

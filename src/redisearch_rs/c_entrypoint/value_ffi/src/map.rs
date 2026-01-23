@@ -1,4 +1,5 @@
-use std::mem::{ManuallyDrop, MaybeUninit};
+use crate::util::expect_value;
+use std::mem::MaybeUninit;
 use value::{RsValue, shared::SharedRsValue};
 
 /// Opaque map structure used during map construction.
@@ -47,11 +48,9 @@ pub unsafe extern "C" fn RSValue_NewMap(map: *mut RSValueMap) -> *mut RsValue {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Map_Len(map: *const RsValue) -> u32 {
-    let shared_value = unsafe { SharedRsValue::from_raw(map) };
-    let shared_value = ManuallyDrop::new(shared_value);
-    let value = shared_value.value();
+    let map = unsafe { expect_value(map) };
 
-    if let RsValue::Map(map) = value {
+    if let RsValue::Map(map) = map {
         map.len() as u32
     } else {
         panic!("Expected a map value")
@@ -65,10 +64,9 @@ pub unsafe extern "C" fn RSValue_Map_GetEntry(
     key: *mut *mut RsValue,
     value: *mut *mut RsValue,
 ) {
-    let shared_value = unsafe { SharedRsValue::from_raw(map) };
-    let shared_value = ManuallyDrop::new(shared_value);
+    let map = unsafe { expect_value(map) };
 
-    if let RsValue::Map(map) = shared_value.value() {
+    if let RsValue::Map(map) = map {
         let (shared_key, shared_value) = &map[index as usize];
         unsafe { key.write(shared_key.as_ptr() as *mut _) };
         unsafe { value.write(shared_value.as_ptr() as *mut _) };
