@@ -815,6 +815,7 @@ static bool trieInsertWithNumDocs(Trie *t, const char *s, float score, size_t nu
   return Trie_InsertStringBuffer(t, s, strlen(s), score, 0, NULL, numDocsToSet, numDocsToAdd);
 }
 
+#ifdef TRACK_NUMDOCS_IN_TRIE_NODE
 // Helper function to get numDocs from a trie node
 static size_t trieGetNumDocs(Trie *t, const char *s) {
   runeBuf buf;
@@ -927,3 +928,4 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   EXPECT_EQ(6, count);
   TrieIterator_Free(it);
 }
+#endif  // TRACK_NUMDOCS_IN_TRIE_NODE
