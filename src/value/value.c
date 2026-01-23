@@ -209,20 +209,17 @@ RSValue *RSValue_NewArray(RSValue **vals, uint32_t len) {
   return arr;
 }
 
-RSValueMap RSValueMap_AllocUninit(uint32_t len) {
-  RSValueMapEntry *entries =
-    (len > 0) ? (RSValueMapEntry*) rm_malloc(len * sizeof(RSValueMapEntry)) : NULL;
-  RSValueMap map = {
-    .len = len,
-    .entries = entries,
-  };
-
+RSValueMap *RSValueMap_AllocUninit(uint32_t len) {
+  RSValueMap *map = rm_malloc(sizeof(RSValueMap));
+  map->len = len;
+  map->entries = (len > 0) ? (RSValueMapEntry*) rm_malloc(len * sizeof(RSValueMapEntry)) : NULL;
   return map;
 }
 
-RSValue *RSValue_NewMap(RSValueMap map) {
+RSValue *RSValue_NewMap(RSValueMap *map) {
   RSValue *v = RSValue_NewWithType(RSValueType_Map);
-  v->_mapval = map;
+  v->_mapval = *map;
+  rm_free(map);
   return v;
 }
 
