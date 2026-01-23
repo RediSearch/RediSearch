@@ -1207,6 +1207,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "numeric_range_tree_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "numeric_range_tree",
+ "redis_mock",
+ "workspace_hack",
+]
+
+[[package]]
 name = "object"
 version = "0.37.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

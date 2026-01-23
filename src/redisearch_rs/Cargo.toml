@@ -78,6 +78,7 @@ fnv = { path = "./fnv" }
 hyperloglog = { path = "./hyperloglog" }
 inverted_index = { path = "./inverted_index" }
 numeric_range_tree = { path = "./numeric_range_tree" }
+numeric_range_tree_ffi = { path = "./c_entrypoint/numeric_range_tree_ffi" }
 qint = { path = "./qint" }
 query_error = { path = "./query_error" }
 redis_mock = { path = "./redis_mock" }

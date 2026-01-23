@@ -1,0 +1,24 @@
+[package]
+name = "numeric_range_tree_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[build-dependencies]
+cbindgen.workspace = true
+build_utils = { path = "../../build_utils" }
+
+[dependencies]
+numeric_range_tree.workspace = true
+ffi.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+redis_mock.workspace = true
+
+[target.'cfg(miri)'.dependencies]
+redis_mock.workspace = true
