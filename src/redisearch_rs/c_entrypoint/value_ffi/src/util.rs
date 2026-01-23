@@ -9,19 +9,21 @@
 
 use value::RsValue;
 
-/// Get a reference to an RsValue object from a pointer.
+/// Get a reference to an [`RsValue`] from a pointer.
 ///
-/// # SAFETY
+/// Checks for null in debug mode, does an unwrap_unchecked in release mode.
 ///
-/// value must point to a valid RsValue object.
+/// # Safety
+///
+/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 pub(crate) const unsafe fn expect_value<'a>(value: *const RsValue) -> &'a RsValue {
-    // SAFETY: value points to a valid RsValue object.
+    // Safety: ensured by caller (1.)
     let value = unsafe { value.as_ref() };
 
     if cfg!(debug_assertions) {
         value.expect("value must not be null")
     } else {
-        // SAFETY: value points to a valid RsValue object.
+        // Safety: ensured by caller (1.)
         unsafe { value.unwrap_unchecked() }
     }
 }
