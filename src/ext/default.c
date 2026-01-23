@@ -724,7 +724,6 @@ void DefaultExpanderFree(void *p) {
  *
  ******************************************************************************************/
 
-#define TEST_SIMPLE_SUM_SCORER_NAME "TEST_SIMPLE_SUM"
 
 /* Test scoring function that returns sum of numTerms + numDocs + avgDocLen */
 static double TestSimpleSumScoringFunction(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
