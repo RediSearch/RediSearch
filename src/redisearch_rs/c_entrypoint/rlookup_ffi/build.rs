@@ -11,4 +11,7 @@ use build_utils::run_cbinden;
 
 fn main() {
     run_cbinden("../../headers/rlookup_rs.h").unwrap();
+
+    #[cfg(feature = "unittest")]
+    build_utils::bind_foreign_c_symbols();
 }

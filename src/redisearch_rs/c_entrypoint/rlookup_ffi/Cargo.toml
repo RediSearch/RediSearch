@@ -8,6 +8,9 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+unittest = []
+
 [dependencies]
 rlookup.workspace = true
 ffi.workspace = true
@@ -18,3 +21,8 @@ workspace_hack.workspace = true
 [build-dependencies]
 cbindgen.workspace = true
 build_utils = { path = "../../build_utils" }
+
+[dev-dependencies]
+rlookup_ffi = { path = ".", features = ["unittest"] }
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+redis_mock.workspace = true
