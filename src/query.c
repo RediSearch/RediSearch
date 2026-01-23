@@ -521,7 +521,8 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (q->sctx->spec->diskSpec) {
     RS_LOG_ASSERT(q->sctx->spec->diskSpec, "Disk spec should be open");
-    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, qn->tn.str, qn->tn.len, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
+
+    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, qn->tn.str, qn->tn.len, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight, 0, 0);
   } else {
     return Redis_OpenReader(q->sctx, &qn->tn, q->tokenId++, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
   }
@@ -541,7 +542,7 @@ static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
 
   if (q->sctx->spec->diskSpec) {
     RS_LOG_ASSERT(q->sctx->spec->diskSpec, "Disk spec should be open");
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & opts->fieldMask, 1);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & opts->fieldMask, 1, 0.0, 0.0);
   } else {
     // Open an index reader
     ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
@@ -781,7 +782,7 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   tok.str = runesToStr(r, n, &tok.len);
   QueryIterator *ir = NULL;
   if (q->sctx->spec->diskSpec) {
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & ctx->opts->fieldMask, 1);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & ctx->opts->fieldMask, 1, 0.0, 0.0);
   } else {
     ir = Redis_OpenReader(q->sctx, &tok, ctx->q->tokenId++, &q->sctx->spec->docs,
                                         q->opts->fieldmask & ctx->opts->fieldMask, 1);
@@ -804,7 +805,7 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   RSToken tok = {.str = (char *)s, .len = n};
   QueryIterator *ir = NULL;
   if (q->sctx->spec->diskSpec) {
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & ctx->opts->fieldMask, 1);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & ctx->opts->fieldMask, 1, 0.0, 0.0);
   } else {
     ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
                                         q->opts->fieldmask & ctx->opts->fieldMask, 1);

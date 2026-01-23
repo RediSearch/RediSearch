@@ -101,12 +101,12 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   size_t prevNumTerms = spec->stats.numTerms;
 
   while (entry != NULL) {
-    bool isNew;
     if (spec->diskSpec) {
       SearchDisk_IndexDocument(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask);
       // assume all terms are new, avoid the disk io to check
-      isNew = true;
+      IndexSpec_AddTerm(spec, entry->term, entry->len);
     } else {
+      bool isNew;
       InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
       if (isNew && strlen(entry->term) != 0) {
         IndexSpec_AddTerm(spec, entry->term, entry->len);
