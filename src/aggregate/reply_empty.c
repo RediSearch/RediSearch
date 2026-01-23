@@ -60,8 +60,9 @@ int coord_search_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv
     rs_wall_clock_init(&req.initClock);
 
     // PROFILE for FT.SEARCH requires no additional parsing
-    if (rscParseProfile(&req, argv, &errCode) != REDISMODULE_OK) {
-        return REDISMODULE_ERR;
+    QueryError status = QueryError_Default();
+    if (rscParseProfile(&req, argv, &status) != REDISMODULE_OK) {
+        return QueryError_ReplyAndClear(ctx, &status);
     }
 
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
