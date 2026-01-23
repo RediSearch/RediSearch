@@ -12,4 +12,5 @@
 pub mod array;
 pub mod map;
 pub mod shared;
+pub mod util;
 pub mod value_type;
