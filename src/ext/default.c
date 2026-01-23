@@ -24,6 +24,7 @@
 #include "stemmer.h"
 #include "phonetic_manager.h"
 #include "score_explain.h"
+#include "extension.h"
 
 /******************************************************************************************
  *
@@ -712,6 +713,34 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 
 void DefaultExpanderFree(void *p) {
   StemmerExpanderFree(p);
+}
+
+/******************************************************************************************
+ *
+ * Test Simple Sum Scoring Function (for testing purposes only)
+ *
+ * This is a simple scoring function that returns the sum of numTerms, numDocs, and avgDocLen.
+ * It is used for testing the scoring function registration mechanism via debug commands.
+ *
+ ******************************************************************************************/
+
+#define TEST_SIMPLE_SUM_SCORER_NAME "TEST_SIMPLE_SUM"
+
+/* Test scoring function that returns sum of numTerms + numDocs + avgDocLen */
+static double TestSimpleSumScoringFunction(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+                                           const RSDocumentMetadata *dmd, double minScore) {
+  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+  double score = (double)ctx->indexStats.numTerms +
+                 (double)ctx->indexStats.numDocs +
+                 ctx->indexStats.avgDocLen;
+  EXPLAIN(scrExp, "TEST_SIMPLE_SUM: numTerms(%zu) + numDocs(%zu) + avgDocLen(%.2f) = %.2f",
+          ctx->indexStats.numTerms, ctx->indexStats.numDocs, ctx->indexStats.avgDocLen, score);
+  return score;
+}
+
+/* Register the test simple sum scorer - to be called from debug command */
+int RegisterTestSimpleSumScorer(void) {
+  return Ext_RegisterScoringFunction(TEST_SIMPLE_SUM_SCORER_NAME, TestSimpleSumScoringFunction, NULL, NULL);
 }
 
 /* Register the default extension */

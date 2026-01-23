@@ -25,7 +25,11 @@
 #define BM25_STD_NORMALIZED_MAX_SCORER_NAME "BM25STD.NORM"
 #define DOCSCORE_SCORER "DOCSCORE"
 #define HAMMINGDISTANCE_SCORER "HAMMING"
+#define TEST_SIMPLE_SUM_SCORER_NAME "TEST_SIMPLE_SUM"
 
 int DefaultExtensionInit(RSExtensionCtx *ctx);
+
+/* Register the test simple sum scorer - for debug command use */
+int RegisterTestSimpleSumScorer(void);
 
 #endif

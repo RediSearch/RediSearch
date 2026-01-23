@@ -971,3 +971,129 @@ def testBM25DocLen(env: Env):
     env.cmd('DEL', 'doc1')
 
     validate_avg_doc_len(env, 'hello', 3)
+
+
+@skip(cluster=True)
+def test_simple_sum_scorer():
+    """
+    Test the TEST_SIMPLE_SUM scorer which returns numTerms + numDocs + avgDocLen.
+    This test registers the scorer via debug command and verifies the score calculation.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    # Register the test scorer using the debug command
+    env.expect(debug_cmd(), 'REGISTER_TEST_SCORER').ok()
+
+    # Create an index with a text field
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+
+    # Add documents with controlled content to make the calculation predictable
+    # Document 1: 2 tokens (hello, world)
+    conn.execute_command('HSET', 'doc1', 'title', 'hello world')
+    # Document 2: 3 tokens (hello, world, again)
+    conn.execute_command('HSET', 'doc2', 'title', 'hello world again')
+    # Document 3: 4 tokens (hello, world, again, more)
+    conn.execute_command('HSET', 'doc3', 'title', 'hello world again more')
+
+    # After indexing:
+    # numDocs = 3 (three documents)
+    # numTerms = 4 (unique terms: hello, world, again, more)
+    # avgDocLen = (2 + 3 + 4) / 3 = 3.0
+
+    # Expected score = numTerms + numDocs + avgDocLen = 4 + 3 + 3.0 = 10.0
+    expected_score = 10.0
+
+    # Search with the TEST_SIMPLE_SUM scorer
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'TEST_SIMPLE_SUM', 'WITHSCORES', 'NOCONTENT')
+
+    # Verify the score
+    # Result format: [numResults, doc1, score1, doc2, score2, ...]
+    env.assertEqual(res[0], 3)  # 3 results
+    actual_score = float(res[2])  # Score of first document
+    env.assertEqual(actual_score, expected_score)
+
+    # All documents should have the same score since it's based on index stats
+    env.assertEqual(float(res[4]), expected_score)  # Score of second document
+    env.assertEqual(float(res[6]), expected_score)  # Score of third document
+
+
+@skip(cluster=True)
+def test_simple_sum_scorer_aggregate():
+    """
+    Test the TEST_SIMPLE_SUM scorer with FT.AGGREGATE using ADDSCORES.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    # Register the test scorer using the debug command
+    env.expect(debug_cmd(), 'REGISTER_TEST_SCORER').ok()
+
+    # Create an index with a text field
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+
+    # Add documents with controlled content
+    conn.execute_command('HSET', 'doc1', 'title', 'hello world')
+    conn.execute_command('HSET', 'doc2', 'title', 'hello world again')
+
+    # After indexing:
+    # numDocs = 2
+    # numTerms = 3 (unique terms: hello, world, again)
+    # avgDocLen = (2 + 3) / 2 = 2.5
+
+    # Expected score = numTerms + numDocs + avgDocLen = 3 + 2 + 2.5 = 7.5
+    expected_score = 7.5
+
+    # Aggregate with the TEST_SIMPLE_SUM scorer
+    res = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'TEST_SIMPLE_SUM',
+                  'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC')
+
+    # Verify the score
+    env.assertEqual(res[0], 2)  # 2 results
+    actual_score = float(res[1][1])  # Score from first result
+    env.assertEqual(actual_score, expected_score)
+
+
+@skip(cluster=True)
+def test_simple_sum_scorer_with_explainscore():
+    """
+    Test the TEST_SIMPLE_SUM scorer with EXPLAINSCORE to verify the explanation.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    # Register the test scorer using the debug command
+    env.expect(debug_cmd(), 'REGISTER_TEST_SCORER').ok()
+
+    # Create an index with a text field
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+
+    # Add a single document
+    conn.execute_command('HSET', 'doc1', 'title', 'hello world')
+
+    # After indexing:
+    # numDocs = 1
+    # numTerms = 2 (unique terms: hello, world)
+    # avgDocLen = 2.0
+
+    # Expected score = numTerms + numDocs + avgDocLen = 2 + 1 + 2.0 = 5.0
+    expected_score = 5.0
+
+    # Search with EXPLAINSCORE
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'TEST_SIMPLE_SUM',
+                  'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT')
+
+    # Verify the score
+    env.assertEqual(res[0], 1)  # 1 result
+    # Result format with EXPLAINSCORE: [numResults, docId, [score, explanation], ...]
+    score_info = res[2]  # [score, explanation]
+    actual_score = float(score_info[0])
+    env.assertEqual(actual_score, expected_score)
+
+    # Verify the explanation contains the expected text
+    # The explanation is the second element of score_info
+    explanation = score_info[1]
+    env.assertContains('TEST_SIMPLE_SUM', explanation)

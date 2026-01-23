@@ -33,6 +33,7 @@
 #include "info/info_command.h"
 #include "iterators/inverted_index_iterator.h"
 #include "search_disk.h"
+#include "ext/default.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -2227,6 +2228,27 @@ DEBUG_COMMAND(DumpDeletedIds) {
   return REDISMODULE_OK;
 }
 
+/**
+ * FT.DEBUG REGISTER_TEST_SCORER
+ * Register the test simple sum scorer for testing purposes.
+ * This scorer returns numTerms + numDocs + avgDocLen.
+ */
+DEBUG_COMMAND(RegisterTestScorer) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  int result = RegisterTestSimpleSumScorer();
+  if (result == REDISEARCH_OK) {
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Scorer already registered or registration failed");
+  }
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -2270,6 +2292,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
+                               {"REGISTER_TEST_SCORER", RegisterTestScorer}, // Register test simple sum scorer
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
