@@ -1,45 +1,38 @@
-use std::{
-    ffi::c_void,
-    mem::{ManuallyDrop, MaybeUninit},
-};
+use std::mem::{ManuallyDrop, MaybeUninit};
 use value::{RsValue, shared::SharedRsValue};
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValueMap_AllocUninit(len: u32) -> *mut c_void {
-    let vec: Vec<MaybeUninit<(*mut RsValue, *mut RsValue)>> =
-        vec![MaybeUninit::uninit(); len as usize];
+/// Opaque map structure used during map construction.
+/// Holds uninitialized entries that are populated via `RSValueMap_SetEntry`
+/// before being finalized into an `RsValue::Map` via `RSValue_NewMap`.
+pub struct RSValueMap {
+    entries: Vec<MaybeUninit<(*mut RsValue, *mut RsValue)>>,
+}
 
-    Box::into_raw(vec.into_boxed_slice()) as *mut c_void
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValueMap_AllocUninit(len: u32) -> *mut RSValueMap {
+    let entries = vec![MaybeUninit::uninit(); len as usize];
+
+    Box::into_raw(Box::new(RSValueMap { entries }))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValueMap_SetEntry(
-    map: *mut c_void,
+    map: *mut RSValueMap,
     index: u32,
     key: *mut RsValue,
     value: *mut RsValue,
 ) {
-    let slice = unsafe {
-        std::slice::from_raw_parts_mut(
-            map as *mut MaybeUninit<(*mut RsValue, *mut RsValue)>,
-            (index + 1) as usize,
-        )
-    };
+    let map = unsafe { map.as_mut().expect("map should not be null") };
 
-    slice[index as usize] = MaybeUninit::new((key, value));
+    map.entries[index as usize] = MaybeUninit::new((key, value));
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewMap(map: *mut c_void, len: u32) -> *mut RsValue {
-    let map = unsafe {
-        Vec::from_raw_parts(
-            map as *mut MaybeUninit<(*mut RsValue, *mut RsValue)>,
-            len as usize,
-            len as usize,
-        )
-    };
+pub unsafe extern "C" fn RSValue_NewMap(map: *mut RSValueMap) -> *mut RsValue {
+    let map = unsafe { Box::from_raw(map) };
 
     let map = map
+        .entries
         .into_iter()
         .map(|entry| {
             let (key, value) = unsafe { entry.assume_init() };
