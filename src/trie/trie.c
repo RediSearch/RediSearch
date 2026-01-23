@@ -81,7 +81,8 @@ static void triePayload_Free(TriePayload *payload, TrieFreeCallback freecb) {
 }
 
 TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
-                        t_len numChildren, float score, int terminal, TrieSortMode sortMode) {
+                        t_len numChildren, float score, int terminal, TrieSortMode sortMode,
+                        size_t numDocs) {
   TrieNode *n = rm_calloc(1, __trieNode_Sizeof(numChildren, len - offset));
   n->len = len - offset;
   n->numChildren = numChildren;
@@ -89,6 +90,7 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
   n->sortMode = sortMode;
   n->flags = 0 | (terminal ? TRIENODE_TERMINAL : 0);
   n->maxChildScore = score;
+  n->numDocs = numDocs;
   memcpy(n->str, str + offset, sizeof(rune) * (len - offset));
   if (payload != NULL && plen > 0) {
     n->payload = triePayload_New(payload, plen);
@@ -107,12 +109,12 @@ TrieNode *__trieNode_resizeChildren(TrieNode *n, int offset) {
 }
 
 TrieNode *__trie_AddChildIdx(TrieNode *n, const rune *str, t_len offset, t_len len, RSPayload *payload,
-                             float score, int idx) {
+                             float score, int idx, size_t numDocs) {
   n = __trieNode_resizeChildren(n, 1);
 
   // a newly added child must be a terminal node
   TrieNode *child = __newTrieNode(str, offset, len, payload ? payload->data : NULL,
-                                  payload ? payload->len : 0, 0, score, 1, n->sortMode);
+                                  payload ? payload->len : 0, 0, score, 1, n->sortMode, numDocs);
 
   if (n->numChildren > 1) {
     memmove(__trieNode_childKey(n, idx + 1), __trieNode_childKey(n, idx), (n->numChildren - idx - 1) * sizeof(rune));
@@ -126,7 +128,7 @@ TrieNode *__trie_AddChildIdx(TrieNode *n, const rune *str, t_len offset, t_len l
 TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   // Copy the current node's data and children to a new child node
   TrieNode *newChild = __newTrieNode(n->str, offset, n->len, NULL, 0, n->numChildren, n->score,
-                                     __trieNode_isTerminal(n), n->sortMode);
+                                     __trieNode_isTerminal(n), n->sortMode, n->numDocs);
   newChild->maxChildScore = n->maxChildScore;
   newChild->flags = n->flags;
   newChild->payload = n->payload;
@@ -136,10 +138,11 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   memcpy(newChildren, children, sizeof(TrieNode *) * n->numChildren);
   memcpy(__trieNode_childKey(newChild, 0), __trieNode_childKey(n, 0), n->numChildren * sizeof(rune));
 
-  // reduce the node to be just one child long with no score
+  // reduce the node to be just one child long with no score and no numDocs
   n->numChildren = 1;
   n->len = offset;
   n->score = 0;
+  n->numDocs = 0;
   // the parent node is now non terminal and non sorted
   n->flags &= ~(TRIENODE_TERMINAL | TRIENODE_DELETED);
 
@@ -166,7 +169,7 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) 
   memcpy(&nstr[n->len], ch->str, sizeof(rune) * ch->len);
   TrieNode *merged = __newTrieNode(
       nstr, 0, n->len + ch->len, NULL, 0, ch->numChildren,
-      ch->score, __trieNode_isTerminal(ch), n->sortMode);
+      ch->score, __trieNode_isTerminal(ch), n->sortMode, ch->numDocs);
   merged->maxChildScore = ch->maxChildScore;
   merged->numChildren = ch->numChildren;
   merged->payload = ch->payload;
@@ -188,12 +191,15 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) 
 }
 
 int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
-                 TrieAddOp op, TrieFreeCallback freecb) {
+                 TrieAddOp op, TrieFreeCallback freecb, size_t numDocsToSet, size_t numDocsToAdd) {
   if (score == 0 || len == 0) {
     return 0;
   }
 
   TrieNode *n = *np;
+
+  // Compute the numDocs for this node: if numDocsToSet > 0, use it; otherwise add numDocsToAdd
+  size_t numDocs = numDocsToSet > 0 ? numDocsToSet : numDocsToAdd;
 
   int offset = 0;
   for (; offset < len && offset < n->len; offset++) {
@@ -214,6 +220,7 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
     if (offset == len) {
       n->score = score;
       n->flags |= TRIENODE_TERMINAL;
+      n->numDocs = numDocs;
       TrieNode *newChild = __trieNode_children(n)[0];
       n = rm_realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
       if (n->payload != NULL) {
@@ -228,7 +235,7 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
     } else {
       // a node after a split has a single child
       int idx = str[offset] > *__trieNode_childKey(n, 0) ? 1 : 0;
-      n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx);
+      n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
       updateScore(n, score);
     }
     *np = n;
@@ -252,6 +259,12 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
       default:
         n->score = score;
     }
+    // Update numDocs: if numDocsToSet > 0, set it; otherwise add numDocsToAdd
+    if (numDocsToSet > 0) {
+      n->numDocs = numDocsToSet;
+    } else {
+      n->numDocs += numDocsToAdd;
+    }
     if (payload != NULL && payload->data != NULL && payload->len > 0) {
       if (n->payload != NULL) {
         triePayload_Free(n->payload, freecb);
@@ -274,7 +287,8 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
     const rune *childKey = __trieNode_childKey(n, idx);
     TrieNode *child = __trieNode_children(n)[idx];
     if (str[offset] == *childKey) {
-      int rc = TrieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb);
+      int rc = TrieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb,
+                            numDocsToSet, numDocsToAdd);
       *__trieNode_childKey(n, idx) = str[offset];
       __trieNode_children(n)[idx] = child;
       // In score mode, check if the order was kept and fix as necessary
@@ -300,7 +314,7 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
   if (n->sortMode == Trie_Sort_Score && scoreIdx != REDISEARCH_UNINITIALIZED) {
     idx = scoreIdx;
   }
-  *np = __trie_AddChildIdx(n, str, offset, len, payload, score, idx);
+  *np = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
   return 1;
 }
 

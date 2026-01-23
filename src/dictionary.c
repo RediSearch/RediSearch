@@ -34,7 +34,7 @@ int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   RS_LOG_ASSERT_ALWAYS(t != NULL, "Failed to open dictionary in write mode");
 
   for (int i = 0; i < len; ++i) {
-    valuesAdded += Trie_Insert(t, values[i], 1, 1, NULL);
+    valuesAdded += Trie_Insert(t, values[i], 1, 1, NULL, 0, 0);
   }
 
   return valuesAdded;

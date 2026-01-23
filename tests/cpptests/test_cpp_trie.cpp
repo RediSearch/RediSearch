@@ -23,7 +23,7 @@ typedef std::set<std::string> ElemSet;
 class TrieTest : public ::testing::Test {};
 
 static bool trieInsert(Trie *t, const char *s, size_t n) {
-  return Trie_InsertStringBuffer(t, s, n, 1, 1, NULL);
+  return Trie_InsertStringBuffer(t, s, n, 1, 1, NULL, 0, 0);
 }
 static bool trieInsert(Trie *t, const char *s) {
   return trieInsert(t, s, strlen(s));
@@ -188,17 +188,17 @@ TEST_F(TrieTest, testPayload) {
   Trie *t = NewTrie(NULL, Trie_Sort_Score);
 
   RSPayload payload = { .data = buf1, .len = 2 };
-  Trie_InsertStringBuffer(t, buf1, 2, 1, 1, &payload);
+  Trie_InsertStringBuffer(t, buf1, 2, 1, 1, &payload, 0, 0);
   payload.len = 4;
-  Trie_InsertStringBuffer(t, buf1, 4, 1, 1, &payload);
+  Trie_InsertStringBuffer(t, buf1, 4, 1, 1, &payload, 0, 0);
   payload.len = 5;
-  Trie_InsertStringBuffer(t, buf1, 5, 1, 1, &payload);
+  Trie_InsertStringBuffer(t, buf1, 5, 1, 1, &payload, 0, 0);
   payload.len = 3;
-  Trie_InsertStringBuffer(t, buf1, 3, 1, 1, &payload);
+  Trie_InsertStringBuffer(t, buf1, 3, 1, 1, &payload, 0, 0);
 
   char buf2[] = "work";
   payload = { .data = buf2, .len = 4 };
-  Trie_InsertStringBuffer(t, buf2, 4, 1, 1, &payload);
+  Trie_InsertStringBuffer(t, buf2, 4, 1, 1, &payload, 0, 0);
 
 
   // check for prefix of existing term
@@ -251,7 +251,7 @@ TEST_F(TrieTest, testFreeCallback) {
   char *str = rm_strdup("hello");
 
   RSPayload payload = { .data = (char *)&str, .len = sizeof(str) };
-  Trie_InsertStringBuffer(t, buf, 5, 1, 1, &payload);
+  Trie_InsertStringBuffer(t, buf, 5, 1, 1, &payload, 0, 0);
 
   TrieType_Free(t);
 }
@@ -303,7 +303,7 @@ TEST_F(TrieTest, testLexOrder) {
 }
 
 bool trieInsertByScore(Trie *t, const char *s, float score) {
-  return Trie_InsertStringBuffer(t, s, strlen(s), score, 1, NULL);
+  return Trie_InsertStringBuffer(t, s, strlen(s), score, 1, NULL, 0, 0);
 }
 
 bool trieContains(Trie *t, const char *s) {
@@ -507,9 +507,9 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   RSPayload p2 = {.data = payload2, .len = strlen(payload2)};
   RSPayload p3 = {.data = payload3, .len = strlen(payload3)};
 
-  bool r1 = Trie_InsertStringBuffer(originalTrie, "run", 3, 5.0, 0, &p1);        // Base word with payload
-  bool r2 = Trie_InsertStringBuffer(originalTrie, "running", 7, 3.0, 0, &p2);    // Extension with payload
-  bool r3 = Trie_InsertStringBuffer(originalTrie, "runner", 6, 4.0, 0, &p3);     // Extension with payload
+  bool r1 = Trie_InsertStringBuffer(originalTrie, "run", 3, 5.0, 0, &p1, 0, 0);        // Base word with payload
+  bool r2 = Trie_InsertStringBuffer(originalTrie, "running", 7, 3.0, 0, &p2, 0, 0);    // Extension with payload
+  bool r3 = Trie_InsertStringBuffer(originalTrie, "runner", 6, 4.0, 0, &p3, 0, 0);     // Extension with payload
 
   EXPECT_EQ(3, originalTrie->size);
 
@@ -573,9 +573,9 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
   RSPayload p2 = {.data = payload2, .len = strlen(payload2)};
   RSPayload p3 = {.data = payload3, .len = strlen(payload3)};
 
-  Trie_InsertStringBuffer(originalTrie, "car", 3, 8.0, 0, &p1);        // Base word with payload
-  Trie_InsertStringBuffer(originalTrie, "care", 4, 6.0, 0, &p2);       // Extension with payload
-  Trie_InsertStringBuffer(originalTrie, "careful", 7, 4.0, 0, &p3);    // Extension with payload
+  Trie_InsertStringBuffer(originalTrie, "car", 3, 8.0, 0, &p1, 0, 0);        // Base word with payload
+  Trie_InsertStringBuffer(originalTrie, "care", 4, 6.0, 0, &p2, 0, 0);       // Extension with payload
+  Trie_InsertStringBuffer(originalTrie, "careful", 7, 4.0, 0, &p3, 0, 0);    // Extension with payload
 
   EXPECT_EQ(3, originalTrie->size);
 
@@ -633,10 +633,10 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   RSPayload p2 = {.data = payload2, .len = strlen(payload2)};
 
   // Insert complex test data WITHOUT payloads - includes prefixes and extensions
-  Trie_InsertStringBuffer(originalTrie, "hello", 5, 8.0, 0, NULL);     // Base word without payload
-  Trie_InsertStringBuffer(originalTrie, "hell", 4, 6.0, 0, &p1);      // Prefix with payload
-  Trie_InsertStringBuffer(originalTrie, "help", 4, 7.0, 0, NULL);      // Related word without payload
-  Trie_InsertStringBuffer(originalTrie, "helper", 6, 5.0, 0, &p2);    // Extension with payload
+  Trie_InsertStringBuffer(originalTrie, "hello", 5, 8.0, 0, NULL, 0, 0);     // Base word without payload
+  Trie_InsertStringBuffer(originalTrie, "hell", 4, 6.0, 0, &p1, 0, 0);      // Prefix with payload
+  Trie_InsertStringBuffer(originalTrie, "help", 4, 7.0, 0, NULL, 0, 0);      // Related word without payload
+  Trie_InsertStringBuffer(originalTrie, "helper", 6, 5.0, 0, &p2, 0, 0);    // Extension with payload
 
   EXPECT_EQ(4, originalTrie->size);
 

@@ -45,11 +45,12 @@ typedef struct {
  * score using `Trie_Sort_Score.                            */
 Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode);
 
-int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload);
+int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload,
+                size_t numDocsToSet, size_t numDocsToAdd);
 int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, int incr,
-                            RSPayload *payload);
+                            RSPayload *payload, size_t numDocsToSet, size_t numDocsToAdd);
 int Trie_InsertRune(Trie *t, const rune *s, size_t len, double score, int incr,
-                            RSPayload *payload);
+                    RSPayload *payload, size_t numDocsToSet, size_t numDocsToAdd);
 
 /* Get the payload from the node. if `exact` is 0, the payload is return even if local offset!=len
    Use for debug only! */
