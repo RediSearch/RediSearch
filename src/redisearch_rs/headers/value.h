@@ -33,6 +33,13 @@ typedef enum RsValueType {
 } RsValueType;
 
 /**
+ * Opaque map structure used during map construction.
+ * Holds uninitialized entries that are populated via `RSValueMap_SetEntry`
+ * before being finalized into an `RsValue::Map` via `RSValue_NewMap`.
+ */
+typedef struct RSValueMap RSValueMap;
+
+/**
  * An actual [`RsValue`] object
  */
 typedef struct RsValue RsValue;
@@ -143,11 +150,14 @@ const struct RsValue *RSValue_Trio_GetMiddle(const struct RsValue *value);
  */
 const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
 
-void *RSValueMap_AllocUninit(uint32_t len);
+struct RSValueMap *RSValueMap_AllocUninit(uint32_t len);
 
-void RSValueMap_SetEntry(void *map, uint32_t index, struct RsValue *key, struct RsValue *value);
+void RSValueMap_SetEntry(struct RSValueMap *map,
+                         uint32_t index,
+                         struct RsValue *key,
+                         struct RsValue *value);
 
-struct RsValue *RSValue_NewMap(void *map, uint32_t len);
+struct RsValue *RSValue_NewMap(struct RSValueMap *map);
 
 uint32_t RSValue_Map_Len(const struct RsValue *map);
 
