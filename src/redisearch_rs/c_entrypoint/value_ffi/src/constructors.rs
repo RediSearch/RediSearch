@@ -41,8 +41,9 @@ pub unsafe extern "C" fn RSValue_NewRedisString(str: *const RedisModuleString) -
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -> *mut RsValue {
     let rm_alloc = unsafe { RedisModule_Alloc.expect("Redis allocator not available") };
-    let buf = unsafe { rm_alloc(len as usize) } as *mut c_char;
+    let buf = unsafe { rm_alloc((len + 1) as usize) } as *mut c_char;
     unsafe { copy_nonoverlapping(str, buf, len as usize) };
+    unsafe { buf.add(len as usize).write(0) };
     let string = unsafe { RmAllocString::from_raw(buf, len) };
     let value = RsValue::RmAllocString(string);
     let shared_value = SharedRsValue::from_value(value);
