@@ -114,6 +114,10 @@ ifeq ($(LTO),1)
 	BUILD_ARGS += LTO
 endif
 
+ifeq ($(TRACK_NUMDOCS_IN_TRIE_NODE),1)
+	BUILD_ARGS += TRACK_NUMDOCS_IN_TRIE_NODE=ON
+endif
+
 # Package variables (used by pack target)
 MODULE_NAME := search
 PACKAGE_NAME ?=
