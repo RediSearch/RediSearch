@@ -528,7 +528,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   io->read_pos = 0;
 
   // Load the trie from RDB (with payloads)
-  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, 1);
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, true, true);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
@@ -586,15 +586,15 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
   });
   ASSERT_TRUE(io != nullptr);
 
-  // Save the trie to RDB WITHOUT payloads (savePayloads = 0)
-  TrieType_GenericSave(io, originalTrie, 0);
+  // Save the trie to RDB WITHOUT payloads (savePayloads = false) and numDocs (saveNumDocs = false)
+  TrieType_GenericSave(io, originalTrie, false, false);
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Reset read position to load it back
   io->read_pos = 0;
 
-  // Load the trie from RDB WITHOUT payloads (loadPayloads = 0)
-  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, 0);
+  // Load the trie from RDB WITHOUT payloads (loadPayloads = false) and numDocs (loadNumDocs = false)
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
@@ -648,14 +648,14 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   ASSERT_TRUE(io != nullptr);
 
   // Save the trie to RDB
-  TrieType_GenericSave(io, originalTrie, 0);
+  TrieType_GenericSave(io, originalTrie, false, false);
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Reset read position to load it back
   io->read_pos = 0;
 
-  // Load the trie from RDB WITHOUT payloads (loadPayloads = 0) to match the save operation
-  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, 0);
+  // Load the trie from RDB WITHOUT payloads (loadPayloads = false) and numDocs (loadNumDocs = false) to match the save operation
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });

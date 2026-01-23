@@ -297,10 +297,10 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver > TRIE_ENCVER_CURRENT) {
     return NULL;
   }
-  return TrieType_GenericLoad(rdb, encver > TRIE_ENCVER_NOPAYLOADS);
+  return TrieType_GenericLoad(rdb, encver > TRIE_ENCVER_NOPAYLOADS, encver > TRIE_ENCVER_NONUMDOCS);
 }
 
-void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
+void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDocs) {
 
   Trie *tree = NULL;
   char *str = NULL;
@@ -317,7 +317,10 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
       // load an extra space for the null terminator
       payload.len--;
     }
-    size_t numDocsToSet = LoadUnsigned_IOError(rdb, goto cleanup);
+    size_t numDocsToSet = 0;
+    if (loadNumDocs) {
+      numDocsToSet = LoadUnsigned_IOError(rdb, goto cleanup);
+    }
     Trie_InsertStringBuffer(tree, str, len - 1, score, 0, payload.len ? &payload : NULL, numDocsToSet, 0);
     RedisModule_Free(str);
     if (payload.data != NULL) RedisModule_Free(payload.data);
@@ -335,10 +338,10 @@ cleanup:
 }
 
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
-  TrieType_GenericSave(rdb, (Trie *)value, 1);
+  TrieType_GenericSave(rdb, (Trie *)value, true, true);
 }
 
-void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
+void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, bool savePayloads, bool saveNumDocs) {
   RedisModule_SaveUnsigned(rdb, tree->size);
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   //  RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", tree->size);
@@ -367,7 +370,9 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
         }
       }
       // TODO: Save a marker for empty payload!
-      RedisModule_SaveUnsigned(rdb, numDocs);
+      if (saveNumDocs) {
+        RedisModule_SaveUnsigned(rdb, numDocs);
+      }
       rm_free(s);
       count++;
     }
