@@ -817,7 +817,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (!sp->smap) {
     return RedisModule_ReplyWithMap(ctx, 0);
   }
-  
+
   CurrentThread_SetIndexSpec(ref);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
@@ -1981,7 +1981,7 @@ static void searchRequestCtx_Free(searchRequestCtx *r) {
   rm_free(r);
 }
 
-static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies);
+static int searchResultReducer(struct MRCtx *mc, RedisModuleCtx *ctx);
 
 int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
@@ -3063,16 +3063,6 @@ void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *
     }
 }
 
-static void searchResultReducer_wrapper(void *mc_v) {
-  struct MRCtx *mc = mc_v;
-  searchResultReducer(mc, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc));
-}
-
-static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply **replies) {
-  ConcurrentSearch_ThreadPoolRun(searchResultReducer_wrapper, mc, DIST_THREADPOOL);
-  return REDISMODULE_OK;
-}
-
 // TODO - get RequestConfig ptr as parameter instead of global config
 bool should_return_error(QueryErrorCode errCode) {
   // Check if this is a timeout error with non-fail policy
@@ -3094,9 +3084,10 @@ static bool should_return_timeout_error(searchRequestCtx *req) {
          && (rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(&req->initClock))) > req->timeout;
 }
 
-static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
+static int searchResultReducer(struct MRCtx *mc, RedisModuleCtx *ctx) {
+  int count = MRCtx_GetNumReplied(mc);
+  MRReply **replies = MRCtx_GetReplies(mc);
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
   searchReducerCtx rCtx = {NULL};
   int profile = req->profileArgs > 0;
@@ -3226,15 +3217,6 @@ cleanup:
     rCtx.reduceSpecialCaseCtxKnn->knn.pq = NULL;
   }
 
-  RedisModule_BlockedClientMeasureTimeEnd(bc);
-  RedisModule_UnblockClient(bc, NULL);
-  RedisModule_FreeThreadSafeContext(ctx);
-  // We could pass `mc` to the unblock function to perform the next 3 cleanup steps, but
-  // this way we free the memory from the background after the client is unblocked,
-  // which is a bit more efficient.
-  // The unblocking callback also replies with error if there was 0 replies from the shards,
-  // and since we already replied with error in this case (in the beginning of this function),
-  // we can't pass `mc` to the unblock function.
   searchRequestCtx_Free(req);
   MRCtx_RequestCompleted(mc);
   MRCtx_Free(mc);
@@ -3836,7 +3818,8 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   // Here we have an unsafe read of `NumShards`. This is fine because its just a hint.
   struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
 
-  MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
+  // Don't set a reduce function - the reduction will happen in DistSearchUnblockClient
+  // on the main thread when the client is unblocked after all shard replies are collected.
   MR_Fanout(mrctx, NULL, cmd, false);
   return REDISMODULE_OK;
 }
@@ -3859,18 +3842,14 @@ static void DistSearchCommandHandler(void* pd) {
   rm_free(sCmdCtx);
 }
 
-// If the client is unblocked with a private data, we have to free it.
-// This currently happens only when the client is unblocked without calling its reduce function,
-// because we expect 0 replies. This function handles this case as well.
+// Reply callback for FT.SEARCH in coordinator mode.
+// Called on the main thread when the client is unblocked after all shard replies are collected.
+// Performs the search result reduction and sends the reply to the client.
 static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (mrctx) {
-    if (MRCtx_GetNumReplied(mrctx) == 0) {
-      RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
-    }
-    searchRequestCtx_Free(MRCtx_GetPrivData(mrctx));
-    MRCtx_RequestCompleted(mrctx);
-    MRCtx_Free(mrctx);
+    // Call searchResultReducer to perform reduction on main thread
+    return searchResultReducer(mrctx, ctx);
   }
   return REDISMODULE_OK;
 }
@@ -4356,7 +4335,8 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
 
   struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
 
-  MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
+  // Don't set a reduce function - the reduction will happen in DistSearchUnblockClient
+  // on the main thread when the client is unblocked after all shard replies are collected.
   MR_Fanout(mrctx, NULL, cmd, false);
   return REDISMODULE_OK;
 }
