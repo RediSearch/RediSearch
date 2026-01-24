@@ -801,6 +801,122 @@ def find_threadsafe_loader(env, shard):
     # RESP2: rp_profile is a list of lists like [['Type', 'Index', ...], ['Type', 'Threadsafe-Loader', ...], ...]
     return next((to_dict(rp) for rp in rp_profile if 'Threadsafe-Loader' in rp), None)
 
+def sum_rp_times(env, shard):
+  # Sum all Result Processor times from a shard profile.
+  rp_profile = shard['Result processors profile']
+  total = 0.0
+  if env.protocol == 3:
+    for rp in rp_profile:
+      total += float(rp.get('Time', 0))
+  else:
+    for rp in rp_profile:
+      rp_dict = to_dict(rp)
+      # In RESP2, Time is returned as a string
+      total += float(rp_dict.get('Time', 0))
+  return total
+
+def ProfileTotalTimeConsistency(env, num_docs):
+  """Tests that Total profile time >= sum of Result Processor times.
+
+  Tests multiple commands with various result processors to ensure timing
+  consistency across different query types:
+  - FT.SEARCH with Scorer, Sorter, Loader
+  - FT.AGGREGATE with Loader, Grouper, Sorter, Projector (APPLY), Pager/Limiter
+  """
+  conn = getConnectionByEnv(env)
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+
+  # Create index with TEXT and NUMERIC fields for diverse query options
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'SORTABLE').ok()
+
+  for i in range(num_docs):
+    conn.execute_command('HSET', f'doc{i}', 't', f'hello{i % 100}', 'n', i)
+
+  def verify_timing_consistency(res, command_desc):
+    """Helper to verify total time >= sum of RP times for all shards."""
+    _, shards = extract_profile_coordinator_and_shards(env, res)
+    for shard in shards:
+      # In RESP2, Total profile time is returned as a string
+      total_time = float(shard['Total profile time'])
+      rp_times_sum = sum_rp_times(env, shard)
+      env.assertGreaterEqual(total_time, rp_times_sum,
+        message=f"{command_desc}: Total profile time ({total_time}) < sum of RP times ({rp_times_sum}). Full response: {res}")
+
+  # Test 1: Simple FT.AGGREGATE with wildcard query
+  # Result processors: Index, Pager/Limiter
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
+  verify_timing_consistency(res, "FT.AGGREGATE wildcard")
+
+  # Test 2: FT.AGGREGATE with LOAD, GROUPBY, REDUCE
+  # Result processors: Index, Loader, Grouper
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
+                'LOAD', '1', '@t',
+                'GROUPBY', '1', '@t',
+                'REDUCE', 'COUNT', '0', 'AS', 'count')
+  verify_timing_consistency(res, "FT.AGGREGATE with GROUPBY")
+
+  # Test 3: FT.AGGREGATE with LOAD, APPLY, SORTBY, LIMIT
+  # Result processors: Index, Loader, Projector, Sorter, Pager/Limiter
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
+                'LOAD', '2', '@t', '@n',
+                'APPLY', '@n * 2', 'AS', 'doubled',
+                'SORTBY', '2', '@n', 'ASC',
+                'LIMIT', '0', '100')
+  verify_timing_consistency(res, "FT.AGGREGATE with APPLY/SORTBY/LIMIT")
+
+  # Test 4: FT.SEARCH with default options
+  # Result processors: Index, Scorer, Sorter, Loader
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*',
+                'LIMIT', '0', '100')
+  verify_timing_consistency(res, "FT.SEARCH wildcard")
+
+  # Test 5: FT.SEARCH with SORTBY on numeric field
+  # Result processors: Index, Scorer, Sorter, Loader
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*',
+                'SORTBY', 'n', 'ASC',
+                'LIMIT', '0', '100')
+  verify_timing_consistency(res, "FT.SEARCH with SORTBY")
+
+  # Test 6: FT.SEARCH with text query and NOCONTENT
+  # Result processors: Index, Scorer, Sorter (fewer processors, faster)
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello0',
+                'NOCONTENT',
+                'LIMIT', '0', '100')
+  verify_timing_consistency(res, "FT.SEARCH text query NOCONTENT")
+
+@skip(cluster=False)
+def testProfileTotalTimeConsistencyClusterResp3():
+  """Tests timing consistency in cluster mode with multiple cursor reads - RESP3."""
+  # Use enough docs to trigger multiple cursor reads (>1000 per shard)
+  env = Env(shardsCount=2, protocol=3)
+  num_docs = int(1000 * 1.5 * env.shardsCount)
+  ProfileTotalTimeConsistency(env, num_docs)
+
+@skip(cluster=False)
+def testProfileTotalTimeConsistencyClusterResp2():
+  """Tests timing consistency in cluster mode with multiple cursor reads - RESP2."""
+  env = Env(shardsCount=2, protocol=2)
+  num_docs = int(1000 * 1.5 * env.shardsCount)
+  ProfileTotalTimeConsistency(env, num_docs)
+
+@skip(cluster=True)
+def testProfileTotalTimeConsistencyStandaloneResp3():
+  """Tests timing consistency in standalone mode - RESP3."""
+  env = Env(protocol=3)
+  # Use enough docs to ensure meaningful timing data and avoid flakiness.
+  # Serialization time is not counted in result processor times, so we need
+  # enough results to make the timing difference significant across machines.
+  ProfileTotalTimeConsistency(env, num_docs=1500)
+
+@skip(cluster=True)
+def testProfileTotalTimeConsistencyStandaloneResp2():
+  """Tests timing consistency in standalone mode - RESP2."""
+  env = Env(protocol=2)
+  # Use enough docs to ensure meaningful timing data and avoid flakiness.
+  # Serialization time is not counted in result processor times, so we need
+  # enough results to make the timing difference significant across machines.
+  ProfileTotalTimeConsistency(env, num_docs=1500)
+
 def ProfileGILTime(env):
   # Test FT.PROFILE GIL time reporting across all worker combinations.
   # (Standalone and Coordinator behave the same)

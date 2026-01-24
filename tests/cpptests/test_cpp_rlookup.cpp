@@ -162,13 +162,13 @@ TEST_F(RLookupTest, testAddKeysFromBasic) {
   TestKeySet srcKeys = init_keys(&source, {"field1", "field2", "field3"});
 
   // Initial destination is empty
-  ASSERT_EQ(0, dest.rowlen);
+  ASSERT_EQ(0, RLookup_GetRowLen(&dest));
 
   // Add keys from source to destination
   RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_NOFLAGS);
 
   // Verify all keys from source exist in destination
-  ASSERT_EQ(3, dest.rowlen);
+  ASSERT_EQ(3, RLookup_GetRowLen(&dest));
 
   RLookupKey *dest_key1 = RLookup_GetKey_Read(&dest, "field1", RLOOKUP_F_NOFLAGS);
   RLookupKey *dest_key2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
@@ -188,14 +188,14 @@ TEST_F(RLookupTest, testAddKeysFromEmptySource) {
   // Create keys in destination
   TestKeySet destKeys = init_keys(&dest, {"existing1", "existing2"});
 
-  uint32_t original_rowlen = dest.rowlen;
+  uint32_t original_rowlen = RLookup_GetRowLen(&dest);
   ASSERT_EQ(2, original_rowlen);
 
   // Add keys from empty source
   RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_NOFLAGS);
 
   // Verify destination remains unchanged
-  ASSERT_EQ(original_rowlen, dest.rowlen);
+  ASSERT_EQ(original_rowlen, RLookup_GetRowLen(&dest));
 
   // Verify original keys still exist
   RLookupKey *check_key1 = RLookup_GetKey_Read(&dest, "existing1", RLOOKUP_F_NOFLAGS);
@@ -219,14 +219,14 @@ TEST_F(RLookupTest, testAddKeysFromConflictsFirstWins) {
   TestKeySet destKeys = init_keys(&dest, {"field2", "field4"});
 
   // Store original indices before adding (to verify override did NOT happen)
-  uint32_t original_field2_idx = destKeys.keys[0]->dstidx;  // field2
-  uint32_t original_field4_idx = destKeys.keys[1]->dstidx;  // field4
+  uint32_t original_field2_idx = RLookupKey_GetDstIdx(destKeys.keys[0]);  // field2
+  uint32_t original_field4_idx = RLookupKey_GetDstIdx(destKeys.keys[1]);  // field4
 
   // Add keys from source (default behavior - first wins)
   RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_NOFLAGS);
 
   // Verify destination has all unique keys: "field2" (original), "field4" (original), "field1" (new), "field3" (new)
-  ASSERT_EQ(4, dest.rowlen);
+  ASSERT_EQ(4, RLookup_GetRowLen(&dest));
 
   RLookupKey *check_key1 = RLookup_GetKey_Read(&dest, "field1", RLOOKUP_F_NOFLAGS);
   RLookupKey *check_key2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
@@ -235,8 +235,8 @@ TEST_F(RLookupTest, testAddKeysFromConflictsFirstWins) {
   ASSERT_TRUE(check_key1 && check_key2 && check_key3 && check_key4);
 
   // Verify override did NOT happen for existing keys (indices unchanged)
-  ASSERT_EQ(original_field2_idx, check_key2->dstidx) << "field2 should NOT have been overridden";
-  ASSERT_EQ(original_field4_idx, check_key4->dstidx) << "field4 should remain unchanged";
+  ASSERT_EQ(original_field2_idx, RLookupKey_GetDstIdx(check_key2)) << "field2 should NOT have been overridden";
+  ASSERT_EQ(original_field4_idx, RLookupKey_GetDstIdx(check_key4)) << "field4 should remain unchanged";
 
   RLookup_Cleanup(&source);
   RLookup_Cleanup(&dest);
@@ -262,7 +262,7 @@ TEST_F(RLookupTest, testAddKeysFromConflictsOverride) {
   RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_OVERRIDE);
 
   // Verify destination has all keys
-  ASSERT_EQ(4, dest.rowlen);
+  ASSERT_EQ(4, RLookup_GetRowLen(&dest));
 
   RLookupKey *check_key1 = RLookup_GetKey_Read(&dest, "field1", RLOOKUP_F_NOFLAGS);
   RLookupKey *check_key2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
@@ -271,7 +271,7 @@ TEST_F(RLookupTest, testAddKeysFromConflictsOverride) {
   ASSERT_TRUE(check_key1 && check_key2 && check_key3 && check_key4);
 
   // Verify override DID happen for conflicting key (original key name nullified)
-  ASSERT_EQ(nullptr, original_field2_key->name) << "Original field2 key should have been nullified";
+  ASSERT_EQ(nullptr, RLookupKey_GetName(original_field2_key)) << "Original field2 key should have been nullified";
   ASSERT_NE(original_field2_key, check_key2) << "field2 should point to new key object";
 
   // Verify override did NOT happen for non-conflicting key (same key object)
@@ -301,7 +301,7 @@ TEST_F(RLookupTest, testAddKeysFromMultipleAdditions) {
   RLookup_AddKeysFrom(&src3, &dest, RLOOKUP_F_NOFLAGS);  // field5 (field3, field4 already exist)
 
   // Verify final result: all unique keys present (first wins for conflicts)
-  ASSERT_EQ(5, dest.rowlen);  // field1, field2, field3, field4, field5
+  ASSERT_EQ(5, RLookup_GetRowLen(&dest));  // field1, field2, field3, field4, field5
 
   RLookupKey *d_key1 = RLookup_GetKey_Read(&dest, "field1", RLOOKUP_F_NOFLAGS);
   RLookupKey *d_key2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
@@ -718,7 +718,7 @@ TEST_F(RLookupTest, testWriteFieldsCreateMissingKeys) {
   TestKeySet srcKeys = init_keys(&source, {"field1", "field2", "field3"});
 
   // Destination is empty - no keys added
-  ASSERT_EQ(0, dest.rowlen);
+  ASSERT_EQ(0, RLookup_GetRowLen(&dest));
 
   // Create test data and write to source row
   RLookupRow srcRow = {0}, destRow = {0};
@@ -729,7 +729,7 @@ TEST_F(RLookupTest, testWriteFieldsCreateMissingKeys) {
   RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest, true);
 
   // Verify keys were created in destination
-  ASSERT_EQ(3, dest.rowlen);
+  ASSERT_EQ(3, RLookup_GetRowLen(&dest));
 
   // Verify values are accessible by field names
   verify_values_by_names(&dest, &destRow, {"field1", "field2", "field3"},
@@ -764,7 +764,7 @@ TEST_F(RLookupTest, testWriteFieldsCreateMissingKeysPartialOverlap) {
   // Create only field2 in destination (field1 and field3 are missing)
   RLookupKey *existing_key = RLookup_GetKey_Write(&dest, "field2", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(existing_key);
-  ASSERT_EQ(1, dest.rowlen);
+  ASSERT_EQ(1, RLookup_GetRowLen(&dest));
 
   // Create test data and write to source row
   RLookupRow srcRow = {0}, destRow = {0};
@@ -775,7 +775,7 @@ TEST_F(RLookupTest, testWriteFieldsCreateMissingKeysPartialOverlap) {
   RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest, true);
 
   // Verify all 3 keys now exist (field1 and field3 were created)
-  ASSERT_EQ(3, dest.rowlen);
+  ASSERT_EQ(3, RLookup_GetRowLen(&dest));
 
   // Verify all values are correct
   verify_values_by_names(&dest, &destRow, {"field1", "field2", "field3"},
@@ -799,19 +799,19 @@ TEST_F(RLookupTest, testAddKeysFromHiddenFlagHandling) {
   // Create key in src1 with F_HIDDEN flag
   RLookupKey *src1_key = RLookup_GetKey_Write(&src1, "test_field", RLOOKUP_F_HIDDEN);
   ASSERT_TRUE(src1_key);
-  ASSERT_TRUE(src1_key->flags & RLOOKUP_F_HIDDEN) << "src1 key should have F_HIDDEN flag";
+  ASSERT_TRUE(RLookupKey_GetFlags(src1_key) & RLOOKUP_F_HIDDEN) << "src1 key should have F_HIDDEN flag";
 
   // Add src1 keys first - test flag preservation
   RLookup_AddKeysFrom(&src1, &dest, RLOOKUP_F_NOFLAGS);
 
   RLookupKey *dest_key_after_src1 = RLookup_GetKey_Read(&dest, "test_field", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(dest_key_after_src1);
-  ASSERT_TRUE(dest_key_after_src1->flags & RLOOKUP_F_HIDDEN) << "Destination key should preserve F_HIDDEN flag";
+  ASSERT_TRUE(RLookupKey_GetFlags(dest_key_after_src1) & RLOOKUP_F_HIDDEN) << "Destination key should preserve F_HIDDEN flag";
 
   // Create same key name in src2 WITHOUT F_HIDDEN flag
   RLookupKey *src2_key = RLookup_GetKey_Write(&src2, "test_field", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(src2_key);
-  ASSERT_FALSE(src2_key->flags & RLOOKUP_F_HIDDEN) << "src2 key should NOT have F_HIDDEN flag";
+  ASSERT_FALSE(RLookupKey_GetFlags(src2_key) & RLOOKUP_F_HIDDEN) << "src2 key should NOT have F_HIDDEN flag";
 
   // Store reference to check override behavior
   RLookupKey *original_dest_key = dest_key_after_src1;
@@ -824,11 +824,11 @@ TEST_F(RLookupTest, testAddKeysFromHiddenFlagHandling) {
   ASSERT_TRUE(dest_key_after_src2);
 
   // Verify override happened (original key should be nullified, new key created)
-  ASSERT_EQ(nullptr, original_dest_key->name) << "Original key should have been nullified";
+  ASSERT_EQ(nullptr, RLookupKey_GetName(original_dest_key)) << "Original key should have been nullified";
   ASSERT_NE(original_dest_key, dest_key_after_src2) << "Should point to new key object after override";
 
   // Verify F_HIDDEN flag is now gone (src2 overwrote src1's hidden status)
-  ASSERT_FALSE(dest_key_after_src2->flags & RLOOKUP_F_HIDDEN) << "Destination key should NOT be hidden after src2 override";
+  ASSERT_FALSE(RLookupKey_GetFlags(dest_key_after_src2) & RLOOKUP_F_HIDDEN) << "Destination key should NOT be hidden after src2 override";
 
   RLookup_Cleanup(&src1);
   RLookup_Cleanup(&src2);
