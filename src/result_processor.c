@@ -48,10 +48,10 @@ static int UnlockSpec_and_ReturnRPResult(RedisSearchCtx *sctx, int result_status
 
 // Maximum number of concurrent async reads
 #define ASYNC_POOL_SIZE 16
-// Buffer size for IndexResults (decouples iterator reads from async I/O)
-#define INDEX_RESULT_BUFFER_SIZE 128
-// Refill buffer when it drops below this threshold
-#define INDEX_RESULT_REFILL_THRESHOLD 64
+// Initial buffer size for IndexResults (starts small, grows dynamically)
+#define INDEX_RESULT_BUFFER_INITIAL_SIZE 16
+// Maximum buffer size (cap growth at 1024 entries = 8KB of pointers)
+#define INDEX_RESULT_BUFFER_MAX_SIZE 1024
 
 typedef struct {
   ResultProcessor base;
@@ -68,10 +68,11 @@ typedef struct {
   uint16_t readyResultsCount;
   uint16_t readyResultsIndex;
 
-  // IndexResult buffer - decouples iterator reads from async I/O
+  // IndexResult buffer - decouples iterator reads from async I/O (grows dynamically)
   RSIndexResult **indexResultBuffer;  // Array of RSIndexResult pointers
   uint16_t indexResultBufferCount;    // Number of valid entries in buffer
   uint16_t indexResultBufferIndex;    // Next index to consume from buffer
+  uint16_t indexResultBufferCapacity; // Current allocated capacity (grows dynamically)
 } RPQueryIterator;
 
 
@@ -113,21 +114,22 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
 }
 
 /**
- * Refill the IndexResult buffer from the iterator if it's below threshold.
- * Returns RS_RESULT_OK on success, RS_RESULT_TIMEDOUT on timeout, RS_RESULT_EOF if iterator is done.
+ * Refill the IndexResult buffer from the iterator.
+ * Fills up to current capacity, doesn't grow the buffer.
+ * Returns RS_RESULT_OK on success, RS_RESULT_TIMEDOUT on timeout.
  */
 static int refillIndexResultBuffer(RPQueryIterator *self) {
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
   IndexSpec *spec = sctx->spec;
 
-  // Only refill if below threshold and not already full
-  uint16_t available = self->indexResultBufferCount - self->indexResultBufferIndex;
-  if (available >= INDEX_RESULT_REFILL_THRESHOLD || it->atEOF) {
+  // Don't refill if iterator is done
+  if (it->atEOF) {
     return RS_RESULT_OK;
   }
 
   // Compact buffer if needed (move unconsumed entries to start)
+  uint16_t available = self->indexResultBufferCount - self->indexResultBufferIndex;
   if (self->indexResultBufferIndex > 0 && available > 0) {
     memmove(&self->indexResultBuffer[0],
             &self->indexResultBuffer[self->indexResultBufferIndex],
@@ -140,8 +142,8 @@ static int refillIndexResultBuffer(RPQueryIterator *self) {
     self->indexResultBufferIndex = 0;
   }
 
-  // Fill buffer up to capacity
-  while (self->indexResultBufferCount < INDEX_RESULT_BUFFER_SIZE && !it->atEOF) {
+  // Fill buffer up to current capacity
+  while (self->indexResultBufferCount < self->indexResultBufferCapacity && !it->atEOF) {
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
       return RS_RESULT_TIMEDOUT;
     }
@@ -164,6 +166,32 @@ static int refillIndexResultBuffer(RPQueryIterator *self) {
   }
 
   return RS_RESULT_OK;
+}
+
+/**
+ * Grow the IndexResult buffer capacity.
+ * Doubles the size up to the maximum cap.
+ * Returns true if growth succeeded, false if already at max.
+ */
+static bool growIndexResultBuffer(RPQueryIterator *self) {
+  if (self->indexResultBufferCapacity >= INDEX_RESULT_BUFFER_MAX_SIZE) {
+    return false;  // Already at max
+  }
+
+  uint16_t newCapacity = self->indexResultBufferCapacity * 2;
+  if (newCapacity > INDEX_RESULT_BUFFER_MAX_SIZE) {
+    newCapacity = INDEX_RESULT_BUFFER_MAX_SIZE;
+  }
+
+  RSIndexResult **newBuffer = rm_realloc(self->indexResultBuffer,
+                                          newCapacity * sizeof(RSIndexResult*));
+  if (!newBuffer) {
+    return false;  // Allocation failed
+  }
+
+  self->indexResultBuffer = newBuffer;
+  self->indexResultBufferCapacity = newCapacity;
+  return true;
 }
 
 /**
@@ -377,10 +405,24 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     self->readyResultsCount = pollResult.ready_count;
     self->readyResultsIndex = 0;
 
-    // Step 4: Immediately refill async pool from buffer to keep I/O pipeline full
+    // Step 4: Detect if we're I/O bound and grow buffer if needed
+    // If poll returned 0 results but we have buffered IndexResults available,
+    // it means we're waiting on I/O - grow buffer to reduce future waits
+    uint16_t available = self->indexResultBufferCount - self->indexResultBufferIndex;
+    if (pollResult.ready_count == 0 && available > 0 && !it->atEOF) {
+      if (growIndexResultBuffer(self)) {
+        // Buffer grew - refill it to take advantage of new capacity
+        int refillResult = refillIndexResultBuffer(self);
+        if (refillResult == RS_RESULT_TIMEDOUT) {
+          return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+        }
+      }
+    }
+
+    // Step 5: Immediately refill async pool from buffer to keep I/O pipeline full
     refillAsyncPool(self);
 
-    // Step 5: Check if we're completely done
+    // Step 6: Check if we're completely done
     if (pollResult.ready_count == 0 && pollResult.pending_count == 0 && it->atEOF) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
     }
@@ -429,10 +471,11 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
       // Allocate async I/O buffers
       ret->readyResults = rm_calloc(ASYNC_POOL_SIZE, sizeof(AsyncReadResult));
 
-      // Allocate IndexResult buffer (decouples iterator reads from I/O)
-      ret->indexResultBuffer = rm_calloc(INDEX_RESULT_BUFFER_SIZE, sizeof(RSIndexResult*));
+      // Allocate IndexResult buffer (starts small, grows dynamically up to 1024)
+      ret->indexResultBuffer = rm_calloc(INDEX_RESULT_BUFFER_INITIAL_SIZE, sizeof(RSIndexResult*));
       ret->indexResultBufferCount = 0;
       ret->indexResultBufferIndex = 0;
+      ret->indexResultBufferCapacity = INDEX_RESULT_BUFFER_INITIAL_SIZE;
 
       ret->base.Next = rpQueryItNext_AsyncDisk;
     } else {
