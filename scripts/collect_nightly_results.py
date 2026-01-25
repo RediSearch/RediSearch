@@ -117,7 +117,7 @@ def fetch_workflow_runs(token, repo, workflow, start_time, end_time, dir_name=No
             if "jobs" not in run:
                 run["jobs"] = []
         
-        failed_runs = [r for r in runs if r["conclusion"] == "failure"]
+        failed_runs.extend([r for r in runs if r["conclusion"] == "failure"])
         all_runs.extend(runs)
 
         if len(runs) < per_page:
