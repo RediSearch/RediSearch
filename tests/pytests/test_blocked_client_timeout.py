@@ -41,6 +41,9 @@ class TestSearchCoordinatorTimeout:
     """Tests for the blocked client timeout mechanism for FT.SEARCH."""
 
     def __init__(self):
+        # Skip if not cluster
+        skipTest(cluster=False)
+
         # Workers are necessary to ensure the query is dispatched before timeout
         self.env = Env(moduleArgs='WORKERS 1', protocol=3)
         self.n_docs = 100
