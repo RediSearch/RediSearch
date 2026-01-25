@@ -119,26 +119,15 @@ jobs:
             echo "⚠️ Failure report file not found: $FAILURE_FILE"
           fi
       
-      - name: Send summary to Slack
-        if: steps.summary.outputs.summary_exists == 'true'
+      - name: Send reports to Slack
+        if: steps.summary.outputs.summary_exists == 'true' || steps.failure_report.outputs.failure_exists == 'true'
         uses: slackapi/slack-github-action@v1.24.0
         with:
           payload: |
             {
-              "header": "📊 Daily CI Summary - ${{ steps.date.outputs.date }}",
-              "report": ${{ steps.summary.outputs.summary_content }}
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT}}
-
-      - name: Send failure report to Slack
-        if: steps.failure_report.outputs.failure_exists == 'true'
-        uses: slackapi/slack-github-action@v1.24.0
-        with:
-          payload: |
-            {
-              "fail_header": "❌ Daily Failure Report - ${{ steps.date.outputs.date }}",
-              "fail_report": ${{ steps.failure_report.outputs.failure_content }}
+              "header": "📊 Daily CI Report - ${{ steps.date.outputs.date }}",
+              "summary_report": ${{ steps.summary.outputs.summary_exists == 'true' && steps.summary.outputs.summary_content || '"(No summary available)"' }},
+              "failure_report": ${{ steps.failure_report.outputs.failure_exists == 'true' && steps.failure_report.outputs.failure_content || '"(No failures)"' }}
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
