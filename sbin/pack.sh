@@ -22,8 +22,6 @@ eprint() { echo "$@" >&2; }
 
 export PYTHONWARNINGS=ignore
 
-cd $ROOT
-
 #----------------------------------------------------------------------------------------------
 
 if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
@@ -76,7 +74,7 @@ MODULE="$1"
 RAMP=${RAMP:-1}
 
 
-[[ -z $ARTDIR ]] && ARTDIR=bin/artifacts
+[[ -z $ARTDIR ]] && ARTDIR=$ROOT/bin/artifacts
 mkdir -p $ARTDIR $ARTDIR/snapshots
 ARTDIR=$(cd $ARTDIR && pwd)
 
@@ -116,7 +114,6 @@ run_ramp_pack() {
 }
 
 pack_ramp() {
-	cd $ROOT
 
 	local stem=${PACKAGE_NAME}.${PLATFORM}
 	local stem_debug=${PACKAGE_NAME}.debug.${PLATFORM}
@@ -153,7 +150,6 @@ pack_ramp() {
 		run_ramp_pack "$MODULE.debug" "$packfile_debug"
 	fi
 
-	cd "$ROOT"
 }
 
 
@@ -195,8 +191,6 @@ if [[ $JUST_PRINT == 1 ]]; then
 	fi
 	exit 0
 fi
-
-cd $ROOT
 
 if [[ $RAMP == 1 ]]; then
 	if ! command -v redis-server > /dev/null; then
