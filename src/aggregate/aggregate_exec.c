@@ -428,7 +428,7 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
 
   rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
   // Accumulate profile time for intermediate cursor reads (final read is added in Profile_Print)
-  if (IsProfile(req) && !cursor_done && (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR)) {
+  if (IsProfile(req) && !cursor_done && (req->reqflags & QEXEC_F_IS_CURSOR)) {
     req->profileTotalTime += duration;
   }
 
