@@ -28,7 +28,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
       }
       // We currently allow implicit loading only for known fields from the schema.
       // If we can't load keys, or the key we loaded is not in the schema, we fail.
-      if (!loadKeys || !(srckeys[ii]->flags & RLOOKUP_F_SCHEMASRC)) {
+      if (!loadKeys || !(RLookupKey_GetFlags(srckeys[ii]) & RLOOKUP_F_SCHEMASRC)) {
         QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY, "No such property", " `%s`", fldname);
         return NULL;
       }
@@ -93,7 +93,7 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
   RLookup *lookup = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_PREV);
   RLookup *firstLk = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
   const RLookupKey **loadKeys = NULL;
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && firstLk->spcache) ? &loadKeys : NULL, status);
+  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && RLookup_HasIndexSpecCache(firstLk)) ? &loadKeys : NULL, status);
 
   if (!groupRP) {
     array_free(loadKeys);
@@ -202,7 +202,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
           sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
           // We currently allow implicit loading only for known fields from the schema.
           // If the key we loaded is not in the schema, we fail.
-          if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
+          if (!(RLookupKey_GetFlags(sortkey) & RLOOKUP_F_SCHEMASRC)) {
             QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PROP_KEY, "Property", " `%s` not loaded nor in schema", keystr);
             goto end;
           }
@@ -369,7 +369,7 @@ ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
     // Handle JSON spec case
     if (isSpecJson(sctx->spec)) {
       // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
-      lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
+      RLookup_DisableOptions(lookup, RLOOKUP_OPT_ALL_LOADED);
     }
 
     return rp;
@@ -488,7 +488,7 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
     rp = RPLoader_New(params->common.sctx, params->common.reqflags, lookup, loadkeys, array_len(loadkeys), forceLoad, outStateFlags);
     if (isSpecJson(params->common.sctx->spec)) {
       // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
-      lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
+      RLookup_DisableOptions(lookup, RLOOKUP_OPT_ALL_LOADED);
     }
     array_free(loadkeys);
     PUSH_RP();
@@ -507,7 +507,7 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
       if (!kk) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PROP_KEY, "No such property", " `%s`", ff->name);
         goto error;
-      } else if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
+      } else if (!(RLookupKey_GetFlags(kk) & RLOOKUP_F_SCHEMASRC)) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Property", " `%s` is not in schema", ff->name);
         goto error;
       }
