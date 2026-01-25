@@ -111,8 +111,8 @@ jobs:
           FAILURE_FILE="merge-to-queue_${DATE}/merge-to-queue_${DATE}_failure_report.txt"
           if [ -f "$FAILURE_FILE" ]; then
             echo "failure_exists=true" >> $GITHUB_OUTPUT
-            # Capture file content, escape for JSON
-            CONTENT=$(cat "$FAILURE_FILE" | jq -Rs .)
+            # Capture file content up until DETAILED FAILURE LOGS section, escape for JSON
+            CONTENT=$(sed -n '/^DETAILED FAILURE LOGS/q;p' "$FAILURE_FILE" | jq -Rs .)
             echo "failure_content=$CONTENT" >> $GITHUB_OUTPUT
           else
             echo "failure_exists=false" >> $GITHUB_OUTPUT
@@ -137,8 +137,8 @@ jobs:
         with:
           payload: |
             {
-              "header": "❌ Daily Failure Report - ${{ steps.date.outputs.date }}",
-              "report": ${{ steps.failure_report.outputs.failure_content }}
+              "fail_header": "❌ Daily Failure Report - ${{ steps.date.outputs.date }}",
+              "fail_report": ${{ steps.failure_report.outputs.failure_content }}
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
