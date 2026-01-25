@@ -272,72 +272,12 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   }
 }
 
-/* Next implementation for sync disk flow */
-static int rpQueryItNext_SyncDisk(ResultProcessor *base, SearchResult *res) {
+/* Next implementation for sync disk and regular (in-memory) flow */
+static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   RPQueryIterator *self = (RPQueryIterator *)base;
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
-  const RSDocumentMetadata *dmd;
-  bool validateCurrent = false;
-
-  // Handle spec lock and revalidation
-  if (handleSpecLockAndRevalidate(self)) {
-    validateCurrent = true;
-  }
-  // Always update it after revalidation as iterator may have been replaced
-  it = self->iterator;
-
   IndexSpec* spec = sctx->spec;
-
-  while (1) {
-    if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
-    }
-
-    if (!validateCurrent) {
-      IteratorStatus rc = it->Read(it);
-      switch (rc) {
-      case ITERATOR_EOF:
-        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
-      case ITERATOR_TIMEOUT:
-        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
-      default:
-        RS_ASSERT(rc == ITERATOR_OK);
-      }
-    }
-    validateCurrent = false;
-
-    t_docId docId = it->current->docId;
-
-    // Skip deleted documents (in-memory check, no IO)
-    if (SearchDisk_DocIdDeleted(spec->diskSpec, docId)) {
-      continue;
-    }
-
-    // Read DMD from disk synchronously
-    RSDocumentMetadata *diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
-    diskDmd->ref_count = 1;
-    if (!SearchDisk_GetDocumentMetadata(spec->diskSpec, docId, diskDmd)) {
-      DMD_Return(diskDmd);
-      continue;  // Document not found
-    }
-    dmd = diskDmd;
-
-    if (!validateDmdSlot(self, dmd)) {
-      DMD_Return(dmd);
-      continue;
-    }
-
-    setSearchResult(base, res, it->current, dmd, it->lastDocId);
-    return RS_RESULT_OK;
-  }
-}
-
-/* Next implementation for regular (in-memory) flow */
-static int rpQueryItNext_Regular(ResultProcessor *base, SearchResult *res) {
-  RPQueryIterator *self = (RPQueryIterator *)base;
-  QueryIterator *it = self->iterator;
-  RedisSearchCtx *sctx = self->sctx;
   const RSDocumentMetadata *dmd;
   bool validateCurrent = false;
 
@@ -348,8 +288,6 @@ static int rpQueryItNext_Regular(ResultProcessor *base, SearchResult *res) {
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
 
-  DocTable* docs = &sctx->spec->docs;
-
   while (1) {
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
@@ -368,8 +306,8 @@ static int rpQueryItNext_Regular(ResultProcessor *base, SearchResult *res) {
     }
     validateCurrent = false;
 
-    IndexSpec* spec = sctx->spec;
-    if (!getDocumentMetadata(spec, docs, sctx, it, &dmd)) {
+    // Get document metadata (either from disk or in-memory DocTable)
+    if (!getDocumentMetadata(spec, &spec->docs, sctx, it, &dmd)) {
       continue;
     }
 
@@ -382,6 +320,8 @@ static int rpQueryItNext_Regular(ResultProcessor *base, SearchResult *res) {
     return RS_RESULT_OK;
   }
 }
+
+
 
 static void rpQueryItFree(ResultProcessor *iter) {
   RPQueryIterator *self = (RPQueryIterator *)iter;
@@ -416,25 +356,20 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->base.type = RP_INDEX;
 
   // Determine which Next function to use based on disk configuration
-  if (sctx->spec->diskSpec) {
-    if (SearchDisk_IsAsyncIOSupported() && SearchDisk_GetAsyncIOEnabled()) {
-      // Async disk flow
-      ret->asyncPool = SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, ASYNC_POOL_SIZE);
-      if (ret->asyncPool) {
-        ret->readyResults = rm_calloc(ASYNC_POOL_SIZE, sizeof(AsyncReadResult));
-        ret->pendingIndexResults = rm_calloc(ASYNC_POOL_SIZE, sizeof(RSIndexResult*));
-        ret->base.Next = rpQueryItNext_AsyncDisk;
-      } else {
-        // Fallback to sync disk if async pool creation failed
-        ret->base.Next = rpQueryItNext_SyncDisk;
-      }
+  if (sctx->spec->diskSpec && SearchDisk_IsAsyncIOSupported() && SearchDisk_GetAsyncIOEnabled()) {
+    // Async disk flow
+    ret->asyncPool = SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, ASYNC_POOL_SIZE);
+    if (ret->asyncPool) {
+      ret->readyResults = rm_calloc(ASYNC_POOL_SIZE, sizeof(AsyncReadResult));
+      ret->pendingIndexResults = rm_calloc(ASYNC_POOL_SIZE, sizeof(RSIndexResult*));
+      ret->base.Next = rpQueryItNext_AsyncDisk;
     } else {
-      // Sync disk flow
-      ret->base.Next = rpQueryItNext_SyncDisk;
+      // Fallback to sync if async pool creation failed
+      ret->base.Next = rpQueryItNext;
     }
   } else {
-    // Regular in-memory flow
-    ret->base.Next = rpQueryItNext_Regular;
+    // Sync disk or regular in-memory flow (both use getDocumentMetadata)
+    ret->base.Next = rpQueryItNext;
   }
 
   return &ret->base;
