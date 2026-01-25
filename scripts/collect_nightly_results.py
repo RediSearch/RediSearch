@@ -14,12 +14,13 @@ import re
 from datetime import datetime, timedelta, timezone
 
 def get_yesterday_date_range():
-    """Get midnight-to-midnight date range for yesterday."""
+    """Get midnight-to-midnight date range for yesterday in UTC."""
     today = datetime.now(timezone.utc)
     yesterday = today - timedelta(days=1)
 
-    start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+    # Return timezone-naive UTC datetimes for consistent ISO formatting
+    start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+    end = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=None)
 
     return start, end, yesterday.strftime("%Y-%m-%d")
 
@@ -71,10 +72,14 @@ def fetch_workflow_runs(token, repo, workflow, start_time, end_time, dir_name=No
     rate_limit_info = None
 
     while True:
+        # Format timestamps correctly: remove tzinfo if present, then append Z
+        start_str = start_time.isoformat() if start_time.tzinfo is None else start_time.replace(tzinfo=None).isoformat()
+        end_str = end_time.isoformat() if end_time.tzinfo is None else end_time.replace(tzinfo=None).isoformat()
+        
         params = {
             "per_page": per_page,
             "page": page,
-            "created": f"{start_time.isoformat()}Z..{end_time.isoformat()}Z"
+            "created": f"{start_str}Z..{end_str}Z"
         }
 
         print(f"  Fetching page {page}...")

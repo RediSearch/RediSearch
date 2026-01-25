@@ -11,22 +11,12 @@ on:
         description: 'Date to generate report for (YYYY-MM-DD). Leave empty for yesterday.'
         required: false
         type: string
-      slack_channel:
-        description: 'Slack channel to send reports to (default: rqe_ci_discussions)'
-        required: false
-        type: string
-        default: 'rqe_ci_discussions'
   workflow_call:  # Allow this workflow to be called from other workflows
     inputs:
       date:
         description: 'Date to generate report for (YYYY-MM-DD). Leave empty for yesterday.'
         required: false
         type: string
-      slack_channel:
-        description: 'Slack channel to send reports to (default: rqe_ci_discussions)'
-        required: false
-        type: string
-        default: 'rqe_ci_discussions'
 
 jobs:
   generate-and-send-report:
@@ -65,29 +55,25 @@ jobs:
           fi
           echo "date=$TARGET_DATE" >> $GITHUB_OUTPUT
       
-      - name: Determine Slack webhook
-        id: slack
-        env:
-          SLACK_CHANNEL: ${{ inputs.slack_channel }}
-        run: |
-          case "$SLACK_CHANNEL" in
-            rqe_ci_discussions)
-              echo "webhook_secret=SLACK_WEBHOOK_URL_RQE_CI_ISSUES" >> $GITHUB_OUTPUT
-              ;;
-            rqe_ci_failures)
-              echo "webhook_secret=SLACK_WEBHOOK_URL_RQE_CI_FAILURES" >> $GITHUB_OUTPUT
-              ;;
-            *)
-              echo "Unknown channel: $SLACK_CHANNEL, defaulting to rqe_ci_discussions" >&2
-              echo "webhook_secret=SLACK_WEBHOOK_URL_RQE_CI_ISSUES" >> $GITHUB_OUTPUT
-              ;;
-          esac
-      
       - name: Run collect_nightly_results.py
+        id: collect
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python scripts/collect_nightly_results.py --date "${{ steps.date.outputs.date }}"
+      
+      - name: Handle collect failure
+        if: steps.collect.outcome == 'failure'
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "header": "❌ CI Report Generation Failed - ${{ steps.date.outputs.date }}",
+              "error": "The collect_nightly_results.py script failed. Check workflow logs for details."
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
       
       - name: Read summary file
         id: summary
