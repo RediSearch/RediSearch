@@ -13,7 +13,7 @@ WORKDIR /project
 
 # Ensure bash is present. Not all images come with it.
 RUN if ! command -v bash >/dev/null 2>&1; then \
-        (apt-get update && apt-get install -y bash) || \
+        (apt-get update && apt-get install -y --no-install-recommends bash) || \
         (yum install -y bash) || \
         (apk add --no-cache bash); \
     fi
