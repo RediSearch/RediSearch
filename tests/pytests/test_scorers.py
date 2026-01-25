@@ -973,10 +973,19 @@ def testBM25DocLen(env: Env):
     validate_avg_doc_len(env, 'hello', 3)
 
 
+def calculate_idf(total_docs, term_docs):
+    """Calculate IDF using logb (log base 2) - same as C CalculateIDF function"""
+    return math.log2(1.0 + total_docs / (term_docs if term_docs else 1))
+
+def calculate_bm25_idf(total_docs, term_docs):
+    """Calculate BM25 IDF using natural log - same as C CalculateIDF_BM25 function"""
+    total_docs = max(total_docs, term_docs)
+    return math.log(1.0 + (total_docs - term_docs + 0.5) / (term_docs + 0.5))
+
 @skip(cluster=True)
 def test_simple_sum_scorer():
     """
-    Test the TEST_SIMPLE_SUM scorer which returns numTerms + numDocs + avgDocLen.
+    Test the TEST_SIMPLE_SUM scorer which returns numTerms + numDocs + avgDocLen + sumIdf + sumBm25Idf.
     This test registers the scorer via debug command and verifies the score calculation.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -1001,9 +1010,19 @@ def test_simple_sum_scorer():
     # numDocs = 3 (three documents)
     # numTerms = 4 (unique terms: hello, world, again, more)
     # avgDocLen = (2 + 3 + 4) / 3 = 3.0
+    #
+    # Searching for "hello" which appears in all 3 documents:
+    # idf = logb(1 + totalDocs/termDocs), bm25_idf = log(1 + (totalDocs-termDocs+0.5)/(termDocs+0.5))
+    # Both use the same totalDocs and termDocs values
 
-    # Expected score = numTerms + numDocs + avgDocLen = 4 + 3 + 3.0 = 10.0
-    expected_score = 10.0
+    total_docs = 3  # number of documents after indexing
+    term_docs = 3   # "hello" appears in all 3 docs
+
+    idf = calculate_idf(total_docs, term_docs)
+    bm25_idf = calculate_bm25_idf(total_docs, term_docs)
+
+    # Expected score = numTerms + numDocs + avgDocLen + sumIdf + sumBm25Idf
+    expected_score = 4 + 3 + 3.0 + idf + bm25_idf
 
     # Search with the TEST_SIMPLE_SUM scorer
     res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'TEST_SIMPLE_SUM', 'WITHSCORES', 'NOCONTENT')
@@ -1012,11 +1031,11 @@ def test_simple_sum_scorer():
     # Result format: [numResults, doc1, score1, doc2, score2, ...]
     env.assertEqual(res[0], 3)  # 3 results
     actual_score = float(res[2])  # Score of first document
-    env.assertEqual(actual_score, expected_score)
+    env.assertAlmostEqual(actual_score, expected_score, delta=0.0001)
 
-    # All documents should have the same score since it's based on index stats
-    env.assertEqual(float(res[4]), expected_score)  # Score of second document
-    env.assertEqual(float(res[6]), expected_score)  # Score of third document
+    # All documents should have the same score since it's based on index stats + term IDF
+    env.assertAlmostEqual(float(res[4]), expected_score, delta=0.0001)  # Score of second document
+    env.assertAlmostEqual(float(res[6]), expected_score, delta=0.0001)  # Score of third document
 
 
 @skip(cluster=True)
@@ -1042,9 +1061,16 @@ def test_simple_sum_scorer_aggregate():
     # numDocs = 2
     # numTerms = 3 (unique terms: hello, world, again)
     # avgDocLen = (2 + 3) / 2 = 2.5
+    #
+    # Searching for "hello" which appears in both documents
+    total_docs = 2
+    term_docs = 2
 
-    # Expected score = numTerms + numDocs + avgDocLen = 3 + 2 + 2.5 = 7.5
-    expected_score = 7.5
+    idf = calculate_idf(total_docs, term_docs)
+    bm25_idf = calculate_bm25_idf(total_docs, term_docs)
+
+    # Expected score = numTerms + numDocs + avgDocLen + sumIdf + sumBm25Idf
+    expected_score = 3 + 2 + 2.5 + idf + bm25_idf
 
     # Aggregate with the TEST_SIMPLE_SUM scorer
     res = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'TEST_SIMPLE_SUM',
@@ -1053,7 +1079,7 @@ def test_simple_sum_scorer_aggregate():
     # Verify the score
     env.assertEqual(res[0], 2)  # 2 results
     actual_score = float(res[1][1])  # Score from first result
-    env.assertEqual(actual_score, expected_score)
+    env.assertAlmostEqual(actual_score, expected_score, delta=0.0001)
 
 
 @skip(cluster=True)
@@ -1078,9 +1104,16 @@ def test_simple_sum_scorer_with_explainscore():
     # numDocs = 1
     # numTerms = 2 (unique terms: hello, world)
     # avgDocLen = 2.0
+    #
+    # Searching for "hello" which appears in 1 document
+    total_docs = 1
+    term_docs = 1
 
-    # Expected score = numTerms + numDocs + avgDocLen = 2 + 1 + 2.0 = 5.0
-    expected_score = 5.0
+    idf = calculate_idf(total_docs, term_docs)
+    bm25_idf = calculate_bm25_idf(total_docs, term_docs)
+
+    # Expected score = numTerms + numDocs + avgDocLen + sumIdf + sumBm25Idf
+    expected_score = 2 + 1 + 2.0 + idf + bm25_idf
 
     # Search with EXPLAINSCORE
     res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'TEST_SIMPLE_SUM',
@@ -1091,7 +1124,7 @@ def test_simple_sum_scorer_with_explainscore():
     # Result format with EXPLAINSCORE: [numResults, docId, [score, explanation], ...]
     score_info = res[2]  # [score, explanation]
     actual_score = float(score_info[0])
-    env.assertEqual(actual_score, expected_score)
+    env.assertAlmostEqual(actual_score, expected_score, delta=0.0001)
 
     # Verify the explanation contains the expected text
     # The explanation is the second element of score_info

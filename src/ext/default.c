@@ -719,21 +719,63 @@ void DefaultExpanderFree(void *p) {
  *
  * Test Simple Sum Scoring Function (for testing purposes only)
  *
- * This is a simple scoring function that returns the sum of numTerms, numDocs, and avgDocLen.
+ * This is a simple scoring function that returns the sum of numTerms, numDocs, avgDocLen,
+ * sum of IDF, and sum of BM25 IDF values from all terms in the result.
  * It is used for testing the scoring function registration mechanism via debug commands.
  *
  ******************************************************************************************/
 
+/* Recursively sum IDF values from all terms in the result */
+static double sumIdfRecursive(const RSIndexResult *r) {
+  if (r->data.tag == RSResultData_Term) {
+    RSQueryTerm *term = IndexResult_QueryTermRef(r);
+    return term ? term->idf : 0;
+  }
+  if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
+    double sum = 0;
+    const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
+    AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+    for (int i = 0; i < children.len; i++) {
+      sum += sumIdfRecursive(children.ptr[i]);
+    }
+    return sum;
+  }
+  return 0;
+}
 
-/* Test scoring function that returns sum of numTerms + numDocs + avgDocLen */
+/* Recursively sum BM25 IDF values from all terms in the result */
+static double sumBm25IdfRecursive(const RSIndexResult *r) {
+  if (r->data.tag == RSResultData_Term) {
+    RSQueryTerm *term = IndexResult_QueryTermRef(r);
+    return term ? term->bm25_idf : 0;
+  }
+  if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
+    double sum = 0;
+    const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
+    AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+    for (int i = 0; i < children.len; i++) {
+      sum += sumBm25IdfRecursive(children.ptr[i]);
+    }
+    return sum;
+  }
+  return 0;
+}
+
+/* Test scoring function that returns sum of numTerms + numDocs + avgDocLen + sumIdf + sumBm25Idf */
 static double TestSimpleSumScoringFunction(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
                                            const RSDocumentMetadata *dmd, double minScore) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+
+  double sumIdf = sumIdfRecursive(r);
+  double sumBm25Idf = sumBm25IdfRecursive(r);
+
   double score = (double)ctx->indexStats.numTerms +
                  (double)ctx->indexStats.numDocs +
-                 ctx->indexStats.avgDocLen;
-  EXPLAIN(scrExp, "TEST_SIMPLE_SUM: numTerms(%zu) + numDocs(%zu) + avgDocLen(%.2f) = %.2f",
-          ctx->indexStats.numTerms, ctx->indexStats.numDocs, ctx->indexStats.avgDocLen, score);
+                 ctx->indexStats.avgDocLen +
+                 sumIdf +
+                 sumBm25Idf;
+  EXPLAIN(scrExp, "TEST_SIMPLE_SUM: numTerms(%zu) + numDocs(%zu) + avgDocLen(%.2f) + sumIdf(%.2f) + sumBm25Idf(%.2f) = %.2f",
+          ctx->indexStats.numTerms, ctx->indexStats.numDocs, ctx->indexStats.avgDocLen, sumIdf, sumBm25Idf, score);
   return score;
 }
 
