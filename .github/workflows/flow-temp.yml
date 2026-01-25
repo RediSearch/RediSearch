@@ -23,5 +23,5 @@ jobs:
     uses: ./.github/workflows/daily-ci-report.yml
     secrets: inherit
     with:
-      date: '2026-01-24'
+      date: '2026-01-22'
       slack_channel: 'rqe_ci_discussions'
