@@ -850,28 +850,100 @@ def extract_profile_coordinator_and_shards(env, res):
 
     Returns (coordinator_dict, list_of_shard_dicts).
     Standalone mode has no coordinator, returns ({}, [profile]).
+    Cluster mode returns (coordinator_dict, [shard1, shard2, ...]).
+
+    Note: FT.SEARCH uses 'shards' (lowercase), FT.AGGREGATE uses 'Shards' (uppercase) in RESP3.
     """
     if env.protocol == 3:
+        # RESP3 cluster mode: dict with 'Shards' or 'shards' key
+        shards_key = 'Shards' if 'Shards' in res else 'shards' if 'shards' in res else None
+        if shards_key:
+            # Filter to only include actual shards (those with 'Total profile time')
+            # This excludes Coordinator which has 'Total Coordinator time' instead
+            shards = [s for s in res[shards_key].values() if 'Total profile time' in s]
+            coordinator = res.get('Coordinator', res.get('coordinator', {}))
+            return coordinator, shards
+        # RESP3 standalone mode: profile nested under 'profile' key
         profile = res.get('profile', res)
-    else:
-        # RESP2: [[key, val], ...] pairs format
-        profile_data = res[-1]
-        profile = {p[0]: p[1] if len(p) > 1 else None for p in profile_data}
+        return {}, [profile]
 
+    # RESP2 format
+    # Cluster mode for FT.AGGREGATE: 'Shards' marker at top level of res
+    if 'Shards' in res:
+        shards = list(get_shards_profile(env, res))
+        coord_idx = res.index('Coordinator')
+        coordinator = to_dict(res[coord_idx + 1])
+        return coordinator, shards
+
+    # RESP2 cluster mode for FT.SEARCH: profile data in res[-1] with 'Shard #' markers
+    # Format: res[-1] = ['Shard #1', [...], 'Shard #2', [...], 'Coordinator', [...]]
+    last_elem = res[-1]
+    if isinstance(last_elem, list) and len(last_elem) > 0:
+        first_item = last_elem[0]
+        if isinstance(first_item, str) and first_item.startswith('Shard #'):
+            # Parse inline shard data
+            shards = []
+            coordinator = {}
+            current_shard = None
+            i = 0
+            while i < len(last_elem):
+                item = last_elem[i]
+                if isinstance(item, str) and item.startswith('Shard #'):
+                    if current_shard is not None:
+                        shards.append(current_shard)
+                    current_shard = {}
+                    i += 1
+                elif item == 'Coordinator':
+                    if current_shard is not None:
+                        shards.append(current_shard)
+                        current_shard = None
+                    # Coordinator data follows
+                    if i + 1 < len(last_elem):
+                        coordinator = to_dict(last_elem[i + 1])
+                    break
+                elif isinstance(item, list) and current_shard is not None:
+                    key = item[0]
+                    value = item[1:] if len(item) > 1 else None
+                    if value and len(value) == 1:
+                        value = value[0]
+                    current_shard[key] = value
+                    i += 1
+                else:
+                    i += 1
+            if current_shard is not None:
+                shards.append(current_shard)
+            return coordinator, shards
+
+    # Standalone mode: [[key, val], ...] pairs format in last element
+    profile_data = res[-1]
+    profile = {p[0]: p[1] if len(p) > 1 else None for p in profile_data}
     return {}, [profile]
 
 
 def sum_rp_times(env, shard):
     """Sum Result Processor times from a shard profile."""
     rp_profile = shard['Result processors profile']
+    total = 0.0
 
     if env.protocol == 3:
-        rps = rp_profile
+        for rp in rp_profile:
+            total += float(rp.get('Time', 0))
     else:
-        # RESP2: Single RP as flat [key, val, ...] list
-        rps = [to_dict(rp_profile)]
+        # RESP2: rp_profile can be:
+        # - A flat list ['Type', 'Index', 'Time', '0.078', ...] when there's only one RP
+        #   (due to get_shards_profile unwrapping single-element lists)
+        # - A list of lists [['Type', 'Index', ...], ['Type', 'Pager', ...]] when there are multiple RPs
+        if rp_profile and isinstance(rp_profile[0], str):
+            # Single RP case - rp_profile is the RP itself
+            rp_dict = to_dict(rp_profile)
+            total += float(rp_dict.get('Time', 0))
+        else:
+            # Multiple RPs case - iterate
+            for rp in rp_profile:
+                rp_dict = to_dict(rp)
+                total += float(rp_dict.get('Time', 0))
 
-    return sum(float(rp.get('Time', 0)) for rp in rps)
+    return total
 
 def ProfileTotalTimeConsistency(env, num_docs):
     """Tests that Total profile time >= sum of Result Processor times.
