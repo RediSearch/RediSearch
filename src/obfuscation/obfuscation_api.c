@@ -37,6 +37,10 @@ void Obfuscate_KeyWithTime(struct timespec spec, char* buffer) {
   sprintf(buffer, "Key@%zu", epoch);
 }
 
+const char *Obfuscate_Prefix(const char *prefix) {
+  return "Prefix";
+}
+
 const char *Obfuscate_Text(const char* text) {
   return "Text";
 }

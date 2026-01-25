@@ -345,7 +345,7 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
                                    RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor);
 }
 
-// IF the crashing thread worked on a spec, output the spec name
+// IF the crashing thread worked on a spec, output the spec name and info
 void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
   SpecInfo *specInfo = CurrentThread_TryGetSpecInfo();
   RedisModule_InfoAddSection(ctx, "current_thread");
@@ -355,13 +355,21 @@ void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
   if (specInfo) {
     StrongRef strong = WeakRef_Promote(specInfo->specRef);
     IndexSpec *spec = StrongRef_Get(strong);
+
+    // Gives us a sense of how long this thread was active on this index before we crashed.
+    // Note: This duration includes the entire lifetime from when the thread started working
+    // on the index until the crash report is generated, including signal handling time.
+    rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&specInfo->runningTime);
+    RedisModule_InfoAddFieldULongLong(ctx, "run_time_ns", duration);
+
     // spec can be null if the spec was deleted,
     // e.g in gc thread: it manages to take a strong ref but the invalidation flag was later turned on and no more strong refs can be taken
     if (!spec) {
       RedisModule_InfoAddFieldCString(ctx, "index", specInfo->specName ? specInfo->specName : "n/a");
     } else {
-      RedisModule_InfoAddFieldCString(ctx, "index", IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
-      // output FT.INFO
+      // Output FT.INFO in a crash-safe manner (no allocations, no locks)
+      // This includes the index name, so no need to output it separately
+      IndexSpec_AddToInfo(ctx, spec, RSGlobalConfig.hideUserDataFromLog, true);
     }
   }
 }
