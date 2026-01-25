@@ -974,8 +974,12 @@ def testBM25DocLen(env: Env):
 
 
 def calculate_idf(total_docs, term_docs):
-    """Calculate IDF using logb (log base 2) - same as C CalculateIDF function"""
-    return math.log2(1.0 + total_docs / (term_docs if term_docs else 1))
+    """Calculate IDF using logb - same as C CalculateIDF function"""
+    import math
+    value = 1.0 + total_docs / (term_docs if term_docs else 1)
+    # logb returns the exponent of the floating-point representation
+    # which is floor(log2(|x|)) for positive x
+    return math.floor(math.log2(abs(value))) if value != 0 else float('-inf')
 
 def calculate_bm25_idf(total_docs, term_docs):
     """Calculate BM25 IDF using natural log - same as C CalculateIDF_BM25 function"""
