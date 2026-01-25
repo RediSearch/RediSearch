@@ -24,6 +24,13 @@ bench = false
 default = []
 mock_allocator = []
 
+[build-dependencies]
+build_utils = { path = "../../build_utils" }
+quote.workspace = true
+syn = { workspace = true, features = ["full", "parsing"] }
+toml.workspace = true
+walkdir.workspace = true
+
 [dependencies]
 buffer = { workspace = true }
 fnv_ffi = { path = "../fnv_ffi" }

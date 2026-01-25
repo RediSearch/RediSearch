@@ -120,6 +120,15 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
             "out_flags length must be at least equal to lookup.get_row_len()"
         );
 
+        debug_assert!(
+            !required_flags.contains(RLookupKeyFlag::NameAlloc),
+            "The NameAlloc flag should have been handled in the FFI function. This is a bug."
+        );
+        debug_assert!(
+            !excluded_flags.contains(RLookupKeyFlag::NameAlloc),
+            "The NameAlloc flag should have been handled in the FFI function. This is a bug."
+        );
+
         let mut num_fields = 0;
         let mut idx = 0;
         let mut cursor = lookup.cursor();

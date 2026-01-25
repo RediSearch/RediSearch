@@ -814,11 +814,11 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
-  CurrentThread_SetIndexSpec(ref);
-
   if (!sp->smap) {
     return RedisModule_ReplyWithMap(ctx, 0);
   }
+
+  CurrentThread_SetIndexSpec(ref);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisSearchCtx_LockSpecRead(&sctx);
@@ -1575,6 +1575,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
       RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
       return REDISMODULE_ERR;
     }
+    // Disable GC when running in Flex mode
+    RSGlobalConfig.gcConfigParams.enableGC = 0;
+    RedisModule_Log(ctx, "notice", "GC disabled (Flex mode)");
   }
 
   // register trie-dictionary type
@@ -1649,7 +1652,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_MGET_CMD,      GetDocumentsCommand,      "readonly"                , NULL,                      NONE,                  "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_TAGVALS_CMD,   TagValsCommand,           "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CURSOR_CMD,    NULL,                     "readonly"                , RegisterCursorCommands,    SUBSCRIBE_SUBCOMMANDS, "read",                 true,             indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "admin",                true,             indexOnlyCmdArgs, false),
+    DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "admin slow dangerous",                true,             indexOnlyCmdArgs, false),
     DEFINE_COMMAND(RS_SPELL_CHECK,   SpellCheckCommand,        "readonly"                , SetFtSpellcheckInfo,       SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CONFIG,        NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                true,             indexOnlyCmdArgs, false),
   };
@@ -3397,7 +3400,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   // Capture start time for coordinator dispatch time tracking
-  rs_wall_clock_ns_t t0 = rs_wall_clock_now_ns();
+  rs_wall_clock_ns_t coordInitialTime = rs_wall_clock_now_ns();
 
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
@@ -3456,7 +3459,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   ConcurrentSearchHandlerCtx handlerCtx = {
-    .coordStartTime = t0,
+    .coordStartTime = coordInitialTime,
     .spec_ref = StrongRef_Demote(spec_ref)
   };
 
@@ -3468,6 +3471,9 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                       struct ConcurrentCmdCtx *cmdCtx);
 
 int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // Capture start time for coordinator dispatch time tracking
+  rs_wall_clock_ns_t coordInitialTime = rs_wall_clock_now_ns();
+
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
@@ -3509,8 +3515,10 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  ConcurrentSearchHandlerCtx handlerCtx = {0};
-  handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
+  ConcurrentSearchHandlerCtx handlerCtx = {
+    .coordStartTime = coordInitialTime,
+    .spec_ref = StrongRef_Demote(spec_ref)
+  };
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
@@ -3878,7 +3886,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   // Capture start time for coordinator dispatch time tracking
-  rs_wall_clock_ns_t t0 = rs_wall_clock_now_ns();
+  rs_wall_clock_ns_t coordInitialTime = rs_wall_clock_now_ns();
 
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
@@ -3936,7 +3944,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
-  sCmdCtx->handlerCtx.coordStartTime = t0;
+  sCmdCtx->handlerCtx.coordStartTime = coordInitialTime;
   RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
@@ -4128,17 +4136,15 @@ static bool checkClusterEnabled(RedisModuleCtx *ctx) {
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfiguration, int isClusterEnabled) {
+static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int isClusterEnabled) {
   // register the module configuration with redis, use loaded values from command line as defaults
-  if (registerConfiguration) {
-    if (RegisterModuleConfig_Local(ctx) == REDISMODULE_ERR) {
-      RedisModule_Log(ctx, "warning", "Error registering module configuration");
-      return REDISMODULE_ERR;
-    }
-    if (isClusterEnabled) {
-      // Register module configuration parameters for cluster
-      RM_TRY_F(RegisterClusterModuleConfig, ctx);
-    }
+  if (RegisterModuleConfig_Local(ctx) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Error registering module configuration");
+    return REDISMODULE_ERR;
+  }
+  if (isClusterEnabled || clusterConfig.type == ClusterType_RedisLabs) {
+    // Register module configuration parameters for cluster
+    RM_TRY_F(RegisterClusterModuleConfig, ctx);
   }
 
   // Load default values
@@ -4184,12 +4190,10 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Check if we are actually in cluster mode
   const bool isClusterEnabled = checkClusterEnabled(ctx);
-  const Version unstableRedis = {7, 9, 227};
-  const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
 
   legacySpecRules = dictCreate(&dictTypeHeapHiddenStrings, NULL);
 
-  if (RediSearch_InitModuleConfig(ctx, argv, argc, unprefixedConfigSupported, isClusterEnabled) == REDISMODULE_ERR) {
+  if (RediSearch_InitModuleConfig(ctx, argv, argc, isClusterEnabled) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 

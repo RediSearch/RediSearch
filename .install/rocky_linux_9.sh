@@ -8,4 +8,4 @@ $MODE dnf install -y gcc-toolset-14-gcc gcc-toolset-14-gcc-c++ make wget git --n
 
 cp /opt/rh/gcc-toolset-14/enable /etc/profile.d/gcc-toolset-14.sh
 # install other stuff after installing gcc-toolset-14 to avoid dependencies conflicts
-$MODE dnf install -y openssl openssl-devel which rsync unzip curl clang  clang-devel --nobest --skip-broken --allowerasing
+$MODE dnf install -y openssl openssl-devel which rsync unzip curl clang  clang-devel gdb --nobest --skip-broken --allowerasing

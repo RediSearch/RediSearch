@@ -51,7 +51,7 @@ pub unsafe extern "C" fn RSSortingVector_Get(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> size_t {
+pub unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> size_t {
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.as_ref().expect("vec must not be null") };
 
@@ -66,7 +66,7 @@ unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> size
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_GetMemorySize(vec: *const RSSortingVector) -> size_t {
+pub unsafe extern "C" fn RSSortingVector_GetMemorySize(vec: *const RSSortingVector) -> size_t {
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.as_ref().expect("vec must not be null") };
 

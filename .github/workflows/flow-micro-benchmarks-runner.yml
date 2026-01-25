@@ -39,7 +39,7 @@ jobs:
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
       - name: Start EC2 runner
         id: start-ec2-runner
-        uses: machulav/ec2-github-runner@v2
+        uses: machulav/ec2-github-runner@v2.4.2
         with:
           mode: start
           github-token: ${{ secrets.CI_GH_P_TOKEN }}
@@ -55,7 +55,7 @@ jobs:
     runs-on: ${{ needs.start-runner.outputs.runner_label }}
     steps:
       - name: Pre checkout deps
-        run:  sudo apt-get update && sudo apt-get -y install git
+        run:  sudo apt-get update && sudo apt-get -y --no-install-recommends install git
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -166,7 +166,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
       - name: Stop EC2 runner
-        uses: machulav/ec2-github-runner@v2
+        uses: machulav/ec2-github-runner@v2.4.2
         with:
           mode: stop
           github-token: ${{ secrets.CI_GH_P_TOKEN }}
