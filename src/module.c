@@ -3097,7 +3097,8 @@ static int searchResultReducer(struct MRCtx *mc, RedisModuleCtx *ctx) {
 
   int res = REDISMODULE_OK;
   // got no replies
-  if (count == 0 || req->limit < 0) {
+  if (!rCtx.timedout && (count == 0 || req->limit < 0)) {
+    // If we're here, it means we didn't timeout and we got no replies. This is an error.
     res = RedisModule_Reply_Error(reply, "Could not send query to cluster");
     goto cleanup;
   }
