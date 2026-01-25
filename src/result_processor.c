@@ -48,6 +48,10 @@ static int UnlockSpec_and_ReturnRPResult(RedisSearchCtx *sctx, int result_status
 
 // Maximum number of concurrent async reads
 #define ASYNC_POOL_SIZE 16
+// Buffer size for IndexResults (decouples iterator reads from async I/O)
+#define INDEX_RESULT_BUFFER_SIZE 128
+// Refill buffer when it drops below this threshold
+#define INDEX_RESULT_REFILL_THRESHOLD 64
 
 typedef struct {
   ResultProcessor base;
@@ -56,14 +60,18 @@ typedef struct {
   uint32_t timeoutLimiter;                      // counter to limit number of calls to TimedOut_WithCounter()
   uint32_t keySpaceVersion;                     // version of the Keyspace slot ranges used for filtering
   const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
+
   // Async pool for disk-based indexes (NULL if not using disk)
   RedisSearchDiskAsyncReadPool *asyncPool;
   // Buffer to hold ready results from async poll (DMD + user_data pairs)
   AsyncReadResult *readyResults;
   uint16_t readyResultsCount;
   uint16_t readyResultsIndex;
-  // Array of RSIndexResult pointers indexed by user_data
-  RSIndexResult **pendingIndexResults;
+
+  // IndexResult buffer - decouples iterator reads from async I/O
+  RSIndexResult **indexResultBuffer;  // Array of RSIndexResult pointers
+  uint16_t indexResultBufferCount;    // Number of valid entries in buffer
+  uint16_t indexResultBufferIndex;    // Next index to consume from buffer
 } RPQueryIterator;
 
 
@@ -104,6 +112,83 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
   return true;
 }
 
+/**
+ * Refill the IndexResult buffer from the iterator if it's below threshold.
+ * Returns RS_RESULT_OK on success, RS_RESULT_TIMEDOUT on timeout, RS_RESULT_EOF if iterator is done.
+ */
+static int refillIndexResultBuffer(RPQueryIterator *self) {
+  QueryIterator *it = self->iterator;
+  RedisSearchCtx *sctx = self->sctx;
+  IndexSpec *spec = sctx->spec;
+
+  // Only refill if below threshold and not already full
+  uint16_t available = self->indexResultBufferCount - self->indexResultBufferIndex;
+  if (available >= INDEX_RESULT_REFILL_THRESHOLD || it->atEOF) {
+    return RS_RESULT_OK;
+  }
+
+  // Compact buffer if needed (move unconsumed entries to start)
+  if (self->indexResultBufferIndex > 0 && available > 0) {
+    memmove(&self->indexResultBuffer[0],
+            &self->indexResultBuffer[self->indexResultBufferIndex],
+            available * sizeof(RSIndexResult*));
+    self->indexResultBufferCount = available;
+    self->indexResultBufferIndex = 0;
+  } else if (self->indexResultBufferIndex > 0) {
+    // All consumed, reset
+    self->indexResultBufferCount = 0;
+    self->indexResultBufferIndex = 0;
+  }
+
+  // Fill buffer up to capacity
+  while (self->indexResultBufferCount < INDEX_RESULT_BUFFER_SIZE && !it->atEOF) {
+    if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
+
+    IteratorStatus rc = it->Read(it);
+    if (rc == ITERATOR_EOF) {
+      break;
+    } else if (rc == ITERATOR_TIMEOUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
+
+    // Skip deleted documents (in-memory check, no IO)
+    t_docId docId = it->current->docId;
+    if (SearchDisk_DocIdDeleted(spec->diskSpec, docId)) {
+      continue;
+    }
+
+    // Store the IndexResult pointer in buffer
+    self->indexResultBuffer[self->indexResultBufferCount++] = it->current;
+  }
+
+  return RS_RESULT_OK;
+}
+
+/**
+ * Refill the async pool from the IndexResult buffer.
+ * Returns number of entries added to the pool.
+ */
+static uint16_t refillAsyncPool(RPQueryIterator *self) {
+  uint16_t added = 0;
+
+  while (added < ASYNC_POOL_SIZE && self->indexResultBufferIndex < self->indexResultBufferCount) {
+    RSIndexResult *indexResult = self->indexResultBuffer[self->indexResultBufferIndex];
+    t_docId docId = indexResult->docId;
+
+    // Pass the buffer index as user_data so we can look up the IndexResult later
+    if (!SearchDisk_AddAsyncRead(self->asyncPool, docId, (uint64_t)self->indexResultBufferIndex)) {
+      break;  // Pool is full
+    }
+
+    self->indexResultBufferIndex++;
+    added++;
+  }
+
+  return added;
+}
+
 // Helper to get DMD and IndexResult from async pool ready buffer
 static const RSDocumentMetadata* popReadyResult(RPQueryIterator *self, RSIndexResult **outIndexResult) {
   if (self->readyResultsIndex >= self->readyResultsCount) {
@@ -123,9 +208,9 @@ static const RSDocumentMetadata* popReadyResult(RPQueryIterator *self, RSIndexRe
   result->dmd.byteOffsets = NULL;
   result->dmd.payload = NULL;
 
-  // Look up the IndexResult using the user_data as an index
-  uint64_t index = result->user_data;
-  *outIndexResult = self->pendingIndexResults[index];
+  // Look up the IndexResult using the user_data as buffer index
+  uint64_t bufferIndex = result->user_data;
+  *outIndexResult = self->indexResultBuffer[bufferIndex];
 
   return dmd;
 }
@@ -245,7 +330,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   }
 }
 
-/* Next implementation for async disk flow */
+/* Next implementation for async disk flow with two-level buffering */
 static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   RPQueryIterator *self = (RPQueryIterator *)base;
   QueryIterator *it = self->iterator;
@@ -259,17 +344,23 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
 
-  IndexSpec* spec = sctx->spec;
-
   while (1) {
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
-    // Try to return a ready result first
-    RSIndexResult *indexResult = NULL;
-    dmd = popReadyResult(self, &indexResult);
-    if (dmd) {
+    // Step 1: Refill IndexResult buffer if needed (cheap iterator reads)
+    int refillResult = refillIndexResultBuffer(self);
+    if (refillResult == RS_RESULT_TIMEDOUT) {
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+    }
+
+    // Step 2: Try to serve a ready result if we have one
+    if (self->readyResultsIndex < self->readyResultsCount) {
+      RSIndexResult *indexResult = NULL;
+      dmd = popReadyResult(self, &indexResult);
+      RS_ASSERT(dmd);  // Should always succeed if index < count
+
       if (!validateDmdSlot(self, dmd)) {
         DMD_Return(dmd);
         continue;
@@ -278,32 +369,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
       return RS_RESULT_OK;
     }
 
-    // No ready results - fill the pool with more doc IDs
-    bool poolHasSpace = true;
-    uint16_t pendingIndex = 0;
-    while (poolHasSpace && !it->atEOF && pendingIndex < ASYNC_POOL_SIZE) {
-      IteratorStatus rc = it->Read(it);
-      if (rc == ITERATOR_EOF) {
-        break;
-      } else if (rc == ITERATOR_TIMEOUT) {
-        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
-      }
-
-      t_docId docId = it->current->docId;
-      // Skip deleted documents (in-memory check, no IO)
-      if (SearchDisk_DocIdDeleted(spec->diskSpec, docId)) {
-        continue;
-      }
-
-      // Store the IndexResult pointer and pass the index as user_data
-      self->pendingIndexResults[pendingIndex] = it->current;
-      if (!SearchDisk_AddAsyncRead(self->asyncPool, docId, (uint64_t)pendingIndex)) {
-        poolHasSpace = false;
-      }
-      pendingIndex++;
-    }
-
-    // Poll for results
+    // Step 3: No ready results - poll for more
     int timeout_ms = it->atEOF ? 1000 : 0;
     AsyncPollResult pollResult = SearchDisk_PollAsyncReads(
         self->asyncPool, timeout_ms, self->readyResults, ASYNC_POOL_SIZE);
@@ -311,13 +377,15 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     self->readyResultsCount = pollResult.ready_count;
     self->readyResultsIndex = 0;
 
-    if (pollResult.ready_count > 0) {
-      continue;
-    }
+    // Step 4: Immediately refill async pool from buffer to keep I/O pipeline full
+    refillAsyncPool(self);
 
-    if (pollResult.pending_count == 0 && it->atEOF) {
+    // Step 5: Check if we're completely done
+    if (pollResult.ready_count == 0 && pollResult.pending_count == 0 && it->atEOF) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
     }
+
+    // Loop back to serve results (I/O for next batch is already running)
   }
 }
 
@@ -337,8 +405,8 @@ static void rpQueryItFree(ResultProcessor *iter) {
     }
     rm_free(self->readyResults);
   }
-  if (self->pendingIndexResults) {
-    rm_free(self->pendingIndexResults);
+  if (self->indexResultBuffer) {
+    rm_free(self->indexResultBuffer);
   }
   rm_free(iter);
 }
@@ -355,11 +423,17 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
 
   // Determine which Next function to use based on disk configuration
   if (sctx->spec->diskSpec && SearchDisk_IsAsyncIOSupported() && SearchDisk_GetAsyncIOEnabled()) {
-    // Async disk flow
+    // Async disk flow with two-level buffering
     ret->asyncPool = SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, ASYNC_POOL_SIZE);
     if (ret->asyncPool) {
+      // Allocate async I/O buffers
       ret->readyResults = rm_calloc(ASYNC_POOL_SIZE, sizeof(AsyncReadResult));
-      ret->pendingIndexResults = rm_calloc(ASYNC_POOL_SIZE, sizeof(RSIndexResult*));
+
+      // Allocate IndexResult buffer (decouples iterator reads from I/O)
+      ret->indexResultBuffer = rm_calloc(INDEX_RESULT_BUFFER_SIZE, sizeof(RSIndexResult*));
+      ret->indexResultBufferCount = 0;
+      ret->indexResultBufferIndex = 0;
+
       ret->base.Next = rpQueryItNext_AsyncDisk;
     } else {
       // Fallback to sync if async pool creation failed
