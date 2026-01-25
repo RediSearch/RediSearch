@@ -55,7 +55,7 @@ jobs:
     runs-on: ${{ needs.start-runner.outputs.runner_label }}
     steps:
       - name: Pre checkout deps
-        run:  sudo apt-get update && sudo apt-get -y install git
+        run:  sudo apt-get update && sudo apt-get -y --no-install-recommends install git
       - name: Checkout code
         uses: actions/checkout@v4
         with:
