@@ -49,11 +49,11 @@ else()
 endif()
 
 # =============================================================================
-# Unit Tests (optional, enabled via VECSIM_DISK_BUILD_TESTS)
+# Unit Tests (optional, enabled via BUILD_TESTS)
 # =============================================================================
-option(VECSIM_DISK_BUILD_TESTS "Build vecsim_disk unit tests" ON)
+option(BUILD_TESTS "Build vecsim_disk unit tests" ON)
 
-if(VECSIM_DISK_BUILD_TESTS)
+if(BUILD_TESTS)
     # Enable testing
     enable_testing()
 

@@ -298,7 +298,7 @@ cmd_test_vecsim() {
   build_speedb
 
   echo "[test-vecsim] Building vecsim_disk and all tests..."
-  cmake --build "${BUILD_DIR}" --target vecsim_disk -j"$(nproc)" || { echo "[test-vecsim] Error: Build failed."; exit 1; }
+  cmake --build "${BUILD_DIR}" --target vecsim_disk_tests -j"$(nproc)" || { echo "[test-vecsim] Error: Build failed."; exit 1; }
 
   # Run CTest with LD_LIBRARY_PATH set so tests can find libspeedb.so
   echo "[test-vecsim] Running tests..."
@@ -348,7 +348,7 @@ cmd_bench() {
 cmd_profile() {
   # Build in Release mode without tests
   echo "[profile] Building module in Release mode..."
-  PROFILE=Release CMAKE_ARGS="-DVECSIM_DISK_BUILD_TESTS=OFF" cmd_build
+  PROFILE=Release CMAKE_ARGS="-DBUILD_TESTS=OFF" cmd_build
 
   # Source and run the profile script
   source "${ROOT_DIR}/profile.sh"

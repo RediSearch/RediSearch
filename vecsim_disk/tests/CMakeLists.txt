@@ -22,6 +22,10 @@ FetchContent_MakeAvailable(googletest)
 enable_testing()
 include(GoogleTest)
 
+# Enable BUILD_TESTS macro for test executables to access test-only methods in HNSWDiskIndex
+# (e.g., fitMemory, getDataByLabel, etc.)
+add_compile_definitions(BUILD_TESTS)
+
 function(add_vecsim_test test_name source_file)
     # Create test executable
     add_executable(${test_name} ${source_file})
@@ -56,16 +60,36 @@ endforeach()
 # Special: Add big-endian variants of tests to verify cross-platform serialization
 # =============================================================================
 
-# Create a big-endian variant of test_encoding to test serialization on simulated big-endian
-add_executable(test_encoding_bigendian ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_encoding.cpp)
-target_include_directories(test_encoding_bigendian PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/unit)
-target_link_libraries(test_encoding_bigendian PRIVATE gtest gtest_main vecsim_disk)
-target_compile_definitions(test_encoding_bigendian PRIVATE FORCE_BIG_ENDIAN_TEST=1)
-gtest_discover_tests(test_encoding_bigendian)
+# Define big-endian test variants for tests that involve serialization/encoding
+set(BIGENDIAN_TEST_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_encoding.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_hnsw_storage.cpp
+)
 
-# Create a big-endian variant of test_hnsw_storage to test vector storage on simulated big-endian
-add_executable(test_hnsw_storage_bigendian ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_hnsw_storage.cpp)
-target_include_directories(test_hnsw_storage_bigendian PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/unit)
-target_link_libraries(test_hnsw_storage_bigendian PRIVATE gtest gtest_main vecsim_disk)
-target_compile_definitions(test_hnsw_storage_bigendian PRIVATE FORCE_BIG_ENDIAN_TEST=1)
-gtest_discover_tests(test_hnsw_storage_bigendian)
+set(BIGENDIAN_TEST_TARGETS "")
+foreach(SOURCE_FILE ${BIGENDIAN_TEST_SOURCES})
+    get_filename_component(BASE_NAME ${SOURCE_FILE} NAME_WE)
+    set(TEST_NAME "${BASE_NAME}_bigendian")
+
+    add_executable(${TEST_NAME} ${SOURCE_FILE})
+    target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/unit)
+    target_link_libraries(${TEST_NAME} PRIVATE gtest gtest_main vecsim_disk)
+    target_compile_definitions(${TEST_NAME} PRIVATE FORCE_BIG_ENDIAN_TEST=1)
+    gtest_discover_tests(${TEST_NAME})
+
+    list(APPEND BIGENDIAN_TEST_TARGETS ${TEST_NAME})
+endforeach()
+
+# =============================================================================
+# Convenience target to build all vecsim_disk tests
+# =============================================================================
+
+# Collect all test target names (regular + bigendian)
+set(ALL_TEST_TARGETS ${BIGENDIAN_TEST_TARGETS})
+foreach(TEST_SOURCE ${TEST_SOURCES})
+    get_filename_component(TEST_NAME ${TEST_SOURCE} NAME_WE)
+    list(APPEND ALL_TEST_TARGETS ${TEST_NAME})
+endforeach()
+
+# Create a target that builds all tests
+add_custom_target(vecsim_disk_tests DEPENDS ${ALL_TEST_TARGETS})
