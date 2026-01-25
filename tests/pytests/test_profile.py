@@ -848,11 +848,41 @@ def testNonZeroTimers(env):
 def extract_profile_coordinator_and_shards(env, res):
     # Extract coordinator and shards from FT.PROFILE response based on protocol.
     if env.protocol == 3:
-        return res['Profile']['Coordinator'], res['Profile']['Shards']
+        # For 8.X, profile data is under 'Profile' key
+        # For 2.10, it may be at top level
+        profile = res.get('Profile', res)
+        return profile.get('Coordinator', {}), profile.get('Shards', [])
     else:
-        # RESP2: res[-1] is ['Shards', [...], 'Coordinator', {...}]
-        # res[-1][1] is shards array, res[-1][-1] is coordinator
-        return to_dict(res[-1][-1]), [to_dict(s) for s in res[-1][1]]
+        # RESP2 format differs between 8.X and 2.10:
+        # 8.X: res[-1] = ['Shards', [...], 'Coordinator', {...}] (flat alternating key-value)
+        # 2.10: res[-1] = [['key1', val1], ['key2', val2], ...] (list of 2-element lists)
+
+        # Detect 2.10 format: first element is a list (not a string key)
+        if isinstance(res[-1], list) and len(res[-1]) > 0 and isinstance(res[-1][0], list):
+            # 2.10 format: convert list of pairs to dict
+            # Handle entries that may have only 1 element (like ['Warning'])
+            profile_dict = {item[0]: item[1] if len(item) > 1 else None for item in res[-1]}
+
+            # 2.10 standalone doesn't have Shards/Coordinator structure
+            # Treat the entire profile as a single shard
+            return {}, [profile_dict]
+
+        # 8.X format: flat alternating key-value list
+        profile_dict = to_dict(res[-1])
+        shards_data = profile_dict.get('Shards', [])
+        coordinator = profile_dict.get('Coordinator', [])
+
+        # Check if shards_data is a list of shard profiles or a single shard profile
+        # In 8.X cluster: shards_data = [[shard1_profile], [shard2_profile], ...]
+        # In 2.10 standalone: shards_data = [shard_profile] as a flat list
+        if shards_data and isinstance(shards_data[0], str):
+            # 2.10 standalone: shards_data IS the shard profile (flat list)
+            shards = [to_dict(shards_data)]
+        else:
+            # 8.X: shards_data is a list of shard profiles
+            shards = [to_dict(s) for s in shards_data]
+
+        return to_dict(coordinator) if coordinator else {}, shards
 
 
 def sum_rp_times(env, shard):
@@ -863,10 +893,18 @@ def sum_rp_times(env, shard):
         for rp in rp_profile:
             total += float(rp.get('Time', 0))
     else:
-        for rp in rp_profile:
-            rp_dict = to_dict(rp)
-            # In RESP2, Time is returned as a string
+        # Detect 2.10 format: first element is a string key (flat key-value list for single RP)
+        # vs 8.X format: first element is a list (list of RPs)
+        if rp_profile and isinstance(rp_profile[0], str):
+            # 2.10 format: single RP as flat key-value list
+            rp_dict = to_dict(rp_profile)
             total += float(rp_dict.get('Time', 0))
+        else:
+            # 8.X format: list of RPs
+            for rp in rp_profile:
+                rp_dict = to_dict(rp)
+                # In RESP2, Time is returned as a string
+                total += float(rp_dict.get('Time', 0))
     return total
 
 def ProfileTotalTimeConsistency(env, num_docs):
