@@ -19,6 +19,7 @@ set(VECSIM_DISK_SOURCES
     ${FACTORY_SOURCES}
     src/speedb_store.cpp
     src/vecsim_disk_api.cpp
+    src/storage/edge_merge_operator.cpp
 )
 
 # Create the library

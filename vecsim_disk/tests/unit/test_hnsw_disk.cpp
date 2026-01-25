@@ -10,6 +10,7 @@
 #include "gtest/gtest.h"
 #include "test_utils.h"
 #include "vecsim_disk_api.h"
+#include "storage/hnsw_storage.h"
 
 using namespace test_utils;
 

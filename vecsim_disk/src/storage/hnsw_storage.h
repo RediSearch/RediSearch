@@ -30,6 +30,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "storage/encoding.h"
+#include "storage/edge_merge_operator.h"
 
 typedef uint16_t levelType;
 static_assert(sizeof(idType) == 4 && "IDType must be 4 bytes");
@@ -47,6 +48,26 @@ public:
     HNSWStorage(rocksdb::DB* db, rocksdb::ColumnFamilyHandle* cf) : db_(db), cf_(cf) {}
 
     ~HNSWStorage() = default;
+
+    // Merge operations for incoming edges only (outgoing edges use GET + PUT per design)
+    bool append_incoming_edge(idType id, levelType level, idType edge) {
+        char key_buf[kEdgeKeySize];
+        incomingEdgesKey(id, level, key_buf);
+        std::string_view key(key_buf, kEdgeKeySize);
+        std::string operand = rocksdb::EdgeListMergeOperator::CreateAppendOperand(edge);
+        rocksdb::Status status = db_->Merge(writeOpts_, cf_, key, operand);
+        return status.ok();
+    }
+
+    bool delete_edge_from_incoming(idType id, levelType level, idType edge_to_delete) {
+        char key_buf[kEdgeKeySize];
+        incomingEdgesKey(id, level, key_buf);
+        std::string_view key(key_buf, kEdgeKeySize);
+        std::string operand = rocksdb::EdgeListMergeOperator::CreateDeleteOperand(edge_to_delete);
+        rocksdb::Status status = db_->Merge(writeOpts_, cf_, key, operand);
+        return status.ok();
+    }
+
     bool put_vector(idType id, const void* data, size_t size) {
         assert(size % sizeof(DataType) == 0 && "Invalid vector size");
         char key_buf[kVectorKeySize];

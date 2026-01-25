@@ -13,6 +13,8 @@
 #include "VecSim/memory/vecsim_malloc.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/merge_operator.h"
+#include "storage/edge_merge_operator.h"
 #include "factory/disk_index_factory.h"
 #include "vecsim_disk_api.h"
 
@@ -65,10 +67,13 @@ public:
         // Configure options
         options.create_if_missing = true;
 
+        // Configure column family options with merge operator for incoming edge operations (append and delete)
+        rocksdb::ColumnFamilyOptions cf_options;
+        cf_options.merge_operator = rocksdb::CreateEdgeListMergeOperator();
+
         // Open database with default column family
         std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
-        column_families.push_back(
-            rocksdb::ColumnFamilyDescriptor(rocksdb::kDefaultColumnFamilyName, rocksdb::ColumnFamilyOptions()));
+        column_families.push_back(rocksdb::ColumnFamilyDescriptor(rocksdb::kDefaultColumnFamilyName, cf_options));
 
         std::vector<rocksdb::ColumnFamilyHandle*> handles;
         status = rocksdb::DB::Open(options, db_path_, column_families, &handles, &db_);

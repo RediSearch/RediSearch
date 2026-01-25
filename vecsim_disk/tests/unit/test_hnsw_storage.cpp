@@ -10,9 +10,11 @@
 #include "gtest/gtest.h"
 #include "test_utils.h"
 #include "storage/encoding.h"
+#include "storage/edge_merge_operator.h"
 
 #include <memory>
 #include <cstring>
+#include <limits>
 
 using namespace test_utils;
 
@@ -28,6 +30,17 @@ protected:
     void TearDown() override { db_.reset(); }
 
     std::unique_ptr<HNSWStorage<float>> CreateStorage() { return db_->createStorage<float>(); }
+
+    // Helper to append multiple edges using single-edge API
+    static bool AppendEdges(HNSWStorage<float>* storage, idType id, levelType level,
+                            std::initializer_list<idType> edges) {
+        for (idType edge : edges) {
+            if (!storage->append_incoming_edge(id, level, edge)) {
+                return false;
+            }
+        }
+        return true;
+    }
 };
 
 // =============================================================================
@@ -500,4 +513,568 @@ TEST_F(HNSWStorageTest, DoubleVectorSerializationRoundTrip) {
         EXPECT_EQ(original_bits, retrieved_bits) << "Bit pattern mismatch at index " << i << " (original=" << vec[i]
                                                  << ", retrieved=" << retrieved[i] << ")";
     }
+}
+
+// =============================================================================
+// Merge Operator Tests
+// =============================================================================
+
+TEST_F(HNSWStorageTest, AppendIncomingEdge) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 42;
+    levelType level = 0;
+
+    // Append single edges one at a time
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, 10));
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, 20));
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, 30));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({10, 20, 30}));
+}
+
+TEST_F(HNSWStorageTest, MergeDeleteIncomingEdge) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 42;
+    levelType level = 0;
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 3}));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({1, 3}));
+}
+
+// Test: FullMergeV2 with existing base value (Put) followed by merge operands.
+// This specifically tests the existing_value path in FullMergeV2, which differs
+// from tests that only use merge operations (no base Put value).
+TEST_F(HNSWStorageTest, FullMergeV2WithExistingValue) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 42;
+    levelType level = 0;
+
+    // First, set a base value using Put (not Merge)
+    ASSERT_TRUE(storage->put_incoming_edges(id, level, {10, 20, 30}));
+
+    // Now apply merge operations on top of the existing value
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, 40));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 20));
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, 50));
+
+    // FullMergeV2 is invoked during read with:
+    // - existing_value = {10, 20, 30} (from Put)
+    // - operand_list = [append(40), delete(20), append(50)]
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({10, 30, 40, 50}));
+}
+
+// =============================================================================
+// Edge Merge Operator Edge Cases
+// =============================================================================
+
+// Test: Append to empty (no existing value)
+TEST_F(HNSWStorageTest, MergeAppendToEmpty) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 100;
+    levelType level = 0;
+
+    // Append to non-existent key
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {10, 20, 30}));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({10, 20, 30}));
+}
+
+// Test: Multiple consecutive appends
+TEST_F(HNSWStorageTest, MergeMultipleAppends) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 101;
+    levelType level = 0;
+
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2}));
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {3, 4}));
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, 5));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({1, 2, 3, 4, 5}));
+}
+
+// Test: Delete from empty list (edge doesn't exist)
+TEST_F(HNSWStorageTest, MergeDeleteFromEmpty) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 102;
+    levelType level = 0;
+
+    // Delete from non-existent key - should not crash
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 999));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_TRUE(retrieved.empty());
+}
+
+// Test: Delete non-existent edge from populated list
+TEST_F(HNSWStorageTest, MergeDeleteNonExistent) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 103;
+    levelType level = 0;
+
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 3}));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 999)); // Edge doesn't exist
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({1, 2, 3})); // Unchanged
+}
+
+// Test: Delete all edges one by one
+TEST_F(HNSWStorageTest, MergeDeleteAllEdges) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 104;
+    levelType level = 0;
+
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 3}));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 1));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 3));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_TRUE(retrieved.empty());
+}
+
+// Test: Delete first edge
+TEST_F(HNSWStorageTest, MergeDeleteFirstEdge) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 105;
+    levelType level = 0;
+
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 3, 4, 5}));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 1));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({2, 3, 4, 5}));
+}
+
+// Test: Delete last edge
+TEST_F(HNSWStorageTest, MergeDeleteLastEdge) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 106;
+    levelType level = 0;
+
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 3, 4, 5}));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 5));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({1, 2, 3, 4}));
+}
+
+// Test: Delete middle edge
+TEST_F(HNSWStorageTest, MergeDeleteMiddleEdge) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 107;
+    levelType level = 0;
+
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 3, 4, 5}));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 3));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({1, 2, 4, 5}));
+}
+
+// Test: Delete only removes first occurrence (duplicates shouldn't exist in HNSW)
+TEST_F(HNSWStorageTest, MergeDeleteDuplicateEdges) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 108;
+    levelType level = 0;
+
+    // Append edges with duplicates (shouldn't happen in practice, but test the behavior)
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 2, 3, 2}));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2)); // Removes only first occurrence
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({1, 2, 3, 2}));
+}
+
+// Test: Interleaved append and delete operations
+TEST_F(HNSWStorageTest, MergeInterleavedOperations) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 109;
+    levelType level = 0;
+
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 3}));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2));
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {4, 5}));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 1));
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, 6));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 5));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({3, 4, 6}));
+}
+
+// Test: Single edge operations
+TEST_F(HNSWStorageTest, MergeSingleEdge) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 111;
+    levelType level = 0;
+
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, 42));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({42}));
+
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 42));
+    retrieved.clear();
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_TRUE(retrieved.empty());
+}
+
+// Test: Large edge IDs (boundary values)
+TEST_F(HNSWStorageTest, MergeLargeEdgeIds) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 112;
+    levelType level = 0;
+
+    idType maxId = std::numeric_limits<idType>::max();
+    idType almostMax = maxId - 1;
+
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {0, 1, almostMax, maxId}));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({0, 1, almostMax, maxId}));
+
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, maxId));
+    retrieved.clear();
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({0, 1, almostMax}));
+}
+
+// Test: Operations on different levels
+TEST_F(HNSWStorageTest, MergeDifferentLevels) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 113;
+
+    ASSERT_TRUE(AppendEdges(storage.get(), id, 0, {1, 2, 3}));
+    ASSERT_TRUE(AppendEdges(storage.get(), id, 1, {10, 20}));
+    ASSERT_TRUE(storage->append_incoming_edge(id, 2, 100));
+
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, 0, 2));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, 1, 10));
+
+    std::vector<idType> level0, level1, level2;
+    ASSERT_TRUE(storage->get_incoming_edges(id, 0, level0));
+    ASSERT_TRUE(storage->get_incoming_edges(id, 1, level1));
+    ASSERT_TRUE(storage->get_incoming_edges(id, 2, level2));
+
+    EXPECT_EQ(level0, std::vector<idType>({1, 3}));
+    EXPECT_EQ(level1, std::vector<idType>({20}));
+    EXPECT_EQ(level2, std::vector<idType>({100}));
+}
+
+// Test: Large number of edges
+TEST_F(HNSWStorageTest, MergeLargeEdgeList) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 114;
+    levelType level = 0;
+
+    // Append a large number of edges one by one
+    for (idType i = 0; i < 1000; ++i) {
+        ASSERT_TRUE(storage->append_incoming_edge(id, level, i));
+    }
+
+    // Delete every other edge
+    for (idType i = 0; i < 1000; i += 2) {
+        ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, i));
+    }
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+
+    // Should have only odd numbers
+    EXPECT_EQ(retrieved.size(), 500u);
+    for (size_t i = 0; i < retrieved.size(); ++i) {
+        EXPECT_EQ(retrieved[i], static_cast<idType>(i * 2 + 1));
+    }
+}
+
+// Test: Delete same edge multiple times
+TEST_F(HNSWStorageTest, MergeDeleteSameEdgeTwice) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 115;
+    levelType level = 0;
+
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 3}));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2)); // Delete again (no-op)
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({1, 3}));
+}
+
+// Test: Incoming edges with merge operator
+TEST_F(HNSWStorageTest, MergeIncomingEdges) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 116;
+    levelType level = 0;
+
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {100, 200, 300}));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 200));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({100, 300}));
+}
+
+// Test: Append after delete restores edge
+TEST_F(HNSWStorageTest, MergeAppendAfterDelete) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 117;
+    levelType level = 0;
+
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 3}));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2));
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, 2)); // Re-add deleted edge
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({1, 3, 2})); // 2 is at the end now
+}
+
+// =============================================================================
+// PartialMerge Direct Tests
+// =============================================================================
+
+class EdgeMergeOperatorTest : public ::testing::Test {
+protected:
+    rocksdb::EdgeListMergeOperator merge_op_;
+
+    // Helper to decode edges from a merged operand (skip the op byte)
+    static std::vector<idType> DecodeEdges(const std::string& operand) {
+        std::vector<idType> edges;
+        if (operand.size() < 1)
+            return edges;
+        for (size_t i = 1; i < operand.size(); i += sizeof(idType)) {
+            edges.push_back(encoding::DecodeFixedLE<idType>(operand.data() + i));
+        }
+        return edges;
+    }
+};
+
+TEST_F(EdgeMergeOperatorTest, PartialMergeTwoAppends) {
+    auto left = rocksdb::EdgeListMergeOperator::CreateAppendOperand(100);
+    auto right = rocksdb::EdgeListMergeOperator::CreateAppendOperand(200);
+
+    std::string result;
+    bool merged =
+        merge_op_.PartialMerge(rocksdb::Slice("key"), rocksdb::Slice(left), rocksdb::Slice(right), &result, nullptr);
+
+    ASSERT_TRUE(merged);
+    ASSERT_EQ(result[0], rocksdb::EdgeListMergeOperator::OP_APPEND);
+    auto edges = DecodeEdges(result);
+    EXPECT_EQ(edges, std::vector<idType>({100, 200}));
+}
+
+TEST_F(EdgeMergeOperatorTest, PartialMergeTwoDeletes) {
+    auto left = rocksdb::EdgeListMergeOperator::CreateDeleteOperand(10);
+    auto right = rocksdb::EdgeListMergeOperator::CreateDeleteOperand(20);
+
+    std::string result;
+    bool merged =
+        merge_op_.PartialMerge(rocksdb::Slice("key"), rocksdb::Slice(left), rocksdb::Slice(right), &result, nullptr);
+
+    ASSERT_TRUE(merged);
+    ASSERT_EQ(result[0], rocksdb::EdgeListMergeOperator::OP_DELETE);
+    auto edges = DecodeEdges(result);
+    EXPECT_EQ(edges, std::vector<idType>({10, 20}));
+}
+
+TEST_F(EdgeMergeOperatorTest, PartialMergeAppendAndDeleteFails) {
+    auto append = rocksdb::EdgeListMergeOperator::CreateAppendOperand(100);
+    auto del = rocksdb::EdgeListMergeOperator::CreateDeleteOperand(10);
+
+    std::string result;
+
+    // APPEND + DELETE should fail
+    bool merged1 =
+        merge_op_.PartialMerge(rocksdb::Slice("key"), rocksdb::Slice(append), rocksdb::Slice(del), &result, nullptr);
+    EXPECT_FALSE(merged1);
+
+    // DELETE + APPEND should fail
+    bool merged2 =
+        merge_op_.PartialMerge(rocksdb::Slice("key"), rocksdb::Slice(del), rocksdb::Slice(append), &result, nullptr);
+    EXPECT_FALSE(merged2);
+}
+
+TEST_F(EdgeMergeOperatorTest, PartialMergeMultipleAppends) {
+    auto op1 = rocksdb::EdgeListMergeOperator::CreateAppendOperand(1);
+    auto op2 = rocksdb::EdgeListMergeOperator::CreateAppendOperand(2);
+    auto op3 = rocksdb::EdgeListMergeOperator::CreateAppendOperand(3);
+
+    std::string merged12;
+    ASSERT_TRUE(
+        merge_op_.PartialMerge(rocksdb::Slice("key"), rocksdb::Slice(op1), rocksdb::Slice(op2), &merged12, nullptr));
+
+    std::string merged123;
+    ASSERT_TRUE(merge_op_.PartialMerge(rocksdb::Slice("key"), rocksdb::Slice(merged12), rocksdb::Slice(op3), &merged123,
+                                       nullptr));
+
+    ASSERT_EQ(merged123[0], rocksdb::EdgeListMergeOperator::OP_APPEND);
+    auto edges = DecodeEdges(merged123);
+    EXPECT_EQ(edges, std::vector<idType>({1, 2, 3}));
+}
+
+TEST_F(EdgeMergeOperatorTest, PartialMergeMultipleDeletes) {
+    auto op1 = rocksdb::EdgeListMergeOperator::CreateDeleteOperand(10);
+    auto op2 = rocksdb::EdgeListMergeOperator::CreateDeleteOperand(20);
+    auto op3 = rocksdb::EdgeListMergeOperator::CreateDeleteOperand(30);
+
+    std::string merged12;
+    ASSERT_TRUE(
+        merge_op_.PartialMerge(rocksdb::Slice("key"), rocksdb::Slice(op1), rocksdb::Slice(op2), &merged12, nullptr));
+
+    std::string merged123;
+    ASSERT_TRUE(merge_op_.PartialMerge(rocksdb::Slice("key"), rocksdb::Slice(merged12), rocksdb::Slice(op3), &merged123,
+                                       nullptr));
+
+    ASSERT_EQ(merged123[0], rocksdb::EdgeListMergeOperator::OP_DELETE);
+    auto edges = DecodeEdges(merged123);
+    EXPECT_EQ(edges, std::vector<idType>({10, 20, 30}));
+}
+
+// =============================================================================
+// Repeated Add/Delete Tests (via storage layer)
+// =============================================================================
+
+// Test: Add and delete same edge multiple times, final state reflects last operation
+TEST_F(HNSWStorageTest, RepeatedAddDeleteEdge) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 200;
+    levelType level = 0;
+    idType target_edge = 42;
+
+    // Add edge
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, target_edge));
+
+    // Delete edge
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, target_edge));
+
+    // Add edge again
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, target_edge));
+
+    // Delete edge again
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, target_edge));
+
+    // Add edge one more time (final operation is ADD)
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, target_edge));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({target_edge})); // Edge should be present
+}
+
+TEST_F(HNSWStorageTest, RepeatedAddDeleteEdgeFinalDelete) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 201;
+    levelType level = 0;
+    idType target_edge = 99;
+
+    // Add edge
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, target_edge));
+
+    // Delete edge
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, target_edge));
+
+    // Add edge again
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, target_edge));
+
+    // Delete edge again (final operation is DELETE)
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, target_edge));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_TRUE(retrieved.empty()); // Edge should NOT be present
+}
+
+TEST_F(HNSWStorageTest, RepeatedAddDeleteWithOtherEdges) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    idType id = 202;
+    levelType level = 0;
+
+    // Add some edges
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 3}));
+
+    // Repeatedly add/delete edge 2
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2));
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, 2));
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2));
+    ASSERT_TRUE(storage->append_incoming_edge(id, level, 2));
+
+    // Add more edges
+    ASSERT_TRUE(AppendEdges(storage.get(), id, level, {4, 5}));
+
+    // Final delete of edge 2
+    ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2));
+
+    std::vector<idType> retrieved;
+    ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_EQ(retrieved, std::vector<idType>({1, 3, 4, 5})); // 2 should be gone
 }
