@@ -67,6 +67,7 @@ class TestDebugCommands(object):
             'VECSIM_MOCK_TIMEOUT',
             'GET_MAX_DOC_ID',
             'DUMP_DELETED_IDS',
+            'DISK_IO_CONTROL',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',

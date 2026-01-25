@@ -2175,19 +2175,23 @@ DEBUG_COMMAND(DiskIOControl) {
   const char *op = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcmp("enable", op)) {
-    SearchDisk_SetAsyncIOEnabled(true);
-    // Check if async I/O is actually supported after enabling
+    // Check if disk is available first
     if (!SearchDisk_IsAsyncIOSupported()) {
-      SearchDisk_SetAsyncIOEnabled(false);  // Revert
-      return RedisModule_ReplyWithError(ctx, "Async I/O is not supported by the underlying disk implementation");
+      return RedisModule_ReplyWithError(ctx, "Async I/O is not supported (disk API not available or disk doesn't support async I/O)");
     }
+    SearchDisk_SetAsyncIOEnabled(true);
     return RedisModule_ReplyWithSimpleString(ctx, "OK - Async I/O enabled");
   } else if (!strcmp("disable", op)) {
     SearchDisk_SetAsyncIOEnabled(false);
     return RedisModule_ReplyWithSimpleString(ctx, "OK - Async I/O disabled");
   } else if (!strcmp("status", op)) {
-    bool isEnabled = SearchDisk_GetAsyncIOEnabled();
-    return RedisModule_ReplyWithSimpleString(ctx, isEnabled ? "Async I/O: enabled" : "Async I/O: disabled");
+    bool flagEnabled = SearchDisk_GetAsyncIOEnabled();
+    bool diskSupported = SearchDisk_IsAsyncIOSupported();
+
+    if (!diskSupported) {
+      return RedisModule_ReplyWithSimpleString(ctx, "Async I/O: not supported by disk");
+    }
+    return RedisModule_ReplyWithSimpleString(ctx, flagEnabled ? "Async I/O: enabled" : "Async I/O: disabled");
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid command for 'DISK_IO_CONTROL'. Use: enable, disable, or status");
   }
