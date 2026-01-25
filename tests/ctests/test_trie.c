@@ -333,7 +333,6 @@ int testDFAFilter() {
   return 0;
 }
 
-#ifdef TRACK_NUMDOCS_IN_TRIE_NODE
 int testNumDocsWithAddition() {
   Trie *t = NewTrie(NULL, Trie_Sort_Score);
   ASSERT(t != NULL);
@@ -598,7 +597,6 @@ int testNumDocsWithSet() {
   TrieType_Free(t);
   return 0;
 }
-#endif  // TRACK_NUMDOCS_IN_TRIE_NODE
 
 TEST_MAIN({
   RMUTil_InitAlloc();
@@ -607,8 +605,6 @@ TEST_MAIN({
   TESTFUNC(testTrie);
   TESTFUNC(testPayload);
   TESTFUNC(testUnicode);
-#ifdef TRACK_NUMDOCS_IN_TRIE_NODE
   TESTFUNC(testNumDocsWithAddition);
   TESTFUNC(testNumDocsWithSet);
-#endif
 });

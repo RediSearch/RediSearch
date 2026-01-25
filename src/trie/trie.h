@@ -72,10 +72,8 @@ typedef struct {
   // traversal
   float maxChildScore;
 
-#ifdef TRACK_NUMDOCS_IN_TRIE_NODE
   // the number of documents containing this key
   size_t numDocs;
-#endif
 
   // the payload of terminal node. could be NULL if it's not terminal
   TriePayload *payload;

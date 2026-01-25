@@ -78,8 +78,6 @@ option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
 option(ENABLE_ASSERT "Enable assertions" OFF)
 option(MAX_WORKER_THREADS "Override them maximum parallel worker threads allowed in thread-pool" "")
 option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
-option(TRACK_NUMDOCS_IN_TRIE_NODE "Track document count in TrieNode for IDF optimization" OFF)
-
 
 #----------------------------------------------------------------------------------------------
 project(redisearch)
@@ -174,10 +172,6 @@ endif()
 
 if(VERBOSE_UTESTS)
     add_compile_definitions(VERBOSE_UTESTS=1)
-endif()
-
-if(TRACK_NUMDOCS_IN_TRIE_NODE)
-    add_compile_definitions(TRACK_NUMDOCS_IN_TRIE_NODE=1)
 endif()
 
 # Platform-specific settings
