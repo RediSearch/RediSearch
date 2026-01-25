@@ -774,6 +774,210 @@ def testNonZeroTimers(env):
   else:
     test_shard_timers(env)
 
+
+def extract_profile_coordinator_and_shards(env, res):
+    """Extract coordinator and shards from FT.PROFILE response.
+
+    Returns (coordinator_dict, list_of_shard_dicts).
+    Standalone mode has no coordinator, returns ({}, [profile]).
+    Cluster mode returns (coordinator_dict, [shard1, shard2, ...]).
+
+    Note: FT.SEARCH uses 'shards' (lowercase), FT.AGGREGATE uses 'Shards' (uppercase) in RESP3.
+    """
+    if env.protocol == 3:
+        # RESP3 cluster mode: dict with 'Shards' or 'shards' key
+        shards_key = 'Shards' if 'Shards' in res else 'shards' if 'shards' in res else None
+        if shards_key:
+            # Filter to only include actual shards (those with 'Total profile time')
+            # This excludes Coordinator which has 'Total Coordinator time' instead
+            shards = [s for s in res[shards_key].values() if 'Total profile time' in s]
+            coordinator = res.get('Coordinator', res.get('coordinator', {}))
+            return coordinator, shards
+        # RESP3 standalone mode: profile nested under 'profile' key
+        profile = res.get('profile', res)
+        return {}, [profile]
+
+    # RESP2 format
+    # Cluster mode for FT.AGGREGATE: 'Shards' marker at top level of res
+    if 'Shards' in res:
+        shards = list(get_shards_profile(env, res))
+        coord_idx = res.index('Coordinator')
+        coordinator = to_dict(res[coord_idx + 1])
+        return coordinator, shards
+
+    # RESP2 cluster mode for FT.SEARCH: profile data in res[-1] with 'Shard #' markers
+    # Format: res[-1] = ['Shard #1', [...], 'Shard #2', [...], 'Coordinator', [...]]
+    last_elem = res[-1]
+    if isinstance(last_elem, list) and len(last_elem) > 0:
+        first_item = last_elem[0]
+        if isinstance(first_item, str) and first_item.startswith('Shard #'):
+            # Parse inline shard data
+            shards = []
+            coordinator = {}
+            current_shard = None
+            i = 0
+            while i < len(last_elem):
+                item = last_elem[i]
+                if isinstance(item, str) and item.startswith('Shard #'):
+                    if current_shard is not None:
+                        shards.append(current_shard)
+                    current_shard = {}
+                    i += 1
+                elif item == 'Coordinator':
+                    if current_shard is not None:
+                        shards.append(current_shard)
+                        current_shard = None
+                    # Coordinator data follows
+                    if i + 1 < len(last_elem):
+                        coordinator = to_dict(last_elem[i + 1])
+                    break
+                elif isinstance(item, list) and current_shard is not None:
+                    key = item[0]
+                    value = item[1:] if len(item) > 1 else None
+                    if value and len(value) == 1:
+                        value = value[0]
+                    current_shard[key] = value
+                    i += 1
+                else:
+                    i += 1
+            if current_shard is not None:
+                shards.append(current_shard)
+            return coordinator, shards
+
+    # Standalone mode: [[key, val], ...] pairs format in last element
+    profile_data = res[-1]
+    profile = {p[0]: p[1] if len(p) > 1 else None for p in profile_data}
+    return {}, [profile]
+
+
+def sum_rp_times(env, shard):
+    """Sum Result Processor times from a shard profile."""
+    rp_profile = shard['Result processors profile']
+    total = 0.0
+
+    if env.protocol == 3:
+        for rp in rp_profile:
+            total += float(rp.get('Time', 0))
+    else:
+        # RESP2: rp_profile can be:
+        # - A flat list ['Type', 'Index', 'Time', '0.078', ...] when there's only one RP
+        #   (due to get_shards_profile unwrapping single-element lists)
+        # - A list of lists [['Type', 'Index', ...], ['Type', 'Pager', ...]] when there are multiple RPs
+        if rp_profile and isinstance(rp_profile[0], str):
+            # Single RP case - rp_profile is the RP itself
+            rp_dict = to_dict(rp_profile)
+            total += float(rp_dict.get('Time', 0))
+        else:
+            # Multiple RPs case - iterate
+            for rp in rp_profile:
+                rp_dict = to_dict(rp)
+                total += float(rp_dict.get('Time', 0))
+
+    return total
+
+def ProfileTotalTimeConsistency(env, num_docs):
+    """Tests that Total profile time >= sum of Result Processor times.
+
+    Tests multiple commands with various result processors to ensure timing
+    consistency across different query types:
+    - FT.SEARCH with Scorer, Sorter, Loader
+    - FT.AGGREGATE with Loader, Grouper, Sorter, Projector (APPLY), Pager/Limiter
+    """
+    conn = getConnectionByEnv(env)
+    run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+
+    # Create index with TEXT and NUMERIC fields for diverse query options
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'SORTABLE').ok()
+
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}', 't', f'hello{i % 100}', 'n', i)
+
+    def verify_timing_consistency(res, command_desc):
+        """Helper to verify total time >= sum of RP times for all shards."""
+        _, shards = extract_profile_coordinator_and_shards(env, res)
+        for shard in shards:
+            # In RESP2, Total profile time is returned as a string
+            total_time = float(shard['Total profile time'])
+            rp_times_sum = sum_rp_times(env, shard)
+            env.assertGreaterEqual(total_time, rp_times_sum,
+                                   message=f"{command_desc}: Total profile time ({total_time}) < sum of RP times ({rp_times_sum}). Full response: {res}")
+
+    # Test 1: Simple FT.AGGREGATE with wildcard query
+    # Result processors: Index, Pager/Limiter
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
+    verify_timing_consistency(res, "FT.AGGREGATE wildcard")
+
+    # Test 2: FT.AGGREGATE with LOAD, GROUPBY, REDUCE
+    # Result processors: Index, Loader, Grouper
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
+                  'LOAD', '1', '@t',
+                  'GROUPBY', '1', '@t',
+                  'REDUCE', 'COUNT', '0', 'AS', 'count')
+    verify_timing_consistency(res, "FT.AGGREGATE with GROUPBY")
+
+    # Test 3: FT.AGGREGATE with LOAD, APPLY, SORTBY, LIMIT
+    # Result processors: Index, Loader, Projector, Sorter, Pager/Limiter
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
+                  'LOAD', '2', '@t', '@n',
+                  'APPLY', '@n * 2', 'AS', 'doubled',
+                  'SORTBY', '2', '@n', 'ASC',
+                  'LIMIT', '0', '100')
+    verify_timing_consistency(res, "FT.AGGREGATE with APPLY/SORTBY/LIMIT")
+
+    # Test 4: FT.SEARCH with default options
+    # Result processors: Index, Scorer, Sorter, Loader
+    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*',
+                  'LIMIT', '0', '100')
+    verify_timing_consistency(res, "FT.SEARCH wildcard")
+
+    # Test 5: FT.SEARCH with SORTBY on numeric field
+    # Result processors: Index, Scorer, Sorter, Loader
+    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*',
+                  'SORTBY', 'n', 'ASC',
+                  'LIMIT', '0', '100')
+    verify_timing_consistency(res, "FT.SEARCH with SORTBY")
+
+    # Test 6: FT.SEARCH with text query and NOCONTENT
+    # Result processors: Index, Scorer, Sorter (fewer processors, faster)
+    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello0',
+                  'NOCONTENT',
+                  'LIMIT', '0', '100')
+    verify_timing_consistency(res, "FT.SEARCH text query NOCONTENT")
+
+@skip(cluster=False)
+def testProfileTotalTimeConsistencyClusterResp3():
+    """Tests timing consistency in cluster mode with multiple cursor reads - RESP3."""
+    # Use enough docs to trigger multiple cursor reads (>1000 per shard)
+    env = Env(shardsCount=2, protocol=3)
+    num_docs = int(1000 * 1.5 * env.shardsCount)
+    ProfileTotalTimeConsistency(env, num_docs)
+
+@skip(cluster=False)
+def testProfileTotalTimeConsistencyClusterResp2():
+    """Tests timing consistency in cluster mode with multiple cursor reads - RESP2."""
+    env = Env(shardsCount=2, protocol=2)
+    num_docs = int(1000 * 1.5 * env.shardsCount)
+    ProfileTotalTimeConsistency(env, num_docs)
+
+@skip(cluster=True)
+def testProfileTotalTimeConsistencyStandaloneResp3():
+    """Tests timing consistency in standalone mode - RESP3."""
+    env = Env(protocol=3)
+    # Use enough docs to ensure meaningful timing data and avoid flakiness.
+    # Serialization time is not counted in result processor times, so we need
+    # enough results to make the timing difference significant across machines.
+    ProfileTotalTimeConsistency(env, num_docs=1500)
+
+@skip(cluster=True)
+def testProfileTotalTimeConsistencyStandaloneResp2():
+    """Tests timing consistency in standalone mode - RESP2."""
+    env = Env(protocol=2)
+    # Use enough docs to ensure meaningful timing data and avoid flakiness.
+    # Serialization time is not counted in result processor times, so we need
+    # enough results to make the timing difference significant across machines.
+    ProfileTotalTimeConsistency(env, num_docs=1500)
+
+
 def testProfileVectorSearchMode():
   """Test Vector search mode field in FT.PROFILE for both SEARCH and AGGREGATE"""
   env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)  # Use RESP3 for easier dict access
