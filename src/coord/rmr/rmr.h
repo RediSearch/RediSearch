@@ -90,6 +90,13 @@ MRReply** MRCtx_GetReplies(struct MRCtx *ctx);
 RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx);
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
 
+/* Reference counting for shared ownership between IO thread and main thread */
+int MRCtx_IncRef(struct MRCtx *ctx);
+int MRCtx_DecRef(struct MRCtx *ctx);
+
+/* Timeout takeover synchronization */
+bool MRCtx_SetTimedOut(struct MRCtx *ctx);
+bool MRCtx_IsTimedOut(struct MRCtx *ctx);
 
 /* Free the MapReduce context */
 void MRCtx_Free(struct MRCtx *ctx);

@@ -29,6 +29,7 @@
 #include <pthread.h>
 #include <sys/param.h>
 #include <stddef.h>
+#include <stdatomic.h>
 
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
@@ -59,7 +60,7 @@ long long timeout_g = 5000; // unused value. will be set in MR_Init
 
 /* MapReduce context for a specific command's execution */
 typedef struct MRCtx {
-  int numReplied;
+  int numReplied;       // Number of replies received (used as "published" count for sync)
   int numExpected;
   int numErrored;
   int repliesCap;
@@ -81,6 +82,23 @@ typedef struct MRCtx {
    * needs to unblock the client.
    */
   MRReduceFunc fn;
+
+  /**
+   * Atomic flag for timeout takeover synchronization.
+   * When set to true (by timeout callback), the fanoutCallback should:
+   * - Not call UnblockClient (it was already unblocked by timeout)
+   * - Free any new replies instead of storing them
+   * - Decrement refcount when done
+   */
+  _Atomic bool timedOut;
+
+  /**
+   * Reference count for shared ownership between:
+   * - IO thread (fanoutCallback)
+   * - Main thread (timeout/unblock callback)
+   * When refcount reaches 0, the context can be freed.
+   */
+  _Atomic int refcount;
 } MRCtx;
 
 // Data structure to pass iterator and private data to callback
@@ -105,6 +123,8 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   RS_ASSERT(ctx || bc);
   ret->fn = NULL;
   ret->ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
+  atomic_store_explicit(&ret->timedOut, false, memory_order_relaxed);
+  atomic_store_explicit(&ret->refcount, 1, memory_order_relaxed);  // Initial refcount of 1
   return ret;
 }
 
@@ -153,6 +173,26 @@ void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn) {
   ctx->fn = fn;
 }
 
+/* Increment refcount. Returns new value. */
+int MRCtx_IncRef(struct MRCtx *ctx) {
+  return atomic_fetch_add_explicit(&ctx->refcount, 1, memory_order_acq_rel) + 1;
+}
+
+/* Decrement refcount. Returns new value. Caller should free if returns 0. */
+int MRCtx_DecRef(struct MRCtx *ctx) {
+  return atomic_fetch_sub_explicit(&ctx->refcount, 1, memory_order_acq_rel) - 1;
+}
+
+/* Set the timedOut flag atomically. Returns previous value. */
+bool MRCtx_SetTimedOut(struct MRCtx *ctx) {
+  return atomic_exchange_explicit(&ctx->timedOut, true, memory_order_acq_rel);
+}
+
+/* Check if timedOut flag is set. */
+bool MRCtx_IsTimedOut(struct MRCtx *ctx) {
+  return atomic_load_explicit(&ctx->timedOut, memory_order_acquire);
+}
+
 static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
   if (p) {
     MRCtx *mc = p;
@@ -176,13 +216,36 @@ static int unblockHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return mc->reducer(mc, mc->numReplied, mc->replies);
 }
 
+/* Try to release the context after timeout. Returns true if context was freed. */
+static bool MRCtx_TryFreeAfterTimeout(MRCtx *ctx) {
+  if (MRCtx_DecRef(ctx) == 0) {
+    IORuntimeCtx_RequestCompleted(ctx->ioRuntime);
+    MRCtx_Free(ctx);
+    return true;
+  }
+  return false;
+}
+
 /* The callback called from each fanout request to aggregate their replies */
 static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRCtx *ctx = privdata;
 
-  if (!r) {
+  // Check if timeout has taken over - if so, free the reply and don't process
+  if (MRCtx_IsTimedOut(ctx)) {
+    if (r) {
+      MRReply_Free(r);
+    }
     ctx->numErrored++;
 
+    // If this is the last reply, decrement refcount (IO thread is done)
+    if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
+      MRCtx_TryFreeAfterTimeout(ctx);
+    }
+    return;
+  }
+
+  if (!r) {
+    ctx->numErrored++;
   } else {
     /* If needed - double the capacity for replies */
     if (ctx->numReplied == ctx->repliesCap) {
@@ -214,11 +277,24 @@ void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS) 
 /* The fanout request received in the event loop in a thread safe manner */
 static void uvFanoutRequest(void *p) {
   MRCtx *mrctx = p;
+
+  // Check if timeout has taken over before we even started
+  // This can happen if timeout occurred during queue wait or parsing
+  if (MRCtx_IsTimedOut(mrctx)) {
+    MRCtx_TryFreeAfterTimeout(mrctx);
+    return;
+  }
+
   IORuntimeCtx *ioRuntime = mrctx->ioRuntime;
 
   mrctx->numExpected = MRCluster_FanoutCommand(ioRuntime, &mrctx->cmd, fanoutCallback, mrctx);
 
   if (mrctx->numExpected == 0) {
+    // No shards to fanout to - check if timeout took over during fanout setup
+    if (MRCtx_IsTimedOut(mrctx)) {
+      MRCtx_TryFreeAfterTimeout(mrctx);
+      return;
+    }
     RedisModuleBlockedClient *bc = mrctx->bc;
     RS_ASSERT(bc);
     RedisModule_BlockedClientMeasureTimeEnd(bc);

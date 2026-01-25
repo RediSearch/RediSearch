@@ -1937,6 +1937,8 @@ typedef struct{
   specialCaseCtx* reduceSpecialCaseCtxSortby;
 
   MRReply *warning;
+
+  bool timedout;
 } searchReducerCtx;
 
 typedef struct {
@@ -2849,6 +2851,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
       // We use the cluster warning since shard level warning sent via empty reply bailout
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
+    } else if (rCtx->timedout) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }
@@ -3078,12 +3083,6 @@ bool should_return_error(QueryErrorCode errCode) {
   return true;
 }
 
-static bool should_return_timeout_error(searchRequestCtx *req) {
-  return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
-         && req->timeout != 0
-         && (rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(&req->initClock))) > req->timeout;
-}
-
 static int searchResultReducer(struct MRCtx *mc, RedisModuleCtx *ctx) {
   int count = MRCtx_GetNumReplied(mc);
   MRReply **replies = MRCtx_GetReplies(mc);
@@ -3092,9 +3091,12 @@ static int searchResultReducer(struct MRCtx *mc, RedisModuleCtx *ctx) {
   searchReducerCtx rCtx = {NULL};
   int profile = req->profileArgs > 0;
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  rCtx.timedout = MRCtx_IsTimedOut(mc);
+  // Assert that if timeout, policy is return
+  RS_ASSERT(!rCtx.timedout || RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Return);
 
   int res = REDISMODULE_OK;
-  // got no replies - this means timeout
+  // got no replies
   if (count == 0 || req->limit < 0) {
     res = RedisModule_Reply_Error(reply, "Could not send query to cluster");
     goto cleanup;
@@ -3153,14 +3155,6 @@ static int searchResultReducer(struct MRCtx *mc, RedisModuleCtx *ctx) {
   if (!profile) {
     for (int i = 0; i < count; ++i) {
       rCtx.processReply(replies[i], (struct searchReducerCtx *)&rCtx, ctx);
-
-      // If we timed out on strict timeout policy, return a timeout error
-      if (should_return_timeout_error(req)) {
-        // Track timeout error in global statistics
-        QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
-        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-        goto cleanup;
-      }
     }
   } else {
     for (int i = 0; i < count; ++i) {
@@ -3177,14 +3171,6 @@ static int searchResultReducer(struct MRCtx *mc, RedisModuleCtx *ctx) {
         mr_reply = MRReply_ArrayElement(replies[i], 0);
       }
       rCtx.processReply(mr_reply, (struct searchReducerCtx *)&rCtx, ctx);
-
-      // If we timed out on strict timeout policy, return a timeout error
-      if (should_return_timeout_error(req)) {
-        // Track timeout error in global statistics
-        QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
-        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-        goto cleanup;
-      }
     }
   }
 
@@ -3218,8 +3204,7 @@ cleanup:
   }
 
   searchRequestCtx_Free(req);
-  MRCtx_RequestCompleted(mc);
-  MRCtx_Free(mc);
+  // MRCtx cleanup is handled by DistSearchFreePrivData callback
   return res;
 }
 
@@ -3818,6 +3803,9 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   // Here we have an unsafe read of `NumShards`. This is fine because its just a hint.
   struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
 
+  // Set the MRCtx as private data immediately so timeout callback can access it
+  RedisModule_BlockClientSetPrivateData(bc, mrctx);
+
   // Don't set a reduce function - the reduction will happen in DistSearchUnblockClient
   // on the main thread when the client is unblocked after all shard replies are collected.
   MR_Fanout(mrctx, NULL, cmd, false);
@@ -3842,6 +3830,7 @@ static void DistSearchCommandHandler(void* pd) {
   rm_free(sCmdCtx);
 }
 
+
 // Reply callback for FT.SEARCH in coordinator mode.
 // Called on the main thread when the client is unblocked after all shard replies are collected.
 // Performs the search result reduction and sends the reply to the client.
@@ -3852,6 +3841,55 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
     return searchResultReducer(mrctx, ctx);
   }
   return REDISMODULE_OK;
+}
+
+// Timeout callback for FT.SEARCH in coordinator mode.
+// Called on the main thread when the blocking client times out.
+// Sets the timedOut flag for takeover synchronization, then performs reduction with partial results.
+static int DistSearchTimeoutClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (mrctx) {
+    // Signal timeout takeover - after this, fanoutCallback will free incoming replies
+    // and not call UnblockClient
+    MRCtx_SetTimedOut(mrctx);
+
+    // Increment refcount - IO thread may still be processing and will decrement when done
+    MRCtx_IncRef(mrctx);
+
+    // Perform reduction with whatever partial results we have
+    return searchResultReducer(mrctx, ctx);
+  }
+  return REDISMODULE_OK;
+}
+
+// Free private data callback for FT.SEARCH in coordinator mode.
+// Called by Redis after the reply/timeout callback completes to free the MRCtx.
+// Uses refcount to handle race with IO thread - only frees when refcount reaches 0.
+static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
+  UNUSED(ctx);
+  if (privdata) {
+    struct MRCtx *mrctx = privdata;
+    // Decrement refcount - if IO thread is still processing, it will free when done
+    if (MRCtx_DecRef(mrctx) == 0) {
+      MRCtx_RequestCompleted(mrctx);
+      MRCtx_Free(mrctx);
+    }
+  }
+}
+
+// Extract timeout from command args and block client with timeout callback.
+// Returns a blocked client with the appropriate timeout from query args or global config.
+static RedisModuleBlockedClient* DistSearchBlockClientWithTimeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // Extract timeout from command args, or use global default
+  int timeoutArgIdx = RMUtil_ArgIndex("TIMEOUT", argv, argc);
+  long long queryTimeout;
+  if (timeoutArgIdx < 0 || timeoutArgIdx + 1 >= argc ||
+      RedisModule_StringToLongLong(argv[timeoutArgIdx + 1], &queryTimeout) != REDISMODULE_OK) {
+    queryTimeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
+  }
+  // Block client with timeout callback - timeout is in milliseconds from query arg or global config
+  // DistSearchFreePrivData will be called to free the MRCtx after reply/timeout callback completes
+  return RedisModule_BlockClient(ctx, DistSearchUnblockClient, DistSearchTimeoutClient, DistSearchFreePrivData, queryTimeout);
 }
 
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -3918,10 +3956,11 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
+  RedisModuleBlockedClient* bc = DistSearchBlockClientWithTimeout(ctx, argv, argc);
+
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
   sCmdCtx->handlerCtx.coordStartTime = coordInitialTime;
-  RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
     // We need to copy the argv because it will be freed in the callback (from another thread).
@@ -4334,6 +4373,9 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
   }
 
   struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
+
+  // Set the MRCtx as private data immediately so timeout callback can access it
+  RedisModule_BlockClientSetPrivateData(bc, mrctx);
 
   // Don't set a reduce function - the reduction will happen in DistSearchUnblockClient
   // on the main thread when the client is unblocked after all shard replies are collected.
