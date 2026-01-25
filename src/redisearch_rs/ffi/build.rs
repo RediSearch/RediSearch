@@ -37,7 +37,7 @@ fn main() {
 
         let redisearch_rs = src.join("redisearch_rs").join("headers");
         let inverted_index = src.join("inverted_index");
-        let vecsim = deps.join("VectorSimilarity").join("src");
+        let vecsim = deps.join("VectorSimilarity").join("rust").join("vecsim-c").join("include");
         let buffer = src.join("buffer");
         let ttl_table = src.join("ttl_table");
 

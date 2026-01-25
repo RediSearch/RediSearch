@@ -270,7 +270,7 @@ set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE) # Forc
 add_subdirectory(deps/libuv)
 
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
-option(USE_RUST_VECSIM "Use Rust VecSim implementation instead of C++" OFF)
+option(USE_RUST_VECSIM "Use Rust VecSim implementation instead of C++" ON)
 
 if(USE_RUST_VECSIM)
     message(STATUS "Using Rust VecSim implementation")
