@@ -125,23 +125,8 @@ jobs:
         with:
           payload: |
             {
-              "text": "📊 Daily CI Summary - ${{ steps.date.outputs.date }}",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Daily CI Summary - ${{ steps.date.outputs.date }}*"
-                  }
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": ${{ steps.summary.outputs.summary_content }}
-                  }
-                }
-              ]
+              "header": "📊 Daily CI Summary - ${{ steps.date.outputs.date }}",
+              "report": ${{ steps.summary.outputs.summary_content }}
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT}}
@@ -152,23 +137,8 @@ jobs:
         with:
           payload: |
             {
-              "text": "❌ Daily Failure Report - ${{ steps.date.outputs.date }}",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Daily Failure Report - ${{ steps.date.outputs.date }}*"
-                  }
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": ${{ steps.failure_report.outputs.failure_content }}
-                  }
-                }
-              ]
+              "header": "❌ Daily Failure Report - ${{ steps.date.outputs.date }}",
+              "report": ${{ steps.failure_report.outputs.failure_content }}
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
