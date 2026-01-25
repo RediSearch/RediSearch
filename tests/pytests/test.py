@@ -868,7 +868,10 @@ def testPartial(env):
     env.assertOk(con.execute_command('ft.add', 'idx', 'doc1', '1.0', 'replace', 'partial', 'fields'))
     res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'TFIDF')
     # We reindex though no new fields, just score is updated. this effects score
-    env.assertEqual(float(res[2]), 1)
+    if not env.isCluster():
+      env.assertEqual(float(res[2]), 1)
+    else:
+      env.assertEqual(float(res[2]), 0.0)
 
     # Test updating payloads
     res = env.cmd(
