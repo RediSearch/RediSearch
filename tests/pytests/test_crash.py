@@ -20,7 +20,7 @@ def prepare_index(env, terms=["hello"], doc_count=10):
         env.cmd("HSET", f"doc{i}", "text", " ".join(terms))
     waitForIndex(env, "idx")
 
-def extract_query_crash_output(env, expected_fragments, doc_count=10, crash_in_rust=False):
+def extract_query_crash_output(env, expected_fragments):
     """
     Extract values for each fragment from the crash log, checking they appear in order.
 
@@ -37,7 +37,7 @@ def extract_query_crash_output(env, expected_fragments, doc_count=10, crash_in_r
     logFileName = env.cmd("CONFIG", "GET", "logfile")[1]
     logFilePath = os.path.join(logDir, logFileName)
     runDebugQueryCommandAndCrash(
-        env, ["FT.SEARCH", "idx", "*"], crash_in_rust=crash_in_rust
+        env, ["FT.SEARCH", "idx", "*"]
     )
 
     # Initialize result dictionary with None for all fragments
@@ -77,7 +77,7 @@ def test_query_thread_crash():
     doc_count = 10
     terms = ['hello', 'world']
     prepare_index(env, terms=terms, doc_count=doc_count)
-    results = extract_query_crash_output(env, doc_count=doc_count, expected_fragments=[
+    results = extract_query_crash_output(env, expected_fragments=[
         "search_current_thread",
         "search_run_time_ns:",
         # Index name is now a section header, not a field
