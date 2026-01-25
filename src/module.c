@@ -3848,6 +3848,18 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
 // Called on the main thread when the blocking client times out.
 // Sets the timedOut flag for takeover synchronization, then performs reduction with partial results.
 static int DistSearchTimeoutClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  // If policy is fail, we should return an error
+  // TODO: When implementing fail, use different callback that returns an error
+  if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    RedisModule_EndReply(reply);
+    return REDISMODULE_OK;
+  }
+
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (mrctx) {
     // Signal timeout takeover - after this, fanoutCallback will free incoming replies
@@ -3860,6 +3872,7 @@ static int DistSearchTimeoutClient(RedisModuleCtx *ctx, RedisModuleString **argv
     // Perform reduction with whatever partial results we have
     return searchResultReducer(mrctx, ctx);
   }
+
   return REDISMODULE_OK;
 }
 
