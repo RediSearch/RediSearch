@@ -90,9 +90,7 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
   n->sortMode = sortMode;
   n->flags = 0 | (terminal ? TRIENODE_TERMINAL : 0);
   n->maxChildScore = score;
-#ifdef TRACK_NUMDOCS_IN_TRIE_NODE
   n->numDocs = numDocs;
-#endif
   memcpy(n->str, str + offset, sizeof(rune) * (len - offset));
   if (payload != NULL && plen > 0) {
     n->payload = triePayload_New(payload, plen);
@@ -129,11 +127,7 @@ TrieNode *__trie_AddChildIdx(TrieNode *n, const rune *str, t_len offset, t_len l
 
 TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   // Copy the current node's data and children to a new child node
-#ifdef TRACK_NUMDOCS_IN_TRIE_NODE
   size_t numDocsForChild = n->numDocs;
-#else
-  size_t numDocsForChild = 0;
-#endif
   TrieNode *newChild = __newTrieNode(n->str, offset, n->len, NULL, 0, n->numChildren, n->score,
                                      __trieNode_isTerminal(n), n->sortMode, numDocsForChild);
   newChild->maxChildScore = n->maxChildScore;
@@ -149,9 +143,7 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   n->numChildren = 1;
   n->len = offset;
   n->score = 0;
-#ifdef TRACK_NUMDOCS_IN_TRIE_NODE
   n->numDocs = 0;
-#endif
   // the parent node is now non terminal and non sorted
   n->flags &= ~(TRIENODE_TERMINAL | TRIENODE_DELETED);
 
@@ -176,11 +168,7 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) 
   rune nstr[n->len + ch->len + 1];
   memcpy(nstr, n->str, sizeof(rune) * n->len);
   memcpy(&nstr[n->len], ch->str, sizeof(rune) * ch->len);
-#ifdef TRACK_NUMDOCS_IN_TRIE_NODE
   size_t numDocsForMerged = ch->numDocs;
-#else
-  size_t numDocsForMerged = 0;
-#endif
   TrieNode *merged = __newTrieNode(
       nstr, 0, n->len + ch->len, NULL, 0, ch->numChildren,
       ch->score, __trieNode_isTerminal(ch), n->sortMode, numDocsForMerged);
@@ -234,9 +222,7 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
     if (offset == len) {
       n->score = score;
       n->flags |= TRIENODE_TERMINAL;
-#ifdef TRACK_NUMDOCS_IN_TRIE_NODE
       n->numDocs = numDocs;
-#endif
       TrieNode *newChild = __trieNode_children(n)[0];
       n = rm_realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
       if (n->payload != NULL) {
@@ -276,13 +262,11 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
         n->score = score;
     }
     // Update numDocs: if numDocsToSet > 0, set it; otherwise add numDocsToAdd
-#ifdef TRACK_NUMDOCS_IN_TRIE_NODE
     if (numDocsToSet > 0) {
       n->numDocs = numDocsToSet;
     } else {
       n->numDocs += numDocsToAdd;
     }
-#endif
     if (payload != NULL && payload->data != NULL && payload->len > 0) {
       if (n->payload != NULL) {
         triePayload_Free(n->payload, freecb);
@@ -707,11 +691,9 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
         *ptr = it->buf;
         *len = it->bufOffset;
         *score = sn->n->score;
-#ifdef TRACK_NUMDOCS_IN_TRIE_NODE
         if (numDocs != NULL) {
           *numDocs = sn->n->numDocs;
         }
-#endif
         if (payload != NULL) {
           if (sn->n->payload != NULL) {
             payload->data = sn->n->payload->data;
