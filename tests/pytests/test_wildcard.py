@@ -354,6 +354,12 @@ def testBasic():
   conn.execute_command('HSET', 'doc7', 't', 'hall')
   conn.execute_command('HSET', 'doc8', 't', 'hallo')
 
+  q_params = ('NOCONTENT', 'SCORER', 'TFIDF')
+  env.expect('FT.SEARCH', 'idx', "w'*el*'", *q_params).equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
+  env.expect('FT.SEARCH', 'idx', "w'*ll*'", *q_params).equal([4, 'doc1', 'doc2', 'doc7', 'doc8'])
+  env.expect('FT.SEARCH', 'idx', "w'*llo'", *q_params).equal([2, 'doc1', 'doc8'])
+  env.expect('FT.SEARCH', 'idx', "w'he*'", *q_params).equal([5, 'doc1', 'doc2', 'doc3', 'doc4', 'doc6'])
+
   env.expect('FT.AGGREGATE', 'idx', "w'*el*'", 'LOAD', 1, '@t', 'SORTBY', 1, '@t')    \
         .equal([4, ['t', 'helen'], ['t', 'hell'], ['t', 'hello'], ['t', 'help']])
 
@@ -365,26 +371,6 @@ def testBasic():
 
   env.expect('FT.AGGREGATE', 'idx', "w'he*'", 'LOAD', 1, '@t', 'SORTBY', 1, '@t')     \
         .equal([5, ['t', 'heal'], ['t', 'helen'], ['t', 'hell'], ['t', 'hello'], ['t', 'help']])
-
-  q_params = ('NOCONTENT', 'SCORER', 'TFIDF')
-  if not env.isCluster():
-    env.expect('FT.SEARCH', 'idx', "w'*el*'", *q_params).equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
-    env.expect('FT.SEARCH', 'idx', "w'*ll*'", *q_params).equal([4, 'doc1', 'doc2', 'doc7', 'doc8'])
-    env.expect('FT.SEARCH', 'idx', "w'*llo'", *q_params).equal([2, 'doc1', 'doc8'])
-    env.expect('FT.SEARCH', 'idx', "w'he*'", *q_params).equal([5, 'doc1', 'doc2', 'doc3', 'doc4', 'doc6'])
-  else:
-    res = env.cmd('FT.SEARCH', 'idx', "w'*el*'", *q_params)
-    env.assertEqual(res[0], 4)
-    env.assertEqual(set(res[1:]), {'doc1', 'doc2', 'doc3', 'doc4'})
-    res = env.cmd('FT.SEARCH', 'idx', "w'*ll*'", *q_params)
-    env.assertEqual(res[0], 4)
-    env.assertEqual(set(res[1:]), {'doc1', 'doc2', 'doc7', 'doc8'})
-    res = env.cmd('FT.SEARCH', 'idx', "w'*llo'", *q_params)
-    env.assertEqual(res[0], 2)
-    env.assertEqual(set(res[1:]), {'doc1', 'doc8'})
-    res = env.cmd('FT.SEARCH', 'idx', "w'he*'", *q_params)
-    env.assertEqual(res[0], 5)
-    env.assertEqual(set(res[1:]), {'doc1', 'doc2', 'doc3', 'doc4', 'doc6'})
 
 def testSuffixCleanup(env):
   conn = getConnectionByEnv(env)
