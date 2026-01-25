@@ -196,6 +196,55 @@ static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
   return false;
 }
 
+/* Next implementation for sync disk and regular (in-memory) flow */
+static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
+  RPQueryIterator *self = (RPQueryIterator *)base;
+  QueryIterator *it = self->iterator;
+  RedisSearchCtx *sctx = self->sctx;
+  IndexSpec* spec = sctx->spec;
+  const RSDocumentMetadata *dmd;
+  bool validateCurrent = false;
+
+  // Handle spec lock and revalidation
+  if (handleSpecLockAndRevalidate(self)) {
+    validateCurrent = true;
+  }
+  // Always update it after revalidation as iterator may have been replaced
+  it = self->iterator;
+
+  while (1) {
+    if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+    }
+
+    if (!validateCurrent) {
+      IteratorStatus rc = it->Read(it);
+      switch (rc) {
+      case ITERATOR_EOF:
+        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
+      case ITERATOR_TIMEOUT:
+        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+      default:
+        RS_ASSERT(rc == ITERATOR_OK);
+      }
+    }
+    validateCurrent = false;
+
+    // Get document metadata (either from disk or in-memory DocTable)
+    if (!getDocumentMetadata(spec, &spec->docs, sctx, it, &dmd)) {
+      continue;
+    }
+
+    if (!validateDmdSlot(self, dmd)) {
+      DMD_Return(dmd);
+      continue;
+    }
+
+    setSearchResult(base, res, it->current, dmd, it->lastDocId);
+    return RS_RESULT_OK;
+  }
+}
+
 /* Next implementation for async disk flow */
 static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   RPQueryIterator *self = (RPQueryIterator *)base;
@@ -271,57 +320,6 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     }
   }
 }
-
-/* Next implementation for sync disk and regular (in-memory) flow */
-static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
-  RPQueryIterator *self = (RPQueryIterator *)base;
-  QueryIterator *it = self->iterator;
-  RedisSearchCtx *sctx = self->sctx;
-  IndexSpec* spec = sctx->spec;
-  const RSDocumentMetadata *dmd;
-  bool validateCurrent = false;
-
-  // Handle spec lock and revalidation
-  if (handleSpecLockAndRevalidate(self)) {
-    validateCurrent = true;
-  }
-  // Always update it after revalidation as iterator may have been replaced
-  it = self->iterator;
-
-  while (1) {
-    if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
-    }
-
-    if (!validateCurrent) {
-      IteratorStatus rc = it->Read(it);
-      switch (rc) {
-      case ITERATOR_EOF:
-        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
-      case ITERATOR_TIMEOUT:
-        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
-      default:
-        RS_ASSERT(rc == ITERATOR_OK);
-      }
-    }
-    validateCurrent = false;
-
-    // Get document metadata (either from disk or in-memory DocTable)
-    if (!getDocumentMetadata(spec, &spec->docs, sctx, it, &dmd)) {
-      continue;
-    }
-
-    if (!validateDmdSlot(self, dmd)) {
-      DMD_Return(dmd);
-      continue;
-    }
-
-    setSearchResult(base, res, it->current, dmd, it->lastDocId);
-    return RS_RESULT_OK;
-  }
-}
-
-
 
 static void rpQueryItFree(ResultProcessor *iter) {
   RPQueryIterator *self = (RPQueryIterator *)iter;
