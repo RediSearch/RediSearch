@@ -207,6 +207,11 @@ CursorsInfoStats Cursors_GetInfoStats(void);
  */
 void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const IndexSpec *spec, RedisModule_Reply *reply);
 
+/**
+ * Mark all active cursors as potentially inaccurate due to ASM trimming.
+ */
+void CursorList_MarkASMInaccuracy();
+
 void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const IndexSpec *spec, RedisModuleInfoCtx *ctx);
 
 #define getCursorList(coord) ((coord) ? &g_CursorsListCoord : &g_CursorsList)
