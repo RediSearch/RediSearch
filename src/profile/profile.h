@@ -137,8 +137,7 @@ void Profile_PrintResultProcessors(RedisModule_Reply *reply,
                                    ResultProcessor *rp, bool verbose);
 
 // Extended version of Profile_PrintHybrid that allows adding extra content
-// before closing the map
-// extraCB is called after printing the main profile content but before closing
-// the map
+// before the result processors section
 void Profile_PrintHybridExtra(RedisModule_Reply *reply, void *ctx,
-                           ProfilePrinterCB extraCB, void *extraCtx);
+                              ProfilePrinterCB printbeforeRPSectionCB,
+                              void *beforeRPSectionCtx);

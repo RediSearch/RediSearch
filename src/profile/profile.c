@@ -161,9 +161,13 @@ void Profile_PrintResultProcessors(RedisModule_Reply *reply, ResultProcessor *rp
   printProfileRP(reply, rp, verbose);
 }
 
-// Internal implementation that supports an optional callback for adding extra content
-static void Profile_PrintCommon(RedisModule_Reply *reply, ProfileRequest *request,
-                                ProfilePrinterCB extraCB, void *extraCtx) {
+// Internal implementation that supports an optional callback to print extra
+// content before the result processors section.
+// Used in hybrid search profile to print the hybrid search subqueries profile.
+static void Profile_PrintCommon(RedisModule_Reply *reply,
+                                ProfileRequest *request,
+                                ProfilePrinterCB printbeforeRPSectionCB,
+                                void *beforeRPSectionCtx) {
   ProfilePrinterCtx *profileCtx = NULL;
   ProfileClocks *clocks = NULL;
   QueryProcessingCtx *qctx = NULL;
@@ -290,10 +294,9 @@ static void Profile_PrintCommon(RedisModule_Reply *reply, ProfileRequest *reques
                          AREQ_RequestFlags(req) & QEXEC_F_PROFILE_LIMITED, &config);
   }
 
-  // Call extra content callback if provided
-  // (before printing main result processors)
-  if (extraCB) {
-    extraCB(reply, extraCtx);
+  // Call printbeforeRPSectionCB if provided (before printing main result processors)
+  if (printbeforeRPSectionCB) {
+    printbeforeRPSectionCB(reply, beforeRPSectionCtx);
   }
 
   // Print profile of result processors
@@ -314,13 +317,14 @@ void Profile_PrintHybrid(RedisModule_Reply *reply, void *ctx) {
 }
 
 void Profile_PrintHybridExtra(RedisModule_Reply *reply, void *ctx,
-                           ProfilePrinterCB extraCB, void *extraCtx) {
+                              ProfilePrinterCB printbeforeRPSectionCB,
+                              void *beforeRPSectionCtx) {
   HybridRequest *hreq = ctx;
   ProfileRequest request = {
     .type = PROFILE_REQUEST_TYPE_HYBRID,
     .hreq = hreq
   };
-  Profile_PrintCommon(reply, &request, extraCB, extraCtx);
+  Profile_PrintCommon(reply, &request, printbeforeRPSectionCB, beforeRPSectionCtx);
 }
 
 void Profile_Print(RedisModule_Reply *reply, void *ctx) {
