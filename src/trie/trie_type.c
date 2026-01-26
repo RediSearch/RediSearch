@@ -35,31 +35,31 @@ Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode) {
 }
 
 int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload,
-                size_t numDocsToSet, size_t numDocsToAdd) {
+                size_t numDocs, TrieAddOp numDocsOp) {
   size_t len;
   const char *str = RedisModule_StringPtrLen(s, &len);
-  int ret = Trie_InsertStringBuffer(t, str, len, score, incr, payload, numDocsToSet, numDocsToAdd);
+  int ret = Trie_InsertStringBuffer(t, str, len, score, incr, payload, numDocs, numDocsOp);
   return ret;
 }
 
 int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, int incr,
-                            RSPayload *payload, size_t numDocsToSet, size_t numDocsToAdd) {
+                            RSPayload *payload, size_t numDocs, TrieAddOp numDocsOp) {
   if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
     return 0;
   }
   runeBuf buf;
   rune *runes = runeBufFill(s, len, &buf, &len);
-  int rc = Trie_InsertRune(t, runes, len, score, incr, payload, numDocsToSet, numDocsToAdd);
+  int rc = Trie_InsertRune(t, runes, len, score, incr, payload, numDocs, numDocsOp);
   runeBufFree(&buf);
   return rc;
 }
 
 int Trie_InsertRune(Trie *t, const rune *runes, size_t len, double score, int incr,
-                    RSPayload *payload, size_t numDocsToSet, size_t numDocsToAdd) {
+                    RSPayload *payload, size_t numDocs, TrieAddOp numDocsOp) {
   int rc = 0;
   if (runes && len && len < TRIE_INITIAL_STRING_LEN) {
     rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE,
-                      t->freecb, numDocsToSet, numDocsToAdd);
+                      t->freecb, numDocs, numDocsOp);
     t->size += rc;
   }
   return rc;
@@ -317,11 +317,11 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDo
       // load an extra space for the null terminator
       payload.len--;
     }
-    size_t numDocsToSet = 0;
+    size_t numDocs = 0;
     if (loadNumDocs) {
-      numDocsToSet = LoadUnsigned_IOError(rdb, goto cleanup);
+      numDocs = LoadUnsigned_IOError(rdb, goto cleanup);
     }
-    Trie_InsertStringBuffer(tree, str, len - 1, score, 0, payload.len ? &payload : NULL, numDocsToSet, 0);
+    Trie_InsertStringBuffer(tree, str, len - 1, score, 0, payload.len ? &payload : NULL, numDocs, ADD_REPLACE);
     RedisModule_Free(str);
     if (payload.data != NULL) RedisModule_Free(payload.data);
   }
