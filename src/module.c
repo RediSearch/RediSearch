@@ -801,11 +801,11 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
-  CurrentThread_SetIndexSpec(ref);
-
   if (!sp->smap) {
     return RedisModule_ReplyWithMap(ctx, 0);
   }
+  
+  CurrentThread_SetIndexSpec(ref);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisSearchCtx_LockSpecRead(&sctx);
