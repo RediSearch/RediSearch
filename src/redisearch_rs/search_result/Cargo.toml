@@ -6,10 +6,11 @@ license-file.workspace = true
 publish.workspace = true
 
 [dependencies]
+enumflags2.workspace = true
 ffi.workspace = true
 inverted_index.workspace = true
-
-enumflags2.workspace = true
+rlookup.workspace = true
+value.workspace = true
 workspace_hack.workspace = true
 
 [lints]
