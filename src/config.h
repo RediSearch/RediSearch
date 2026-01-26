@@ -18,16 +18,19 @@
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
   TimeoutPolicy_Fail,         // Just fail without returning anything
+  TimeoutPolicy_ReturnStrict, // Return what we have on timeout, using block-client timeout if available
   TimeoutPolicy_Invalid       // Not a real value
 } RSTimeoutPolicy;
 
-static const int on_timeout_enums[2] = {
+static const int on_timeout_enums[3] = {
   TimeoutPolicy_Return,
-  TimeoutPolicy_Fail
+  TimeoutPolicy_Fail,
+  TimeoutPolicy_ReturnStrict
 };
-static const char *on_timeout_vals[2] = {
+static const char *on_timeout_vals[3] = {
   "return",
-  "fail"
+  "fail",
+  "return-strict"
 };
 
 typedef enum {
