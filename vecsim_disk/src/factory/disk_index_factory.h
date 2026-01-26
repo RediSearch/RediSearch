@@ -9,24 +9,45 @@
 
 #pragma once
 
+#include <stdexcept>
+
 #include "VecSim/vec_sim.h"
 #include "VecSim/vec_sim_index.h"
+#include "VecSim/types/sq8.h"
 
 namespace VecSimDiskFactory {
 VecSimIndex* NewIndex(const VecSimParamsDisk* params);
 
+// Calculate the stored data size for SQ8 quantization given dimension and metric
+// storage_metadata_count
+
+template <VecSimMetric Metric>
+constexpr size_t GetSQ8StoredDataSizeT(size_t dim) {
+    constexpr size_t metadata_floats = vecsim_types::sq8::storage_metadata_count<Metric>();
+    return dim * sizeof(uint8_t) + metadata_floats * sizeof(float);
+}
+
+inline size_t GetSQ8StoredDataSize(size_t dim, VecSimMetric metric) {
+    switch (metric) {
+    case VecSimMetric_L2:
+        return GetSQ8StoredDataSizeT<VecSimMetric_L2>(dim);
+    case VecSimMetric_IP:
+        return GetSQ8StoredDataSizeT<VecSimMetric_IP>(dim);
+    case VecSimMetric_Cosine:
+        return GetSQ8StoredDataSizeT<VecSimMetric_Cosine>(dim);
+    default:
+        throw std::invalid_argument("Invalid metric");
+    }
+}
+
+// Create init params for the disk HNSW index using SQ8 quantization.
+// storedDataSize = SQ8 quantized size (for in-memory RawDataContainer)
+// inputBlobSize = FP32 size (vectors come from frontend in FP32)
 template <typename IndexParams>
-AbstractIndexInitParams NewAbstractInitParams(const IndexParams* algo_params, void* logCtx,
-                                              bool is_input_preprocessed) {
+AbstractIndexInitParams NewDiskInitParams(const IndexParams* algo_params, void* logCtx) {
+    size_t storedDataSize = GetSQ8StoredDataSize(algo_params->dim, algo_params->metric);
+    size_t inputBlobSize = algo_params->dim * VecSimType_sizeof(algo_params->type);
 
-    size_t storedDataSize = VecSimParams_GetStoredDataSize(algo_params->type, algo_params->dim, algo_params->metric);
-
-    // If the input vectors are already processed (for example, normalized), the input blob size is
-    // the same as the stored data size. inputBlobSize = storedDataSize Otherwise, the input blob
-    // size is the original size of the vector. inputBlobSize = algo_params->dim *
-    // VecSimType_sizeof(algo_params->type)
-    size_t inputBlobSize =
-        is_input_preprocessed ? storedDataSize : algo_params->dim * VecSimType_sizeof(algo_params->type);
     AbstractIndexInitParams abstractInitParams = {.allocator = VecSimAllocator::newVecsimAllocator(),
                                                   .dim = algo_params->dim,
                                                   .vecType = algo_params->type,
@@ -39,4 +60,5 @@ AbstractIndexInitParams NewAbstractInitParams(const IndexParams* algo_params, vo
                                                   .inputBlobSize = inputBlobSize};
     return abstractInitParams;
 }
+
 } // namespace VecSimDiskFactory

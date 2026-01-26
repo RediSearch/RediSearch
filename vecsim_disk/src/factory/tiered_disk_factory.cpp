@@ -61,15 +61,17 @@ VecSimIndex* NewIndex(const VecSimParamsDisk* params) {
         dynamic_cast<HNSWDiskIndex<float, float>*>(HNSWDiskFactory::NewIndex(&hnsw_params_disk, true));
     assert(hnswDiskIndex);
 
-    // Initialize Brute Force index
+    // Initialize Brute Force frontend index.
+    // Frontend stores vectors in FP32 (full precision), so both inputBlobSize and storedDataSize = FP32 size.
+    // The assertion verifies that frontend.storedDataSize == backend.inputBlobSize (both FP32).
     const HNSWParams& hnsw_params = hnsw_backend_params->algoParams.hnswParams;
     auto bf_params = NewBFParams(hnsw_params);
 
-    AbstractIndexInitParams abstractInitParams =
-        VecSimDiskFactory::NewAbstractInitParams(&bf_params, hnsw_backend_params->logCtx, false);
-    assert(hnswDiskIndex->getInputBlobSize() == abstractInitParams.storedDataSize);
+    AbstractIndexInitParams frontendInitParams =
+        VecSimFactory::NewAbstractInitParams(&bf_params, hnsw_backend_params->logCtx, false);
+    assert(hnswDiskIndex->getInputBlobSize() == frontendInitParams.storedDataSize);
     auto frontendIndex =
-        static_cast<BruteForceIndex<float, float>*>(BruteForceFactory::NewIndex(&bf_params, abstractInitParams, false));
+        static_cast<BruteForceIndex<float, float>*>(BruteForceFactory::NewIndex(&bf_params, frontendInitParams, false));
     assert(frontendIndex);
 
     // Create tiered index

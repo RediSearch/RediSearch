@@ -144,8 +144,10 @@ public:
         };
         auto params_disk_holder = createDiskParams(params);
 
-        // Create abstract init params
-        auto abstractInitParams = VecSimDiskFactory::NewAbstractInitParams(&params, nullptr, false);
+        // Create abstract init params for disk backend:
+        // - storedDataSize = SQ8 quantized size
+        // - inputBlobSize = FP32 size
+        auto abstractInitParams = VecSimDiskFactory::NewDiskInitParams(&params, nullptr);
 
         // Create components
         auto indexComponents = CreateIndexComponents<DataType, DistType>(allocator_, params.metric, params.dim, false);
@@ -201,6 +203,14 @@ inline std::unique_ptr<DiskParamsHolder> createDiskParams(const HNSWParams& hnsw
         .diskContext = &holder->diskContext,
     };
     return holder;
+}
+
+// Helper to get expected SQ8 metadata floats based on metric
+// L2 needs 4 metadata floats, IP/Cosine need 3
+inline size_t getExpectedMetadataFloats(VecSimMetric metric) { return (metric == VecSimMetric_L2) ? 4 : 3; }
+
+inline size_t getExpectedSQ8Size(size_t dim, VecSimMetric metric) {
+    return dim * sizeof(uint8_t) + getExpectedMetadataFloats(metric) * sizeof(float);
 }
 
 } // namespace test_utils

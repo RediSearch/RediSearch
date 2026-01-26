@@ -28,9 +28,10 @@ VecSimIndex* NewIndex(const VecSimParamsDisk* params, bool is_input_normalized) 
         storage = CreateHNSWStorage<float>(handles);
     }
 
-    // Create abstract params
-    auto abstractParams =
-        VecSimDiskFactory::NewAbstractInitParams(hnswParams, params->indexParams->logCtx, is_input_normalized);
+    // Create abstract params for disk backend:
+    // - storedDataSize = SQ8 quantized size (for in-memory RawDataContainer)
+    // - inputBlobSize = FP32 size (vectors come from frontend in FP32)
+    auto abstractParams = VecSimDiskFactory::NewDiskInitParams(hnswParams, params->indexParams->logCtx);
     auto indexComponents =
         CreateIndexComponents<float, float>(allocator, hnswParams->metric, abstractParams.dim, is_input_normalized);
 

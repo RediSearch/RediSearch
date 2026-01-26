@@ -71,11 +71,15 @@ protected:
     }
 };
 
-TEST_F(TieredHNSWDiskTest, CreateTieredIndex) {
+// Parameterized test class for TieredHNSWDisk with different metrics
+class TieredHNSWDiskMetricTest : public TieredHNSWDiskTest, public testing::WithParamInterface<VecSimMetric> {};
+
+TEST_P(TieredHNSWDiskMetricTest, CreateTieredIndex) {
+    VecSimMetric metric = GetParam();
     HNSWParams hnsw_params = {
         .type = VecSimType_FLOAT32,
         .dim = DIM,
-        .metric = VecSimMetric_IP,
+        .metric = metric,
         .blockSize = DEFAULT_BLOCK_SIZE + 4,
         .M = HNSW_DEFAULT_M + 4,
         .efConstruction = HNSW_DEFAULT_EF_C + 4,
@@ -95,7 +99,7 @@ TEST_F(TieredHNSWDiskTest, CreateTieredIndex) {
     EXPECT_TRUE(basic_info.isDisk);
     EXPECT_EQ(basic_info.algo, VecSimAlgo_HNSWLIB);
     EXPECT_EQ(basic_info.dim, DIM);
-    EXPECT_EQ(basic_info.metric, VecSimMetric_IP);
+    EXPECT_EQ(basic_info.metric, metric);
     EXPECT_EQ(basic_info.type, VecSimType_FLOAT32);
 
     // Check specific algo info
@@ -106,11 +110,12 @@ TEST_F(TieredHNSWDiskTest, CreateTieredIndex) {
     VecSimDisk_FreeIndex(index);
 }
 
-TEST_F(TieredHNSWDiskTest, TieredIndexStubBehavior) {
+TEST_P(TieredHNSWDiskMetricTest, TieredIndexStubBehavior) {
+    VecSimMetric metric = GetParam();
     HNSWParams hnsw_params = {
         .type = VecSimType_FLOAT32,
         .dim = DIM,
-        .metric = VecSimMetric_L2,
+        .metric = metric,
         .multi = false,
         .blockSize = 1024,
         .M = 16,
@@ -142,11 +147,12 @@ TEST_F(TieredHNSWDiskTest, TieredIndexStubBehavior) {
     VecSimDisk_FreeIndex(index);
 }
 
-TEST_F(TieredHNSWDiskTest, CreateTieredIndexWithDefaults) {
+TEST_P(TieredHNSWDiskMetricTest, CreateTieredIndexWithDefaults) {
+    VecSimMetric metric = GetParam();
     HNSWParams hnsw_params = {
         .type = VecSimType_FLOAT32,
         .dim = DIM,
-        .metric = VecSimMetric_IP,
+        .metric = metric,
     };
 
     auto params_holder = createTieredDiskParams(hnsw_params);
@@ -161,7 +167,7 @@ TEST_F(TieredHNSWDiskTest, CreateTieredIndexWithDefaults) {
     EXPECT_TRUE(basic_info.isDisk);
     EXPECT_EQ(basic_info.algo, VecSimAlgo_HNSWLIB);
     EXPECT_EQ(basic_info.dim, DIM);
-    EXPECT_EQ(basic_info.metric, VecSimMetric_IP);
+    EXPECT_EQ(basic_info.metric, metric);
     EXPECT_EQ(basic_info.type, VecSimType_FLOAT32);
 
     // Check specific algo info
@@ -171,3 +177,96 @@ TEST_F(TieredHNSWDiskTest, CreateTieredIndexWithDefaults) {
 
     VecSimDisk_FreeIndex(index);
 }
+
+// Test that a created HNSW disk backend index has the correct blob sizes
+TEST_P(TieredHNSWDiskMetricTest, CreatedBackendIndexBlobSizes) {
+    VecSimMetric metric = GetParam();
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = metric,
+    };
+
+    // Create the backend disk params directly
+    VecSimParams primary_params = {
+        .algo = VecSimAlgo_HNSWLIB,
+        .algoParams = {.hnswParams = hnsw_params},
+        .logCtx = nullptr,
+    };
+    VecSimDiskContext disk_context = {
+        .storage = nullptr,
+        .indexName = "test_backend",
+        .indexNameLen = strlen("test_backend"),
+    };
+    VecSimParamsDisk params_disk = {
+        .indexParams = &primary_params,
+        .diskContext = &disk_context,
+    };
+
+    auto* index = VecSimDisk_CreateIndex(&params_disk);
+    ASSERT_NE(index, nullptr);
+
+    // Cast to the HNSWDiskIndex to access blob size methods
+    auto* hnswDiskIndex = dynamic_cast<HNSWDiskIndex<float, float>*>(index);
+    ASSERT_NE(hnswDiskIndex, nullptr);
+
+    const size_t fp32Size = DIM * sizeof(float);
+    const size_t expectedSQ8Size = getExpectedSQ8Size(DIM, metric);
+
+    // Backend: inputBlobSize = FP32, storedDataSize = SQ8
+    EXPECT_EQ(hnswDiskIndex->getInputBlobSize(), fp32Size);
+    EXPECT_EQ(hnswDiskIndex->getStoredDataSize(), expectedSQ8Size);
+
+    VecSimDisk_FreeIndex(index);
+}
+
+// Test that a created Tiered HNSW disk index has correct blob sizes for both frontend and backend
+// - Frontend stores FP32 vectors (storedDataSize = FP32)
+// - Backend expects FP32 input (inputBlobSize = FP32) and stores SQ8 (storedDataSize = SQ8)
+// - The key assertion: frontend.storedDataSize == backend.inputBlobSize
+TEST_P(TieredHNSWDiskMetricTest, CreatedTieredIndexBlobSizes) {
+    VecSimMetric metric = GetParam();
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = metric,
+    };
+
+    auto params_holder = createTieredDiskParams(hnsw_params);
+    auto* index = VecSimDisk_CreateIndex(&params_holder->params_disk);
+    ASSERT_NE(index, nullptr);
+
+    // Cast to the TieredHNSWDiskIndex to access frontend and backend
+    auto* tieredIndex = dynamic_cast<TieredHNSWDiskIndex<float, float>*>(index);
+    ASSERT_NE(tieredIndex, nullptr);
+
+    // Get frontend (BruteForce) and backend (HNSWDisk) indexes
+    auto* frontendIndex = tieredIndex->getFlatBufferIndex();
+    ASSERT_NE(frontendIndex, nullptr);
+
+    auto* backendIndex = tieredIndex->getBackendIndex();
+    ASSERT_NE(backendIndex, nullptr);
+
+    const size_t fp32Size = DIM * sizeof(float);
+    const size_t expectedSQ8Size = getExpectedSQ8Size(DIM, metric);
+
+    // Frontend: both inputBlobSize and storedDataSize = FP32 (full precision storage)
+    EXPECT_EQ(frontendIndex->getInputBlobSize(), fp32Size);
+    EXPECT_EQ(frontendIndex->getStoredDataSize(), fp32Size);
+
+    // Backend: inputBlobSize = FP32, storedDataSize = SQ8
+    EXPECT_EQ(backendIndex->getInputBlobSize(), fp32Size);
+    EXPECT_EQ(backendIndex->getStoredDataSize(), expectedSQ8Size);
+
+    // THE KEY ASSERTION: frontend.storedDataSize == backend.inputBlobSize
+    EXPECT_EQ(frontendIndex->getStoredDataSize(), backendIndex->getInputBlobSize());
+
+    VecSimDisk_FreeIndex(index);
+}
+
+// Instantiate parameterized tests for all metrics
+INSTANTIATE_TEST_SUITE_P(MetricTests, TieredHNSWDiskMetricTest,
+                         testing::Values(VecSimMetric_L2, VecSimMetric_IP, VecSimMetric_Cosine),
+                         [](const testing::TestParamInfo<VecSimMetric>& info) {
+                             return VecSimMetric_ToString(info.param);
+                         });

@@ -36,6 +36,12 @@ public:
 
     // VecSimTieredIndex interface
     size_t getNumMarkedDeleted() const override { /* TBD */ return 0; }
+
+#ifdef BUILD_TESTS
+    HNSWDiskIndex<DataType, DistType>* getBackendIndex() {
+        return static_cast<HNSWDiskIndex<DataType, DistType>*>(this->backendIndex);
+    }
+#endif
 };
 
 /******************** Index API ****************************************/

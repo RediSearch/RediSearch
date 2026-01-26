@@ -10,7 +10,8 @@
 #include "gtest/gtest.h"
 #include "test_utils.h"
 #include "vecsim_disk_api.h"
-#include "storage/hnsw_storage.h"
+#include "factory/disk_index_factory.h"
+#include "VecSim/index_factories/factory_utils.h"
 
 using namespace test_utils;
 
@@ -27,6 +28,9 @@ protected:
         return VecSimDisk_CreateIndex(&params_disk_holder->params_disk);
     }
 };
+
+// Parameterized test class for HNSWDisk with different metrics
+class HNSWDiskMetricTest : public HNSWDiskTest, public testing::WithParamInterface<VecSimMetric> {};
 
 TEST_F(HNSWDiskTest, CreateIndex) {
     TestIndex<float, float> index(DIM);
@@ -152,3 +156,24 @@ TEST_F(HNSWDiskTest, FactoryWithSpeeDBHandles) {
 
     VecSimDisk_FreeIndex(handle);
 }
+
+// Test that verifies correct blob size calculation for HNSWDiskIndex
+TEST_P(HNSWDiskMetricTest, BlobSizeCalculation) {
+    VecSimMetric metric = GetParam();
+    const size_t expectedSQ8Size = getExpectedSQ8Size(DIM, metric);
+    const size_t fp32Size = DIM * sizeof(float);
+
+    // Create an actual HNSWDiskIndex and verify its blob sizes
+    TestIndex<float, float> index(DIM, metric);
+
+    // Backend: inputBlobSize = FP32, storedDataSize = SQ8
+    EXPECT_EQ(index->getInputBlobSize(), fp32Size);
+    EXPECT_EQ(index->getStoredDataSize(), expectedSQ8Size);
+}
+
+// Instantiate parameterized tests for all metrics
+INSTANTIATE_TEST_SUITE_P(MetricTests, HNSWDiskMetricTest,
+                         testing::Values(VecSimMetric_L2, VecSimMetric_IP, VecSimMetric_Cosine),
+                         [](const testing::TestParamInfo<VecSimMetric>& info) {
+                             return VecSimMetric_ToString(info.param);
+                         });
