@@ -133,9 +133,9 @@ bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool *pool, t_docId docId, 
     return disk->docTable.addAsyncRead(pool, docId, user_data);
 }
 
-AsyncPollResult SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool *pool, uint32_t timeout_ms, AsyncReadResult *results, uint16_t results_capacity) {
+AsyncPollResult SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool *pool, uint32_t timeout_ms, AsyncReadResult *results, uint16_t results_capacity, uint64_t *failed_user_data, uint16_t failed_capacity) {
     RS_ASSERT(disk && pool);
-    return disk->docTable.pollAsyncReads(pool, timeout_ms, results, results_capacity, &sdsnewlen);
+    return disk->docTable.pollAsyncReads(pool, timeout_ms, results, results_capacity, failed_user_data, failed_capacity, &sdsnewlen);
 }
 
 void SearchDisk_FreeAsyncReadPool(RedisSearchDiskAsyncReadPool *pool) {

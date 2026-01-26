@@ -31,11 +31,12 @@ typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 
 // Result of polling the async read pool
 typedef struct AsyncPollResult {
-  uint16_t ready_count;   // Number of DMDs filled in results buffer
+  uint16_t ready_count;   // Number of successful reads in results buffer
+  uint16_t failed_count;  // Number of failed reads in failed_user_data buffer
   uint16_t pending_count; // Number of reads still in flight
 } AsyncPollResult;
 
-// Result structure containing both DMD and user data
+// Result structure containing both DMD and user data (for successful reads only)
 typedef struct AsyncReadResult {
   RSDocumentMetadata *dmd;  // Pointer to allocated DMD (caller must free with DMD_Return)
   uint64_t user_data;       // Generic user data passed to addAsyncRead (e.g., index, pointer, flags)
@@ -196,18 +197,23 @@ typedef struct DocTableDiskAPI {
   /**
    * @brief Polls the pool for ready results
    *
-   * Checks for completed async reads and fills the results buffer with ready DMDs and their
-   * associated user_data. Documents not found or with errors are silently omitted (treated as deleted).
+   * Checks for completed async reads and fills two buffers:
+   * - results: successful reads with valid DMDs
+   * - failed_user_data: user_data pointers for reads that failed or found no document
    *
    * @param pool Pool handle from createAsyncReadPool
    * @param timeout_ms 0 for non-blocking, >0 to wait up to that many milliseconds
-   * @param results Buffer to fill with ready AsyncReadResult structures (DMD + user_data)
+   * @param results Buffer to fill with successful AsyncReadResult structures (DMD + user_data)
    * @param results_capacity Size of the results buffer
+   * @param failed_user_data Buffer to fill with user_data from failed reads (not found/error)
+   * @param failed_capacity Size of the failed_user_data buffer
    * @param allocateKey Callback to allocate memory for document keys
-   * @return AsyncPollResult with counts of ready and pending reads
+   * @return AsyncPollResult with counts of ready, failed, and pending reads
    */
-  AsyncPollResult (*pollAsyncReads)(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, AsyncReadResult* results,
-                                    uint16_t results_capacity, AllocateKeyCallback allocateKey);
+  AsyncPollResult (*pollAsyncReads)(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms,
+                                    AsyncReadResult* results, uint16_t results_capacity,
+                                    uint64_t* failed_user_data, uint16_t failed_capacity,
+                                    AllocateKeyCallback allocateKey);
 
   /**
    * @brief Frees the async read pool and cancels any pending reads

@@ -222,15 +222,17 @@ bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool *pool, t_docId docId, 
 /**
  * @brief Poll the pool for ready results
  *
- * Returns AsyncReadResult structures containing both DMD and the associated user_data.
+ * Returns two arrays: successful reads with DMDs, and failed reads with just user_data.
  *
  * @param pool Pool handle
  * @param timeout_ms 0 for non-blocking, >0 to wait
- * @param results Buffer to fill with ready AsyncReadResult structures
+ * @param results Buffer to fill with successful AsyncReadResult structures
  * @param results_capacity Size of results buffer
- * @return AsyncPollResult with ready_count and pending_count
+ * @param failed_user_data Buffer to fill with user_data from failed reads
+ * @param failed_capacity Size of failed_user_data buffer
+ * @return AsyncPollResult with ready_count, failed_count, and pending_count
  */
-AsyncPollResult SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool *pool, uint32_t timeout_ms, AsyncReadResult *results, uint16_t results_capacity);
+AsyncPollResult SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool *pool, uint32_t timeout_ms, AsyncReadResult *results, uint16_t results_capacity, uint64_t *failed_user_data, uint16_t failed_capacity);
 
 /**
  * @brief Free the async read pool

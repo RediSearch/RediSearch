@@ -77,6 +77,7 @@ typedef struct {
   DLLIST pendingResults;                        // Linked list (bounded by ASYNC_POOL_SIZE) tracking submitted IndexResults
   arrayof(AsyncReadResult) readyResults;        // Ready results from async poll (DMD + user_data pairs)
   uint16_t readyResultsIndex;                   // Next index to consume from readyResults
+  arrayof(uint64_t) failedUserData;             // user_data from failed async reads (not found/error)
   RSIndexResult *lastReturnedIndexResult;       // Last deep-copied IndexResult returned (needs to be freed on next call)
 } RPQueryIterator;
 
@@ -373,7 +374,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     if (self->readyResultsIndex < array_len(self->readyResults)) {
       RSIndexResult *indexResult = NULL;
       dmd = popReadyResult(self, &indexResult);
-      RS_ASSERT(dmd);  // Should always succeed if index < count
+      RS_ASSERT(dmd);  // Should always be valid after filtering
 
       if (!validateDmdSlot(self, dmd)) {
         DMD_Return(dmd);
@@ -390,10 +391,28 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     // Step 3: No ready results - poll for more
     int timeout_ms = it->atEOF ? 1000 : 0;
     AsyncPollResult pollResult = SearchDisk_PollAsyncReads(
-        self->asyncPool, timeout_ms, self->readyResults, ASYNC_POOL_SIZE);
+        self->asyncPool, timeout_ms, self->readyResults, ASYNC_POOL_SIZE,
+        self->failedUserData, ASYNC_POOL_SIZE);
 
     array_trimm(self->readyResults, pollResult.ready_count);
+    array_trimm(self->failedUserData, pollResult.failed_count);
     self->readyResultsIndex = 0;
+
+    // Step 3a: Clean up nodes for failed reads (not found/error)
+    for (uint16_t i = 0; i < pollResult.failed_count; i++) {
+      struct IndexResultNode *node = (struct IndexResultNode *)self->failedUserData[i];
+
+      // Remove node from pendingResults list
+      dllist_delete(&node->node);
+
+      // Free the deep-copied IndexResult
+      if (node->result) {
+        IndexResult_Free(node->result);
+      }
+
+      // Free the node itself
+      rm_free(node);
+    }
 
     // Step 4: Refill buffer if we're I/O bound
     // If poll returned 0 results but we have buffered IndexResults available,
@@ -411,10 +430,13 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     refillAsyncPool(self);
 
     // Step 6: Check if we're completely done
-    // We're done only if: iterator is at EOF, no ready results, no pending results in the pool,
+    // We're done only if: iterator is at EOF, no ready results, no in-flight async reads,
     // and no buffered results waiting to be submitted
+    // Note: Use pollResult.pending_count to check for in-flight reads. The disk API always
+    // returns an entry in readyResults for every completed read (with status indicating
+    // success/not found/error), so pendingResults will be empty when pending_count == 0
     if (it->atEOF && pollResult.ready_count == 0 &&
-        DLLIST_IS_EMPTY(&self->pendingResults) && DLLIST_IS_EMPTY(&self->iteratorResults)) {
+        pollResult.pending_count == 0 && DLLIST_IS_EMPTY(&self->iteratorResults)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
     }
 
