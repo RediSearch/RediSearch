@@ -10,6 +10,7 @@ pin-project.workspace = true
 libc = { workspace = true, features = ["extra_traits"] }
 ffi.workspace = true
 workspace_hack.workspace = true
+search_result.workspace = true
 
 [lints]
 workspace = true

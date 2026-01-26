@@ -149,6 +149,11 @@ extern dict *legacySpecRules;
 typedef struct {
   size_t numDocuments;
   size_t numTerms;
+  size_t totalDocsLen;
+} ScoringIndexStats;
+
+typedef struct {
+  ScoringIndexStats scoring;  // Statistics used for scoring functions
   size_t numRecords;
   size_t invertedSize;
   size_t offsetVecsSize;
@@ -156,7 +161,6 @@ typedef struct {
   size_t termsSize;
   rs_wall_clock_ns_t totalIndexTime;
   IndexError indexError;
-  size_t totalDocsLen;
   uint32_t activeQueries;
   uint32_t activeWrites;
 } IndexStats;
@@ -717,7 +721,7 @@ void Indexes_Init(RedisModuleCtx *ctx);
 /*
  * Free all indexes.
  * @param deleteDiskData - delete the disk data
-*/ 
+*/
 void Indexes_Free(dict *d, bool deleteDiskData);
 size_t Indexes_Count();
 void Indexes_Propagate(RedisModuleCtx *ctx);
