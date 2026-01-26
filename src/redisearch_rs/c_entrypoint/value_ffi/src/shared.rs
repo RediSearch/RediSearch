@@ -12,9 +12,11 @@ use std::{ffi::c_char, mem::ManuallyDrop, ptr::NonNull};
 use c_ffi_utils::expect_unchecked;
 use ffi::RedisModuleString;
 use value::{
-    RsValue, Value,
+    RsValue,
     collection::{RsValueArray, RsValueMap},
     shared::SharedRsValue,
+    strings::{ConstString, RedisString, RmAllocString},
+    trio::RsValueTrio,
 };
 
 /// Creates a heap-allocated `RsValue` wrapping a string.
@@ -40,8 +42,10 @@ pub unsafe extern "C" fn SharedRsValue_NewString(
     // Safety: caller must ensure (1).
     let str = unsafe { expect_unchecked!(str) };
     // Safety: caller must ensure (2), (3), (4), (5) and (6),
-    // upholding the safety requirements of `SharedRsValue::take_rm_alloc_string`
-    let shared_value = unsafe { SharedRsValue::take_rm_alloc_string(str, len) };
+    // upholding the safety requirements of `RmAllocString::take_unchecked`
+    let shared_value = SharedRsValue::new(RsValue::RmAllocString(unsafe {
+        RmAllocString::take_unchecked(str, len)
+    }));
     shared_value.into_raw()
 }
 
@@ -88,8 +92,9 @@ pub unsafe extern "C" fn SharedRsValue_NewConstString(
     len: u32,
 ) -> *const RsValue {
     // Safety: the safety requirements of this function uphold those
-    // of `SharedRsValue::const_string`.
-    let shared_value = unsafe { SharedRsValue::const_string(str, len) };
+    // of `ConstString::new`.
+    let shared_value =
+        SharedRsValue::new(RsValue::ConstString(unsafe { ConstString::new(str, len) }));
     shared_value.into_raw()
 }
 
@@ -110,8 +115,8 @@ pub unsafe extern "C" fn SharedRsValue_NewRedisString(
     // Safety: caller must ensure (1).
     let str = unsafe { expect_unchecked!(str) };
     // Safety: the safety requirements of this function uphold those
-    // of `SharedRsValue::redis_string`.
-    let shared_value = unsafe { SharedRsValue::redis_string(str) };
+    // of `RedisString::take`.
+    let shared_value = SharedRsValue::new(RsValue::RedisString(unsafe { RedisString::take(str) }));
     shared_value.into_raw()
 }
 
@@ -131,8 +136,10 @@ pub unsafe extern "C" fn SharedRsValue_NewCopiedString(
 ) -> *const RsValue {
     debug_assert!(!str.is_null(), "`str` must not be NULL");
     // Safety: the safety requirements of this function uphold those
-    // of `SharedRsValue::copy_rm_alloc_string`.
-    let shared_value = unsafe { SharedRsValue::copy_rm_alloc_string(str, len) };
+    // of `RmAllocString::copy_from_string`.
+    let shared_value = SharedRsValue::new(RsValue::RmAllocString(unsafe {
+        RmAllocString::copy_from_string(str, len)
+    }));
     shared_value.into_raw()
 }
 
@@ -151,18 +158,18 @@ pub unsafe extern "C" fn SharedRsValue_NewParsedNumber(
     len: usize,
 ) -> *const RsValue {
     if len == 0 {
-        return SharedRsValue::undefined().into_raw();
+        return SharedRsValue::new(RsValue::Undefined).into_raw();
     }
 
     // Safety: caller must ensure (1).
     let str = unsafe { std::slice::from_raw_parts(str as *const u8, len) };
     let Ok(str) = std::str::from_utf8(str) else {
-        return SharedRsValue::undefined().into_raw();
+        return SharedRsValue::new(RsValue::Undefined).into_raw();
     };
     let Ok(n) = str.parse() else {
-        return SharedRsValue::undefined().into_raw();
+        return SharedRsValue::new(RsValue::Undefined).into_raw();
     };
-    let shared_value = SharedRsValue::number(n);
+    let shared_value = SharedRsValue::new(RsValue::Number(n));
     shared_value.into_raw()
 }
 
@@ -172,7 +179,7 @@ pub unsafe extern "C" fn SharedRsValue_NewParsedNumber(
 /// @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Number`
 #[unsafe(no_mangle)]
 pub extern "C" fn SharedRsValue_NewNumber(n: f64) -> *const RsValue {
-    let shared_value = SharedRsValue::number(n);
+    let shared_value = SharedRsValue::new(RsValue::Number(n));
     shared_value.into_raw()
 }
 
@@ -183,7 +190,7 @@ pub extern "C" fn SharedRsValue_NewNumber(n: f64) -> *const RsValue {
 /// @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Number`
 #[unsafe(no_mangle)]
 pub extern "C" fn SharedRsValue_NewNumberFromInt64(dd: i64) -> *const RsValue {
-    let shared_value = SharedRsValue::number(dd as f64);
+    let shared_value = SharedRsValue::new(RsValue::Number(dd as f64));
     shared_value.into_raw()
 }
 
@@ -195,7 +202,7 @@ pub extern "C" fn SharedRsValue_NewNumberFromInt64(dd: i64) -> *const RsValue {
 /// @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Array`
 #[unsafe(no_mangle)]
 pub extern "C" fn SharedRsValue_NewArray(vals: RsValueArray) -> *const RsValue {
-    let shared_value = SharedRsValue::array(vals);
+    let shared_value = SharedRsValue::new(RsValue::Array(vals));
     shared_value.into_raw()
 }
 
@@ -206,7 +213,7 @@ pub extern "C" fn SharedRsValue_NewArray(vals: RsValueArray) -> *const RsValue {
 /// @return A pointer to a heap-allocated RsValue of type RsValueType_Map
 #[unsafe(no_mangle)]
 pub extern "C" fn SharedRsValue_NewMap(map: RsValueMap) -> *const RsValue {
-    let shared_value = SharedRsValue::map(map);
+    let shared_value = SharedRsValue::new(RsValue::Map(map));
     shared_value.into_raw()
 }
 
@@ -235,7 +242,7 @@ pub unsafe extern "C" fn SharedRsValue_NewTrio(
     // Safety: caller must ensure (1).
     let right = unsafe { SharedRsValue::from_raw(right) };
 
-    let shared_value = SharedRsValue::trio(left, middle, right);
+    let shared_value = SharedRsValue::new(RsValue::Trio(RsValueTrio::new(left, middle, right)));
     shared_value.into_raw()
 }
 

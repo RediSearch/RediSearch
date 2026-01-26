@@ -80,7 +80,7 @@ TEST_F(TrieTest, testBasicRange) {
   rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
   for (size_t ii = 0; ii < 1000; ++ii) {
     char buf[64];
-    sprintf(buf, "%lu", (unsigned long)ii);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)ii);
     auto n = trieInsert(t, buf);
     ASSERT_TRUE(n);
   }
@@ -118,7 +118,7 @@ TEST_F(TrieTest, testBasicRangeWithScore) {
   rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
   for (size_t ii = 0; ii < 1000; ++ii) {
     char buf[64];
-    sprintf(buf, "%lu", (unsigned long)ii);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)ii);
     auto n = trieInsert(t, buf);
     ASSERT_TRUE(n);
   }

@@ -60,7 +60,7 @@ Rust integration tests live in the `tests` subfolder, next to the `Cargo.toml` o
    // Link both Rust-provided and C-provided symbols
    extern crate redisearch_rs;
    // Mock or stub the ones that aren't provided by the line above
-   redis_mock::mock_or_stub_c_symbols!();
+   redis_mock::mock_or_stub_missing_redis_c_symbols!();
    ```
 
 ### Adding a benchmark crate
@@ -90,5 +90,5 @@ Benchmark crates (e.g., named `*_bencher`) are pure testing code, so they don't 
    // - Link both Rust-provided and C-provided symbols
    extern crate redisearch_rs;
    // - Mock or stub the ones that aren't provided by the line above
-   redis_mock::mock_or_stub_c_symbols!();
+   redis_mock::mock_or_stub_missing_redis_c_symbols!();
    ```

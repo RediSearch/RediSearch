@@ -67,10 +67,10 @@ static void serializeUnresolvedKeys(arrayof(char*) *target, std::vector<const RL
     array_append(*target, buffer);
     for (auto kk : keys) {
       // json paths should be serialized as is to avoid weird names
-      if (kk->name[0] == '$') {
-        buffer = rm_strndup(kk->name, kk->name_len);
+      if (RLookupKey_GetName(kk)[0] == '$') {
+        buffer = rm_strndup(RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
       } else {
-        rm_asprintf(&buffer, "@%.*s", (int)kk->name_len, kk->name);
+        rm_asprintf(&buffer, "@%.*s", (int)RLookupKey_GetNameLen(kk), RLookupKey_GetName(kk));
       }
       array_append(*target, buffer);
     }
@@ -117,9 +117,10 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
       return NULL;
     }
 
-    tailLookup->options |= RLOOKUP_OPT_UNRESOLVED_OK;
+    RLookup_EnableOptions(tailLookup, RLOOKUP_OPT_UNRESOLVED_OK);
     rc = HybridRequest_BuildMergePipeline(hreq, scoreKey, hybridParams);
-    tailLookup->options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
+    RLookup_DisableOptions(tailLookup, RLOOKUP_OPT_UNRESOLVED_OK);
+
     if (rc != REDISMODULE_OK) {
       // The error is set at the tail, copy it into status
       QueryError_CloneFrom(&hreq->tailPipelineError, status);
@@ -128,11 +129,11 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     }
 
     std::vector<const RLookupKey *> unresolvedKeys;
-    for (RLookupKey *kk = tailLookup->head; kk; kk = kk->next) {
-      if (kk->flags & RLOOKUP_F_UNRESOLVED) {
+    RLOOKUP_FOREACH(kk, tailLookup, {
+      if (RLookupKey_GetFlags(kk) & RLOOKUP_F_UNRESOLVED) {
         unresolvedKeys.push_back(kk);
       }
-    }
+    });
 
     arrayof(char*) serialized = NULL;
     for (int i = 0; i < hreq->nrequests; i++) {
@@ -141,7 +142,7 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
       RS_ASSERT(dstp);
       for (const RLookupKey *kk : unresolvedKeys) {
         // Add the unresolved keys to the upstream lookup since we will add them to the LOAD clause
-        RLookup_GetKey_Write(&dstp->lk, kk->name, kk->flags & ~RLOOKUP_F_UNRESOLVED);
+        RLookup_GetKey_Write(&dstp->lk, RLookupKey_GetName(kk), RLookupKey_GetFlags(kk) & ~RLOOKUP_F_UNRESOLVED);
       }
       serializeUnresolvedKeys(&dstp->serialized, unresolvedKeys);
       lookups[i] = &dstp->lk;
