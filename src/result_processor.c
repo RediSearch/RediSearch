@@ -256,8 +256,8 @@ static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadat
 static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexResult *indexResult,
                             const RSDocumentMetadata *dmd, t_docId docId) {
   base->parent->totalResults++;
-  SearchResult_SetDocId(res, it->lastDocId);
-  SearchResult_SetIndexResult(res, it->current);
+  SearchResult_SetDocId(res, dmd->id);
+  SearchResult_SetIndexResult(res, indexResult);
   SearchResult_SetScore(res, 0);
   RS_LOG_ASSERT(SearchResult_GetDocumentMetadata(res) == NULL, "SearchResult already has associated document metadata");
   SearchResult_SetDocumentMetadata(res, dmd);
