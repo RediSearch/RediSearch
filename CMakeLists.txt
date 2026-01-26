@@ -79,6 +79,7 @@ option(ENABLE_ASSERT "Enable assertions" OFF)
 option(MAX_WORKER_THREADS "Override them maximum parallel worker threads allowed in thread-pool" "")
 option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
 
+
 #----------------------------------------------------------------------------------------------
 project(redisearch)
 

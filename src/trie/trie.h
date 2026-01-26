@@ -126,11 +126,11 @@ typedef enum {
  * if we just replaced
  * the score. We pass a pointer to the node because it may actually change when
  * splitting.
- * numDocsToSet: if > 0, the numDocs field is set to this value (used during RDB load)
- * numDocsToAdd: if numDocsToSet == 0, this value is added to the numDocs field */
+ * numDocs: the value to use for numDocs
+ * numDocsOp: ADD_REPLACE sets numDocs to the given value, ADD_INCR adds it to the existing value */
 int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
                  float score, TrieAddOp op, TrieFreeCallback freecb,
-                 size_t numDocsToSet, size_t numDocsToAdd);
+                 size_t numDocs, TrieAddOp numDocsOp);
 
 /* Find the entry with a given string and length, and return its score. Returns
  * 0 if the entry was

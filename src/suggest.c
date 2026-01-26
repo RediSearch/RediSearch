@@ -96,7 +96,7 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   /* Insert the new element. */
-  Trie_Insert(tree, val, score, incr, &payload, 0, 0);
+  Trie_Insert(tree, val, score, incr, &payload, 0, ADD_REPLACE);
 
   RedisModule_ReplyWithLongLong(ctx, tree->size);
   RedisModule_ReplicateVerbatim(ctx);

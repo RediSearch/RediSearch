@@ -193,15 +193,12 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) 
 }
 
 int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
-                 TrieAddOp op, TrieFreeCallback freecb, size_t numDocsToSet, size_t numDocsToAdd) {
+                 TrieAddOp op, TrieFreeCallback freecb, size_t numDocs, TrieAddOp numDocsOp) {
   if (score == 0 || len == 0) {
     return 0;
   }
 
   TrieNode *n = *np;
-
-  // Compute the numDocs for this node: if numDocsToSet > 0, use it; otherwise add numDocsToAdd
-  size_t numDocs = numDocsToSet > 0 ? numDocsToSet : numDocsToAdd;
 
   int offset = 0;
   for (; offset < len && offset < n->len; offset++) {
@@ -261,11 +258,14 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
       default:
         n->score = score;
     }
-    // Update numDocs: if numDocsToSet > 0, set it; otherwise add numDocsToAdd
-    if (numDocsToSet > 0) {
-      n->numDocs = numDocsToSet;
-    } else {
-      n->numDocs += numDocsToAdd;
+    // Update numDocs based on numDocsOp
+    switch (numDocsOp) {
+      case ADD_INCR:
+        n->numDocs += numDocs;
+        break;
+      case ADD_REPLACE:
+      default:
+        n->numDocs = numDocs;
     }
     if (payload != NULL && payload->data != NULL && payload->len > 0) {
       if (n->payload != NULL) {
@@ -290,7 +290,7 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
     TrieNode *child = __trieNode_children(n)[idx];
     if (str[offset] == *childKey) {
       int rc = TrieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb,
-                            numDocsToSet, numDocsToAdd);
+                            numDocs, numDocsOp);
       *__trieNode_childKey(n, idx) = str[offset];
       __trieNode_children(n)[idx] = child;
       // In score mode, check if the order was kept and fix as necessary

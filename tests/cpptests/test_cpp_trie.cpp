@@ -23,7 +23,7 @@ typedef std::set<std::string> ElemSet;
 class TrieTest : public ::testing::Test {};
 
 static bool trieInsert(Trie *t, const char *s, size_t n) {
-  return Trie_InsertStringBuffer(t, s, n, 1, 1, NULL, 0, 0);
+  return Trie_InsertStringBuffer(t, s, n, 1, 1, NULL, 0, ADD_REPLACE);
 }
 static bool trieInsert(Trie *t, const char *s) {
   return trieInsert(t, s, strlen(s));
@@ -188,17 +188,17 @@ TEST_F(TrieTest, testPayload) {
   Trie *t = NewTrie(NULL, Trie_Sort_Score);
 
   RSPayload payload = { .data = buf1, .len = 2 };
-  Trie_InsertStringBuffer(t, buf1, 2, 1, 1, &payload, 0, 0);
+  Trie_InsertStringBuffer(t, buf1, 2, 1, 1, &payload, 0, ADD_REPLACE);
   payload.len = 4;
-  Trie_InsertStringBuffer(t, buf1, 4, 1, 1, &payload, 0, 0);
+  Trie_InsertStringBuffer(t, buf1, 4, 1, 1, &payload, 0, ADD_REPLACE);
   payload.len = 5;
-  Trie_InsertStringBuffer(t, buf1, 5, 1, 1, &payload, 0, 0);
+  Trie_InsertStringBuffer(t, buf1, 5, 1, 1, &payload, 0, ADD_REPLACE);
   payload.len = 3;
-  Trie_InsertStringBuffer(t, buf1, 3, 1, 1, &payload, 0, 0);
+  Trie_InsertStringBuffer(t, buf1, 3, 1, 1, &payload, 0, ADD_REPLACE);
 
   char buf2[] = "work";
   payload = { .data = buf2, .len = 4 };
-  Trie_InsertStringBuffer(t, buf2, 4, 1, 1, &payload, 0, 0);
+  Trie_InsertStringBuffer(t, buf2, 4, 1, 1, &payload, 0, ADD_REPLACE);
 
 
   // check for prefix of existing term
@@ -251,7 +251,7 @@ TEST_F(TrieTest, testFreeCallback) {
   char *str = rm_strdup("hello");
 
   RSPayload payload = { .data = (char *)&str, .len = sizeof(str) };
-  Trie_InsertStringBuffer(t, buf, 5, 1, 1, &payload, 0, 0);
+  Trie_InsertStringBuffer(t, buf, 5, 1, 1, &payload, 0, ADD_REPLACE);
 
   TrieType_Free(t);
 }
@@ -303,7 +303,7 @@ TEST_F(TrieTest, testLexOrder) {
 }
 
 bool trieInsertByScore(Trie *t, const char *s, float score) {
-  return Trie_InsertStringBuffer(t, s, strlen(s), score, 1, NULL, 0, 0);
+  return Trie_InsertStringBuffer(t, s, strlen(s), score, 1, NULL, 0, ADD_REPLACE);
 }
 
 bool trieContains(Trie *t, const char *s) {
@@ -507,9 +507,9 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   RSPayload p2 = {.data = payload2, .len = strlen(payload2)};
   RSPayload p3 = {.data = payload3, .len = strlen(payload3)};
 
-  bool r1 = Trie_InsertStringBuffer(originalTrie, "run", 3, 5.0, 0, &p1, 0, 0);        // Base word with payload
-  bool r2 = Trie_InsertStringBuffer(originalTrie, "running", 7, 3.0, 0, &p2, 0, 0);    // Extension with payload
-  bool r3 = Trie_InsertStringBuffer(originalTrie, "runner", 6, 4.0, 0, &p3, 0, 0);     // Extension with payload
+  bool r1 = Trie_InsertStringBuffer(originalTrie, "run", 3, 5.0, 0, &p1, 0, ADD_REPLACE);        // Base word with payload
+  bool r2 = Trie_InsertStringBuffer(originalTrie, "running", 7, 3.0, 0, &p2, 0, ADD_REPLACE);    // Extension with payload
+  bool r3 = Trie_InsertStringBuffer(originalTrie, "runner", 6, 4.0, 0, &p3, 0, ADD_REPLACE);     // Extension with payload
 
   EXPECT_EQ(3, originalTrie->size);
 
@@ -573,9 +573,9 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
   RSPayload p2 = {.data = payload2, .len = strlen(payload2)};
   RSPayload p3 = {.data = payload3, .len = strlen(payload3)};
 
-  Trie_InsertStringBuffer(originalTrie, "car", 3, 8.0, 0, &p1, 0, 0);        // Base word with payload
-  Trie_InsertStringBuffer(originalTrie, "care", 4, 6.0, 0, &p2, 0, 0);       // Extension with payload
-  Trie_InsertStringBuffer(originalTrie, "careful", 7, 4.0, 0, &p3, 0, 0);    // Extension with payload
+  Trie_InsertStringBuffer(originalTrie, "car", 3, 8.0, 0, &p1, 0, ADD_REPLACE);        // Base word with payload
+  Trie_InsertStringBuffer(originalTrie, "care", 4, 6.0, 0, &p2, 0, ADD_REPLACE);       // Extension with payload
+  Trie_InsertStringBuffer(originalTrie, "careful", 7, 4.0, 0, &p3, 0, ADD_REPLACE);    // Extension with payload
 
   EXPECT_EQ(3, originalTrie->size);
 
@@ -633,10 +633,10 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   RSPayload p2 = {.data = payload2, .len = strlen(payload2)};
 
   // Insert complex test data WITHOUT payloads - includes prefixes and extensions
-  Trie_InsertStringBuffer(originalTrie, "hello", 5, 8.0, 0, NULL, 0, 0);     // Base word without payload
-  Trie_InsertStringBuffer(originalTrie, "hell", 4, 6.0, 0, &p1, 0, 0);      // Prefix with payload
-  Trie_InsertStringBuffer(originalTrie, "help", 4, 7.0, 0, NULL, 0, 0);      // Related word without payload
-  Trie_InsertStringBuffer(originalTrie, "helper", 6, 5.0, 0, &p2, 0, 0);    // Extension with payload
+  Trie_InsertStringBuffer(originalTrie, "hello", 5, 8.0, 0, NULL, 0, ADD_REPLACE);     // Base word without payload
+  Trie_InsertStringBuffer(originalTrie, "hell", 4, 6.0, 0, &p1, 0, ADD_REPLACE);      // Prefix with payload
+  Trie_InsertStringBuffer(originalTrie, "help", 4, 7.0, 0, NULL, 0, ADD_REPLACE);      // Related word without payload
+  Trie_InsertStringBuffer(originalTrie, "helper", 6, 5.0, 0, &p2, 0, ADD_REPLACE);    // Extension with payload
 
   EXPECT_EQ(4, originalTrie->size);
 
@@ -811,8 +811,8 @@ TEST_F(TrieTest, testRdbSaveLoadLexSortedTrie) {
 }
 
 // Helper function to insert with numDocs
-static bool trieInsertWithNumDocs(Trie *t, const char *s, float score, size_t numDocsToSet, size_t numDocsToAdd) {
-  return Trie_InsertStringBuffer(t, s, strlen(s), score, 0, NULL, numDocsToSet, numDocsToAdd);
+static bool trieInsertWithNumDocs(Trie *t, const char *s, float score, size_t numDocs, TrieAddOp numDocsOp) {
+  return Trie_InsertStringBuffer(t, s, strlen(s), score, 0, NULL, numDocs, numDocsOp);
 }
 
 // Helper function to get numDocs from a trie node
@@ -836,12 +836,12 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   });
 
   // Insert words with common prefixes and various numDocs values
-  trieInsertWithNumDocs(originalTrie, "help", 1.0, 10, 0);     // numDocs = 10
-  trieInsertWithNumDocs(originalTrie, "helping", 2.0, 20, 0);  // numDocs = 20
-  trieInsertWithNumDocs(originalTrie, "helper", 3.0, 30, 0);   // numDocs = 30
-  trieInsertWithNumDocs(originalTrie, "A", 4.0, 100, 0);       // numDocs = 100
-  trieInsertWithNumDocs(originalTrie, "AB", 5.0, 200, 0);      // numDocs = 200
-  trieInsertWithNumDocs(originalTrie, "ABC", 6.0, 300, 0);     // numDocs = 300
+  trieInsertWithNumDocs(originalTrie, "help", 1.0, 10, ADD_REPLACE);     // numDocs = 10
+  trieInsertWithNumDocs(originalTrie, "helping", 2.0, 20, ADD_REPLACE);  // numDocs = 20
+  trieInsertWithNumDocs(originalTrie, "helper", 3.0, 30, ADD_REPLACE);   // numDocs = 30
+  trieInsertWithNumDocs(originalTrie, "A", 4.0, 100, ADD_REPLACE);       // numDocs = 100
+  trieInsertWithNumDocs(originalTrie, "AB", 5.0, 200, ADD_REPLACE);      // numDocs = 200
+  trieInsertWithNumDocs(originalTrie, "ABC", 6.0, 300, ADD_REPLACE);     // numDocs = 300
 
   ASSERT_EQ(6, originalTrie->size);
 
