@@ -2225,20 +2225,6 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     }
   }
 
-  // Get timeout parameter, if set in the command
-  argIndex = RMUtil_ArgIndex("TIMEOUT", argv, argc);
-  if (argIndex > -1) {
-    argIndex++;
-    ArgsCursor ac;
-    ArgsCursor_InitRString(&ac, argv+argIndex, argc-argIndex);
-    if (parseTimeout(&req->timeout, &ac, status)) {
-      searchRequestCtx_Free(req);
-      return NULL;
-    }
-  } else {
-    req->timeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
-  }
-
   return req;
 }
 
@@ -3891,18 +3877,25 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
   }
 }
 
-// Extract timeout from command args and block client with timeout callback.
-// Returns a blocked client with the appropriate timeout from query args or global config.
-static RedisModuleBlockedClient* DistSearchBlockClientWithTimeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  // Extract timeout from command args, or use global default
+static int initQueryTimeout(long long *timeout, RedisModuleString **argv, int argc, QueryError *status) {
+  RS_ASSERT(timeout != NULL);
+
+  *timeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
+
   int timeoutArgIdx = RMUtil_ArgIndex("TIMEOUT", argv, argc);
-  long long queryTimeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
   if (timeoutArgIdx >= 0 && timeoutArgIdx + 1 < argc) {
     ArgsCursor ac;
     ArgsCursor_InitRString(&ac, argv + timeoutArgIdx + 1, argc - timeoutArgIdx - 1);
     // parseTimeout validates non-negative timeout; on failure, keep the global default
-    parseTimeout(&queryTimeout, &ac, NULL);
+    return parseTimeout(timeout, &ac, status);
   }
+
+  return REDISMODULE_OK;
+}
+
+// Extract timeout from command args and block client with timeout callback.
+// Returns a blocked client with the appropriate timeout from query args or global config.
+static RedisModuleBlockedClient* DistSearchBlockClientWithTimeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, long long queryTimeout) {
   // Block client with timeout callback - timeout is in milliseconds from query arg or global config
   // DistSearchFreePrivData will be called to free the MRCtx after reply/timeout callback completes
   return RedisModule_BlockClient(ctx, DistSearchUnblockClient, DistSearchTimeoutClient, DistSearchFreePrivData, queryTimeout);
@@ -3972,7 +3965,13 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  RedisModuleBlockedClient* bc = DistSearchBlockClientWithTimeout(ctx, argv, argc);
+  long long queryTimeoutMS = -1;
+  QueryError status = QueryError_Default();
+  if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+
+  RedisModuleBlockedClient* bc = DistSearchBlockClientWithTimeout(ctx, argv, argc, queryTimeoutMS);
 
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);

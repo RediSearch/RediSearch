@@ -89,7 +89,6 @@ typedef struct {
   long long limit;
   long long requestedResultsCount;
   rs_wall_clock initClock;
-  long long timeout;
   int withScores;
   int withExplainScores;
   int withPayload;
