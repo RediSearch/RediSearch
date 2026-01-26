@@ -59,7 +59,7 @@ fn test_add_many_distinct_elements() {
     let zeros = hll.registers().iter().filter(|&&r| r == 0).count();
     eprintln!(
         "n={n}, zeros={zeros} ({:.1}%), count={}",
-        100.0 * zeros as f64 / 4096.0,
+        100.0 * zeros as f64 / TestHll10::size() as f64,
         hll.count()
     );
 
