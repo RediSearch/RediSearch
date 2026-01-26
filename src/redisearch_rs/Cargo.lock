@@ -1518,6 +1518,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "redis_json_api"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "redis-module",
+ "thiserror",
+ "workspace_hack",
+]
+
+[[package]]
 name = "redis_mock"
 version = "0.0.1"
 dependencies = [
