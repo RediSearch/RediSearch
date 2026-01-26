@@ -112,11 +112,11 @@ pub trait IntoOpaque: Sized {
 /// ```
 #[macro_export]
 macro_rules! opaque {
-    ($ty:ty, $opaque_ty:ident) => {
+    ($ty:ty, $opaque_ty:ty $(,$lt:lifetime)?) => {
         mod __opaque {
-            use super::{$opaque_ty, $ty};
+            use super::*;
 
-            impl $crate::opaque::IntoOpaque for $ty {
+            impl$(<$lt>)? $crate::opaque::IntoOpaque for $ty {
                 type Opaque = $opaque_ty;
 
                 fn into_opaque(self) -> Self::Opaque {
