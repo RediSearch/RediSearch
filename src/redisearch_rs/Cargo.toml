@@ -22,6 +22,7 @@ members = [
     "slots_tracker",
     "sorting_vector",
     "tools/license_header_linter",
+    "tools/safety_report",
     "tracing_redismodule",
     "trie_bencher",
     "trie_rs",
@@ -29,8 +30,7 @@ members = [
     "varint",
     "varint_bencher",
     "wildcard",
-    "workspace_hack"
-]
+    "workspace_hack"]
 
 resolver = "3"
 
@@ -95,7 +95,9 @@ wildcard = { path = "./wildcard" }
 workspace_hack = { path = "./workspace_hack" }
 
 anstyle-query = "1.1.5"
+anyhow = "1"
 bindgen = { version = "0.72", default-features = false }
+cargo_metadata = "0.19"
 cbindgen = "0.29"
 cc = "1.2.53"
 crc32fast = "1.5.0"
