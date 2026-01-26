@@ -63,9 +63,9 @@ impl Drop for SearchResult<'_> {
         self.clear();
 
         // Safety: we own (and therefore correctly initialized) the row data struct and have mutable access to it.
-        unsafe {
-            ffi::RLookupRow_Reset(ptr::from_mut(&mut self._row_data));
-        }
+        // unsafe {
+        // ffi::RLookupRow_Reset(ptr::from_mut(&mut self._row_data));
+        // }
     }
 }
 
@@ -109,9 +109,9 @@ impl<'index> SearchResult<'index> {
         self._flags = SearchResultFlags::empty();
 
         // Safety: we own (and therefore correctly initialized) the row data struct and have mutable access to it.
-        unsafe {
-            ffi::RLookupRow_Wipe(ptr::from_mut(&mut self._row_data));
-        }
+        // unsafe {
+        // ffi::RLookupRow_Wipe(ptr::from_mut(&mut self._row_data));
+        // }
 
         // explicitly drop the DMD here to make clear we maintain the
         // same "drop order" as the old C implementation had.
