@@ -56,7 +56,7 @@ int __trie_add(TrieNode **n, char *str, char *payloadStr, float sc, TrieAddOp op
   rune *runes = strToRunes(str, &rlen);
 
   RSPayload payload = {.data = payloadStr, .len = payloadStr ? strlen(payloadStr) : 0};
-  int rc = TrieNode_Add(n, runes, rlen, &payload, sc, op, NULL, 0, 0);
+  int rc = TrieNode_Add(n, runes, rlen, &payload, sc, op, NULL, 0, ADD_REPLACE);
   free(runes);
   return rc;
 }
@@ -243,7 +243,7 @@ int testDFAFilter() {
     }
 
     runes = strToRunes(line, &rlen);
-    int rc = TrieNode_Add(&root, runes, rlen, NULL, (float)score, ADD_REPLACE, NULL, 0, 0);
+    int rc = TrieNode_Add(&root, runes, rlen, NULL, (float)score, ADD_REPLACE, NULL, 0, ADD_REPLACE);
     ASSERT(rc == 1);
     free(runes);
 

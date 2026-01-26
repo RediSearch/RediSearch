@@ -30,7 +30,6 @@
 #define TAG_FIELD_NAME1 "tag1"
 #define TAG_FIELD_NAME2 "tag2"
 #define INITIAL_DOC_TABLE_SIZE 1000
-// 3 `uintptr_t` fields (Rust TrieMap struct: root, n_unique_keys, memory_usage)
 #define EMPTY_TRIE_SIZE 24
 #define TRIE_ENTRY_NUM_DOCS_OVERHEAD 8
 
