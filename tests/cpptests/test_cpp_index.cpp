@@ -572,7 +572,7 @@ void testNumericEncodingHelper(bool isMulti) {
 
     ASSERT_TRUE(IndexReader_Next(reader, res));
     // printf("%lf <-> %lf\n", infos[ii].value, res->num.value);
-    if (fabs(infos[ii].value) == INFINITY) {
+    if (isinf(infos[ii].value)) {
       ASSERT_EQ(infos[ii].value, IndexResult_NumValue(res));
     } else {
       ASSERT_NEAR(infos[ii].value, IndexResult_NumValue(res), 0.01);
@@ -581,7 +581,7 @@ void testNumericEncodingHelper(bool isMulti) {
     if (isMulti) {
       // In multi mode, each value is written twice, so read it again
       ASSERT_TRUE(IndexReader_Next(reader, res));
-      if (fabs(infos[ii].value) == INFINITY) {
+      if (isinf(infos[ii].value)) {
         ASSERT_EQ(infos[ii].value, IndexResult_NumValue(res));
       } else {
         ASSERT_NEAR(infos[ii].value, IndexResult_NumValue(res), 0.01);
