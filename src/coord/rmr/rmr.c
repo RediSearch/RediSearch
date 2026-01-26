@@ -219,7 +219,8 @@ static int unblockHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 /* Try to release the context after timeout. Returns true if context was freed. */
 static bool MRCtx_TryFreeAfterTimeout(MRCtx *ctx) {
   if (MRCtx_DecRef(ctx) == 0) {
-    IORuntimeCtx_RequestCompleted(ctx->ioRuntime);
+    searchRequestCtx_Free(MRCtx_GetPrivData(ctx));
+    MRCtx_RequestCompleted(ctx);
     MRCtx_Free(ctx);
     return true;
   }
