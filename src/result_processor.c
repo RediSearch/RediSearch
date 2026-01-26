@@ -33,8 +33,6 @@
 #include "redisearch.h"
 #include "asm_state_machine.h"
 #include "index_result.h"
-#include "byte_offsets.h"
-#include "sorting_vector_rs.h"
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -206,16 +204,9 @@ static const RSDocumentMetadata* popReadyResult(RPQueryIterator *self, RSIndexRe
 
   AsyncReadResult *result = &self->readyResults[self->readyResultsIndex++];
 
-  // Allocate a new DMD and copy all fields from the buffer
-  RSDocumentMetadata *dmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
-  memcpy(dmd, &result->dmd, sizeof(RSDocumentMetadata));
-  dmd->ref_count = 1;  // Set ref count for the new DMD
-
-  // Clear pointers in source to transfer ownership and prevent double-free
-  result->dmd.keyPtr = NULL;
-  result->dmd.sortVector = NULL;
-  result->dmd.byteOffsets = NULL;
-  result->dmd.payload = NULL;
+  // Take ownership of the DMD pointer from the result
+  RSDocumentMetadata *dmd = result->dmd;
+  result->dmd = NULL;  // Clear to prevent double-free
 
   // Retrieve the node pointer from user_data
   struct IndexResultNode *node = (struct IndexResultNode *)result->user_data;
@@ -454,23 +445,8 @@ static void rpQueryItFree(ResultProcessor *iter) {
   if (self->readyResults) {
     // Free any remaining DMD data that wasn't consumed
     for (uint16_t i = self->readyResultsIndex; i < array_len(self->readyResults); i++) {
-      RSDocumentMetadata *dmd = &self->readyResults[i].dmd;
-
-      // Free all allocated fields in the DMD
-      if (dmd->keyPtr) {
-        sdsfree(dmd->keyPtr);
-      }
-      if (dmd->payload) {
-        if (dmd->payload->data) {
-          rm_free((void *)dmd->payload->data);
-        }
-        rm_free(dmd->payload);
-      }
-      if (dmd->sortVector) {
-        RSSortingVector_Free(dmd->sortVector);
-      }
-      if (dmd->byteOffsets) {
-        RSByteOffsets_Free(dmd->byteOffsets);
+      if (self->readyResults[i].dmd) {
+        DMD_Return(self->readyResults[i].dmd);
       }
     }
     array_free(self->readyResults);

@@ -37,8 +37,8 @@ typedef struct AsyncPollResult {
 
 // Result structure containing both DMD and user data
 typedef struct AsyncReadResult {
-  RSDocumentMetadata dmd;
-  uint64_t user_data;  // Generic user data passed to addAsyncRead (e.g., index, pointer, flags)
+  RSDocumentMetadata *dmd;  // Pointer to allocated DMD (caller must free with DMD_Return)
+  uint64_t user_data;       // Generic user data passed to addAsyncRead (e.g., index, pointer, flags)
 } AsyncReadResult;
 
 typedef struct BasicDiskAPI {
