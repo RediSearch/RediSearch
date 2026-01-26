@@ -163,7 +163,7 @@ else()
     )
     # Set rpath for Linux so the library can be found at runtime
     set_target_properties(redisearch-module PROPERTIES
-        INSTALL_RPATH "${SPEEDB_LIB_DIR}"
+        INSTALL_RPATH "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX:/opt/redislabs/lib:${SPEEDB_LIB_DIR}"
         BUILD_WITH_INSTALL_RPATH TRUE
     )
 endif()
