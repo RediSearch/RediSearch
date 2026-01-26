@@ -133,9 +133,19 @@ bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool *pool, t_docId docId, 
     return disk->docTable.addAsyncRead(pool, docId, user_data);
 }
 
+// Callback to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr set
+static RSDocumentMetadata* allocateDMD(const void* key_data, size_t key_len) {
+    RSDocumentMetadata* dmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+    if (dmd) {
+        dmd->ref_count = 1;
+        dmd->keyPtr = sdsnewlen(key_data, key_len);
+    }
+    return dmd;
+}
+
 AsyncPollResult SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool *pool, uint32_t timeout_ms, AsyncReadResult *results, uint16_t results_capacity, uint64_t *failed_user_data, uint16_t failed_capacity) {
     RS_ASSERT(disk && pool);
-    return disk->docTable.pollAsyncReads(pool, timeout_ms, results, results_capacity, failed_user_data, failed_capacity, &sdsnewlen);
+    return disk->docTable.pollAsyncReads(pool, timeout_ms, results, results_capacity, failed_user_data, failed_capacity, &allocateDMD);
 }
 
 void SearchDisk_FreeAsyncReadPool(RedisSearchDiskAsyncReadPool *pool) {

@@ -51,7 +51,7 @@ static inline void dllist_delete(DLLIST_node *item) {
   item->next = item->prev = NULL;
 }
 
-#define DLLIST_IS_EMPTY(l) (l)->prev == (l)
+#define DLLIST_IS_EMPTY(l) ((l)->prev == (l))
 #define DLLIST_IS_FIRST(l, itm) ((itm)->prev == l)
 #define DLLIST_IS_LAST(l, itm) ((itm)->next == l)
 #define DLLIST_IS_END(l, itm) ((l) == (itm))

@@ -29,6 +29,9 @@ typedef const void* RedisSearchDiskAsyncReadPool;
 // Callback function to allocate memory for the key in the scope of the search module memory
 typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 
+// Callback function to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr set
+typedef RSDocumentMetadata* (*AllocateDMDCallback)(const void* key_data, size_t key_len);
+
 // Result of polling the async read pool
 typedef struct AsyncPollResult {
   uint16_t ready_count;   // Number of successful reads in results buffer
@@ -207,13 +210,13 @@ typedef struct DocTableDiskAPI {
    * @param results_capacity Size of the results buffer
    * @param failed_user_data Buffer to fill with user_data from failed reads (not found/error)
    * @param failed_capacity Size of the failed_user_data buffer
-   * @param allocateKey Callback to allocate memory for document keys
+   * @param allocateDMD Callback to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr
    * @return AsyncPollResult with counts of ready, failed, and pending reads
    */
   AsyncPollResult (*pollAsyncReads)(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms,
                                     AsyncReadResult* results, uint16_t results_capacity,
                                     uint64_t* failed_user_data, uint16_t failed_capacity,
-                                    AllocateKeyCallback allocateKey);
+                                    AllocateDMDCallback allocateDMD);
 
   /**
    * @brief Frees the async read pool and cancels any pending reads

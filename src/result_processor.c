@@ -370,6 +370,9 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
+    // Step 1b: Submit any buffered results to async pool (keep pipeline full)
+    refillAsyncPool(self);
+
     // Step 2: Try to serve a ready result if we have one
     if (self->readyResultsIndex < array_len(self->readyResults)) {
       RSIndexResult *indexResult = NULL;
@@ -390,12 +393,15 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 
     // Step 3: No ready results - poll for more
     int timeout_ms = it->atEOF ? 1000 : 0;
+
+    // Poll writes directly to the arrays (capacity is ASYNC_POOL_SIZE)
     AsyncPollResult pollResult = SearchDisk_PollAsyncReads(
         self->asyncPool, timeout_ms, self->readyResults, ASYNC_POOL_SIZE,
         self->failedUserData, ASYNC_POOL_SIZE);
 
-    array_trimm(self->readyResults, pollResult.ready_count);
-    array_trimm(self->failedUserData, pollResult.failed_count);
+    // Set array lengths to actual result counts (poll wrote directly to buffer)
+    array_hdr(self->readyResults)->len = pollResult.ready_count;
+    array_hdr(self->failedUserData)->len = pollResult.failed_count;
     self->readyResultsIndex = 0;
 
     // Step 3a: Clean up nodes for failed reads (not found/error)
@@ -483,6 +489,10 @@ static void rpQueryItFree(ResultProcessor *iter) {
     array_free(self->readyResults);
   }
 
+  if (self->failedUserData) {
+    array_free(self->failedUserData);
+  }
+
   // Free the last returned deep-copied IndexResult if any
   if (self->lastReturnedIndexResult) {
     IndexResult_Free(self->lastReturnedIndexResult);
@@ -512,14 +522,19 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
     // Async disk flow with two-level buffering
     ret->asyncPool = SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, ASYNC_POOL_SIZE);
     if (ret->asyncPool) {
-      // Allocate async I/O buffers (fixed capacity for poll results)
+      // Allocate async I/O buffers with capacity for poll results (len=0 initially)
       ret->readyResults = array_new(AsyncReadResult, ASYNC_POOL_SIZE);
+      ret->failedUserData = array_new(uint64_t, ASYNC_POOL_SIZE);
 
       // Check if allocation succeeded
-      if (ret->readyResults) {
+      if (ret->readyResults && ret->failedUserData) {
         ret->base.Next = rpQueryItNext_AsyncDisk;
       } else {
         // Allocation failed - clean up async pool and fallback to sync
+        if (ret->readyResults) array_free(ret->readyResults);
+        if (ret->failedUserData) array_free(ret->failedUserData);
+        ret->readyResults = NULL;
+        ret->failedUserData = NULL;
         SearchDisk_FreeAsyncReadPool(ret->asyncPool);
         ret->asyncPool = NULL;
         ret->base.Next = rpQueryItNext;
