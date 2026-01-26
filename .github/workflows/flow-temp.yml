@@ -22,3 +22,5 @@ jobs:
   daily-ci-report:
     uses: ./.github/workflows/daily-ci-report.yml
     secrets: inherit
+    with:
+      date: '2026-01-25'
