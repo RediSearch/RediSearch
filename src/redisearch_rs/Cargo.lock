@@ -1606,7 +1606,10 @@ dependencies = [
  "cbindgen",
  "ffi",
  "libc",
+ "redis_mock",
+ "redisearch_rs",
  "rlookup",
+ "rlookup_ffi",
  "value",
  "workspace_hack",
 ]
