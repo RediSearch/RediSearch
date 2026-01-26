@@ -495,6 +495,10 @@ where
         // SAFETY: 4.
         let revision_id = range_tree.map(|rt| unsafe { rt.as_ref().revisionId });
 
+        let range_min = range_min.unwrap_or(f64::NEG_INFINITY);
+        let range_max = range_max.unwrap_or(f64::INFINITY);
+        assert!(range_min <= range_max);
+
         Self {
             it: InvIndIterator::new(
                 reader,
@@ -509,8 +513,8 @@ where
             ),
             range_tree,
             revision_id,
-            range_min: range_min.unwrap_or(f64::INFINITY),
-            range_max: range_max.unwrap_or(f64::NEG_INFINITY),
+            range_min,
+            range_max,
         }
     }
 
