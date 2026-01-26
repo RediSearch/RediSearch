@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "rlookup.h"
+#include "rlookup_rs.h"
 #include "redisearch.h"
 #include "score_explain.h"
 #include "types_rs.h"
@@ -39,7 +39,7 @@ typedef struct SearchResult {
   RSScoreExplain *_score_explain;
   Option_DocumentMetadata _document_metadata;
   const RSIndexResult *_index_result;
-  RLookupRow<RSValueFFI> _row_data;
+  RLookupRow _row_data;
   SearchResultFlags _flags;
 } SearchResult;
 
