@@ -24,7 +24,7 @@ memchr = { version = "2" }
 num-traits = { version = "0.2" }
 once_cell = { version = "1" }
 ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
-proc-macro2 = { version = "1" }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = { version = "1" }
 rand = { version = "0.9" }
 rand_chacha = { version = "0.9", default-features = false, features = ["std"] }
@@ -49,7 +49,7 @@ memchr = { version = "2" }
 num-traits = { version = "0.2" }
 once_cell = { version = "1" }
 ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
-proc-macro2 = { version = "1" }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = { version = "1" }
 rand = { version = "0.9" }
 rand_chacha = { version = "0.9", default-features = false, features = ["std"] }
