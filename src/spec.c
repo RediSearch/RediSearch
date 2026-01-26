@@ -1783,7 +1783,7 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
 
 // Assuming the spec is properly locked for writing before calling this function.
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
-  int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL, 0, 1);
+  int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL, 1, ADD_INCR);
   if (isNew) {
     sp->stats.numTerms++;
     sp->stats.termsSize += len;

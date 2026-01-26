@@ -77,7 +77,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
     if (!trienode || !trienode->payload) {
       suffixData newdata = createSuffixNode(copyStr, 0);
       RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
-      Trie_InsertRune(trie, runes + j, rlen - j, 1, ADD_REPLACE, &payload, 0, 0);
+      Trie_InsertRune(trie, runes + j, rlen - j, 1, ADD_REPLACE, &payload, 0, ADD_REPLACE);
     } else {
       data->array = array_ensure_append_1(data->array, copyStr);
     }

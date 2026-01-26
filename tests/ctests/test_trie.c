@@ -348,56 +348,56 @@ int testNumDocsWithAddition() {
   rune *abcRunes = strToRunes("ABC", &abcLen);
 
   // Insert "help"
-  int rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 0, 1);
+  int rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 1, ADD_INCR);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, helpRunes, helpLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(1, node->numDocs);
 
   // Insert "helping" - "help" is a prefix of "helping"
-  rc = Trie_InsertStringBuffer(t, "helping", 7, 2.0, 0, NULL, 0, 1);
+  rc = Trie_InsertStringBuffer(t, "helping", 7, 2.0, 0, NULL, 1, ADD_INCR);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, helpingRunes, helpingLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(1, node->numDocs);
 
   // Insert "helper" - shares "help" prefix
-  rc = Trie_InsertStringBuffer(t, "helper", 6, 3.0, 0, NULL, 0, 1);
+  rc = Trie_InsertStringBuffer(t, "helper", 6, 3.0, 0, NULL, 1, ADD_INCR);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, helperRunes, helperLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(1, node->numDocs);
 
   // Insert chain: A -> AB -> ABC (each is prefix of the next)
-  rc = Trie_InsertStringBuffer(t, "A", 1, 4.0, 0, NULL, 0, 1);
+  rc = Trie_InsertStringBuffer(t, "A", 1, 4.0, 0, NULL, 1, ADD_INCR);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, aRunes, aLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(1, node->numDocs);
 
-  rc = Trie_InsertStringBuffer(t, "AB", 2, 5.0, 0, NULL, 0, 1);
+  rc = Trie_InsertStringBuffer(t, "AB", 2, 5.0, 0, NULL, 1, ADD_INCR);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, abRunes, abLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(1, node->numDocs);
 
-  rc = Trie_InsertStringBuffer(t, "ABC", 3, 6.0, 0, NULL, 0, 1);
+  rc = Trie_InsertStringBuffer(t, "ABC", 3, 6.0, 0, NULL, 1, ADD_INCR);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, abcRunes, abcLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(1, node->numDocs);
 
   // Increment numDocs for "help" multiple times
-  rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 0, 1);
+  rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 1, ADD_INCR);
   ASSERT_EQUAL(0, rc);
-  rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 0, 1);
+  rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 1, ADD_INCR);
   ASSERT_EQUAL(0, rc);
   node = TrieNode_Get(t->root, helpRunes, helpLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(3, node->numDocs);
 
   // Increment numDocs for "AB" (middle of chain)
-  rc = Trie_InsertStringBuffer(t, "AB", 2, 5.0, 0, NULL, 0, 1);
+  rc = Trie_InsertStringBuffer(t, "AB", 2, 5.0, 0, NULL, 1, ADD_INCR);
   ASSERT_EQUAL(0, rc);
   node = TrieNode_Get(t->root, abRunes, abLen, true, NULL);
   ASSERT(node != NULL);
@@ -484,48 +484,48 @@ int testNumDocsWithSet() {
   rune *abRunes = strToRunes("AB", &abLen);
   rune *abcRunes = strToRunes("ABC", &abcLen);
 
-  // Insert "help" with numDocsToSet (simulating RDB load)
-  int rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 10, 0);
+  // Insert "help" with ADD_REPLACE (simulating RDB load)
+  int rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 10, ADD_REPLACE);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, helpRunes, helpLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(10, node->numDocs);
 
   // Insert "helping" - "help" is a prefix of "helping"
-  rc = Trie_InsertStringBuffer(t, "helping", 7, 2.0, 0, NULL, 20, 0);
+  rc = Trie_InsertStringBuffer(t, "helping", 7, 2.0, 0, NULL, 20, ADD_REPLACE);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, helpingRunes, helpingLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(20, node->numDocs);
 
   // Insert "helper" - shares "help" prefix
-  rc = Trie_InsertStringBuffer(t, "helper", 6, 3.0, 0, NULL, 30, 0);
+  rc = Trie_InsertStringBuffer(t, "helper", 6, 3.0, 0, NULL, 30, ADD_REPLACE);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, helperRunes, helperLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(30, node->numDocs);
 
   // Insert chain: A -> AB -> ABC (each is prefix of the next)
-  rc = Trie_InsertStringBuffer(t, "A", 1, 4.0, 0, NULL, 100, 0);
+  rc = Trie_InsertStringBuffer(t, "A", 1, 4.0, 0, NULL, 100, ADD_REPLACE);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, aRunes, aLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(100, node->numDocs);
 
-  rc = Trie_InsertStringBuffer(t, "AB", 2, 5.0, 0, NULL, 200, 0);
+  rc = Trie_InsertStringBuffer(t, "AB", 2, 5.0, 0, NULL, 200, ADD_REPLACE);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, abRunes, abLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(200, node->numDocs);
 
-  rc = Trie_InsertStringBuffer(t, "ABC", 3, 6.0, 0, NULL, 300, 0);
+  rc = Trie_InsertStringBuffer(t, "ABC", 3, 6.0, 0, NULL, 300, ADD_REPLACE);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, abcRunes, abcLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(300, node->numDocs);
 
   // Override "AB" numDocs with a new value (middle of chain)
-  rc = Trie_InsertStringBuffer(t, "AB", 2, 5.0, 0, NULL, 999, 0);
+  rc = Trie_InsertStringBuffer(t, "AB", 2, 5.0, 0, NULL, 999, ADD_REPLACE);
   ASSERT_EQUAL(0, rc);
   node = TrieNode_Get(t->root, abRunes, abLen, true, NULL);
   ASSERT(node != NULL);
