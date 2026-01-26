@@ -40,7 +40,6 @@ extern "C" {
 // docs and code.
 #define CMD_INTERNAL "internal"
 
-int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfig, int isClusterEnabled);
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 
 extern redisearch_thpool_t *depleterPool;
