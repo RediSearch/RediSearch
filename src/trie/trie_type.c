@@ -369,7 +369,6 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, bool savePayloads, boo
           RedisModule_SaveStringBuffer(rdb, "", 1);
         }
       }
-      // TODO: Save a marker for empty payload!
       if (saveNumDocs) {
         RedisModule_SaveUnsigned(rdb, numDocs);
       }
