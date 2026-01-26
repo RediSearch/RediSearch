@@ -67,7 +67,8 @@ jobs:
         if: steps.collect.outcome == 'failure'
         uses: slackapi/slack-github-action@v2
         with:
-        webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}          webhook-type: incoming-webhook
+        webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}          
+        webhook-type: incoming-webhook
           payload: |
             {
               "header": "❌ CI Report Generation Failed - ${{ steps.date.outputs.date }}",
