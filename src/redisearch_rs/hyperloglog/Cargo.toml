@@ -1,0 +1,33 @@
+[package]
+name = "hyperloglog"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[lints]
+workspace = true
+
+[dependencies]
+bytecount.workspace = true
+fnv.workspace = true
+hash32.workspace = true
+thiserror.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+ahash.workspace = true
+criterion.workspace = true
+insta.workspace = true
+rustc-hash.workspace = true
+proptest = { workspace = true, features = ["std"] }
+wyhash.workspace = true
+xxhash-rust = { workspace = true, features = ["xxh32"] }
+
+[[bench]]
+name = "hyperloglog_operations"
+harness = false
