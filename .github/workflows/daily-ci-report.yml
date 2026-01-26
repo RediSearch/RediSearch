@@ -65,15 +65,15 @@ jobs:
       
       - name: Handle collect failure
         if: steps.collect.outcome == 'failure'
-        uses: slackapi/slack-github-action@v1.24.0
+        uses: slackapi/slack-github-action@v2
         with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
+          webhook-type: incoming-webhook
           payload: |
             {
               "header": "❌ CI Report Generation Failed - ${{ steps.date.outputs.date }}",
               "error": "The collect_nightly_results.py script failed. Check workflow logs for details."
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
       
       - name: Read summary file
         id: summary
@@ -109,7 +109,8 @@ jobs:
         if: steps.summary.outputs.summary_exists == 'true' || steps.failure_report.outputs.failure_exists == 'true'
         uses: slackapi/slack-github-action@v2
         with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
+          webhook-type: incoming-webhook
           payload: |
             {
               "header": "📊 Daily CI Report - ${{ steps.date.outputs.date }}",
