@@ -139,7 +139,8 @@ static int processSuffixData(suffixData *data, SuffixCtx *sufCtx) {
   }
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
-    if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
+    //TODO: Review passed numDocsInTerm
+    if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL, 0) != REDISMODULE_OK) {
       return REDISEARCH_ERR;
     }
   }
@@ -303,7 +304,7 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
   return retidx;
 }
 
-int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload) {
+int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, size_t numDocsInTerm) {
   SuffixCtx *sufCtx = p;
   TriePayload *pl = payload;
   if (!pl) {
@@ -315,7 +316,7 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload) {
   for (int i = 0; i < array_len(array); ++i) {
     if (Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], strlen(array[i]))
             == FULL_MATCH) {
-      if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
+      if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL, numDocsInTerm) != REDISMODULE_OK) {
         return REDISEARCH_ERR;
       }
     }
