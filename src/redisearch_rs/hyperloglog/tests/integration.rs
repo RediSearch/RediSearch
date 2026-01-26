@@ -15,7 +15,7 @@
 use std::hash::Hasher;
 
 use hyperloglog::{
-    CFnvHasher, HyperLogLog, HyperLogLog10, HyperLogLog4, HyperLogLog8, HyperLogLog9,
+    CFnvHasher, HyperLogLog, HyperLogLog4, HyperLogLog8, HyperLogLog9, HyperLogLog10,
     InvalidBufferLength, Murmur3Hasher,
 };
 
