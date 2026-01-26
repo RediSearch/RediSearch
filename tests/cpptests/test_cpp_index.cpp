@@ -577,6 +577,16 @@ void testNumericEncodingHelper(bool isMulti) {
     } else {
       ASSERT_LT(fabs(infos[ii].value - IndexResult_NumValue(res)), 0.01);
     }
+
+    if (isMulti) {
+      // In multi mode, each value is written twice, so read it again
+      ASSERT_TRUE(IndexReader_Next(reader, res));
+      if (fabs(infos[ii].value) == INFINITY) {
+        ASSERT_EQ(infos[ii].value, IndexResult_NumValue(res));
+      } else {
+        ASSERT_LT(fabs(infos[ii].value - IndexResult_NumValue(res)), 0.01);
+      }
+    }
   }
 
   IndexReader_Free(reader);
