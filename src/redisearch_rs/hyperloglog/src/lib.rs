@@ -326,6 +326,8 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Default
     }
 }
 
+// Manual `Clone` implementation to avoid an unnecessary `Clone` bound on the
+// generic hasher type parameter, `H`.
 impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Clone
     for HyperLogLog<BITS, SIZE, H>
 {
@@ -345,7 +347,7 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> std::fmt::D
         f.debug_struct("HyperLogLog")
             .field("bits", &BITS)
             .field("size", &SIZE)
-            .field("cached_card", &self.cached_card.get())
+            .field("cached_cardinality", &self.cached_card.get())
             .finish_non_exhaustive()
     }
 }

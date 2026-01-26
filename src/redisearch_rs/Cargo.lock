@@ -781,6 +781,7 @@ dependencies = [
  "criterion",
  "fnv",
  "hash32",
+ "insta",
  "proptest",
  "rustc-hash 2.1.1",
  "thiserror",

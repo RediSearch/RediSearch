@@ -9,5 +9,5 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-hash32 = "1"
+hash32.workspace = true
 workspace_hack.workspace = true

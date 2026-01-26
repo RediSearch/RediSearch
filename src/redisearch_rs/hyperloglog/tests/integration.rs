@@ -15,7 +15,7 @@
 use std::hash::Hasher;
 
 use hyperloglog::{
-    CFnvHasher, HyperLogLog, HyperLogLog4, HyperLogLog8, HyperLogLog9, HyperLogLog10,
+    CFnvHasher, HyperLogLog, HyperLogLog10, HyperLogLog4, HyperLogLog8, HyperLogLog9,
     InvalidBufferLength, Murmur3Hasher,
 };
 
@@ -312,7 +312,7 @@ fn test_large_range_correction() {
     // Use HyperLogLog10 with high register values to trigger large range correction
     // Large correction applies when estimate > (1/30) * 2^32 ≈ 143 million
     let mut registers = [0u8; 1024];
-    registers.fill(15); // High values -> small sum -> large raw estimate
+    registers.fill(19); // High values -> small sum -> large raw estimate
 
     let hll = HyperLogLog10::<Murmur3Hasher>::from_registers(registers);
     let count = hll.count();
@@ -376,6 +376,44 @@ fn test_hyperloglog6_small_precision() {
         "error {:.1}% exceeds 20% for HyperLogLog6",
         error * 100.0
     );
+}
+
+#[test]
+fn test_debug_repr() {
+    let mut hll = HyperLogLog10::<Murmur3Hasher>::default();
+    for i in 0..10u32 {
+        hll.add(i);
+    }
+    // Debug representation doesn't include registers,
+    // but it tracks compile-time constants
+    insta::assert_debug_snapshot!(hll, @r###"
+    HyperLogLog {
+        bits: 10,
+        size: 1024,
+        cached_cardinality: None,
+        ..
+    }
+    "###);
+}
+
+#[test]
+fn test_clone() {
+    let mut hll = HyperLogLog10::<Murmur3Hasher>::default();
+    for i in 0..10u32 {
+        hll.add(i);
+    }
+    let cloned = hll.clone();
+    assert_eq!(cloned.count(), hll.count());
+}
+
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(
+    expected = "The 0th register values exceeds the expected cap. Got 35, expected at most 29."
+)]
+fn test_register_validation() {
+    let mut hll = HyperLogLog4::<Murmur3Hasher>::default();
+    hll.set_registers([35; 16]);
 }
 
 #[cfg(not(miri))]
