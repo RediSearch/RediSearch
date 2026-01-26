@@ -53,6 +53,11 @@ static int UnlockSpec_and_ReturnRPResult(RedisSearchCtx *sctx, int result_status
 // Maximum buffer size (cap growth at 1024 entries = 8KB of pointers)
 #define INDEX_RESULT_BUFFER_MAX_SIZE 1024
 
+struct IndexResultNode {
+  DLLIST node;
+  RSIndexResult *result;
+};
+
 typedef struct {
   ResultProcessor base;
   QueryIterator *iterator;
@@ -61,18 +66,16 @@ typedef struct {
   uint32_t keySpaceVersion;                     // version of the Keyspace slot ranges used for filtering
   const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
 
-  // Async pool for disk-based indexes (NULL if not using disk)
-  RedisSearchDiskAsyncReadPool *asyncPool;
-  // Buffer to hold ready results from async poll (DMD + user_data pairs)
-  AsyncReadResult *readyResults;
-  uint16_t readyResultsCount;
-  uint16_t readyResultsIndex;
+  // Double-buffering for async disk I/O: iteratorResults holds deep-copied IndexResults from the
+  // iterator, which are submitted to the async pool and tracked in pendingResults until their
+  // disk reads complete and appear in readyResults for consumption.
+  RedisSearchDiskAsyncReadPool *asyncPool;      // Async pool for disk-based indexes (NULL if not using disk)
 
-  // IndexResult buffer - decouples iterator reads from async I/O (grows dynamically)
-  RSIndexResult **indexResultBuffer;  // Array of RSIndexResult pointers
-  uint16_t indexResultBufferCount;    // Number of valid entries in buffer
-  uint16_t indexResultBufferIndex;    // Next index to consume from buffer
-  uint16_t indexResultBufferCapacity; // Current allocated capacity (grows dynamically)
+  uint16_t iteratorResultCount;                 // Number of nodes in iteratorResults list
+  DLLIST iteratorResults;                       // Deep-copied IndexResults from iterator, not yet submitted to async pool
+  DLLIST pendingResults;                        // Linked list (bounded by ASYNC_POOL_SIZE) tracking submitted IndexResults
+  arrayof(AsyncReadResult) readyResults;        // Ready results from async poll (DMD + user_data pairs)
+  uint16_t readyResultsIndex;                   // Next index to consume from readyResults
 } RPQueryIterator;
 
 
@@ -128,22 +131,8 @@ static int refillIndexResultBuffer(RPQueryIterator *self) {
     return RS_RESULT_OK;
   }
 
-  // Compact buffer if needed (move unconsumed entries to start)
-  uint16_t available = self->indexResultBufferCount - self->indexResultBufferIndex;
-  if (self->indexResultBufferIndex > 0 && available > 0) {
-    memmove(&self->indexResultBuffer[0],
-            &self->indexResultBuffer[self->indexResultBufferIndex],
-            available * sizeof(RSIndexResult*));
-    self->indexResultBufferCount = available;
-    self->indexResultBufferIndex = 0;
-  } else if (self->indexResultBufferIndex > 0) {
-    // All consumed, reset
-    self->indexResultBufferCount = 0;
-    self->indexResultBufferIndex = 0;
-  }
-
-  // Fill buffer up to current capacity
-  while (self->indexResultBufferCount < self->indexResultBufferCapacity && !it->atEOF) {
+  // Fill buffer up to max capacity
+  while (self->iteratorResultCount < INDEX_RESULT_BUFFER_MAX_SIZE && !it->atEOF) {
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
       return RS_RESULT_TIMEDOUT;
     }
@@ -161,37 +150,18 @@ static int refillIndexResultBuffer(RPQueryIterator *self) {
       continue;
     }
 
-    // Store the IndexResult pointer in buffer
-    self->indexResultBuffer[self->indexResultBufferCount++] = it->current;
+    // Deep copy the IndexResult since iterator reuses the same pointer
+    // The copy will be freed after the async read completes and result is consumed
+    RSIndexResult *copy = IndexResult_DeepCopy(it->current);
+
+    // Allocate a new node and add it to the list
+    struct IndexResultNode *node = rm_calloc(1, sizeof(*node));
+    node->result = copy;
+    dllist_append(&self->iteratorResults, &node->node);
+    self->iteratorResultCount++;
   }
 
   return RS_RESULT_OK;
-}
-
-/**
- * Grow the IndexResult buffer capacity.
- * Doubles the size up to the maximum cap.
- * Returns true if growth succeeded, false if already at max.
- */
-static bool growIndexResultBuffer(RPQueryIterator *self) {
-  if (self->indexResultBufferCapacity >= INDEX_RESULT_BUFFER_MAX_SIZE) {
-    return false;  // Already at max
-  }
-
-  uint16_t newCapacity = self->indexResultBufferCapacity * 2;
-  if (newCapacity > INDEX_RESULT_BUFFER_MAX_SIZE) {
-    newCapacity = INDEX_RESULT_BUFFER_MAX_SIZE;
-  }
-
-  RSIndexResult **newBuffer = rm_realloc(self->indexResultBuffer,
-                                          newCapacity * sizeof(RSIndexResult*));
-  if (!newBuffer) {
-    return false;  // Allocation failed
-  }
-
-  self->indexResultBuffer = newBuffer;
-  self->indexResultBufferCapacity = newCapacity;
-  return true;
 }
 
 /**
@@ -201,16 +171,25 @@ static bool growIndexResultBuffer(RPQueryIterator *self) {
 static uint16_t refillAsyncPool(RPQueryIterator *self) {
   uint16_t added = 0;
 
-  while (added < ASYNC_POOL_SIZE && self->indexResultBufferIndex < self->indexResultBufferCount) {
-    RSIndexResult *indexResult = self->indexResultBuffer[self->indexResultBufferIndex];
+  // Move nodes from iteratorResults to pendingResults
+  while (added < ASYNC_POOL_SIZE && !DLLIST_IS_EMPTY(&self->iteratorResults)) {
+    // Pop from the tail of iteratorResults
+    DLLIST_node *dlnode = dllist_pop_tail(&self->iteratorResults);
+    struct IndexResultNode *node = DLLIST_ITEM(dlnode, struct IndexResultNode, node);
+
+    RSIndexResult *indexResult = node->result;
     t_docId docId = indexResult->docId;
 
-    // Pass the buffer index as user_data so we can look up the IndexResult later
-    if (!SearchDisk_AddAsyncRead(self->asyncPool, docId, (uint64_t)self->indexResultBufferIndex)) {
-      break;  // Pool is full
+    // Try to add to async pool, using the node pointer as user_data
+    if (!SearchDisk_AddAsyncRead(self->asyncPool, docId, (uint64_t)node)) {
+      // Pool is full - put the node back and stop
+      dllist_append(&self->iteratorResults, dlnode);
+      break;
     }
 
-    self->indexResultBufferIndex++;
+    // Move node to pendingResults list
+    dllist_append(&self->pendingResults, dlnode);
+    self->iteratorResultCount--;
     added++;
   }
 
@@ -219,7 +198,7 @@ static uint16_t refillAsyncPool(RPQueryIterator *self) {
 
 // Helper to get DMD and IndexResult from async pool ready buffer
 static const RSDocumentMetadata* popReadyResult(RPQueryIterator *self, RSIndexResult **outIndexResult) {
-  if (self->readyResultsIndex >= self->readyResultsCount) {
+  if (self->readyResultsIndex >= array_len(self->readyResults)) {
     return NULL;  // No more ready results
   }
 
@@ -236,9 +215,13 @@ static const RSDocumentMetadata* popReadyResult(RPQueryIterator *self, RSIndexRe
   result->dmd.byteOffsets = NULL;
   result->dmd.payload = NULL;
 
-  // Look up the IndexResult using the user_data as buffer index
-  uint64_t bufferIndex = result->user_data;
-  *outIndexResult = self->indexResultBuffer[bufferIndex];
+  // Retrieve the node pointer from user_data
+  struct IndexResultNode *node = (struct IndexResultNode *)result->user_data;
+  *outIndexResult = node->result;
+
+  // Remove node from pendingResults list and free it
+  dllist_delete(&node->node);
+  rm_free(node);
 
   return dmd;
 }
@@ -384,16 +367,21 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     }
 
     // Step 2: Try to serve a ready result if we have one
-    if (self->readyResultsIndex < self->readyResultsCount) {
+    if (self->readyResultsIndex < array_len(self->readyResults)) {
       RSIndexResult *indexResult = NULL;
       dmd = popReadyResult(self, &indexResult);
       RS_ASSERT(dmd);  // Should always succeed if index < count
 
       if (!validateDmdSlot(self, dmd)) {
         DMD_Return(dmd);
+        // Free the deep-copied IndexResult since we're not using it
+        IndexResult_Free(indexResult);
         continue;
       }
       setSearchResult(base, res, indexResult, dmd, dmd->id);
+      // Note: SearchResult now holds a reference to indexResult, but doesn't own it
+      // We'll need to free it later - but when? This is a memory leak!
+      // TODO: Fix ownership model
       return RS_RESULT_OK;
     }
 
@@ -402,20 +390,18 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     AsyncPollResult pollResult = SearchDisk_PollAsyncReads(
         self->asyncPool, timeout_ms, self->readyResults, ASYNC_POOL_SIZE);
 
-    self->readyResultsCount = pollResult.ready_count;
+    array_trimm(self->readyResults, pollResult.ready_count);
     self->readyResultsIndex = 0;
 
-    // Step 4: Detect if we're I/O bound and grow buffer if needed
+    // Step 4: Refill buffer if we're I/O bound
     // If poll returned 0 results but we have buffered IndexResults available,
-    // it means we're waiting on I/O - grow buffer to reduce future waits
-    uint16_t available = self->indexResultBufferCount - self->indexResultBufferIndex;
+    // it means we're waiting on I/O - refill buffer to reduce future waits
+    uint16_t available = self->iteratorResultCount;
     if (pollResult.ready_count == 0 && available > 0 && !it->atEOF) {
-      if (growIndexResultBuffer(self)) {
-        // Buffer grew - refill it to take advantage of new capacity
-        int refillResult = refillIndexResultBuffer(self);
-        if (refillResult == RS_RESULT_TIMEDOUT) {
-          return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
-        }
+      // Refill the iterator results list
+      int refillResult = refillIndexResultBuffer(self);
+      if (refillResult == RS_RESULT_TIMEDOUT) {
+        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
       }
     }
 
@@ -435,21 +421,41 @@ static void rpQueryItFree(ResultProcessor *iter) {
   RPQueryIterator *self = (RPQueryIterator *)iter;
   self->iterator->Free(self->iterator);
   rm_free((void *)self->querySlots);
+
+  // Free nodes in iteratorResults list (not yet submitted to async pool)
+  DLLIST_node *dlnode;
+  while ((dlnode = dllist_pop_tail(&self->iteratorResults)) != NULL) {
+    struct IndexResultNode *node = DLLIST_ITEM(dlnode, struct IndexResultNode, node);
+    if (node->result) {
+      IndexResult_Free(node->result);
+    }
+    rm_free(node);
+  }
+
+  // Free nodes in pendingResults list (includes pending async reads)
+  while ((dlnode = dllist_pop_tail(&self->pendingResults)) != NULL) {
+    struct IndexResultNode *node = DLLIST_ITEM(dlnode, struct IndexResultNode, node);
+    if (node->result) {
+      IndexResult_Free(node->result);
+    }
+    rm_free(node);
+  }
+
+  // Free async pool (tracking array handles cleanup of pending reads)
   if (self->asyncPool) {
     SearchDisk_FreeAsyncReadPool(self->asyncPool);
   }
+
   if (self->readyResults) {
-    // Free any remaining results that weren't consumed
-    for (uint16_t i = self->readyResultsIndex; i < self->readyResultsCount; i++) {
+    // Free any remaining DMD data that wasn't consumed
+    for (uint16_t i = self->readyResultsIndex; i < array_len(self->readyResults); i++) {
       if (self->readyResults[i].dmd.keyPtr) {
         sdsfree(self->readyResults[i].dmd.keyPtr);
       }
     }
-    rm_free(self->readyResults);
+    array_free(self->readyResults);
   }
-  if (self->indexResultBuffer) {
-    rm_free(self->indexResultBuffer);
-  }
+
   rm_free(iter);
 }
 
@@ -468,14 +474,13 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
     // Async disk flow with two-level buffering
     ret->asyncPool = SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, ASYNC_POOL_SIZE);
     if (ret->asyncPool) {
-      // Allocate async I/O buffers
-      ret->readyResults = rm_calloc(ASYNC_POOL_SIZE, sizeof(AsyncReadResult));
+      // Allocate async I/O buffers (fixed capacity for poll results)
+      ret->readyResults = array_new(AsyncReadResult, ASYNC_POOL_SIZE);
 
-      // Allocate IndexResult buffer (starts small, grows dynamically up to 1024)
-      ret->indexResultBuffer = rm_calloc(INDEX_RESULT_BUFFER_INITIAL_SIZE, sizeof(RSIndexResult*));
-      ret->indexResultBufferCount = 0;
-      ret->indexResultBufferIndex = 0;
-      ret->indexResultBufferCapacity = INDEX_RESULT_BUFFER_INITIAL_SIZE;
+      // Initialize double linked lists for IndexResults
+      dllist_init(&ret->iteratorResults);
+      dllist_init(&ret->pendingResults);
+      ret->iteratorResultCount = 0;
 
       ret->base.Next = rpQueryItNext_AsyncDisk;
     } else {
