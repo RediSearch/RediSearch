@@ -76,6 +76,7 @@ typedef struct {
   DLLIST pendingResults;                        // Linked list (bounded by ASYNC_POOL_SIZE) tracking submitted IndexResults
   arrayof(AsyncReadResult) readyResults;        // Ready results from async poll (DMD + user_data pairs)
   uint16_t readyResultsIndex;                   // Next index to consume from readyResults
+  RSIndexResult *lastReturnedIndexResult;       // Last deep-copied IndexResult returned (needs to be freed on next call)
 } RPQueryIterator;
 
 
@@ -353,6 +354,13 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
+    // Free the previous deep-copied IndexResult if any
+    // (it was consumed by the parent result processor in the previous call)
+    if (self->lastReturnedIndexResult) {
+      IndexResult_Free(self->lastReturnedIndexResult);
+      self->lastReturnedIndexResult = NULL;
+    }
+
     // Step 1: Refill IndexResult buffer if needed (cheap iterator reads)
     int refillResult = refillIndexResultBuffer(self);
     if (refillResult == RS_RESULT_TIMEDOUT) {
@@ -372,9 +380,8 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
         continue;
       }
       setSearchResult(base, res, indexResult, dmd, dmd->id);
-      // Note: SearchResult now holds a reference to indexResult, but doesn't own it
-      // We'll need to free it later - but when? This is a memory leak!
-      // TODO: Fix ownership model
+      // Track this IndexResult so we can free it on the next call
+      self->lastReturnedIndexResult = indexResult;
       return RS_RESULT_OK;
     }
 
@@ -452,6 +459,11 @@ static void rpQueryItFree(ResultProcessor *iter) {
     array_free(self->readyResults);
   }
 
+  // Free the last returned deep-copied IndexResult if any
+  if (self->lastReturnedIndexResult) {
+    IndexResult_Free(self->lastReturnedIndexResult);
+  }
+
   rm_free(iter);
 }
 
@@ -465,6 +477,12 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
 
+  // Always initialize DLLISTs to prevent crashes in rpQueryItFree
+  // (even if not used in sync path, they must be properly initialized for cleanup)
+  dllist_init(&ret->iteratorResults);
+  dllist_init(&ret->pendingResults);
+  ret->iteratorResultCount = 0;
+
   // Determine which Next function to use based on disk configuration
   if (sctx->spec->diskSpec && SearchDisk_IsAsyncIOSupported() && SearchDisk_GetAsyncIOEnabled()) {
     // Async disk flow with two-level buffering
@@ -475,11 +493,6 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
 
       // Check if allocation succeeded
       if (ret->readyResults) {
-        // Initialize double linked lists for IndexResults
-        dllist_init(&ret->iteratorResults);
-        dllist_init(&ret->pendingResults);
-        ret->iteratorResultCount = 0;
-
         ret->base.Next = rpQueryItNext_AsyncDisk;
       } else {
         // Allocation failed - clean up async pool and fallback to sync
