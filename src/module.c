@@ -3896,10 +3896,12 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
 static RedisModuleBlockedClient* DistSearchBlockClientWithTimeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Extract timeout from command args, or use global default
   int timeoutArgIdx = RMUtil_ArgIndex("TIMEOUT", argv, argc);
-  long long queryTimeout;
-  if (timeoutArgIdx < 0 || timeoutArgIdx + 1 >= argc ||
-      RedisModule_StringToLongLong(argv[timeoutArgIdx + 1], &queryTimeout) != REDISMODULE_OK) {
-    queryTimeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
+  long long queryTimeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
+  if (timeoutArgIdx >= 0 && timeoutArgIdx + 1 < argc) {
+    ArgsCursor ac;
+    ArgsCursor_InitRString(&ac, argv + timeoutArgIdx + 1, argc - timeoutArgIdx - 1);
+    // parseTimeout validates non-negative timeout; on failure, keep the global default
+    parseTimeout(&queryTimeout, &ac, NULL);
   }
   // Block client with timeout callback - timeout is in milliseconds from query arg or global config
   // DistSearchFreePrivData will be called to free the MRCtx after reply/timeout callback completes
