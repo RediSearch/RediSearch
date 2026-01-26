@@ -7,11 +7,18 @@ after_includes = """
 // declarations for bitflags type names
 typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
+
+// Required to ensure that the alignment declared by cbindgen is respected on
+// the C/C++ side.
+#define ALIGNED(n) __attribute__((aligned(n)))
 """
 
 [parse]
 parse_deps = true
-include = ["rlookup"]
+include = ["c_ffi_utils", "rlookup"]
+
+[layout]
+aligned_n = "ALIGNED"
 
 [export]
 include = ["RLookupKeyFlag", "RLookupOption", "RLookupKey"]
@@ -21,3 +28,4 @@ exclude = ["FieldSpec", "IndexSpec", "Option_IndexSpecCache", "Option_Cow_CStr",
 "RLookupRow_RSValueFFI" = "RLookupRow"
 "RLookupHeader" = "RLookup"
 "RLookupKeyHeader" = "RLookupKey"
+"OpaqueRLookupRow" = "RLookupRow"
