@@ -265,10 +265,9 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> HyperLogLog
         let alpha_mm = alpha(BITS, SIZE) * (SIZE as f64) * (SIZE as f64);
 
         // Single-pass: compute sum and count zeros together
-        let mut sum = 0.0;
-        for &reg in self.registers.iter() {
-            sum += 1.0 / ((1u32 << reg) as f64);
-        }
+        let sum = self.registers.iter()
+            .map(|&reg| 1.0 / ((1u32 << reg) as f64))
+            .sum();
 
         let mut estimate = alpha_mm / sum;
 
