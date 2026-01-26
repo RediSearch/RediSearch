@@ -98,7 +98,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
 
   // Save the number of terms before indexing the current document for metrics
-  size_t prevNumTerms = spec->stats.scoringStats.numTerms;
+  size_t prevNumTerms = spec->stats.scoring.numTerms;
 
   while (entry != NULL) {
     if (spec->diskSpec) {
@@ -128,7 +128,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   }
 
   // Update the number of terms added for metrics
-  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoringStats.numTerms - prevNumTerms);
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
 }
 
 /** Assigns a document ID to a single document. Handles only RAM index */
@@ -140,10 +140,10 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
     RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
     if (dmd) {
       // Update stats of the index only if the document was there
-      RS_LOG_ASSERT(spec->stats.scoringStats.numDocuments > 0, "numDocuments cannot be negative");
-      --spec->stats.scoringStats.numDocuments;
-      RS_LOG_ASSERT(spec->stats.scoringStats.totalDocsLen >= dmd->docLen, "totalDocsLen is smaller than dmd->docLen");
-      spec->stats.scoringStats.totalDocsLen -= dmd->docLen;
+      RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
+      --spec->stats.scoring.numDocuments;
+      RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= dmd->docLen, "totalDocsLen is smaller than dmd->docLen");
+      spec->stats.scoring.totalDocsLen -= dmd->docLen;
       if (spec->gc) {
         GCContext_OnDelete(spec->gc);
       }
@@ -172,7 +172,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize, doc->type);
   if (dmd) {
     doc->docId = dmd->id;
-    ++spec->stats.scoringStats.numDocuments;
+    ++spec->stats.scoring.numDocuments;
   }
 
   return dmd;
@@ -209,15 +209,15 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime);
       if (oldLen > 0) {
         // We deleted a document in the above call, update the stats accordingly
-        RS_ASSERT(spec->stats.scoringStats.numDocuments > 0);
-        spec->stats.scoringStats.numDocuments--;
-        RS_ASSERT(spec->stats.scoringStats.totalDocsLen >= oldLen);
-        spec->stats.scoringStats.totalDocsLen -= oldLen;
+        RS_ASSERT(spec->stats.scoring.numDocuments > 0);
+        spec->stats.scoring.numDocuments--;
+        RS_ASSERT(spec->stats.scoring.totalDocsLen >= oldLen);
+        spec->stats.scoring.totalDocsLen -= oldLen;
       }
       if (docId) {
         cur->doc->docId = docId;
-        spec->stats.scoringStats.totalDocsLen += cur->fwIdx->totalFreq;
-        ++spec->stats.scoringStats.numDocuments;
+        spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
+        ++spec->stats.scoring.numDocuments;
       } else {
         cur->stateFlags |= ACTX_F_ERRORED;
       }
@@ -232,7 +232,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
       md->maxTermFreq = cur->fwIdx->maxTermFreq;
       md->docLen = cur->fwIdx->totalFreq;
-      spec->stats.scoringStats.totalDocsLen += md->docLen;
+      spec->stats.scoring.totalDocsLen += md->docLen;
 
       if (cur->sv) {
         DocTable_SetSortingVector(&spec->docs, md, cur->sv);

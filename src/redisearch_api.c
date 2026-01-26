@@ -270,10 +270,10 @@ int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
     RSDocumentMetadata* md = DocTable_Pop(&sp->docs, docKey, len);
     if (md) {
       // Delete returns true/false, not RM_{OK,ERR}
-      RS_LOG_ASSERT(sp->stats.scoringStats.numDocuments > 0, "numDocuments cannot be negative");
-      sp->stats.scoringStats.numDocuments--;
-      RS_LOG_ASSERT(sp->stats.scoringStats.totalDocsLen >= md->docLen, "totalDocsLen is smaller than md->docLen");
-      sp->stats.scoringStats.totalDocsLen -= md->docLen;
+      RS_LOG_ASSERT(sp->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
+      sp->stats.scoring.numDocuments--;
+      RS_LOG_ASSERT(sp->stats.scoring.totalDocsLen >= md->docLen, "totalDocsLen is smaller than md->docLen");
+      sp->stats.scoring.totalDocsLen -= md->docLen;
       DMD_Return(md);
 
       if (sp->gc) {
@@ -880,12 +880,12 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
     RediSearch_FieldInfo(&info->fields[i], &sp->fields[i]);
   }
 
-  info->numDocuments = sp->stats.scoringStats.numDocuments;
+  info->numDocuments = sp->stats.scoring.numDocuments;
   info->maxDocId = sp->docs.maxDocId;
   info->docTableSize = sp->docs.memsize;
   info->sortablesSize = sp->docs.sortablesSize;
   info->docTrieSize = TrieMap_MemUsage(sp->docs.dim.tm);
-  info->numTerms = sp->stats.scoringStats.numTerms;
+  info->numTerms = sp->stats.scoring.numTerms;
   info->numRecords = sp->stats.numRecords;
   info->invertedSize = sp->stats.invertedSize;
   info->invertedCap = 0;

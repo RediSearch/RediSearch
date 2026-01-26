@@ -153,7 +153,7 @@ typedef struct {
 } ScoringIndexStats;
 
 typedef struct {
-  ScoringIndexStats scoringStats;
+  ScoringIndexStats scoring;  // Statistics used for scoring functions
   size_t numRecords;
   size_t invertedSize;
   size_t offsetVecsSize;

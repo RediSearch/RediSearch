@@ -394,7 +394,7 @@ pub(super) mod not_miri {
                 } else {
                     max_doc_id as usize
                 };
-                ptr.spec.stats.scoringStats.numDocuments = ptr.spec.docs.size;
+                ptr.spec.stats.scoring.numDocuments = ptr.spec.docs.size;
 
                 // Initialize RedisSearchCtx
                 ptr.sctx.spec = &mut ptr.spec;
