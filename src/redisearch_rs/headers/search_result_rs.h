@@ -39,7 +39,7 @@ typedef struct SearchResult {
   RSScoreExplain *_score_explain;
   Option_DocumentMetadata _document_metadata;
   const RSIndexResult *_index_result;
-  RLookupRow _row_data;
+  RLookupRow<RSValueFFI> _row_data;
   SearchResultFlags _flags;
 } SearchResult;
 
