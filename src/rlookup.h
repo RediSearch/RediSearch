@@ -30,78 +30,75 @@ typedef enum {
   RLOOKUP_C_BOOL = 3
 } RLookupCoerceType;
 
-/**
- * RLookup Key
- *
- * A lookup key is a structure which contains an array index at which the
- * data may be reliably located. This avoids needless string comparisons by
- * using quick objects rather than "dynamic" string comparison mechanisms.
- *
- * The basic workflow is that users of a given key (i.e. "foo") are expected
- * to first create the key by use of RLookup_GetKey(). This will provide
- * the consumer with an opaque object that is the slot of "foo". Once the
- * key is provided, it may then be use to both read and write the key.
- *
- * Using a pre-defined key also allows the query to maintain a central registry
- * of used names. If a user makes a typo in a query, this registry will easily
- * detect that the name was not used previously.
- *
- * Note that the same name can be registered twice, in which case it will simply
- * increment the reference to the same key.
- *
- * There are two arrays which are accessed to check for the key. Their use is
- * mutually exclusive per-key, though multiple keys may exist which can access
- * either one or the other array. The first array is the "sorting vector" for
- * a given document. The F_SVSRC flag is set on keys which are expected to be
- * found within the sorting vector.
- *
- * The second array is a "dynamic" array within a given result's row data.
- * This is used for data generated on the fly, or for data not stored within
- * the sorting vector.
- */
-typedef struct RLookupKey RLookupKey;
+// /**
+//  * RLookup Key
+//  *
+//  * A lookup key is a structure which contains an array index at which the
+//  * data may be reliably located. This avoids needless string comparisons by
+//  * using quick objects rather than "dynamic" string comparison mechanisms.
+//  *
+//  * The basic workflow is that users of a given key (i.e. "foo") are expected
+//  * to first create the key by use of RLookup_GetKey(). This will provide
+//  * the consumer with an opaque object that is the slot of "foo". Once the
+//  * key is provided, it may then be use to both read and write the key.
+//  *
+//  * Using a pre-defined key also allows the query to maintain a central registry
+//  * of used names. If a user makes a typo in a query, this registry will easily
+//  * detect that the name was not used previously.
+//  *
+//  * Note that the same name can be registered twice, in which case it will simply
+//  * increment the reference to the same key.
+//  *
+//  * There are two arrays which are accessed to check for the key. Their use is
+//  * mutually exclusive per-key, though multiple keys may exist which can access
+//  * either one or the other array. The first array is the "sorting vector" for
+//  * a given document. The F_SVSRC flag is set on keys which are expected to be
+//  * found within the sorting vector.
+//  *
+//  * The second array is a "dynamic" array within a given result's row data.
+//  * This is used for data generated on the fly, or for data not stored within
+//  * the sorting vector.
+//  */
+// typedef struct RLookupKey {
+//   /** The index into the array where the value resides */
+//   uint16_t dstidx;
 
-/** The index into the array where the value resides  */
-uint16_t RLookupKey_GetDstIdx(const RLookupKey* key);
+//   /**
+//    * If the source of this value points to a sort vector, then this is the
+//    * index within the sort vector that the value is located
+//    */
+//   uint16_t svidx;
 
-/**
- * If the source of this value points to a sort vector, then this is the
- * index within the sort vector that the value is located
- */
-uint16_t RLookupKey_GetSvIdx(const RLookupKey* key);
+//   /**
+//    * Can be F_SVSRC which means the target array is a sorting vector)
+//    */
+//   uint32_t flags;
 
-/** The name of this field. */
-const char * RLookupKey_GetName(const RLookupKey* key);
+//   /** Path and name of this field
+//    *  path AS name */
+//   const char *path;
+//   const char *name;
+//   size_t name_len;
 
-/** The path of this field. */
-const char * RLookupKey_GetPath(const RLookupKey* key);
+//   /** Pointer to next field in the list */
+//   struct RLookupKey *next;
+// } RLookupKey;
 
-/** The length of the name field in bytes. */
-size_t RLookupKey_GetNameLen(const RLookupKey* key);
+// typedef struct RLookup {
+//   RLookupKey *head;
+//   RLookupKey *tail;
 
-/**
- * Indicate the type and other attributes
- * Can be F_SVSRC which means the target array is a sorting vector)
- */
-uint32_t RLookupKey_GetFlags(const RLookupKey* key);
+//   // Length of the data row. This is not necessarily the number
+//   // of lookup keys
+//   uint32_t rowlen;
 
-typedef struct RLookup {
-  /** DO NOT ACCESS DIRECTLY. USE RLookup_Iter or RLookup_IterMut INSTEAD! */
-  RLookupKey *_head;
-  /** DO NOT ACCESS DIRECTLY. USE RLookup_Iter or RLookup_IterMut INSTEAD! */
-  RLookupKey *_tail;
+//   // Flags/options
+//   uint32_t options;
 
-  /** DO NOT ACCESS DIRECTLY. USE RLookup_GetRowLen INSTEAD! */
-  uint32_t _rowlen;
-
-  /** DO NOT ACCESS DIRECTLY. USE RLookup_EnableOptions or RLookup_DisableOptions INSTEAD! */
-  uint32_t _options;
-
-  // If present, then GetKey will consult this list if the value is not found in
-  // the existing list of keys.
-  /** DO NOT ACCESS DIRECTLY. USE RLookup_HasIndexSpecCache INSTEAD! */
-  IndexSpecCache *_spcache;
-} RLookup;
+//   // If present, then GetKey will consult this list if the value is not found in
+//   // the existing list of keys.
+//   IndexSpecCache *spcache;
+// } RLookup;
 
 #define RLOOKUP_FOREACH(key, rlookup, block) \
     RLookupIterator iter = RLookup_Iter(rlookup); \
@@ -179,26 +176,26 @@ static inline bool RLookup_HasIndexSpecCache(const RLookup* rlookup) {
 // later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
 #define RLOOKUP_OPT_ALL_LOADED 0x02
 
-/**
- * Row data for a lookup key. This abstracts the question of "where" the
- * data comes from.
- */
-typedef struct {
-  /** Sorting vector attached to document */
-  const RSSortingVector *sv;
+// /**
+//  * Row data for a lookup key. This abstracts the question of "where" the
+//  * data comes from.
+//  */
+// typedef struct {
+//   /** Sorting vector attached to document */
+//   const RSSortingVector *sv;
 
-  /** Dynamic values obtained from prior processing */
-  RSValue **dyn;
+//   /** Dynamic values obtained from prior processing */
+//   RSValue **dyn;
 
-  /**
-   * How many values actually exist in dyn. Note that this
-   * is not the length of the array!
-   */
-  size_t ndyn;
-} RLookupRow;
+//   /**
+//    * How many values actually exist in dyn. Note that this
+//    * is not the length of the array!
+//    */
+//   size_t ndyn;
+// } RLookupRow;
 
-static inline const RSSortingVector* RLookupRow_GetSortingVector(const RLookupRow* row) {return row->sv;}
-static inline void RLookupRow_SetSortingVector(RLookupRow* row, const RSSortingVector* sv) {row->sv = sv;}
+// static inline const RSSortingVector* RLookupRow_GetSortingVector(const RLookupRow* row) {return row->sv;}
+// static inline void RLookupRow_SetSortingVector(RLookupRow* row, const RSSortingVector* sv) {row->sv = sv;}
 
 typedef enum {
   RLOOKUP_M_READ,   // Get key for reading (create only if in schema and sortable)
@@ -361,35 +358,35 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLook
  */
 void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
 
-/** Get a value from the row, provided the key.
- *
- * This does not actually "search" for the key, but simply performs array
- * lookups!
- *
- * @param lookup The lookup table containing the lookup table data
- * @param key the key that contains the index
- * @param row the row data which contains the value
- * @return the value if found, NULL otherwise.
- */
-static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
+// /** Get a value from the row, provided the key.
+//  *
+//  * This does not actually "search" for the key, but simply performs array
+//  * lookups!
+//  *
+//  * @param lookup The lookup table containing the lookup table data
+//  * @param key the key that contains the index
+//  * @param row the row data which contains the value
+//  * @return the value if found, NULL otherwise.
+//  */
+// static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
 
-  RSValue *ret = NULL;
-  if (row->dyn && array_len(row->dyn) > RLookupKey_GetDstIdx(key)) {
-    ret = row->dyn[RLookupKey_GetDstIdx(key)];
-  }
-  if (!ret) {
-    if (RLookupKey_GetFlags(key) & RLOOKUP_F_SVSRC) {
-      const RSSortingVector* sv = RLookupRow_GetSortingVector(row);
-      if (sv && RSSortingVector_Length(sv) > RLookupKey_GetSvIdx(key)) {
-        ret = RSSortingVector_Get(sv, RLookupKey_GetSvIdx(key));
-        if (ret != NULL && ret == RSValue_NullStatic()) {
-          ret = NULL;
-        }
-      }
-    }
-  }
-  return ret;
-}
+//   RSValue *ret = NULL;
+//   if (row->dyn && array_len(row->dyn) > key->dstidx) {
+//     ret = row->dyn[key->dstidx];
+//   }
+//   if (!ret) {
+//     if (key->flags & RLOOKUP_F_SVSRC) {
+//       const RSSortingVector* sv = RLookupRow_GetSortingVector(row);
+//       if (sv && RSSortingVector_Length(sv) > key->svidx) {
+//         ret = RSSortingVector_Get(sv, key->svidx);
+//         if (ret != NULL && ret == RSValue_NullStatic()) {
+//           ret = NULL;
+//         }
+//       }
+//     }
+//   }
+//   return ret;
+// }
 
 /**
  * Wipes the row, retaining its memory but decrefing any included values.
@@ -462,11 +459,11 @@ typedef struct {
  */
 int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
 
-/**
- * Initialize the lookup. If cache is provided, then it will be used as an
- * alternate source for lookups whose fields are absent
- */
-void RLookup_Init(RLookup *l, IndexSpecCache *cache);
+// /**
+//  * Initialize the lookup. If cache is provided, then it will be used as an
+//  * alternate source for lookups whose fields are absent
+//  */
+// void RLookup_Init(RLookup *l, IndexSpecCache *cache);
 
 /**
  * Releases any resources created by this lookup object. Note that if there are

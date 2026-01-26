@@ -9,8 +9,8 @@
 
 #![allow(unused)]
 
-use crate::row::RLookupRow;
 use libc::size_t;
+use rlookup::OpaqueRLookupRow;
 use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule};
 use std::{
     borrow::Cow,
@@ -19,442 +19,445 @@ use std::{
     slice,
 };
 
-/// Add all non-overridden keys from `src` to `dest`.
-///
-/// For each key in `src`, check if it already exists *by name*.
-/// - If it does, the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
-/// - If it doesn't, a new key will be created.
-///
-/// Flag handling:
-/// - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
-/// - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
-/// - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
-/// - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
-///
-/// # Safety
-///
-/// 1. `src` must be a [valid], non-null pointer to an [`RLookup`]
-/// 2. `dest` must be a [valid], non-null pointer to an [`RLookup`]
-/// 3. `src` and `dest` must not point to the same [`RLookup`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_AddKeysFrom<'a>(
-    src: *const RLookup<'a>,
-    dest: Option<NonNull<RLookup<'a>>>,
-    flags: u32,
-) {
-    // Safety: ensured by caller (2.)
-    let dest = unsafe { dest.unwrap().as_mut() };
+pub unsafe extern "C" fn _dummy_rlookup(_dummy: *const RLookup) {}
 
-    // We're doing the assert here in the middle to avoid extra type conversions.
-    assert_ne!(src, dest, "`src` and `dst` must not be the same");
+// /// Add all non-overridden keys from `src` to `dest`.
+// ///
+// /// For each key in `src`, check if it already exists *by name*.
+// /// - If it does, the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
+// /// - If it doesn't, a new key will be created.
+// ///
+// /// Flag handling:
+// /// - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+// /// - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+// /// - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+// /// - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+// ///
+// /// # Safety
+// ///
+// /// 1. `src` must be a [valid], non-null pointer to an [`RLookup`]
+// /// 2. `dest` must be a [valid], non-null pointer to an [`RLookup`]
+// /// 3. `src` and `dest` must not point to the same [`RLookup`].
+// ///
+// /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn RLookup_AddKeysFrom<'a>(
+//     src: *const RLookup<'a>,
+//     dest: Option<NonNull<RLookup<'a>>>,
+//     flags: u32,
+// ) {
+//     // Safety: ensured by caller (2.)
+//     let dest = unsafe { dest.unwrap().as_mut() };
 
-    // Safety: ensured by caller (1.)
-    let src = unsafe { src.as_ref().unwrap() };
+//     // We're doing the assert here in the middle to avoid extra type conversions.
+//     assert_ne!(src, dest, "`src` and `dst` must not be the same");
 
-    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+//     // Safety: ensured by caller (1.)
+//     let src = unsafe { src.as_ref().unwrap() };
 
-    dest.add_keys_from(src, flags);
-}
+//     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
-/// Find a field in the index spec cache of the lookup.
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
-/// 2. The memory pointed to by `name` must contain a valid nul terminator at the
-///    end of the string.
-/// 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
-///    This means in particular:
-///     1. The entire memory range of this cstr must be contained within a single allocation!
-///     2. `name` must be non-null even for a zero-length cstr.
-/// 4. The nul terminator must be within `isize::MAX` from `name`
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
-    lookup: *const RLookup<'_>,
-    name: *const c_char,
-) -> *const ffi::FieldSpec {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.as_ref().unwrap() };
+//     dest.add_keys_from(src, flags);
+// }
 
-    // Safety: ensured by caller (2., 3., 4.)
-    let name = unsafe { CStr::from_ptr(name) };
+// /// Find a field in the index spec cache of the lookup.
+// ///
+// /// # Safety
+// ///
+// /// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+// /// 2. The memory pointed to by `name` must contain a valid nul terminator at the
+// ///    end of the string.
+// /// 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
+// ///    This means in particular:
+// ///     1. The entire memory range of this cstr must be contained within a single allocation!
+// ///     2. `name` must be non-null even for a zero-length cstr.
+// /// 4. The nul terminator must be within `isize::MAX` from `name`
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
+//     lookup: *const RLookup<'_>,
+//     name: *const c_char,
+// ) -> *const ffi::FieldSpec {
+//     // Safety: ensured by caller (1.)
+//     let lookup = unsafe { lookup.as_ref().unwrap() };
 
-    lookup
-        .find_field_in_spec_cache(name)
-        .map_or(ptr::null(), ptr::from_ref)
-}
+//     // Safety: ensured by caller (2., 3., 4.)
+//     let name = unsafe { CStr::from_ptr(name) };
 
-/// Get a RLookup key for a given name.
-///
-/// A key is returned only if it's already in the lookup table (available from the
-/// pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
-/// if the lookup table accepts unresolved keys.
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
-/// 2. The memory pointed to by `name` must contain a valid nul terminator at the
-///    end of the string.
-/// 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
-///    This means in particular:
-///     1. The entire memory range of this `CStr` must be contained within a single allocation!
-///     2. `name` must be non-null even for a zero-length cstr.
-/// 4. The memory referenced by the returned `CStr` must not be mutated for
-///    the lifetime of the returned key.
-/// 5. The nul terminator must be within `isize::MAX` from `name`
-/// 6. All bits set in `flags` must correspond to a value of the enum.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_GetKey_Read(
-    lookup: Option<NonNull<RLookup<'_>>>,
-    name: *const c_char,
-    flags: u32,
-) -> Option<NonNull<RLookupKey<'_>>> {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+//     lookup
+//         .find_field_in_spec_cache(name)
+//         .map_or(ptr::null(), ptr::from_ref)
+// }
 
-    // Safety: ensured by caller (2., 3., 4., 5.)
-    let name = unsafe { CStr::from_ptr(name) };
+// /// Get a RLookup key for a given name.
+// ///
+// /// A key is returned only if it's already in the lookup table (available from the
+// /// pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
+// /// if the lookup table accepts unresolved keys.
+// ///
+// /// # Safety
+// ///
+// /// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+// /// 2. The memory pointed to by `name` must contain a valid nul terminator at the
+// ///    end of the string.
+// /// 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
+// ///    This means in particular:
+// ///     1. The entire memory range of this `CStr` must be contained within a single allocation!
+// ///     2. `name` must be non-null even for a zero-length cstr.
+// /// 4. The memory referenced by the returned `CStr` must not be mutated for
+// ///    the lifetime of the returned key.
+// /// 5. The nul terminator must be within `isize::MAX` from `name`
+// /// 6. All bits set in `flags` must correspond to a value of the enum.
+// ///
+// /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn RLookup_GetKey_Read(
+//     lookup: Option<NonNull<RLookup<'_>>>,
+//     name: *const c_char,
+//     flags: u32,
+// ) -> Option<NonNull<RLookupKey<'_>>> {
+//     // Safety: ensured by caller (1.)
+//     let lookup = unsafe { lookup.unwrap().as_mut() };
 
-    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+//     // Safety: ensured by caller (2., 3., 4., 5.)
+//     let name = unsafe { CStr::from_ptr(name) };
 
-    let (name, flags) = handle_name_alloc_flag(name, flags);
+//     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
-    lookup.get_key_read(name, flags).map(NonNull::from)
-}
+//     let (name, flags) = handle_name_alloc_flag(name, flags);
 
-/// Get a RLookup key for a given name.
-///
-/// A key is returned only if it's already in the lookup table (available from the
-/// pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
-/// if the lookup table accepts unresolved keys.
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
-/// 2. The memory pointed to by `name` must contain a valid nul terminator at the
-///    end of the string.
-/// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
-///    This means in particular:
-///     1. `name_len` must be same as `strlen(name)`
-///     2. The entire memory range of this `CStr` must be contained within a single allocation!
-///     3. `name` must be non-null even for a zero-length cstr.
-/// 4. The memory referenced by the returned `CStr` must not be mutated for
-///    the lifetime of the returned key.
-/// 5. The nul terminator must be within `isize::MAX` from `name`
-/// 6. All bits set in `flags` must correspond to a value of the enum.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_GetKey_ReadEx(
-    lookup: Option<NonNull<RLookup<'_>>>,
-    name: *const c_char,
-    name_len: size_t,
-    flags: u32,
-) -> Option<NonNull<RLookupKey<'_>>> {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+//     lookup.get_key_read(name, flags).map(NonNull::from)
+// }
 
-    let name = CStr::from_bytes_with_nul(
-        // `name_len` is a value as returned by `strlen` and therefore **does not**
-        // include the null terminator (that is why we do `name_len + 1` below)
-        // Safety: ensured by caller (2., 3., 4., 5.)
-        unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
-    )
-    .unwrap();
+// /// Get a RLookup key for a given name.
+// ///
+// /// A key is returned only if it's already in the lookup table (available from the
+// /// pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
+// /// if the lookup table accepts unresolved keys.
+// ///
+// /// # Safety
+// ///
+// /// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+// /// 2. The memory pointed to by `name` must contain a valid nul terminator at the
+// ///    end of the string.
+// /// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
+// ///    This means in particular:
+// ///     1. `name_len` must be same as `strlen(name)`
+// ///     2. The entire memory range of this `CStr` must be contained within a single allocation!
+// ///     3. `name` must be non-null even for a zero-length cstr.
+// /// 4. The memory referenced by the returned `CStr` must not be mutated for
+// ///    the lifetime of the returned key.
+// /// 5. The nul terminator must be within `isize::MAX` from `name`
+// /// 6. All bits set in `flags` must correspond to a value of the enum.
+// ///
+// /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn RLookup_GetKey_ReadEx(
+//     lookup: Option<NonNull<RLookup<'_>>>,
+//     name: *const c_char,
+//     name_len: size_t,
+//     flags: u32,
+// ) -> Option<NonNull<RLookupKey<'_>>> {
+//     // Safety: ensured by caller (1.)
+//     let lookup = unsafe { lookup.unwrap().as_mut() };
 
-    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+//     let name = CStr::from_bytes_with_nul(
+//         // `name_len` is a value as returned by `strlen` and therefore **does not**
+//         // include the null terminator (that is why we do `name_len + 1` below)
+//         // Safety: ensured by caller (2., 3., 4., 5.)
+//         unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
+//     )
+//     .unwrap();
 
-    let (name, flags) = handle_name_alloc_flag(name, flags);
+//     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
-    lookup.get_key_read(name, flags).map(NonNull::from)
-}
+//     let (name, flags) = handle_name_alloc_flag(name, flags);
 
-/// Get a RLookup key for a given name.
-///
-/// A key is created and returned only if it's NOT in the lookup table, unless the
-/// override flag is set.
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
-/// 2. The memory pointed to by `name` must contain a valid nul terminator at the
-///    end of the string.
-/// 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
-///    This means in particular:
-///     1. The entire memory range of this `CStr` must be contained within a single allocation!
-///     2. `name` must be non-null even for a zero-length cstr.
-/// 4. The memory referenced by the returned `CStr` must not be mutated for
-///    the lifetime of the returned key.
-/// 5. The nul terminator must be within `isize::MAX` from `name`
-/// 6. All bits set in `flags` must correspond to a value of the enum.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_GetKey_Write(
-    lookup: Option<NonNull<RLookup<'_>>>,
-    name: *const c_char,
-    flags: u32,
-) -> Option<NonNull<RLookupKey<'_>>> {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+//     lookup.get_key_read(name, flags).map(NonNull::from)
+// }
 
-    // Safety: ensured by caller (2., 3., 4., 5.)
-    let name = unsafe { CStr::from_ptr(name) };
+// /// Get a RLookup key for a given name.
+// ///
+// /// A key is created and returned only if it's NOT in the lookup table, unless the
+// /// override flag is set.
+// ///
+// /// # Safety
+// ///
+// /// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+// /// 2. The memory pointed to by `name` must contain a valid nul terminator at the
+// ///    end of the string.
+// /// 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
+// ///    This means in particular:
+// ///     1. The entire memory range of this `CStr` must be contained within a single allocation!
+// ///     2. `name` must be non-null even for a zero-length cstr.
+// /// 4. The memory referenced by the returned `CStr` must not be mutated for
+// ///    the lifetime of the returned key.
+// /// 5. The nul terminator must be within `isize::MAX` from `name`
+// /// 6. All bits set in `flags` must correspond to a value of the enum.
+// ///
+// /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn RLookup_GetKey_Write(
+//     lookup: Option<NonNull<RLookup<'_>>>,
+//     name: *const c_char,
+//     flags: u32,
+// ) -> Option<NonNull<RLookupKey<'_>>> {
+//     // Safety: ensured by caller (1.)
+//     let lookup = unsafe { lookup.unwrap().as_mut() };
 
-    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+//     // Safety: ensured by caller (2., 3., 4., 5.)
+//     let name = unsafe { CStr::from_ptr(name) };
 
-    let (name, flags) = handle_name_alloc_flag(name, flags);
+//     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
-    lookup.get_key_write(name, flags).map(NonNull::from)
-}
+//     let (name, flags) = handle_name_alloc_flag(name, flags);
 
-/// Get a RLookup key for a given name.
-///
-/// A key is created and returned only if it's NOT in the lookup table, unless the
-/// override flag is set.
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
-/// 2. The memory pointed to by `name` must contain a valid nul terminator at the
-///    end of the string.
-/// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
-///    This means in particular:
-///     1. `name_len` must be same as `strlen(name)`
-///     2. The entire memory range of this `CStr` must be contained within a single allocation!
-///     3. `name` must be non-null even for a zero-length cstr.
-/// 4. The memory referenced by the returned `CStr` must not be mutated for
-///    the lifetime of the returned key.
-/// 5. The nul terminator must be within `isize::MAX` from `name`
-/// 6. All bits set in `flags` must correspond to a value of the enum.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_GetKey_WriteEx(
-    lookup: Option<NonNull<RLookup<'_>>>,
-    name: *const c_char,
-    name_len: size_t,
-    flags: u32,
-) -> Option<NonNull<RLookupKey<'_>>> {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+//     lookup.get_key_write(name, flags).map(NonNull::from)
+// }
 
-    let name = CStr::from_bytes_with_nul(
-        // `name_len` is a value as returned by `strlen` and therefore **does not**
-        // include the null terminator (that is why we do `name_len + 1` below)
-        // Safety: ensured by caller (2., 3., 4., 5.)
-        unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
-    )
-    .unwrap();
+// /// Get a RLookup key for a given name.
+// ///
+// /// A key is created and returned only if it's NOT in the lookup table, unless the
+// /// override flag is set.
+// ///
+// /// # Safety
+// ///
+// /// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+// /// 2. The memory pointed to by `name` must contain a valid nul terminator at the
+// ///    end of the string.
+// /// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
+// ///    This means in particular:
+// ///     1. `name_len` must be same as `strlen(name)`
+// ///     2. The entire memory range of this `CStr` must be contained within a single allocation!
+// ///     3. `name` must be non-null even for a zero-length cstr.
+// /// 4. The memory referenced by the returned `CStr` must not be mutated for
+// ///    the lifetime of the returned key.
+// /// 5. The nul terminator must be within `isize::MAX` from `name`
+// /// 6. All bits set in `flags` must correspond to a value of the enum.
+// ///
+// /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn RLookup_GetKey_WriteEx(
+//     lookup: Option<NonNull<RLookup<'_>>>,
+//     name: *const c_char,
+//     name_len: size_t,
+//     flags: u32,
+// ) -> Option<NonNull<RLookupKey<'_>>> {
+//     // Safety: ensured by caller (1.)
+//     let lookup = unsafe { lookup.unwrap().as_mut() };
 
-    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+//     let name = CStr::from_bytes_with_nul(
+//         // `name_len` is a value as returned by `strlen` and therefore **does not**
+//         // include the null terminator (that is why we do `name_len + 1` below)
+//         // Safety: ensured by caller (2., 3., 4., 5.)
+//         unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
+//     )
+//     .unwrap();
 
-    let (name, flags) = handle_name_alloc_flag(name, flags);
+//     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
-    lookup.get_key_write(name, flags).map(NonNull::from)
-}
+//     let (name, flags) = handle_name_alloc_flag(name, flags);
 
-/// Get a RLookup key for a given name.
-///
-/// A key is created and returned only if it's NOT in the lookup table (unless the
-/// override flag is set), and it is not already loaded. It will override an existing key if it was
-/// created for read out of a sortable field, and the field was normalized. A sortable un-normalized
-/// field counts as loaded.
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
-/// 2. The memory pointed to by `name` and `field_name` must contain a valid nul terminator at the
-///    end of the string.
-/// 3. `name` and `field_name` must be [valid] for reads of bytes up to and including the nul terminator.
-///    This means in particular:
-///     1. The entire memory range of these `CStr` must be contained within a single allocation!
-///     2. `name` and `field_name` must be non-null even for a zero-length cstr.
-/// 4. The memory referenced by the returned `CStr` must not be mutated for
-///    the lifetime of the returned key.
-/// 5. The nul terminator must be within `isize::MAX` from `name` and `field_name`
-/// 6. All bits set in `flags` must correspond to a value of the enum.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_GetKey_Load(
-    lookup: Option<NonNull<RLookup<'_>>>,
-    name: *const c_char,
-    field_name: *const c_char,
-    flags: u32,
-) -> Option<NonNull<RLookupKey<'_>>> {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+//     lookup.get_key_write(name, flags).map(NonNull::from)
+// }
 
-    // Safety: ensured by caller (2., 3., 4., 5.)
-    let field_name = unsafe { CStr::from_ptr(field_name) };
+// /// Get a RLookup key for a given name.
+// ///
+// /// A key is created and returned only if it's NOT in the lookup table (unless the
+// /// override flag is set), and it is not already loaded. It will override an existing key if it was
+// /// created for read out of a sortable field, and the field was normalized. A sortable un-normalized
+// /// field counts as loaded.
+// ///
+// /// # Safety
+// ///
+// /// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+// /// 2. The memory pointed to by `name` and `field_name` must contain a valid nul terminator at the
+// ///    end of the string.
+// /// 3. `name` and `field_name` must be [valid] for reads of bytes up to and including the nul terminator.
+// ///    This means in particular:
+// ///     1. The entire memory range of these `CStr` must be contained within a single allocation!
+// ///     2. `name` and `field_name` must be non-null even for a zero-length cstr.
+// /// 4. The memory referenced by the returned `CStr` must not be mutated for
+// ///    the lifetime of the returned key.
+// /// 5. The nul terminator must be within `isize::MAX` from `name` and `field_name`
+// /// 6. All bits set in `flags` must correspond to a value of the enum.
+// ///
+// /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn RLookup_GetKey_Load(
+//     lookup: Option<NonNull<RLookup<'_>>>,
+//     name: *const c_char,
+//     field_name: *const c_char,
+//     flags: u32,
+// ) -> Option<NonNull<RLookupKey<'_>>> {
+//     // Safety: ensured by caller (1.)
+//     let lookup = unsafe { lookup.unwrap().as_mut() };
 
-    // Safety: ensured by caller (2., 3., 4., 5.)
-    let name = unsafe { CStr::from_ptr(name) };
+//     // Safety: ensured by caller (2., 3., 4., 5.)
+//     let field_name = unsafe { CStr::from_ptr(field_name) };
 
-    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+//     // Safety: ensured by caller (2., 3., 4., 5.)
+//     let name = unsafe { CStr::from_ptr(name) };
 
-    let (name, flags) = handle_name_alloc_flag(name, flags);
+//     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
-    lookup
-        .get_key_load(name, field_name, flags)
-        .map(NonNull::from)
-}
+//     let (name, flags) = handle_name_alloc_flag(name, flags);
 
-/// Get a RLookup key for a given name.
-///
-/// A key is created and returned only if it's NOT in the lookup table (unless the
-/// override flag is set), and it is not already loaded. It will override an existing key if it was
-/// created for read out of a sortable field, and the field was normalized. A sortable un-normalized
-/// field counts as loaded.
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
-/// 2. The memory pointed to by `name` and `field_name` must contain a valid nul terminator at the
-///    end of the string.
-/// 3. `name` and `field_name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
-///    This means in particular:
-///     1. `name_len` must be same as `strlen(name)`
-///     2. The entire memory range of these `CStr` must be contained within a single allocation!
-///     3. `name` and `field_name` must be non-null even for a zero-length cstr.
-/// 4. The memory referenced by the returned `CStr` must not be mutated for
-///    the lifetime of the returned key.
-/// 5. The nul terminator must be within `isize::MAX` from `name` and `field_name`
-/// 6. All bits set in `flags` must correspond to a value of the enum.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_GetKey_LoadEx(
-    lookup: Option<NonNull<RLookup<'_>>>,
-    name: *const c_char,
-    name_len: size_t,
-    field_name: *const c_char,
-    flags: u32,
-) -> Option<NonNull<RLookupKey<'_>>> {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+//     lookup
+//         .get_key_load(name, field_name, flags)
+//         .map(NonNull::from)
+// }
 
-    // Safety: ensured by caller (2., 3., 4., 5.)
-    let field_name = unsafe { CStr::from_ptr(field_name) };
+// /// Get a RLookup key for a given name.
+// ///
+// /// A key is created and returned only if it's NOT in the lookup table (unless the
+// /// override flag is set), and it is not already loaded. It will override an existing key if it was
+// /// created for read out of a sortable field, and the field was normalized. A sortable un-normalized
+// /// field counts as loaded.
+// ///
+// /// # Safety
+// ///
+// /// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+// /// 2. The memory pointed to by `name` and `field_name` must contain a valid nul terminator at the
+// ///    end of the string.
+// /// 3. `name` and `field_name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
+// ///    This means in particular:
+// ///     1. `name_len` must be same as `strlen(name)`
+// ///     2. The entire memory range of these `CStr` must be contained within a single allocation!
+// ///     3. `name` and `field_name` must be non-null even for a zero-length cstr.
+// /// 4. The memory referenced by the returned `CStr` must not be mutated for
+// ///    the lifetime of the returned key.
+// /// 5. The nul terminator must be within `isize::MAX` from `name` and `field_name`
+// /// 6. All bits set in `flags` must correspond to a value of the enum.
+// ///
+// /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn RLookup_GetKey_LoadEx(
+//     lookup: Option<NonNull<RLookup<'_>>>,
+//     name: *const c_char,
+//     name_len: size_t,
+//     field_name: *const c_char,
+//     flags: u32,
+// ) -> Option<NonNull<RLookupKey<'_>>> {
+//     // Safety: ensured by caller (1.)
+//     let lookup = unsafe { lookup.unwrap().as_mut() };
 
-    let name = CStr::from_bytes_with_nul(
-        // `name_len` is a value as returned by `strlen` and therefore **does not**
-        // include the null terminator (that is why we do `name_len + 1` below)
-        // Safety: ensured by caller (2., 3., 4., 5.)
-        unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
-    )
-    .unwrap();
+//     // Safety: ensured by caller (2., 3., 4., 5.)
+//     let field_name = unsafe { CStr::from_ptr(field_name) };
 
-    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+//     let name = CStr::from_bytes_with_nul(
+//         // `name_len` is a value as returned by `strlen` and therefore **does not**
+//         // include the null terminator (that is why we do `name_len + 1` below)
+//         // Safety: ensured by caller (2., 3., 4., 5.)
+//         unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
+//     )
+//     .unwrap();
 
-    let (name, flags) = handle_name_alloc_flag(name, flags);
+//     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
-    lookup
-        .get_key_load(name, field_name, flags)
-        .map(NonNull::from)
-}
+//     let (name, flags) = handle_name_alloc_flag(name, flags);
 
-/// Returns the number of visible fields in this RLookupRow.
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
-/// 2. `row` must be a [valid], non-null pointer to a [`RLookupRow`]
-/// 3. `skip_field_index` must be a [valid] non-null pointer for reads and writes of `skip_field_index_len` boolean values
-/// 4. `rule` must be a [valid], non-null pointer to a [`SchemaRule`] or a null pointer
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_GetLength(
-    lookup: *const RLookup<'_>,
-    row: *const RLookupRow,
-    skip_field_index: Option<NonNull<bool>>,
-    skip_field_index_len: size_t,
-    required_flags: u32,
-    excluded_flags: u32,
-    rule: *const ffi::SchemaRule,
-) -> size_t {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.as_ref().unwrap() };
+//     lookup
+//         .get_key_load(name, field_name, flags)
+//         .map(NonNull::from)
+// }
 
-    // Safety: ensured by caller (2.)
-    let row = unsafe { row.as_ref().unwrap() };
+// /// Returns the number of visible fields in this RLookupRow.
+// ///
+// /// # Safety
+// ///
+// /// 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
+// /// 2. `row` must be a [valid], non-null pointer to a [`RLookupRow`]
+// /// 3. `skip_field_index` must be a [valid] non-null pointer for reads and writes of `skip_field_index_len` boolean values
+// /// 4. `rule` must be a [valid], non-null pointer to a [`SchemaRule`] or a null pointer
+// ///
+// /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn RLookup_GetLength(
+//     lookup: *const RLookup<'_>,
+//     row: *const RLookupRow,
+//     skip_field_index: Option<NonNull<bool>>,
+//     skip_field_index_len: size_t,
+//     required_flags: u32,
+//     excluded_flags: u32,
+//     rule: *const ffi::SchemaRule,
+// ) -> size_t {
+//     // Safety: ensured by caller (1.)
+//     let lookup = unsafe { lookup.as_ref().unwrap() };
 
-    // Safety: ensured by caller (3.)
-    let skip_field_index = unsafe {
-        slice::from_raw_parts_mut(skip_field_index.unwrap().as_ptr(), skip_field_index_len)
-    };
+//     // Safety: ensured by caller (2.)
+//     let row = unsafe { row.as_ref().unwrap() };
 
-    let required_flags = RLookupKeyFlags::from_bits(required_flags).unwrap();
-    let excluded_flags = RLookupKeyFlags::from_bits(excluded_flags).unwrap();
+//     // Safety: ensured by caller (3.)
+//     let skip_field_index = unsafe {
+//         slice::from_raw_parts_mut(skip_field_index.unwrap().as_ptr(), skip_field_index_len)
+//     };
 
-    let rule = if rule.is_null() {
-        None
-    } else {
-        // Safety: ensured by caller (4.)
-        Some(unsafe { SchemaRule::from_raw(rule) })
-    };
+//     let required_flags = RLookupKeyFlags::from_bits(required_flags).unwrap();
+//     let excluded_flags = RLookupKeyFlags::from_bits(excluded_flags).unwrap();
 
-    row.get_length_no_alloc(
-        lookup,
-        required_flags,
-        excluded_flags,
-        rule,
-        skip_field_index,
-    )
-}
+//     let rule = if rule.is_null() {
+//         None
+//     } else {
+//         // Safety: ensured by caller (4.)
+//         Some(unsafe { SchemaRule::from_raw(rule) })
+//     };
 
-/// Initialize the lookup. If cache is provided, then it will be used as an
-/// alternate source for lookups whose fields are absent.
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
-/// 2. `spcache` must be a [valid] pointer to a [`ffi::IndexSpecCache`]
-/// 3. The [`ffi::IndexSpecCache`] being pointed MUST NOT get mutated
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_Init(
-    lookup: Option<NonNull<RLookup<'_>>>,
-    spcache: Option<NonNull<ffi::IndexSpecCache>>,
-) {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
-    let spcache = spcache.map(|spcache| {
-        // Safety: ensured by caller (2. & 3.)
-        unsafe { IndexSpecCache::from_raw(spcache) }
-    });
+//     row.get_length_no_alloc(
+//         lookup,
+//         required_flags,
+//         excluded_flags,
+//         rule,
+//         skip_field_index,
+//     )
+// }
 
-    lookup.init(spcache);
-}
+// /// Initialize the lookup. If cache is provided, then it will be used as an
+// /// alternate source for lookups whose fields are absent.
+// ///
+// /// # Safety
+// ///
+// /// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+// /// 2. `spcache` must be a [valid] pointer to a [`ffi::IndexSpecCache`]
+// /// 3. The [`ffi::IndexSpecCache`] being pointed MUST NOT get mutated
+// ///
+// /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn RLookup_Init(
+//     lookup: Option<NonNull<RLookup<'_>>>,
+//     spcache: Option<NonNull<ffi::IndexSpecCache>>,
+// ) {
+//     // Safety: ensured by caller (1.)
+//     let lookup = unsafe { lookup.unwrap().as_mut() };
+//     let spcache = spcache.map(|spcache| {
+//         // Safety: ensured by caller (2. & 3.)
+//         unsafe { IndexSpecCache::from_raw(spcache) }
+//     });
 
-/// Releases any resources created by this lookup object. Note that if there are
-/// lookup keys created with RLOOKUP_F_NOINCREF, those keys will no longer be
-/// valid after this call!
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
-/// 2. `lookup` **must not** be used again after this function is called.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
-    // Safety: ensured by caller (1.,2.)
-    unsafe { lookup.unwrap().drop_in_place() };
-}
+//     lookup.init(spcache);
+// }
 
-/// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
-fn handle_name_alloc_flag(name: &CStr, flags: RLookupKeyFlags) -> (Cow<'_, CStr>, RLookupKeyFlags) {
-    if flags.contains(RLookupKeyFlag::NameAlloc) {
-        (name.to_owned().into(), flags & !RLookupKeyFlag::NameAlloc)
-    } else {
-        (name.into(), flags)
-    }
-}
+// /// Releases any resources created by this lookup object. Note that if there are
+// /// lookup keys created with RLOOKUP_F_NOINCREF, those keys will no longer be
+// /// valid after this call!
+// ///
+// /// # Safety
+// ///
+// /// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+// /// 2. `lookup` **must not** be used again after this function is called.
+// ///
+// /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
+//     // Safety: ensured by caller (1.,2.)
+//     unsafe { lookup.unwrap().drop_in_place() };
+// }
+
+// /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
+// fn handle_name_alloc_flag(name: &CStr, flags: RLookupKeyFlags) -> (Cow<'_, CStr>, RLookupKeyFlags) {
+//     if flags.contains(RLookupKeyFlag::NameAlloc) {
+//         (name.to_owned().into(), flags & !RLookupKeyFlag::NameAlloc)
+//     } else {
+//         (name.into(), flags)
+//     }
+// }

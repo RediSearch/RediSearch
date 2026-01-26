@@ -434,10 +434,10 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipF
   return nfields;
 }
 
-void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
-  memset(lk, 0, sizeof(*lk));
-  lk->_spcache = spcache;
-}
+// void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
+//   memset(lk, 0, sizeof(*lk));
+//   lk->spcache = spcache;
+// }
 
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
   // Find the pointer to write to ...
