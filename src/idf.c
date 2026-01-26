@@ -9,13 +9,17 @@
 
 #include "idf.h"
 
-inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
+#include <math.h>
+
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+double CalculateIDF(size_t totalDocs, size_t termDocs) {
   return logb(1.0F + totalDocs / (double)(termDocs ?: 1));
 }
 
 // IDF computation for BM25 standard scoring algorithm (which is slightly different from the regular
 // IDF computation).
-inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
+double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
   // totalDocs should never be less than termDocs, as that causes an underflow
   // wraparound in the below calculation.
   // Yet, that can happen in some scenarios of deletions/updates, until fixed in

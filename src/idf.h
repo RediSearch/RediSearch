@@ -11,6 +11,6 @@
 
 #include <stddef.h>  // for size_t
 
-inline double CalculateIDF(size_t totalDocs, size_t termDocs);
+double CalculateIDF(size_t totalDocs, size_t termDocs);
 
-inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs);
+double CalculateIDF_BM25(size_t totalDocs, size_t termDocs);
