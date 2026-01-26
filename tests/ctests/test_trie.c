@@ -56,7 +56,7 @@ int __trie_add(TrieNode **n, char *str, char *payloadStr, float sc, TrieAddOp op
   rune *runes = strToRunes(str, &rlen);
 
   RSPayload payload = {.data = payloadStr, .len = payloadStr ? strlen(payloadStr) : 0};
-  int rc = TrieNode_Add(n, runes, rlen, &payload, sc, op, NULL, 0, ADD_REPLACE);
+  int rc = TrieNode_Add(n, runes, rlen, &payload, sc, op, NULL, 0);
   free(runes);
   return rc;
 }
@@ -243,7 +243,7 @@ int testDFAFilter() {
     }
 
     runes = strToRunes(line, &rlen);
-    int rc = TrieNode_Add(&root, runes, rlen, NULL, (float)score, ADD_REPLACE, NULL, 0, ADD_REPLACE);
+    int rc = TrieNode_Add(&root, runes, rlen, NULL, (float)score, ADD_REPLACE, NULL, 0);
     ASSERT(rc == 1);
     free(runes);
 
@@ -333,7 +333,7 @@ int testDFAFilter() {
   return 0;
 }
 
-int testNumDocsWithAddition() {
+int testNumDocs() {
   Trie *t = NewTrie(NULL, Trie_Sort_Score);
   ASSERT(t != NULL);
   TrieNode *node;
@@ -348,56 +348,56 @@ int testNumDocsWithAddition() {
   rune *abcRunes = strToRunes("ABC", &abcLen);
 
   // Insert "help"
-  int rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 1, ADD_INCR);
+  int rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 1);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, helpRunes, helpLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(1, node->numDocs);
 
   // Insert "helping" - "help" is a prefix of "helping"
-  rc = Trie_InsertStringBuffer(t, "helping", 7, 1.0, 0, NULL, 1, ADD_INCR);
+  rc = Trie_InsertStringBuffer(t, "helping", 7, 1.0, 0, NULL, 1);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, helpingRunes, helpingLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(1, node->numDocs);
 
   // Insert "helper" - shares "help" prefix
-  rc = Trie_InsertStringBuffer(t, "helper", 6, 1.0, 0, NULL, 1, ADD_INCR);
+  rc = Trie_InsertStringBuffer(t, "helper", 6, 1.0, 0, NULL, 1);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, helperRunes, helperLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(1, node->numDocs);
 
   // Insert chain: A -> AB -> ABC (each is prefix of the next)
-  rc = Trie_InsertStringBuffer(t, "A", 1, 1.0, 0, NULL, 1, ADD_INCR);
+  rc = Trie_InsertStringBuffer(t, "A", 1, 1.0, 0, NULL, 1);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, aRunes, aLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(1, node->numDocs);
 
-  rc = Trie_InsertStringBuffer(t, "AB", 2, 1.0, 0, NULL, 1, ADD_INCR);
+  rc = Trie_InsertStringBuffer(t, "AB", 2, 1.0, 0, NULL, 1);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, abRunes, abLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(1, node->numDocs);
 
-  rc = Trie_InsertStringBuffer(t, "ABC", 3, 1.0, 0, NULL, 1, ADD_INCR);
+  rc = Trie_InsertStringBuffer(t, "ABC", 3, 1.0, 0, NULL, 1);
   ASSERT_EQUAL(1, rc);
   node = TrieNode_Get(t->root, abcRunes, abcLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(1, node->numDocs);
 
   // Increment numDocs for "help" multiple times
-  rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 1, ADD_INCR);
+  rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 1);
   ASSERT_EQUAL(0, rc);
-  rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 1, ADD_INCR);
+  rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 1);
   ASSERT_EQUAL(0, rc);
   node = TrieNode_Get(t->root, helpRunes, helpLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(3, node->numDocs);
 
   // Increment numDocs for "AB" (middle of chain)
-  rc = Trie_InsertStringBuffer(t, "AB", 2, 1.0, 0, NULL, 1, ADD_INCR);
+  rc = Trie_InsertStringBuffer(t, "AB", 2, 1.0, 0, NULL, 1);
   ASSERT_EQUAL(0, rc);
   node = TrieNode_Get(t->root, abRunes, abLen, true, NULL);
   ASSERT(node != NULL);
@@ -470,134 +470,6 @@ int testNumDocsWithAddition() {
   return 0;
 }
 
-int testNumDocsWithSet() {
-  Trie *t = NewTrie(NULL, Trie_Sort_Score);
-  ASSERT(t != NULL);
-  TrieNode *node;
-
-  // Allocate runes upfront
-  size_t helpLen, helpingLen, helperLen, aLen, abLen, abcLen;
-  rune *helpRunes = strToRunes("help", &helpLen);
-  rune *helpingRunes = strToRunes("helping", &helpingLen);
-  rune *helperRunes = strToRunes("helper", &helperLen);
-  rune *aRunes = strToRunes("A", &aLen);
-  rune *abRunes = strToRunes("AB", &abLen);
-  rune *abcRunes = strToRunes("ABC", &abcLen);
-
-  // Insert "help" with ADD_REPLACE (simulating RDB load)
-  int rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 10, ADD_REPLACE);
-  ASSERT_EQUAL(1, rc);
-  node = TrieNode_Get(t->root, helpRunes, helpLen, true, NULL);
-  ASSERT(node != NULL);
-  ASSERT_EQUAL(10, node->numDocs);
-
-  // Insert "helping" - "help" is a prefix of "helping"
-  rc = Trie_InsertStringBuffer(t, "helping", 7, 1.0, 0, NULL, 20, ADD_REPLACE);
-  ASSERT_EQUAL(1, rc);
-  node = TrieNode_Get(t->root, helpingRunes, helpingLen, true, NULL);
-  ASSERT(node != NULL);
-  ASSERT_EQUAL(20, node->numDocs);
-
-  // Insert "helper" - shares "help" prefix
-  rc = Trie_InsertStringBuffer(t, "helper", 6, 1.0, 0, NULL, 30, ADD_REPLACE);
-  ASSERT_EQUAL(1, rc);
-  node = TrieNode_Get(t->root, helperRunes, helperLen, true, NULL);
-  ASSERT(node != NULL);
-  ASSERT_EQUAL(30, node->numDocs);
-
-  // Insert chain: A -> AB -> ABC (each is prefix of the next)
-  rc = Trie_InsertStringBuffer(t, "A", 1, 1.0, 0, NULL, 100, ADD_REPLACE);
-  ASSERT_EQUAL(1, rc);
-  node = TrieNode_Get(t->root, aRunes, aLen, true, NULL);
-  ASSERT(node != NULL);
-  ASSERT_EQUAL(100, node->numDocs);
-
-  rc = Trie_InsertStringBuffer(t, "AB", 2, 1.0, 0, NULL, 200, ADD_REPLACE);
-  ASSERT_EQUAL(1, rc);
-  node = TrieNode_Get(t->root, abRunes, abLen, true, NULL);
-  ASSERT(node != NULL);
-  ASSERT_EQUAL(200, node->numDocs);
-
-  rc = Trie_InsertStringBuffer(t, "ABC", 3, 1.0, 0, NULL, 300, ADD_REPLACE);
-  ASSERT_EQUAL(1, rc);
-  node = TrieNode_Get(t->root, abcRunes, abcLen, true, NULL);
-  ASSERT(node != NULL);
-  ASSERT_EQUAL(300, node->numDocs);
-
-  // Override "AB" numDocs with a new value (middle of chain)
-  rc = Trie_InsertStringBuffer(t, "AB", 2, 1.0, 0, NULL, 999, ADD_REPLACE);
-  ASSERT_EQUAL(0, rc);
-  node = TrieNode_Get(t->root, abRunes, abLen, true, NULL);
-  ASSERT(node != NULL);
-  ASSERT_EQUAL(999, node->numDocs);
-
-  // Final verification: check all values
-  node = TrieNode_Get(t->root, helpRunes, helpLen, true, NULL);
-  ASSERT(node != NULL);
-  ASSERT_EQUAL(10, node->numDocs);
-
-  node = TrieNode_Get(t->root, helpingRunes, helpingLen, true, NULL);
-  ASSERT(node != NULL);
-  ASSERT_EQUAL(20, node->numDocs);
-
-  node = TrieNode_Get(t->root, helperRunes, helperLen, true, NULL);
-  ASSERT(node != NULL);
-  ASSERT_EQUAL(30, node->numDocs);
-
-  node = TrieNode_Get(t->root, aRunes, aLen, true, NULL);
-  ASSERT(node != NULL);
-  ASSERT_EQUAL(100, node->numDocs);
-
-  node = TrieNode_Get(t->root, abRunes, abLen, true, NULL);
-  ASSERT(node != NULL);
-  ASSERT_EQUAL(999, node->numDocs);
-
-  node = TrieNode_Get(t->root, abcRunes, abcLen, true, NULL);
-  ASSERT(node != NULL);
-  ASSERT_EQUAL(300, node->numDocs);
-
-  // Verify numDocs via iterator
-  TrieIterator *it = TrieNode_Iterate(t->root, NULL, NULL, NULL);
-  rune *s;
-  t_len iterLen;
-  float score;
-  size_t numDocs;
-  RSPayload payload = {.data = NULL, .len = 0};
-  int count = 0;
-  while (TrieIterator_Next(it, &s, &iterLen, &payload, &score, &numDocs, NULL)) {
-    count++;
-    // Convert runes to string for comparison
-    size_t slen;
-    char *term = runesToStr(s, iterLen, &slen);
-    if (strcmp(term, "help") == 0) {
-      ASSERT_EQUAL(10, numDocs);
-    } else if (strcmp(term, "helping") == 0) {
-      ASSERT_EQUAL(20, numDocs);
-    } else if (strcmp(term, "helper") == 0) {
-      ASSERT_EQUAL(30, numDocs);
-    } else if (strcmp(term, "A") == 0) {
-      ASSERT_EQUAL(100, numDocs);
-    } else if (strcmp(term, "AB") == 0) {
-      ASSERT_EQUAL(999, numDocs);
-    } else if (strcmp(term, "ABC") == 0) {
-      ASSERT_EQUAL(300, numDocs);
-    }
-    free(term);
-  }
-  ASSERT_EQUAL(6, count);  // Should have iterated over all 6 terms
-  TrieIterator_Free(it);
-
-  // Cleanup
-  free(helpRunes);
-  free(helpingRunes);
-  free(helperRunes);
-  free(aRunes);
-  free(abRunes);
-  free(abcRunes);
-  TrieType_Free(t);
-  return 0;
-}
-
 TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testRuneUtil);
@@ -605,6 +477,5 @@ TEST_MAIN({
   TESTFUNC(testTrie);
   TESTFUNC(testPayload);
   TESTFUNC(testUnicode);
-  TESTFUNC(testNumDocsWithAddition);
-  TESTFUNC(testNumDocsWithSet);
+  TESTFUNC(testNumDocs);
 });

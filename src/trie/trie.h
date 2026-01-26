@@ -126,11 +126,10 @@ typedef enum {
  * if we just replaced
  * the score. We pass a pointer to the node because it may actually change when
  * splitting.
- * numDocs: the value to use for numDocs
- * numDocsOp: ADD_REPLACE sets numDocs to the given value, ADD_INCR adds it to the existing value */
+ * numDocs: the value to add to the existing numDocs */
 int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
                  float score, TrieAddOp op, TrieFreeCallback freecb,
-                 size_t numDocs, TrieAddOp numDocsOp);
+                 size_t numDocs);
 
 /* Find the entry with a given string and length, and return its score. Returns
  * 0 if the entry was
