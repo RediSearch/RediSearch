@@ -13,7 +13,7 @@ use criterion::{
     BenchmarkGroup, Criterion, Throughput, black_box, criterion_group, criterion_main,
     measurement::WallTime,
 };
-use hyperloglog::{CFnvHasher, HyperLogLog, HyperLogLog12, Murmur3Hasher};
+use hyperloglog::{CFnvHasher, HyperLogLog, HyperLogLog10, Murmur3Hasher};
 
 // Benchmark-only hasher wrappers (not used in production)
 
@@ -133,7 +133,7 @@ const CARDINALITIES: &[u32] = &[100, 1000, 10000, 100000];
 const HASHER_NAMES: &[&str] = &["fnv", "murmur3", "xxhash32", "ahash", "fxhash", "wyhash"];
 
 fn measure_accuracy<H: hash32::Hasher + Default>(n: u32) -> (usize, f64) {
-    let mut hll: HyperLogLog12<H> = HyperLogLog::new();
+    let mut hll: HyperLogLog10<H> = HyperLogLog::new();
     for i in 0..n {
         hll.add(&i.to_le_bytes());
     }
@@ -148,7 +148,7 @@ fn bench_add(c: &mut Criterion) {
         name: &str,
     ) {
         group.bench_function(name, |b| {
-            let mut hll: HyperLogLog12<H> = HyperLogLog::new();
+            let mut hll: HyperLogLog10<H> = HyperLogLog::new();
             let mut i = 0u32;
             b.iter(|| {
                 hll.add(black_box(&i.to_le_bytes()));
@@ -174,7 +174,7 @@ fn bench_count(c: &mut Criterion) {
         b.iter_batched(
             || {
                 // Setup: create HyperLogLog with data, cache not yet computed
-                let mut hll: HyperLogLog12<CFnvHasher> = HyperLogLog::new();
+                let mut hll: HyperLogLog10<CFnvHasher> = HyperLogLog::new();
                 for i in 0..10000u32 {
                     hll.add(&i.to_le_bytes());
                 }
@@ -195,8 +195,8 @@ fn bench_merge(c: &mut Criterion) {
     group.bench_function("fnv", |b| {
         b.iter_batched(
             || {
-                let mut hll1: HyperLogLog12<CFnvHasher> = HyperLogLog::new();
-                let mut hll2: HyperLogLog12<CFnvHasher> = HyperLogLog::new();
+                let mut hll1: HyperLogLog10<CFnvHasher> = HyperLogLog::new();
+                let mut hll2: HyperLogLog10<CFnvHasher> = HyperLogLog::new();
                 for i in 0..1000u32 {
                     hll1.add(&i.to_le_bytes());
                     hll2.add(&(i + 500).to_le_bytes());

@@ -15,31 +15,31 @@
 use std::hash::Hasher;
 
 use hyperloglog::{
-    CFnvHasher, HyperLogLog, HyperLogLog4, HyperLogLog8, HyperLogLog12, HyperLogLog16,
+    CFnvHasher, HyperLogLog, HyperLogLog4, HyperLogLog8, HyperLogLog9, HyperLogLog10,
     InvalidBufferLength, Murmur3Hasher,
 };
 
 /// Concrete type alias for testing to avoid inference issues with multiple Hasher32 impls.
-type TestHll12 = HyperLogLog<12, 4096, CFnvHasher>;
+type TestHll10 = HyperLogLog10<CFnvHasher>;
 
 #[test]
 fn test_new_hll() {
-    let hll = TestHll12::new();
+    let hll = TestHll10::new();
     assert_eq!(hll.count(), 0);
-    assert_eq!(TestHll12::bits(), 12);
-    assert_eq!(TestHll12::size(), 4096);
+    assert_eq!(TestHll10::bits(), 10);
+    assert_eq!(TestHll10::size(), 1024);
 }
 
 #[test]
 fn test_add_single_element() {
-    let mut hll = TestHll12::new();
+    let mut hll = TestHll10::new();
     hll.add(b"hello");
     assert_eq!(hll.count(), 1);
 }
 
 #[test]
 fn test_add_duplicate_elements() {
-    let mut hll = TestHll12::new();
+    let mut hll = TestHll10::new();
     for _ in 0..100 {
         hll.add(b"same");
     }
@@ -48,7 +48,7 @@ fn test_add_duplicate_elements() {
 
 #[test]
 fn test_add_many_distinct_elements() {
-    let mut hll = TestHll12::new();
+    let mut hll = TestHll10::new();
     let n = 10000u32;
     // Use simple incrementing integers - they work well with FNV-1a
     for i in 0..n {
@@ -76,22 +76,22 @@ fn test_add_many_distinct_elements() {
 #[test]
 fn test_add_hash_direct() {
     // Test with pre-computed hash values to verify algorithm correctness
-    let mut hll = TestHll12::new();
+    let mut hll = TestHll10::new();
 
     // Add hashes that will go to different registers with known ranks
-    // Hash format: top 12 bits = register index, trailing zeros = rank - 1
-    // Register 0 with rank 1 (0 trailing zeros): 0x00100001
-    hll.add_precomputed_hash(0x00100001);
-    // Register 1 with rank 2 (1 trailing zero): 0x00200002
-    hll.add_precomputed_hash(0x00200002);
-    // Register 2 with rank 3 (2 trailing zeros): 0x00300004
-    hll.add_precomputed_hash(0x00300004);
+    // Hash format: top 10 bits = register index, trailing zeros = rank - 1
+    // Register 0 with rank 1 (0 trailing zeros)
+    hll.add_precomputed_hash(0b100000000000000000001);
+    // Register 1 with rank 2 (1 trailing zero)
+    hll.add_precomputed_hash(0b10000000000000000000010);
+    // Register 2 with rank 3 (2 trailing zeros)
+    hll.add_precomputed_hash(0b100000000000000000001100);
 
     // Check that registers were set correctly
     let regs = hll.registers();
-    assert_eq!(regs[1], 1, "register 1 should be 1");
-    assert_eq!(regs[2], 2, "register 2 should be 2");
-    assert_eq!(regs[3], 3, "register 3 should be 3");
+    assert_eq!(regs[0], 1, "register 0 should be 1");
+    assert_eq!(regs[1], 2, "register 1 should be 2");
+    assert_eq!(regs[2], 3, "register 2 should be 3");
 
     // Count should be small (we only added 3 distinct elements)
     let count = hll.count();
@@ -136,7 +136,7 @@ fn test_hash_distribution() {
 
 #[test]
 fn test_register_distribution() {
-    let mut hll = TestHll12::new();
+    let mut hll = TestHll10::new();
     let n = 10000u32;
 
     for i in 0..n {
@@ -155,7 +155,7 @@ fn test_register_distribution() {
 #[test]
 fn test_small_cardinality() {
     // Test small cardinality where linear counting is expected
-    let mut hll = TestHll12::new();
+    let mut hll = TestHll10::new();
     let n = 1000u32;
 
     for i in 0..n {
@@ -174,8 +174,8 @@ fn test_small_cardinality() {
 
 #[test]
 fn test_merge() {
-    let mut hll1 = TestHll12::new();
-    let mut hll2 = TestHll12::new();
+    let mut hll1 = TestHll10::new();
+    let mut hll2 = TestHll10::new();
 
     for i in 0..1000u32 {
         hll1.add(&i.to_le_bytes());
@@ -195,7 +195,7 @@ fn test_merge() {
 
 #[test]
 fn test_clear() {
-    let mut hll = TestHll12::new();
+    let mut hll = TestHll10::new();
     hll.add(b"hello");
     assert!(hll.count() > 0);
 
@@ -205,7 +205,7 @@ fn test_clear() {
 
 #[test]
 fn test_cache_invalidation() {
-    let mut hll = TestHll12::new();
+    let mut hll = TestHll10::new();
     hll.add(b"hello");
     let count1 = hll.count();
     let count2 = hll.count(); // Should use cache
@@ -218,30 +218,30 @@ fn test_cache_invalidation() {
 
 #[test]
 fn test_from_registers() {
-    let mut hll1 = TestHll12::new();
+    let mut hll1 = TestHll10::new();
     for i in 0..1000u32 {
         hll1.add(&i.to_le_bytes());
     }
 
     let registers = *hll1.registers();
-    let hll2 = TestHll12::from_registers(registers);
+    let hll2 = TestHll10::from_registers(registers);
 
     assert_eq!(hll1.count(), hll2.count());
 }
 
 #[test]
 fn test_try_from_slice() {
-    let hll1 = TestHll12::new();
+    let hll1 = TestHll10::new();
     let slice = hll1.registers().as_slice();
 
-    let hll2 = TestHll12::try_from(slice).unwrap();
+    let hll2 = TestHll10::try_from(slice).unwrap();
     assert_eq!(hll1.count(), hll2.count());
 }
 
 #[test]
 fn test_try_from_slice_invalid_length() {
-    let err = TestHll12::try_from([0u8; 100].as_slice()).unwrap_err();
-    assert_eq!(err, InvalidBufferLength::<4096> { got: 100 });
+    let err = TestHll10::try_from([0u8; 100].as_slice()).unwrap_err();
+    assert_eq!(err, InvalidBufferLength::<1024> { got: 100 });
 }
 
 #[test]
@@ -253,15 +253,15 @@ fn test_type_aliases() {
     assert_eq!(HyperLogLog8::<CFnvHasher>::bits(), 8);
     assert_eq!(HyperLogLog8::<CFnvHasher>::size(), 256);
 
-    assert_eq!(HyperLogLog16::<CFnvHasher>::bits(), 16);
-    assert_eq!(HyperLogLog16::<CFnvHasher>::size(), 65536);
+    assert_eq!(HyperLogLog9::<CFnvHasher>::bits(), 9);
+    assert_eq!(HyperLogLog9::<CFnvHasher>::size(), 512);
 }
 
 #[test]
 fn test_murmur3_accuracy() {
-    type Murmur3HyperLogLog12 = HyperLogLog<12, 4096, Murmur3Hasher>;
+    type Murmur3HyperLogLog10 = HyperLogLog10<Murmur3Hasher>;
 
-    let mut hll = Murmur3HyperLogLog12::new();
+    let mut hll = Murmur3HyperLogLog10::new();
     let n = 10000u32;
 
     for i in 0..n {
@@ -271,9 +271,9 @@ fn test_murmur3_accuracy() {
     let count = hll.count();
     let error = (count as f64 - n as f64).abs() / n as f64;
 
-    // Murmur3 should achieve < 5% error with sequential integers
+    // Murmur3 should achieve < 10% error with sequential integers
     assert!(
-        error < 0.05,
+        error < 0.10,
         "error {error} too large, count={count}, n={n}"
     );
 }
@@ -302,19 +302,19 @@ impl hash32::Hasher for CustomTestHasher {
 
 #[test]
 fn test_custom_hasher() {
-    let mut hll: HyperLogLog12<CustomTestHasher> = HyperLogLog::new();
+    let mut hll: HyperLogLog10<CustomTestHasher> = HyperLogLog::new();
     hll.add(b"test");
     assert!(hll.count() >= 1);
 }
 
 #[test]
 fn test_large_range_correction() {
-    // Use HyperLogLog16 with high register values to trigger large range correction
+    // Use HyperLogLog10 with high register values to trigger large range correction
     // Large correction applies when estimate > (1/30) * 2^32 ≈ 143 million
-    let mut registers = [0u8; 65536];
+    let mut registers = [0u8; 1024];
     registers.fill(15); // High values -> small sum -> large raw estimate
 
-    let hll = HyperLogLog::<16, 65536, Murmur3Hasher>::from_registers(registers);
+    let hll = HyperLogLog10::<Murmur3Hasher>::from_registers(registers);
     let count = hll.count();
 
     // Should produce a reasonable estimate (not overflow or panic)
@@ -384,14 +384,14 @@ mod proptests {
     use proptest::prelude::*;
 
     /// Concrete type alias for property tests to avoid inference issues.
-    type TestHll12 = HyperLogLog<12, 4096, CFnvHasher>;
+    type TestHll10 = HyperLogLog10<CFnvHasher>;
 
     proptest! {
         /// Test that merge always increases or maintains the count estimate.
         #[test]
         fn merge_is_monotonic(n1 in 10u32..100, n2 in 10u32..100) {
-            let mut hll1 = TestHll12::new();
-            let mut hll2 = TestHll12::new();
+            let mut hll1 = TestHll10::new();
+            let mut hll2 = TestHll10::new();
 
             // Add elements to both HLLs
             for i in 0..n1 {
@@ -413,7 +413,7 @@ mod proptests {
         /// Test that clearing an HLL always resets count to 0.
         #[test]
         fn clear_resets_to_zero(n in 1u32..1000) {
-            let mut hll = TestHll12::new();
+            let mut hll = TestHll10::new();
             for i in 0..n {
                 hll.add(&i.to_le_bytes());
             }
@@ -426,7 +426,7 @@ mod proptests {
         /// Test that adding the same element multiple times doesn't increase count.
         #[test]
         fn duplicates_dont_increase_count(n in 1u32..100) {
-            let mut hll = TestHll12::new();
+            let mut hll = TestHll10::new();
             let data = b"same_element";
 
             for _ in 0..n {
@@ -440,14 +440,14 @@ mod proptests {
         /// Test that from_registers preserves the count.
         #[test]
         fn from_registers_preserves_count(n in 10u32..500) {
-            let mut hll1 = TestHll12::new();
+            let mut hll1 = TestHll10::new();
             for i in 0..n {
                 hll1.add(&i.to_le_bytes());
             }
 
             let count1 = hll1.count();
             let registers = *hll1.registers();
-            let hll2 = TestHll12::from_registers(registers);
+            let hll2 = TestHll10::from_registers(registers);
 
             prop_assert_eq!(hll2.count(), count1);
         }

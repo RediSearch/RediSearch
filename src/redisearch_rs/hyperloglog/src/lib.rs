@@ -14,23 +14,29 @@
 //!
 //! - Compile-time validation of parameters via const generics
 //! - Pluggable hash functions via the [`hash32::Hasher`] trait
-//! - Optimal memory layout using `Box<[u8; SIZE]>`
+//! - Optimal memory layout using `[u8; SIZE]`
 //!
 //! # Example
 //!
 //! ```
-//! use hyperloglog::{HyperLogLog, CFnvHasher};
+//! use hyperloglog::{HyperLogLog10, CFnvHasher};
 //!
-//! // Create an instance with 12-bit precision (4096 registers, ~1.6% error)
-//! let mut hll: HyperLogLog<12, 4096, CFnvHasher> = HyperLogLog::new();
+//! // Create an instance with 10-bit precision (1024 registers, ~3.2% error)
+//! let mut hll: HyperLogLog10<CFnvHasher> = HyperLogLog10::new();
 //! hll.add(b"hello");
 //! hll.add(b"world");
-//! hll.add(b"hello"); // duplicate, won't increase count significantly
+//! let count = hll.count();
+//! hll.add(b"hello"); // duplicate, won't increase count
+//! assert_eq!(count, hll.count());
 //!
 //! // Estimated cardinality should be close to 2
 //! let count = hll.count();
 //! assert!(count <= 3);
 //! ```
+//!
+//! # Implementation details
+//!
+//! The registers are stored on the stack, with an upper bound of 1KB (i.e. 10-bit precision).
 
 use std::cell::Cell;
 use std::marker::PhantomData;
@@ -58,7 +64,7 @@ pub struct InvalidBufferLength<const EXPECTED: usize> {
 ///
 /// # Type Parameters
 ///
-/// - `BITS`: The number of bits used for register indexing (4..=20).
+/// - `BITS`: The number of bits used for register indexing (4..=10).
 ///   Higher values give more accuracy but use more memory.
 /// - `SIZE`: The number of registers, must equal `1 << BITS`.
 /// - `H`: The hasher type implementing [`hash32::Hasher`].
@@ -77,29 +83,30 @@ pub struct InvalidBufferLength<const EXPECTED: usize> {
 ///
 /// Until this feature stabilizes, we require both `BITS` and `SIZE` as separate
 /// parameters, with a compile-time assertion ensuring `SIZE == 1 << BITS`.
-/// The type aliases (e.g., [`HyperLogLog12`]) hide this complexity for common configurations.
+/// The type aliases (e.g., [`HyperLogLog10`]) hide this complexity for common configurations.
 ///
 /// # Memory Usage
 ///
 /// The memory usage is `SIZE` bytes for registers, which equals `2^BITS` bytes.
-/// For example, `HyperLogLog12` uses 4096 bytes.
+/// For example, `HyperLogLog10` uses 1024 bytes.
 ///
 /// # Error Rate
 ///
 /// The expected relative error is approximately `1.04 / sqrt(2^BITS)`:
-/// - `BITS=12`: ~1.6% error
-/// - `BITS=14`: ~0.8% error
-/// - `BITS=16`: ~0.4% error
+/// - `BITS=6`: ~13% error
+/// - `BITS=10`: ~3.3% error
 pub struct HyperLogLog<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default = CFnvHasher>
 {
     cached_card: Cell<Option<usize>>,
-    registers: Box<[u8; SIZE]>,
+    registers: [u8; SIZE],
     _hasher: PhantomData<H>,
 }
 
 impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> HyperLogLog<BITS, SIZE, H> {
     /// Compile-time assertion that BITS is in the valid range.
-    const _BITS_RANGE_CHECK: () = assert!(BITS >= 4 && BITS <= 20, "BITS must be in 4..=20");
+    /// We use 10 as the upper bound since it'd be counter-productive to have a struct on the stack
+    /// that's bigger than 1KB.
+    const _BITS_RANGE_CHECK: () = assert!(BITS >= 4 && BITS <= 10, "BITS must be in 4..=10");
 
     /// Compile-time assertion that SIZE matches 1 << BITS.
     const _BITS_SIZE_CHECK: () = assert!(SIZE == (1 << BITS), "SIZE must equal 1 << BITS");
@@ -110,14 +117,14 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> HyperLogLog
     /// Creates a new empty HLL.
     ///
     /// All registers are initialized to zero, representing an empty set.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         // Trigger compile-time checks
         let () = Self::_BITS_RANGE_CHECK;
         let () = Self::_BITS_SIZE_CHECK;
 
         Self {
             cached_card: Cell::new(Some(0)),
-            registers: Box::new([0u8; SIZE]),
+            registers: [0u8; SIZE],
             _hasher: PhantomData,
         }
     }
@@ -135,7 +142,7 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> HyperLogLog
 
         Self {
             cached_card: Cell::new(None),
-            registers: Box::new(registers),
+            registers,
             _hasher: PhantomData,
         }
     }
@@ -227,7 +234,7 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> HyperLogLog
         #[cfg(debug_assertions)]
         Self::validate_register_values(registers.as_slice());
 
-        *self.registers = registers;
+        self.registers = registers;
         self.cached_card.set(None);
     }
 
@@ -264,8 +271,9 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> HyperLogLog
     fn compute_estimate(&self) -> usize {
         let alpha_mm = alpha(BITS, SIZE) * (SIZE as f64) * (SIZE as f64);
 
-        // Single-pass: compute sum and count zeros together
-        let sum = self.registers.iter()
+        let sum: f64 = self
+            .registers
+            .iter()
             .map(|&reg| 1.0 / ((1u32 << reg) as f64))
             .sum();
 
@@ -324,7 +332,7 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Clone
     fn clone(&self) -> Self {
         Self {
             cached_card: self.cached_card.clone(),
-            registers: self.registers.clone(),
+            registers: self.registers,
             _hasher: PhantomData,
         }
     }
@@ -371,20 +379,17 @@ pub type HyperLogLog5<H = CFnvHasher> = HyperLogLog<5, 32, H>;
 /// HyperLogLog with 6-bit precision (64 registers, ~13% error).
 pub type HyperLogLog6<H = CFnvHasher> = HyperLogLog<6, 64, H>;
 
+/// HyperLogLog with 7-bit precision (128 registers, ~9.2% error).
+pub type HyperLogLog7<H = CFnvHasher> = HyperLogLog<7, 128, H>;
+
 /// HyperLogLog with 8-bit precision (256 registers, ~6.5% error).
 pub type HyperLogLog8<H = CFnvHasher> = HyperLogLog<8, 256, H>;
 
+/// HyperLogLog with 9-bit precision (512 registers, ~4.6% error).
+pub type HyperLogLog9<H = CFnvHasher> = HyperLogLog<9, 512, H>;
+
 /// HyperLogLog with 10-bit precision (1024 registers, ~3.3% error).
 pub type HyperLogLog10<H = CFnvHasher> = HyperLogLog<10, 1024, H>;
-
-/// HyperLogLog with 12-bit precision (4096 registers, ~1.6% error).
-pub type HyperLogLog12<H = CFnvHasher> = HyperLogLog<12, 4096, H>;
-
-/// HyperLogLog with 14-bit precision (16384 registers, ~0.8% error).
-pub type HyperLogLog14<H = CFnvHasher> = HyperLogLog<14, 16384, H>;
-
-/// HyperLogLog with 16-bit precision (65536 registers, ~0.4% error).
-pub type HyperLogLog16<H = CFnvHasher> = HyperLogLog<16, 65536, H>;
 
 #[cfg(test)]
 mod tests {
