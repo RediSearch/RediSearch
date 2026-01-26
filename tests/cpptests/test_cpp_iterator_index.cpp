@@ -903,7 +903,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
             // Create a dummy index to simulate the "new" index that would be returned
             // by the lookup after GC
             size_t memsize;
-            InvertedIndex *dummyIdx = NewInvertedIndex(IndexReader_Flags(InvIndIterator_GetReader(invIt)), &memsize);
+            InvertedIndex *dummyIdx = NewInvertedIndex(InvIndIterator_GetReaderFlags(invIt), &memsize);
 
             // Temporarily replace the iterator's index pointer
             IndexReader_SwapIndex(invIt->reader, dummyIdx);
