@@ -138,7 +138,7 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   memcpy(newChildren, children, sizeof(TrieNode *) * n->numChildren);
   memcpy(__trieNode_childKey(newChild, 0), __trieNode_childKey(n, 0), n->numChildren * sizeof(rune));
 
-  // reduce the node to be just one child long with no score and no numDocs
+  // reduce the node to be just one child with no score and no documents
   n->numChildren = 1;
   n->len = offset;
   n->score = 0;
