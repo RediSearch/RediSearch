@@ -187,7 +187,7 @@ where
         }
 
         while self.reader.next_record(&mut self.result)? {
-            if !self.is_current_doc_not_expired() {
+            if self.is_current_doc_expired() {
                 continue;
             }
             self.last_doc_id = self.result.doc_id;
@@ -212,7 +212,7 @@ where
                 // Prevent returning the same doc
                 continue;
             }
-            if !self.is_current_doc_not_expired() {
+            if self.is_current_doc_expired() {
                 continue;
             }
             self.last_doc_id = self.result.doc_id;
@@ -224,13 +224,13 @@ where
         Ok(None)
     }
 
-    /// Returns `false` if the current document is expired.
+    /// Returns `true` if the current document is expired.
     ///
     /// # Safety
     /// 1. self.query_ctx cannot be `None`.
     /// 2. `query_ctx.sctx` and `query_ctx.sctx.spec` are valid pointers to their respective types.
     ///    Guaranteed by the 3. from [`InvIndIterator::new`].
-    fn is_current_doc_not_expired(&self) -> bool {
+    fn is_current_doc_expired(&self) -> bool {
         // SAFETY: 1
         let query_ctx = unsafe { self.query_ctx.as_ref().unwrap_unchecked() };
         // SAFETY: 2
@@ -247,7 +247,7 @@ where
             // - 2. guarantees that the ttl pointer is valid.
             // - We just allocated `current_time` on the stack so its pointer is valid.
             FieldMaskOrIndex::Index(index) => unsafe {
-                ffi::TimeToLiveTable_VerifyDocAndField(
+                !ffi::TimeToLiveTable_VerifyDocAndField(
                     spec.docs.ttl,
                     self.result.doc_id,
                     index,
@@ -261,7 +261,7 @@ where
             // - 2. guarantees that the ttl pointer is valid.
             // - We just allocated `current_time` on the stack so its pointer is valid.
             unsafe {
-                ffi::TimeToLiveTable_VerifyDocAndFieldMask(
+                !ffi::TimeToLiveTable_VerifyDocAndFieldMask(
                     spec.docs.ttl,
                     self.result.doc_id,
                     (self.result.field_mask & mask) as u32,
@@ -276,7 +276,7 @@ where
                 // - 2. guarantees that the ttl pointer is valid.
                 // - We just allocated `current_time` on the stack so its pointer is valid.
                 unsafe {
-                    ffi::TimeToLiveTable_VerifyDocAndWideFieldMask(
+                    !ffi::TimeToLiveTable_VerifyDocAndWideFieldMask(
                         spec.docs.ttl,
                         self.result.doc_id,
                         self.result.field_mask & mask,
@@ -330,7 +330,7 @@ where
             return Ok(None);
         }
 
-        if self.is_current_doc_not_expired() {
+        if !self.is_current_doc_expired() {
             // The seeker found a doc id that is greater or equal to the requested doc id
             // and the doc id did not expired.
             self.last_doc_id = self.result.doc_id;
