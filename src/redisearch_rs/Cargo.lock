@@ -1647,6 +1647,7 @@ dependencies = [
  "ffi",
  "libc",
  "rlookup",
+ "sorting_vector",
  "value",
  "workspace_hack",
 ]

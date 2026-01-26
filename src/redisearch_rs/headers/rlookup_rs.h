@@ -597,6 +597,30 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *src_row,
  */
 RSValue *RLookupRow_Get(const struct RLookupKey *key, const RLookupRow *row);
 
+/**
+ * Returns the sorting vector for the row, or null if none exists.
+ *
+ * # Safety
+ *
+ * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+const RSSortingVector<RSValueFFI> *RLookupRow_GetSortingVector(const RLookupRow *row);
+
+/**
+ * Sets the sorting vector for the row.
+ *
+ * # Safety
+ *
+ * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 2. `sv` must be either null or a [valid], non-null pointer to an [`sorting_vector::RSSortingVector`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_SetSortingVector(RLookupRow *row,
+                                 const RSSortingVector<RSValueFFI> *sv);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
