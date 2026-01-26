@@ -187,7 +187,7 @@ where
         }
 
         while self.reader.next_record(&mut self.result)? {
-            if !self.check_current_expiration() {
+            if !self.is_current_doc_not_expired() {
                 continue;
             }
             self.last_doc_id = self.result.doc_id;
@@ -212,7 +212,7 @@ where
                 // Prevent returning the same doc
                 continue;
             }
-            if !self.check_current_expiration() {
+            if !self.is_current_doc_not_expired() {
                 continue;
             }
             self.last_doc_id = self.result.doc_id;
@@ -230,7 +230,7 @@ where
     /// 1. self.query_ctx cannot be `None`.
     /// 2. `query_ctx.sctx` and `query_ctx.sctx.spec` are valid pointers to their respective types.
     ///    Guaranteed by the 3. from [`InvIndIterator::new`].
-    fn check_current_expiration(&self) -> bool {
+    fn is_current_doc_not_expired(&self) -> bool {
         // SAFETY: 1
         let query_ctx = unsafe { self.query_ctx.as_ref().unwrap_unchecked() };
         // SAFETY: 2
@@ -330,7 +330,7 @@ where
             return Ok(None);
         }
 
-        if self.check_current_expiration() {
+        if self.is_current_doc_not_expired() {
             // The seeker found a doc id that is greater or equal to the requested doc id
             // and the doc id did not expired.
             self.last_doc_id = self.result.doc_id;
