@@ -113,10 +113,10 @@ class TestSearchCoordinatorTimeout:
             while getWorkersThpoolStats(env)['numThreadsAlive'] == 0:
                 time.sleep(0.1)
 
-        # Drain workers to ensure worker thread in coordinator has finished
-        env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
-        stats = getWorkersThpoolStats(env)
-        env.assertEqual(stats['totalJobsDone'], 1)
+        # Wait for worker to finish job
+        with TimeLimit(30, 'Timeout while waiting for worker to finish job'):
+            while getWorkersThpoolStats(env)['totalJobsDone'] < 1:
+                time.sleep(0.1)
 
         # Unblock the client with TIMEOUT
         unblock_result = env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
