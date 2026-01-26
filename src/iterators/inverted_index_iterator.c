@@ -437,7 +437,7 @@ QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const Re
 }
 
 static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
-  return logb(1.0F + totalDocs / (double)(termDocs ?: 1));
+  return logb(1.0F + (totalDocs + 1) / (double)(termDocs ?: 1));
 }
 
 // IDF computation for BM25 standard scoring algorithm (which is slightly different from the regular
@@ -460,7 +460,7 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sctx->spec->stats.numDocuments + 1, InvertedIndex_NumDocs(idx)); // +1 because logb is used, and logb(1.99) = 0 and logb(2.00) = 1)
+    term->idf = CalculateIDF(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx)); // +1 because logb is used, and logb(1.99) = 0 and logb(2.00) = 1)
     term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
   }
 
@@ -486,7 +486,7 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
     .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
   };
   if (term && sctx) {
-    term->idf = CalculateIDF(sctx->spec->stats.numDocuments + 1, InvertedIndex_NumDocs(idx)); // +1 because logb is used, and logb(1.99) = 0 and logb(2.00) = 1)
+    term->idf = CalculateIDF(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx)); // +1 because logb is used, and logb(1.99) = 0 and logb(2.00) = 1)
     term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
   }
 
