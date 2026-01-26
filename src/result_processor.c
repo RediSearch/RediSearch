@@ -33,6 +33,8 @@
 #include "redisearch.h"
 #include "asm_state_machine.h"
 #include "index_result.h"
+#include "byte_offsets.h"
+#include "sorting_vector_rs.h"
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -69,7 +71,7 @@ typedef struct {
   // Double-buffering for async disk I/O: iteratorResults holds deep-copied IndexResults from the
   // iterator, which are submitted to the async pool and tracked in pendingResults until their
   // disk reads complete and appear in readyResults for consumption.
-  RedisSearchDiskAsyncReadPool *asyncPool;      // Async pool for disk-based indexes (NULL if not using disk)
+  RedisSearchDiskAsyncReadPool asyncPool;       // Async pool for disk-based indexes (NULL if not using disk)
 
   uint16_t iteratorResultCount;                 // Number of nodes in iteratorResults list
   DLLIST iteratorResults;                       // Deep-copied IndexResults from iterator, not yet submitted to async pool
@@ -409,7 +411,10 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     refillAsyncPool(self);
 
     // Step 6: Check if we're completely done
-    if (pollResult.ready_count == 0 && pollResult.pending_count == 0 && it->atEOF) {
+    // We're done only if: iterator is at EOF, no ready results, no pending results in the pool,
+    // and no buffered results waiting to be submitted
+    if (it->atEOF && pollResult.ready_count == 0 &&
+        DLLIST_IS_EMPTY(&self->pendingResults) && DLLIST_IS_EMPTY(&self->iteratorResults)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
     }
 
@@ -449,8 +454,23 @@ static void rpQueryItFree(ResultProcessor *iter) {
   if (self->readyResults) {
     // Free any remaining DMD data that wasn't consumed
     for (uint16_t i = self->readyResultsIndex; i < array_len(self->readyResults); i++) {
-      if (self->readyResults[i].dmd.keyPtr) {
-        sdsfree(self->readyResults[i].dmd.keyPtr);
+      RSDocumentMetadata *dmd = &self->readyResults[i].dmd;
+
+      // Free all allocated fields in the DMD
+      if (dmd->keyPtr) {
+        sdsfree(dmd->keyPtr);
+      }
+      if (dmd->payload) {
+        if (dmd->payload->data) {
+          rm_free((void *)dmd->payload->data);
+        }
+        rm_free(dmd->payload);
+      }
+      if (dmd->sortVector) {
+        RSSortingVector_Free(dmd->sortVector);
+      }
+      if (dmd->byteOffsets) {
+        RSByteOffsets_Free(dmd->byteOffsets);
       }
     }
     array_free(self->readyResults);
@@ -477,12 +497,20 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
       // Allocate async I/O buffers (fixed capacity for poll results)
       ret->readyResults = array_new(AsyncReadResult, ASYNC_POOL_SIZE);
 
-      // Initialize double linked lists for IndexResults
-      dllist_init(&ret->iteratorResults);
-      dllist_init(&ret->pendingResults);
-      ret->iteratorResultCount = 0;
+      // Check if allocation succeeded
+      if (ret->readyResults) {
+        // Initialize double linked lists for IndexResults
+        dllist_init(&ret->iteratorResults);
+        dllist_init(&ret->pendingResults);
+        ret->iteratorResultCount = 0;
 
-      ret->base.Next = rpQueryItNext_AsyncDisk;
+        ret->base.Next = rpQueryItNext_AsyncDisk;
+      } else {
+        // Allocation failed - clean up async pool and fallback to sync
+        SearchDisk_FreeAsyncReadPool(ret->asyncPool);
+        ret->asyncPool = NULL;
+        ret->base.Next = rpQueryItNext;
+      }
     } else {
       // Fallback to sync if async pool creation failed
       ret->base.Next = rpQueryItNext;
