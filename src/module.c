@@ -1968,7 +1968,7 @@ static searchRequestCtx* searchRequestCtx_New(void) {
   return rm_calloc(1, sizeof(searchRequestCtx));
 }
 
-static void searchRequestCtx_Free(searchRequestCtx *r) {
+void SearchRequestCtx_Free(searchRequestCtx *r) {
   if(r->queryString) {
     rm_free(r->queryString);
   }
@@ -2135,7 +2135,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   rs_wall_clock_init(&req->initClock);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
-    searchRequestCtx_Free(req);
+    SearchRequestCtx_Free(req);
     return NULL;
   }
 
@@ -2169,7 +2169,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   // Parse LIMIT argument
   RMUtil_ParseArgsAfter("LIMIT", argv + argvOffset, argc - argvOffset, "ll", &req->offset, &req->limit);
   if (req->limit < 0 || req->offset < 0) {
-    searchRequestCtx_Free(req);
+    SearchRequestCtx_Free(req);
     return NULL;
   }
   req->requestedResultsCount = req->limit + req->offset;
@@ -2182,7 +2182,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     req->withSortby = true;
     // Check for command error where no sortkey is given.
     if(sortByIndex + 1 >= argc) {
-      searchRequestCtx_Free(req);
+      SearchRequestCtx_Free(req);
       return NULL;
     }
     prepareSortbyCase(req, argv, argc, sortByIndex);
@@ -2197,7 +2197,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
       ArgsCursor ac;
       ArgsCursor_InitRString(&ac, argv+argIndex, argc-argIndex);
       if (parseDialect(&dialect, &ac, status) != REDISMODULE_OK) {
-        searchRequestCtx_Free(req);
+        SearchRequestCtx_Free(req);
         return NULL;
       }
   }
@@ -2207,7 +2207,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     if(strcasestr(req->queryString, "KNN")) {
       specialCaseCtx *knnCtx = prepareOptionalTopKCase(req->queryString, argv, argc, dialect, status);
       if (QueryError_HasError(status)) {
-        searchRequestCtx_Free(req);
+        SearchRequestCtx_Free(req);
         return NULL;
       }
       if (knnCtx != NULL) {
@@ -2223,7 +2223,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     ArgsCursor ac;
     ArgsCursor_InitRString(&ac, argv+argIndex, argc-argIndex);
     if (parseValueFormat(&req->format, &ac, status) != REDISMODULE_OK) {
-      searchRequestCtx_Free(req);
+      SearchRequestCtx_Free(req);
       return NULL;
     }
   }
@@ -3193,7 +3193,7 @@ cleanup:
     rCtx.reduceSpecialCaseCtxKnn->knn.pq = NULL;
   }
 
-  searchRequestCtx_Free(req);
+  SearchRequestCtx_Free(req);
   // MRCtx cleanup is handled by DistSearchFreePrivData callback
   return res;
 }
@@ -3727,7 +3727,7 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
     MRCommand_Free(cmd);
-    searchRequestCtx_Free(req);
+    SearchRequestCtx_Free(req);
     QueryError_SetCode(status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     bailOut(bc, status);
     return REDISMODULE_ERR;
@@ -3840,20 +3840,21 @@ static int DistSearchTimeoutClient(RedisModuleCtx *ctx, RedisModuleString **argv
   UNUSED(argv);
   UNUSED(argc);
 
-  // If policy is fail, we should return an error
-  // TODO: When implementing fail, use different callback that returns an error
-  if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-    RedisModule_EndReply(reply);
-    return REDISMODULE_OK;
-  }
-
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
+
   if (mrctx) {
     // Signal timeout takeover - after this, fanoutCallback will free incoming replies
     // and not call UnblockClient
     MRCtx_SetTimedOut(mrctx);
+
+    // If policy is fail, we should return an error
+    // TODO: When implementing fail, use different callback that returns an error
+    if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
+      RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+      RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
+    }
 
     // Increment refcount - IO thread may still be processing and will decrement when done
     MRCtx_IncRef(mrctx);
@@ -3861,7 +3862,8 @@ static int DistSearchTimeoutClient(RedisModuleCtx *ctx, RedisModuleString **argv
     // Perform reduction with whatever partial results we have
     return searchResultReducer(mrctx, ctx);
   }
-
+  // Timed out before mrctx was set
+  coord_search_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
   return REDISMODULE_OK;
 }
 

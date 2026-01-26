@@ -113,6 +113,7 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
                              QueryError *status);
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx);
+void SearchRequestCtx_Free(searchRequestCtx *r);
 
 void processResultFormat(uint32_t *flags, MRReply *map);
 
