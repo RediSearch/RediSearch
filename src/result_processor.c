@@ -176,8 +176,8 @@ static uint16_t refillAsyncPool(RPQueryIterator *self) {
 
   // Move nodes from iteratorResults to pendingResults
   while (added < ASYNC_POOL_SIZE && !DLLIST_IS_EMPTY(&self->iteratorResults)) {
-    // Pop from the tail of iteratorResults
-    DLLIST_node *dlnode = dllist_pop_tail(&self->iteratorResults);
+    // Pop from the head of iteratorResults to maintain FIFO order
+    DLLIST_node *dlnode = dllist_pop_head(&self->iteratorResults);
     struct IndexResultNode *node = DLLIST_ITEM(dlnode, struct IndexResultNode, node);
 
     RSIndexResult *indexResult = node->result;
@@ -185,8 +185,8 @@ static uint16_t refillAsyncPool(RPQueryIterator *self) {
 
     // Try to add to async pool, using the node pointer as user_data
     if (!SearchDisk_AddAsyncRead(self->asyncPool, docId, (uint64_t)node)) {
-      // Pool is full - put the node back and stop
-      dllist_append(&self->iteratorResults, dlnode);
+      // Pool is full - put the node back at the head and stop
+      dllist_prepend(&self->iteratorResults, dlnode);
       break;
     }
 

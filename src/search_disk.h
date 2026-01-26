@@ -217,7 +217,7 @@ RedisSearchDiskAsyncReadPool *SearchDisk_CreateAsyncReadPool(RedisSearchDiskInde
  * @param user_data Generic user data to associate with this read (returned in AsyncReadResult)
  * @return true if added, false if pool is at capacity
  */
-bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool *pool, t_docId docId, uint64_t user_data);
+bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool pool, t_docId docId, uint64_t user_data);
 
 /**
  * @brief Poll the pool for ready results
@@ -232,14 +232,14 @@ bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool *pool, t_docId docId, 
  * @param failed_capacity Size of failed_user_data buffer
  * @return AsyncPollResult with ready_count, failed_count, and pending_count
  */
-AsyncPollResult SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool *pool, uint32_t timeout_ms, AsyncReadResult *results, uint16_t results_capacity, uint64_t *failed_user_data, uint16_t failed_capacity);
+AsyncPollResult SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, AsyncReadResult *results, uint16_t results_capacity, uint64_t *failed_user_data, uint16_t failed_capacity);
 
 /**
  * @brief Free the async read pool
  *
  * @param pool Pool handle
  */
-void SearchDisk_FreeAsyncReadPool(RedisSearchDiskAsyncReadPool *pool);
+void SearchDisk_FreeAsyncReadPool(RedisSearchDiskAsyncReadPool pool);
 
 /**
  * @brief Check if async I/O is supported by the underlying storage engine
