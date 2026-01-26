@@ -465,7 +465,7 @@ TEST_F(IndexTest, testNumericInverted) {
 
   // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 
-  IndexDecoderCtx decoderCtx = {.numeric_tag = IndexDecoderCtx_Numeric, .numeric = nullptr};
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
   IndexReader *reader = NewIndexReader(idx, decoderCtx);
   RSIndexResult *res = NewNumericResult();
 
@@ -499,7 +499,7 @@ TEST_F(IndexTest, testNumericVaried) {
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
-  IndexDecoderCtx decoderCtx = {.numeric_tag = IndexDecoderCtx_Numeric, .numeric = nullptr};
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
   IndexReader *reader = NewIndexReader(idx, decoderCtx);
   RSIndexResult *res = NewNumericResult();
 
@@ -563,7 +563,7 @@ void testNumericEncodingHelper(bool isMulti) {
     }
   }
 
-  IndexDecoderCtx decoderCtx = {.numeric_tag = IndexDecoderCtx_Numeric, .numeric = nullptr};
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
   IndexReader *reader = NewIndexReader(idx, decoderCtx);
   RSIndexResult *res = NewNumericResult();
 
