@@ -526,7 +526,7 @@ void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, Profile
     case INV_IDX_WILDCARD_ITERATOR:
     case INV_IDX_MISSING_ITERATOR:
     case INV_IDX_TAG_ITERATOR:
-      { printInvIdxIt(reply, root, counters, cpuTime, config);                     break; }
+                              { printInvIdxIt(reply, root, counters, cpuTime, config);                     break; }
     // Multi values
     case UNION_ITERATOR:      { printUnionIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
     case INTERSECT_ITERATOR:  { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);  break; }
