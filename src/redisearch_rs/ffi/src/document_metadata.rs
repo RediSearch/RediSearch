@@ -8,6 +8,7 @@
 */
 
 use std::{
+    ffi::CStr,
     ops::Deref,
     ptr::NonNull,
     sync::atomic::{AtomicU16, Ordering},
@@ -42,6 +43,11 @@ impl DocumentMetadata {
         debug_assert!(ptr.is_aligned());
 
         Self(ptr)
+    }
+
+    /// The key of the document
+    pub fn key(&self) -> &CStr {
+        todo!()
     }
 }
 
