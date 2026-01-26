@@ -2548,6 +2548,11 @@ static void IndexScoringStats_RdbLoad(RedisModuleIO *rdb, ScoringIndexStats *sta
   stats->numTerms = RedisModule_LoadUnsigned(rdb);
 }
 
+static void IndexScoringStats_RdbSave(RedisModuleIO *rdb, ScoringIndexStats *stats) {
+  RedisModule_SaveUnsigned(rdb, stats->numDocuments);
+  RedisModule_SaveUnsigned(rdb, stats->numTerms);
+}
+
 static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
   IndexScoringStats_RdbLoad(rdb, &stats->scoring);
   stats->numRecords = RedisModule_LoadUnsigned(rdb);
@@ -3139,7 +3144,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   bool useSst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
   if (sp->diskSpec && useSst) {
-    IndecScoringStats_RdbSave(rdb, &sp->stats.scoring);
+    IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
   }
@@ -3249,7 +3254,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   // On the disk side (RDB is depleted, without updating index fields).
   bool useSst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
   if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && useSst) {
-    IndecScoringStats_RdbLoad(rdb, &sp->stats.scoring);
+    IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring);
     sp->terms = TrieType_GenericLoad(rdb, false);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
     if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec) != REDISMODULE_OK) {
