@@ -575,7 +575,7 @@ void testNumericEncodingHelper(bool isMulti) {
     if (fabs(infos[ii].value) == INFINITY) {
       ASSERT_EQ(infos[ii].value, IndexResult_NumValue(res));
     } else {
-      ASSERT_LT(fabs(infos[ii].value - IndexResult_NumValue(res)), 0.01);
+      ASSERT_NEAR(infos[ii].value, IndexResult_NumValue(res), 0.01);
     }
 
     if (isMulti) {
@@ -584,7 +584,7 @@ void testNumericEncodingHelper(bool isMulti) {
       if (fabs(infos[ii].value) == INFINITY) {
         ASSERT_EQ(infos[ii].value, IndexResult_NumValue(res));
       } else {
-        ASSERT_LT(fabs(infos[ii].value - IndexResult_NumValue(res)), 0.01);
+        ASSERT_NEAR(infos[ii].value, IndexResult_NumValue(res), 0.01);
       }
     }
   }
