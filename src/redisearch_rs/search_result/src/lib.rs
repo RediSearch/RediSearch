@@ -11,7 +11,9 @@ pub mod bindings;
 
 use enumflags2::{BitFlags, bitflags};
 use inverted_index::RSIndexResult;
-use std::ptr::{self, NonNull};
+use rlookup::{RLookup, RLookupRow};
+use std::ptr::NonNull;
+use value::RSValueFFI;
 
 use crate::bindings::DocumentMetadata;
 
@@ -53,7 +55,7 @@ pub struct SearchResult<'index> {
     _index_result: Option<&'index RSIndexResult<'index>>,
 
     // Row data. Use RLookup_* functions to access
-    _row_data: ffi::RLookupRow,
+    _row_data: rlookup::RLookupRow<'index, RSValueFFI>,
 
     _flags: SearchResultFlags,
 }
@@ -76,18 +78,14 @@ impl Default for SearchResult<'_> {
 }
 
 impl<'index> SearchResult<'index> {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             _doc_id: 0,
             _score: 0.0,
             _score_explain: None,
             _document_metadata: None,
             _index_result: None,
-            _row_data: ffi::RLookupRow {
-                sv: ptr::null(),
-                dyn_: ptr::null_mut(),
-                ndyn: 0,
-            },
+            _row_data: rlookup::RLookupRow::new(&RLookup::new()),
             _flags: SearchResultFlags::from_bits_truncate_c(0, BitFlags::CONST_TOKEN),
         }
     }
@@ -190,12 +188,12 @@ impl<'index> SearchResult<'index> {
     }
 
     /// Returns an immutable reference to the [`RLookupRow`][ffi::RLookupRow] of this search result.
-    pub const fn row_data(&self) -> &ffi::RLookupRow {
+    pub const fn row_data(&self) -> &RLookupRow<'index, RSValueFFI> {
         &self._row_data
     }
 
     /// Returns a mutable reference to the [`RLookupRow`][ffi::RLookupRow] of this search result.
-    pub const fn row_data_mut(&mut self) -> &mut ffi::RLookupRow {
+    pub const fn row_data_mut(&mut self) -> &mut RLookupRow<'index, RSValueFFI> {
         &mut self._row_data
     }
 
