@@ -521,14 +521,14 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (q->sctx->spec->diskSpec) {
     RS_LOG_ASSERT(q->sctx->spec->diskSpec, "Disk spec should be open");
-
+    //TODO: Review if we need to compute IDF and BM25 IDF here
     return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, qn->tn.str, qn->tn.len, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight, 0.0, 0.0);
   } else {
     return Redis_OpenReader(q->sctx, &qn->tn, q->tokenId++, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
   }
 }
 
-static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
+static inline void addTerm(char *str, size_t tok_len, size_t numDocsInTerm, QueryEvalCtx *q,
   QueryNodeOptions *opts, QueryIterator ***its, size_t *itsSz, size_t *itsCap) {
   // Create a token for the reader
   RSToken tok = (RSToken){
@@ -541,7 +541,8 @@ static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
   QueryIterator *ir = NULL;
 
   if (q->sctx->spec->diskSpec) {
-    RS_LOG_ASSERT(q->sctx->spec->diskSpec, "Disk spec should be open");
+    double idf = CalculateIDF(q->sctx->spec->stats.numDocuments + 1, numDocsInTerm);
+    double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.numDocuments, numDocsInTerm);
     ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & opts->fieldMask, 1, 0.0, 0.0);
   } else {
     // Open an index reader
@@ -578,10 +579,11 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   int hasNext;
-  while ((hasNext = TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) &&
+  size_t numDocsInTerm = 0;
+  while ((hasNext = TrieIterator_Next(it, &rstr, &slen, NULL, &score, &numDocsInTerm, &dist)) &&
          (itsSz < q->config->maxPrefixExpansions)) {
     target_str = runesToStr(rstr, slen, &tok_len);
-    addTerm(target_str, tok_len, q, opts, &its, &itsSz, &itsCap);
+    addTerm(target_str, tok_len, numDocsInTerm, q, opts, &its, &itsSz, &itsCap);
     rm_free(target_str);
   }
   TrieIterator_Free(it);
@@ -592,7 +594,8 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 
   // Add an iterator over the inverted index of the empty string for fuzzy search
   if (!prefixMode && q->sctx->apiVersion >= 2 && len <= maxDist) {
-    addTerm("", 0, q, opts, &its, &itsSz, &itsCap);
+    //TODO: Review if we should add the number of documents in the empty string
+    addTerm("", 0, 0, q, opts, &its, &itsSz, &itsCap);
   }
 
 
@@ -782,6 +785,7 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   tok.str = runesToStr(r, n, &tok.len);
   QueryIterator *ir = NULL;
   if (q->sctx->spec->diskSpec) {
+    //TODO: Review if we need to compute IDF and BM25 IDF here
     ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & ctx->opts->fieldMask, 1, 0.0, 0.0);
   } else {
     ir = Redis_OpenReader(q->sctx, &tok, ctx->q->tokenId++, &q->sctx->spec->docs,
@@ -805,6 +809,7 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   RSToken tok = {.str = (char *)s, .len = n};
   QueryIterator *ir = NULL;
   if (q->sctx->spec->diskSpec) {
+    //TODO: Review if we need to compute IDF and BM25 IDF here
     ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & ctx->opts->fieldMask, 1, 0.0, 0.0);
   } else {
     ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
