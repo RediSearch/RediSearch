@@ -21,8 +21,8 @@ extern "C" {
 extern RedisModuleType *TrieType;
 
 #define TRIE_ENCVER_CURRENT 2
-#define TRIE_ENCVER_BEFORE_NUMDOCS 1
-#define TRIE_ENCVER_NOPAYLOADS 0
+#define TRIE_ENCVER_NUMDOCS 2
+#define TRIE_ENCVER_PAYLOADS 1
 
 typedef struct {
   TrieNode *root;

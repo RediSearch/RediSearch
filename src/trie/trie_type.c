@@ -297,7 +297,7 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver > TRIE_ENCVER_CURRENT) {
     return NULL;
   }
-  return TrieType_GenericLoad(rdb, encver > TRIE_ENCVER_NOPAYLOADS, encver > TRIE_ENCVER_BEFORE_NUMDOCS);
+  return TrieType_GenericLoad(rdb, encver >= TRIE_ENCVER_PAYLOADS, encver >= TRIE_ENCVER_NUMDOCS);
 }
 
 void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDocs) {
