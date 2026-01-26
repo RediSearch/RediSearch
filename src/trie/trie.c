@@ -127,9 +127,8 @@ TrieNode *__trie_AddChildIdx(TrieNode *n, const rune *str, t_len offset, t_len l
 
 TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   // Copy the current node's data and children to a new child node
-  size_t numDocsForChild = n->numDocs;
   TrieNode *newChild = __newTrieNode(n->str, offset, n->len, NULL, 0, n->numChildren, n->score,
-                                     __trieNode_isTerminal(n), n->sortMode, numDocsForChild);
+                                     __trieNode_isTerminal(n), n->sortMode, n->numDocs);
   newChild->maxChildScore = n->maxChildScore;
   newChild->flags = n->flags;
   newChild->payload = n->payload;
@@ -168,10 +167,9 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) 
   rune nstr[n->len + ch->len + 1];
   memcpy(nstr, n->str, sizeof(rune) * n->len);
   memcpy(&nstr[n->len], ch->str, sizeof(rune) * ch->len);
-  size_t numDocsForMerged = ch->numDocs;
   TrieNode *merged = __newTrieNode(
       nstr, 0, n->len + ch->len, NULL, 0, ch->numChildren,
-      ch->score, __trieNode_isTerminal(ch), n->sortMode, numDocsForMerged);
+      ch->score, __trieNode_isTerminal(ch), n->sortMode, ch->numDocs);
   merged->maxChildScore = ch->maxChildScore;
   merged->numChildren = ch->numChildren;
   merged->payload = ch->payload;
@@ -219,7 +217,14 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
     if (offset == len) {
       n->score = score;
       n->flags |= TRIENODE_TERMINAL;
-      n->numDocs = numDocs;
+      switch (numDocsOp) {
+        case ADD_INCR:
+          n->numDocs += numDocs;
+          break;
+        case ADD_REPLACE:
+        default:
+          n->numDocs = numDocs;
+      }
       TrieNode *newChild = __trieNode_children(n)[0];
       n = rm_realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
       if (n->payload != NULL) {
