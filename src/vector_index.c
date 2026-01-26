@@ -600,7 +600,7 @@ void VecSimParams_Cleanup(VecSimParams *params) {
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
                           VecSimQueryParams *qParams, VecsimQueryType queryType, QueryError *status) {
 
-  VecSimResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, params_len, qParams, queryType);
+  VecSimParamResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, (int)params_len, qParams, queryType);
   if (vecSimCode == VecSim_OK) {
     return vecSimCode;
   }

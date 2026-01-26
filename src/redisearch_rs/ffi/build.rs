@@ -37,7 +37,21 @@ fn main() {
 
         let redisearch_rs = src.join("redisearch_rs").join("headers");
         let inverted_index = src.join("inverted_index");
-        let vecsim = deps.join("VectorSimilarity").join("src");
+        // Check if we're using the Rust VecSim implementation
+        // The Rust VecSim headers are in deps/VectorSimilarity/rust/vecsim-c/include
+        // The C++ VecSim headers are in deps/VectorSimilarity/src
+        let rust_vecsim_path = deps
+            .join("VectorSimilarity")
+            .join("rust")
+            .join("vecsim-c")
+            .join("include");
+        let cpp_vecsim_path = deps.join("VectorSimilarity").join("src");
+        // Use Rust VecSim path if it exists, otherwise fall back to C++ path
+        let vecsim = if rust_vecsim_path.exists() {
+            rust_vecsim_path
+        } else {
+            cpp_vecsim_path
+        };
         let buffer = src.join("buffer");
         let ttl_table = src.join("ttl_table");
 

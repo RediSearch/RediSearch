@@ -114,6 +114,10 @@ ifeq ($(LTO),1)
 	BUILD_ARGS += LTO
 endif
 
+ifeq ($(USE_RUST_VECSIM),1)
+	BUILD_ARGS += USE_RUST_VECSIM=ON
+endif
+
 # Package variables (used by pack target)
 MODULE_NAME := search
 PACKAGE_NAME ?=
