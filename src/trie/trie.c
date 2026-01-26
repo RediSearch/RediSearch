@@ -978,9 +978,9 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeM
     if (cmp == 0) {
       // min = max, we should just search for min and check for its existence
       if (includeMin || includeMax) {
-        if (TrieNode_Find(n, (rune *)min, nmin) != 0) {
-          //TODO: Review passed numDocsInTerm
-          callback(min, nmin, ctx, NULL, 0);
+        TrieNode *node = TrieNode_Get(n, (rune *)min, nmin, true, NULL);
+        if (node && node->score != 0) {
+          callback(min, nmin, ctx, NULL, node->numDocs);
         }
       }
       return;
@@ -1008,9 +1008,9 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
                               TrieRangeCallback callback, void *ctx, struct timespec *timeout) {
   // exact match - should not be used. change to assert
   if (!prefix && !suffix) {
-    if (TrieNode_Find(n, (rune *)str, nstr) != 0) {
-      //TODO: Review passed numDocsInTerm
-      callback(str, nstr, ctx, NULL, 0);
+    TrieNode *node = TrieNode_Get(n, (rune *)str, nstr, true, NULL);
+    if (node && node->score != 0) {
+      callback(str, nstr, ctx, NULL, node->numDocs);
     }
     return;
   }
