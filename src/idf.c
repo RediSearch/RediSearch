@@ -14,7 +14,7 @@
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 double CalculateIDF(size_t totalDocs, size_t termDocs) {
-  return logb(1.0F + totalDocs / (double)(termDocs ?: 1));
+  return logb(1.0F + (totalDocs + 1) / (double)(termDocs ?: 1));
 }
 
 // IDF computation for BM25 standard scoring algorithm (which is slightly different from the regular

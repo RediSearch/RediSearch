@@ -445,7 +445,7 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sctx->spec->docs.size, InvertedIndex_NumDocs(idx)); // FIXME: docs.size starts at 1???
+    term->idf = CalculateIDF(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
     term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
   }
 
@@ -472,7 +472,7 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sctx->spec->docs.size, InvertedIndex_NumDocs(idx)); // FIXME: docs.size starts at 1???
+    term->idf = CalculateIDF(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
     term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
   }
 

@@ -523,7 +523,7 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   if (q->sctx->spec->diskSpec) {
     TrieNode *trienode = TrieNode_Get(q->sctx->spec->terms->root, qn->tn.str, qn->tn.len, true, NULL);
     size_t numDocsInTerm = trienode ? trienode->numDocs : 0;
-    double idf = CalculateIDF(q->sctx->spec->stats.numDocuments + 1, numDocsInTerm);
+    double idf = CalculateIDF(q->sctx->spec->stats.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.numDocuments, numDocsInTerm);
     return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, qn->tn.str, qn->tn.len, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight, idf, bm25_idf);
   } else {
@@ -544,7 +544,7 @@ static inline void addTerm(char *str, size_t tok_len, size_t numDocsInTerm, Quer
   QueryIterator *ir = NULL;
 
   if (q->sctx->spec->diskSpec) {
-    double idf = CalculateIDF(q->sctx->spec->stats.numDocuments + 1, numDocsInTerm);
+    double idf = CalculateIDF(q->sctx->spec->stats.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.numDocuments, numDocsInTerm);
     ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & opts->fieldMask, 1, 0.0, 0.0);
   } else {
@@ -597,8 +597,9 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 
   // Add an iterator over the inverted index of the empty string for fuzzy search
   if (!prefixMode && q->sctx->apiVersion >= 2 && len <= maxDist) {
-    //TODO: Review if we should add the number of documents in the empty string
-    addTerm("", 0, 0, q, opts, &its, &itsSz, &itsCap);
+    TrieNode *emptyNode = TrieNode_Get(terms->root, "", 0, true, NULL);
+    size_t numDocsInEmpty = emptyNode ? emptyNode->numDocs : 0;
+    addTerm("", 0, numDocsInEmpty, q, opts, &its, &itsSz, &itsCap);
   }
 
 
@@ -788,7 +789,7 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t nu
   tok.str = runesToStr(r, n, &tok.len);
   QueryIterator *ir = NULL;
   if (q->sctx->spec->diskSpec) {
-    double idf = CalculateIDF(q->sctx->spec->stats.numDocuments + 1, numDocsInTerm);
+    double idf = CalculateIDF(q->sctx->spec->stats.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.numDocuments, numDocsInTerm);
     ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & ctx->opts->fieldMask, 1, idf, bm25_idf);
   } else {
@@ -813,7 +814,7 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload, size_t nu
   RSToken tok = {.str = (char *)s, .len = n};
   QueryIterator *ir = NULL;
   if (q->sctx->spec->diskSpec) {
-    double idf = CalculateIDF(q->sctx->spec->stats.numDocuments + 1, numDocsInTerm);
+    double idf = CalculateIDF(q->sctx->spec->stats.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.numDocuments, numDocsInTerm);
     ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & ctx->opts->fieldMask, 1, 0.0, 0.0);
   } else {
