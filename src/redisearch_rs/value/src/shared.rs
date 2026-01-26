@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use crate::{RsValue, Value};
+use crate::RsValue;
 
 /// A shared RedisSearch dynamic value, backed by an `Arc<RsValue>`.
 #[derive(Clone)]
@@ -45,12 +45,6 @@ impl SharedRsValue {
     /// Get a reference to the inner [`RsValue`].
     pub fn value(&self) -> &RsValue {
         &self.inner
-    }
-}
-
-impl Value for SharedRsValue {
-    fn from_value(value: RsValue) -> Self {
-        Self::new(value)
     }
 }
 
