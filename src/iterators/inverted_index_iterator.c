@@ -358,17 +358,16 @@ static inline bool ShouldSkipMulti(const InvIndIterator *it) {
   return IndexReader_HasMulti(it->reader); // The index holds multi-values (if not, no need to check)
 }
 
-static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
+static QueryIterator *InitInvIndIterator(InvIndIterator *it, enum IteratorType it_type, const InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
                                         const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
   it->reader = NewIndexReader(idx, *decoderCtx);
   it->sctx = sctx;
   it->filterCtx = *filterCtx;
-  it->isWildcard = false;
   it->CheckAbort = (ValidateStatus (*)(struct InvIndIterator *))checkAbortFn;
 
   QueryIterator *base = &it->base;
   base->current = res;
-  base->type = INV_IDX_ITERATOR;
+  base->type = it_type;
   base->atEOF = false;
   base->lastDocId = 0;
   base->NumEstimated = InvIndIterator_NumEstimated;
@@ -405,11 +404,11 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex
   return base;
 }
 
-static QueryIterator *NewInvIndIterator(const InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
+static QueryIterator *NewInvIndIterator(const InvertedIndex *idx, enum IteratorType it_type, RSIndexResult *res, const FieldFilterContext *filterCtx,
                                        const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
   RS_ASSERT(idx);
   InvIndIterator *it = rm_calloc(1, sizeof(*it));
-  return InitInvIndIterator(it, idx, res, filterCtx, sctx, decoderCtx, checkAbortFn);
+  return InitInvIndIterator(it, it_type, idx, res, filterCtx, sctx, decoderCtx, checkAbortFn);
 }
 
 QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
@@ -423,17 +422,17 @@ QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const Re
 
   NumericInvIndIterator *numIt = rm_calloc(1, sizeof(*numIt));
   // Initialize the iterator first
-  InitInvIndIterator(&numIt->base, idx, NewNumericResult(), fieldCtx, sctx, &decoderCtx, NumericCheckAbort);
+  InitInvIndIterator(&numIt->base, INV_IDX_NUMERIC_ITERATOR, idx, NewNumericResult(), fieldCtx, sctx, &decoderCtx, NumericCheckAbort);
 
   if (rt) {
     numIt->revisionId = rt->revisionId;
     numIt->rt = rt;
   }
 
+  numIt->rangeMin = rangeMin;
+  numIt->rangeMax = rangeMax;
+
   QueryIterator *ret = &numIt->base.base;
-  InvIndIterator *it = (InvIndIterator *)ret;
-  it->profileCtx.numeric.rangeMin = rangeMin;
-  it->profileCtx.numeric.rangeMax = rangeMax;
   return ret;
 }
 
@@ -445,8 +444,8 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
+    term->idf = CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
+    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);
@@ -460,7 +459,7 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
     dctx.field_mask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
   }
 
-  return NewInvIndIterator(idx, record, &fieldCtx, sctx, &dctx, TermCheckAbort);
+  return NewInvIndIterator(idx, INV_IDX_TERM_ITERATOR, record, &fieldCtx, sctx, &dctx, TermCheckAbort);
 }
 
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
@@ -472,8 +471,8 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
+    term->idf = CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
+    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);
@@ -489,7 +488,7 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
 
   TagInvIndIterator *it = rm_calloc(1, sizeof(*it));
   it->tagIdx = tagIdx;
-  return InitInvIndIterator(&it->base, idx, record, &fieldCtx, sctx, &dctx, TagCheckAbort);
+  return InitInvIndIterator(&it->base, INV_IDX_TAG_ITERATOR, idx, record, &fieldCtx, sctx, &dctx, TagCheckAbort);
 }
 
 QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight) {
@@ -502,8 +501,7 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const R
   record->freq = 1;
 
   InvIndIterator *it = rm_calloc(1, sizeof(*it));
-  InitInvIndIterator(it, idx, record, &fieldCtx, sctx, &decoderCtx, WildcardCheckAbort);
-  it->isWildcard = true; // Mark as wildcard iterator
+  InitInvIndIterator(it, INV_IDX_WILDCARD_ITERATOR, idx, record, &fieldCtx, sctx, &decoderCtx, WildcardCheckAbort);
   return &it->base;
 }
 
@@ -516,5 +514,24 @@ QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const Re
   RSIndexResult *record = NewVirtualResult(0.0, RS_FIELDMASK_ALL);
   record->freq = 1;
 
-  return NewInvIndIterator(idx, record, &fieldCtx, sctx, &decoderCtx, MissingCheckAbort);
+  return NewInvIndIterator(idx, INV_IDX_MISSING_ITERATOR, record, &fieldCtx, sctx, &decoderCtx, MissingCheckAbort);
+}
+
+/******************************* Accessors *******************************/
+
+IndexFlags InvIndIterator_GetReaderFlags(const InvIndIterator *it) {
+  return IndexReader_Flags(it->reader);
+}
+
+const NumericFilter * NumericInvIndIterator_GetNumericFilter(const NumericInvIndIterator *it) {
+    const InvIndIterator *base = &it->base;
+    return IndexReader_NumericFilter(base->reader);
+}
+
+double NumericInvIndIterator_GetProfileRangeMin(const NumericInvIndIterator *it) {
+  return it->rangeMin;
+}
+
+double NumericInvIndIterator_GetProfileRangeMax(const NumericInvIndIterator *it) {
+  return it->rangeMax;
 }

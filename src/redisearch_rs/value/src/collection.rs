@@ -349,7 +349,7 @@ impl fmt::Debug for RsValueMapEntry {
 #[cfg(test)]
 mod tests {
     use crate::{
-        RsValue, Value,
+        RsValue,
         collection::{RsValueCollection, RsValueMapEntry},
         shared::SharedRsValue,
     };
@@ -358,8 +358,8 @@ mod tests {
     fn test_map_create_iter_destroy() {
         let entries = || {
             std::iter::repeat_n((), 100).enumerate().map(|(i, _)| {
-                let key = SharedRsValue::number(i as f64);
-                let value = SharedRsValue::number((2 * i) as f64);
+                let key = SharedRsValue::new(RsValue::Number(i as f64));
+                let value = SharedRsValue::new(RsValue::Number((2 * i) as f64));
                 RsValueMapEntry { key, value }
             })
         };
@@ -400,8 +400,8 @@ mod tests {
     #[test]
     fn test_send_sync() {
         let items = std::iter::repeat_n((), 100).enumerate().map(|(i, _)| {
-            let key = SharedRsValue::number(i as f64);
-            let value = SharedRsValue::number((2 * i) as f64);
+            let key = SharedRsValue::new(RsValue::Number(i as f64));
+            let value = SharedRsValue::new(RsValue::Number((2 * i) as f64));
             RsValueMapEntry { key, value }
         });
         let map = RsValueCollection::collect_from_exact_size_iterator(items);

@@ -1504,6 +1504,7 @@ dependencies = [
  "quote 1.0.43",
  "redis-module",
  "result_processor_ffi",
+ "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
  "syn 2.0.114",
@@ -1551,6 +1552,7 @@ dependencies = [
  "ffi",
  "libc",
  "pin-project",
+ "search_result",
  "workspace_hack",
 ]
 
@@ -1774,7 +1776,6 @@ dependencies = [
  "enumflags2",
  "ffi",
  "inverted_index",
- "unsafe-tools",
  "workspace_hack",
 ]
 

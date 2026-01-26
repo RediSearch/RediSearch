@@ -1768,13 +1768,16 @@ StrongRef IndexSpec_ParseC(const char *name, const char **argv, int argc, QueryE
   return IndexSpec_Parse(hidden, argv, argc, status);
 }
 
+static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoring, RSIndexStats *stats) {
+  stats->numDocs = scoring->numDocuments;
+  stats->numTerms = scoring->numTerms;
+  stats->avgDocLen = stats->numDocs ? (double)scoring->totalDocsLen / (double)scoring->numDocuments : 0;
+}
+
 /* Initialize some index stats that might be useful for scoring functions */
 // Assuming the spec is properly locked before calling this function
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
-  stats->numDocs = sp->stats.numDocuments;
-  stats->numTerms = sp->stats.numTerms;
-  stats->avgDocLen =
-      stats->numDocs ? (double)sp->stats.totalDocsLen / (double)sp->stats.numDocuments : 0;
+  RSIndexStats_FromScoringStats(&sp->stats.scoring, stats);
 }
 
 size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
@@ -1785,7 +1788,7 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL, 1, ADD_INCR);
   if (isNew) {
-    sp->stats.numTerms++;
+    sp->stats.scoring.numTerms++;
     sp->stats.termsSize += len;
   }
 }
@@ -2540,9 +2543,13 @@ fail:
   return REDISMODULE_ERR;
 }
 
-static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
+static void IndexScoringStats_RdbLoad(RedisModuleIO *rdb, ScoringIndexStats *stats) {
   stats->numDocuments = RedisModule_LoadUnsigned(rdb);
   stats->numTerms = RedisModule_LoadUnsigned(rdb);
+}
+
+static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
+  IndexScoringStats_RdbLoad(rdb, &stats->scoring);
   stats->numRecords = RedisModule_LoadUnsigned(rdb);
   stats->invertedSize = RedisModule_LoadUnsigned(rdb);
   RedisModule_LoadUnsigned(rdb); // Consume `invertedCap`
@@ -2951,11 +2958,11 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   }
 
   // More properties
-  RedisModule_InfoAddFieldLongLong(ctx, "number_of_docs", sp->stats.numDocuments);
+  RedisModule_InfoAddFieldLongLong(ctx, "number_of_docs", sp->stats.scoring.numDocuments);
 
   RedisModule_InfoBeginDictField(ctx, "index_properties");
   RedisModule_InfoAddFieldULongLong(ctx, "max_doc_id", sp->docs.maxDocId);
-  RedisModule_InfoAddFieldLongLong(ctx, "num_terms", sp->stats.numTerms);
+  RedisModule_InfoAddFieldLongLong(ctx, "num_terms", sp->stats.scoring.numTerms);
   RedisModule_InfoAddFieldLongLong(ctx, "num_records", sp->stats.numRecords);
   RedisModule_InfoEndDictField(ctx);
 
@@ -2981,7 +2988,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", TotalIIBlocks());
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_averages");
-  RedisModule_InfoAddFieldDouble(ctx, "records_per_doc_avg",(float)sp->stats.numRecords / (float)sp->stats.numDocuments);
+  RedisModule_InfoAddFieldDouble(ctx, "records_per_doc_avg",(float)sp->stats.numRecords / (float)sp->stats.scoring.numDocuments);
   RedisModule_InfoAddFieldDouble(ctx, "bytes_per_record_avg",(float)sp->stats.invertedSize / (float)sp->stats.numRecords);
   RedisModule_InfoAddFieldDouble(ctx, "offsets_per_term_avg",(float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
   RedisModule_InfoAddFieldDouble(ctx, "offset_bits_per_record_avg",8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
@@ -3683,10 +3690,10 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   }
 
   // Update the stats
-  RS_LOG_ASSERT(spec->stats.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
-  spec->stats.totalDocsLen -= docLen;
-  RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
-  spec->stats.numDocuments--;
+  RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
+  spec->stats.scoring.totalDocsLen -= docLen;
+  RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
+  spec->stats.scoring.numDocuments--;
 
   // Increment the index's garbage collector's scanning frequency after document deletions
   if (spec->gc) {

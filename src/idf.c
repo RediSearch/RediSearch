@@ -14,6 +14,7 @@
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 double CalculateIDF(size_t totalDocs, size_t termDocs) {
+  // (totalDocs + 1) because logb is used, and logb(1.99) = 0 and logb(2.00) = 1)
   return logb(1.0F + (totalDocs + 1) / (double)(termDocs ?: 1));
 }
 
