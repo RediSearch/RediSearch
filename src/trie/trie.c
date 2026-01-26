@@ -191,7 +191,7 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) 
 }
 
 int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
-                 TrieAddOp op, TrieFreeCallback freecb, size_t numDocs, TrieAddOp numDocsOp) {
+                 TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
   if (score == 0 || len == 0) {
     return 0;
   }
@@ -217,14 +217,7 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
     if (offset == len) {
       n->score = score;
       n->flags |= TRIENODE_TERMINAL;
-      switch (numDocsOp) {
-        case ADD_INCR:
-          n->numDocs += numDocs;
-          break;
-        case ADD_REPLACE:
-        default:
-          n->numDocs = numDocs;
-      }
+      n->numDocs += numDocs;
       TrieNode *newChild = __trieNode_children(n)[0];
       n = rm_realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
       if (n->payload != NULL) {
@@ -263,15 +256,7 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
       default:
         n->score = score;
     }
-    // Update numDocs based on numDocsOp
-    switch (numDocsOp) {
-      case ADD_INCR:
-        n->numDocs += numDocs;
-        break;
-      case ADD_REPLACE:
-      default:
-        n->numDocs = numDocs;
-    }
+    n->numDocs += numDocs;
     if (payload != NULL && payload->data != NULL && payload->len > 0) {
       if (n->payload != NULL) {
         triePayload_Free(n->payload, freecb);
@@ -295,7 +280,7 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
     TrieNode *child = __trieNode_children(n)[idx];
     if (str[offset] == *childKey) {
       int rc = TrieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb,
-                            numDocs, numDocsOp);
+                            numDocs);
       *__trieNode_childKey(n, idx) = str[offset];
       __trieNode_children(n)[idx] = child;
       // In score mode, check if the order was kept and fix as necessary

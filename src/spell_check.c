@@ -59,7 +59,7 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
 
   if (!incr) {
     if (!isExists) {
-      Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL, 0, ADD_REPLACE);
+      Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL, 0);
     }
     return;
   }
@@ -72,7 +72,7 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
     incr = 0;
   }
 
-  Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL, 0, ADD_REPLACE);
+  Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL, 0);
 }
 
 void RS_SuggestionsFree(RS_Suggestions *s) {
