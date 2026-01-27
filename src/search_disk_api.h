@@ -55,9 +55,10 @@ typedef struct IndexDiskAPI {
    * @param termLen Length of the term
    * @param docId Document ID to index
    * @param fieldMask Field mask indicating which fields are present in the document
+   * @param freq Frequency of the term in the document
    * @return true if the write was successful, false otherwise
    */
-  bool (*indexDocument)(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask);
+  bool (*indexDocument)(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
 
   /**
    * @brief Deletes a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
