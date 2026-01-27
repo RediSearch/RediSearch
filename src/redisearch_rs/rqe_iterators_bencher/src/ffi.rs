@@ -221,6 +221,54 @@ impl QueryIterator {
         })
     }
 
+    /// Creates a new union iterator from child ID list iterators.
+    ///
+    /// # Arguments
+    /// * `children_ids` - A slice of vectors, each containing sorted document IDs for a child iterator
+    /// * `weight` - The weight for the union result
+    #[inline(always)]
+    pub fn new_union(children_ids: &[Vec<t_docId>], weight: f64) -> Self {
+        let num_children = children_ids.len();
+
+        // Allocate array of child iterator pointers using RedisModule_Alloc
+        let children_ptr = unsafe {
+            RedisModule_Alloc.unwrap()(
+                num_children * std::mem::size_of::<*mut bindings::QueryIterator>(),
+            ) as *mut *mut bindings::QueryIterator
+        };
+
+        for (i, ids) in children_ids.iter().enumerate() {
+            // Allocate and copy IDs using RedisModule_Alloc (required by NewSortedIdListIterator)
+            let ids_ptr = unsafe {
+                RedisModule_Alloc.unwrap()(ids.len() * std::mem::size_of::<t_docId>())
+                    as *mut t_docId
+            };
+            unsafe {
+                std::ptr::copy_nonoverlapping(ids.as_ptr(), ids_ptr, ids.len());
+            }
+
+            // Create child iterator
+            let child =
+                unsafe { bindings::NewSortedIdListIterator(ids_ptr, ids.len() as u64, 1.0) };
+            unsafe {
+                *children_ptr.add(i) = child;
+            }
+        }
+
+        // Create union iterator (takes ownership of children array)
+        Self(unsafe {
+            bindings::NewUnionIterator(
+                children_ptr,
+                num_children as i32,
+                false, // quickExit: collect all matching children
+                weight,
+                bindings::QueryNodeType_QN_UNION,
+                std::ptr::null(), // q_str
+                std::ptr::null_mut(), // config - will use defaults
+            )
+        })
+    }
+
     #[inline(always)]
     pub fn num_estimated(&self) -> usize {
         unsafe { (*self.0).NumEstimated.unwrap()(self.0) }
