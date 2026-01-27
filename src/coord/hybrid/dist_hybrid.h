@@ -17,6 +17,7 @@ extern "C" {
 #include "rmr/command.h"
 #include "dist_plan.h"
 #include "profile/options.h"
+#include "vector_index.h"
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx);
@@ -25,7 +26,8 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp, HybridPipelineParams *hybridParams);
+                            IndexSpec *sp, HybridPipelineParams *hybridParams,
+                            VectorQuery *vq);
 
 #ifdef __cplusplus
 }
