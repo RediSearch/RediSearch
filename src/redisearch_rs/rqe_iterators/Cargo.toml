@@ -12,6 +12,8 @@ unittest = []
 # They currently trigger a bug in hybrid (MOD-12370). This feature should be removed
 # once the bug has been fixed.
 disable_sort_checks_in_idlist = []
+# Enable test utilities for use in benchmarks and other crates
+test-utils = []
 
 [build-dependencies]
 build_utils = { path = "../build_utils" }
@@ -32,7 +34,7 @@ workspace_hack.workspace = true
 [dev-dependencies]
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
-rqe_iterators = { path = ".", features = ["unittest"] }
+rqe_iterators = { path = ".", features = ["unittest", "test-utils"] }
 inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi" }
 
 # Crate required to invoke C symbols
