@@ -63,7 +63,9 @@ fn main() {
         src.join("config.h"),
         src.join("doc_table.h"),
         src.join("index_result").join("index_result.h"),
-        src.join("index_result").join("query_term").join("query_term.h"),
+        src.join("index_result")
+            .join("query_term")
+            .join("query_term.h"),
         src.join("numeric_index.h"),
         src.join("obfuscation").join("hidden.h"),
         src.join("query.h"),
