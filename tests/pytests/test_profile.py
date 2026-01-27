@@ -639,8 +639,14 @@ def parse_resp2_shards_list(shards_list):
       current_shard_name = item
       current_shard = {}
     elif isinstance(item, list) and len(item) >= 1:
-      # Key-value pair like ['Total profile time', '0.291']
-      current_shard[item[0]] = item[1] if len(item) > 1 else None
+      # Key-value pair like ['Total profile time', '0.291'] or multi-valued like
+      # ['Result processors profile', RP1, RP2, ...]
+      key = item[0]
+      value = item[1:] if len(item) > 1 else None
+      # Unwrap single-element values
+      if value and len(value) == 1:
+        value = value[0]
+      current_shard[key] = value
 
   # Don't forget the last shard
   if current_shard_name:
@@ -695,9 +701,16 @@ def extract_profile_coordinator_and_shards(env, res):
     shards = parse_resp2_shards_list(shards_portion)
     return coordinator, shards
 
-  # Standalone format: res[-1] is a list of [key, value] pairs
+  # Standalone format: res[-1] is a list of [key, value, ...] pairs
   if isinstance(res[-1], list) and len(res[-1]) > 0 and isinstance(res[-1][0], list):
-    profile_dict = {item[0]: item[1] if len(item) > 1 else None for item in res[-1]}
+    profile_dict = {}
+    for item in res[-1]:
+      key = item[0]
+      value = item[1:] if len(item) > 1 else None
+      # Unwrap single-element values
+      if value and len(value) == 1:
+        value = value[0]
+      profile_dict[key] = value
     return {}, [profile_dict]
 
   # Fallback
