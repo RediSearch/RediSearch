@@ -621,40 +621,62 @@ def testTimedOutWarningCoordResp3():
 def testTimedOutWarningCoordResp2():
   TimedOutWarningtestCoord(Env(protocol=2))
 
-def get_shards_profile(env, res):
-  """Extract shard profiles from FT.PROFILE AGGREGATE response."""
+def extract_profile_coordinator_and_shards(env, res):
+  """Parse FT.PROFILE cluster response into coordinator and shards.
+
+  Returns (coordinator_dict, shards_dict) where shards_dict maps shard names to profiles.
+  Handles both FT.SEARCH and FT.AGGREGATE for RESP2 and RESP3.
+  """
   if env.protocol == 3:
-    return res['Shards'].values()
+    # FT.AGGREGATE: top-level 'Coordinator' and 'Shards'
+    # FT.SEARCH: lowercase 'shards' with 'Coordinator' nested inside
+    if 'Coordinator' in res:
+      return res['Coordinator'], res['Shards']
+    else:
+      shards_data = dict(res['shards'])
+      coordinator = shards_data.pop('Coordinator', {})
+      return coordinator, shards_data
   else:
-    # Find the Shards section
-    shards_idx = res.index('Shards')
-    shards_data = res[shards_idx + 1]
+    # RESP2: FT.AGGREGATE has 'Shards' key, FT.SEARCH has profile in res[-1]
+    profile_data = res[res.index('Shards') + 1] if 'Shards' in res else res[-1]
 
-    # Find all shard start indices
-    shard_indices = []
-    for i, item in enumerate(shards_data):
-        if isinstance(item, str) and item.startswith('Shard #'):
-            shard_indices.append(i)
+    # Find section boundaries (Shard #N or Coordinator)
+    sections = []
+    for i, item in enumerate(profile_data):
+      if isinstance(item, str) and (item.startswith('Shard #') or item == 'Coordinator'):
+        sections.append(i)
 
-    result = {}
-    for idx, start in enumerate(shard_indices):
-        shard_name = shards_data[start]
-        # End is next shard start or end of list
-        end = shard_indices[idx + 1] if idx + 1 < len(shard_indices) else len(shards_data)
+    shards = {}
+    coordinator = {}
+    for idx, start in enumerate(sections):
+      name = profile_data[start]
+      end = sections[idx + 1] if idx + 1 < len(sections) else len(profile_data)
 
-        shard_dict = {}
-        for item in shards_data[start + 1:end]:
-            if isinstance(item, list) and len(item) >= 1:
-                key = item[0]
-                value = item[1:] if len(item) > 1 else None
-                # Unwrap single-element values
-                if value and len(value) == 1:
-                    value = value[0]
-                shard_dict[key] = value
+      section_dict = {}
+      for item in profile_data[start + 1:end]:
+        if isinstance(item, list) and len(item) >= 1:
+          key = item[0]
+          value = item[1:] if len(item) > 1 else None
+          if value and len(value) == 1:
+            value = value[0]
+          section_dict[key] = value
 
-        result[shard_name] = shard_dict
+      if name == 'Coordinator':
+        coordinator = section_dict
+      else:
+        shards[name] = section_dict
 
-    return result.values()
+    # For FT.AGGREGATE, coordinator is separate in res
+    if 'Coordinator' in res and not coordinator:
+      coord_idx = res.index('Coordinator')
+      coordinator = to_dict(res[coord_idx + 1])
+
+    return coordinator, shards
+
+def get_shards_profile(env, res):
+  """Extract shard profiles from FT.PROFILE response (values only)."""
+  _, shards = extract_profile_coordinator_and_shards(env, res)
+  return shards.values()
 
 def InternalCursorReadsInProfile(protocol):
   """Tests that 'Internal cursor reads' appears in shard profiles for AGGREGATE."""
@@ -845,16 +867,6 @@ def testNonZeroTimers(env):
     test_shard_timers(env)
 
 
-def extract_profile_coordinator_and_shards(env, res):
-    # Extract coordinator and shards from FT.PROFILE response based on protocol.
-    if env.protocol == 3:
-        return res['Profile']['Coordinator'], res['Profile']['Shards']
-    else:
-        # RESP2: res[-1] is ['Shards', [...], 'Coordinator', {...}]
-        # res[-1][1] is shards array, res[-1][-1] is coordinator
-        return to_dict(res[-1][-1]), [to_dict(s) for s in res[-1][1]]
-
-
 def sum_rp_times(env, shard):
     """Sum Result Processor times from a shard profile."""
     rp_profile = shard['Result processors profile']
@@ -900,7 +912,7 @@ def ProfileTotalTimeConsistency(env, num_docs):
     def verify_timing_consistency(res, command_desc):
         """Helper to verify total time >= sum of RP times for all shards."""
         _, shards = extract_profile_coordinator_and_shards(env, res)
-        for shard in shards:
+        for shard in shards.values():
             # In RESP2, Total profile time is returned as a string
             total_time = float(shard['Total profile time'])
             rp_times_sum = sum_rp_times(env, shard)
