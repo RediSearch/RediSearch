@@ -160,7 +160,7 @@ mod test {
         assert_eq!(ffi, filter_fields_index);
     }
 
-    fn filter_fields_array(filter_fields: &[&CStr]) -> *mut *mut i8 {
+    fn filter_fields_array(filter_fields: &[&CStr]) -> *mut *mut c_char {
         let temp = filter_fields
             .iter()
             .map(|ff| ff.as_ptr().cast_mut())
