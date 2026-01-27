@@ -52,7 +52,7 @@ static RSValue *sampleFinalize(Reducer *rbase, void *ctx) {
   rsmplCtx *sc = ctx;
 
   uint32_t len = MIN(sc->seen, r->len);
-  RSValue **array_ptr = rm_calloc(sizeof(RSValue *), len);
+  RSValue **array_ptr = RSValue_AllocateArray(len);
 
   for (uint32_t i = 0; i < len; i++) {
     array_ptr[i] = RSValue_IncrRef(sc->samplesArray[i]);
