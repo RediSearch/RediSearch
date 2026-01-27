@@ -45,6 +45,29 @@ int SetFtCreateInfo(RedisModuleCommand *cmd) {
         },
       },
       {
+        .name = "indexall",
+        .token = "INDEXALL",
+        .summary = "When enabled, maintains an inverted index of all document IDs to optimize wildcard queries.",
+        .since = "8.0.0",
+        .type = REDISMODULE_ARG_TYPE_ONEOF,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+        .subargs = (RedisModuleCommandArg[]){
+          {
+            .name = "enable",
+            .token = "ENABLE",
+            .summary = "Maintains an inverted index of all document IDs for wildcard queries.",
+            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+          },
+          {
+            .name = "disable",
+            .token = "DISABLE",
+            .summary = "Does not maintain an inverted index of all document IDs (default behavior).",
+            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+          },
+          {0}
+        },
+      },
+      {
         .name = "prefix",
         .summary = "Filters indexed documents to include only keys that start with the specified prefix.",
         .type = REDISMODULE_ARG_TYPE_BLOCK,
