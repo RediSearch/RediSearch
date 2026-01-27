@@ -161,6 +161,24 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
+  benchmark-msmarco-oss-cluster-08-primaries-250gb:
+    if: ${{ inputs.allowed_setup == 'oss-cluster-08-primaries-250gb' }}
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_glob: "search-msmarco*.yml"
+      allowed_envs: oss-cluster
+      allowed_setups: oss-cluster-08-primaries-250gb
+
+  benchmark-msmarco-fast-oss-cluster-08-primaries:
+    if: ${{ inputs.allowed_setup == 'oss-cluster-08-primaries-fast' }}
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_glob: "search-msmarco*-fast.yml"
+      allowed_envs: oss-cluster
+      allowed_setups: oss-cluster-08-primaries
+
   benchmark-search-oss-cluster-16-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries') }}
     strategy:
