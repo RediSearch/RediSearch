@@ -9,7 +9,7 @@
 
 mod bindings;
 mod field_spec;
-mod hidden_string;
+mod hidden_string_ref;
 mod index_spec;
 mod lookup;
 #[cfg(test)]

@@ -9,13 +9,13 @@
 
 use std::{ffi::CStr, ptr::NonNull};
 
-/// A safe wrapper around an `ffi::HiddenString`.
+/// A safe wrapper around a non-null `ffi::HiddenString` reference.
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct HiddenString(NonNull<ffi::HiddenString>);
+pub struct HiddenStringRef(NonNull<ffi::HiddenString>);
 
-impl HiddenString {
-    /// Create a `HiddenString` wrapper from a non-null pointer.
+impl HiddenStringRef {
+    /// Create a `HiddenStringRef` wrapper from a non-null pointer.
     ///
     /// # Safety
     ///
@@ -41,7 +41,7 @@ impl HiddenString {
 
         // Safety:
         // - `len` is a local variable that we just allocated and is not being referenced anywhere else.
-        // - `self.0` is a valid non-null pointer to an `ffi::HiddenString` due to creation with `HiddenString::from_raw`
+        // - `self.0` is a valid non-null pointer to an `ffi::HiddenString` due to creation with `HiddenStringRef::from_raw`
         let data = unsafe { ffi::HiddenString_GetUnsafe(self.0.as_ptr(), &mut len) };
         debug_assert!(!data.is_null(), "data must not be null");
 
@@ -61,10 +61,10 @@ mod test {
     use pretty_assertions::assert_eq;
 
     #[test]
-    fn secret_value() {
+    fn get_secret_value() {
         let input = c"Ab#123!";
         let ffi_hs = unsafe { ffi::NewHiddenString(input.as_ptr(), input.count_bytes(), false) };
-        let sut = unsafe { HiddenString::from_raw(ffi_hs) };
+        let sut = unsafe { HiddenStringRef::from_raw(ffi_hs) };
 
         let actual = sut.get_secret_value();
 

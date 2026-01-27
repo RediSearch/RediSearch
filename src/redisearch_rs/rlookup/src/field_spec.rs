@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::hidden_string::HiddenString;
+use crate::hidden_string_ref::HiddenStringRef;
 
 /// A safe wrapper around an `ffi::FieldSpec`.
 #[repr(transparent)]
@@ -33,16 +33,16 @@ impl FieldSpec {
         std::ptr::from_ref(&self.0)
     }
 
-    /// Get the underlying field name as a `HiddenString`.
-    pub const fn field_name(&self) -> HiddenString {
+    /// Get the underlying field name as a `HiddenStringRef`.
+    pub const fn field_name(&self) -> HiddenStringRef {
         // Safety: (1.) due to creation with `FieldSpec::from_raw`
-        unsafe { HiddenString::from_raw(self.0.fieldName) }
+        unsafe { HiddenStringRef::from_raw(self.0.fieldName) }
     }
 
-    /// Get the underlying field path as a `HiddenString`.
-    pub const fn field_path(&self) -> HiddenString {
+    /// Get the underlying field path as a `HiddenStringRef`.
+    pub const fn field_path(&self) -> HiddenStringRef {
         // Safety: (1.) due to creation with `FieldSpec::from_raw`
-        unsafe { HiddenString::from_raw(self.0.fieldPath) }
+        unsafe { HiddenStringRef::from_raw(self.0.fieldPath) }
     }
 }
 
