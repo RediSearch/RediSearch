@@ -9,19 +9,17 @@
 
 //! Benchmark inverted index iterator.
 
-use std::{marker::PhantomData, time::Duration};
+use std::{hint::black_box, marker::PhantomData, time::Duration};
 
 use ::ffi::{RSQueryTerm, Term_Free};
 use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use inverted_index::{
-    DecodedBy, Encoder, InvertedIndex, RSIndexResult, TermDecoder, numeric::Numeric,
-};
+use inverted_index::{DecodedBy, Encoder, InvertedIndex, RSIndexResult, TermDecoder};
 use rqe_iterators::{
     RQEIterator, SkipToOutcome,
-    inverted_index::{NumericFull, TermFull},
+    inverted_index::{Numeric, Term},
 };
 
 use crate::ffi::{self, QueryTermBuilder};
@@ -48,9 +46,9 @@ fn benchmark_group<'a>(
 }
 
 #[derive(Default)]
-pub struct NumericFullBencher;
+pub struct NumericBencher;
 
-impl NumericFullBencher {
+impl NumericBencher {
     pub fn bench(&self, c: &mut Criterion) {
         self.read_dense(c);
         self.read_sparse(c);
@@ -59,28 +57,28 @@ impl NumericFullBencher {
     }
 
     fn read_dense(&self, c: &mut Criterion) {
-        let mut group = benchmark_group(c, "NumericFull", "Read Dense");
+        let mut group = benchmark_group(c, "Numeric", "Read Dense");
         self.c_read_dense(&mut group);
         self.rust_read_dense(&mut group);
         group.finish();
     }
 
     fn read_sparse(&self, c: &mut Criterion) {
-        let mut group = benchmark_group(c, "NumericFull", "Read Sparse");
+        let mut group = benchmark_group(c, "Numeric", "Read Sparse");
         self.c_read_sparse(&mut group);
         self.rust_read_sparse(&mut group);
         group.finish();
     }
 
     fn skip_to_dense(&self, c: &mut Criterion) {
-        let mut group = benchmark_group(c, "NumericFull", "SkipTo Dense");
+        let mut group = benchmark_group(c, "Numeric", "SkipTo Dense");
         self.c_skip_to_dense(&mut group);
         self.rust_skip_to_dense(&mut group);
         group.finish();
     }
 
     fn skip_to_sparse(&self, c: &mut Criterion) {
-        let mut group = benchmark_group(c, "NumericFull", "SkipTo Sparse");
+        let mut group = benchmark_group(c, "Numeric", "SkipTo Sparse");
         self.c_skip_to_sparse(&mut group);
         self.rust_skip_to_sparse(&mut group);
         group.finish();
@@ -94,8 +92,10 @@ impl NumericFullBencher {
         ii
     }
 
-    fn rust_index(delta: u64) -> InvertedIndex<Numeric> {
-        let mut ii = InvertedIndex::<Numeric>::new(ffi::IndexFlags_Index_StoreNumeric);
+    fn rust_index(delta: u64) -> InvertedIndex<inverted_index::numeric::Numeric> {
+        let mut ii = InvertedIndex::<inverted_index::numeric::Numeric>::new(
+            ffi::IndexFlags_Index_StoreNumeric,
+        );
         for doc_id in 1..INDEX_SIZE {
             let record = RSIndexResult::numeric(doc_id as f64).doc_id(doc_id * delta);
             ii.add_record(&record).expect("failed to add record");
@@ -108,7 +108,7 @@ impl NumericFullBencher {
             b.iter_batched_ref(
                 || Self::c_index(1),
                 |ii| {
-                    let it = ii.iterator_numeric_full();
+                    let it = ii.iterator_numeric(None);
                     while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
                         black_box(it.current());
                     }
@@ -124,7 +124,7 @@ impl NumericFullBencher {
             b.iter_batched_ref(
                 || Self::c_index(SPARSE_DELTA),
                 |ii| {
-                    let it = ii.iterator_numeric_full();
+                    let it = ii.iterator_numeric(None);
                     while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
                         black_box(it.current());
                     }
@@ -140,7 +140,7 @@ impl NumericFullBencher {
             b.iter_batched_ref(
                 || Self::rust_index(1),
                 |ii| {
-                    let mut it = NumericFull::new(ii.reader());
+                    let mut it = Numeric::new_simple(ii.reader());
                     while let Ok(Some(current)) = it.read() {
                         black_box(current);
                     }
@@ -155,7 +155,7 @@ impl NumericFullBencher {
             b.iter_batched_ref(
                 || Self::rust_index(SPARSE_DELTA),
                 |ii| {
-                    let mut it = NumericFull::new(ii.reader());
+                    let mut it = Numeric::new_simple(ii.reader());
                     while let Ok(Some(current)) = it.read() {
                         black_box(current);
                     }
@@ -170,7 +170,7 @@ impl NumericFullBencher {
             b.iter_batched_ref(
                 || Self::c_index(1),
                 |ii| {
-                    let it = ii.iterator_numeric_full();
+                    let it = ii.iterator_numeric(None);
                     while it.skip_to(it.last_doc_id() + SKIP_TO_STEP)
                         != ::ffi::IteratorStatus_ITERATOR_EOF
                     {
@@ -188,7 +188,7 @@ impl NumericFullBencher {
             b.iter_batched_ref(
                 || Self::c_index(SPARSE_DELTA),
                 |ii| {
-                    let it = ii.iterator_numeric_full();
+                    let it = ii.iterator_numeric(None);
                     while it.skip_to(it.last_doc_id() + SKIP_TO_STEP)
                         != ::ffi::IteratorStatus_ITERATOR_EOF
                     {
@@ -206,7 +206,7 @@ impl NumericFullBencher {
             b.iter_batched_ref(
                 || Self::rust_index(1),
                 |ii| {
-                    let mut it = NumericFull::new(ii.reader());
+                    let mut it = Numeric::new_simple(ii.reader());
                     while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {
                         match outcome {
                             SkipToOutcome::Found(current) | SkipToOutcome::NotFound(current) => {
@@ -225,7 +225,7 @@ impl NumericFullBencher {
             b.iter_batched_ref(
                 || Self::rust_index(SPARSE_DELTA),
                 |ii| {
-                    let mut it = NumericFull::new(ii.reader());
+                    let mut it = Numeric::new_simple(ii.reader());
                     while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {
                         match outcome {
                             SkipToOutcome::Found(current) | SkipToOutcome::NotFound(current) => {
@@ -240,7 +240,7 @@ impl NumericFullBencher {
     }
 }
 
-pub struct TermFullBencher<E> {
+pub struct TermBencher<E> {
     /// Name of the benchmark group
     group_name: String,
     /// Inverted index flags to use for the benchmark
@@ -253,7 +253,7 @@ pub struct TermFullBencher<E> {
     _phantom_enc: PhantomData<E>,
 }
 
-impl<E> Drop for TermFullBencher<E> {
+impl<E> Drop for TermBencher<E> {
     fn drop(&mut self) {
         unsafe {
             let _ = Term_Free(self.term);
@@ -261,13 +261,13 @@ impl<E> Drop for TermFullBencher<E> {
     }
 }
 
-impl<E> TermFullBencher<E>
+impl<E> TermBencher<E>
 where
     E: Encoder + DecodedBy,
     E::Decoder: TermDecoder,
 {
     pub fn new(decoder_name: &str, ii_flags: u32) -> Self {
-        let group_name = format!("TermFull - {decoder_name}");
+        let group_name = format!("Term - {decoder_name}");
         const TEST_STR: &str = "term";
         let term = QueryTermBuilder {
             token: TEST_STR,
@@ -359,7 +359,7 @@ where
             b.iter_batched_ref(
                 || self.c_index(false),
                 |ii| {
-                    let it = ii.iterator_term_full();
+                    let it = ii.iterator_term();
                     while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
                         black_box(it.current());
                     }
@@ -375,7 +375,7 @@ where
             b.iter_batched_ref(
                 || self.c_index(true),
                 |ii| {
-                    let it = ii.iterator_term_full();
+                    let it = ii.iterator_term();
                     while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
                         black_box(it.current());
                     }
@@ -391,7 +391,7 @@ where
             b.iter_batched_ref(
                 || self.rust_index(false),
                 |ii| {
-                    let mut it = TermFull::new(ii.reader());
+                    let mut it = Term::new_simple(ii.reader());
                     while let Ok(Some(current)) = it.read() {
                         black_box(current);
                     }
@@ -406,7 +406,7 @@ where
             b.iter_batched_ref(
                 || self.rust_index(true),
                 |ii| {
-                    let mut it = TermFull::new(ii.reader());
+                    let mut it = Term::new_simple(ii.reader());
                     while let Ok(Some(current)) = it.read() {
                         black_box(current);
                     }
@@ -421,7 +421,7 @@ where
             b.iter_batched_ref(
                 || self.c_index(false),
                 |ii| {
-                    let it = ii.iterator_term_full();
+                    let it = ii.iterator_term();
                     while it.skip_to(it.last_doc_id() + SKIP_TO_STEP)
                         != ::ffi::IteratorStatus_ITERATOR_EOF
                     {
@@ -439,7 +439,7 @@ where
             b.iter_batched_ref(
                 || self.c_index(true),
                 |ii| {
-                    let it = ii.iterator_term_full();
+                    let it = ii.iterator_term();
                     while it.skip_to(it.last_doc_id() + SKIP_TO_STEP)
                         != ::ffi::IteratorStatus_ITERATOR_EOF
                     {
@@ -457,7 +457,7 @@ where
             b.iter_batched_ref(
                 || self.rust_index(false),
                 |ii| {
-                    let mut it = TermFull::new(ii.reader());
+                    let mut it = Term::new_simple(ii.reader());
                     while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {
                         match outcome {
                             SkipToOutcome::Found(current) | SkipToOutcome::NotFound(current) => {
@@ -476,7 +476,7 @@ where
             b.iter_batched_ref(
                 || self.rust_index(true),
                 |ii| {
-                    let mut it = TermFull::new(ii.reader());
+                    let mut it = Term::new_simple(ii.reader());
                     while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {
                         match outcome {
                             SkipToOutcome::Found(current) | SkipToOutcome::NotFound(current) => {

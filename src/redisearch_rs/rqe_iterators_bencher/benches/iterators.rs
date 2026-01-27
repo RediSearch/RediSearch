@@ -58,15 +58,15 @@ fn benchmark_not_iterator(c: &mut Criterion) {
     bencher.bench(c);
 }
 
-/*
-fn benchmark_inverted_index_numeric_full(c: &mut Criterion) {
-    let bencher = benchers::inverted_index::NumericFullBencher::default();
+fn benchmark_inverted_index_numeric(c: &mut Criterion) {
+    let bencher = benchers::inverted_index::NumericBencher::default();
     bencher.bench(c);
 }
 
-fn benchmark_inverted_index_term_full(c: &mut Criterion) {
+/*
+fn benchmark_inverted_index_term(c: &mut Criterion) {
     // Run bench with each decoder producing term results.
-    benchers::inverted_index::TermFullBencher::<Full>::new(
+    benchers::inverted_index::TermBencher::<Full>::new(
         "Full",
         ffi::IndexFlags_Index_StoreFreqs
             | ffi::IndexFlags_Index_StoreTermOffsets
@@ -74,7 +74,7 @@ fn benchmark_inverted_index_term_full(c: &mut Criterion) {
             | ffi::IndexFlags_Index_StoreByteOffsets,
     )
     .bench(c);
-    benchers::inverted_index::TermFullBencher::<FullWide>::new(
+    benchers::inverted_index::TermBencher::<FullWide>::new(
         "FullWide",
         ffi::IndexFlags_Index_StoreFreqs
             | ffi::IndexFlags_Index_StoreTermOffsets
@@ -84,12 +84,12 @@ fn benchmark_inverted_index_term_full(c: &mut Criterion) {
     )
     .bench(c);
 
-    benchers::inverted_index::TermFullBencher::<FreqsFields>::new(
+    benchers::inverted_index::TermBencher::<FreqsFields>::new(
         "FreqsFields",
         ffi::IndexFlags_Index_StoreFreqs | ffi::IndexFlags_Index_StoreFieldFlags,
     )
     .bench(c);
-    benchers::inverted_index::TermFullBencher::<FreqsFieldsWide>::new(
+    benchers::inverted_index::TermBencher::<FreqsFieldsWide>::new(
         "FreqsFieldsWide",
         ffi::IndexFlags_Index_StoreFreqs
             | ffi::IndexFlags_Index_StoreFieldFlags
@@ -97,23 +97,23 @@ fn benchmark_inverted_index_term_full(c: &mut Criterion) {
     )
     .bench(c);
 
-    benchers::inverted_index::TermFullBencher::<FieldsOnly>::new(
+    benchers::inverted_index::TermBencher::<FieldsOnly>::new(
         "FieldsOnly",
         ffi::IndexFlags_Index_StoreFieldFlags,
     )
     .bench(c);
-    benchers::inverted_index::TermFullBencher::<FieldsOnlyWide>::new(
+    benchers::inverted_index::TermBencher::<FieldsOnlyWide>::new(
         "FieldsOnlyWide",
         ffi::IndexFlags_Index_StoreFieldFlags | ffi::IndexFlags_Index_WideSchema,
     )
     .bench(c);
 
-    benchers::inverted_index::TermFullBencher::<FieldsOffsets>::new(
+    benchers::inverted_index::TermBencher::<FieldsOffsets>::new(
         "FieldsOffsets",
         ffi::IndexFlags_Index_StoreTermOffsets | ffi::IndexFlags_Index_StoreFieldFlags,
     )
     .bench(c);
-    benchers::inverted_index::TermFullBencher::<FieldsOffsetsWide>::new(
+    benchers::inverted_index::TermBencher::<FieldsOffsetsWide>::new(
         "FieldsOffsetsWide",
         ffi::IndexFlags_Index_StoreTermOffsets
             | ffi::IndexFlags_Index_StoreFieldFlags
@@ -121,25 +121,25 @@ fn benchmark_inverted_index_term_full(c: &mut Criterion) {
     )
     .bench(c);
 
-    benchers::inverted_index::TermFullBencher::<OffsetsOnly>::new(
+    benchers::inverted_index::TermBencher::<OffsetsOnly>::new(
         "OffsetsOnly",
         ffi::IndexFlags_Index_StoreTermOffsets,
     )
     .bench(c);
 
-    benchers::inverted_index::TermFullBencher::<FreqsOffsets>::new(
+    benchers::inverted_index::TermBencher::<FreqsOffsets>::new(
         "FreqsOffsets",
         ffi::IndexFlags_Index_StoreFreqs | ffi::IndexFlags_Index_StoreTermOffsets,
     )
     .bench(c);
 
-    benchers::inverted_index::TermFullBencher::<DocIdsOnly>::new(
+    benchers::inverted_index::TermBencher::<DocIdsOnly>::new(
         "DocIdsOnly",
         ffi::IndexFlags_Index_DocIdsOnly,
     )
     .bench(c);
 }
-*/
+ */
 
 criterion_group!(
     benches,
@@ -150,6 +150,8 @@ criterion_group!(
     benchmark_wildcard,
     benchmark_intersection,
     benchmark_optional,
+    benchmark_inverted_index_numeric,
+    //benchmark_inverted_index_term,
 );
 
 criterion_main!(benches);
