@@ -61,12 +61,20 @@ mod test {
 
     #[test]
     fn secret_value() {
+        // Arrange
         let input = c"Ab#123!";
         let ffi_hs = unsafe { ffi::NewHiddenString(input.as_ptr(), input.count_bytes(), false) };
         let sut = unsafe { HiddenString::from_raw(ffi_hs) };
 
+        // Act
         let actual = sut.get_secret_value();
 
+        // Assert
         assert_eq!(actual, input);
+
+        // Cleanup
+        unsafe {
+            ffi::HiddenString_Free(ffi_hs, false);
+        }
     }
 }
