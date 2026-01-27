@@ -441,10 +441,6 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 
     // Step 3a: Clean up nodes for failed reads (not found/error)
     cleanupFailedReads(&self->async);
-    if (pendingCount == 0) {
-      // reading dmds is done, refill the async pool for the next iteration
-      fillAsyncPool(&self->async);
-    }
 
     // Step 6: Check if we're completely done
     if (isAsyncIterationComplete(self, pendingCount)) {
