@@ -251,6 +251,7 @@ def testInitConfig():
     _test_config_str('GC_POLICY', 'fork')
     _test_config_str('GC_POLICY', 'default', 'fork')
     _test_config_str('ON_TIMEOUT', 'fail')
+    _test_config_str('ON_TIMEOUT', 'return-strict')
     _test_config_str('TIMEOUT', '0', '0')
     _test_config_str('PARTIAL_INDEXED_DOCS', '0', 'false')
     _test_config_str('PARTIAL_INDEXED_DOCS', '1', 'true')
@@ -975,6 +976,10 @@ def testConfigAPIRunTimeEnumParams():
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'return').equal('OK')
     env.expect('CONFIG', 'GET', 'search-on-timeout')\
         .equal(['search-on-timeout', 'return'])
+
+    env.expect('CONFIG', 'SET', 'search-on-timeout', 'return-strict').equal('OK')
+    env.expect('CONFIG', 'GET', 'search-on-timeout')\
+        .equal(['search-on-timeout', 'return-strict'])
 
     # Test search-on-timeout - invalid values
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'invalid_value').error()\

@@ -157,7 +157,7 @@ DEBUG_COMMAND(DumpTerms) {
   RedisModule_ReplyWithArray(ctx, sctx->spec->terms->size);
 
   TrieIterator *it = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
@@ -643,7 +643,7 @@ DEBUG_COMMAND(DumpSuffix) {
     t_len len;
     float score;
 
-    while (TrieIterator_Next(it, &rstr, &len, NULL, &score, NULL)) {
+    while (TrieIterator_Next(it, &rstr, &len, NULL, &score, NULL, NULL)) {
       size_t slen;
       char *s = runesToStr(rstr, len, &slen);
       RedisModule_ReplyWithStringBuffer(ctx, s, slen);
