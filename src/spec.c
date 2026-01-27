@@ -2546,11 +2546,13 @@ fail:
 static void IndexScoringStats_RdbLoad(RedisModuleIO *rdb, ScoringIndexStats *stats) {
   stats->numDocuments = RedisModule_LoadUnsigned(rdb);
   stats->numTerms = RedisModule_LoadUnsigned(rdb);
+  stats->totalDocsLen = RedisModule_LoadUnsigned(rdb);
 }
 
 static void IndexScoringStats_RdbSave(RedisModuleIO *rdb, ScoringIndexStats *stats) {
   RedisModule_SaveUnsigned(rdb, stats->numDocuments);
   RedisModule_SaveUnsigned(rdb, stats->numTerms);
+  RedisModule_SaveUnsigned(rdb, stats->totalDocsLen);
 }
 
 static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
@@ -3255,6 +3257,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   bool useSst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
   if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && useSst) {
     IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring);
+    if (sp->terms) {
+      TrieType_Free(sp->terms);
+    }
     sp->terms = TrieType_GenericLoad(rdb, false, true);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
     if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec) != REDISMODULE_OK) {
