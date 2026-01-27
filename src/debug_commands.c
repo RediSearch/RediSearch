@@ -33,7 +33,7 @@
 #include "info/info_command.h"
 #include "iterators/inverted_index_iterator.h"
 #include "search_disk.h"
-#include "ext/default.h"
+#include "ext/debug_scorers.h"
 
 DebugCTX globalDebugCtx = {0};
 
