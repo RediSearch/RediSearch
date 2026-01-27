@@ -38,6 +38,28 @@
         "summary": "Specifies the type of data to index, such as HASH or JSON."
       },
       {
+        "name": "indexall",
+        "token": "INDEXALL",
+        "type": "oneof",
+        "optional": true,
+        "since": "8.0.0",
+        "arguments": [
+          {
+            "name": "enable",
+            "type": "pure-token",
+            "token": "ENABLE",
+            "summary": "Maintains an inverted index of all document IDs for wildcard queries."
+          },
+          {
+            "name": "disable",
+            "type": "pure-token",
+            "token": "DISABLE",
+            "summary": "Does not maintain an inverted index of all document IDs (default behavior)."
+          }
+        ],
+        "summary": "When enabled, maintains an inverted index of all document IDs to optimize wildcard queries in heavy update scenarios."
+      },
+      {
         "name": "prefix",
         "type": "block",
         "optional": true,
