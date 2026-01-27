@@ -702,7 +702,7 @@ def extract_profile_coordinator_and_shards(env, res):
 def get_shards_profile(env, res):
   """Extract shard profiles from FT.PROFILE response (values only)."""
   _, shards = extract_profile_coordinator_and_shards(env, res)
-  return shards.values()
+  return shards
 
 def InternalCursorReadsInProfile(protocol):
   """Tests that 'Internal cursor reads' appears in shard profiles for AGGREGATE."""
