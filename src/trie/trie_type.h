@@ -20,8 +20,9 @@ extern "C" {
 
 extern RedisModuleType *TrieType;
 
-#define TRIE_ENCVER_CURRENT 1
-#define TRIE_ENCVER_NOPAYLOADS 0
+#define TRIE_ENCVER_CURRENT 2
+#define TRIE_ENCVER_NUMDOCS 2
+#define TRIE_ENCVER_PAYLOADS 1
 
 typedef struct {
   TrieNode *root;
@@ -45,11 +46,12 @@ typedef struct {
  * score using `Trie_Sort_Score.                            */
 Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode);
 
-int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload);
+int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload,
+                size_t numDocs);
 int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, int incr,
-                            RSPayload *payload);
+                            RSPayload *payload, size_t numDocs);
 int Trie_InsertRune(Trie *t, const rune *s, size_t len, double score, int incr,
-                            RSPayload *payload);
+                    RSPayload *payload, size_t numDocs);
 
 /* Get the payload from the node. if `exact` is 0, the payload is return even if local offset!=len
    Use for debug only! */
@@ -75,8 +77,8 @@ int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score);
 
 /* Commands related to the redis TrieType registration */
 int TrieType_Register(RedisModuleCtx *ctx);
-void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads);
-void TrieType_GenericSave(RedisModuleIO *rdb, Trie *t, int savePayloads);
+void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDocs);
+void TrieType_GenericSave(RedisModuleIO *rdb, Trie *t, bool savePayloads, bool saveNumDocs);
 void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver);
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value);
 size_t TrieType_MemUsage(const void *value);

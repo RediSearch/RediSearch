@@ -577,7 +577,7 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   int hasNext;
-  while ((hasNext = TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) &&
+  while ((hasNext = TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) &&
          (itsSz < q->config->maxPrefixExpansions)) {
     target_str = runesToStr(rstr, slen, &tok_len);
     addTerm(target_str, tok_len, q, opts, &its, &itsSz, &itsCap);

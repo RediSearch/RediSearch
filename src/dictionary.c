@@ -34,7 +34,7 @@ int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   RS_LOG_ASSERT_ALWAYS(t != NULL, "Failed to open dictionary in write mode");
 
   for (int i = 0; i < len; ++i) {
-    valuesAdded += Trie_Insert(t, values[i], 1, 1, NULL);
+    valuesAdded += Trie_Insert(t, values[i], 1, 1, NULL, 0);
   }
 
   return valuesAdded;
@@ -78,7 +78,7 @@ void Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName) {
   RedisModule_ReplyWithSet(ctx, t->size);
 
   TrieIterator *it = Trie_Iterate(t, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
@@ -162,7 +162,7 @@ static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* trie
   size_t termsCount = 0;
 
   TrieIterator *it = Trie_Iterate(trie, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     terms[termsCount++] = RedisModule_CreateString(NULL, res, termLen);
     rm_free(res);
@@ -201,7 +201,7 @@ static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   size_t len = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t i = 0; i < len; i++) {
     char *key = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
-    Trie *val = TrieType_GenericLoad(rdb, false);
+    Trie *val = TrieType_GenericLoad(rdb, false, false);
     if (val == NULL) {
       RedisModule_Free(key);
       goto cleanup;
@@ -232,7 +232,7 @@ static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
     Trie *val = dictGetVal(entry);
     RS_LOG_ASSERT(val->size != 0, "Empty dictionary should not exist in the dictionary list");
     RedisModule_SaveStringBuffer(rdb, key, strlen(key) + 1 /* we save the /0*/);
-    TrieType_GenericSave(rdb, val, false);
+    TrieType_GenericSave(rdb, val, false, false);
   }
   dictReleaseIterator(iter);
 }
