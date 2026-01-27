@@ -13,6 +13,7 @@
 #include <sys/param.h>
 #include "src/util/arr.h"
 #include "value.h"
+#include "query_term/query_term.h"
 
 
 void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *child) {

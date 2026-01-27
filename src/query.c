@@ -49,6 +49,7 @@
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
 #include "idf.h"
+#include "index_result/query_term/query_term.h"
 
 #ifndef STRINGIFY
 #define __STRINGIFY(x) #x
