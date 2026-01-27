@@ -61,7 +61,7 @@ mod test {
     use pretty_assertions::assert_eq;
 
     #[test]
-    fn secret_value_1() {
+    fn secret_value() {
         let input = c"Ab#123!";
         let ffi_hs = unsafe { ffi::NewHiddenString(input.as_ptr(), input.count_bytes(), false) };
         let sut = unsafe { HiddenString::from_raw(ffi_hs) };
