@@ -3145,7 +3145,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   bool useSst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
   if (sp->diskSpec && useSst) {
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
-    TrieType_GenericSave(rdb, sp->terms, false);
+    TrieType_GenericSave(rdb, sp->terms, false, true);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
   }
 }
@@ -3255,7 +3255,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   bool useSst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
   if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && useSst) {
     IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring);
-    sp->terms = TrieType_GenericLoad(rdb, false);
+    sp->terms = TrieType_GenericLoad(rdb, false, true);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
     if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec) != REDISMODULE_OK) {
       goto cleanup;
