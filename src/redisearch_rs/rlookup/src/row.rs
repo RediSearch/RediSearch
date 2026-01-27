@@ -190,8 +190,8 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     }
 
     /// Borrow a sorting vector for the row.
-    pub const fn set_sorting_vector(&mut self, sv: &'a RSSortingVector<T>) {
-        self.sorting_vector = Some(sv);
+    pub const fn set_sorting_vector(&mut self, sv: Option<&'a RSSortingVector<T>>) {
+        self.sorting_vector = sv;
     }
 
     /// The number of values in [`RLookupRow::dyn_values`] that are `is_some()`. Note that this
