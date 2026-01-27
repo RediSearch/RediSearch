@@ -12,7 +12,7 @@
 use std::{ffi::CString, ptr};
 
 use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use inverted_index::{NumericFilter, RSIndexResult};
 use query_error::QueryError;
 
 /// Wrapper around RedisModuleCtx ensuring its resources are properly cleaned up.
@@ -198,6 +198,50 @@ impl TestContext {
         match self.inner {
             TestContextInner::Numeric { field_spec, .. } => unsafe { field_spec.as_ref() },
             _ => panic!("TestContext is not a Numeric context"),
+        }
+    }
+
+    /// Get the inverted index for this context.
+    /// Panics if this is not a numeric context.
+    pub fn numeric_inverted_index(
+        &self,
+    ) -> &mut inverted_index::InvertedIndex<inverted_index::numeric::Numeric> {
+        // Create a numeric filter to find ranges
+        let mut filter = NumericFilter::default();
+        filter.ascending = false;
+        filter.field_spec = self.field_spec();
+
+        // Find a range that covers our data to get the inverted index
+        let ranges = unsafe {
+            ffi::NumericRangeTree_Find(
+                self.numeric_range_tree().as_ptr(),
+                // cast inverted_index::NumericFilter to ffi::NumericFilter
+                &filter as *const _ as *const ffi::NumericFilter,
+            )
+        };
+        assert!(!ranges.is_null());
+        unsafe {
+            assert!(ffi::Vector_Size(ranges) > 0);
+        }
+        let mut range: *mut ffi::NumericRange = std::ptr::null_mut();
+        unsafe {
+            let range_out = &mut range as *mut *mut ffi::NumericRange;
+            assert!(ffi::Vector_Get(ranges, 0, range_out.cast()) == 1);
+        }
+        assert!(!range.is_null());
+        let range = unsafe { &*range };
+        let ii = range.entries;
+        assert!(!ii.is_null());
+        let ii: *mut inverted_index_ffi::InvertedIndex = ii.cast();
+        let ii = unsafe { &mut *ii };
+
+        unsafe {
+            ffi::Vector_Free(ranges);
+        }
+
+        match ii {
+            inverted_index_ffi::InvertedIndex::Numeric(entries) => entries.inner_mut(),
+            _ => panic!("Unexpected inverted index type"),
         }
     }
 }
