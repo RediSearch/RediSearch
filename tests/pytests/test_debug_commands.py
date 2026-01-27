@@ -67,7 +67,7 @@ class TestDebugCommands(object):
             'VECSIM_MOCK_TIMEOUT',
             'GET_MAX_DOC_ID',
             'DUMP_DELETED_IDS',
-            'REGISTER_TEST_SCORER',
+            'REGISTER_TEST_SCORERS',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',
@@ -84,7 +84,7 @@ class TestDebugCommands(object):
 
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
-                        'REGISTER_TEST_SCORER']
+                        'REGISTER_TEST_SCORERS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
