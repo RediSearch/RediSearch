@@ -27,11 +27,6 @@ impl HiddenStringRef {
         Self(NonNull::new(ptr.cast_mut()).expect("HiddenString ptr must be non-null"))
     }
 
-    /// Get the underlying non-null pointer.
-    pub const fn as_ptr(&self) -> *const ffi::HiddenString {
-        self.0.as_ptr()
-    }
-
     /// Get the secret (aka. "unsafe" in C land) value from the underlying [`ffi::HiddenString`].
     ///
     /// This is safe **only if** the C function returns a pointer that stays valid
