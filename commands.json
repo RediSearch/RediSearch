@@ -57,7 +57,7 @@
             "summary": "Does not maintain an inverted index of all document IDs (default behavior)."
           }
         ],
-        "summary": "When enabled, maintains an inverted index of all document IDs to optimize wildcard queries."
+        "summary": "When enabled, maintains an inverted index of all document IDs to optimize wildcard queries in heavy update scenarios."
       },
       {
         "name": "prefix",

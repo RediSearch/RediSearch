@@ -47,7 +47,7 @@ int SetFtCreateInfo(RedisModuleCommand *cmd) {
       {
         .name = "indexall",
         .token = "INDEXALL",
-        .summary = "When enabled, maintains an inverted index of all document IDs to optimize wildcard queries.",
+        .summary = "When enabled, maintains an inverted index of all document IDs to optimize wildcard queries in heavy update scenarios.",
         .since = "8.0.0",
         .type = REDISMODULE_ARG_TYPE_ONEOF,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
