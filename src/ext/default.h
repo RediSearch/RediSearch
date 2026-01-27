@@ -26,6 +26,16 @@
 #define DOCSCORE_SCORER "DOCSCORE"
 #define HAMMINGDISTANCE_SCORER "HAMMING"
 
+/* Test scorer names - for debug command use */
+#define TEST_NUM_DOCS_SCORER_NAME "TEST_NUM_DOCS"
+#define TEST_NUM_TERMS_SCORER_NAME "TEST_NUM_TERMS"
+#define TEST_AVG_DOC_LEN_SCORER_NAME "TEST_AVG_DOC_LEN"
+#define TEST_SUM_IDF_SCORER_NAME "TEST_SUM_IDF"
+#define TEST_SUM_BM25_IDF_SCORER_NAME "TEST_SUM_BM25_IDF"
+
 int DefaultExtensionInit(RSExtensionCtx *ctx);
+
+/* Register the test scorers - for debug command use */
+int Ext_RegisterTestScorers(void);
 
 #endif
