@@ -13,6 +13,7 @@
 #include "src/forward_index.h"
 #include "inverted_index.h"
 #include "src/redis_index.h"
+#include <atomic>
 
 std::string numToDocStr(unsigned id) {
   return "doc" + std::to_string(id);
@@ -60,9 +61,12 @@ InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with)
 }
 
 RefManager *createSpec(RedisModuleCtx *ctx, const std::vector<const char*>& prefixes) {
+    static std::atomic<int> counter{0};
+    std::string index_name = "idx_" + std::to_string(counter++);
+
     RSIndexOptions opts = {0};
     opts.gcPolicy = GC_POLICY_FORK;
-    auto ism = RediSearch_CreateIndex("idx", &opts);
+    auto ism = RediSearch_CreateIndex(index_name.c_str(), &opts);
     if (!ism) return ism;
 
     SchemaRuleArgs args = {0};
