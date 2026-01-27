@@ -1504,7 +1504,7 @@ ResultProcessor *RPCrash_New(enum CrashLocation location) {
 
 void PipelineAddCrash(struct AREQ *r, enum CrashLocation location) {
   ResultProcessor *crash = RPCrash_New(location);
-  addResultProcessor(AREQ_QueryProcessingCtx(r), crash);
+  addResultProcessor(r, crash);
 }
 
 /*******************************************************************************************************************
