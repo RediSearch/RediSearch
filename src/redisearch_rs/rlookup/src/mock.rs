@@ -12,7 +12,7 @@
 //! the `HiddenString` type used in the C code.
 
 use std::{
-    alloc::{Layout, alloc},
+    alloc::{Layout, alloc, dealloc},
     cmp,
     ffi::{c_char, c_int},
     mem::{self, offset_of},
@@ -200,4 +200,29 @@ pub(crate) fn array_new<T: Copy>(xs: &[T]) -> *mut T {
     unsafe { ptr::copy(xs.as_ptr(), data, n) };
 
     data
+}
+
+/// Rough mock implementation of `array_free` from util/arr/arr.h for testing purposes.
+pub(crate) unsafe fn array_free<T>(arr: *mut T) {
+    if arr.is_null() {
+        return;
+    }
+
+    let hdr_sz = mem::size_of::<ffi::array_hdr_t>();
+    let hdr_ptr = unsafe { (arr as *mut u8).sub(hdr_sz).cast::<ffi::array_hdr_t>() };
+
+    let len = unsafe { ptr::read_unaligned(ptr::addr_of!((*hdr_ptr).len)) } as usize;
+    let remain_cap = unsafe { ptr::read_unaligned(ptr::addr_of!((*hdr_ptr).remain_cap)) } as usize;
+    let elem_sz = unsafe { ptr::read_unaligned(ptr::addr_of!((*hdr_ptr).elem_sz)) } as usize;
+
+    let cap = len + remain_cap;
+    let total_sz = hdr_sz + cap * elem_sz;
+
+    let layout = Layout::from_size_align(
+        total_sz,
+        mem::align_of::<ffi::array_hdr_t>().max(mem::align_of::<T>()),
+    )
+    .unwrap();
+
+    unsafe { dealloc(hdr_ptr.cast::<u8>(), layout) };
 }

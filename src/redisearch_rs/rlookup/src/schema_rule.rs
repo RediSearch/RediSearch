@@ -137,7 +137,10 @@ const unsafe fn maybe_cstr_from_ptr<'a>(ffi_field: *mut c_char) -> Option<&'a CS
 mod test {
     use super::*;
 
-    use std::{ffi::CStr, mem, ptr};
+    use std::{
+        ffi::{CStr, c_void},
+        mem, ptr,
+    };
 
     use pretty_assertions::assert_eq;
 
@@ -158,6 +161,8 @@ mod test {
         assert_eq!(ff[1], c"bbb");
         assert_eq!(ffi.len(), 2);
         assert_eq!(ffi, filter_fields_index);
+
+        unsafe { crate::mock::array_free(schema_rule.filter_fields.cast::<c_void>()) }
     }
 
     fn filter_fields_array(filter_fields: &[&CStr]) -> *mut *mut c_char {

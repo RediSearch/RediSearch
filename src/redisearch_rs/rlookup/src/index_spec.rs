@@ -78,6 +78,13 @@ mod test {
             unsafe { fss[1].to_raw().as_ref() }.unwrap().index,
             fs1.index
         );
+
+        unsafe {
+            ffi::HiddenString_Free(fs0.fieldName, false);
+            ffi::HiddenString_Free(fs0.fieldPath, false);
+            ffi::HiddenString_Free(fs1.fieldName, false);
+            ffi::HiddenString_Free(fs1.fieldPath, false);
+        }
     }
 
     #[test]

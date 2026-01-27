@@ -64,6 +64,11 @@ mod test {
 
         assert_eq!(sut.field_name().get_secret_value(), name);
         assert_eq!(sut.field_path().get_secret_value(), path);
+
+        unsafe {
+            ffi::HiddenString_Free(fs.fieldName, false);
+            ffi::HiddenString_Free(fs.fieldPath, false);
+        }
     }
 
     fn field_spec(field_name: &CStr, field_path: &CStr) -> ffi::FieldSpec {
