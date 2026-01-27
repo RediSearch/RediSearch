@@ -625,40 +625,88 @@ def testTimedOutWarningCoordResp3():
 def testTimedOutWarningCoordResp2():
   TimedOutWarningtestCoord(Env(protocol=2))
 
-def get_shards_profile(env, res):
-  """Extract shard profiles from FT.PROFILE AGGREGATE response."""
+def parse_resp2_shards_list(shards_list):
+  """Parse RESP2 shards list like ['Shard #1', [...], [...], 'Shard #2', [...], ...] into list of dicts."""
+  shards = []
+  current_shard = {}
+  current_shard_name = None
+
+  for item in shards_list:
+    if isinstance(item, str) and item.startswith('Shard #'):
+      # Start of a new shard - save previous if exists
+      if current_shard_name:
+        shards.append(current_shard)
+      current_shard_name = item
+      current_shard = {}
+    elif isinstance(item, list) and len(item) >= 1:
+      # Key-value pair like ['Total profile time', '0.291']
+      current_shard[item[0]] = item[1] if len(item) > 1 else None
+
+  # Don't forget the last shard
+  if current_shard_name:
+    shards.append(current_shard)
+
+  return shards
+
+def extract_profile_coordinator_and_shards(env, res):
+  """Extract coordinator and shards from FT.PROFILE response based on protocol.
+
+  Returns (coordinator_dict, shards_list) where shards_list is a list of shard profile dicts.
+  Handles both FT.SEARCH and FT.AGGREGATE for RESP2 and RESP3, cluster and standalone.
+  """
   if env.protocol == 3:
-    return res['Shards'].values()
-  else:
-    # Find the Shards section
+    # RESP3: profile data is in a dict
+    profile = res.get('Profile', res)
+    shards = profile.get('Shards', {})
+    # Shards is a dict with shard names as keys, convert to list of values
+    shards_list = list(shards.values()) if isinstance(shards, dict) else shards
+    return profile.get('Coordinator', {}), shards_list
+
+  # RESP2 format handling
+
+  # Check for cluster FT.AGGREGATE format: 'Shards' at top level of res
+  # Format: [results, 'Shards', shards_data, 'Coordinator', coord_data]
+  if 'Shards' in res:
     shards_idx = res.index('Shards')
-    shards_data = res[shards_idx + 1]
+    coord_idx = res.index('Coordinator')
+    shards_data = res[shards_idx + 1]  # ['Shard #1', [...], 'Shard #2', [...]]
+    coord_data = res[coord_idx + 1]    # ['Result processors profile', [...], ...]
 
-    # Find all shard start indices
-    shard_indices = []
-    for i, item in enumerate(shards_data):
-        if isinstance(item, str) and item.startswith('Shard #'):
-            shard_indices.append(i)
+    shards = parse_resp2_shards_list(shards_data)
+    coordinator = to_dict(coord_data) if coord_data else {}
+    return coordinator, shards
 
-    result = {}
-    for idx, start in enumerate(shard_indices):
-        shard_name = shards_data[start]
-        # End is next shard start or end of list
-        end = shard_indices[idx + 1] if idx + 1 < len(shard_indices) else len(shards_data)
+  # Check for cluster FT.SEARCH format: res[-1] starts with 'Shard #'
+  # Format: res[-1] = ['Shard #1', [...], 'Shard #2', [...], 'Coordinator', [...]]
+  if (isinstance(res[-1], list) and len(res[-1]) > 0 and
+      isinstance(res[-1][0], str) and res[-1][0].startswith('Shard #')):
+    profile_list = res[-1]
 
-        shard_dict = {}
-        for item in shards_data[start + 1:end]:
-            if isinstance(item, list) and len(item) >= 1:
-                key = item[0]
-                value = item[1:] if len(item) > 1 else None
-                # Unwrap single-element values
-                if value and len(value) == 1:
-                    value = value[0]
-                shard_dict[key] = value
+    # Find Coordinator position
+    coord_idx = profile_list.index('Coordinator') if 'Coordinator' in profile_list else -1
+    if coord_idx >= 0:
+      coord_data = profile_list[coord_idx + 1]
+      coordinator = to_dict(coord_data) if isinstance(coord_data, list) else {}
+    else:
+      coordinator = {}
 
-        result[shard_name] = shard_dict
+    # Parse shards (everything before Coordinator)
+    shards_portion = profile_list[:coord_idx] if coord_idx >= 0 else profile_list
+    shards = parse_resp2_shards_list(shards_portion)
+    return coordinator, shards
 
-    return result.values()
+  # Standalone format: res[-1] is a list of [key, value] pairs
+  if isinstance(res[-1], list) and len(res[-1]) > 0 and isinstance(res[-1][0], list):
+    profile_dict = {item[0]: item[1] if len(item) > 1 else None for item in res[-1]}
+    return {}, [profile_dict]
+
+  # Fallback
+  return {}, []
+
+def get_shards_profile(env, res):
+  """Extract shard profiles from FT.PROFILE response (values only)."""
+  _, shards = extract_profile_coordinator_and_shards(env, res)
+  return shards
 
 def InternalCursorReadsInProfile(protocol):
   """Tests that 'Internal cursor reads' appears in shard profiles for AGGREGATE."""
@@ -773,81 +821,6 @@ def testNonZeroTimers(env):
     test_cluster_timer(env)
   else:
     test_shard_timers(env)
-
-
-def extract_profile_coordinator_and_shards(env, res):
-    """Extract coordinator and shards from FT.PROFILE response.
-
-    Returns (coordinator_dict, list_of_shard_dicts).
-    Standalone mode has no coordinator, returns ({}, [profile]).
-    Cluster mode returns (coordinator_dict, [shard1, shard2, ...]).
-
-    Note: FT.SEARCH uses 'shards' (lowercase), FT.AGGREGATE uses 'Shards' (uppercase) in RESP3.
-    """
-    if env.protocol == 3:
-        # RESP3 cluster mode: dict with 'Shards' or 'shards' key
-        shards_key = 'Shards' if 'Shards' in res else 'shards' if 'shards' in res else None
-        if shards_key:
-            # Filter to only include actual shards (those with 'Total profile time')
-            # This excludes Coordinator which has 'Total Coordinator time' instead
-            shards = [s for s in res[shards_key].values() if 'Total profile time' in s]
-            coordinator = res.get('Coordinator', res.get('coordinator', {}))
-            return coordinator, shards
-        # RESP3 standalone mode: profile nested under 'profile' key
-        profile = res.get('profile', res)
-        return {}, [profile]
-
-    # RESP2 format
-    # Cluster mode for FT.AGGREGATE: 'Shards' marker at top level of res
-    if 'Shards' in res:
-        shards = list(get_shards_profile(env, res))
-        coord_idx = res.index('Coordinator')
-        coordinator = to_dict(res[coord_idx + 1])
-        return coordinator, shards
-
-    # RESP2 cluster mode for FT.SEARCH: profile data in res[-1] with 'Shard #' markers
-    # Format: res[-1] = ['Shard #1', [...], 'Shard #2', [...], 'Coordinator', [...]]
-    last_elem = res[-1]
-    if isinstance(last_elem, list) and len(last_elem) > 0:
-        first_item = last_elem[0]
-        if isinstance(first_item, str) and first_item.startswith('Shard #'):
-            # Parse inline shard data
-            shards = []
-            coordinator = {}
-            current_shard = None
-            i = 0
-            while i < len(last_elem):
-                item = last_elem[i]
-                if isinstance(item, str) and item.startswith('Shard #'):
-                    if current_shard is not None:
-                        shards.append(current_shard)
-                    current_shard = {}
-                    i += 1
-                elif item == 'Coordinator':
-                    if current_shard is not None:
-                        shards.append(current_shard)
-                        current_shard = None
-                    # Coordinator data follows
-                    if i + 1 < len(last_elem):
-                        coordinator = to_dict(last_elem[i + 1])
-                    break
-                elif isinstance(item, list) and current_shard is not None:
-                    key = item[0]
-                    value = item[1:] if len(item) > 1 else None
-                    if value and len(value) == 1:
-                        value = value[0]
-                    current_shard[key] = value
-                    i += 1
-                else:
-                    i += 1
-            if current_shard is not None:
-                shards.append(current_shard)
-            return coordinator, shards
-
-    # Standalone mode: [[key, val], ...] pairs format in last element
-    profile_data = res[-1]
-    profile = {p[0]: p[1] if len(p) > 1 else None for p in profile_data}
-    return {}, [profile]
 
 
 def sum_rp_times(env, shard):
