@@ -137,10 +137,7 @@ const unsafe fn maybe_cstr_from_ptr<'a>(ffi_field: *mut c_char) -> Option<&'a CS
 mod test {
     use super::*;
 
-    use std::{
-        ffi::{CStr, c_void},
-        mem, ptr,
-    };
+    use std::{ffi::CStr, mem, ptr};
 
     use pretty_assertions::assert_eq;
 
