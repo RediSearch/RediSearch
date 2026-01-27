@@ -10,6 +10,7 @@ pub mod vecsim_disk;
 
 use crate::index_spec::IndexSpec;
 use crate::index_spec::deleted_ids::DeletedIdsStore;
+use crate::index_spec::doc_table::{flags_from_oss, flags_to_oss};
 use crate::path_prefix::PathPrefix;
 use crate::vecsim_disk::{SpeeDBHandles, VecSimDisk_CreateIndex};
 use document::DocumentType;
@@ -451,6 +452,8 @@ extern "C" fn index_spec_put_doc(
         return INVALID_DOC_ID;
     };
 
+    let flags = flags_from_oss(flags);
+
     match index
         .doc_table()
         .insert_document(key, score, flags, max_term_freq, doc_len)
@@ -617,7 +620,7 @@ extern "C" fn index_spec_get_document_metadata(
     };
     dmd.score = doc_table_dmd.score;
     dmd.set_maxTermFreq(doc_table_dmd.max_term_freq);
-    dmd.set_flags(doc_table_dmd.flags);
+    dmd.set_flags(flags_to_oss(doc_table_dmd.flags));
     dmd.set_docLen(doc_table_dmd.doc_len);
     dmd.set_type(doc_table.document_type());
 

@@ -13,6 +13,7 @@ unittest = []
 redis_allocator = []
 
 [dependencies]
+enumflags2 = "0.7"
 document = { path = "../deps/RediSearch/src/redisearch_rs/document" }
 ffi = { path = "../deps/RediSearch/src/redisearch_rs/ffi" }
 inverted_index = { path = "../deps/RediSearch/src/redisearch_rs/inverted_index" }

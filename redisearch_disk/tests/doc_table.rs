@@ -8,7 +8,7 @@ use redisearch_disk::{
     database::SpeedbMultithreadedDatabase,
     index_spec::{
         deleted_ids::DeletedIdsStore,
-        doc_table::{DocTable, DocumentMetadata},
+        doc_table::{DocTable, DocumentFlag, DocumentMetadata},
     },
 };
 use rqe_iterators::{RQEIterator, SkipToOutcome};
@@ -33,7 +33,7 @@ fn adding_documents() {
     let doc_1 = DocumentMetadata {
         key: b"doc1".to_vec(),
         score: 1.2,
-        flags: 3,
+        flags: DocumentFlag::Deleted | DocumentFlag::HasPayload,
         max_term_freq: 4,
         doc_len: 1,
     };
@@ -41,7 +41,7 @@ fn adding_documents() {
     let doc_2 = DocumentMetadata {
         key: b"doc2".to_vec(),
         score: 5.6,
-        flags: 7,
+        flags: DocumentFlag::Deleted | DocumentFlag::HasPayload | DocumentFlag::HasSortVector,
         max_term_freq: 8,
         doc_len: 3,
     };
@@ -90,7 +90,7 @@ fn updating_documents() {
     let doc = DocumentMetadata {
         key: b"doc1".to_vec(),
         score: 1.2,
-        flags: 3,
+        flags: DocumentFlag::Deleted | DocumentFlag::HasPayload,
         max_term_freq: 4,
         doc_len: 5,
     };
@@ -157,7 +157,7 @@ fn deleting_documents() {
     let doc_1 = DocumentMetadata {
         key: b"doc1".to_vec(),
         score: 1.2,
-        flags: 3,
+        flags: DocumentFlag::Deleted | DocumentFlag::HasPayload,
         max_term_freq: 4,
         doc_len: 5,
     };
@@ -165,7 +165,7 @@ fn deleting_documents() {
     let doc_2 = DocumentMetadata {
         key: b"doc2".to_vec(),
         score: 5.6,
-        flags: 7,
+        flags: DocumentFlag::Deleted | DocumentFlag::HasPayload | DocumentFlag::HasSortVector,
         max_term_freq: 8,
         doc_len: 10,
     };
@@ -277,7 +277,13 @@ fn iterator() {
     for i in 1..=4 {
         let key = format!("doc{}", i);
         let (_, old_len) = doc_table
-            .insert_document(key.as_bytes(), i as f32, i * 10, i * 100, i * 1000)
+            .insert_document(
+                key.as_bytes(),
+                i as f32,
+                DocumentFlag::Deleted | DocumentFlag::HasPayload,
+                i * 100,
+                i * 1000,
+            )
             .unwrap();
         assert_eq!(old_len, 0, "old_len should be 0 for new documents");
     }
@@ -325,7 +331,7 @@ fn updating_documents_lengths() {
     let doc = DocumentMetadata {
         key: b"doc1".to_vec(),
         score: 1.2,
-        flags: 3,
+        flags: DocumentFlag::Deleted | DocumentFlag::HasPayload,
         max_term_freq: 4,
         doc_len: 100,
     };

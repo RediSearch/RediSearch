@@ -1,6 +1,6 @@
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use redisearch_disk::index_spec::Key;
-use redisearch_disk::index_spec::doc_table::DocumentMetadata;
+use redisearch_disk::index_spec::doc_table::{DocumentFlag, DocumentFlags, DocumentMetadata};
 
 fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
     vec![
@@ -9,7 +9,7 @@ fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
             DocumentMetadata {
                 key: Key::from("doc_1"),
                 score: 1.0,
-                flags: 0,
+                flags: DocumentFlags::empty(),
                 max_term_freq: 10,
                 doc_len: 50,
             },
@@ -19,7 +19,7 @@ fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
             DocumentMetadata {
                 key: Key::from("document_with_medium_length_key_12345"),
                 score: 3.5,
-                flags: 42,
+                flags: DocumentFlag::HasExpiration | DocumentFlag::HasOffsetVector,
                 max_term_freq: 100,
                 doc_len: 500,
             },
@@ -31,7 +31,10 @@ fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
                     "very_long_document_key_with_many_characters_that_represents_a_realistic_use_case_in_production_environments_12345678901234567890",
                 ),
                 score: 9.99,
-                flags: 255,
+                flags: DocumentFlag::HasSortVector
+                    | DocumentFlag::HasOffsetVector
+                    | DocumentFlag::HasExpiration
+                    | DocumentFlag::FailedToOpen,
                 max_term_freq: 1000,
                 doc_len: 5000,
             },
@@ -41,7 +44,7 @@ fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
             DocumentMetadata {
                 key: Key::from("document_max"),
                 score: f32::MAX,
-                flags: u32::MAX,
+                flags: DocumentFlags::all(),
                 max_term_freq: u32::MAX,
                 doc_len: u32::MAX,
             },

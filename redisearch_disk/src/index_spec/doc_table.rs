@@ -1,9 +1,11 @@
 mod doc_table_reader;
+mod document_flags;
 mod document_metadata;
 
 use doc_table_reader::DocTableReader;
 pub use doc_table_reader::ReaderCreateError as DocTableReaderCreateError;
 // Re-export public types
+pub use document_flags::{DocumentFlag, DocumentFlags, flags_from_oss, flags_to_oss};
 pub use document_metadata::DocumentMetadata;
 use inverted_index::RSIndexResult;
 
@@ -141,7 +143,7 @@ impl DocTable {
         &self,
         key: impl Into<Key>,
         score: f32,
-        flags: u32,
+        flags: DocumentFlags,
         max_term_freq: u32,
         doc_len: u32,
     ) -> Result<(t_docId, u32), speedb::Error> {
