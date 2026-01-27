@@ -526,17 +526,6 @@ where
         }
     }
 
-    pub fn new_simple(reader: R) -> Self {
-        let result = RSIndexResult::numeric(0.0);
-
-        Self {
-            it: InvIndIterator::new(reader, result, None),
-            range_tree_info: None,
-            range_min: f64::NEG_INFINITY,
-            range_max: f64::INFINITY,
-        }
-    }
-
     const fn should_abort(&self) -> bool {
         if self.it.query_ctx.is_none() {
             return false;

@@ -10,11 +10,14 @@
 pub use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
-    IndexFlags_Index_StoreTermOffsets, IteratorStatus_ITERATOR_OK,
+    IndexFlags_Index_StoreTermOffsets, IteratorStatus_ITERATOR_OK, t_fieldIndex,
 };
 use ffi::{IteratorStatus, RedisModule_Alloc, RedisModule_Free, ValidateStatus};
 use inverted_index::{NumericFilter, RSIndexResult, t_docId};
-use std::{ffi::c_void, ptr};
+use std::{
+    ffi::c_void,
+    ptr::{self, NonNull},
+};
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
@@ -22,12 +25,21 @@ pub struct QueryIterator(*mut ffi::QueryIterator);
 
 impl QueryIterator {
     #[inline(always)]
-    pub unsafe fn new_numeric(ii: *mut ffi::InvertedIndex, filter: Option<&NumericFilter>) -> Self {
+    pub unsafe fn new_numeric(
+        ii: *mut ffi::InvertedIndex,
+        sctx: Option<NonNull<ffi::RedisSearchCtx>>,
+        index: Option<t_fieldIndex>,
+        filter: Option<&NumericFilter>,
+    ) -> Self {
+        let sctx = sctx
+            .map(|sctx| sctx.as_ptr().cast())
+            .unwrap_or(ptr::null_mut());
+        let index = index.unwrap_or(ffi::RS_INVALID_FIELD_INDEX);
         let field_ctx = ffi::FieldFilterContext {
             field: ffi::FieldMaskOrIndex {
                 __bindgen_anon_1: ffi::FieldMaskOrIndex__bindgen_ty_1 {
                     index_tag: 0, // FieldMaskOrIndex_Index = 0
-                    index: ffi::RS_INVALID_FIELD_INDEX,
+                    index,
                 },
             },
             predicate: ffi::FieldExpirationPredicate_FIELD_EXPIRATION_PREDICATE_DEFAULT,
@@ -39,7 +51,7 @@ impl QueryIterator {
         Self(unsafe {
             ffi::NewInvIndIterator_NumericQuery(
                 ii,
-                ptr::null(),
+                sctx,
                 &field_ctx,
                 flt,
                 ptr::null(),
@@ -342,7 +354,7 @@ impl InvertedIndex {
 
     #[inline(always)]
     pub fn iterator_numeric(&self, filter: Option<&NumericFilter>) -> QueryIterator {
-        unsafe { QueryIterator::new_numeric(self.0, filter) }
+        unsafe { QueryIterator::new_numeric(self.0, None, None, filter) }
     }
 
     #[inline(always)]
@@ -428,7 +440,7 @@ mod tests {
         ii.write_numeric_entry(10, 10.0);
         ii.write_numeric_entry(100, 100.0);
 
-        let it = unsafe { QueryIterator::new_numeric(ii.0, None) };
+        let it = unsafe { QueryIterator::new_numeric(ii.0, None, None, None) };
         assert_eq!(it.num_estimated(), 3);
 
         assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
@@ -462,7 +474,7 @@ mod tests {
             ..Default::default()
         };
 
-        let it = unsafe { QueryIterator::new_numeric(ii.0, Some(&filter)) };
+        let it = unsafe { QueryIterator::new_numeric(ii.0, None, None, Some(&filter)) };
 
         assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
         assert_eq!(it.current().unwrap().doc_id, 2);
