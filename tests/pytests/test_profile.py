@@ -661,12 +661,24 @@ def extract_profile_coordinator_and_shards(env, res):
   Handles both FT.SEARCH and FT.AGGREGATE for RESP2 and RESP3, cluster and standalone.
   """
   if env.protocol == 3:
-    # RESP3: profile data is in a dict
-    profile = res.get('Profile', res)
-    shards = profile.get('Shards', {})
-    # Shards is a dict with shard names as keys, convert to list of values
-    shards_list = list(shards.values()) if isinstance(shards, dict) else shards
-    return profile.get('Coordinator', {}), shards_list
+    # RESP3: response structure varies by command type
+    # - Cluster FT.SEARCH: res['shards'] (lowercase) at top level
+    # - Cluster FT.AGGREGATE: res['Shards'] (uppercase) at top level
+    # - Standalone: res['profile'] at top level with profile data
+
+    # Check for cluster mode first (shards at top level)
+    shards = res.get('shards', res.get('Shards', None))
+    if shards is not None:
+      # Cluster mode - shards dict at top level
+      shards_list = list(shards.values()) if isinstance(shards, dict) else shards
+      # Filter out Coordinator from shards list (it has 'Total Coordinator time' instead of 'Total profile time')
+      shards_list = [s for s in shards_list if 'Total profile time' in s]
+      coordinator = res.get('coordinator', res.get('Coordinator', {}))
+      return coordinator, shards_list
+
+    # Standalone mode - profile data at top level or nested under 'profile'
+    profile = res.get('profile', res)
+    return {}, [profile]
 
   # RESP2 format handling
 
