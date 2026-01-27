@@ -1,1 +1,1 @@
-Please assist in writing a GitHub release note for this PR, which is concise and focused on the user impact. Emphasis what is the release note in your output
+Please assist in writing a GitHub release note for this PR, which is concise and focused on the user impact. Emphasis the release note in your output as following: **Release Note**: < the release note itself >
