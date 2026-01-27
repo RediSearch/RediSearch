@@ -15,6 +15,7 @@
 #include "index_utils.h"
 #include "redisearch_api.h"
 #include "common.h"
+#include "notifications.h"
 
 #include <stdio.h>
 #include <random>
@@ -36,7 +37,12 @@ unsigned prng() {
   return prng_seed;
 }
 
-class RangeTest : public ::testing::Test {};
+class RangeTest : public ::testing::Test {
+protected:
+  void SetUp() override {
+    prng_seed = 1337;
+  }
+};
 
 TEST_F(RangeTest, testRangeTree) {
   NumericRangeTree *t = NewNumericRangeTree();
@@ -187,7 +193,7 @@ void testRangeIteratorHelper(bool isMulti) {
     NumericFilter_Free(flt);
   }
 
-  ASSERT_EQ(t->numRanges, !isMulti ? 12 : 36);
+  ASSERT_EQ(t->numRanges, !isMulti ? 14 : 48);
   ASSERT_EQ(t->numEntries, !isMulti ? N : N * MULT_COUNT);
 
 
@@ -218,12 +224,10 @@ void testRangeIteratorHelper(bool isMulti) {
 }
 
 TEST_F(RangeTest, testRangeIterator) {
-  GTEST_SKIP() << "Skipping this as the assertions are order dependent with other tests in the same file";
   testRangeIteratorHelper(false);
 }
 
 TEST_F(RangeTest, testRangeIteratorMulti) {
-  GTEST_SKIP() << "Skipping this as the assertions are order dependent with other tests in the same file";
   testRangeIteratorHelper(true);
 }
 
@@ -253,6 +257,7 @@ protected:
   RMCK::Context ctx;
 
   void SetUp() override {
+    Initialize_KeyspaceNotifications();
     RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec = 3000000;
     index = createSpec(ctx);
   }
@@ -266,7 +271,6 @@ protected:
  * all the inverted indexes in the tree.
  */
 TEST_F(RangeIndexTest, testNumericTreeMemory) {
-  GTEST_SKIP() << "Fails when ran via ctest rather than via the rstest binary";
   size_t num_docs = 1000;
 
   // adding the numeric field to the index
@@ -345,7 +349,6 @@ TEST_F(RangeIndexTest, testNumericTreeMemory) {
  * Test the overhead of the numeric tree struct (not including the inverted indices memory)
  */
 TEST_F(RangeIndexTest, testNumericTreeOverhead) {
-  GTEST_SKIP() << "Fails when ran via ctest rather than via the rstest binary";
 
   // Create index with multiple numeric indices
   RediSearch_CreateNumericField(index, "n1");
