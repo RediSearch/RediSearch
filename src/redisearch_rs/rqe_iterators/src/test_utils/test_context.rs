@@ -117,12 +117,11 @@ fn create_spec_sctx(
 }
 
 impl TestContext {
-    /// Create a new [`TestContext`] with a numeric inverted index having the given doc IDs
-    /// and records.
-    pub fn numeric(
-        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
-        doc_ids: &[t_docId],
-    ) -> Self {
+    /// Create a new [`TestContext`] with a numeric inverted index having the given records
+    pub fn numeric<I>(records: I) -> Self
+    where
+        I: Iterator<Item = RSIndexResult<'static>>,
+    {
         let ctx = ModuleCtx::new();
         // Create IndexSpec for NUMERIC field
         let (spec, sctx) = create_spec_sctx(&ctx, "SCHEMA num_field NUMERIC", "numeric_idx");
@@ -146,13 +145,12 @@ impl TestContext {
             ptr::NonNull::new(numeric_range_tree).expect("NumericRangeTree should not be null");
 
         // Add numeric data to the range tree
-        for id in doc_ids.iter().copied() {
-            let record = expected_record(id);
+        for record in records {
             let record_val = record.as_numeric().unwrap();
             unsafe {
                 ffi::NumericRangeTree_Add(
                     numeric_range_tree.as_ptr(),
-                    id as t_docId,
+                    record.doc_id as t_docId,
                     record_val,
                     0,
                 );

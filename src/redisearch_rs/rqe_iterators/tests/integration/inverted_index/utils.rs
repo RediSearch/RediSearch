@@ -608,7 +608,7 @@ pub(super) mod not_miri {
             let (_ii_flags, context) = match index_type {
                 RevalidateIndexType::Numeric => (
                     IndexFlags_Index_StoreNumeric,
-                    TestContext::numeric(expected_record, &doc_ids),
+                    TestContext::numeric(doc_ids.iter().map(|id| expected_record(*id))),
                 ),
                 RevalidateIndexType::Term => (
                     IndexFlags_Index_StoreFreqs
