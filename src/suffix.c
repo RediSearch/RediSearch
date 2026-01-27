@@ -132,14 +132,14 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   runeBufFree(&buf);
 }
 
-static int processSuffixData(suffixData *data, SuffixCtx *sufCtx, size_t numDocsInTerm) {
+static int processSuffixData(suffixData *data, SuffixCtx *sufCtx) {
   //TrieSuffixCallback callback, void *ctx) {
   if (!data) {
     return REDISMODULE_OK;
   }
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
-    if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL, numDocsInTerm) != REDISMODULE_OK) {
+    if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
       return REDISEARCH_ERR;
     }
   }
@@ -150,7 +150,7 @@ static int recursiveAdd(TrieNode *node, SuffixCtx *sufCtx) {
   if (node->payload) {
     size_t rlen;
     suffixData *data = Suffix_GetData(node);
-    if (processSuffixData(data, sufCtx, node->numDocs) != REDISMODULE_OK) {
+    if (processSuffixData(data, sufCtx) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
   }
@@ -178,7 +178,7 @@ void Suffix_IterateContains(SuffixCtx *sufCtx) {
     TrieNode *node = TrieNode_Get(sufCtx->root, sufCtx->rune, sufCtx->runelen, 1, NULL);
     suffixData *data = Suffix_GetData(node);
     if (data) {
-      processSuffixData(data, sufCtx, node->numDocs);
+      processSuffixData(data, sufCtx);
     }
   }
 }
@@ -315,7 +315,7 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, siz
   for (int i = 0; i < array_len(array); ++i) {
     if (Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], strlen(array[i]))
             == FULL_MATCH) {
-      if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL, numDocsInTerm) != REDISMODULE_OK) {
+      if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
         return REDISEARCH_ERR;
       }
     }

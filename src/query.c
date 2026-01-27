@@ -626,7 +626,7 @@ typedef struct {
 } TrieCallbackCtx;
 
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t numDocsInTerm);
-static int charIterCb(const char *s, size_t n, void *p, void *payload, size_t numDocsInTerm);
+static int charIterCb(const char *s, size_t n, void *p, void *payload);
 
 static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
   if (pfx->prefix && pfx->suffix) {
@@ -813,7 +813,7 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t nu
   return REDISEARCH_OK;
 }
 
-static int charIterCb(const char *s, size_t n, void *p, void *payload, size_t numDocsInTerm) {
+static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   if (ctx->nits >= q->config->maxPrefixExpansions) {
@@ -823,6 +823,14 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload, size_t nu
   RSToken tok = {.str = (char *)s, .len = n};
   QueryIterator *ir = NULL;
   if (q->sctx->spec->diskSpec) {
+    RS_LOG_ASSERT(q->sctx->spec->terms, "terms trie is NULL");
+    // The iterator comes from the Suffix Trie, but the actual number of documents is stored in the Terms Trie.
+    size_t rlen = 0;
+    runeBuf buf;
+    rune *runes = runeBufFill(tok.str, tok.len, &buf, &rlen);
+    TrieNode *trienode = TrieNode_Get(q->sctx->spec->terms->root, runes, rlen, true, NULL);
+    runeBufFree(&buf);
+    size_t numDocsInTerm = trienode ? trienode->numDocs : 0;
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & ctx->opts->fieldMask, 1, idf, bm25_idf);
