@@ -105,6 +105,7 @@ jobs:
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
               --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
               --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+              --collect_search_memory
       - name: Generate Pull Request Performance info
         if: github.event.number
         env:
