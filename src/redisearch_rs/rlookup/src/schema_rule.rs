@@ -162,7 +162,7 @@ mod test {
         assert_eq!(ffi.len(), 2);
         assert_eq!(ffi, filter_fields_index);
 
-        unsafe { crate::mock::array_free(schema_rule.filter_fields.cast::<c_void>()) }
+        unsafe { crate::mock::array_free(schema_rule.filter_fields.cast::<*mut c_char>()) }
     }
 
     fn filter_fields_array(filter_fields: &[&CStr]) -> *mut *mut c_char {
