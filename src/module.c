@@ -3203,11 +3203,14 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   // If not FT.PROFILE, reply using the reply_callback of unblock client
   if (!profile) {
-    rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
-    TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, duration);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, mc);
+    int unblockRes = RedisModule_UnblockClient(bc, mc);
     RedisModule_FreeThreadSafeContext(ctx);
+    if (unblockRes != REDISMODULE_OK) {
+      // Client was already unblocked (e.g., by timeout). We need to clean up ourselves
+      // since free_privdata won't be called with our mc.
+      DistSearchFreePrivData(NULL, mc);
+    }
     return res;
   }
 
