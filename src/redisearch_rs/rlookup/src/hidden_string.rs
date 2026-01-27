@@ -7,12 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ffi::CStr, ptr, slice};
+use std::{ffi::CStr, ptr::NonNull};
 
 /// A safe wrapper around an `ffi::HiddenString`.
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct HiddenString(ffi::HiddenString);
+pub struct HiddenString(NonNull<ffi::HiddenString>);
 
 impl HiddenString {
     /// Create a `HiddenString` wrapper from a non-null pointer.
@@ -23,33 +23,34 @@ impl HiddenString {
     ///    This also applies to any of its subfields.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub const unsafe fn from_raw<'a>(ptr: *const ffi::HiddenString) -> &'a Self {
-        // Safety: ensured by caller (1.)
-        unsafe { ptr.cast::<Self>().as_ref().unwrap() }
+    pub const unsafe fn from_raw(ptr: *const ffi::HiddenString) -> Self {
+        Self(NonNull::new(ptr.cast_mut()).expect("HiddenString ptr must be non-null"))
     }
 
-    /// Get a reference to the underlying non-null pointer.
-    pub const fn to_raw(&self) -> *const ffi::HiddenString {
-        ptr::from_ref(&self.0)
+    /// Get the underlying non-null pointer.
+    pub const fn as_ptr(&self) -> *const ffi::HiddenString {
+        self.0.as_ptr()
     }
 
     /// Get the secret (aka. "unsafe" in C land) value from the underlying [`ffi::HiddenString`].
+    ///
+    /// This is safe **only if** the C function returns a pointer that stays valid
+    /// for at least the lifetime of `&self`, and the memory contains a NUL at `len`.
     pub fn get_secret_value(&self) -> &CStr {
-        let value_ptr = ptr::from_ref(&self.0);
         let mut len = 0;
-        let len_ptr = ptr::from_mut(&mut len);
 
         // Safety:
         // - `len` is a local variable that we just allocated and is not being referenced anywhere else.
         // - `self.0` is a valid non-null pointer to an `ffi::HiddenString` due to creation with `HiddenString::from_raw`
-        let data = unsafe { ffi::HiddenString_GetUnsafe(value_ptr, len_ptr) };
+        let data = unsafe { ffi::HiddenString_GetUnsafe(self.0.as_ptr(), &mut len) };
         debug_assert!(!data.is_null(), "data must not be null");
 
         // The length doesn't include the nul terminator so we need to add one.
-        // Safety: must be ensured by the implementation of `ffi::HiddenString_GetUnsafe` above
-        let bytes = unsafe { slice::from_raw_parts(data.cast::<u8>(), len + 1) };
+        let n = len.checked_add(1).expect("length overflow");
+        // Safety: must be ensured by the implementation of `ffi::HiddenString_GetUnsafe` above.
+        let bytes = unsafe { core::slice::from_raw_parts(data.cast::<u8>(), n) };
 
-        CStr::from_bytes_with_nul(bytes).expect("string must not be malformed")
+        CStr::from_bytes_with_nul(bytes).expect("malformed C string")
     }
 }
 
@@ -60,21 +61,15 @@ mod test {
     use pretty_assertions::assert_eq;
 
     #[test]
-    fn secret_value() {
-        // Arrange
+    fn secret_value_1() {
         let input = c"Ab#123!";
         let ffi_hs = unsafe { ffi::NewHiddenString(input.as_ptr(), input.count_bytes(), false) };
         let sut = unsafe { HiddenString::from_raw(ffi_hs) };
 
-        // Act
         let actual = sut.get_secret_value();
 
-        // Assert
         assert_eq!(actual, input);
 
-        // Cleanup
-        unsafe {
-            ffi::HiddenString_Free(ffi_hs, false);
-        }
+        unsafe { ffi::HiddenString_Free(ffi_hs, false) };
     }
 }
