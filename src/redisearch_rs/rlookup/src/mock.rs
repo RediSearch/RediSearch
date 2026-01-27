@@ -16,6 +16,7 @@ use std::{
     cmp,
     ffi::{c_char, c_int},
     mem::{self, offset_of},
+    panic,
     ptr::{self, NonNull},
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -179,6 +180,9 @@ pub(crate) fn array_new<T: Copy>(xs: &[T]) -> *mut T {
     .unwrap();
 
     let base = unsafe { alloc(layout) };
+    if base.is_null() {
+        panic!("allocation failed");
+    }
 
     unsafe {
         ptr::write(
