@@ -521,7 +521,12 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_TOKEN, "query node type should be token")
 
   if (q->sctx->spec->diskSpec) {
-    TrieNode *trienode = TrieNode_Get(q->sctx->spec->terms->root, qn->tn.str, qn->tn.len, true, NULL);
+    RS_LOG_ASSERT(q->sctx->spec->terms, "terms trie should be initialized");
+    size_t rlen = 0;
+    runeBuf buf;
+    rune *runes = runeBufFill(qn->tn.str, qn->tn.len, &buf, &rlen);
+    TrieNode *trienode = TrieNode_Get(q->sctx->spec->terms->root, runes, rlen, true, NULL);
+    runeBufFree(&buf);
     size_t numDocsInTerm = trienode ? trienode->numDocs : 0;
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
@@ -597,11 +602,14 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 
   // Add an iterator over the inverted index of the empty string for fuzzy search
   if (!prefixMode && q->sctx->apiVersion >= 2 && len <= maxDist) {
-    TrieNode *emptyNode = TrieNode_Get(terms->root, "", 0, true, NULL);
+    size_t rlen = 0;
+    runeBuf buf;
+    rune *runes = runeBufFill("", 1, &buf, &rlen);
+    TrieNode *emptyNode = TrieNode_Get(terms->root, runes, rlen, true, NULL);
+    runeBufFree(&buf);
     size_t numDocsInEmpty = emptyNode ? emptyNode->numDocs : 0;
     addTerm("", 0, numDocsInEmpty, q, opts, &its, &itsSz, &itsCap);
   }
-
 
   QueryNodeType type = prefixMode ? QN_PREFIX : QN_FUZZY;
   return NewUnionIterator(its, itsSz, true, opts->weight, type, str, q->config);
