@@ -2229,11 +2229,11 @@ DEBUG_COMMAND(DumpDeletedIds) {
 }
 
 /**
- * FT.DEBUG REGISTER_TEST_SCORER
- * Register the test simple sum scorer for testing purposes.
- * This scorer returns numTerms + numDocs + avgDocLen.
+ * FT.DEBUG REGISTER_TEST_SCORERS
+ * Register the test scorers for testing purposes.
+ * Registers: TEST_NUM_DOCS, TEST_NUM_TERMS, TEST_AVG_DOC_LEN, TEST_SUM_IDF, TEST_SUM_BM25_IDF
  */
-DEBUG_COMMAND(RegisterTestScorer) {
+DEBUG_COMMAND(RegisterTestScorers) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -2241,7 +2241,7 @@ DEBUG_COMMAND(RegisterTestScorer) {
     return RedisModule_WrongArity(ctx);
   }
 
-  int result = RegisterTestSimpleSumScorer();
+  int result = Ext_RegisterTestScorers();
   if (result == REDISEARCH_OK) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   } else {
@@ -2292,7 +2292,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
-                               {"REGISTER_TEST_SCORER", RegisterTestScorer}, // Register test simple sum scorer
+                               {"REGISTER_TEST_SCORERS", RegisterTestScorers}, // Register test scorers
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */

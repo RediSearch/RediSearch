@@ -986,72 +986,179 @@ def calculate_bm25_idf(total_docs, term_docs):
     total_docs = max(total_docs, term_docs)
     return math.log(1.0 + (total_docs - term_docs + 0.5) / (term_docs + 0.5))
 
+
 @skip(cluster=True)
-def test_simple_sum_scorer():
+def test_test_num_docs_scorer():
     """
-    Test the TEST_SIMPLE_SUM scorer which returns numTerms + numDocs + avgDocLen + sumIdf + sumBm25Idf.
-    This test registers the scorer via debug command and verifies the score calculation.
+    Test the TEST_NUM_DOCS scorer which returns the number of documents in the index.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
-    # Register the test scorer using the debug command
-    env.expect(debug_cmd(), 'REGISTER_TEST_SCORER').ok()
+    # Register the test scorers using the debug command
+    env.expect(debug_cmd(), 'REGISTER_TEST_SCORERS').ok()
 
     # Create an index with a text field
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
     waitForIndex(env, 'idx')
 
-    # Add documents with controlled content to make the calculation predictable
-    # Document 1: 2 tokens (hello, world)
+    # Add 3 documents
     conn.execute_command('HSET', 'doc1', 'title', 'hello world')
-    # Document 2: 3 tokens (hello, world, again)
     conn.execute_command('HSET', 'doc2', 'title', 'hello world again')
-    # Document 3: 4 tokens (hello, world, again, more)
     conn.execute_command('HSET', 'doc3', 'title', 'hello world again more')
 
-    # After indexing:
-    # numDocs = 3 (three documents)
-    # numTerms = 4 (unique terms: hello, world, again, more)
-    # avgDocLen = (2 + 3 + 4) / 3 = 3.0
-    #
-    # Searching for "hello" which appears in all 3 documents:
-    # idf = logb(1 + totalDocs/termDocs), bm25_idf = log(1 + (totalDocs-termDocs+0.5)/(termDocs+0.5))
-    # Both use the same totalDocs and termDocs values
+    # Expected score = numDocs = 3
+    expected_score = 3.0
 
-    total_docs = 3  # number of documents after indexing
-    term_docs = 3   # "hello" appears in all 3 docs
-
-    idf = calculate_idf(total_docs, term_docs)
-    bm25_idf = calculate_bm25_idf(total_docs, term_docs)
-
-    # Expected score = numTerms + numDocs + avgDocLen + sumIdf + sumBm25Idf
-    expected_score = 4 + 3 + 3.0 + idf + bm25_idf
-
-    # Search with the TEST_SIMPLE_SUM scorer
-    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'TEST_SIMPLE_SUM', 'WITHSCORES', 'NOCONTENT')
+    # Search with the TEST_NUM_DOCS scorer
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'TEST_NUM_DOCS', 'WITHSCORES', 'NOCONTENT')
 
     # Verify the score
-    # Result format: [numResults, doc1, score1, doc2, score2, ...]
     env.assertEqual(res[0], 3)  # 3 results
-    actual_score = float(res[2])  # Score of first document
+    actual_score = float(res[2])
     env.assertAlmostEqual(actual_score, expected_score, delta=0.0001)
-
-    # All documents should have the same score since it's based on index stats + term IDF
-    env.assertAlmostEqual(float(res[4]), expected_score, delta=0.0001)  # Score of second document
-    env.assertAlmostEqual(float(res[6]), expected_score, delta=0.0001)  # Score of third document
 
 
 @skip(cluster=True)
-def test_simple_sum_scorer_aggregate():
+def test_test_num_terms_scorer():
     """
-    Test the TEST_SIMPLE_SUM scorer with FT.AGGREGATE using ADDSCORES.
+    Test the TEST_NUM_TERMS scorer which returns the number of unique terms in the index.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
-    # Register the test scorer using the debug command
-    env.expect(debug_cmd(), 'REGISTER_TEST_SCORER').ok()
+    # Register the test scorers using the debug command
+    env.expect(debug_cmd(), 'REGISTER_TEST_SCORERS').ok()
+
+    # Create an index with a text field
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+
+    # Add documents with 4 unique terms: hello, world, again, more
+    conn.execute_command('HSET', 'doc1', 'title', 'hello world')
+    conn.execute_command('HSET', 'doc2', 'title', 'hello world again')
+    conn.execute_command('HSET', 'doc3', 'title', 'hello world again more')
+
+    # Expected score = numTerms = 4
+    expected_score = 4.0
+
+    # Search with the TEST_NUM_TERMS scorer
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'TEST_NUM_TERMS', 'WITHSCORES', 'NOCONTENT')
+
+    # Verify the score
+    env.assertEqual(res[0], 3)  # 3 results
+    actual_score = float(res[2])
+    env.assertAlmostEqual(actual_score, expected_score, delta=0.0001)
+
+
+@skip(cluster=True)
+def test_test_avg_doc_len_scorer():
+    """
+    Test the TEST_AVG_DOC_LEN scorer which returns the average document length.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    # Register the test scorers using the debug command
+    env.expect(debug_cmd(), 'REGISTER_TEST_SCORERS').ok()
+
+    # Create an index with a text field
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+
+    # Add documents: 2 tokens, 3 tokens, 4 tokens => avg = (2+3+4)/3 = 3.0
+    conn.execute_command('HSET', 'doc1', 'title', 'hello world')
+    conn.execute_command('HSET', 'doc2', 'title', 'hello world again')
+    conn.execute_command('HSET', 'doc3', 'title', 'hello world again more')
+
+    # Expected score = avgDocLen = 3.0
+    expected_score = 3.0
+
+    # Search with the TEST_AVG_DOC_LEN scorer
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'TEST_AVG_DOC_LEN', 'WITHSCORES', 'NOCONTENT')
+
+    # Verify the score
+    env.assertEqual(res[0], 3)  # 3 results
+    actual_score = float(res[2])
+    env.assertAlmostEqual(actual_score, expected_score, delta=0.0001)
+
+
+@skip(cluster=True)
+def test_test_sum_idf_scorer():
+    """
+    Test the TEST_SUM_IDF scorer which returns the sum of IDF values from all terms.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    # Register the test scorers using the debug command
+    env.expect(debug_cmd(), 'REGISTER_TEST_SCORERS').ok()
+
+    # Create an index with a text field
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+
+    conn.execute_command('HSET', 'doc1', 'title', 'hello world')
+    conn.execute_command('HSET', 'doc2', 'title', 'hello world again')
+    conn.execute_command('HSET', 'doc3', 'title', 'hello world again more')
+
+    # Searching for "hello" which appears in all 3 documents
+    total_docs = 3
+    term_docs = 3
+    expected_score = calculate_idf(total_docs, term_docs)
+
+    # Search with the TEST_SUM_IDF scorer
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'TEST_SUM_IDF', 'WITHSCORES', 'NOCONTENT')
+
+    # Verify the score
+    env.assertEqual(res[0], 3)  # 3 results
+    actual_score = float(res[2])
+    env.assertAlmostEqual(actual_score, expected_score, delta=0.0001)
+
+
+@skip(cluster=True)
+def test_test_sum_bm25_idf_scorer():
+    """
+    Test the TEST_SUM_BM25_IDF scorer which returns the sum of BM25 IDF values from all terms.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    # Register the test scorers using the debug command
+    env.expect(debug_cmd(), 'REGISTER_TEST_SCORERS').ok()
+
+    # Create an index with a text field
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+
+    conn.execute_command('HSET', 'doc1', 'title', 'hello world')
+    conn.execute_command('HSET', 'doc2', 'title', 'hello world again')
+    conn.execute_command('HSET', 'doc3', 'title', 'hello world again more')
+
+    # Searching for "hello" which appears in all 3 documents
+    total_docs = 3
+    term_docs = 3
+    expected_score = calculate_bm25_idf(total_docs, term_docs)
+
+    # Search with the TEST_SUM_BM25_IDF scorer
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'TEST_SUM_BM25_IDF', 'WITHSCORES', 'NOCONTENT')
+
+    # Verify the score
+    env.assertEqual(res[0], 3)  # 3 results
+    actual_score = float(res[2])
+    env.assertAlmostEqual(actual_score, expected_score, delta=0.0001)
+
+
+@skip(cluster=True)
+def test_test_scorers_with_aggregate():
+    """
+    Test the test scorers with FT.AGGREGATE using ADDSCORES.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    # Register the test scorers using the debug command
+    env.expect(debug_cmd(), 'REGISTER_TEST_SCORERS').ok()
 
     # Create an index with a text field
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
@@ -1061,41 +1168,23 @@ def test_simple_sum_scorer_aggregate():
     conn.execute_command('HSET', 'doc1', 'title', 'hello world')
     conn.execute_command('HSET', 'doc2', 'title', 'hello world again')
 
-    # After indexing:
-    # numDocs = 2
-    # numTerms = 3 (unique terms: hello, world, again)
-    # avgDocLen = (2 + 3) / 2 = 2.5
-    #
-    # Searching for "hello" which appears in both documents
-    total_docs = 2
-    term_docs = 2
-
-    idf = calculate_idf(total_docs, term_docs)
-    bm25_idf = calculate_bm25_idf(total_docs, term_docs)
-
-    # Expected score = numTerms + numDocs + avgDocLen + sumIdf + sumBm25Idf
-    expected_score = 3 + 2 + 2.5 + idf + bm25_idf
-
-    # Aggregate with the TEST_SIMPLE_SUM scorer
-    res = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'TEST_SIMPLE_SUM',
+    # Test TEST_NUM_DOCS scorer with aggregate
+    res = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'TEST_NUM_DOCS',
                   'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC')
-
-    # Verify the score
-    env.assertEqual(res[0], 2)  # 2 results
-    actual_score = float(res[1][1])  # Score from first result
-    env.assertAlmostEqual(actual_score, expected_score, delta=0.0001)
+    env.assertEqual(res[0], 2)
+    env.assertAlmostEqual(float(res[1][1]), 2.0, delta=0.0001)  # numDocs = 2
 
 
 @skip(cluster=True)
-def test_simple_sum_scorer_with_explainscore():
+def test_test_scorers_with_explainscore():
     """
-    Test the TEST_SIMPLE_SUM scorer with EXPLAINSCORE to verify the explanation.
+    Test the test scorers with EXPLAINSCORE to verify the explanations.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
-    # Register the test scorer using the debug command
-    env.expect(debug_cmd(), 'REGISTER_TEST_SCORER').ok()
+    # Register the test scorers using the debug command
+    env.expect(debug_cmd(), 'REGISTER_TEST_SCORERS').ok()
 
     # Create an index with a text field
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
@@ -1104,33 +1193,19 @@ def test_simple_sum_scorer_with_explainscore():
     # Add a single document
     conn.execute_command('HSET', 'doc1', 'title', 'hello world')
 
-    # After indexing:
-    # numDocs = 1
-    # numTerms = 2 (unique terms: hello, world)
-    # avgDocLen = 2.0
-    #
-    # Searching for "hello" which appears in 1 document
-    total_docs = 1
-    term_docs = 1
+    # Test each scorer with EXPLAINSCORE
+    scorers_and_expected = [
+        ('TEST_NUM_DOCS', 1.0, 'TEST_NUM_DOCS'),
+        ('TEST_NUM_TERMS', 2.0, 'TEST_NUM_TERMS'),
+        ('TEST_AVG_DOC_LEN', 2.0, 'TEST_AVG_DOC_LEN'),
+    ]
 
-    idf = calculate_idf(total_docs, term_docs)
-    bm25_idf = calculate_bm25_idf(total_docs, term_docs)
+    for scorer_name, expected_score, expected_in_explanation in scorers_and_expected:
+        res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', scorer_name,
+                      'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT')
 
-    # Expected score = numTerms + numDocs + avgDocLen + sumIdf + sumBm25Idf
-    expected_score = 2 + 1 + 2.0 + idf + bm25_idf
-
-    # Search with EXPLAINSCORE
-    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'TEST_SIMPLE_SUM',
-                  'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT')
-
-    # Verify the score
-    env.assertEqual(res[0], 1)  # 1 result
-    # Result format with EXPLAINSCORE: [numResults, docId, [score, explanation], ...]
-    score_info = res[2]  # [score, explanation]
-    actual_score = float(score_info[0])
-    env.assertAlmostEqual(actual_score, expected_score, delta=0.0001)
-
-    # Verify the explanation contains the expected text
-    # The explanation is the second element of score_info
-    explanation = score_info[1]
-    env.assertContains('TEST_SIMPLE_SUM', explanation)
+        env.assertEqual(res[0], 1)
+        score_info = res[2]
+        actual_score = float(score_info[0])
+        env.assertAlmostEqual(actual_score, expected_score, delta=0.0001)
+        env.assertContains(expected_in_explanation, score_info[1])

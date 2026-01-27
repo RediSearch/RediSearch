@@ -717,11 +717,16 @@ void DefaultExpanderFree(void *p) {
 
 /******************************************************************************************
  *
- * Test Simple Sum Scoring Function (for testing purposes only)
+ * Test Scoring Functions (for testing purposes only)
  *
- * This is a simple scoring function that returns the sum of numTerms, numDocs, avgDocLen,
- * sum of IDF, and sum of BM25 IDF values from all terms in the result.
- * It is used for testing the scoring function registration mechanism via debug commands.
+ * These are simple scoring functions that return individual components of scoring data:
+ * - TEST_NUM_DOCS: returns the number of documents in the index
+ * - TEST_NUM_TERMS: returns the number of unique terms in the index
+ * - TEST_AVG_DOC_LEN: returns the average document length
+ * - TEST_SUM_IDF: returns the sum of IDF values from all terms in the result
+ * - TEST_SUM_BM25_IDF: returns the sum of BM25 IDF values from all terms in the result
+ *
+ * They are used for testing the scoring function registration mechanism via debug commands.
  *
  ******************************************************************************************/
 
@@ -761,27 +766,72 @@ static double sumBm25IdfRecursive(const RSIndexResult *r) {
   return 0;
 }
 
-/* Test scoring function that returns sum of numTerms + numDocs + avgDocLen + sumIdf + sumBm25Idf */
-static double TestSimpleSumScoringFunction(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
-                                           const RSDocumentMetadata *dmd, double minScore) {
+/* Test scoring function that returns the number of documents in the index */
+static double TestNumDocsScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+                                const RSDocumentMetadata *dmd, double minScore) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
-
-  double sumIdf = sumIdfRecursive(r);
-  double sumBm25Idf = sumBm25IdfRecursive(r);
-
-  double score = (double)ctx->indexStats.numTerms +
-                 (double)ctx->indexStats.numDocs +
-                 ctx->indexStats.avgDocLen +
-                 sumIdf +
-                 sumBm25Idf;
-  EXPLAIN(scrExp, "TEST_SIMPLE_SUM: numTerms(%zu) + numDocs(%zu) + avgDocLen(%.2f) + sumIdf(%.2f) + sumBm25Idf(%.2f) = %.2f",
-          ctx->indexStats.numTerms, ctx->indexStats.numDocs, ctx->indexStats.avgDocLen, sumIdf, sumBm25Idf, score);
+  double score = (double)ctx->indexStats.numDocs;
+  EXPLAIN(scrExp, "TEST_NUM_DOCS: numDocs(%zu) = %.2f", ctx->indexStats.numDocs, score);
   return score;
 }
 
-/* Register the test simple sum scorer - to be called from debug command */
-int RegisterTestSimpleSumScorer(void) {
-  return Ext_RegisterScoringFunction(TEST_SIMPLE_SUM_SCORER_NAME, TestSimpleSumScoringFunction, NULL, NULL);
+/* Test scoring function that returns the number of unique terms in the index */
+static double TestNumTermsScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+                                 const RSDocumentMetadata *dmd, double minScore) {
+  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+  double score = (double)ctx->indexStats.numTerms;
+  EXPLAIN(scrExp, "TEST_NUM_TERMS: numTerms(%zu) = %.2f", ctx->indexStats.numTerms, score);
+  return score;
+}
+
+/* Test scoring function that returns the average document length */
+static double TestAvgDocLenScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+                                  const RSDocumentMetadata *dmd, double minScore) {
+  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+  double score = ctx->indexStats.avgDocLen;
+  EXPLAIN(scrExp, "TEST_AVG_DOC_LEN: avgDocLen(%.2f) = %.2f", ctx->indexStats.avgDocLen, score);
+  return score;
+}
+
+/* Test scoring function that returns the sum of IDF values from all terms */
+static double TestSumIdfScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+                               const RSDocumentMetadata *dmd, double minScore) {
+  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+  double score = sumIdfRecursive(r);
+  EXPLAIN(scrExp, "TEST_SUM_IDF: sumIdf(%.2f) = %.2f", score, score);
+  return score;
+}
+
+/* Test scoring function that returns the sum of BM25 IDF values from all terms */
+static double TestSumBm25IdfScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+                                   const RSDocumentMetadata *dmd, double minScore) {
+  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+  double score = sumBm25IdfRecursive(r);
+  EXPLAIN(scrExp, "TEST_SUM_BM25_IDF: sumBm25Idf(%.2f) = %.2f", score, score);
+  return score;
+}
+
+/* Register the test scorers - to be called from debug command */
+int Ext_RegisterTestScorers(void) {
+  int result = REDISEARCH_OK;
+
+  if (Ext_RegisterScoringFunction(TEST_NUM_DOCS_SCORER_NAME, TestNumDocsScorer, NULL, NULL) != REDISEARCH_OK) {
+    result = REDISEARCH_ERR;
+  }
+  if (Ext_RegisterScoringFunction(TEST_NUM_TERMS_SCORER_NAME, TestNumTermsScorer, NULL, NULL) != REDISEARCH_OK) {
+    result = REDISEARCH_ERR;
+  }
+  if (Ext_RegisterScoringFunction(TEST_AVG_DOC_LEN_SCORER_NAME, TestAvgDocLenScorer, NULL, NULL) != REDISEARCH_OK) {
+    result = REDISEARCH_ERR;
+  }
+  if (Ext_RegisterScoringFunction(TEST_SUM_IDF_SCORER_NAME, TestSumIdfScorer, NULL, NULL) != REDISEARCH_OK) {
+    result = REDISEARCH_ERR;
+  }
+  if (Ext_RegisterScoringFunction(TEST_SUM_BM25_IDF_SCORER_NAME, TestSumBm25IdfScorer, NULL, NULL) != REDISEARCH_OK) {
+    result = REDISEARCH_ERR;
+  }
+
+  return result;
 }
 
 /* Register the default extension */
