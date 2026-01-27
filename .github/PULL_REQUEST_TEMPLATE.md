@@ -23,4 +23,4 @@ A clear and concise description of what the PR is solving, including:
 - [ ] This PR requires release notes
 - [ ] This PR does not require release notes
 
-If required, describe the **user impact** of this PR:  
+If a release note is required (bug fix / new feature / enhancement), describe the **user impact** of this PR in the title.  
