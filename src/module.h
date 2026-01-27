@@ -82,6 +82,9 @@ do {                                            \
     return REDISMODULE_ERR;                                           \
   }
 
+// Forward declaration of searchReducerCtx
+struct searchReducerCtx;
+
 typedef struct {
   char *queryString;
   long long offset;
@@ -105,6 +108,8 @@ typedef struct {
   rs_wall_clock profileClock;
   void *reducer;
   bool queryOOM;
+
+  struct searchReducerCtx *rctx;
 } searchRequestCtx;
 
 bool debugCommandsEnabled(RedisModuleCtx *ctx);

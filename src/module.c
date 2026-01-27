@@ -1924,7 +1924,7 @@ typedef struct {
   int sortKey;
 } searchReplyOffsets;
 
-typedef struct{
+typedef struct searchReducerCtx {
   MRReply *fieldNames;
   MRReply *lastError;
   searchResult *cachedResult;
@@ -3081,13 +3081,19 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
-  searchReducerCtx rCtx = {NULL};
+  searchReducerCtx *rCtx = rm_calloc(1, sizeof(searchReducerCtx));
   int profile = req->profileArgs > 0;
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   int res = REDISMODULE_OK;
   // got no replies - this means timeout
   if (count == 0 || req->limit < 0) {
+    if (!profile) {
+      // For non-profile, reply with error and abort the block
+      res = RedisModule_Reply_Error(reply, "Could not send query to cluster");
+      RedisModule_EndReply(reply);
+      goto error_abort;
+    }
     res = RedisModule_Reply_Error(reply, "Could not send query to cluster");
     goto cleanup;
   }
@@ -3097,54 +3103,63 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   for (int i = 0; i < count; i++) {
     MRReply *curr_rep = replies[i];
     if (MRReply_Type(curr_rep) == MR_REPLY_ERROR) {
-      rCtx.errorOccurred = true;
-      rCtx.lastError = curr_rep;
+      rCtx->errorOccurred = true;
+      rCtx->lastError = curr_rep;
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(curr_rep, NULL));
       if (should_return_error(errCode)) {
         // Track error in global statistics
         QueryErrorsGlobalStats_UpdateError(errCode, 1, COORD_ERR_WARN);
+        if (!profile) {
+          // For non-profile, reply with error and abort the block
+          res = MR_ReplyWithMRReply(reply, curr_rep);
+          RedisModule_EndReply(reply);
+          goto error_abort;
+        }
         res = MR_ReplyWithMRReply(reply, curr_rep);
         goto cleanup;
       }
     }
   }
 
-  rCtx.searchCtx = req;
+  rCtx->searchCtx = req;
 
   // Get reply offsets
-  getReplyOffsets(rCtx.searchCtx, &rCtx.offsets);
+  getReplyOffsets(rCtx->searchCtx, &rCtx->offsets);
 
   // Init results heap.
   size_t num = req->requestedResultsCount;
-  rCtx.pq = rm_malloc(heap_sizeof(num));
-  heap_init(rCtx.pq, cmp_results, req, num);
+  rCtx->pq = rm_malloc(heap_sizeof(num));
+  heap_init(rCtx->pq, cmp_results, req, num);
+
+  // Save the rctx in the request so it can be used in reply_callback of unblock client
+  req->rctx = rCtx;
 
   // Default result process and post process operations
-  rCtx.processReply = (processReplyCB) processSearchReply;
-  rCtx.postProcess = (postProcessReplyCB) noOpPostProcess;
+  rCtx->processReply = (processReplyCB) processSearchReply;
+  rCtx->postProcess = (postProcessReplyCB) noOpPostProcess;
 
   if (req->specialCases) {
     size_t nSpecialCases = array_len(req->specialCases);
     for (size_t i = 0; i < nSpecialCases; ++i) {
       if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
         specialCaseCtx* knnCtx = req->specialCases[i];
-        rCtx.postProcess = (postProcessReplyCB) knnPostProcess;
-        rCtx.reduceSpecialCaseCtxKnn = knnCtx;
+        rCtx->postProcess = (postProcessReplyCB) knnPostProcess;
+        rCtx->reduceSpecialCaseCtxKnn = knnCtx;
         if (knnCtx->knn.shouldSort) {
           knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
           heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
-          rCtx.processReply = (processReplyCB) ProcessKNNSearchReply;
+          rCtx->processReply = (processReplyCB) ProcessKNNSearchReply;
           break;
         }
       } else if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_SORTBY) {
-        rCtx.reduceSpecialCaseCtxSortby = req->specialCases[i];
+        rCtx->reduceSpecialCaseCtxSortby = req->specialCases[i];
       }
     }
   }
 
   if (!profile) {
     for (int i = 0; i < count; ++i) {
-      rCtx.processReply(replies[i], (struct searchReducerCtx *)&rCtx, ctx);
+      rCtx->processReply(replies[i], rCtx, ctx);
 
     }
   } else {
@@ -3161,16 +3176,21 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       } else {
         mr_reply = MRReply_ArrayElement(replies[i], 0);
       }
-      rCtx.processReply(mr_reply, (struct searchReducerCtx *)&rCtx, ctx);
+      rCtx->processReply(mr_reply, rCtx, ctx);
 
     }
   }
 
-  if (rCtx.cachedResult) {
-    rm_free(rCtx.cachedResult);
+  if (rCtx->cachedResult) {
+    rm_free(rCtx->cachedResult);
   }
 
-  if (rCtx.errorOccurred && !rCtx.lastError) {
+  if (rCtx->errorOccurred && !rCtx->lastError) {
+    if (!profile) {
+      RedisModule_Reply_Error(reply, "could not parse redisearch results");
+      RedisModule_EndReply(reply);
+      goto error_abort;
+    }
     RedisModule_Reply_Error(reply, "could not parse redisearch results");
     goto cleanup;
   }
@@ -3179,30 +3199,31 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   // End of reduce logic
   // Start of reply logic
 
-
+  // If not FT.PROFILE, reply using the reply_callback of unblock client
   if (!profile) {
-    sendSearchResults(reply, &rCtx);
-  } else {
-    profileSearchReply(reply, &rCtx, count, replies, &req->profileClock, rs_wall_clock_now_ns());
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, mc);
+    RedisModule_FreeThreadSafeContext(ctx);
+    return res;
   }
+
+  profileSearchReply(reply, rCtx, count, replies, &req->profileClock, rs_wall_clock_now_ns());
   rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
   TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, duration);
 
 cleanup:
-  // End of reply logic
-  // Start of cleanup logic
-
-
+  // Cleanup for profile path (errors and success)
   RedisModule_EndReply(reply);
 
-  if (rCtx.pq) {
-    heap_destroy(rCtx.pq);
+  if (rCtx->pq) {
+    heap_destroy(rCtx->pq);
   }
-  if (rCtx.reduceSpecialCaseCtxKnn &&
-      rCtx.reduceSpecialCaseCtxKnn->knn.pq) {
-    heap_destroy(rCtx.reduceSpecialCaseCtxKnn->knn.pq);
-    rCtx.reduceSpecialCaseCtxKnn->knn.pq = NULL;
+  if (rCtx->reduceSpecialCaseCtxKnn &&
+      rCtx->reduceSpecialCaseCtxKnn->knn.pq) {
+    heap_destroy(rCtx->reduceSpecialCaseCtxKnn->knn.pq);
+    rCtx->reduceSpecialCaseCtxKnn->knn.pq = NULL;
   }
+  rm_free(rCtx);
 
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
@@ -3213,6 +3234,25 @@ cleanup:
   // The unblocking callback also replies with error if there was 0 replies from the shards,
   // and since we already replied with error in this case (in the beginning of this function),
   // we can't pass `mc` to the unblock function.
+  searchRequestCtx_Free(req);
+  MRCtx_RequestCompleted(mc);
+  MRCtx_Free(mc);
+  return res;
+
+error_abort:
+  // Error path for non-profile: reply already sent, abort the block
+  if (rCtx->pq) {
+    heap_destroy(rCtx->pq);
+  }
+  if (rCtx->reduceSpecialCaseCtxKnn &&
+      rCtx->reduceSpecialCaseCtxKnn->knn.pq) {
+    heap_destroy(rCtx->reduceSpecialCaseCtxKnn->knn.pq);
+  }
+  rm_free(rCtx);
+
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
+  RedisModule_AbortBlock(bc);
+  RedisModule_FreeThreadSafeContext(ctx);
   searchRequestCtx_Free(req);
   MRCtx_RequestCompleted(mc);
   MRCtx_Free(mc);
@@ -3843,10 +3883,38 @@ static void DistSearchCommandHandler(void* pd) {
 static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (mrctx) {
+    // If we got 0 replies, reply with error
     if (MRCtx_GetNumReplied(mrctx) == 0) {
       RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
+      goto cleanup;
     }
-    searchRequestCtx_Free(MRCtx_GetPrivData(mrctx));
+
+    searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+    if (req->profileArgs > 0) {
+      // Reply callback is not implemented yet for profile
+      goto cleanup;
+    }
+
+    // Quick-Dirty reply
+    // TODO: clean + verify
+    searchReducerCtx *rctx = req->rctx;
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    sendSearchResults(reply, rctx);
+    RedisModule_EndReply(reply);
+
+    if (rctx->pq) {
+      heap_destroy(rctx->pq);
+    }
+    if (rctx->reduceSpecialCaseCtxKnn &&
+      rctx->reduceSpecialCaseCtxKnn->knn.pq) {
+        heap_destroy(rctx->reduceSpecialCaseCtxKnn->knn.pq);
+        rctx->reduceSpecialCaseCtxKnn->knn.pq = NULL;
+    }
+    // Free reduce context
+    rm_free(rctx);
+
+cleanup:
+    searchRequestCtx_Free(req);
     MRCtx_RequestCompleted(mrctx);
     MRCtx_Free(mrctx);
   }
