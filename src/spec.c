@@ -2543,10 +2543,14 @@ fail:
   return REDISMODULE_ERR;
 }
 
-static void IndexScoringStats_RdbLoad(RedisModuleIO *rdb, ScoringIndexStats *stats) {
+static void IndexScoringStats_RdbLoad(RedisModuleIO *rdb, ScoringIndexStats *stats, int encver) {
   stats->numDocuments = RedisModule_LoadUnsigned(rdb);
   stats->numTerms = RedisModule_LoadUnsigned(rdb);
-  stats->totalDocsLen = RedisModule_LoadUnsigned(rdb);
+  if (encver >= INDEX_DISK_VERSION) {
+    stats->totalDocsLen = RedisModule_LoadUnsigned(rdb);
+  } else {
+    stats->totalDocsLen = 0;
+  }
 }
 
 static void IndexScoringStats_RdbSave(RedisModuleIO *rdb, ScoringIndexStats *stats) {
@@ -2555,8 +2559,8 @@ static void IndexScoringStats_RdbSave(RedisModuleIO *rdb, ScoringIndexStats *sta
   RedisModule_SaveUnsigned(rdb, stats->totalDocsLen);
 }
 
-static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
-  IndexScoringStats_RdbLoad(rdb, &stats->scoring);
+static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats, int encver) {
+  IndexScoringStats_RdbLoad(rdb, &stats->scoring, encver);
   stats->numRecords = RedisModule_LoadUnsigned(rdb);
   stats->invertedSize = RedisModule_LoadUnsigned(rdb);
   RedisModule_LoadUnsigned(rdb); // Consume `invertedCap`
@@ -3256,7 +3260,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   // On the disk side (RDB is depleted, without updating index fields).
   bool useSst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
   if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && useSst) {
-    IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring);
+    IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
     if (sp->terms) {
       TrieType_Free(sp->terms);
     }
@@ -3359,7 +3363,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 
-  IndexStats_RdbLoad(rdb, &sp->stats);
+  IndexStats_RdbLoad(rdb, &sp->stats, encver);
 
   DocTable_LegacyRdbLoad(&sp->docs, rdb, encver);
   /* For version 3 or up - load the generic trie */
