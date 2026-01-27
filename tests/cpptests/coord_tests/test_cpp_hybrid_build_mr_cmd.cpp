@@ -6,14 +6,18 @@
 #include "dist_plan.h"
 #include "index_utils.h"
 #include "common.h"
+#include "vector_index.h"
 
 #include <vector>
 
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
 
 extern "C" {
-void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, MRCommand *xcmd, arrayof(char *) serialized,
-                            IndexSpec *sp, HybridPipelineParams *hybridParams);
+void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
+                                 MRCommand *xcmd, arrayof(char *) serialized,
+                                 IndexSpec *sp,
+                                 HybridPipelineParams *hybridParams,
+                                 VectorQuery *vq);
 }
 
 class HybridBuildMRCommandTest : public ::testing::Test {
@@ -59,9 +63,10 @@ protected:
         // Create ArgvList from input
         RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
 
-        // Build MR command
+        // Build MR command (pass NULL for VectorQuery - not testing SHARD_K_RATIO here)
         MRCommand xcmd;
-        HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, nullptr, &hybridParams);
+        HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, nullptr,
+                                     &hybridParams, NULL);
 
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -99,9 +104,9 @@ protected:
       ASSERT_NE(sp->rule->prefixes, nullptr) << "IndexSpec rule should have prefixes";
       ASSERT_EQ(array_len(sp->rule->prefixes), 2) << "IndexSpec rule should have 2 prefixes";
 
-      // Build MR command
+      // Build MR command (pass NULL for VectorQuery - not testing SHARD_K_RATIO here)
       MRCommand xcmd;
-      HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, sp, &hybridParams);
+      HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, sp, &hybridParams, NULL);
       // Verify transformation: FT.HYBRID -> _FT.HYBRID
       EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
         // Verify all other original args are preserved (except first). Attention: This is not true if TIMEOUT is not at the end before DIALECT
