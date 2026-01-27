@@ -87,8 +87,8 @@ struct uint8_arr {
 };
 
 void testRangeIteratorHelper(bool isMulti) {
-  NumericRangeTree *tree = NewNumericRangeTree();
-  ASSERT_TRUE(tree != NULL);
+  NumericRangeTree *t = NewNumericRangeTree();
+  ASSERT_TRUE(t != NULL);
 
   const size_t N = 100000;
   std::vector<d_arr> lookup;
@@ -102,7 +102,7 @@ void testRangeIteratorHelper(bool isMulti) {
       double value = (double)(1 + prng() % (N / 5));
       lookup[docId].v[mult] = value;
       // printf("Adding %ld > %f\n", docId, value);
-      NumericRangeTree_Add(tree, docId, value, isMulti);
+      NumericRangeTree_Add(t, docId, value, isMulti);
     }
   }
 
@@ -129,7 +129,7 @@ void testRangeIteratorHelper(bool isMulti) {
     // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
     FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
     FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-    QueryIterator *it = createNumericIterator(NULL, tree, flt, &config, &filterCtx);
+    QueryIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
 
     int xcount = 0;
 
@@ -193,8 +193,8 @@ void testRangeIteratorHelper(bool isMulti) {
     NumericFilter_Free(flt);
   }
 
-  ASSERT_EQ(tree->numRanges, !isMulti ? 14 : 48);
-  ASSERT_EQ(tree->numEntries, !isMulti ? N : N * MULT_COUNT);
+  ASSERT_EQ(t->numRanges, !isMulti ? 14 : 48);
+  ASSERT_EQ(t->numEntries, !isMulti ? N : N * MULT_COUNT);
 
 
   // test loading limited range
@@ -205,11 +205,11 @@ void testRangeIteratorHelper(bool isMulti) {
     for (int j = 0; j < 2; ++j) {
       // j==1 for ascending order, j==0 for descending order
       NumericFilter *flt = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j, NULL);
-      QueryIterator *it = createNumericIterator(NULL, tree, flt, &config, &filterCtx);
+      QueryIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
       size_t numEstimated = it->NumEstimated(it);
       NumericFilter *fltLimited = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j, NULL);
       fltLimited->limit = 50;
-      QueryIterator *itLimited = createNumericIterator(NULL, tree, fltLimited, &config, &filterCtx);
+      QueryIterator *itLimited = createNumericIterator(NULL, t, fltLimited, &config, &filterCtx);
       size_t numEstimatedLimited = itLimited->NumEstimated(itLimited);
       // printf("%f %f %ld %ld\n", rangeArray[i][0], rangeArray[i][1], numEstimated, numEstimatedLimited);
       ASSERT_TRUE(numEstimated >= numEstimatedLimited );
@@ -220,7 +220,7 @@ void testRangeIteratorHelper(bool isMulti) {
     }
   }
 
-  NumericRangeTree_Free(tree);
+  NumericRangeTree_Free(t);
 }
 
 TEST_F(RangeTest, testRangeIterator) {
