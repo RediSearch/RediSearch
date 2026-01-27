@@ -17,3 +17,8 @@ A clear and concise description of what the PR is solving, including:
 
 - [ ] This PR introduces API changes
 - [ ] This PR introduces serialization changes
+
+#### Release Notes
+
+- [ ] This PR requires release notes
+- [ ] This PR does not require release notes
