@@ -29,6 +29,14 @@ pub(crate) const unsafe fn expect_value<'a>(value: *const RsValue) -> &'a RsValu
     }
 }
 
+/// Get a [`SharedRsValue`] from an [`RsValue`] pointer. This `SharedRsValue` is
+/// wrapped inside a `ManuallyDrop` so that it behaves as a reference instead of
+/// an owned object as to not decrement the refcount and potentially deallocate
+/// the underlying `RsValue`.
+///
+/// # Safety
+///
+/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 pub(crate) unsafe fn expect_shared_value(value: *const RsValue) -> ManuallyDrop<SharedRsValue> {
     if cfg!(debug_assertions) && value.is_null() {
         panic!("value must not be null");
