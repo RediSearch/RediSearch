@@ -12,6 +12,7 @@
 #include "../../rmalloc.h"
 #include "../../../deps/rmutil/rm_assert.h"
 #include "query_error.h"
+#include "hybrid/hybrid_request.h"
 #include <string.h>
 #include "info/global_stats.h"
 
@@ -21,7 +22,7 @@
 typedef struct {
     StrongRef searchMappings;
     StrongRef vsimMappings;
-    arrayof(QueryError) errors;
+    arrayof(QueryError) errors;       // Array of errors and warnings from shards
     size_t responseCount;
     pthread_mutex_t *mutex;           // Mutex for array access and completion tracking
     pthread_cond_t *completionCond;   // Condition variable for completion signaling
@@ -202,7 +203,9 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     rm_free(ctx);
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy) {
+bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards,
+        StrongRef searchMappingsRef, StrongRef vsimMappingsRef,
+        QueryError *status, const RSOomPolicy oomPolicy, HybridRequest *hreq) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -243,18 +246,77 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     }
     pthread_mutex_unlock(ctx->mutex);
     bool success = true;
+
+    // Process errors and warnings (unified in ctx->errors)
     if (array_len(ctx->errors)) {
         for (size_t i = 0; i < array_len(ctx->errors); i++) {
-            if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return ) {
-                QueryError_SetQueryOOMWarning(status);
-            } else {
-                QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",
-                    QueryError_GetUserError(&ctx->errors[i]), array_len(ctx->errors));
-                success = false;
-                break;
+            const char *message = QueryError_GetUserError(&ctx->errors[i]);
+            if (!message) continue;
+
+            // Get warning code from message for efficient switch-based matching
+            QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(message);
+            bool isWarning = false;
+
+            switch (warningCode) {
+                // Max prefix expansions warnings
+                case QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_SEARCH:
+                    isWarning = true;
+                    if (hreq && SEARCH_INDEX < (int)hreq->nrequests) {
+                        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->errors[SEARCH_INDEX]);
+                    }
+                    break;
+                case QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_VSIM:
+                    isWarning = true;
+                    if (hreq && VECTOR_INDEX < (int)hreq->nrequests) {
+                        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->errors[VECTOR_INDEX]);
+                    }
+                    break;
+                // Timeout warnings
+                case QUERY_WARNING_CODE_TIMED_OUT_SEARCH:
+                    isWarning = true;
+                    if (hreq && SEARCH_INDEX < (int)hreq->nrequests) {
+                        hreq->subqueriesReturnCodes[SEARCH_INDEX] = RS_RESULT_TIMEDOUT;
+                    }
+                    break;
+                case QUERY_WARNING_CODE_TIMED_OUT_VSIM:
+                    isWarning = true;
+                    if (hreq && VECTOR_INDEX < (int)hreq->nrequests) {
+                        hreq->subqueriesReturnCodes[VECTOR_INDEX] = RS_RESULT_TIMEDOUT;
+                    }
+                    break;
+                // OOM warnings
+                case QUERY_WARNING_CODE_OUT_OF_MEMORY_SEARCH:
+                    isWarning = true;
+                    if (hreq && SEARCH_INDEX < (int)hreq->nrequests) {
+                        QueryError_SetQueryOOMWarning(&hreq->errors[SEARCH_INDEX]);
+                    }
+                    break;
+                case QUERY_WARNING_CODE_OUT_OF_MEMORY_VSIM:
+                    isWarning = true;
+                    if (hreq && VECTOR_INDEX < (int)hreq->nrequests) {
+                        QueryError_SetQueryOOMWarning(&hreq->errors[VECTOR_INDEX]);
+                    }
+                    break;
+                case QUERY_WARNING_CODE_OK:
+                default:
+                    // Not a known warning, will be treated as error below
+                    break;
+            }
+
+            // If not a known warning, treat as error
+            if (!isWarning) {
+                if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return) {
+                    QueryError_SetQueryOOMWarning(status);
+                } else {
+                    QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",
+                        message, array_len(ctx->errors));
+                    success = false;
+                    break;
+                }
             }
         }
     }
+
     // Cleanup
     MRIterator_Release(it);
     cleanupCtx(ctx);
