@@ -3086,9 +3086,6 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   int profile = req->profileArgs > 0;
 
-  // Create a reply object for the current thread, used for error (abort) path
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
   // got no replies
   if (count == 0 || req->limit < 0) {
     QueryError_SetError(&rCtx->status, QUERY_ERROR_CODE_GENERIC, "Could not send query to cluster");
@@ -3157,7 +3154,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
         continue;
       }
 
-      if (reply->resp3) {
+      if (is_resp3(ctx)) {
         mr_reply = MRReply_MapElement(replies[i], "Results");
       } else {
         mr_reply = MRReply_ArrayElement(replies[i], 0);
@@ -3177,7 +3174,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   // Post process before unblocking the client
-  rCtx->postProcess((struct searchReducerCtx *)rCtx);
+  rCtx->postProcess(rCtx);
 
 unblock_client:
   RedisModule_BlockedClientMeasureTimeEnd(bc);
@@ -3813,8 +3810,6 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
   UNUSED(argc);
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (mrctx) {
-    // 0 replies are handled in the reducer
-    RS_ASSERT(MRCtx_GetNumReplied(mrctx) > 0);
 
     searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
 
@@ -3853,7 +3848,6 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
   UNUSED(ctx);
   struct MRCtx *mrctx = privdata;
   if (!mrctx) {
-    // Timeout might have occurred before mrctx was created
     return;
   }
 
@@ -3861,6 +3855,9 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
 
   // Free the reducer context if it was allocated
   searchReducerCtx *rctx = req->rctx;
+
+  QueryError_ClearError(&rctx->status);
+
   if (rctx) {
     if (rctx->pq) {
       heap_destroy(rctx->pq);

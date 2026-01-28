@@ -50,6 +50,8 @@ class TestCoordinatorTimeout:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
 
+        initial_jobs_done = getWorkersThpoolStats(env)['totalJobsDone']
+
         coord_pid = pid_cmd(env.con)
         shards_pid = list(get_all_shards_pid(env))
         shards_pid.remove(coord_pid)
@@ -76,7 +78,7 @@ class TestCoordinatorTimeout:
                 time.sleep(0.1)
 
         with TimeLimit(30, 'Timeout while waiting for worker to finish job'):
-            while getWorkersThpoolStats(env)['totalJobsDone'] < 1:
+            while getWorkersThpoolStats(env)['totalJobsDone'] <= initial_jobs_done:
                 time.sleep(0.1)
 
         env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
@@ -119,6 +121,53 @@ class TestCoordinatorTimeout:
         env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
 
         # Resume coordinator threads and restore config
+        env.cmd(debug_cmd(), 'COORD_THREADS', 'RESUME')
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    def test_fail_timeout_after_fanout(self):
+        """Test timeout occurring after the fanout (after query is dispatched to shards - best effort)."""
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
+
+        # Get initial jobs done count from all shards
+        initial_jobs_done = [stats['totalJobsDone'] for stats in getWorkersThpoolStatsFromAllShards(env)]
+
+        # Pause worker thread pool on all shards first
+        verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'PAUSE')
+
+        blocked_client_id = env.cmd('CLIENT', 'ID')
+
+        t_query = threading.Thread(
+            target=run_cmd_expect_timeout,
+            args=(env, ['FT.SEARCH', 'idx', '*']),
+            daemon=True
+        )
+        t_query.start()
+
+        # Pause coordinator thread pool
+        env.cmd(debug_cmd(), 'COORD_THREADS', 'PAUSE')
+
+        # Resume worker thread pool on all shards
+        verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'RESUME')
+
+        # Wait for coordinator to dispatch the query (jobs done should increase on shards)
+        with TimeLimit(30, 'Timeout while waiting for shards to process query'):
+            while True:
+                current_jobs_done = [stats['totalJobsDone'] for stats in getWorkersThpoolStatsFromAllShards(env)]
+                if all(current > initial for current, initial in zip(current_jobs_done, initial_jobs_done)):
+                    break
+                time.sleep(0.1)
+
+        # Unblock the client to simulate timeout
+        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+
+        # Resume coordinator threads
         env.cmd(debug_cmd(), 'COORD_THREADS', 'RESUME')
 
         t_query.join(timeout=10)
