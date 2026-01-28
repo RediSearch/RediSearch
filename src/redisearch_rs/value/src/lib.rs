@@ -8,11 +8,11 @@
 */
 
 use crate::{
-    collection::{RsValueArray, RsValueMap},
     shared::SharedRsValue,
-    strings::{ConstString, RedisString, RmAllocString, RsValueString},
+    strings::{ConstString, RedisString, RmAllocString},
     trio::RsValueTrio,
 };
+use std::{ffi::CString, fmt::Debug};
 
 /// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
 /// Rust port of the RSValue type.
@@ -26,10 +26,10 @@ mod test_utils;
 #[cfg(feature = "test_utils")]
 pub use test_utils::RSValueMock;
 
-pub mod collection;
 pub mod shared;
 pub mod strings;
 pub mod trio;
+pub mod util;
 
 /// An actual [`RsValue`] object
 #[derive(Debug, Clone)]
@@ -46,16 +46,28 @@ pub enum RsValue {
     ConstString(ConstString),
     /// String value backed by a Redis string
     RedisString(RedisString),
-    /// String value
-    String(Box<RsValueString>),
+    // /// String value
+    // String(Box<RsValueString>),
+    /// String2 value
+    String2(CString),
     /// Array value
-    Array(RsValueArray),
+    Array(Vec<SharedRsValue>),
     /// Reference value
     Ref(SharedRsValue),
     /// Trio value
     Trio(RsValueTrio),
     /// Map value
-    Map(RsValueMap),
+    Map(Vec<(SharedRsValue, SharedRsValue)>),
+}
+
+impl RsValue {
+    pub fn fully_dereferenced(&self) -> &Self {
+        if let RsValue::Ref(ref_value) = self {
+            ref_value.value().fully_dereferenced()
+        } else {
+            self
+        }
+    }
 }
 
 #[cfg(test)]

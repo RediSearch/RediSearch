@@ -10,6 +10,7 @@ c_ffi_utils = { workspace = true }
 ffi.workspace = true
 workspace_hack.workspace = true
 thiserror.workspace = true
+libc.workspace = true
 
 [dev-dependencies]
 redis_mock.workspace = true
