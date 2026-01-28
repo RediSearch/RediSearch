@@ -1940,7 +1940,6 @@ typedef struct searchReducerCtx {
   specialCaseCtx* reduceSpecialCaseCtxSortby;
 
   MRReply *warning;
-  QueryError status;
 } searchReducerCtx;
 
 typedef struct {
@@ -2134,6 +2133,8 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   rs_wall_clock_init(&req->initClock);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
+    // Missing QUERY keyword is the only error that can occur in rscParseProfile
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No QUERY keyword provided");
     searchRequestCtx_Free(req);
     return NULL;
   }
@@ -3079,8 +3080,6 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
 
   searchReducerCtx *rCtx = rm_calloc(1, sizeof(searchReducerCtx));
-  rCtx->status = QueryError_Default();
-
 
   // Save the rctx in the request so it can be used in reply_callback of unblock client
   req->rctx = rCtx;
@@ -3089,7 +3088,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   // got no replies
   if (count == 0 || req->limit < 0) {
-    QueryError_SetError(&rCtx->status, QUERY_ERROR_CODE_GENERIC, "Could not send query to cluster");
+    QueryError_SetError(MRCtx_GetStatus(mc), QUERY_ERROR_CODE_GENERIC, "Could not send query to cluster");
     goto unblock_client;
   }
 
@@ -3103,7 +3102,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       const char *errStr = MRReply_String(curr_rep, NULL);
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(errStr);
       if (should_return_error(errCode)) {
-        QueryError_SetError(&rCtx->status, errCode, errStr);
+        QueryError_SetError(MRCtx_GetStatus(mc), errCode, errStr);
         goto unblock_client;
       }
     }
@@ -3172,7 +3171,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   if (rCtx->errorOccurred && !rCtx->lastError) {
-    QueryError_SetError(&rCtx->status, QUERY_ERROR_CODE_GENERIC, "could not parse redisearch results");
+    QueryError_SetError(MRCtx_GetStatus(mc), QUERY_ERROR_CODE_GENERIC, "could not parse redisearch results");
     goto unblock_client;
   }
 
@@ -3651,10 +3650,11 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
 
 static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
-  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
-  QueryError_ReplyAndClear(clientCtx, status);
+  struct MRCtx *mrctx = MR_CreateBailoutCtx(clientCtx, bc, status);
+  // Clear the original status after cloning to avoid double-free or leaks
+  QueryError_ClearError(status);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
-  RedisModule_UnblockClient(bc, NULL);
+  RedisModule_UnblockClient(bc, mrctx);
   RedisModule_FreeThreadSafeContext(clientCtx);
 }
 
@@ -3814,17 +3814,18 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (mrctx) {
 
+    // Check if we have an error and return it
+    if (QueryError_HasError(MRCtx_GetStatus(mrctx))) {
+      // Track error in global statistics
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(MRCtx_GetStatus(mrctx)), 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, MRCtx_GetStatus(mrctx));
+      return REDISMODULE_OK;
+    }
+
     searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
 
     searchReducerCtx *rCtx = req->rctx;
 
-    // Check if we have an error and return it
-    if (QueryError_HasError(&rCtx->status)) {
-      // Track error in global statistics
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&rCtx->status), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &rCtx->status);
-      return REDISMODULE_OK;
-    }
 
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
@@ -3856,14 +3857,17 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
 
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
 
+  // Bailout case: no request context was set (MR_CreateBailoutCtx was used)
+  // In this case, no IO request was started, so we only free the MRCtx
+  if (!req) {
+    MRCtx_Free(mrctx);
+    return;
+  }
+
   // Free the reducer context if it was allocated
   searchReducerCtx *rctx = req->rctx;
 
-
   if (rctx) {
-
-    QueryError_ClearError(&rctx->status);
-
     if (rctx->pq) {
       heap_destroy(rctx->pq);
     }
@@ -4389,7 +4393,8 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
   QueryError status = QueryError_Default();
   AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
 
-  if (debug_params.debug_params_count == 0) {
+  if (QueryError_HasError(&status)) {
+    RS_ASSERT(debug_params.debug_params_count == 0);
     bailOut(bc, &status);
     return REDISMODULE_OK;
   }
