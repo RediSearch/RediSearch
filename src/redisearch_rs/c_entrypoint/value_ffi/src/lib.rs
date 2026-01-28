@@ -11,6 +11,7 @@
 
 pub mod collection;
 pub mod constructors;
+pub mod getters;
 pub mod shared;
 pub mod util;
 pub mod value_type;
