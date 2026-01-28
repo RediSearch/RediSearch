@@ -1,0 +1,16 @@
+[package]
+name = "tracing_redismodule"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+anstyle-query.workspace = true
+ffi.workspace = true
+tracing.workspace = true
+tracing-core.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true
