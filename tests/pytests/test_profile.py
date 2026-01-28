@@ -1330,15 +1330,17 @@ def get_shard_parsing_time(env, profile_result):
       profile_dict = to_dict(profile_result[-1])
       return float(profile_dict['Parsing time'])
 
-@skip(cluster=True)
+@skip()  # Always skip - bug is fixed, use testWorkersQueueTimeInProfile instead
 def testParsingTimeIncludesWorkersQueueTime_BUG():
   """
-  VALIDATION TEST: Confirms the bug exists before implementing the fix.
+  VALIDATION TEST (OBSOLETE): This test confirmed the bug where Parsing time included
+  workers queue wait time. Now that the bug is fixed, this test is skipped.
 
-  When workers thread pool is paused, the query waits in the queue.
-  Currently, this queue wait time is incorrectly included in "Parsing time".
+  The bug was: When workers thread pool is paused, the query waits in the workers queue.
+  The "Parsing time" in the profile incorrectly included this queue wait time.
 
-  Expected behavior (BUG): Parsing time >= pause_duration_ms
+  After the fix: Parsing time no longer includes queue wait time.
+  Use testWorkersQueueTimeInProfile to verify the fix works correctly.
   """
   env = Env(protocol=3, moduleArgs='WORKERS 1')
   conn = getConnectionByEnv(env)
@@ -1398,4 +1400,68 @@ def testParsingTimeDoesNotIncludeCoordQueueTime():
   # Parsing time should be much less than the pause duration
   env.assertLess(parsing_time, pause_duration_ms * 0.5,
     message=f"Parsing time ({parsing_time}ms) should NOT include coordinator queue wait. "
+            f"Expected < {pause_duration_ms * 0.5}ms. Full result: {result}")
+
+def get_shard_workers_queue_time(env, profile_result):
+  """
+  Extract 'Workers queue time' from the first shard's profile result.
+  Handles both standalone and cluster modes, and RESP2/RESP3 differences.
+  """
+  profile = profile_result.get('Profile', profile_result.get('profile', {}))
+
+  # Try standalone format first (RESP3)
+  shards = profile.get('Shards', profile.get('shards', []))
+  if isinstance(shards, list) and len(shards) > 0:
+    shard = shards[0]
+    return shard.get('Workers queue time', 0)
+
+  # Try cluster format (RESP3) - shards is a dict with 'Shard #1', etc.
+  if isinstance(shards, dict):
+    for key in shards:
+      if key.startswith('Shard'):
+        shard = shards[key]
+        return shard.get('Workers queue time', 0)
+
+  raise ValueError(f"Could not find Workers queue time in profile result: {profile_result}")
+
+@skip(cluster=True)
+def testWorkersQueueTimeInProfile():
+  """
+  TEST 2: Verifies that Workers queue time is correctly captured and separated from Parsing time.
+
+  When workers thread pool is paused, the query waits in the workers queue.
+  After the fix:
+  - "Workers queue time" should capture the queue wait time (>= pause_duration)
+  - "Parsing time" should NOT include the queue wait time (< pause_duration)
+
+  This test verifies the fix for the bug where Parsing time incorrectly included queue wait time.
+  """
+  env = Env(protocol=3, moduleArgs='WORKERS 1')
+  conn = getConnectionByEnv(env)
+  # Enable verbose profile output to get timing details
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+
+  pause_duration_ms = 50
+
+  result = run_profile_with_paused_pool(
+    env,
+    pause_cmd=[debug_cmd(), 'WORKERS', 'PAUSE'],
+    resume_cmd=[debug_cmd(), 'WORKERS', 'RESUME'],
+    pause_duration_ms=pause_duration_ms
+  )
+
+  parsing_time = get_shard_parsing_time(env, result)
+  workers_queue_time = get_shard_workers_queue_time(env, result)
+
+  # Workers queue time should capture the queue wait time
+  env.assertGreaterEqual(workers_queue_time, pause_duration_ms * 0.8,  # Allow 20% tolerance
+    message=f"Workers queue time ({workers_queue_time}ms) should capture queue wait. "
+            f"Expected >= {pause_duration_ms * 0.8}ms. Full result: {result}")
+
+  # Parsing time should NOT include queue wait time anymore
+  env.assertLess(parsing_time, pause_duration_ms * 0.5,
+    message=f"Parsing time ({parsing_time}ms) should NOT include queue wait time. "
             f"Expected < {pause_duration_ms * 0.5}ms. Full result: {result}")
