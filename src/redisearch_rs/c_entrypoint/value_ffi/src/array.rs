@@ -50,7 +50,7 @@ pub unsafe extern "C" fn RSValue_NewArray(values: *mut *mut RsValue, len: u32) -
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_ArrayLen(value: *const RsValue) -> u32 {
+pub const unsafe extern "C" fn RSValue_ArrayLen(value: *const RsValue) -> u32 {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 

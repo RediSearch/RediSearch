@@ -5,7 +5,7 @@ use value::RsValue;
 /// # SAFETY
 ///
 /// value must point to a valid RsValue object.
-pub(crate) unsafe fn expect_value<'a>(value: *const RsValue) -> &'a RsValue {
+pub(crate) const unsafe fn expect_value<'a>(value: *const RsValue) -> &'a RsValue {
     // SAFETY: value points to a valid RsValue object.
     let value = unsafe { value.as_ref() };
 
