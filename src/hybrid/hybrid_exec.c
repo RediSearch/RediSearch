@@ -217,8 +217,10 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
  * response to the client, according to the RESP protocol used (2/3).
  *
  * Note: Currently this is used only by the `FT.HYBRID` command, that does
- * not support cursors and profiling, thus this function does not handle
+ * not support cursors, thus this function does not handle
  * those cases. Support should be added as these features are added.
+ *
+ * Profile data is handled via the hreq->profile callback.
  *
  * @param hreq The hybrid request with built pipeline
  * @param reply Redis module reply object
