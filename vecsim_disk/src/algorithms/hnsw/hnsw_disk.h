@@ -12,11 +12,11 @@
 // VecSimIndex_* operations work via polymorphism.
 
 #include "VecSim/vec_sim_index.h"
-#include "VecSim/index_factories/components/components_factory.h"
 #include "VecSim/query_result_definitions.h"
 #include "VecSim/utils/vec_utils.h"
 #include "VecSim/info_iterator_struct.h"
 #include "storage/hnsw_storage.h"
+#include "factory/components/disk_components_factory.h"
 
 #include <memory>
 #include <string>
@@ -67,9 +67,9 @@ public:
 template <typename DataType, typename DistType>
 class HNSWDiskIndex : public VecSimIndexAbstract<DataType, DistType> {
 public:
-    // Constructor for factory use - takes ownership of storage
+    // Constructor for factory use - takes ownership of storage and components
     HNSWDiskIndex(const VecSimParamsDisk* params, const AbstractIndexInitParams& abstractInitParams,
-                  const IndexComponents<DataType, DistType>& components,
+                  const DiskIndexComponents<DataType, DistType>& components,
                   std::unique_ptr<HNSWStorage<DataType>> storage);
     ~HNSWDiskIndex() override = default;
 
@@ -139,6 +139,17 @@ private:
     // Storage backend (owned by this index)
     std::unique_ptr<HNSWStorage<DataType>> storage_;
 
+    // Helper to access the disk calculator with proper type for templated calcDistance<Mode>()
+    const DiskDistanceCalculator<DistType>* getDiskCalculator() const {
+        return static_cast<const DiskDistanceCalculator<DistType>*>(this->getIndexCalculator());
+    }
+
+    // Distance calculation methods - zero overhead via compile-time mode selection
+    // Names match DistanceMode enum: Full (FP32↔FP32), QuantizedVsFull (SQ8↔FP32), Quantized (SQ8↔SQ8)
+    DistType calcFullDistance(const void* v1, const void* v2) const noexcept;
+    DistType calcQuantizedVsFullDistance(const void* v1, const void* v2) const noexcept;
+    DistType calcQuantizedDistance(const void* v1, const void* v2) const noexcept;
+
     HNSWDiskIndex(const HNSWDiskIndex&) = delete;
     HNSWDiskIndex& operator=(const HNSWDiskIndex&) = delete;
 };
@@ -164,7 +175,7 @@ void HNSWDiskIndex<DataType, DistType>::getNeighborsByHeuristic2(
 template <typename DataType, typename DistType>
 HNSWDiskIndex<DataType, DistType>::HNSWDiskIndex(const VecSimParamsDisk* params,
                                                  const AbstractIndexInitParams& abstractInitParams,
-                                                 const IndexComponents<DataType, DistType>& components,
+                                                 const DiskIndexComponents<DataType, DistType>& components,
                                                  std::unique_ptr<HNSWStorage<DataType>> storage)
     : VecSimIndexAbstract<DataType, DistType>(abstractInitParams, components),
       indexName_(params->diskContext->indexName, params->diskContext->indexNameLen), idToMetaData(this->allocator),
@@ -175,6 +186,21 @@ HNSWDiskIndex<DataType, DistType>::HNSWDiskIndex(const VecSimParamsDisk* params,
     M0_ = M_ * 2;
     efConstruction_ = hnswParams.efConstruction ? hnswParams.efConstruction : HNSW_DEFAULT_EF_C;
     efRuntime_ = hnswParams.efRuntime ? hnswParams.efRuntime : HNSW_DEFAULT_EF_RT;
+}
+
+template <typename DataType, typename DistType>
+DistType HNSWDiskIndex<DataType, DistType>::calcFullDistance(const void* v1, const void* v2) const noexcept {
+    return getDiskCalculator()->template calcDistance<DistanceMode::Full>(v1, v2, this->dim);
+}
+
+template <typename DataType, typename DistType>
+DistType HNSWDiskIndex<DataType, DistType>::calcQuantizedVsFullDistance(const void* v1, const void* v2) const noexcept {
+    return getDiskCalculator()->template calcDistance<DistanceMode::QuantizedVsFull>(v1, v2, this->dim);
+}
+
+template <typename DataType, typename DistType>
+DistType HNSWDiskIndex<DataType, DistType>::calcQuantizedDistance(const void* v1, const void* v2) const noexcept {
+    return getDiskCalculator()->template calcDistance<DistanceMode::Quantized>(v1, v2, this->dim);
 }
 
 template <typename DataType, typename DistType>

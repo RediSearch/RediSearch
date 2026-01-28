@@ -11,8 +11,12 @@
 #include "test_utils.h"
 #include "vecsim_disk_api.h"
 #include "algorithms/hnsw/hnsw_disk_tiered.h"
+#include "factory/components/disk_calculator.h"
+#include "VecSim/spaces/spaces.h"
+#include "VecSim/types/sq8.h"
 
 using namespace test_utils;
+using sq8 = vecsim_types::sq8;
 
 class TieredHNSWDiskTest : public ::testing::Test {
 protected:
@@ -260,6 +264,116 @@ TEST_P(TieredHNSWDiskMetricTest, CreatedTieredIndexBlobSizes) {
 
     // THE KEY ASSERTION: frontend.storedDataSize == backend.inputBlobSize
     EXPECT_EQ(frontendIndex->getStoredDataSize(), backendIndex->getInputBlobSize());
+
+    VecSimDisk_FreeIndex(index);
+}
+
+// Test that TieredHNSWDiskIndex contains expected components and distance API works
+TEST_P(TieredHNSWDiskMetricTest, TieredHNSWDiskIndexComponents) {
+    VecSimMetric metric = GetParam();
+
+    // Create tiered disk params
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = metric,
+        .multi = false,
+        .blockSize = 1024,
+        .M = 16,
+        .efConstruction = 200,
+        .efRuntime = 10,
+    };
+
+    VecSimParams primary_params = {
+        .algo = VecSimAlgo_HNSWLIB,
+        .algoParams = {.hnswParams = hnsw_params},
+        .logCtx = nullptr,
+    };
+
+    TieredIndexParams tiered_params = {
+        .jobQueue = nullptr,
+        .jobQueueCtx = nullptr,
+        .submitCb = nullptr,
+        .flatBufferLimit = SIZE_MAX,
+        .primaryIndexParams = &primary_params,
+        .specificParams = {.tieredHnswDiskParams = TieredHNSWDiskParams{}},
+    };
+
+    VecSimParams tiered_vecsim_params = {
+        .algo = VecSimAlgo_TIERED,
+        .algoParams = {.tieredParams = tiered_params},
+        .logCtx = nullptr,
+    };
+
+    VecSimDiskContext disk_context = {
+        .storage = nullptr,
+        .indexName = "test_tiered_components",
+        .indexNameLen = strlen("test_tiered_components"),
+    };
+
+    VecSimParamsDisk params_disk = {
+        .indexParams = &tiered_vecsim_params,
+        .diskContext = &disk_context,
+    };
+
+    auto* index = VecSimDisk_CreateIndex(&params_disk);
+    ASSERT_NE(index, nullptr);
+
+    // Cast to TieredHNSWDiskIndex
+    auto* tieredIndex = dynamic_cast<TieredHNSWDiskIndex<float, float>*>(index);
+    ASSERT_NE(tieredIndex, nullptr);
+
+    // Get the backend HNSWDiskIndex
+    auto* backendIndex = tieredIndex->getBackendIndex();
+    ASSERT_NE(backendIndex, nullptr);
+
+    // --- Verify backend components are accessible ---
+    auto components = backendIndex->get_components();
+    ASSERT_NE(components.indexCalculator, nullptr);
+    ASSERT_NE(components.preprocessors, nullptr);
+
+    // --- Verify calculator is a DiskDistanceCalculator ---
+    auto* diskCalculator = dynamic_cast<DiskDistanceCalculator<float>*>(components.indexCalculator);
+    ASSERT_NE(diskCalculator, nullptr) << "Backend indexCalculator should be a DiskDistanceCalculator";
+
+    // Verify each distance mode has the expected function
+    auto expectedFuncFull = spaces::GetDistFunc<float, float>(metric, DIM, nullptr);
+    EXPECT_EQ(diskCalculator->getDistFunc<DistanceMode::Full>(), expectedFuncFull);
+
+    auto expectedFuncQVF = spaces::GetDistFunc<sq8, float, float>(metric, DIM, nullptr);
+    EXPECT_EQ(diskCalculator->getDistFunc<DistanceMode::QuantizedVsFull>(), expectedFuncQVF);
+
+    auto expectedFuncQ = spaces::GetDistFunc<sq8, float>(metric, DIM, nullptr);
+    EXPECT_EQ(diskCalculator->getDistFunc<DistanceMode::Quantized>(), expectedFuncQ);
+
+    // --- Verify distance calculation API works via calculator ---
+    float v1[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float v2[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+    float v3[DIM] = {1.0f, 0.0f, 0.0f, 0.0f}; // Same as v1
+
+    if (metric == VecSimMetric_Cosine) {
+        spaces::GetNormalizeFunc<float>()(v1, DIM);
+        spaces::GetNormalizeFunc<float>()(v2, DIM);
+        spaces::GetNormalizeFunc<float>()(v3, DIM);
+    }
+
+    // Distance to self should be 0
+    float distSelf = diskCalculator->calcDistance<DistanceMode::Full>(v1, v3, DIM);
+    EXPECT_NEAR(distSelf, 0.0f, 1e-6f);
+
+    // Distance to different vector should be > 0
+    float distDiff = diskCalculator->calcDistance<DistanceMode::Full>(v1, v2, DIM);
+    EXPECT_GT(distDiff, 0.0f);
+
+    // Verify distance ordering
+    float close[DIM] = {0.9f, 0.1f, 0.0f, 0.0f};
+    float far[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+    if (metric == VecSimMetric_Cosine) {
+        spaces::GetNormalizeFunc<float>()(close, DIM);
+        spaces::GetNormalizeFunc<float>()(far, DIM);
+    }
+    EXPECT_LT(diskCalculator->calcDistance<DistanceMode::Full>(v1, close, DIM),
+              diskCalculator->calcDistance<DistanceMode::Full>(v1, far, DIM));
 
     VecSimDisk_FreeIndex(index);
 }

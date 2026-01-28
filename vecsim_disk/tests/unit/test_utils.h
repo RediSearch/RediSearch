@@ -16,6 +16,7 @@
 #include "rocksdb/merge_operator.h"
 #include "storage/edge_merge_operator.h"
 #include "factory/disk_index_factory.h"
+#include "factory/components/disk_components_factory.h"
 #include "vecsim_disk_api.h"
 
 #include <cstring>
@@ -149,8 +150,10 @@ public:
         // - inputBlobSize = FP32 size
         auto abstractInitParams = VecSimDiskFactory::NewDiskInitParams(&params, nullptr);
 
-        // Create components
-        auto indexComponents = CreateIndexComponents<DataType, DistType>(allocator_, params.metric, params.dim, false);
+        // Create disk-specific components with multi-mode calculator
+        // is_normalized=true: disk backend assumes vectors are already normalized (for Cosine)
+        auto indexComponents = DiskComponentsFactory::CreateDiskIndexComponents<DataType, DistType>(
+            allocator_, params.metric, params.dim, /*is_normalized=*/true);
 
         // Create SpeedB storage and pass ownership to the index
         auto storage = db_->createStorage<DataType>();

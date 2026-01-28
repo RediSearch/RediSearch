@@ -18,7 +18,9 @@ VecSimIndex* NewIndex(const VecSimParamsDisk* params) {
 
     switch (params->indexParams->algo) {
     case VecSimAlgo_HNSWLIB:
-        return HNSWDiskFactory::NewIndex(params, false);
+        // Standalone HNSW disk is not currently used; tiered path is the production path.
+        // Pass is_normalized=true since disk backend assumes normalization is done upstream.
+        return HNSWDiskFactory::NewIndex(params, true);
     case VecSimAlgo_TIERED:
         return TieredDiskFactory::NewIndex(params);
     default:

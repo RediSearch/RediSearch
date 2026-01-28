@@ -11,7 +11,6 @@
 #include "test_utils.h"
 #include "vecsim_disk_api.h"
 #include "factory/disk_index_factory.h"
-#include "VecSim/index_factories/factory_utils.h"
 
 using namespace test_utils;
 

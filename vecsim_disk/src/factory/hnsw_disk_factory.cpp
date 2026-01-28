@@ -9,6 +9,7 @@
 
 #include "hnsw_disk_factory.h"
 #include "disk_index_factory.h"
+#include "components/disk_components_factory.h"
 #include "algorithms/hnsw/hnsw_disk.h"
 #include "storage/hnsw_storage.h"
 
@@ -32,8 +33,11 @@ VecSimIndex* NewIndex(const VecSimParamsDisk* params, bool is_input_normalized) 
     // - storedDataSize = SQ8 quantized size (for in-memory RawDataContainer)
     // - inputBlobSize = FP32 size (vectors come from frontend in FP32)
     auto abstractParams = VecSimDiskFactory::NewDiskInitParams(hnswParams, params->indexParams->logCtx);
-    auto indexComponents =
-        CreateIndexComponents<float, float>(allocator, hnswParams->metric, abstractParams.dim, is_input_normalized);
+
+    // Create disk-specific components with multi-mode calculator (Full, QuantizedVsFull, Quantized)
+    // The indexCalculator in components is a DiskDistanceCalculator<float>*
+    auto indexComponents = DiskComponentsFactory::CreateDiskIndexComponents<float, float>(
+        allocator, hnswParams->metric, abstractParams.dim, is_input_normalized);
 
     auto* index =
         new (allocator) HNSWDiskIndex<float, float>(params, abstractParams, indexComponents, std::move(storage));

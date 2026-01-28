@@ -30,8 +30,11 @@ function(add_vecsim_test test_name source_file)
     # Create test executable
     add_executable(${test_name} ${source_file})
 
-    # Add unit test directory to include path
-    target_include_directories(${test_name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/unit)
+    # Add unit test directory and VectorSimilarity test utils to include path
+    target_include_directories(${test_name} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/unit
+        ${VECSIM_ROOT}/tests/utils  # VectorSimilarity test utilities (tests_utils.h)
+    )
 
     # Link against full vecsim_disk library (includes SpeedB transitively)
     target_link_libraries(${test_name} PRIVATE gtest gtest_main vecsim_disk)
@@ -72,7 +75,10 @@ foreach(SOURCE_FILE ${BIGENDIAN_TEST_SOURCES})
     set(TEST_NAME "${BASE_NAME}_bigendian")
 
     add_executable(${TEST_NAME} ${SOURCE_FILE})
-    target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/unit)
+    target_include_directories(${TEST_NAME} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/unit
+        ${VECSIM_ROOT}/tests/utils  # VectorSimilarity test utilities (tests_utils.h)
+    )
     target_link_libraries(${TEST_NAME} PRIVATE gtest gtest_main vecsim_disk)
     target_compile_definitions(${TEST_NAME} PRIVATE FORCE_BIG_ENDIAN_TEST=1)
     gtest_discover_tests(${TEST_NAME})
