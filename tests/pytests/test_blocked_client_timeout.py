@@ -22,8 +22,8 @@ def get_all_shards_pid(env):
 
 
 
-class TestSearchCoordinatorTimeout:
-    """Tests for the blocked client timeout mechanism for FT.SEARCH."""
+class TestCoordinatorTimeout:
+    """Tests for the blocked client timeout mechanism for the coordinator."""
 
     def __init__(self):
         # Skip if not cluster
@@ -46,24 +46,12 @@ class TestSearchCoordinatorTimeout:
         for i in range(self.n_docs):
             conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
 
-    def test_fail_timeout(self):
-        """
-        Test the blocked client timeout mechanism for FT.SEARCH with FAIL policy.
-        This test:
-        1. Sets on-timeout policy to 'fail'
-        2. Gets coordinator and shard PIDs, then pauses one shard
-        3. Runs FT.SEARCH in a separate thread from the coordinator
-        4. Waits for the worker thread to be created and process the query
-        5. Manually unblocks the client with timeout using CLIENT UNBLOCK
-        6. Verifies timeout error and resumes the paused shard
-        """
+    def _test_fail_timeout_impl(self, query_args):
         env = self.env
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
 
-        # Step 2: Get coordinator PID and shard PIDs, then pause one shard
         coord_pid = pid_cmd(env.con)
         shards_pid = list(get_all_shards_pid(env))
         shards_pid.remove(coord_pid)
@@ -78,8 +66,6 @@ class TestSearchCoordinatorTimeout:
 
         blocked_client_id = env.cmd('CLIENT', 'ID')
 
-        # Step 3: Run FT.SEARCH in a separate thread
-        query_args = ['FT.SEARCH', 'idx', '*']
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
             args=(env, query_args),
@@ -87,7 +73,6 @@ class TestSearchCoordinatorTimeout:
         )
         t_query.start()
 
-        # Step 4: Wait for the worker thread to be created and process the query
         with TimeLimit(30, 'Timeout while waiting for worker to be created'):
             while getWorkersThpoolStats(env)['numThreadsAlive'] == 0:
                 time.sleep(0.1)
@@ -96,14 +81,16 @@ class TestSearchCoordinatorTimeout:
             while getWorkersThpoolStats(env)['totalJobsDone'] < 1:
                 time.sleep(0.1)
 
-        # Step 5: Manually unblock the client with timeout
-        unblock_result = env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
 
-        # Step 6: Verify timeout error and resume the paused shard
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
         shard_to_pause_p.resume()
-
-        # Restore the previous on-timeout policy
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    def test_fail_timeout_search(self):
+        self._test_fail_timeout_impl(['FT.SEARCH', 'idx', '*'])
+
+    def test_fail_timeout_profile(self):
+        self._test_fail_timeout_impl(['FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'])
