@@ -3,7 +3,6 @@ import threading
 import psutil
 
 TIMEOUT_ERROR = "Timeout limit was reached"
-TIMEOUT_WARNING = TIMEOUT_ERROR
 ON_TIMEOUT_CONFIG = 'search-on-timeout'
 
 
@@ -47,7 +46,6 @@ class TestSearchCoordinatorTimeout:
         for i in range(self.n_docs):
             conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
 
-    # @skip(cluster=False, asan=True)
     def test_fail_timeout(self):
         """
         Test the blocked client timeout mechanism for FT.SEARCH with FAIL policy.

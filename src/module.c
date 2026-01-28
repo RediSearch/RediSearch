@@ -3942,10 +3942,11 @@ static int initQueryTimeout(long long *timeout, RedisModuleString **argv, int ar
   *timeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
 
   int timeoutArgIdx = RMUtil_ArgIndex("TIMEOUT", argv, argc);
-  if (timeoutArgIdx >= 0 && timeoutArgIdx + 1 < argc) {
+  if (timeoutArgIdx >= 0) {
+    timeoutArgIdx++;
     ArgsCursor ac;
-    ArgsCursor_InitRString(&ac, argv + timeoutArgIdx + 1, argc - timeoutArgIdx - 1);
-    // parseTimeout validates non-negative timeout; on failure, keep the global default
+    ArgsCursor_InitRString(&ac, argv + timeoutArgIdx, argc - timeoutArgIdx);
+    // parseTimeout validates non-negative timeout and returns error if no argument is provided
     return parseTimeout(timeout, &ac, status);
   }
 
@@ -3959,9 +3960,13 @@ static int DistSearchTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **
   UNUSED(argv);
   UNUSED(argc);
 
-  // TODO: consider checking the request config before PR
-  // Cursor/Augment - don't miss this
-  RS_ASSERT(RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail);
+#ifdef ENABLE_ASSERT
+  struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (mrctx) {
+    searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+    RS_ASSERT(!req || req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail);
+  }
+#endif
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
@@ -3973,7 +3978,7 @@ static int DistSearchTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **
 
 }
 
-// Extract timeout from command args and block client with timeout callback.
+// Block client with timeout callback.
 // Returns a blocked client with the appropriate timeout from query args or global config.
 // The timeout callback is selected based on the timeout policy.
 static RedisModuleBlockedClient* DistSearchBlockClientWithTimeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, long long queryTimeout) {
@@ -3984,15 +3989,17 @@ static RedisModuleBlockedClient* DistSearchBlockClientWithTimeout(RedisModuleCtx
   RS_ASSERT(queryTimeout >= 0);
 
   BlockedClientTimeoutCB timeoutCallback = NULL;
+  BlockedClientFreePrivDataCB freePrivDataCallback = NULL;
 
   if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
     timeoutCallback = DistSearchTimeoutFailClient;
+    freePrivDataCallback = DistSearchFreePrivData;
   } else {
     queryTimeout = 0;
     timeoutCallback = NULL;
   }
 
-  return RedisModule_BlockClient(ctx, DistSearchUnblockClient, timeoutCallback, DistSearchFreePrivData, queryTimeout);
+  return RedisModule_BlockClient(ctx, DistSearchUnblockClient, timeoutCallback, freePrivDataCallback, queryTimeout);
 }
 
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
