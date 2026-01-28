@@ -243,7 +243,7 @@ impl QueryError {
 // be passed to functions and easily handled via switch/case logic.
 /// cbindgen:prefix-with-name
 /// cbindgen:rename-all=ScreamingSnakeCase
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, FromRepr, PartialEq, Eq)]
 #[repr(u8)]
 pub enum QueryWarningCode {
     #[default]
@@ -254,6 +254,13 @@ pub enum QueryWarningCode {
     OutOfMemoryCoord,
     UnavailableSlots,
     AsmInaccurateResults,
+    // FT.HYBRID specific warning codes (with subquery source identification)
+    TimedOutSearch,
+    TimedOutVsim,
+    ReachedMaxPrefixExpansionsSearch,
+    ReachedMaxPrefixExpansionsVsim,
+    OutOfMemorySearch,
+    OutOfMemoryVsim,
 }
 
 impl QueryWarningCode {
@@ -275,6 +282,17 @@ impl QueryWarningCode {
             Self::AsmInaccurateResults => {
                 c"Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete due to Atomic Slot Migration."
             }
+            // FT.HYBRID specific warnings with subquery source
+            Self::TimedOutSearch => c"Timeout limit was reached (SEARCH)",
+            Self::TimedOutVsim => c"Timeout limit was reached (VSIM)",
+            Self::ReachedMaxPrefixExpansionsSearch => {
+                c"Max prefix expansions limit was reached (SEARCH)"
+            }
+            Self::ReachedMaxPrefixExpansionsVsim => {
+                c"Max prefix expansions limit was reached (VSIM)"
+            }
+            Self::OutOfMemorySearch => c"Not enough memory available to execute the query (SEARCH)",
+            Self::OutOfMemoryVsim => c"Not enough memory available to execute the query (VSIM)",
         }
     }
 }
