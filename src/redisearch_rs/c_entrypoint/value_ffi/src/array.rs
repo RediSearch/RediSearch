@@ -57,6 +57,7 @@ pub unsafe extern "C" fn RSValue_ArrayLen(value: *const RsValue) -> u32 {
     if let RsValue::Array(array) = value {
         array.len() as u32
     } else {
+        // Compatibility: C returns 0 on non array types.
         0
     }
 }
@@ -76,9 +77,11 @@ pub unsafe extern "C" fn RSValue_ArrayItem(value: *const RsValue, index: u32) ->
     let value = unsafe { expect_value(value) };
 
     if let RsValue::Array(array) = value {
+        // Compatibility: C does an RS_ASSERT on index out of bounds
         let shared = &array[index as usize];
         shared.as_ptr() as *mut _
     } else {
-        std::ptr::null_mut()
+        // Compatibility: C does an RS_ASSERT on incorrect type
+        panic!("Expected an array value")
     }
 }

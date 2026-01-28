@@ -46,6 +46,7 @@ pub unsafe extern "C" fn RSValueMap_SetEntry(
     // Safety: ensured by caller (1.)
     let map = unsafe { map.as_mut().expect("map should not be null") };
 
+    // Compatibility: C does an RS_ASSERT on index out of bounds
     map.entries[index as usize] = MaybeUninit::new((key, value));
 }
 
@@ -97,6 +98,7 @@ pub unsafe extern "C" fn RSValue_Map_Len(map: *const RsValue) -> u32 {
     if let RsValue::Map(map) = map {
         map.len() as u32
     } else {
+        // Compatibility: C does an RS_ASSERT on incorrect type
         panic!("Expected a map value")
     }
 }
@@ -127,6 +129,7 @@ pub unsafe extern "C" fn RSValue_Map_GetEntry(
     let map = unsafe { expect_value(map) };
 
     if let RsValue::Map(map) = map {
+        // Compatibility: C does an RS_ASSERT on index out of bounds
         let (shared_key, shared_value) = &map[index as usize];
         // Safety: ensured by caller (3.)
         unsafe { key.write(shared_key.as_ptr() as *mut _) };
