@@ -16,6 +16,7 @@
 #include "query_error.h"
 #include "spec.h"
 #include "module.h"
+#include "profile/profile.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,11 +34,32 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
     // Build individual pipelines for each search request
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
+
+        const bool isProfile = IsProfile(areq);
+        if (isProfile) {
+          // Set initClock right before parsing this specific subquery
+          rs_wall_clock_init(&areq->profileClocks.initClock);
+        }
+
+        // Parse subquery: Convert AST to iterator tree
         areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, &req->errors[i]);
+
+        rs_wall_clock parseClock;
+        if (isProfile) {
+          // Add a Profile iterators before every iterator in the tree
+          Profile_AddIters(&areq->rootiter);
+          // Initialize parseClock after adding profile iterators, we want that to be accounted in the parsing timing
+          rs_wall_clock_init(&parseClock);
+          // Calculate the time elapsed for subquery parsing (AST to iterator + profile setup)
+          areq->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&areq->profileClocks.initClock, &parseClock);
+        }
 
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
         rc = AREQ_BuildPipeline(areq, &req->errors[i]);
+        if (isProfile) {
+          areq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
+        }
         if (rc != REDISMODULE_OK) {
             break;
         }
@@ -57,6 +79,11 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
           RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
           ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
           QITR_PushRP(qctx, depleter);
+          if (isProfile) {
+            // Wrap the depleter with a Profile RP to match the expected end processor type
+            ResultProcessor *profileRP = RPProfile_New(qctx->endProc, qctx);
+            QITR_PushRP(qctx, profileRP);
+          }
         }
     }
     if (depleteInBackground) {
@@ -93,9 +120,20 @@ void HybridRequest_SynchronizeLookupKeys(HybridRequest *req) {
 int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params) {
     // Array to collect upstream from each individual request pipeline
     arrayof(ResultProcessor*) upstreams = array_new(ResultProcessor *, req->nrequests);
+    const ResultProcessorType expected = IsProfile(req) ? RP_PROFILE : RP_SAFE_LOADER;
     for (size_t i = 0; i < req->nrequests; i++) {
-      AREQ *areq = req->requests[i];
-      array_ensure_append_1(upstreams, areq->pipeline.qctx.endProc);
+        AREQ *areq = req->requests[i];
+        if (IsProfile(req) && areq->pipeline.qctx.endProc->type != expected) {
+            QueryError_SetWithoutUserDataFmt(
+                &req->tailPipelineError,
+                QUERY_ERROR_CODE_GENERIC,
+                "Expected %s processor at end of pipeline, found %s",
+                RPTypeToString(expected),
+                RPTypeToString(areq->pipeline.qctx.endProc->type));
+            array_free(upstreams);
+            return REDISMODULE_ERR;
+        }
+        array_ensure_append_1(upstreams, areq->pipeline.qctx.endProc);
     }
 
     // the doc key is only relevant in coordinator mode, in standalone we can simply use the dmd
@@ -162,6 +200,9 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
 
+    rs_wall_clock now = {0};
+    rs_wall_clock_init(&now);
+
     // Initialize error tracking for each individual request
     hybridReq->errors = array_new(QueryError, nrequests);
     memset(hybridReq->errors, 0, nrequests * sizeof(QueryError));
@@ -181,7 +222,7 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
         hybridReq->errors[i] = QueryError_Default();
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
-    hybridReq->initClock = clock();
+    hybridReq->profileClocks.initClock = now;
     return hybridReq;
 }
 
