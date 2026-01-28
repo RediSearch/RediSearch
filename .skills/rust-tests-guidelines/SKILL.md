@@ -1,9 +1,9 @@
 ---
-name: write-rust-tests
-description: Write Rust tests to verify correctness of Rust code.
+name: rust-tests-guidelines
+description: Guidelines for writing Rust tests.
 ---
 
-# Write Rust Tests
+# Guidelines for Writing Rust Tests
 
 Guidelines for writing new tests for Rust code.
 
