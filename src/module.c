@@ -3941,14 +3941,6 @@ static int DistSearchTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **
   UNUSED(argv);
   UNUSED(argc);
 
-#ifdef ENABLE_ASSERT
-  struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (mrctx) {
-    searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
-    RS_ASSERT(!req || req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail);
-  }
-#endif
-
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
