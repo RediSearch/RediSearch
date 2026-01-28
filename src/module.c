@@ -2792,10 +2792,6 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
 }
 
 static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) {
-  // Reverse the top N results
-
-  rCtx->postProcess((struct searchReducerCtx *)rCtx);
-
   searchRequestCtx *req = rCtx->searchCtx;
 
   // Number of results to actually return
@@ -3044,7 +3040,6 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
 void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req) {
     // Setup a dummy searchReducerCtx that will be used by sendSearchResults
     searchReducerCtx rCtx = {NULL};
-    rCtx.postProcess = (postProcessReplyCB)(noOpPostProcess);
     rCtx.searchCtx = req;
     // Create empty heap (dynamic allocation is necessary for heap_free in sendSearchResults)
     heap_t* emptyHeap = heap_new(cmp_results, req);
