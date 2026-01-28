@@ -101,7 +101,6 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:iterators>
     $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:index_result>
-    # query_term is now implemented in Rust (query_term_ffi crate)
     $<TARGET_OBJECTS:mempool>
     $<TARGET_OBJECTS:value>
     $<TARGET_OBJECTS:rscore>
