@@ -1327,43 +1327,6 @@ def get_shard_parsing_time(env, profile_result):
       profile_dict = to_dict(profile_result[-1])
       return float(profile_dict['Parsing time'])
 
-@skip()  # Always skip - bug is fixed, use testWorkersQueueTimeInProfile instead
-def testParsingTimeIncludesWorkersQueueTime_BUG():
-  """
-  VALIDATION TEST (OBSOLETE): This test confirmed the bug where Parsing time included
-  workers queue wait time. Now that the bug is fixed, this test is skipped.
-
-  The bug was: When workers thread pool is paused, the query waits in the workers queue.
-  The "Parsing time" in the profile incorrectly included this queue wait time.
-
-  After the fix: Parsing time no longer includes queue wait time.
-  Use testWorkersQueueTimeInProfile to verify the fix works correctly.
-  """
-  env = Env(protocol=3, moduleArgs='WORKERS 1')
-  conn = getConnectionByEnv(env)
-  # Enable verbose profile output to get Parsing time
-  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
-
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-  conn.execute_command('HSET', 'doc1', 't', 'hello')
-
-  pause_duration_ms = 50
-
-  result = run_profile_with_paused_pool(
-    env,
-    pause_cmd=[debug_cmd(), 'WORKERS', 'PAUSE'],
-    resume_cmd=[debug_cmd(), 'WORKERS', 'RESUME'],
-    pause_duration_ms=pause_duration_ms
-  )
-
-  parsing_time = get_shard_parsing_time(env, result)
-
-  # BUG: Parsing time incorrectly includes queue wait time
-  # This test confirms the bug exists - parsing time should be >= pause duration
-  env.assertGreaterEqual(parsing_time, pause_duration_ms * 0.8,  # Allow 20% tolerance
-    message=f"BUG CONFIRMED: Parsing time ({parsing_time}ms) includes queue wait time. "
-            f"Expected >= {pause_duration_ms * 0.8}ms. Full result: {result}")
-
 @skip(cluster=False)
 def testParsingTimeDoesNotIncludeCoordQueueTime():
   """
@@ -1399,7 +1362,7 @@ def testParsingTimeDoesNotIncludeCoordQueueTime():
     message=f"Parsing time ({parsing_time}ms) should NOT include coordinator queue wait. "
             f"Expected < {pause_duration_ms * 0.5}ms. Full result: {result}")
 
-def get_shard_workers_queue_time(env, profile_result):
+def get_shard_workers_queue_time(profile_result):
   """
   Extract 'Workers queue time' from the first shard's profile result.
   Handles both standalone and cluster modes, and RESP2/RESP3 differences.
@@ -1421,7 +1384,7 @@ def get_shard_workers_queue_time(env, profile_result):
 
   raise ValueError(f"Could not find Workers queue time in profile result: {profile_result}")
 
-def get_coordinator_queue_time(env, profile_result):
+def get_coordinator_queue_time(profile_result):
   """
   Extract 'Coordinator queue time' from the coordinator's profile result.
   Only applicable in cluster mode.
@@ -1465,7 +1428,7 @@ def testWorkersQueueTimeInProfile():
   )
 
   parsing_time = get_shard_parsing_time(env, result)
-  workers_queue_time = get_shard_workers_queue_time(env, result)
+  workers_queue_time = get_shard_workers_queue_time(result)
 
   # Workers queue time should capture the queue wait time
   env.assertGreaterEqual(workers_queue_time, pause_duration_ms * 0.8,  # Allow 20% tolerance
@@ -1505,7 +1468,7 @@ def testCoordinatorQueueTimeInProfile():
     pause_duration_ms=pause_duration_ms
   )
 
-  coord_queue_time = get_coordinator_queue_time(env, result)
+  coord_queue_time = get_coordinator_queue_time(result)
 
   # Coordinator queue time should capture the queue wait time
   env.assertGreaterEqual(coord_queue_time, pause_duration_ms * 0.8,  # Allow 20% tolerance
