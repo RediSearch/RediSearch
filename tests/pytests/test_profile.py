@@ -1311,12 +1311,9 @@ def get_shard_parsing_time(env, profile_result):
   """Extract Parsing time from shard profile."""
   if env.isCluster():
     if env.protocol == 3:
-      # In cluster RESP3, profile is under 'shards' key with shard names as keys
-      shards_dict = profile_result['shards']
-      # Get the first shard (excluding 'Coordinator')
-      for key, value in shards_dict.items():
-        if key != 'Coordinator':
-          return float(value['Parsing time'])
+      # In cluster RESP3, profile is under 'Profile' -> 'Shards' (list)
+      shards = profile_result['Profile']['Shards']
+      return float(shards[0]['Parsing time'])
     else:
       _, shards = extract_profile_coordinator_and_shards(env, profile_result)
       return float(shards[0]['Parsing time'])
