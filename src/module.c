@@ -3201,6 +3201,9 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     goto error_abort;
   }
 
+  // Post process before unblocking the client
+  rCtx->postProcess((struct searchReducerCtx *)rCtx);
+
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   int unblockRes = RedisModule_UnblockClient(bc, mc);
   RedisModule_FreeThreadSafeContext(ctx);
