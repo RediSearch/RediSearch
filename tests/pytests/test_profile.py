@@ -1258,3 +1258,144 @@ def testCoordDispatchTimeInProfileResp2():
     conn.execute_command('HSET', f'doc:{i}', 't', f'hello{i}', 'v', vec)
 
   CoordDispatchTimeInProfile(env)
+
+# =============================================================================
+# Queue Time Tests - Validation tests for queue time tracking in FT.PROFILE
+# =============================================================================
+
+def run_profile_with_paused_pool(env, pause_cmd, resume_cmd, pause_duration_ms=50):
+  """
+  Helper to run FT.PROFILE while a thread pool is paused.
+  Returns the profile result after resuming the pool.
+
+  Args:
+    env: Test environment
+    pause_cmd: Command to pause the pool (e.g., ['_FT.DEBUG', 'WORKERS', 'PAUSE'])
+    resume_cmd: Command to resume the pool (e.g., ['_FT.DEBUG', 'WORKERS', 'RESUME'])
+    pause_duration_ms: How long to keep the pool paused (in milliseconds)
+
+  Returns:
+    The FT.PROFILE result
+  """
+  result = [None]
+  error = [None]
+
+  def run_profile():
+    try:
+      result[0] = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'NOCONTENT', 'LIMIT', '0', '1')
+    except Exception as e:
+      error[0] = e
+
+  # Pause the pool
+  env.cmd(*pause_cmd)
+
+  # Start the profile command in a background thread
+  profile_thread = threading.Thread(target=run_profile)
+  profile_thread.start()
+
+  # Wait for the pause duration
+  time.sleep(pause_duration_ms / 1000.0)
+
+  # Resume the pool
+  env.cmd(*resume_cmd)
+
+  # Wait for the profile command to complete
+  profile_thread.join(timeout=10)
+
+  if error[0]:
+    raise error[0]
+
+  return result[0]
+
+def get_shard_parsing_time(env, profile_result):
+  """Extract Parsing time from shard profile."""
+  if env.isCluster():
+    if env.protocol == 3:
+      # In cluster RESP3, profile is under 'shards' key with shard names as keys
+      shards_dict = profile_result['shards']
+      # Get the first shard (excluding 'Coordinator')
+      for key, value in shards_dict.items():
+        if key != 'Coordinator':
+          return float(value['Parsing time'])
+    else:
+      _, shards = extract_profile_coordinator_and_shards(env, profile_result)
+      return float(shards[0]['Parsing time'])
+  else:
+    # Standalone: profile is in result directly
+    if env.protocol == 3:
+      # In standalone RESP3, the profile is nested under 'Profile' -> 'Shards' -> [0]
+      shards = profile_result['Profile']['Shards']
+      return float(shards[0]['Parsing time'])
+    else:
+      profile_dict = to_dict(profile_result[-1])
+      return float(profile_dict['Parsing time'])
+
+@skip(cluster=True)
+def testParsingTimeIncludesWorkersQueueTime_BUG():
+  """
+  VALIDATION TEST: Confirms the bug exists before implementing the fix.
+
+  When workers thread pool is paused, the query waits in the queue.
+  Currently, this queue wait time is incorrectly included in "Parsing time".
+
+  Expected behavior (BUG): Parsing time >= pause_duration_ms
+  """
+  env = Env(protocol=3, moduleArgs='WORKERS 1')
+  conn = getConnectionByEnv(env)
+  # Enable verbose profile output to get Parsing time
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+
+  pause_duration_ms = 50
+
+  result = run_profile_with_paused_pool(
+    env,
+    pause_cmd=[debug_cmd(), 'WORKERS', 'PAUSE'],
+    resume_cmd=[debug_cmd(), 'WORKERS', 'RESUME'],
+    pause_duration_ms=pause_duration_ms
+  )
+
+  parsing_time = get_shard_parsing_time(env, result)
+
+  # BUG: Parsing time incorrectly includes queue wait time
+  # This test confirms the bug exists - parsing time should be >= pause duration
+  env.assertGreaterEqual(parsing_time, pause_duration_ms * 0.8,  # Allow 20% tolerance
+    message=f"BUG CONFIRMED: Parsing time ({parsing_time}ms) includes queue wait time. "
+            f"Expected >= {pause_duration_ms * 0.8}ms. Full result: {result}")
+
+@skip(cluster=False)
+def testParsingTimeDoesNotIncludeCoordQueueTime():
+  """
+  VALIDATION TEST: Confirms coordinator queue time is NOT included in shard's Parsing time.
+
+  When coordinator thread pool is paused, the query waits in the coordinator queue.
+  The shard's "Parsing time" should NOT include this coordinator queue wait.
+
+  Expected behavior: Parsing time < pause_duration_ms (coordinator queue is separate)
+  """
+  env = Env(protocol=3, shardsCount=2, moduleArgs='WORKERS 1')
+  conn = getConnectionByEnv(env)
+  # Enable verbose profile output to get Parsing time
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+
+  pause_duration_ms = 50
+
+  result = run_profile_with_paused_pool(
+    env,
+    pause_cmd=[debug_cmd(), 'COORD_THREADS', 'PAUSE'],
+    resume_cmd=[debug_cmd(), 'COORD_THREADS', 'RESUME'],
+    pause_duration_ms=pause_duration_ms
+  )
+
+  parsing_time = get_shard_parsing_time(env, result)
+
+  # Coordinator queue time should NOT be in shard's Parsing time
+  # Parsing time should be much less than the pause duration
+  env.assertLess(parsing_time, pause_duration_ms * 0.5,
+    message=f"Parsing time ({parsing_time}ms) should NOT include coordinator queue wait. "
+            f"Expected < {pause_duration_ms * 0.5}ms. Full result: {result}")
