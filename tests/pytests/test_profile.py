@@ -1424,6 +1424,20 @@ def get_shard_workers_queue_time(env, profile_result):
 
   raise ValueError(f"Could not find Workers queue time in profile result: {profile_result}")
 
+def get_coordinator_queue_time(env, profile_result):
+  """
+  Extract 'Coordinator queue time' from the coordinator's profile result.
+  Only applicable in cluster mode.
+  """
+  profile = profile_result.get('Profile', profile_result.get('profile', {}))
+
+  # Get coordinator profile
+  coordinator = profile.get('Coordinator', profile.get('coordinator', {}))
+  if isinstance(coordinator, dict):
+    return coordinator.get('Coordinator queue time', 0)
+
+  raise ValueError(f"Could not find Coordinator queue time in profile result: {profile_result}")
+
 @skip(cluster=True)
 def testWorkersQueueTimeInProfile():
   """
@@ -1465,3 +1479,38 @@ def testWorkersQueueTimeInProfile():
   env.assertLess(parsing_time, pause_duration_ms * 0.5,
     message=f"Parsing time ({parsing_time}ms) should NOT include queue wait time. "
             f"Expected < {pause_duration_ms * 0.5}ms. Full result: {result}")
+
+@skip(cluster=False)
+def testCoordinatorQueueTimeInProfile():
+  """
+  TEST 3: Verifies that Coordinator queue time is correctly captured in cluster mode.
+
+  When coordinator thread pool is paused, the query waits in the coordinator queue.
+  After the fix:
+  - "Coordinator queue time" should capture the queue wait time (>= pause_duration)
+
+  This test verifies the fix for the coordinator queue time tracking.
+  """
+  env = Env(protocol=3, shardsCount=2)
+  conn = getConnectionByEnv(env)
+  # Enable verbose profile output to get timing details
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+
+  pause_duration_ms = 50
+
+  result = run_profile_with_paused_pool(
+    env,
+    pause_cmd=[debug_cmd(), 'COORD_THREADS', 'PAUSE'],
+    resume_cmd=[debug_cmd(), 'COORD_THREADS', 'RESUME'],
+    pause_duration_ms=pause_duration_ms
+  )
+
+  coord_queue_time = get_coordinator_queue_time(env, result)
+
+  # Coordinator queue time should capture the queue wait time
+  env.assertGreaterEqual(coord_queue_time, pause_duration_ms * 0.8,  # Allow 20% tolerance
+    message=f"Coordinator queue time ({coord_queue_time}ms) should capture queue wait. "
+            f"Expected >= {pause_duration_ms * 0.8}ms. Full result: {result}")
