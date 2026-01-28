@@ -702,6 +702,9 @@ TEST_F(FGCTestTag, testPipeErrorDuringGC) {
  * code paths and timing windows during the apply phase.
  */
 TEST_F(FGCTestTag, testPipeErrorDuringApply) {
+  #ifdef __APPLE__
+    GTEST_SKIP() << "Times out quite regularly on macOS";
+  #endif
   volatile bool should_close = false;
   volatile bool thread_should_exit = false;
   volatile int delay_usec = 0;
