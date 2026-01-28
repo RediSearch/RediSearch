@@ -82,7 +82,7 @@ impl Replier {
         }
     }
 
-    /// Start building an array with automatic length tracking.
+    /// Start building a dynamic array.
     ///
     /// The array length is automatically set when the returned [`ArrayBuilder`] is dropped.
     pub fn array(&mut self) -> ArrayBuilder<'_> {
@@ -96,10 +96,11 @@ impl Replier {
         ArrayBuilder {
             replier: self,
             len: 0,
+            expected_len: None,
         }
     }
 
-    /// Start building a map with automatic length tracking.
+    /// Start building a dynamic map.
     ///
     /// The map length is automatically set when the returned [`MapBuilder`] is dropped.
     /// Note: Map length counts key-value pairs, not individual elements.
@@ -114,29 +115,42 @@ impl Replier {
         MapBuilder {
             replier: self,
             len: 0,
+            expected_len: None,
         }
     }
 
-    /// Reply with a fixed-size map (length known upfront).
+    /// Start building a fixed-size array.
     ///
-    /// Use this when you know the exact number of key-value pairs.
-    pub fn fixed_map(&mut self, len: u32) {
-        // SAFETY: ctx is validated at construction
-        unsafe {
-            RedisModule_ReplyWithMap.expect("RedisModule_ReplyWithMap")(self.ctx, i64::from(len));
-        }
-    }
-
-    /// Reply with a fixed-size array (length known upfront).
-    ///
-    /// Use this when you know the exact number of elements.
-    pub fn fixed_array(&mut self, len: u32) {
+    /// The length is declared upfront. The returned [`ArrayBuilder`] validates
+    /// on drop that the actual element count matches the declared length.
+    pub fn fixed_array(&mut self, len: u32) -> ArrayBuilder<'_> {
         // SAFETY: ctx is validated at construction
         unsafe {
             RedisModule_ReplyWithArray.expect("RedisModule_ReplyWithArray")(
                 self.ctx,
                 i64::from(len),
             );
+        }
+        ArrayBuilder {
+            replier: self,
+            len: 0,
+            expected_len: Some(len),
+        }
+    }
+
+    /// Start building a fixed-size map.
+    ///
+    /// The length is declared upfront. The returned [`MapBuilder`] validates
+    /// on drop that the actual key-value pair count matches the declared length.
+    pub fn fixed_map(&mut self, len: u32) -> MapBuilder<'_> {
+        // SAFETY: ctx is validated at construction
+        unsafe {
+            RedisModule_ReplyWithMap.expect("RedisModule_ReplyWithMap")(self.ctx, i64::from(len));
+        }
+        MapBuilder {
+            replier: self,
+            len: 0,
+            expected_len: Some(len),
         }
     }
 }

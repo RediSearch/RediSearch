@@ -121,26 +121,24 @@ fn test_replier_empty_map() {
 }
 
 #[test]
-fn test_replier_fixed_array_direct() {
+fn test_replier_fixed_array() {
     let mut replier = init();
     let reply = capture_single_reply(|| {
-        replier.fixed_array(3);
-        replier.long_long(1);
-        replier.long_long(2);
-        replier.long_long(3);
+        let mut arr = replier.fixed_array(3);
+        arr.long_long(1);
+        arr.long_long(2);
+        arr.long_long(3);
     });
     insta::assert_debug_snapshot!(reply, @"[1, 2, 3]");
 }
 
 #[test]
-fn test_replier_fixed_map_direct() {
+fn test_replier_fixed_map() {
     let mut replier = init();
     let reply = capture_single_reply(|| {
-        replier.fixed_map(2);
-        replier.simple_string(c"a");
-        replier.long_long(1);
-        replier.simple_string(c"b");
-        replier.long_long(2);
+        let mut map = replier.fixed_map(2);
+        map.kv_long_long(c"a", 1);
+        map.kv_long_long(c"b", 2);
     });
     insta::assert_debug_snapshot!(reply, @r#"{"a": 1, "b": 2}"#);
 }

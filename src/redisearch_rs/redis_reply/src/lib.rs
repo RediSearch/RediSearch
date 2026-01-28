@@ -21,10 +21,10 @@
 //!
 //! ```ignore
 //! // SAFETY: ctx is a valid Redis module context
-//! let replier = unsafe { Replier::new(ctx) };
+//! let mut replier = unsafe { Replier::new(ctx) };
 //! let mut arr = replier.array();
-//! arr.kv_long_long(c"numRanges", tree.num_ranges() as i64);
-//! arr.kv_long_long(c"numEntries", tree.num_entries() as i64);
+//! arr.long_long(tree.num_ranges() as i64);
+//! arr.long_long(tree.num_entries() as i64);
 //! // Length is automatically set when `arr` is dropped
 //! ```
 
@@ -32,6 +32,6 @@ mod array;
 mod map;
 mod replier;
 
-pub use array::{ArrayBuilder, FixedArrayBuilder};
-pub use map::{FixedMapBuilder, MapBuilder};
+pub use array::ArrayBuilder;
+pub use map::MapBuilder;
 pub use replier::{RedisModuleCtx, Replier};

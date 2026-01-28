@@ -11,18 +11,27 @@ use std::ffi::CStr;
 
 use ffi::RedisModule_ReplySetMapLength;
 
-use crate::array::{ArrayBuilder, FixedArrayBuilder};
+use crate::array::ArrayBuilder;
 use crate::replier::Replier;
 
-/// Builder for Redis maps with automatic length tracking.
+/// Builder for Redis maps.
 ///
-/// When this builder is dropped, it automatically sets the map length
-/// based on the number of key-value pairs added.
+/// Operates in two modes based on construction:
+/// - **Dynamic** (via [`Replier::map`]): Length is set on drop via Redis API
+/// - **Fixed** (via [`Replier::fixed_map`]): Length was declared upfront; validates on drop
 ///
 /// Note: Unlike arrays, map length counts key-value pairs, not individual elements.
+///
+/// # Panics
+///
+/// In fixed mode, panics when dropped if the number of key-value pairs added doesn't match
+/// the declared length.
 pub struct MapBuilder<'a> {
     pub(crate) replier: &'a mut Replier,
     pub(crate) len: u32,
+    /// `None` = dynamic (call ReplySetMapLength on drop)
+    /// `Some(n)` = fixed (assert len == n on drop)
+    pub(crate) expected_len: Option<u32>,
 }
 
 impl MapBuilder<'_> {
@@ -54,7 +63,7 @@ impl MapBuilder<'_> {
         self.len += 1;
     }
 
-    /// Add a key with a nested array as value.
+    /// Add a key with a nested dynamic array as value.
     ///
     /// Returns an [`ArrayBuilder`] for the nested array.
     pub fn kv_array(&mut self, key: &CStr) -> ArrayBuilder<'_> {
@@ -63,7 +72,7 @@ impl MapBuilder<'_> {
         self.replier.array()
     }
 
-    /// Add a key with a nested map as value.
+    /// Add a key with a nested dynamic map as value.
     ///
     /// Returns a [`MapBuilder`] for the nested map.
     pub fn kv_map(&mut self, key: &CStr) -> MapBuilder<'_> {
@@ -72,146 +81,45 @@ impl MapBuilder<'_> {
         self.replier.map()
     }
 
-    /// Add a key with a fixed-size nested map as value.
-    ///
-    /// Use when you know the nested map's length upfront.
-    /// Returns a [`FixedMapBuilder`] that validates the element count on drop.
-    pub fn kv_fixed_map(&mut self, key: &CStr, len: u32) -> FixedMapBuilder<'_> {
-        self.replier.simple_string(key);
-        self.replier.fixed_map(len);
-        self.len += 1;
-        FixedMapBuilder {
-            replier: self.replier,
-            expected_len: len,
-            actual_len: 0,
-        }
-    }
-
     /// Add a key with a fixed-size nested array as value.
     ///
     /// Use when you know the nested array's length upfront.
-    /// Returns a [`FixedArrayBuilder`] that validates the element count on drop.
-    pub fn kv_fixed_array(&mut self, key: &CStr, len: u32) -> FixedArrayBuilder<'_> {
+    /// The returned builder validates the element count on drop.
+    pub fn kv_fixed_array(&mut self, key: &CStr, len: u32) -> ArrayBuilder<'_> {
         self.replier.simple_string(key);
-        self.replier.fixed_array(len);
         self.len += 1;
-        FixedArrayBuilder {
-            replier: self.replier,
-            expected_len: len,
-            actual_len: 0,
-        }
+        self.replier.fixed_array(len)
+    }
+
+    /// Add a key with a fixed-size nested map as value.
+    ///
+    /// Use when you know the nested map's length upfront.
+    /// The returned builder validates the element count on drop.
+    pub fn kv_fixed_map(&mut self, key: &CStr, len: u32) -> MapBuilder<'_> {
+        self.replier.simple_string(key);
+        self.len += 1;
+        self.replier.fixed_map(len)
     }
 }
 
 impl Drop for MapBuilder<'_> {
     fn drop(&mut self) {
-        // SAFETY: ctx is validated at Replier construction
-        unsafe {
-            RedisModule_ReplySetMapLength.expect("RedisModule_ReplySetMapLength")(
-                self.replier.ctx,
-                i64::from(self.len),
+        if let Some(expected) = self.expected_len {
+            // Fixed mode: validate count matches declaration
+            assert_eq!(
+                self.len, expected,
+                "MapBuilder: declared length {} but added {} key-value pairs",
+                expected, self.len
             );
+        } else {
+            // Dynamic mode: tell Redis the final length
+            // SAFETY: ctx is validated at Replier construction
+            unsafe {
+                RedisModule_ReplySetMapLength.expect("RedisModule_ReplySetMapLength")(
+                    self.replier.ctx,
+                    i64::from(self.len),
+                );
+            }
         }
-    }
-}
-
-/// Builder for Redis maps with a fixed, known-upfront length.
-///
-/// This builder tracks the expected length and panics in Drop if the actual
-/// number of key-value pairs added doesn't match the declared length.
-///
-/// # Panics
-///
-/// Panics when dropped if the number of key-value pairs added doesn't match
-/// the declared length.
-pub struct FixedMapBuilder<'a> {
-    pub(crate) replier: &'a mut Replier,
-    pub(crate) expected_len: u32,
-    pub(crate) actual_len: u32,
-}
-
-impl FixedMapBuilder<'_> {
-    /// Add a key-value pair where the value is a 64-bit signed integer.
-    pub fn kv_long_long(&mut self, key: &CStr, value: i64) {
-        self.replier.simple_string(key);
-        self.replier.long_long(value);
-        self.actual_len += 1;
-    }
-
-    /// Add a key-value pair where the value is a double.
-    pub fn kv_double(&mut self, key: &CStr, value: f64) {
-        self.replier.simple_string(key);
-        self.replier.double(value);
-        self.actual_len += 1;
-    }
-
-    /// Add a key with an empty array as value.
-    pub fn kv_empty_array(&mut self, key: &CStr) {
-        self.replier.simple_string(key);
-        self.replier.empty_array();
-        self.actual_len += 1;
-    }
-
-    /// Add a key with an empty map as value.
-    pub fn kv_empty_map(&mut self, key: &CStr) {
-        self.replier.simple_string(key);
-        self.replier.empty_map();
-        self.actual_len += 1;
-    }
-
-    /// Add a key with a nested array as value.
-    ///
-    /// Returns an [`ArrayBuilder`] for the nested array.
-    pub fn kv_array(&mut self, key: &CStr) -> ArrayBuilder<'_> {
-        self.replier.simple_string(key);
-        self.actual_len += 1;
-        self.replier.array()
-    }
-
-    /// Add a key with a nested map as value.
-    ///
-    /// Returns a [`MapBuilder`] for the nested map.
-    pub fn kv_map(&mut self, key: &CStr) -> MapBuilder<'_> {
-        self.replier.simple_string(key);
-        self.actual_len += 1;
-        self.replier.map()
-    }
-
-    /// Add a key with a fixed-size nested array as value.
-    ///
-    /// Use when you know the nested array's length upfront.
-    pub fn kv_fixed_array(&mut self, key: &CStr, len: u32) -> FixedArrayBuilder<'_> {
-        self.replier.simple_string(key);
-        self.replier.fixed_array(len);
-        self.actual_len += 1;
-        FixedArrayBuilder {
-            replier: self.replier,
-            expected_len: len,
-            actual_len: 0,
-        }
-    }
-
-    /// Add a key with a fixed-size nested map as value.
-    ///
-    /// Use when you know the nested map's length upfront.
-    pub fn kv_fixed_map(&mut self, key: &CStr, len: u32) -> FixedMapBuilder<'_> {
-        self.replier.simple_string(key);
-        self.replier.fixed_map(len);
-        self.actual_len += 1;
-        FixedMapBuilder {
-            replier: self.replier,
-            expected_len: len,
-            actual_len: 0,
-        }
-    }
-}
-
-impl Drop for FixedMapBuilder<'_> {
-    fn drop(&mut self) {
-        assert_eq!(
-            self.actual_len, self.expected_len,
-            "FixedMapBuilder: declared length {} but added {} key-value pairs",
-            self.expected_len, self.actual_len
-        );
     }
 }

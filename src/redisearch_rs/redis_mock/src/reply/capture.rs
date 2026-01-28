@@ -101,7 +101,16 @@ impl CaptureState {
         let builder = self.builder_stack.pop().unwrap();
         let finalized_value = match builder {
             ContainerBuilder::Array { elements, .. } => ReplyValue::Array(elements),
-            ContainerBuilder::Map { pairs, .. } => ReplyValue::Map(pairs),
+            ContainerBuilder::Map {
+                pairs, pending_key, ..
+            } => {
+                if pending_key.is_some() {
+                    panic!(
+                        "Map is being finalized, but the last key doesn't have a matching value"
+                    );
+                }
+                ReplyValue::Map(pairs)
+            }
         };
         self.push_value(finalized_value);
     }
