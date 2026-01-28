@@ -80,11 +80,12 @@ void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state) {
 
   if (state->readyResults) {
     // Free any remaining DMD data that wasn't consumed
-    for (uint16_t i = state->readyResultsIndex; i < array_len(state->readyResults); i++) {
-      if (state->readyResults[i].dmd) {
-        DMD_Return(state->readyResults[i].dmd);
+    array_free_ex(state->readyResults, {
+      AsyncReadResult *result = (AsyncReadResult*)ptr;
+      if (result->dmd) {
+        DMD_Return(result->dmd);
       }
-    }
+    });
     array_free(state->readyResults);
     state->readyResults = NULL;
   }
