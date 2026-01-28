@@ -51,18 +51,24 @@ fn benchmark_group<'a>(
 pub struct NumericBencher {
     context_dense: TestContext,
     context_sparse: TestContext,
+    context_dense_multi: TestContext,
+    context_sparse_multi: TestContext,
 }
 
 impl Default for NumericBencher {
     fn default() -> Self {
-        let dense =
-            (1..INDEX_SIZE).map(|doc_id| RSIndexResult::numeric(doc_id as f64).doc_id(doc_id));
-        let sparse = (1..INDEX_SIZE)
-            .map(|doc_id| RSIndexResult::numeric(doc_id as f64).doc_id(doc_id * SPARSE_DELTA));
+        let dense_iter =
+            || (1..INDEX_SIZE).map(|doc_id| RSIndexResult::numeric(doc_id as f64).doc_id(doc_id));
+        let sparse_iter = || {
+            (1..INDEX_SIZE)
+                .map(|doc_id| RSIndexResult::numeric(doc_id as f64).doc_id(doc_id * SPARSE_DELTA))
+        };
 
         Self {
-            context_dense: TestContext::numeric(dense, false),
-            context_sparse: TestContext::numeric(sparse, false),
+            context_dense: TestContext::numeric(dense_iter(), false),
+            context_sparse: TestContext::numeric(sparse_iter(), false),
+            context_dense_multi: TestContext::numeric(dense_iter(), true),
+            context_sparse_multi: TestContext::numeric(sparse_iter(), true),
         }
     }
 }
@@ -71,8 +77,12 @@ impl NumericBencher {
     pub fn bench(&self, c: &mut Criterion) {
         self.read_dense(c);
         self.read_sparse(c);
+        self.read_dense_multi(c);
+        self.read_sparse_multi(c);
         self.skip_to_dense(c);
         self.skip_to_sparse(c);
+        self.skip_to_dense_multi(c);
+        self.skip_to_sparse_multi(c);
     }
 
     fn read_dense(&self, c: &mut Criterion) {
@@ -89,6 +99,20 @@ impl NumericBencher {
         group.finish();
     }
 
+    fn read_dense_multi(&self, c: &mut Criterion) {
+        let mut group = benchmark_group(c, "Numeric", "Read Dense Multi");
+        self.c_read(&mut group, &self.context_dense_multi);
+        self.rust_read(&mut group, &self.context_dense_multi);
+        group.finish();
+    }
+
+    fn read_sparse_multi(&self, c: &mut Criterion) {
+        let mut group = benchmark_group(c, "Numeric", "Read Sparse Multi");
+        self.c_read(&mut group, &self.context_sparse_multi);
+        self.rust_read(&mut group, &self.context_sparse_multi);
+        group.finish();
+    }
+
     fn skip_to_dense(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "SkipTo Dense");
         self.c_skip_to(&mut group, &self.context_dense);
@@ -100,6 +124,20 @@ impl NumericBencher {
         let mut group = benchmark_group(c, "Numeric", "SkipTo Sparse");
         self.c_skip_to(&mut group, &self.context_sparse);
         self.rust_skip_to(&mut group, &self.context_sparse);
+        group.finish();
+    }
+
+    fn skip_to_dense_multi(&self, c: &mut Criterion) {
+        let mut group = benchmark_group(c, "Numeric", "SkipTo Dense Multi");
+        self.c_skip_to(&mut group, &self.context_dense_multi);
+        self.rust_skip_to(&mut group, &self.context_dense_multi);
+        group.finish();
+    }
+
+    fn skip_to_sparse_multi(&self, c: &mut Criterion) {
+        let mut group = benchmark_group(c, "Numeric", "SkipTo Sparse Multi");
+        self.c_skip_to(&mut group, &self.context_sparse_multi);
+        self.rust_skip_to(&mut group, &self.context_sparse_multi);
         group.finish();
     }
 
