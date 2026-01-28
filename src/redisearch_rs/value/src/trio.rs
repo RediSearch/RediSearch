@@ -13,13 +13,24 @@ use crate::shared::SharedRsValue;
 
 /// A container for the [`RsValue::Trio`](crate::RsValue::Trio)
 /// variant.
-#[repr(C)]
 #[derive(Clone)]
 pub struct RsValueTrio(Box<RsValueTrioData>);
 
 impl RsValueTrio {
     pub fn new(left: SharedRsValue, middle: SharedRsValue, right: SharedRsValue) -> Self {
         Self(Box::new(RsValueTrioData(left, middle, right)))
+    }
+
+    pub fn left(&self) -> &SharedRsValue {
+        &self.0.0
+    }
+
+    pub fn middle(&self) -> &SharedRsValue {
+        &self.0.1
+    }
+
+    pub fn right(&self) -> &SharedRsValue {
+        &self.0.2
     }
 }
 
