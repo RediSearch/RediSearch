@@ -1,5 +1,5 @@
 ---
-name: rust-test
+name: run-rust-tests
 description: Run Rust tests after making changes to verify correctness
 ---
 

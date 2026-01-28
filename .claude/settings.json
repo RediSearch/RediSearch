@@ -5,6 +5,8 @@
       "Bash(make:*)",
       "Bash(cargo build:*)",
       "Bash(cargo check:*)",
+      "Bash(cargo doc:*)",
+      "Bash(cargo llvm-cov:*)",
       "Bash(cargo test:*)",
       "Bash(cargo nextest:*)",
       "Bash(cargo +nightly miri test:*)",
@@ -15,12 +17,16 @@
       "Bash(cargo license-fix:*)",
       "Bash(cargo bench:*)",
       "Bash(find:*)",
-      "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git status:*)",
       "Bash(grep:*)",
+      "Bash(head:*)",
+      "Bash(jq:*)",
       "Bash(ls:*)",
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "Bash(wc:*)"
     ],
     "deny": []
   }
