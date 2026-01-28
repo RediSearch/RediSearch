@@ -229,7 +229,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   IndexSpec* spec = sctx->spec;
   const RSDocumentMetadata *dmd;
     // Handle spec lock and revalidation
-  const bool validateCurrent = handleSpecLockAndRevalidate(self);
+  bool needToValidateCurrent = handleSpecLockAndRevalidate(self);
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
@@ -239,7 +239,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
-    if (!validateCurrent) {
+    if (!needToValidateCurrent) {
       IteratorStatus rc = it->Read(it);
       switch (rc) {
       case ITERATOR_EOF:
@@ -250,7 +250,9 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
         RS_ASSERT(rc == ITERATOR_OK);
       }
     }
-
+    
+    // validate current result only once
+    needToValidateCurrent = false;
 
     // Get document metadata (either from disk or in-memory DocTable)
     if (!getDocumentMetadata(spec, &spec->docs, sctx, it, &dmd)) {
