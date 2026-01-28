@@ -48,7 +48,7 @@
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
-#include "index_result/query_term/query_term.h"
+#include "redisearch_rs/headers/query_term.h"
 
 #ifndef STRINGIFY
 #define __STRINGIFY(x) #x

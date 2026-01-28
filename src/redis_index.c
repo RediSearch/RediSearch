@@ -17,7 +17,7 @@
 #include "util/misc.h"
 #include "tag_index.h"
 #include "rmalloc.h"
-#include "index_result/query_term/query_term.h"
+#include "redisearch_rs/headers/query_term.h"
 #include <stdio.h>
 
 static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
