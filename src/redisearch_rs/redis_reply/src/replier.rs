@@ -82,22 +82,6 @@ impl Replier {
         }
     }
 
-    /// Reply with a key-value pair where the value is a 64-bit signed integer.
-    ///
-    /// This emits two elements: the key as a simple string and the value as a long long.
-    pub fn kv_long_long(&mut self, key: &CStr, value: i64) {
-        self.simple_string(key);
-        self.long_long(value);
-    }
-
-    /// Reply with a key-value pair where the value is a double.
-    ///
-    /// This emits two elements: the key as a simple string and the value as a double.
-    pub fn kv_double(&mut self, key: &CStr, value: f64) {
-        self.simple_string(key);
-        self.double(value);
-    }
-
     /// Start building an array with automatic length tracking.
     ///
     /// The array length is automatically set when the returned [`ArrayBuilder`] is dropped.

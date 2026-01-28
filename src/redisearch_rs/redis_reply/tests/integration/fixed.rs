@@ -39,7 +39,7 @@ fn test_fixed_array_builder() {
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_array(3);
+            let mut fixed = arr.fixed_array(3);
             fixed.long_long(10);
             fixed.long_long(20);
             fixed.long_long(30);
@@ -54,7 +54,7 @@ fn test_fixed_array_single_element() {
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_array(1);
+            let mut fixed = arr.fixed_array(1);
             fixed.long_long(42);
         }
     });
@@ -67,7 +67,7 @@ fn test_fixed_array_all_element_types() {
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_array(5);
+            let mut fixed = arr.fixed_array(5);
             fixed.long_long(42);
             fixed.double(1.5);
             fixed.simple_string(c"test");
@@ -79,44 +79,15 @@ fn test_fixed_array_all_element_types() {
 }
 
 #[test]
-fn test_fixed_array_kv_long_long() {
+fn test_fixed_array_array() {
     let mut replier = init();
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            // kv_long_long adds 2 elements
-            let mut fixed = arr.nested_fixed_array(4);
-            fixed.kv_long_long(c"a", 1);
-            fixed.kv_long_long(c"b", 2);
-        }
-    });
-    insta::assert_debug_snapshot!(reply, @r#"[["a", 1, "b", 2]]"#);
-}
-
-#[test]
-fn test_fixed_array_kv_double() {
-    let mut replier = init();
-    let reply = capture_single_reply(|| {
-        let mut arr = replier.array();
-        {
-            // kv_double adds 2 elements
-            let mut fixed = arr.nested_fixed_array(2);
-            fixed.kv_double(c"ratio", 0.5);
-        }
-    });
-    insta::assert_debug_snapshot!(reply, @r#"[["ratio", 0.5]]"#);
-}
-
-#[test]
-fn test_fixed_array_nested_array() {
-    let mut replier = init();
-    let reply = capture_single_reply(|| {
-        let mut arr = replier.array();
-        {
-            let mut fixed = arr.nested_fixed_array(3);
+            let mut fixed = arr.fixed_array(3);
             fixed.long_long(1);
             {
-                let mut inner = fixed.nested_array();
+                let mut inner = fixed.array();
                 inner.long_long(2);
                 inner.long_long(3);
             }
@@ -127,14 +98,14 @@ fn test_fixed_array_nested_array() {
 }
 
 #[test]
-fn test_fixed_array_nested_map() {
+fn test_fixed_array_map() {
     let mut replier = init();
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_array(2);
+            let mut fixed = arr.fixed_array(2);
             {
-                let mut inner = fixed.nested_map();
+                let mut inner = fixed.map();
                 inner.kv_long_long(c"key", 42);
             }
             fixed.long_long(1);
@@ -144,14 +115,14 @@ fn test_fixed_array_nested_map() {
 }
 
 #[test]
-fn test_fixed_array_nested_fixed_array() {
+fn test_fixed_array_fixed_array() {
     let mut replier = init();
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut outer_fixed = arr.nested_fixed_array(2);
+            let mut outer_fixed = arr.fixed_array(2);
             {
-                let mut inner_fixed = outer_fixed.nested_fixed_array(2);
+                let mut inner_fixed = outer_fixed.fixed_array(2);
                 inner_fixed.long_long(1);
                 inner_fixed.long_long(2);
             }
@@ -162,14 +133,14 @@ fn test_fixed_array_nested_fixed_array() {
 }
 
 #[test]
-fn test_fixed_array_nested_fixed_map() {
+fn test_fixed_array_fixed_map() {
     let mut replier = init();
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut outer_fixed = arr.nested_fixed_array(2);
+            let mut outer_fixed = arr.fixed_array(2);
             {
-                let mut inner_fixed = outer_fixed.nested_fixed_map(1);
+                let mut inner_fixed = outer_fixed.fixed_map(1);
                 inner_fixed.kv_long_long(c"nested", 42);
             }
             outer_fixed.long_long(1);
@@ -188,7 +159,7 @@ fn test_fixed_map_builder() {
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_map(2);
+            let mut fixed = arr.fixed_map(2);
             fixed.kv_long_long(c"x", 1);
             fixed.kv_long_long(c"y", 2);
         }
@@ -202,7 +173,7 @@ fn test_fixed_map_single_pair() {
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_map(1);
+            let mut fixed = arr.fixed_map(1);
             fixed.kv_long_long(c"key", 42);
         }
     });
@@ -215,7 +186,7 @@ fn test_fixed_map_all_value_types() {
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_map(2);
+            let mut fixed = arr.fixed_map(2);
             fixed.kv_long_long(c"integer", 42);
             fixed.kv_double(c"float", 1.5);
         }
@@ -229,7 +200,7 @@ fn test_fixed_map_kv_empty_array() {
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_map(2);
+            let mut fixed = arr.fixed_map(2);
             fixed.kv_empty_array(c"empty_arr");
             fixed.kv_long_long(c"count", 0);
         }
@@ -243,7 +214,7 @@ fn test_fixed_map_kv_empty_map() {
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_map(2);
+            let mut fixed = arr.fixed_map(2);
             fixed.kv_empty_map(c"empty_map");
             fixed.kv_long_long(c"count", 0);
         }
@@ -257,7 +228,7 @@ fn test_fixed_map_kv_array() {
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_map(2);
+            let mut fixed = arr.fixed_map(2);
             {
                 let mut inner_arr = fixed.kv_array(c"items");
                 inner_arr.long_long(1);
@@ -275,7 +246,7 @@ fn test_fixed_map_kv_map() {
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_map(1);
+            let mut fixed = arr.fixed_map(1);
             {
                 let mut inner_map = fixed.kv_map(c"nested");
                 inner_map.kv_long_long(c"a", 1);
@@ -292,7 +263,7 @@ fn test_fixed_map_kv_fixed_array() {
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_map(1);
+            let mut fixed = arr.fixed_map(1);
             {
                 let mut inner_fixed = fixed.kv_fixed_array(c"fixed_arr", 2);
                 inner_fixed.long_long(10);
@@ -309,7 +280,7 @@ fn test_fixed_map_kv_fixed_map() {
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_map(1);
+            let mut fixed = arr.fixed_map(1);
             {
                 let mut inner_fixed = fixed.kv_fixed_map(c"fixed_map", 1);
                 inner_fixed.kv_long_long(c"deep", 42);
@@ -325,11 +296,11 @@ fn test_fixed_map_deeply_nested() {
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_map(1);
+            let mut fixed = arr.fixed_map(1);
             {
                 let mut arr1 = fixed.kv_array(c"data");
                 {
-                    let mut map1 = arr1.nested_map();
+                    let mut map1 = arr1.map();
                     {
                         let mut fixed2 = map1.kv_fixed_map(c"inner", 1);
                         fixed2.kv_long_long(c"value", 100);

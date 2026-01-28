@@ -24,7 +24,7 @@ fn test_fixed_array_underflow_panics() {
     let _ = capture_replies(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_array(3);
+            let mut fixed = arr.fixed_array(3);
             fixed.long_long(1);
             fixed.long_long(2);
             // Missing third element - should panic on drop
@@ -39,7 +39,7 @@ fn test_fixed_array_overflow_panics() {
     let _ = capture_replies(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_array(2);
+            let mut fixed = arr.fixed_array(2);
             fixed.long_long(1);
             fixed.long_long(2);
             fixed.long_long(3); // Extra element - should panic on drop
@@ -54,7 +54,7 @@ fn test_fixed_array_empty_when_expecting_one() {
     let _ = capture_replies(|| {
         let mut arr = replier.array();
         {
-            let _fixed = arr.nested_fixed_array(1);
+            let _fixed = arr.fixed_array(1);
             // No elements added when expecting 1 - should panic on drop
         }
     });
@@ -71,7 +71,7 @@ fn test_fixed_map_underflow_panics() {
     let _ = capture_replies(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_map(3);
+            let mut fixed = arr.fixed_map(3);
             fixed.kv_long_long(c"a", 1);
             fixed.kv_long_long(c"b", 2);
             // Missing third KV pair - should panic on drop
@@ -86,7 +86,7 @@ fn test_fixed_map_overflow_panics() {
     let _ = capture_replies(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_map(2);
+            let mut fixed = arr.fixed_map(2);
             fixed.kv_long_long(c"a", 1);
             fixed.kv_long_long(c"b", 2);
             fixed.kv_long_long(c"c", 3); // Extra KV pair - should panic on drop
@@ -101,7 +101,7 @@ fn test_fixed_map_empty_when_expecting_one() {
     let _ = capture_replies(|| {
         let mut arr = replier.array();
         {
-            let _fixed = arr.nested_fixed_map(1);
+            let _fixed = arr.fixed_map(1);
             // No KV pairs added when expecting 1 - should panic on drop
         }
     });
@@ -112,29 +112,13 @@ fn test_fixed_map_empty_when_expecting_one() {
 // ============================================================================
 
 #[test]
-fn test_fixed_array_exact_with_kv() {
-    // Verify that kv_long_long adds exactly 2 elements to the count
-    let mut replier = init();
-    let reply = crate::capture_single_reply(|| {
-        let mut arr = replier.array();
-        {
-            // kv_long_long adds 2 elements, so declaring 4 means 2 kv pairs
-            let mut fixed = arr.nested_fixed_array(4);
-            fixed.kv_long_long(c"a", 1);
-            fixed.kv_long_long(c"b", 2);
-        }
-    });
-    insta::assert_debug_snapshot!(reply, @r#"[["a", 1, "b", 2]]"#);
-}
-
-#[test]
 fn test_fixed_map_exact_with_nested() {
     // Verify nested structures count as exactly 1 KV pair
     let mut replier = init();
     let reply = crate::capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut fixed = arr.nested_fixed_map(2);
+            let mut fixed = arr.fixed_map(2);
             {
                 // This nested array is 1 KV pair
                 let mut inner = fixed.kv_array(c"items");
@@ -204,7 +188,7 @@ mod property_based {
             let reply = crate::capture_single_reply(|| {
                 let mut arr = replier.array();
                 {
-                    let mut fixed = arr.nested_fixed_array(count);
+                    let mut fixed = arr.fixed_array(count);
                     for i in 0..count {
                         fixed.long_long(i as i64);
                     }
@@ -233,7 +217,7 @@ mod property_based {
             let reply = crate::capture_single_reply(|| {
                 let mut arr = replier.array();
                 {
-                    let mut fixed = arr.nested_fixed_map(count);
+                    let mut fixed = arr.fixed_map(count);
                     for i in 0..count {
                         let key_bytes = format!("k{i}\0");
                         let key = std::ffi::CStr::from_bytes_with_nul(key_bytes.as_bytes()).unwrap();

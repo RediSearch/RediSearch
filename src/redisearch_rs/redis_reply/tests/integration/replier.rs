@@ -9,8 +9,6 @@
 
 //! Tests for basic Replier functionality.
 
-use redis_mock::reply::capture_replies;
-
 use crate::{capture_single_reply, init};
 
 #[test]
@@ -123,34 +121,6 @@ fn test_replier_empty_map() {
 }
 
 #[test]
-fn test_replier_kv_long_long() {
-    let mut replier = init();
-    let replies = capture_replies(|| {
-        replier.kv_long_long(c"count", 100);
-    });
-    insta::assert_debug_snapshot!(replies, @r#"
-    [
-        "count",
-        100,
-    ]
-    "#);
-}
-
-#[test]
-fn test_replier_kv_double() {
-    let mut replier = init();
-    let replies = capture_replies(|| {
-        replier.kv_double(c"ratio", 0.75);
-    });
-    insta::assert_debug_snapshot!(replies, @r#"
-    [
-        "ratio",
-        0.75,
-    ]
-    "#);
-}
-
-#[test]
 fn test_replier_fixed_array_direct() {
     let mut replier = init();
     let reply = capture_single_reply(|| {
@@ -167,8 +137,10 @@ fn test_replier_fixed_map_direct() {
     let mut replier = init();
     let reply = capture_single_reply(|| {
         replier.fixed_map(2);
-        replier.kv_long_long(c"a", 1);
-        replier.kv_long_long(c"b", 2);
+        replier.simple_string(c"a");
+        replier.long_long(1);
+        replier.simple_string(c"b");
+        replier.long_long(2);
     });
     insta::assert_debug_snapshot!(reply, @r#"{"a": 1, "b": 2}"#);
 }

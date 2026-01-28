@@ -28,13 +28,15 @@ pub struct MapBuilder<'a> {
 impl MapBuilder<'_> {
     /// Add a key-value pair where the value is a 64-bit signed integer.
     pub fn kv_long_long(&mut self, key: &CStr, value: i64) {
-        self.replier.kv_long_long(key, value);
+        self.replier.simple_string(key);
+        self.replier.long_long(value);
         self.len += 1;
     }
 
     /// Add a key-value pair where the value is a double.
     pub fn kv_double(&mut self, key: &CStr, value: f64) {
-        self.replier.kv_double(key, value);
+        self.replier.simple_string(key);
+        self.replier.double(value);
         self.len += 1;
     }
 
@@ -131,13 +133,15 @@ pub struct FixedMapBuilder<'a> {
 impl FixedMapBuilder<'_> {
     /// Add a key-value pair where the value is a 64-bit signed integer.
     pub fn kv_long_long(&mut self, key: &CStr, value: i64) {
-        self.replier.kv_long_long(key, value);
+        self.replier.simple_string(key);
+        self.replier.long_long(value);
         self.actual_len += 1;
     }
 
     /// Add a key-value pair where the value is a double.
     pub fn kv_double(&mut self, key: &CStr, value: f64) {
-        self.replier.kv_double(key, value);
+        self.replier.simple_string(key);
+        self.replier.double(value);
         self.actual_len += 1;
     }
 

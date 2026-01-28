@@ -48,7 +48,7 @@ fn test_map_with_nested_array() {
 }
 
 #[test]
-fn test_map_with_nested_map() {
+fn test_map_with_map() {
     let mut replier = init();
     let reply = capture_single_reply(|| {
         let mut outer = replier.map();
@@ -121,11 +121,11 @@ fn test_deeply_nested_structures() {
     let reply = capture_single_reply(|| {
         let mut outer_arr = replier.array();
         {
-            let mut map = outer_arr.nested_map();
+            let mut map = outer_arr.map();
             {
                 let mut inner_arr = map.kv_array(c"data");
                 {
-                    let mut inner_map = inner_arr.nested_map();
+                    let mut inner_map = inner_arr.map();
                     inner_map.kv_long_long(c"value", 42);
                 }
             }

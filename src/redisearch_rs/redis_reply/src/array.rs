@@ -54,24 +54,10 @@ impl ArrayBuilder<'_> {
         self.len += 1;
     }
 
-    /// Add a key-value pair to the array (adds 2 elements).
-    ///
-    /// This is useful when building flat key-value arrays.
-    pub fn kv_long_long(&mut self, key: &CStr, value: i64) {
-        self.replier.kv_long_long(key, value);
-        self.len += 2;
-    }
-
-    /// Add a key-value pair with a double value to the array (adds 2 elements).
-    pub fn kv_double(&mut self, key: &CStr, value: f64) {
-        self.replier.kv_double(key, value);
-        self.len += 2;
-    }
-
     /// Start a nested array within this array.
     ///
     /// The nested array counts as 1 element in the parent array.
-    pub fn nested_array(&mut self) -> ArrayBuilder<'_> {
+    pub fn array(&mut self) -> ArrayBuilder<'_> {
         self.len += 1;
         self.replier.array()
     }
@@ -79,7 +65,7 @@ impl ArrayBuilder<'_> {
     /// Start a nested map within this array.
     ///
     /// The nested map counts as 1 element in the parent array.
-    pub fn nested_map(&mut self) -> MapBuilder<'_> {
+    pub fn map(&mut self) -> MapBuilder<'_> {
         self.len += 1;
         self.replier.map()
     }
@@ -88,7 +74,7 @@ impl ArrayBuilder<'_> {
     ///
     /// Use when you know the nested array's length upfront.
     /// Returns a [`FixedArrayBuilder`] that validates the element count on drop.
-    pub fn nested_fixed_array(&mut self, len: u32) -> FixedArrayBuilder<'_> {
+    pub fn fixed_array(&mut self, len: u32) -> FixedArrayBuilder<'_> {
         self.len += 1;
         self.replier.fixed_array(len);
         FixedArrayBuilder {
@@ -102,7 +88,7 @@ impl ArrayBuilder<'_> {
     ///
     /// Use when you know the nested map's length upfront.
     /// Returns a [`FixedMapBuilder`] that validates the element count on drop.
-    pub fn nested_fixed_map(&mut self, len: u32) -> FixedMapBuilder<'_> {
+    pub fn fixed_map(&mut self, len: u32) -> FixedMapBuilder<'_> {
         self.len += 1;
         self.replier.fixed_map(len);
         FixedMapBuilder {
@@ -171,24 +157,10 @@ impl FixedArrayBuilder<'_> {
         self.actual_len += 1;
     }
 
-    /// Add a key-value pair to the array (adds 2 elements).
-    ///
-    /// This is useful when building flat key-value arrays.
-    pub fn kv_long_long(&mut self, key: &CStr, value: i64) {
-        self.replier.kv_long_long(key, value);
-        self.actual_len += 2;
-    }
-
-    /// Add a key-value pair with a double value to the array (adds 2 elements).
-    pub fn kv_double(&mut self, key: &CStr, value: f64) {
-        self.replier.kv_double(key, value);
-        self.actual_len += 2;
-    }
-
     /// Start a nested array within this array.
     ///
     /// The nested array counts as 1 element in the parent array.
-    pub fn nested_array(&mut self) -> ArrayBuilder<'_> {
+    pub fn array(&mut self) -> ArrayBuilder<'_> {
         self.actual_len += 1;
         self.replier.array()
     }
@@ -196,7 +168,7 @@ impl FixedArrayBuilder<'_> {
     /// Start a nested map within this array.
     ///
     /// The nested map counts as 1 element in the parent array.
-    pub fn nested_map(&mut self) -> MapBuilder<'_> {
+    pub fn map(&mut self) -> MapBuilder<'_> {
         self.actual_len += 1;
         self.replier.map()
     }
@@ -204,7 +176,7 @@ impl FixedArrayBuilder<'_> {
     /// Add a fixed-size nested array within this array.
     ///
     /// Use when you know the nested array's length upfront.
-    pub fn nested_fixed_array(&mut self, len: u32) -> FixedArrayBuilder<'_> {
+    pub fn fixed_array(&mut self, len: u32) -> FixedArrayBuilder<'_> {
         self.actual_len += 1;
         self.replier.fixed_array(len);
         FixedArrayBuilder {
@@ -217,7 +189,7 @@ impl FixedArrayBuilder<'_> {
     /// Add a fixed-size nested map within this array.
     ///
     /// Use when you know the nested map's length upfront.
-    pub fn nested_fixed_map(&mut self, len: u32) -> FixedMapBuilder<'_> {
+    pub fn fixed_map(&mut self, len: u32) -> FixedMapBuilder<'_> {
         self.actual_len += 1;
         self.replier.fixed_map(len);
         FixedMapBuilder {

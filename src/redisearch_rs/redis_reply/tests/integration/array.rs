@@ -46,17 +46,6 @@ fn test_array_builder_mixed_types() {
 }
 
 #[test]
-fn test_array_builder_kv_pairs() {
-    let mut replier = init();
-    let reply = capture_single_reply(|| {
-        let mut arr = replier.array();
-        arr.kv_long_long(c"numRanges", 10);
-        arr.kv_double(c"avgSize", 2.5);
-    });
-    insta::assert_debug_snapshot!(reply, @r#"["numRanges", 10, "avgSize", 2.5]"#);
-}
-
-#[test]
 fn test_array_builder_empty_array_element() {
     let mut replier = init();
     let reply = capture_single_reply(|| {
@@ -81,13 +70,13 @@ fn test_array_builder_empty_map_element() {
 }
 
 #[test]
-fn test_nested_array() {
+fn test_array() {
     let mut replier = init();
     let reply = capture_single_reply(|| {
         let mut outer = replier.array();
         outer.long_long(1);
         {
-            let mut inner = outer.nested_array();
+            let mut inner = outer.array();
             inner.long_long(2);
             inner.long_long(3);
         }
@@ -97,13 +86,13 @@ fn test_nested_array() {
 }
 
 #[test]
-fn test_array_builder_nested_map() {
+fn test_array_builder_map() {
     let mut replier = init();
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         arr.long_long(1);
         {
-            let mut map = arr.nested_map();
+            let mut map = arr.map();
             map.kv_long_long(c"key", 42);
         }
         arr.long_long(2);
@@ -112,13 +101,13 @@ fn test_array_builder_nested_map() {
 }
 
 #[test]
-fn test_array_builder_nested_fixed_array() {
+fn test_array_builder_fixed_array() {
     let mut replier = init();
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         arr.long_long(0);
         {
-            let mut fixed = arr.nested_fixed_array(2);
+            let mut fixed = arr.fixed_array(2);
             fixed.long_long(1);
             fixed.long_long(2);
         }
@@ -128,13 +117,13 @@ fn test_array_builder_nested_fixed_array() {
 }
 
 #[test]
-fn test_array_builder_nested_fixed_map() {
+fn test_array_builder_fixed_map() {
     let mut replier = init();
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         arr.long_long(0);
         {
-            let mut fixed = arr.nested_fixed_map(2);
+            let mut fixed = arr.fixed_map(2);
             fixed.kv_long_long(c"a", 1);
             fixed.kv_long_long(c"b", 2);
         }
@@ -149,15 +138,15 @@ fn test_array_builder_multiple_nested() {
     let reply = capture_single_reply(|| {
         let mut arr = replier.array();
         {
-            let mut inner1 = arr.nested_array();
+            let mut inner1 = arr.array();
             inner1.long_long(1);
         }
         {
-            let mut inner2 = arr.nested_array();
+            let mut inner2 = arr.array();
             inner2.long_long(2);
         }
         {
-            let mut inner3 = arr.nested_array();
+            let mut inner3 = arr.array();
             inner3.long_long(3);
         }
     });
