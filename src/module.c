@@ -3858,9 +3858,11 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
   // Free the reducer context if it was allocated
   searchReducerCtx *rctx = req->rctx;
 
-  QueryError_ClearError(&rctx->status);
 
   if (rctx) {
+
+    QueryError_ClearError(&rctx->status);
+
     if (rctx->pq) {
       heap_destroy(rctx->pq);
     }
