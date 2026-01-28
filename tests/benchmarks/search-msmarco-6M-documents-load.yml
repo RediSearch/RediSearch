@@ -19,6 +19,8 @@ remote:
   - setup: redisearch-msmarco
 
 dbconfig:
+  # Sharing the same dataset name with the other benchmarks to avoid re-downloading and reindexing the dataset
+  - dataset_name: "msmarco-6M-documents"
   - init_commands:
     - '"FT.CREATE" "ms_marco_idx" "ON" "HASH" "PREFIX" "1" "doc:" "SCHEMA" "url" "TEXT" "title" "TEXT" "WEIGHT" "2.0" "headings" "TEXT" "WEIGHT" "1.5" "body" "TEXT" "tags" "TAG" "SEPARATOR" ","'
 clientconfig:
