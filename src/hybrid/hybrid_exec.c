@@ -503,6 +503,14 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
   hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
   bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
+
+  // Start measuring pipeline build time if profiling is enabled
+  rs_wall_clock pipelineClock;
+  const bool isProfile = hreq->tailPipeline->qctx.isProfile;
+  if (isProfile) {
+    rs_wall_clock_init(&pipelineClock);
+  }
+
   // Internal commands do not have a hybrid merger and only have a depletion pipeline
   if (internal) {
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
@@ -512,6 +520,11 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     }
   } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
+  }
+
+  // Record pipeline build time if profiling is enabled
+  if (isProfile) {
+    hreq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&pipelineClock);
   }
 
   if (!isCursor) {
