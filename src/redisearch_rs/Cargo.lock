@@ -1709,6 +1709,7 @@ dependencies = [
  "ffi",
  "libc",
  "pin-project",
+ "pretty_assertions",
  "proptest",
  "redis-module",
  "redis_mock",
