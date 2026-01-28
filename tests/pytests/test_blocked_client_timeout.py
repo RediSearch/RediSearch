@@ -94,3 +94,36 @@ class TestCoordinatorTimeout:
 
     def test_fail_timeout_profile(self):
         self._test_fail_timeout_impl(['FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'])
+
+    def test_fail_timeout_before_fanout(self):
+        """Test timeout occurring before the fanout (before query is dispatched to shards)."""
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
+
+        # Pause coordinator thread pool to prevent fanout
+        env.cmd(debug_cmd(), 'COORD_THREADS', 'PAUSE')
+
+        blocked_client_id = env.cmd('CLIENT', 'ID')
+
+        t_query = threading.Thread(
+            target=run_cmd_expect_timeout,
+            args=(env, ['FT.SEARCH', 'idx', '*']),
+            daemon=True
+        )
+        t_query.start()
+
+        # Give the query time to be queued
+        time.sleep(0.1)
+
+        # Unblock the client to simulate timeout
+        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+
+        # Resume coordinator threads and restore config
+        env.cmd(debug_cmd(), 'COORD_THREADS', 'RESUME')
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
