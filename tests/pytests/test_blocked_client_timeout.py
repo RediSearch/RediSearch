@@ -20,8 +20,6 @@ def get_all_shards_pid(env):
         conn = env.getConnection(shardId)
         yield pid_cmd(conn)
 
-
-
 class TestCoordinatorTimeout:
     """Tests for the blocked client timeout mechanism for the coordinator."""
 
