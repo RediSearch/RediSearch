@@ -433,11 +433,7 @@ pub(super) mod not_miri {
     use inverted_index::{DecodedBy, Encoder, InvertedIndex, RSIndexResult};
     use query_error::QueryError;
     use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
-    use std::{
-        ffi::CString,
-        ptr,
-        sync::atomic::{AtomicBool, Ordering},
-    };
+    use std::{ffi::CString, ptr};
 
     /// ---------- Expiration Tests ----------
 
@@ -798,6 +794,8 @@ pub(super) mod not_miri {
         // using Valgrind which is only available on Linux as well.
         #[cfg(target_os = "linux")]
         fn new() -> Self {
+            use std::sync::atomic::{AtomicBool, Ordering};
+
             static REGISTERED: AtomicBool = AtomicBool::new(false);
 
             // Register cleanup function exactly once using atexit
