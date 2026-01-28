@@ -81,7 +81,10 @@ pub unsafe extern "C" fn RSValue_NewMap(map: *mut RSValueMap) -> *mut RsValue {
             // Safety: ensured by caller (2.)
             let (key, value) = unsafe { entry.assume_init() };
             // Safety: ensured by caller (2.)
-            unsafe { (SharedRsValue::from_raw(key), SharedRsValue::from_raw(value)) }
+            let key = unsafe { SharedRsValue::from_raw(key) };
+            // Safety: ensured by caller (2.)
+            let value = unsafe { SharedRsValue::from_raw(value) };
+            (key, value)
         })
         .collect();
 
