@@ -32,7 +32,7 @@ static bool trieInsert(Trie *t, const std::string &s) {
   return trieInsert(t, s.c_str(), s.size());
 }
 
-static int rangeFunc(const rune *u16, size_t nrune, void *ctx, void *payload) {
+static int rangeFunc(const rune *u16, size_t nrune, void *ctx, void *payload, size_t numDocsInTerm) {
   size_t n;
   char *s = runesToStr(u16, nrune, &n);
   std::string xs(s, n);
