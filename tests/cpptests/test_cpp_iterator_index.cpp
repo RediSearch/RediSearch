@@ -19,7 +19,7 @@ extern "C" {
 #include "src/tag_index.h"
 #include "src/numeric_index.h"
 #include "redisearch_rs/headers/triemap.h"
-#include "src/redisearch_rs/headers/query_term.h"
+#include "redisearch_rs/headers/query_term.h"
 
 extern "C" {
 #include "src/redis_index.h"
