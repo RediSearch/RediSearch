@@ -961,6 +961,40 @@ def test_profile_time():
                 env.assertGreaterEqual(processor['Depletion time'], 0)
             env.assertGreaterEqual(processor['Time'], 0)
 
+@skip(cluster=False, min_shards=2)
+def test_profile_with_shard_error():
+    """
+    Test that FT.PROFILE HYBRID handles shard errors gracefully.
+
+    Note: Currently, when any shard returns an error, the entire FT.PROFILE
+    command fails, so this test verifies that the command fails gracefully
+    rather than crashing.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK false', protocol=3)
+
+    # Create index normally on all shards
+    env.expect(
+        'FT.CREATE', 'idx_partial', 'SCHEMA', 't', 'TEXT',
+        'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+    conn = getConnectionByEnv(env)
+    # Add some data
+    for i in range(10):
+        conn.execute_command('hset', f'doc{i}', 't', f'hello{i} world', 'v', 'bababaca')
+
+    # Drop the index on shard 2 only to simulate a partial error scenario
+    con2 = env.getConnection(2)
+    con2.execute_command('FT.DROPINDEX', 'idx_partial')
+
+    # Now run a profile query - shard 2 will return an error
+    query = ['FT.PROFILE', 'idx_partial', 'HYBRID', 'QUERY',
+             'SEARCH', 'hello',
+             'VSIM', '@v', '$blob',
+             'PARAMS', 2, 'blob', 'aaaaaaaa']
+
+    # Verify the command returns an error (not a crash)
+    env.expect(*query).error().contains('no such index')
+
 def test_profile_errors():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     _setup_index_and_data(env)
@@ -1008,3 +1042,11 @@ def test_profile_errors():
         'SEARCH', 'world',
         'VSIM', '@v', 'aaaaaaaa').error()\
             .contains('Invalid vector argument, expected a parameter name starting with $')
+    # unexistent index
+    env.expect(
+        'FT.PROFILE', 'nonexistent_idx', 'HYBRID', 'QUERY',
+        'SEARCH', 'world',
+        'VSIM', '@v', '$blob',
+        'PARAMS', 2, 'blob', 'aaaaaaaa').error()\
+            .contains('no such index')
+
