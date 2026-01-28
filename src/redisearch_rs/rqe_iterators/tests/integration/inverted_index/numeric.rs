@@ -435,7 +435,7 @@ mod not_miri {
             &self,
         ) -> Numeric<'_, inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>>
         {
-            let ii = self.test.context.numeric_inverted_index();
+            let ii = self.test.context.numeric_inverted_index().as_numeric();
             let context = &self.test.context;
             let fs = context.field_spec();
 
@@ -505,7 +505,7 @@ mod not_miri {
     fn numeric_revalidate_after_document_deleted() {
         let test = NumericRevalidateTest::new(10);
         let mut it = test.create_iterator();
-        let ii = test.test.context.numeric_inverted_index();
+        let ii = test.test.context.numeric_inverted_index().as_numeric();
 
         test.test.revalidate_after_document_deleted(&mut it, ii);
     }

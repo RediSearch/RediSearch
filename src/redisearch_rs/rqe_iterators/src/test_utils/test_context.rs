@@ -201,11 +201,8 @@ impl TestContext {
         }
     }
 
-    /// Get the inverted index for this context.
-    /// Panics if this is not a numeric context.
-    pub fn numeric_inverted_index(
-        &self,
-    ) -> &mut inverted_index::InvertedIndex<inverted_index::numeric::Numeric> {
+    /// Get the ffi inverted index for this context.
+    pub fn numeric_inverted_index(&self) -> &mut inverted_index_ffi::InvertedIndex {
         // Create a numeric filter to find ranges
         let mut filter = NumericFilter::default();
         filter.ascending = false;
@@ -239,10 +236,7 @@ impl TestContext {
             ffi::Vector_Free(ranges);
         }
 
-        match ii {
-            inverted_index_ffi::InvertedIndex::Numeric(entries) => entries.inner_mut(),
-            _ => panic!("Unexpected inverted index type"),
-        }
+        ii
     }
 }
 
