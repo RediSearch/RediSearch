@@ -46,10 +46,12 @@ pub unsafe extern "C" fn NewQueryTerm(tok: *const RSToken, id: i32) -> *mut RSQu
         Some(unsafe { slice::from_raw_parts(tok.str_ as *const u8, tok.len) })
     };
 
-    // Create a Rust Token
+    // Create a Rust Token, preserving flags and expanded state even for empty strings
+    let expanded = tok.expanded() != 0;
+    let flags = tok.flags();
     let token = match str_bytes {
-        Some(bytes) => Token::new(bytes, tok.expanded() != 0, tok.flags()),
-        None => Token::empty(),
+        Some(bytes) => Token::new(bytes, expanded, flags),
+        None => Token::new(&[], expanded, flags),
     };
 
     // Create the QueryTerm
@@ -68,7 +70,7 @@ pub unsafe extern "C" fn NewQueryTerm(tok: *const RSToken, id: i32) -> *mut RSQu
     let (str_ptr, str_len) = if let Some(bytes) = query_term.as_bytes() {
         let len = bytes.len();
         // SAFETY: rm_alloc is valid per safety docs
-        let str_mem = unsafe { rm_alloc(len + 1) } as *mut c_char; // +1 for potential null terminator
+        let str_mem = unsafe { rm_alloc(len + 1) } as *mut c_char; // +1 for null terminator
         if str_mem.is_null() {
             // SAFETY: RedisModule_Free is initialized if we got here
             let rm_free = unsafe { RedisModule_Free.expect("Redis allocator not available") };
@@ -79,6 +81,8 @@ pub unsafe extern "C" fn NewQueryTerm(tok: *const RSToken, id: i32) -> *mut RSQu
         // SAFETY: Both pointers are valid and don't overlap
         unsafe {
             ptr::copy_nonoverlapping(bytes.as_ptr(), str_mem as *mut u8, len);
+            // Write null terminator
+            *str_mem.add(len) = 0;
         }
         (str_mem, len)
     } else {
