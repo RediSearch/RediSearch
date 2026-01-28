@@ -220,7 +220,7 @@ void RSValue_Replace(struct RSValue **dstpp, const struct RSValue *src);
 
 double RSValue_Number_Get(const struct RSValue *value);
 
-uintptr_t RSValue_Refcount(const struct RSValue *value);
+uint16_t RSValue_Refcount(const struct RSValue *value);
 
 const struct RSValue *RSValue_Trio_GetLeft(const struct RSValue *value);
 

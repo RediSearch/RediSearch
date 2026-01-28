@@ -76,10 +76,10 @@ pub unsafe extern "C" fn RSValue_Number_Get(value: *const RsValue) -> c_double {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Refcount(value: *const RsValue) -> usize {
+pub unsafe extern "C" fn RSValue_Refcount(value: *const RsValue) -> u16 {
     let shared_value = unsafe { SharedRsValue::from_raw(value) };
     let shared_value = ManuallyDrop::new(shared_value);
-    shared_value.refcount()
+    shared_value.refcount() as u16
 }
 
 #[unsafe(no_mangle)]
