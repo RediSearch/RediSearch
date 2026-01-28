@@ -126,7 +126,10 @@ QueryError *MRCtx_GetStatus(MRCtx *ctx) {
 
 void MRCtx_Free(MRCtx *ctx) {
 
-  MRCommand_Free(&ctx->cmd);
+  // cmd can be NULL in case of bailout
+  if(ctx->cmd) {
+    MRCommand_Free(&ctx->cmd);
+  }
 
   QueryError_ClearError(&ctx->status);
 
