@@ -1,0 +1,15 @@
+[package]
+name = "query_term"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+workspace_hack.workspace = true
+
+[dev-dependencies]
+proptest = { workspace = true, features = ["std"] }

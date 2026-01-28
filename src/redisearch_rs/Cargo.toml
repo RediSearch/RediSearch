@@ -23,6 +23,7 @@ members = [
     "search_result",
     "slots_tracker",
     "sorting_vector",
+    "query_term",
     "tools/license_header_linter",
     "tools/safety_report",
     "tracing_redismodule",
@@ -80,6 +81,7 @@ hyperloglog = { path = "./hyperloglog" }
 inverted_index = { path = "./inverted_index" }
 qint = { path = "./qint" }
 query_error = { path = "./query_error" }
+query_term = { path = "./query_term" }
 redis_json_api = { path = "./redis_json_api" }
 redis_mock = { path = "./redis_mock" }
 redisearch_rs = { path = "./c_entrypoint/redisearch_rs" }

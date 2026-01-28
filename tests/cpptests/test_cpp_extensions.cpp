@@ -12,6 +12,7 @@
 #include "src/query.h"
 #include "src/stopwords.h"
 #include "src/ext/default.h"
+#include "redisearch_rs/headers/query_term.h"
 
 #include "gtest/gtest.h"
 
