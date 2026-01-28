@@ -179,7 +179,17 @@ struct RsValue *RSValue_NewNull(void);
 
 struct RsValue *RSValue_NewNumber(double value);
 
+struct RsValue *RSValue_NewTrio(struct RsValue *left,
+                                struct RsValue *middle,
+                                struct RsValue *right);
+
 double RSValue_Number_Get(const struct RsValue *value);
+
+const struct RsValue *RSValue_Trio_GetLeft(const struct RsValue *value);
+
+const struct RsValue *RSValue_Trio_GetMiddle(const struct RsValue *value);
+
+const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
 
 void RSValue_SetNumber(struct RsValue *value, double n);
 
