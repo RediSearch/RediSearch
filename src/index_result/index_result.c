@@ -13,8 +13,6 @@
 #include <sys/param.h>
 #include "src/util/arr.h"
 #include "value.h"
-#include "query_term/query_term.h"
-
 
 void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *child) {
   if (child) {
@@ -42,23 +40,6 @@ RSYieldableMetric* RSYieldableMetrics_Clone(RSYieldableMetric *src) {
       RSValue_IncrRef(ret[i].value);
 
     return ret;
-}
-
-RSQueryTerm *NewQueryTerm(RSToken *tok, int id) {
-  RSQueryTerm *ret = rm_malloc(sizeof(RSQueryTerm));
-  ret->idf = 1;
-  ret->str = tok->str ? rm_strndup(tok->str, tok->len) : NULL;
-  ret->len = tok->len;
-  ret->flags = tok->flags;
-  ret->id = id;
-  return ret;
-}
-
-void Term_Free(RSQueryTerm *t) {
-  if (t) {
-    if (t->str) rm_free(t->str);
-    rm_free(t);
-  }
 }
 
 int RSIndexResult_HasOffsets(const RSIndexResult *res) {
