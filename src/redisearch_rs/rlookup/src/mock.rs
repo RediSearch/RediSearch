@@ -12,10 +12,12 @@
 //! the `HiddenString` type used in the C code.
 
 use std::{
+    alloc::{Layout, alloc, dealloc},
     cmp,
     ffi::{c_char, c_int},
-    mem::offset_of,
-    ptr::NonNull,
+    mem::{self, offset_of},
+    panic,
+    ptr::{self, NonNull},
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -33,10 +35,10 @@ extern "C" fn HiddenString_GetUnsafe(
     length: *mut usize,
 ) -> *const c_char {
     let text = unsafe { value.cast::<UserString>().as_ref().unwrap() };
-    if text.length != 0 {
-        unsafe {
-            *length = text.length;
-        }
+
+    assert!(!length.is_null());
+    unsafe {
+        *length = text.length;
     }
 
     text.user
@@ -147,4 +149,80 @@ extern "C" fn sdslen__(s: *const c_char) -> usize {
         // Safety: Caller provides valid C string pointer
         unsafe { libc::strlen(s) }
     }
+}
+
+/// Rough mock implementation of `array_len_func` from util/arr/arr.c for testing purposes.
+#[unsafe(no_mangle)]
+unsafe extern "C" fn array_len_func(arr: *const u8) -> u32 {
+    if arr.is_null() {
+        return 0;
+    }
+
+    let hdr_ptr = unsafe {
+        arr.cast::<u8>()
+            .sub(mem::size_of::<ffi::array_hdr_t>())
+            .cast::<ffi::array_hdr_t>()
+    };
+
+    unsafe { ptr::read_unaligned(&raw const (*hdr_ptr).len) }
+}
+
+/// Rough mock implementation of `array_new` from util/arr/arr.h for testing purposes.
+pub(crate) fn array_new<T: Copy>(xs: &[T]) -> *mut T {
+    let n = xs.len();
+    let hdr_sz = mem::size_of::<ffi::array_hdr_t>();
+    let data_sz = n * mem::size_of::<T>();
+
+    let layout = Layout::from_size_align(
+        hdr_sz + data_sz,
+        mem::align_of::<ffi::array_hdr_t>().max(mem::align_of::<T>()),
+    )
+    .unwrap();
+
+    let base = unsafe { alloc(layout) };
+    if base.is_null() {
+        panic!("allocation failed");
+    }
+
+    unsafe {
+        ptr::write(
+            base.cast::<ffi::array_hdr_t>(),
+            ffi::array_hdr_t {
+                len: n as u32,
+                remain_cap: 0,
+                elem_sz: mem::size_of::<T>() as u16,
+                buf: ffi::__IncompleteArrayField::new(),
+            },
+        )
+    };
+
+    let data = unsafe { base.add(hdr_sz).cast::<T>() };
+    unsafe { ptr::copy(xs.as_ptr(), data, n) };
+
+    data
+}
+
+/// Rough mock implementation of `array_free` from util/arr/arr.h for testing purposes.
+pub(crate) unsafe fn array_free<T>(arr: *mut T) {
+    if arr.is_null() {
+        return;
+    }
+
+    let hdr_sz = mem::size_of::<ffi::array_hdr_t>();
+    let hdr_ptr = unsafe { (arr as *mut u8).sub(hdr_sz).cast::<ffi::array_hdr_t>() };
+
+    let len = unsafe { ptr::read_unaligned(ptr::addr_of!((*hdr_ptr).len)) } as usize;
+    let remain_cap = unsafe { ptr::read_unaligned(ptr::addr_of!((*hdr_ptr).remain_cap)) } as usize;
+    let elem_sz = unsafe { ptr::read_unaligned(ptr::addr_of!((*hdr_ptr).elem_sz)) } as usize;
+
+    let cap = len + remain_cap;
+    let total_sz = hdr_sz + cap * elem_sz;
+
+    let layout = Layout::from_size_align(
+        total_sz,
+        mem::align_of::<ffi::array_hdr_t>().max(mem::align_of::<T>()),
+    )
+    .unwrap();
+
+    unsafe { dealloc(hdr_ptr.cast::<u8>(), layout) };
 }
