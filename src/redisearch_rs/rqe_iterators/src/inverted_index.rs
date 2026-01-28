@@ -444,15 +444,21 @@ where
 /// * `R` - The type of the numeric reader.
 pub struct Numeric<'index, R> {
     it: InvIndIterator<'index, R>,
-    /// The numeric range tree used to query the inverted index (optional).
-    range_tree: Option<NonNull<ffi::NumericRangeTree>>,
-    /// The revision ID of the numeric range tree. Used to detect changes to the tree when revalidating.
-    /// None if there is no range tree.
-    revision_id: Option<u32>,
+    /// The numeric range tree and its revision ID, used to detect changes during revalidation.
+    range_tree_info: Option<RangeTreeInfo>,
     /// Minimum numeric range, only used in debug print.
     range_min: f64,
     /// Maximum numeric range, only used in debug print.
     range_max: f64,
+}
+
+/// Information about the numeric range tree backing a [`Numeric`] iterator.
+struct RangeTreeInfo {
+    /// Pointer to the numeric range tree.
+    tree: NonNull<ffi::NumericRangeTree>,
+    /// The revision ID at the time the iterator was created.
+    /// Used to detect if the tree has been modified.
+    revision_id: u32,
 }
 
 impl<'index, R> Numeric<'index, R>
@@ -492,8 +498,11 @@ where
     ) -> Self {
         let result = RSIndexResult::numeric(0.0);
 
-        // SAFETY: 4.
-        let revision_id = range_tree.map(|rt| unsafe { rt.as_ref().revisionId });
+        let range_tree_info = range_tree.map(|tree| RangeTreeInfo {
+            tree,
+            // SAFETY: 4.
+            revision_id: unsafe { tree.as_ref().revisionId },
+        });
 
         let range_min = range_min.unwrap_or(f64::NEG_INFINITY);
         let range_max = range_max.unwrap_or(f64::INFINITY);
@@ -511,8 +520,7 @@ where
                     },
                 }),
             ),
-            range_tree,
-            revision_id,
+            range_tree_info,
             range_min,
             range_max,
         }
@@ -523,19 +531,16 @@ where
             return false;
         }
 
-        // If there's no range tree or revision ID, we can't check for changes
-        let Some(range_tree) = self.range_tree else {
-            return false;
-        };
-        let Some(revision_id) = self.revision_id else {
+        // If there's no range tree, we can't check for changes
+        let Some(ref info) = self.range_tree_info else {
             return false;
         };
 
         // SAFETY: 5. from [`Self::new`]
-        let rt = unsafe { range_tree.as_ref() };
+        let rt = unsafe { info.tree.as_ref() };
         // If the revision id changed the numeric tree was either completely deleted or a node was split or removed.
         // The cursor is invalidated so we cannot revalidate the iterator.
-        rt.revisionId != revision_id
+        rt.revisionId != info.revision_id
     }
 
     pub const fn range_min(&self) -> f64 {
