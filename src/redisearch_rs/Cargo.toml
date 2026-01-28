@@ -7,6 +7,7 @@ members = [
     "qint",
     "redis_mock",
     "tools/license_header_linter",
+    "tracing_redismodule",
     "trie_bencher",
     "trie_rs",
     "varint_bencher",
@@ -69,7 +70,9 @@ wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
 result_processor = { path = "./result_processor" }
 encode_decode = { path = "./encode_decode" }
+tracing_redismodule = { path = "./tracing_redismodule" }
 
+anstyle-query = "1.1.5"
 cbindgen = "0.28.0"
 cc = "1"
 crc32fast = "1.4.2"
@@ -84,6 +87,9 @@ memchr = "2.7.4"
 proptest = { version = "1.6.0", default-features = false }
 proptest-derive = { version = "0.5.1", default-features = false }
 rand = "0.9.1"
+tracing = "0.1.42"
+tracing-core = "0.1"
+tracing-subscriber = { version = "0.3.20", default-features = false, features = ["std", "fmt", "ansi", "env-filter"] }
 ureq = "3.1"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 pin-project = "1.1.10"

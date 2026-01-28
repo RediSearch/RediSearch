@@ -913,10 +913,12 @@ def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, interna
         debug_params.append("INTERNAL_ONLY")
     return runDebugQueryCommand(env, query_cmd, debug_params)
 
-def runDebugQueryCommandAndCrash(env, query_cmd):
-    debug_params = ['CRASH']
-    return env.expect(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)).error()
 
+def runDebugQueryCommandAndCrash(env, query_cmd, crash_in_rust=False):
+    debug_params = ["CRASH_IN_RUST" if crash_in_rust else "CRASH"]
+    return env.expect(
+        debug_cmd(), *query_cmd, *debug_params, "DEBUG_PARAMS_COUNT", len(debug_params)
+    ).error()
 
 
 def runDebugQueryCommandPauseAfterRPAfterN(env, query_cmd, rp_type, pause_after_n):
