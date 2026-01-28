@@ -671,8 +671,8 @@ def extract_profile_coordinator_and_shards(env, res):
     if shards is not None:
       # Cluster mode - shards dict at top level
       shards_list = list(shards.values()) if isinstance(shards, dict) else shards
-      # Filter out Coordinator from shards list (it has 'Total Coordinator time' instead of 'Total profile time')
-      shards_list = [s for s in shards_list if 'Total profile time' in s]
+      # Filter out Coordinator from shards list (it has 'Total Coordinator time' key)
+      shards_list = [s for s in shards_list if 'Total Coordinator time' not in s]
       coordinator = res.get('coordinator', res.get('Coordinator', {}))
       return coordinator, shards_list
 
