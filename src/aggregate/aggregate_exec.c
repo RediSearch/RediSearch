@@ -892,6 +892,15 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
+
+  // Capture queue time: time spent waiting in the workers thread pool queue.
+  // initClock was set before enqueueing, so elapsed time is the queue wait time.
+  // Reset initClock so that subsequent timing (parsing, pipeline build) starts fresh.
+  if (IsProfile(req)) {
+    req->profileQueueTime = rs_wall_clock_elapsed_ns(&req->initClock);
+    rs_wall_clock_init(&req->initClock);
+  }
+
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
   QueryError status = QueryError_Default();
 
