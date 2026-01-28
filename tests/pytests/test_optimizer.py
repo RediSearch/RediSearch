@@ -245,10 +245,8 @@ def testOptimizer(env):
 
     profiler =  {'Iterators profile':
                     ['Type', 'INTERSECT', 'Number of reading operations', 10, 'Child iterators', [
-                        ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 14, 'Estimated number of matches', 10000],
-                        ['Type', 'UNION', 'Query type', 'NUMERIC', 'Number of reading operations', 10, 'Child iterators', [
-                            ['Type', 'NUMERIC', 'Term', '0 - 10', 'Number of reading operations', 4, 'Estimated number of matches', 2400],
-                            ['Type', 'NUMERIC', 'Term', '12 - 52', 'Number of reading operations', 7, 'Estimated number of matches', 8400]]]]],
+                        ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 19, 'Estimated number of matches', 3200],
+                        ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 13, 'Estimated number of matches', 10000]]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Results processed', 9],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
@@ -270,9 +268,7 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '@n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19921', '19920'])
 
     profiler =  {'Iterators profile':
-                    ['Type', 'UNION', 'Query type', 'NUMERIC', 'Number of reading operations', 1200, 'Child iterators', [
-                        ['Type', 'NUMERIC', 'Term', '0 - 10', 'Number of reading operations', 400, 'Estimated number of matches', 2400],
-                        ['Type', 'NUMERIC', 'Term', '12 - 52', 'Number of reading operations', 800, 'Estimated number of matches', 8400]]],
+                    ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 1200, 'Estimated number of matches', 3200],
                  'Result processors profile': [
                     ['Type', 'Index', 'Results processed', 1200],
                     ['Type', 'Loader', 'Results processed', 1200],
@@ -293,9 +289,7 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '@n:[10 20]', 'limit', 0 , 3, *params).equal([1, '10', '11', '12'])
 
     profiler =  {'Iterators profile':
-                    ['Type', 'UNION', 'Query type', 'NUMERIC', 'Number of reading operations', 10, 'Child iterators', [
-                        ['Type', 'NUMERIC', 'Term', '0 - 10', 'Number of reading operations', 5, 'Estimated number of matches', 2400],
-                        ['Type', 'NUMERIC', 'Term', '12 - 52', 'Number of reading operations', 6, 'Estimated number of matches', 8400]]],
+                    ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 10, 'Estimated number of matches', 3200],
                  'Result processors profile': [
                     ['Type', 'Index', 'Results processed', 9],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
