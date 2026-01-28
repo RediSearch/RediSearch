@@ -7,7 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use value::RsValue;
+use std::mem::ManuallyDrop;
+use value::{RsValue, shared::SharedRsValue};
 
 /// Get a reference to an [`RsValue`] from a pointer.
 ///
@@ -26,4 +27,13 @@ pub(crate) const unsafe fn expect_value<'a>(value: *const RsValue) -> &'a RsValu
         // Safety: ensured by caller (1.)
         unsafe { value.unwrap_unchecked() }
     }
+}
+
+pub(crate) unsafe fn expect_shared_value(value: *const RsValue) -> ManuallyDrop<SharedRsValue> {
+    if cfg!(debug_assertions) && value.is_null() {
+        panic!("value must not be null");
+    }
+
+    let shared_value = unsafe { SharedRsValue::from_raw(value) };
+    ManuallyDrop::new(shared_value)
 }
