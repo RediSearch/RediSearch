@@ -379,9 +379,9 @@ impl<'a> QueryTermBuilder<'a> {
     /// It returns a raw pointer to the allocated `RSQueryTerm`.
     ///
     /// The caller is responsible for freeing the allocated memory
-    /// using [`Term_Free`](ffi::Term_Free).
+    /// using [`Term_Free`](query_term_ffi::Term_Free).
     #[allow(unused)]
-    pub(crate) fn allocate(self) -> *mut ffi::RSQueryTerm {
+    pub(crate) fn allocate(self) -> *mut query_term_ffi::RSQueryTerm {
         let Self {
             token,
             idf,
@@ -389,12 +389,11 @@ impl<'a> QueryTermBuilder<'a> {
             flags,
             bm25_idf,
         } = self;
-        let token = ffi::RSToken {
+        let token = query_term_ffi::RSToken {
             str_: token.as_ptr() as *mut _,
             len: token.len(),
-            _bitfield_align_1: Default::default(),
-            _bitfield_1: Default::default(),
-            __bindgen_padding_0: Default::default(),
+            expanded: 0,
+            flags,
         };
         let token_ptr = Box::into_raw(Box::new(token));
         let query_term = unsafe { query_term_ffi::NewQueryTerm(token_ptr as *mut _, id) };

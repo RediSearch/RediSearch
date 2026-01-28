@@ -13,23 +13,58 @@
 
 #![allow(non_camel_case_types, non_snake_case)]
 
-use ffi::{RSQueryTerm, RSToken};
-use query_term::{QueryTerm, Token};
 use redis_module::raw::{RedisModule_Alloc, RedisModule_Free};
 use std::{ffi::c_char, ptr, slice};
+
+/// Flags associated with a token.
+/// We support up to 30 user-given flags for each token; flags 1 and 2 are taken by the engine.
+pub type RSTokenFlags = u32;
+
+/// A token in the query.
+///
+/// The expanders receive query tokens and can expand the query with more query tokens.
+#[repr(C)]
+pub struct RSToken {
+    /// The token string - which may or may not be NULL terminated.
+    pub str_: *mut c_char,
+    /// The token length.
+    pub len: usize,
+    /// Is this token an expansion?
+    pub expanded: u8,
+    /// Extension set token flags.
+    pub flags: RSTokenFlags,
+}
+
+/// A single term being evaluated in query time.
+#[repr(C)]
+pub struct RSQueryTerm {
+    /// The term string, not necessarily NULL terminated, hence the length is given as well.
+    pub str_: *mut c_char,
+    /// The term length.
+    pub len: usize,
+    /// Inverse document frequency of the term in the index.
+    /// See <https://en.wikipedia.org/wiki/Tf%E2%80%93idf>
+    pub idf: f64,
+    /// Each term in the query gets an incremental id.
+    pub id: i32,
+    /// Flags given by the engine or by the query expander.
+    pub flags: RSTokenFlags,
+    /// Inverse document frequency of the term in the index for computing BM25.
+    pub bm25_idf: f64,
+}
 
 /// Creates a new query term from a token.
 ///
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `tok` must either be NULL or point to a valid `RSToken`.
-/// - If `tok->str` is not NULL, it must point to a valid memory region of at least `tok->len` bytes.
+/// - `tok` must either be NULL or point to a valid [`RSToken`].
+/// - If `tok->str_` is not NULL, it must point to a valid memory region of at least `tok->len` bytes.
 /// - The Redis allocator must be initialized before calling this function.
 ///
 /// # Returns
 ///
-/// A pointer to a newly allocated `RSQueryTerm`, or NULL if allocation fails.
+/// A pointer to a newly allocated [`RSQueryTerm`], or NULL if allocation fails.
 /// The caller is responsible for freeing this memory using [`Term_Free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewQueryTerm(tok: *const RSToken, id: i32) -> *mut RSQueryTerm {
@@ -42,20 +77,11 @@ pub unsafe extern "C" fn NewQueryTerm(tok: *const RSToken, id: i32) -> *mut RSQu
     let str_bytes: Option<&[u8]> = if tok.str_.is_null() || tok.len == 0 {
         None
     } else {
-        // SAFETY: Caller guarantees tok->str points to valid memory of tok->len bytes
+        // SAFETY: Caller guarantees tok->str_ points to valid memory of tok->len bytes
         Some(unsafe { slice::from_raw_parts(tok.str_ as *const u8, tok.len) })
     };
 
-    // Create a Rust Token, preserving flags and expanded state even for empty strings
-    let expanded = tok.expanded() != 0;
-    let flags = tok.flags();
-    let token = match str_bytes {
-        Some(bytes) => Token::new(bytes, expanded, flags),
-        None => Token::new(&[], expanded, flags),
-    };
-
-    // Create the QueryTerm
-    let query_term = QueryTerm::new(&token, id);
+    let flags = tok.flags;
 
     // Allocate memory for RSQueryTerm using Redis allocator
     // SAFETY: We're calling the Redis allocator which must be initialized per safety docs
@@ -67,7 +93,7 @@ pub unsafe extern "C" fn NewQueryTerm(tok: *const RSToken, id: i32) -> *mut RSQu
     }
 
     // Allocate and copy the string if present
-    let (str_ptr, str_len) = if let Some(bytes) = query_term.as_bytes() {
+    let (str_ptr, str_len) = if let Some(bytes) = str_bytes {
         let len = bytes.len();
         // SAFETY: rm_alloc is valid per safety docs
         let str_mem = unsafe { rm_alloc(len + 1) } as *mut c_char; // +1 for null terminator
@@ -90,18 +116,15 @@ pub unsafe extern "C" fn NewQueryTerm(tok: *const RSToken, id: i32) -> *mut RSQu
     };
 
     // Fill in the RSQueryTerm structure
-    // SAFETY: ret is a valid pointer allocated above
-    unsafe { (*ret).str_ = str_ptr };
-    // SAFETY: ret is a valid pointer allocated above
-    unsafe { (*ret).len = str_len };
-    // SAFETY: ret is a valid pointer allocated above
-    unsafe { (*ret).idf = query_term.idf };
-    // SAFETY: ret is a valid pointer allocated above
-    unsafe { (*ret).id = query_term.id };
-    // SAFETY: ret is a valid pointer allocated above
-    unsafe { (*ret).flags = query_term.flags };
-    // SAFETY: ret is a valid pointer allocated above
-    unsafe { (*ret).bm25_idf = query_term.bm25_idf };
+    // SAFETY: ret is a valid pointer allocated above, all writes are to valid fields
+    unsafe {
+        (*ret).str_ = str_ptr;
+        (*ret).len = str_len;
+        (*ret).idf = 1.0;
+        (*ret).id = id;
+        (*ret).flags = flags;
+        (*ret).bm25_idf = 0.0;
+    }
 
     ret
 }
@@ -111,7 +134,7 @@ pub unsafe extern "C" fn NewQueryTerm(tok: *const RSToken, id: i32) -> *mut RSQu
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must either be NULL or point to a valid `RSQueryTerm` allocated by [`NewQueryTerm`].
+/// - `t` must either be NULL or point to a valid [`RSQueryTerm`] allocated by [`NewQueryTerm`].
 /// - The Redis allocator must be initialized before calling this function.
 /// - `t` must not be used after calling this function.
 #[unsafe(no_mangle)]

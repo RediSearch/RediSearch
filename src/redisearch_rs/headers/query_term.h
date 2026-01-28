@@ -6,7 +6,67 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "redisearch.h"
+
+/**
+ * Flags associated with a token.
+ * We support up to 30 user-given flags for each token; flags 1 and 2 are taken by the engine.
+ */
+typedef uint32_t RSTokenFlags;
+
+/**
+ * A single term being evaluated in query time.
+ */
+typedef struct RSQueryTerm {
+  /**
+   * The term string, not necessarily NULL terminated, hence the length is given as well.
+   */
+  char *str_;
+  /**
+   * The term length.
+   */
+  uintptr_t len;
+  /**
+   * Inverse document frequency of the term in the index.
+   * See <https://en.wikipedia.org/wiki/Tf%E2%80%93idf>
+   */
+  double idf;
+  /**
+   * Each term in the query gets an incremental id.
+   */
+  int32_t id;
+  /**
+   * Flags given by the engine or by the query expander.
+   */
+  RSTokenFlags flags;
+  /**
+   * Inverse document frequency of the term in the index for computing BM25.
+   */
+  double bm25_idf;
+} RSQueryTerm;
+
+/**
+ * A token in the query.
+ *
+ * The expanders receive query tokens and can expand the query with more query tokens.
+ */
+typedef struct RSToken {
+  /**
+   * The token string - which may or may not be NULL terminated.
+   */
+  char *str_;
+  /**
+   * The token length.
+   */
+  uintptr_t len;
+  /**
+   * Is this token an expansion?
+   */
+  uint8_t expanded;
+  /**
+   * Extension set token flags.
+   */
+  RSTokenFlags flags;
+} RSToken;
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,16 +78,17 @@ extern "C" {
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `tok` must either be NULL or point to a valid `RSToken`.
- * - If `tok->str` is not NULL, it must point to a valid memory region of at least `tok->len` bytes.
+ * - `tok` must either be NULL or point to a valid [`RSToken`].
+ * - If `tok->str_` is not NULL, it must point to a valid memory region of at least `tok->len` bytes.
  * - The Redis allocator must be initialized before calling this function.
  *
  * # Returns
  *
- * A pointer to a newly allocated `RSQueryTerm`, or NULL if allocation fails.
+ * A pointer to a newly allocated [`RSQueryTerm`], or NULL if allocation fails.
  * The caller is responsible for freeing this memory using [`Term_Free`].
  */
-RSQueryTerm *NewQueryTerm(const RSToken *tok, int32_t id);
+struct RSQueryTerm *NewQueryTerm(const struct RSToken *tok,
+                                 int32_t id);
 
 /**
  * Frees a query term allocated by [`NewQueryTerm`].
@@ -35,11 +96,11 @@ RSQueryTerm *NewQueryTerm(const RSToken *tok, int32_t id);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must either be NULL or point to a valid `RSQueryTerm` allocated by [`NewQueryTerm`].
+ * - `t` must either be NULL or point to a valid [`RSQueryTerm`] allocated by [`NewQueryTerm`].
  * - The Redis allocator must be initialized before calling this function.
  * - `t` must not be used after calling this function.
  */
-void Term_Free(RSQueryTerm *t);
+void Term_Free(struct RSQueryTerm *t);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -21,19 +21,22 @@ pub type TokenFlags = u32;
 /// A token in the query.
 ///
 /// The expanders receive query tokens and can expand the query with more query tokens.
+///
+/// Compared to C it does not pack expand and flags into 32 bits.
+/// This is not considered relevant as it is not stored but only used to store query state.
 #[derive(Debug, Clone)]
-pub struct Token<'a> {
+pub struct RSToken<'a> {
     /// The token string - which may or may not be NULL terminated.
     str: Option<&'a [u8]>,
 
     /// Is this token an expansion?
     pub expanded: bool,
 
-    /// Extension set token flags - up to 31 bits.
+    /// Extension set token flags
     pub flags: TokenFlags,
 }
 
-impl<'a> Token<'a> {
+impl<'a> RSToken<'a> {
     /// Creates a new token from a byte slice.
     #[inline]
     pub const fn new(str: &'a [u8], expanded: bool, flags: TokenFlags) -> Self {
@@ -84,9 +87,9 @@ impl<'a> Token<'a> {
 
 /// A single term being evaluated in query time.
 #[derive(Debug, Clone)]
-pub struct QueryTerm {
+pub struct RSQueryTerm {
     /// The term string, stored as owned bytes.
-    str: Option<Box<[u8]>>,
+    str: Option<Vec<u8>>,
 
     /// Inverse document frequency of the term in the index.
     /// See <https://en.wikipedia.org/wiki/Tf%E2%80%93idf>
@@ -102,12 +105,12 @@ pub struct QueryTerm {
     pub bm25_idf: f64,
 }
 
-impl QueryTerm {
+impl RSQueryTerm {
     /// Creates a new query term from a token and an id.
     #[inline]
-    pub fn new(tok: &Token<'_>, id: i32) -> Self {
+    pub fn new(tok: &RSToken<'_>, id: i32) -> Self {
         Self {
-            str: tok.str.map(|s| s.to_vec().into_boxed_slice()),
+            str: tok.str.map(|s| s.to_vec()),
             idf: 1.0,
             id,
             flags: tok.flags,
@@ -148,7 +151,7 @@ mod tests {
 
     #[test]
     fn test_token_creation() {
-        let token = Token::from_str("hello", false, 0);
+        let token = RSToken::from_str("hello", false, 0);
         assert_eq!(token.as_bytes(), Some(b"hello".as_slice()));
         assert_eq!(token.len(), 5);
         assert!(!token.is_empty());
@@ -158,7 +161,7 @@ mod tests {
 
     #[test]
     fn test_empty_token() {
-        let token = Token::empty();
+        let token = RSToken::empty();
         assert!(token.as_bytes().is_none());
         assert_eq!(token.len(), 0);
         assert!(token.is_empty());
@@ -166,8 +169,8 @@ mod tests {
 
     #[test]
     fn test_query_term_creation() {
-        let token = Token::from_str("world", true, 42);
-        let term = QueryTerm::new(&token, 5);
+        let token = RSToken::from_str("world", true, 42);
+        let term = RSQueryTerm::new(&token, 5);
 
         assert_eq!(term.as_bytes(), Some(b"world".as_slice()));
         assert_eq!(term.len(), 5);
@@ -180,8 +183,8 @@ mod tests {
 
     #[test]
     fn test_query_term_from_empty_token() {
-        let token = Token::empty();
-        let term = QueryTerm::new(&token, 0);
+        let token = RSToken::empty();
+        let term = RSQueryTerm::new(&token, 0);
 
         assert!(term.as_bytes().is_none());
         assert_eq!(term.len(), 0);
