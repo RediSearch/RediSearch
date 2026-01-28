@@ -181,6 +181,10 @@ struct RsValue *RSValue_NewNumber(double value);
 
 double RSValue_Number_Get(const struct RsValue *value);
 
+void RSValue_SetNumber(struct RsValue *value, double n);
+
+void RSValue_SetNull(struct RsValue *value);
+
 /**
  * Creates a heap-allocated `RsValue` wrapping a string.
  * Doesn't duplicate the string. Use strdup if the value needs to be detached.
