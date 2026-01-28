@@ -17,4 +17,4 @@ Standards to follow when writing Rust documentation.
 - Focus on why, not how.
   In particular, avoid explaining trivial implementation details in line comments.
 - Refer to constants using intra-documentation links. Don't hard-code their values in the documentation of other items.
-- Intra-documentation links to private items are preferrable to duplication. Add `#[allow(rustdoc::private_intra_doc_links)]` where relevant.
+- Intra-documentation links to private items are preferable to duplication. Add `#[allow(rustdoc::private_intra_doc_links)]` where relevant.
