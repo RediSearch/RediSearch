@@ -134,21 +134,48 @@ impl CaptureState {
 
     /// Finalize the current array builder.
     pub(super) fn finalize_array(&mut self, _len: i64) {
-        if let Some(ContainerBuilder::Array { elements, .. }) = self.builder_stack.pop() {
-            self.push_value(ReplyValue::Array(elements));
+        match self.builder_stack.pop() {
+            Some(ContainerBuilder::Array { elements, .. }) => {
+                self.push_value(ReplyValue::Array(elements));
+            }
+            Some(ContainerBuilder::Map { .. }) => {
+                // Don't panic if we're already unwinding (e.g., nested builder panicked)
+                if !std::thread::panicking() {
+                    panic!("finalize_array called but top of stack is a Map");
+                }
+            }
+            None => {
+                // Don't panic if we're already unwinding
+                if !std::thread::panicking() {
+                    panic!("finalize_array called but builder stack is empty");
+                }
+            }
         }
     }
 
     /// Finalize the current map builder.
     pub(super) fn finalize_map(&mut self, _len: i64) {
-        if let Some(ContainerBuilder::Map {
-            pairs, pending_key, ..
-        }) = self.builder_stack.pop()
-        {
-            if pending_key.is_some() {
-                panic!("Map is being finalized, but the last key doesn't have a matching value");
+        match self.builder_stack.pop() {
+            Some(ContainerBuilder::Map {
+                pairs, pending_key, ..
+            }) => {
+                if pending_key.is_some() {
+                    panic!("Map is being finalized, but the last key doesn't have a matching value");
+                }
+                self.push_value(ReplyValue::Map(pairs));
             }
-            self.push_value(ReplyValue::Map(pairs));
+            Some(ContainerBuilder::Array { .. }) => {
+                // Don't panic if we're already unwinding
+                if !std::thread::panicking() {
+                    panic!("finalize_map called but top of stack is an Array");
+                }
+            }
+            None => {
+                // Don't panic if we're already unwinding
+                if !std::thread::panicking() {
+                    panic!("finalize_map called but builder stack is empty");
+                }
+            }
         }
     }
 
