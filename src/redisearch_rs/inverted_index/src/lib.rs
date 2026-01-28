@@ -656,9 +656,9 @@ impl<E: Encoder> InvertedIndex<E> {
     pub fn summary(&self) -> Summary {
         Summary {
             number_of_docs: self.n_unique_docs,
-            number_of_entries: self.n_unique_docs as usize,
+            number_of_entries: usize::try_from(self.n_unique_docs).unwrap(),
             last_doc_id: self.last_doc_id().unwrap_or(0),
-            flags: self.flags as _,
+            flags: u64::from(self.flags),
             number_of_blocks: self.blocks.len(),
             block_efficiency: 0.0,
             has_efficiency: false,
@@ -955,6 +955,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     }
 
     /// Return the debug summary for this inverted index.
+    #[expect(clippy::cast_precision_loss, reason = "TODO")]
     pub fn summary(&self) -> Summary {
         let mut summary = self.index.summary();
 
@@ -1331,7 +1332,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     }
 
     fn unique_docs(&self) -> u64 {
-        self.ii.unique_docs() as u64
+        u64::from(self.ii.unique_docs())
     }
 
     fn has_duplicates(&self) -> bool {

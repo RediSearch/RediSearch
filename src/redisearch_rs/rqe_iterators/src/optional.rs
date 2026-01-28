@@ -199,7 +199,7 @@ where
 
     #[inline(always)]
     fn num_estimated(&self) -> usize {
-        self.max_doc_id as usize
+        usize::try_from(self.max_doc_id).unwrap()
     }
 
     #[inline(always)]

@@ -1435,7 +1435,7 @@ impl<T: Copy + std::fmt::Debug, S: VecCapacity> ThinVec<T, S> {
         let prefix_len = prefix.len();
         let self_len = self.len();
         let new_len = prefix_len + self_len;
-        debug_assert!(new_len <= isize::MAX as usize);
+        debug_assert!(isize::try_from(new_len).is_ok());
 
         if prefix.is_empty() {
             return;

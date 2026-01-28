@@ -105,6 +105,7 @@ impl<T> RsValueCollection<T> {
     ///
     /// # Panics
     /// Panics if `iter.len()` exceeds `isize::MAX / size_of::<T>()`.
+    #[expect(clippy::cast_possible_truncation, reason = "manually checked")]
     pub fn collect_from_exact_size_iterator<I: ExactSizeIterator<Item = T>>(iter: I) -> Self {
         let len = iter.len();
         assert!(
@@ -132,6 +133,7 @@ impl<T> RsValueCollection<T> {
     ///
     /// # Panics
     /// Panics if `iter.len()` exceeds `isize::MAX / size_of::<T>()`.
+    #[expect(clippy::cast_possible_truncation, reason = "manually checked")]
     pub fn clone_from_exact_size_iterator<'m, I: ExactSizeIterator<Item = &'m T>>(iter: I) -> Self
     where
         T: Clone + 'm,

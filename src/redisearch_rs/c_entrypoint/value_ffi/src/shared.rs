@@ -189,6 +189,7 @@ pub extern "C" fn SharedRsValue_NewNumber(n: f64) -> *const RsValue {
 /// @param ii The int64 value to convert and wrap
 /// @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Number`
 #[unsafe(no_mangle)]
+#[expect(clippy::cast_precision_loss, reason = "expected")]
 pub extern "C" fn SharedRsValue_NewNumberFromInt64(dd: i64) -> *const RsValue {
     let shared_value = SharedRsValue::new(RsValue::Number(dd as f64));
     shared_value.into_raw()

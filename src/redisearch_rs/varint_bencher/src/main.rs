@@ -7,6 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_lossless,
+    clippy::float_arithmetic
+)]
+
 use std::hint::black_box;
 use varint::*;
 

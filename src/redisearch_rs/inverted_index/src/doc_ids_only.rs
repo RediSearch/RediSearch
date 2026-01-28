@@ -43,7 +43,7 @@ impl Decoder for DocIdsOnly {
     ) -> std::io::Result<()> {
         let delta = u32::read_as_varint(cursor)?;
 
-        result.doc_id = base + delta as t_docId;
+        result.doc_id = base + t_docId::from(delta);
         Ok(())
     }
 

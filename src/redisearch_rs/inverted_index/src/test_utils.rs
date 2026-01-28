@@ -38,7 +38,8 @@ impl TestTermRecord<'_> {
         });
 
         let offsets_ptr = offsets.as_ptr() as *mut _;
-        let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
+        let rs_offsets =
+            RSOffsetVector::with_data(offsets_ptr, u32::try_from(offsets.len()).unwrap());
 
         let record =
             RSIndexResult::term_with_term_ptr(&mut *term, rs_offsets, doc_id, field_mask, freq)

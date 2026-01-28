@@ -25,6 +25,9 @@
     clippy::approx_constant,
     clippy::missing_const_for_fn,
     clippy::disallowed_types,
+    clippy::cast_lossless,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
     rustdoc::invalid_html_tags,
     rustdoc::broken_intra_doc_links
 )]
