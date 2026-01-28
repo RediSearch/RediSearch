@@ -11,4 +11,5 @@
 
 pub mod collection;
 pub mod shared;
+pub mod util;
 pub mod value_type;

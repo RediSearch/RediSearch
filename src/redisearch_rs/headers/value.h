@@ -17,6 +17,22 @@
 
 
 /**
+ * Enumeration of the types an [`RsValue`] can be of.
+ *
+ */
+typedef enum RsValueType {
+  RsValueType_Undef = 0,
+  RsValueType_Number = 1,
+  RsValueType_String = 2,
+  RsValueType_Null = 3,
+  RsValueType_RedisString = 4,
+  RsValueType_Array = 5,
+  RsValueType_Reference = 6,
+  RsValueType_Trio = 7,
+  RsValueType_Map = 8,
+} RsValueType;
+
+/**
  * An actual [`RsValue`] object
  */
 typedef struct RsValue RsValue;
@@ -290,6 +306,69 @@ const struct RsValue *SharedRsValue_NewTrio(const struct RsValue *left,
  * - (2) `v` must be a number value.
  */
 double SharedRsValue_Number_Get(const struct RsValue *v);
+
+/**
+ * Returns the type of the given [`RsValue`].
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
+enum RsValueType RSValue_Type(const struct RsValue *value);
+
+/**
+ * Returns whether the given [`RsValue`] is a reference type, or `false` if `value` is NULL.
+ *
+ * # Safety
+ *
+ * 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
+bool RSValue_IsReference(const struct RsValue *value);
+
+/**
+ * Returns whether the given [`RsValue`] is a number type, or `false` if `value` is NULL.
+ *
+ * # Safety
+ *
+ * 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
+bool RSValue_IsNumber(const struct RsValue *value);
+
+/**
+ * Returns whether the given [`RsValue`] is a string type (any string variant), or `false` if `value` is NULL.
+ *
+ * # Safety
+ *
+ * 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
+bool RSValue_IsString(const struct RsValue *value);
+
+/**
+ * Returns whether the given [`RsValue`] is an array type, or `false` if `value` is NULL.
+ *
+ * # Safety
+ *
+ * 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
+bool RSValue_IsArray(const struct RsValue *value);
+
+/**
+ * Returns whether the given [`RsValue`] is a trio type, or `false` if `value` is NULL.
+ *
+ * # Safety
+ *
+ * 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
+bool RSValue_IsTrio(const struct RsValue *value);
+
+/**
+ * Returns whether the given [`RsValue`] is a null pointer, a null type, or a reference to a null type.
+ *
+ * # Safety
+ *
+ * 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
+bool RSValue_IsNull(const struct RsValue *value);
 
 #ifdef __cplusplus
 }  // extern "C"
