@@ -30,6 +30,7 @@ workspace_hack.workspace = true
 [dev-dependencies]
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
+query_term_ffi = { path = "../c_entrypoint/query_term_ffi" }
 rqe_iterators = { path = ".", features = ["unittest"] }
 
 # Crate required to invoke C symbols

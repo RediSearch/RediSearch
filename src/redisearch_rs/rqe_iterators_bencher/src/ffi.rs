@@ -432,7 +432,7 @@ impl<'a> QueryTermBuilder<'a> {
             __bindgen_padding_0: Default::default(),
         };
         let token_ptr = Box::into_raw(Box::new(token));
-        let query_term = unsafe { ffi::NewQueryTerm(token_ptr as *mut _, id) };
+        let query_term = unsafe { query_term_ffi::NewQueryTerm(token_ptr as *mut _, id) };
 
         // Now that NewQueryTerm copied tok->str into ret->str,
         // the temporary token struct is no longer needed.

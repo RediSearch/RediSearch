@@ -6,9 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#pragma once
 
-// This header now delegates to the Rust FFI implementation.
-// The functions NewQueryTerm and Term_Free are implemented in Rust
-// in src/redisearch_rs/c_entrypoint/query_term_ffi/
-#include "redisearch_rs/headers/query_term.h"
+use build_utils::run_cbinden;
+
+fn main() {
+    run_cbinden("../../headers/query_term.h").unwrap();
+}
