@@ -15,6 +15,7 @@ members = [
     "query_error",
     "redis_json_api",
     "redis_mock",
+    "redis_reply",
     "result_processor",
     "rlookup",
     "rqe_iterators",
