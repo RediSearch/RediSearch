@@ -607,7 +607,7 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
   ASSERT_EQ(vq->range.radius, 0.5);
-  ASSERT_EQ(vq->range.order, BY_SCORE);
+  ASSERT_EQ(vq->range.order, BY_ID);
 
   // Verify BLOB parameter was correctly resolved (parameter resolution test)
   const char* expectedBlob = TEST_BLOB_DATA;
@@ -644,7 +644,9 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
   ASSERT_EQ(vq->range.radius, 0.8);
-  ASSERT_EQ(vq->range.order, BY_SCORE);
+  // RANGE queries in FT.HYBRID use BY_ID because they're combined with a filter
+  // via a PHRASE node which requires ID-sorted results
+  ASSERT_EQ(vq->range.order, BY_ID);
 
   // Verify BLOB parameter was correctly resolved (parameter resolution test)
   const char* expectedBlob = TEST_BLOB_DATA;

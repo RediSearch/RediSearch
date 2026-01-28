@@ -419,7 +419,14 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
       goto error;
     }
     vq->type = VECSIM_QT_RANGE;
-    vq->range.order = BY_SCORE;
+    // RANGE queries in FT.HYBRID are always combined with a filter
+    // (implicit '*' or explicit) via a PHRASE node which creates an
+    // intersection.
+    // The intersection iterator uses SkipTo which requires results to be
+    // sorted by document ID. This matches FT.SEARCH behavior where RANGE
+    // queries are also ordered by document ID by default
+    // (see NewVectorNode_WithParams in query.c).
+    vq->range.order = BY_ID;
   }
 
   // Check for optional FILTER clause - argument may not be in our scope
