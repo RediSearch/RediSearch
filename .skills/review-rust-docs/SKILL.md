@@ -16,15 +16,6 @@ If the path points to a directory, review the documentation of all Rust files in
 
 ## Instructions
 
-Read the documentation of the specific Rust files and ensure they meet the following requirements:
-
-- Key concepts should be explained only once. All other documentation should use an intra-documentation link to the first explanation.
-- Always use an intra-documentation link when mentioning a Rust symbol (type, function, constant, etc.).
-- Avoid referring to specific lines or line ranges, as they may change over time.
-  Use line comments if the documentation needs to be attached to a specific code section inside
-  a function/method body.
-- Focus on why, not how.
-  In particular, avoid explaining trivial implementation details in line comments.
-- Refer to constants using intra-documentation links. Don't hard-code their values in the documentation of other items.
+Read the documentation of the specific Rust files and ensure they meet the guidelines outlined in [`rust-docs-guidelines`](../rust-docs-guidelines/SKILL.md).
 
 Emit a report for all non-conforming locations you find, with an explanation of why they are non-conforming and a suggestion for improvement.
