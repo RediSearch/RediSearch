@@ -84,6 +84,8 @@ do {                                            \
 
 // Forward declaration of searchReducerCtx
 struct searchReducerCtx;
+// Forward declaration of searchProfileReducerCtx
+struct searchProfileReducerCtx;
 
 typedef struct {
   char *queryString;
@@ -110,6 +112,7 @@ typedef struct {
   bool queryOOM;
 
   struct searchReducerCtx *rctx;
+  struct searchProfileReducerCtx *profileRctx;
 } searchRequestCtx;
 
 bool debugCommandsEnabled(RedisModuleCtx *ctx);

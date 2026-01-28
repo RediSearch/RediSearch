@@ -1942,6 +1942,12 @@ typedef struct searchReducerCtx {
   MRReply *warning;
 } searchReducerCtx;
 
+typedef struct searchProfileReducerCtx {
+  // Parameters needed for profileSearchReply
+  int count;
+  MRReply **replies;
+} searchProfileReducerCtx;
+
 typedef struct {
   searchResult* result;
   double score;
@@ -3084,23 +3090,29 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
+
   searchReducerCtx *rCtx = rm_calloc(1, sizeof(searchReducerCtx));
   // Save the rctx in the request so it can be used in reply_callback of unblock client
   req->rctx = rCtx;
+
   int profile = req->profileArgs > 0;
+
+  if (profile) {
+    searchProfileReducerCtx *profileRctx = rm_calloc(1, sizeof(searchProfileReducerCtx));
+    profileRctx->count = count;
+    profileRctx->replies = replies;
+    // Save the profileRctx in the request so it can be used in reply_callback of unblock client
+    req->profileRctx = profileRctx;
+  }
+
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   int res = REDISMODULE_OK;
   // got no replies - this means timeout
   if (count == 0 || req->limit < 0) {
-    if (!profile) {
-      // For non-profile, reply with error and abort the block
-      res = RedisModule_Reply_Error(reply, "Could not send query to cluster");
-      RedisModule_EndReply(reply);
-      goto error_abort;
-    }
     res = RedisModule_Reply_Error(reply, "Could not send query to cluster");
-    goto cleanup;
+    RedisModule_EndReply(reply);
+    goto error_abort;
   }
 
   // Traverse the replies, check for early bail-out which we want for all errors
@@ -3114,14 +3126,9 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       if (should_return_error(errCode)) {
         // Track error in global statistics
         QueryErrorsGlobalStats_UpdateError(errCode, 1, COORD_ERR_WARN);
-        if (!profile) {
-          // For non-profile, reply with error and abort the block
-          res = MR_ReplyWithMRReply(reply, curr_rep);
-          RedisModule_EndReply(reply);
-          goto error_abort;
-        }
         res = MR_ReplyWithMRReply(reply, curr_rep);
-        goto cleanup;
+        RedisModule_EndReply(reply);
+        goto error_abort;
       }
     }
   }
@@ -3188,63 +3195,25 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   if (rCtx->errorOccurred && !rCtx->lastError) {
-    if (!profile) {
-      RedisModule_Reply_Error(reply, "could not parse redisearch results");
-      RedisModule_EndReply(reply);
-      goto error_abort;
-    }
     RedisModule_Reply_Error(reply, "could not parse redisearch results");
-    goto cleanup;
+    RedisModule_EndReply(reply);
+    goto error_abort;
   }
 
 
   // End of reduce logic
   // Start of reply logic
-
-  // If not FT.PROFILE, reply using the reply_callback of unblock client
-  if (!profile) {
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    int unblockRes = RedisModule_UnblockClient(bc, mc);
-    RedisModule_FreeThreadSafeContext(ctx);
-    if (unblockRes != REDISMODULE_OK) {
-      // Client was already unblocked (e.g., by timeout). We need to clean up ourselves
-      // since free_privdata won't be called with our mc.
-      DistSearchFreePrivData(NULL, mc);
-    }
-    return res;
-  }
-
-  profileSearchReply(reply, rCtx, count, replies, &req->profileClock, rs_wall_clock_now_ns());
-  rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
-  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, duration);
-
-cleanup:
-  // Cleanup for profile path (errors and success)
-  RedisModule_EndReply(reply);
-
-  if (rCtx->pq) {
-    heap_destroy(rCtx->pq);
-  }
-  if (rCtx->reduceSpecialCaseCtxKnn &&
-      rCtx->reduceSpecialCaseCtxKnn->knn.pq) {
-    heap_destroy(rCtx->reduceSpecialCaseCtxKnn->knn.pq);
-    rCtx->reduceSpecialCaseCtxKnn->knn.pq = NULL;
-  }
-  rm_free(rCtx);
-
   RedisModule_BlockedClientMeasureTimeEnd(bc);
-  RedisModule_UnblockClient(bc, NULL);
+  int unblockRes = RedisModule_UnblockClient(bc, mc);
   RedisModule_FreeThreadSafeContext(ctx);
-  // We could pass `mc` to the unblock function to perform the next 3 cleanup steps, but
-  // this way we free the memory from the background after the client is unblocked,
-  // which is a bit more efficient.
-  // The unblocking callback also replies with error if there was 0 replies from the shards,
-  // and since we already replied with error in this case (in the beginning of this function),
-  // we can't pass `mc` to the unblock function.
-  searchRequestCtx_Free(req);
-  MRCtx_RequestCompleted(mc);
-  MRCtx_Free(mc);
+  if (unblockRes != REDISMODULE_OK) {
+    // Client was already unblocked (e.g., by timeout). We need to clean up ourselves
+    // since free_privdata won't be called with our mc.
+    DistSearchFreePrivData(NULL, mc);
+  }
+
   return res;
+
 
 error_abort:
   // Error path for non-profile: reply already sent, abort the block
@@ -3889,14 +3858,20 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
     }
 
     searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+
+    searchReducerCtx *rCtx = req->rctx;
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+
     if (req->profileArgs > 0) {
-      // Reply callback is not implemented yet for profile
-      return REDISMODULE_OK;
+      // Profile command
+      RS_ASSERT(req->profileRctx);
+      searchProfileReducerCtx *profileRctx = req->profileRctx;
+      profileSearchReply(reply, rCtx, profileRctx->count, profileRctx->replies, &req->profileClock, rs_wall_clock_now_ns());
+    } else {
+      // Non-profile command
+      sendSearchResults(reply, rCtx);
     }
 
-    searchReducerCtx *rctx = req->rctx;
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    sendSearchResults(reply, rctx);
     RedisModule_EndReply(reply);
 
     rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
@@ -3927,6 +3902,13 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
       rm_free(rctx);
     }
 
+    // Free the profile reducer context if it was allocated
+    searchProfileReducerCtx *profileRctx = req->profileRctx;
+    if (profileRctx) {
+      rm_free(profileRctx);
+      req->profileRctx = NULL;
+    }
+
     searchRequestCtx_Free(req);
     MRCtx_RequestCompleted(mrctx);
     MRCtx_Free(mrctx);
@@ -3949,7 +3931,6 @@ static int initQueryTimeout(long long *timeout, RedisModuleString **argv, int ar
     // parseTimeout validates non-negative timeout and returns error if no argument is provided
     return parseTimeout(timeout, &ac, status);
   }
-
   return REDISMODULE_OK;
 }
 
@@ -3989,11 +3970,10 @@ static RedisModuleBlockedClient* DistSearchBlockClientWithTimeout(RedisModuleCtx
   RS_ASSERT(queryTimeout >= 0);
 
   BlockedClientTimeoutCB timeoutCallback = NULL;
-  BlockedClientFreePrivDataCB freePrivDataCallback = NULL;
+  BlockedClientFreePrivDataCB freePrivDataCallback = DistSearchFreePrivData;
 
   if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
     timeoutCallback = DistSearchTimeoutFailClient;
-    freePrivDataCallback = DistSearchFreePrivData;
   } else {
     queryTimeout = 0;
     timeoutCallback = NULL;
