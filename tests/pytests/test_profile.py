@@ -1331,14 +1331,7 @@ def get_shard_parsing_time(env, profile_result):
 
 @skip(cluster=False)
 def testParsingTimeDoesNotIncludeCoordQueueTime():
-  """
-  VALIDATION TEST: Confirms coordinator queue time is NOT included in shard's Parsing time.
-
-  When coordinator thread pool is paused, the query waits in the coordinator queue.
-  The shard's "Parsing time" should NOT include this coordinator queue wait.
-
-  Expected behavior: Parsing time < pause_duration_ms (coordinator queue is separate)
-  """
+  """Confirms coordinator queue time is NOT included in shard's Parsing time."""
   env = Env(protocol=3, shardsCount=2, moduleArgs='WORKERS 1')
   conn = getConnectionByEnv(env)
   # Enable verbose profile output to get Parsing time
@@ -1402,16 +1395,7 @@ def get_coordinator_queue_time(profile_result):
 
 @skip(cluster=True)
 def testWorkersQueueTimeInProfile():
-  """
-  TEST 2: Verifies that Workers queue time is correctly captured and separated from Parsing time.
-
-  When workers thread pool is paused, the query waits in the workers queue.
-  After the fix:
-  - "Workers queue time" should capture the queue wait time (>= pause_duration)
-  - "Parsing time" should NOT include the queue wait time (< pause_duration)
-
-  This test verifies the fix for the bug where Parsing time incorrectly included queue wait time.
-  """
+  """Verifies Workers queue time is captured and separated from Parsing time."""
   env = Env(protocol=3, moduleArgs='WORKERS 1')
   conn = getConnectionByEnv(env)
   # Enable verbose profile output to get timing details
@@ -1444,15 +1428,7 @@ def testWorkersQueueTimeInProfile():
 
 @skip(cluster=False)
 def testCoordinatorQueueTimeInProfile():
-  """
-  TEST 3: Verifies that Coordinator queue time is correctly captured in cluster mode.
-
-  When coordinator thread pool is paused, the query waits in the coordinator queue.
-  After the fix:
-  - "Coordinator queue time" should capture the queue wait time (>= pause_duration)
-
-  This test verifies the fix for the coordinator queue time tracking.
-  """
+  """Verifies Coordinator queue time is correctly captured in cluster mode."""
   env = Env(protocol=3, shardsCount=2)
   conn = getConnectionByEnv(env)
   # Enable verbose profile output to get timing details
