@@ -43,8 +43,11 @@ use std::marker::PhantomData;
 use thiserror::Error;
 
 mod fnv;
+mod wyhash;
 
 pub use fnv::CFnvHasher;
+pub use hash32::Hasher as Hasher32;
+pub use wyhash::WyHasher;
 
 /// Murmur3 hasher with good hash distribution.
 ///
