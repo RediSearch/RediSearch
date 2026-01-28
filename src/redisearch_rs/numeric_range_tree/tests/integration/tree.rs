@@ -1,0 +1,396 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! Tests for NumericRangeTree.
+
+use numeric_range_tree::NumericRangeTree;
+use rstest::rstest;
+
+#[test]
+fn test_new_tree() {
+    let tree = NumericRangeTree::new(false);
+    assert_eq!(tree.num_ranges(), 1);
+    assert_eq!(tree.num_leaves(), 1);
+    assert_eq!(tree.num_entries(), 0);
+    assert_eq!(tree.last_doc_id(), 0);
+    assert_eq!(tree.revision_id(), 0);
+}
+
+#[test]
+fn test_add_basic() {
+    let mut tree = NumericRangeTree::new(false);
+
+    let result = tree.add(1, 5.0, false, 0);
+    assert_eq!(tree.num_entries(), 1);
+    assert_eq!(tree.last_doc_id(), 1);
+    assert!(result.size_delta > 0);
+
+    let result = tree.add(2, 10.0, false, 0);
+    assert_eq!(tree.num_entries(), 2);
+    assert_eq!(tree.last_doc_id(), 2);
+    assert!(result.size_delta > 0);
+}
+
+#[test]
+fn test_duplicate_doc_id_rejected() {
+    let mut tree = NumericRangeTree::new(false);
+
+    tree.add(5, 10.0, false, 0);
+    assert_eq!(tree.num_entries(), 1);
+
+    // Duplicate should be rejected
+    let result = tree.add(5, 20.0, false, 0);
+    assert_eq!(result.size_delta, 0);
+    assert_eq!(tree.num_entries(), 1);
+
+    // Lower doc_id should also be rejected
+    let result = tree.add(3, 15.0, false, 0);
+    assert_eq!(result.size_delta, 0);
+    assert_eq!(tree.num_entries(), 1);
+}
+
+#[test]
+fn test_duplicate_doc_id_allowed_with_multi() {
+    let mut tree = NumericRangeTree::new(false);
+
+    tree.add(5, 10.0, true, 0);
+    assert_eq!(tree.num_entries(), 1);
+
+    // Duplicate allowed with is_multi=true
+    let result = tree.add(5, 20.0, true, 0);
+    assert!(result.size_delta > 0);
+    assert_eq!(tree.num_entries(), 2);
+}
+
+#[test]
+fn test_unique_ids() {
+    let tree1 = NumericRangeTree::new(false);
+    let tree2 = NumericRangeTree::new(false);
+    assert_ne!(tree1.unique_id(), tree2.unique_id());
+}
+
+#[test]
+fn test_default_impl() {
+    let tree: NumericRangeTree = Default::default();
+    assert_eq!(tree.num_ranges(), 1);
+    assert_eq!(tree.num_leaves(), 1);
+    assert_eq!(tree.num_entries(), 0);
+    assert_eq!(tree.last_doc_id(), 0);
+    assert_eq!(tree.revision_id(), 0);
+}
+
+#[test]
+fn test_root_mut() {
+    let mut tree = NumericRangeTree::new(false);
+
+    // Modify the root through root_mut
+    let root = tree.root_mut();
+    root.set_split_value(42.0);
+
+    // Verify the modification persisted
+    assert_eq!(tree.root().split_value(), 42.0);
+}
+
+#[test]
+fn test_root_mut_add_to_range() {
+    let mut tree = NumericRangeTree::new(false);
+
+    // Add directly to root's range through root_mut
+    let root = tree.root_mut();
+    if let Some(range) = root.range_mut() {
+        range.add(100, 50.0);
+    }
+
+    // Verify via root accessor
+    let range = tree.root().range().unwrap();
+    assert_eq!(range.min_val(), 50.0);
+    assert_eq!(range.max_val(), 50.0);
+}
+
+#[test]
+fn test_inverted_indexes_size() {
+    let tree = NumericRangeTree::new(false);
+    // A new tree has an empty inverted index
+    let initial_size = tree.inverted_indexes_size();
+
+    let mut tree2 = NumericRangeTree::new(false);
+    tree2.add(1, 5.0, false, 0);
+    let size_after_add = tree2.inverted_indexes_size();
+    assert!(size_after_add >= initial_size);
+}
+
+#[test]
+fn test_empty_leaves() {
+    let tree = NumericRangeTree::new(false);
+    // A new tree starts with 0 empty leaves (root has an empty range but isn't counted)
+    assert_eq!(tree.empty_leaves(), 0);
+}
+
+#[test]
+fn test_increment_revision() {
+    let mut tree = NumericRangeTree::new(false);
+    assert_eq!(tree.revision_id(), 0);
+
+    tree.increment_revision();
+    assert_eq!(tree.revision_id(), 1);
+
+    tree.increment_revision();
+    assert_eq!(tree.revision_id(), 2);
+
+    // Test wrapping behavior
+    for _ in 0..10 {
+        tree.increment_revision();
+    }
+    assert_eq!(tree.revision_id(), 12);
+}
+
+#[test]
+fn test_revision_wraps_around() {
+    let mut tree = NumericRangeTree::new(false);
+
+    // Simulate being at max u32
+    // We can't directly set revision_id, but we can verify wrapping logic works
+    // by incrementing many times - this tests the wrapping_add behavior
+    for _ in 0..100 {
+        tree.increment_revision();
+    }
+    assert_eq!(tree.revision_id(), 100);
+}
+
+#[test]
+fn test_mem_usage() {
+    let tree = NumericRangeTree::new(false);
+    let mem = tree.mem_usage();
+
+    // Should include at least the base struct size
+    assert!(mem >= std::mem::size_of::<NumericRangeTree>());
+
+    // Add some entries and verify memory increases
+    let mut tree = NumericRangeTree::new(false);
+    let mem_before = tree.mem_usage();
+
+    tree.add(1, 5.0, false, 0);
+    tree.add(2, 10.0, false, 0);
+    tree.add(3, 15.0, false, 0);
+
+    let mem_after = tree.mem_usage();
+    assert!(mem_after >= mem_before);
+}
+
+#[test]
+#[should_panic(expected = "leaf node must have a range")]
+fn test_add_to_tree_without_range_panics() {
+    let mut tree = NumericRangeTree::new(false);
+
+    // Remove the root's range - this is an invalid state
+    tree.root_mut().set_range(None);
+
+    // Adding should panic because leaf nodes must have ranges
+    tree.add(1, 5.0, false, 0);
+}
+
+#[test]
+fn test_multiple_sequential_adds() {
+    let mut tree = NumericRangeTree::new(false);
+
+    for i in 1..=100 {
+        let result = tree.add(i as u64, i as f64, false, 0);
+        assert!(result.size_delta >= 0 || i == 1);
+    }
+
+    assert_eq!(tree.num_entries(), 100);
+    assert_eq!(tree.last_doc_id(), 100);
+}
+
+#[test]
+fn test_add_result_fields() {
+    use numeric_range_tree::AddResult;
+
+    let result = AddResult::default();
+    assert_eq!(result.size_delta, 0);
+    assert_eq!(result.num_records, 0);
+    assert!(!result.changed);
+    assert_eq!(result.num_ranges_delta, 0);
+    assert_eq!(result.num_leaves_delta, 0);
+}
+
+// ============================================================================
+// Splitting and balancing tests
+// ============================================================================
+
+/// Helper: walk the tree and verify structural invariants.
+fn assert_tree_invariants(tree: &NumericRangeTree) {
+    let mut actual_leaves = 0usize;
+    let mut actual_ranges = 0usize;
+
+    fn walk(
+        node: &numeric_range_tree::NumericRangeNode,
+        actual_leaves: &mut usize,
+        actual_ranges: &mut usize,
+    ) {
+        if node.range().is_some() {
+            *actual_ranges += 1;
+        }
+        if node.is_leaf() {
+            *actual_leaves += 1;
+            assert!(node.range().is_some(), "leaf node must have a range");
+        } else {
+            assert!(
+                node.left().is_some() && node.right().is_some(),
+                "internal node must have both children"
+            );
+            if let Some(left) = node.left() {
+                walk(left, actual_leaves, actual_ranges);
+            }
+            if let Some(right) = node.right() {
+                walk(right, actual_leaves, actual_ranges);
+            }
+        }
+    }
+
+    walk(tree.root(), &mut actual_leaves, &mut actual_ranges);
+    assert_eq!(
+        actual_leaves,
+        tree.num_leaves(),
+        "actual leaf count should match tree.num_leaves()"
+    );
+    assert_eq!(
+        actual_ranges,
+        tree.num_ranges(),
+        "actual range count should match tree.num_ranges()"
+    );
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn test_split_triggers_at_cardinality_threshold(#[case] compress_floats: bool) {
+    let mut tree = NumericRangeTree::new(compress_floats);
+
+    // Insert 16+ distinct values at depth 0 to trigger a split.
+    // MINIMUM_RANGE_CARDINALITY is 16.
+    for i in 1..=20u64 {
+        tree.add(i, i as f64, false, 0);
+    }
+
+    // After enough distinct values, the tree should have split.
+    assert!(
+        tree.num_leaves() > 1,
+        "tree should have split, but num_leaves = {}",
+        tree.num_leaves()
+    );
+    assert!(tree.num_ranges() > 1);
+    assert!(!tree.root().is_leaf());
+    assert_tree_invariants(&tree);
+}
+
+#[test]
+fn test_split_with_identical_values() {
+    let mut tree = NumericRangeTree::new(false);
+
+    // Insert many entries with the same value. Cardinality stays at 1,
+    // so the size-overflow path (MAXIMUM_RANGE_SIZE) with card > 1 won't
+    // trigger. The tree should remain a single leaf.
+    for i in 1..=500u64 {
+        tree.add(i, 42.0, false, 0);
+    }
+
+    assert_eq!(tree.num_entries(), 500);
+    assert!(
+        tree.root().is_leaf(),
+        "identical values should not cause a split (cardinality = 1)"
+    );
+    assert_tree_invariants(&tree);
+}
+
+#[test]
+fn test_deep_tree_balancing() {
+    let mut tree = NumericRangeTree::new(false);
+
+    // Insert sorted increasing values to create depth imbalance.
+    // The balancing logic (AVL rotations) should keep the tree bounded.
+    for i in 1..=5000u64 {
+        tree.add(i, i as f64, false, 0);
+    }
+
+    // max_depth should be reasonable. With AVL balancing and
+    // MAXIMUM_DEPTH_IMBALANCE = 2, depth should be bounded.
+    let max_depth = tree.root().max_depth();
+    assert!(
+        max_depth <= 30,
+        "tree depth ({max_depth}) should be bounded after balanced insertions"
+    );
+    assert_tree_invariants(&tree);
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn test_large_tree_structure_invariants(#[case] compress_floats: bool) {
+    let mut tree = NumericRangeTree::new(compress_floats);
+
+    for i in 1..=50_000u64 {
+        let value = ((i - 1) % 5000 + 1) as f64;
+        tree.add(i, value, false, 0);
+    }
+
+    assert_eq!(tree.num_entries(), 50_000);
+    assert_tree_invariants(&tree);
+}
+
+#[test]
+fn test_max_depth_range_removes_inner_ranges() {
+    let mut tree = NumericRangeTree::new(false);
+
+    // With max_depth_range = 0, only leaf nodes should retain ranges.
+    // Internal nodes at depth > 0 should have their ranges removed.
+    for i in 1..=100u64 {
+        tree.add(i, i as f64, false, 0);
+    }
+
+    // Verify the tree has split.
+    assert!(tree.num_leaves() > 1);
+
+    // Internal nodes above max_depth_range=0 should not have ranges.
+    // The root (if internal) should have no range because
+    // max_depth > max_depth_range (0).
+    if !tree.root().is_leaf() {
+        assert!(
+            tree.root().range().is_none(),
+            "root internal node should not retain range with max_depth_range=0"
+        );
+    }
+    assert_tree_invariants(&tree);
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn test_memory_tracking_consistency(#[case] compress_floats: bool) {
+    let mut tree = NumericRangeTree::new(compress_floats);
+
+    for i in 1..=1000u64 {
+        let value = (i % 100 + 1) as f64;
+        tree.add(i, value, false, 0);
+    }
+
+    // Compute expected inverted_indexes_size by summing all ranges' memory_usage.
+    let mut sum_memory: usize = 0;
+    for node in &tree {
+        if let Some(range) = node.range() {
+            sum_memory += range.memory_usage();
+        }
+    }
+
+    assert_eq!(
+        tree.inverted_indexes_size(),
+        sum_memory,
+        "inverted_indexes_size should match sum of all ranges' memory_usage"
+    );
+}

@@ -17,6 +17,7 @@ use ffi::{
 };
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{IndexReader, NumericReader, RSIndexResult, TermReader};
+use numeric_range_tree_ffi::NumericRangeTree_GetRevisionId;
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
@@ -501,7 +502,7 @@ where
         let range_tree_info = range_tree.map(|tree| RangeTreeInfo {
             tree,
             // SAFETY: 4.
-            revision_id: unsafe { tree.as_ref().revisionId },
+            revision_id: unsafe { NumericRangeTree_GetRevisionId(tree.as_ptr() as *const _) },
         });
 
         let range_min = range_min.unwrap_or(f64::NEG_INFINITY);
@@ -526,7 +527,7 @@ where
         }
     }
 
-    const fn should_abort(&self) -> bool {
+    fn should_abort(&self) -> bool {
         if self.it.query_ctx.is_none() {
             return false;
         }
@@ -537,10 +538,10 @@ where
         };
 
         // SAFETY: 5. from [`Self::new`]
-        let rt = unsafe { info.tree.as_ref() };
+        let revision_id = unsafe { NumericRangeTree_GetRevisionId(info.tree.as_ptr() as *const _) };
         // If the revision id changed the numeric tree was either completely deleted or a node was split or removed.
         // The cursor is invalidated so we cannot revalidate the iterator.
-        rt.revisionId != info.revision_id
+        revision_id != info.revision_id
     }
 
     pub const fn range_min(&self) -> f64 {
