@@ -427,7 +427,7 @@ impl<'a> RLookup<'a> {
     pub fn load_rule_fields(
         &mut self,
         module_ctx: &mut ffi::RedisModuleCtx,
-        dst_row: &mut RLookupRow<value::RSValueFFI>,
+        dst_row: &mut RLookupRow<'a, value::RSValueFFI>,
         index_spec: &'a IndexSpec,
         key: &CStr,
     ) -> i32 {
