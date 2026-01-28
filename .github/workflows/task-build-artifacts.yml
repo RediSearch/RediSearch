@@ -1,0 +1,201 @@
+name: Build and Upload Artifacts
+
+# Added these to use JWT token to connect with AWS
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform name (e.g., ubuntu:noble, rockylinux:8)'
+        type: string
+        required: true
+      architecture:
+        description: 'Architecture (x86_64, aarch64)'
+        type: string
+        required: true
+      ref:
+        type: string
+        description: 'RediSearch reference to checkout (defaults to the ref of the triggering event)'
+      sha:
+        type: string
+        description: 'Optional: SHA to checkout. If not provided, `ref` will be used'
+      redis-ref:
+        type: string
+      beta-version:
+        type: string
+        description: 'Pre-generated beta version identifier for consistent versioning across builds'
+      version-suffix:
+        type: string
+        description: 'Suffix to append to version for consistent versioning across builds'
+        required: true
+
+env:
+  REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
+  BRANCH: ${{ inputs.ref || github.ref_name }}        # Define "branch" name for pack name (used in `make pack`)
+  AWS_ACCESS_KEY_ID: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
+  AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+
+jobs:
+  # Get configuration for this specific platform and architecture
+  get-config:
+    uses: ./.github/workflows/task-get-config.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+
+  build:
+    name: Build ${{ needs.get-config.outputs.name }}
+    needs: [get-config]
+    runs-on: ${{ needs.get-config.outputs.env || 'ubuntu-latest' }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    container: ${{
+      needs.get-config.outputs.container
+        && fromJSON(
+          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+            needs.get-config.outputs.container,
+            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared' || '')
+        )
+      || null }}
+
+    env:
+      VERBOSE: 1 # For logging
+      RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
+      # Build command
+      BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      SETUP_RETRY_LOOP: |
+        SUCCESS=0
+        for i in 1 2 3 4 5; do
+          echo "Attempt $i of 5"
+          if {0}; then
+            echo "Setup succeeded"
+            SUCCESS=1
+            break
+          fi
+          if [ $i -lt 5 ]; then
+            echo "Setup failed, retrying in 30 seconds..."
+            sleep 30
+          fi
+        done
+        [ $SUCCESS -eq 1 ] || exit 1
+    steps:
+      # Setup
+      - name: Install bash
+        if: needs.get-config.outputs.container == 'alpine:3.22'
+        shell: sh -l -eo pipefail {0}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
+      - name: Setup Dependencies
+        if: needs.get-config.outputs.setup_script
+        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
+      - name: Post-setup
+        if: needs.get-config.outputs.post_setup_script
+        run: ${{ needs.get-config.outputs.post_setup_script }}
+
+      - name: Get Installation Mode
+        id: mode
+        run: |
+          CONTAINER="${{ needs.get-config.outputs.container }}"
+          [[ -z "$CONTAINER" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.GH_CI_APP_ID }}
+          private-key: ${{ secrets.GH_CI_PRIVATE_KEY }}
+          owner: redislabsdev
+          repositories: |
+            Redis
+            RediSearchDisk
+            rust-speedb
+            speedb-ent
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ env.REF }}
+          token: ${{ steps.app-token.outputs.token }}
+      - name: Setup
+        working-directory: deps/RediSearch/.install
+        env:
+          INSTALL_MODE: ${{ steps.mode.outputs.mode }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, './install_script.sh $INSTALL_MODE') }}
+      - name: Install aws cli
+        working-directory: deps/RediSearch/.install
+        env:
+          INSTALL_MODE: ${{ steps.mode.outputs.mode }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, './install_aws.sh $INSTALL_MODE') }}
+      - name: Setup test dependencies
+        working-directory: deps/RediSearch
+        env:
+          INSTALL_MODE: ${{ steps.mode.outputs.mode }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, '.install/test_deps/common_installations.sh $INSTALL_MODE') }}
+      - name: install build artifacts req
+        working-directory: deps/RediSearch
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'uv pip install -q -r .install/build_package_requirments.txt') }}
+
+      # Get Redis
+      - name: Get Redis
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: ${{ inputs.redis-ref }}
+          path: redis
+      - name: Build Redis
+        working-directory: redis
+        run: ${{ steps.mode.outputs.mode }} make install
+
+      - name: Free up disk space (container)
+        # For container jobs - delete mounted host directories
+        if: ${{ needs.get-config.outputs.container }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          rm -rf /host_usr/dotnet/* 2>/dev/null || true
+          rm -rf /host_usr/android/* 2>/dev/null || true
+          rm -rf /host_opt/ghc/* 2>/dev/null || true
+          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+      - name: Free up disk space (non-container)
+        # For non-container jobs - delete directly with sudo
+        # Skip macOS - it doesn't have these directories
+        if: ${{ !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/share/boost || true
+          docker system prune -af 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+
+      # Build & Pack
+      - name: Build and Pack RediSearch Enterprise
+        env:
+          COORD: rlec
+          MAX_WORKER_THREADS: 8192
+          BUILD_INTEL_SVS_OPT: 1
+        run: ${{ env.BUILD_CMD }} && make pack
+
+      # Upload
+      - name: Configure AWS Credentials Using Role
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+
+      - name: Upload Artifacts
+        env:
+          BETA_VERSION: ${{ inputs.beta-version }}
+          VERSION_SUFFIX: ${{ inputs.version-suffix }}
+        run: make upload-artifacts

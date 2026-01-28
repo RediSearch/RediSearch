@@ -29,7 +29,6 @@ vtune_results/
 # CMake generated files
 cmake_install.cmake
 compile_commands.json
-Makefile
 CMakeCache.txt
 CMakeFiles/
 *.cmake
@@ -44,6 +43,7 @@ CMakeFiles/
 **/CMakeFiles/
 **/cmake_install.cmake
 **/Makefile
+!Makefile
 !**/CMakeLists.txt
 
 # Added by cargo

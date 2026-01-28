@@ -11,6 +11,7 @@ Usage: ./build.sh <command> [options]
 Commands:
   clean            Remove build artifacts
   build            Build artifacts
+  pack             Create distribution packages (enterprise build)
   lint             Lint Rust code (redisearch_disk)
   lint-vecsim      Lint C++ code (vecsim_disk)
   format           Fix Rust code formatting (redisearch_disk)
@@ -355,11 +356,31 @@ cmd_profile() {
   run_profile "${ROOT_DIR}" "${BUILD_DIR}" "$@"
 }
 
+cmd_pack() {
+  echo "[pack] Creating distribution packages (enterprise build)"
+  local redisearch_pack_script="${ROOT_DIR}/deps/RediSearch/sbin/pack.sh"
+
+  if [[ ! -f "${redisearch_pack_script}" ]]; then
+    echo "Error: RediSearch pack script not found at ${redisearch_pack_script}"
+    exit 1
+  fi
+
+  # Set enterprise-specific variables
+  export MODULE_NAME="search"
+  export PACKAGE_NAME="redisearch"
+  export RAMP_VARIANT="enterprise"
+  export RAMP_ARGS="--bigstore-version-2-support"
+
+  # Call RediSearch pack script
+  "${redisearch_pack_script}" "${BUILD_DIR}/redisearch.so" "$@"
+}
+
 main() {
   local cmd="${1:-}" || true
   case "${cmd}" in
     clean) shift; cmd_clean "$@" ;;
     build) shift; cmd_build "$@" ;;
+    pack) shift; cmd_pack "$@" ;;
     lint)  shift; cmd_lint "$@" ;;
     lint-vecsim) shift; cmd_lint_vecsim "$@" ;;
     format) shift; cmd_format "$@" ;;
