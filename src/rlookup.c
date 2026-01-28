@@ -583,10 +583,10 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       RedisJSON value;
       RedisJSONPtr value_ptr = japi->allocJson();
 
-      RSValueMap map = RSValueMap_AllocUninit(len);
+      RSValueMap *map = RSValueMap_AllocUninit(len);
       for (; (japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK); ++i) {
         value = *value_ptr;
-        RSValueMap_SetEntry(&map, i, RSValue_NewRedisString(keyName),
+        RSValueMap_SetEntry(map, i, RSValue_NewRedisString(keyName),
           jsonValToValueExpanded(ctx, value));
       }
       japi->freeJson(value_ptr);
@@ -613,7 +613,8 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       ret = RSValue_NewArray(arr, len);
     } else {
       // Empty array
-      ret = RSValue_NewArray(NULL, 0);
+      RSValue **arr = RSValue_AllocateArray(0);
+      ret = RSValue_NewArray(arr, 0);
     }
   } else {
     // Scalar
@@ -639,7 +640,8 @@ RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) 
     ret = RSValue_NewArray(arr, len);
   } else {
     // Empty array
-    ret = RSValue_NewArray(NULL, 0);
+    RSValue **arr = RSValue_AllocateArray(0);
+    ret = RSValue_NewArray(arr, 0);
   }
   return ret;
 }
