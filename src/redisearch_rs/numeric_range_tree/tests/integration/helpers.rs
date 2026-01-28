@@ -1,0 +1,158 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! Shared test helpers for the numeric range tree integration tests.
+
+use numeric_range_tree::{NodeGcDelta, NodeIndex, NumericRangeNode, NumericRangeTree};
+
+/// Walk the tree and verify structural invariants:
+/// - `num_leaves()` matches actual leaf count
+/// - `num_ranges()` matches actual range count
+pub fn assert_tree_invariants(tree: &NumericRangeTree) {
+    let mut actual_leaves = 0usize;
+    let mut actual_ranges = 0usize;
+
+    fn walk(
+        tree: &NumericRangeTree,
+        node_idx: NodeIndex,
+        actual_leaves: &mut usize,
+        actual_ranges: &mut usize,
+    ) {
+        let node = tree.node(node_idx);
+        if node.range().is_some() {
+            *actual_ranges += 1;
+        }
+        match node {
+            NumericRangeNode::Leaf(_) => {
+                *actual_leaves += 1;
+            }
+            NumericRangeNode::Internal(internal) => {
+                walk(tree, internal.left_index(), actual_leaves, actual_ranges);
+                walk(tree, internal.right_index(), actual_leaves, actual_ranges);
+            }
+        }
+    }
+
+    walk(
+        tree,
+        tree.root_index(),
+        &mut actual_leaves,
+        &mut actual_ranges,
+    );
+    assert_eq!(
+        actual_leaves,
+        tree.num_leaves(),
+        "actual leaf count should match tree.num_leaves()"
+    );
+    assert_eq!(
+        actual_ranges,
+        tree.num_ranges(),
+        "actual range count should match tree.num_ranges()"
+    );
+}
+
+/// Scan a single node and produce its GC delta, if any.
+pub fn scan_node_delta(
+    tree: &NumericRangeTree,
+    node_idx: NodeIndex,
+    doc_exist: &dyn Fn(u64) -> bool,
+) -> Option<NodeGcDelta> {
+    let node = tree.node(node_idx);
+    node.range()
+        .and_then(|range| {
+            range
+                .entries()
+                .scan_gc(doc_exist)
+                .expect("scan_gc should not fail")
+        })
+        .map(|delta| NodeGcDelta {
+            delta,
+            registers_with_last_block: [0u8; 64],
+            registers_without_last_block: [0u8; 64],
+        })
+}
+
+/// Like [`scan_node_delta`] but with custom HLL register values.
+pub fn scan_node_delta_with_hll(
+    tree: &NumericRangeTree,
+    node_idx: NodeIndex,
+    doc_exist: &dyn Fn(u64) -> bool,
+    hll_fn: impl Fn(&inverted_index::GcScanDelta) -> ([u8; 64], [u8; 64]),
+) -> Option<NodeGcDelta> {
+    let node = tree.node(node_idx);
+    node.range()
+        .and_then(|range| {
+            range
+                .entries()
+                .scan_gc(doc_exist)
+                .expect("scan_gc should not fail")
+        })
+        .map(|delta| {
+            let (hll_with, hll_without) = hll_fn(&delta);
+            NodeGcDelta {
+                delta,
+                registers_with_last_block: hll_with,
+                registers_without_last_block: hll_without,
+            }
+        })
+}
+
+/// Scan all nodes in the tree and collect deltas for nodes that have GC work.
+///
+/// Returns a `Vec<(NodeIndex, NodeGcDelta)>` — only nodes with actual GC work.
+pub fn scan_all_node_deltas(
+    tree: &NumericRangeTree,
+    doc_exist: &dyn Fn(u64) -> bool,
+) -> Vec<(NodeIndex, NodeGcDelta)> {
+    let mut deltas = Vec::new();
+    scan_all_dfs(tree, tree.root_index(), doc_exist, &mut deltas);
+    deltas
+}
+
+fn scan_all_dfs(
+    tree: &NumericRangeTree,
+    node_idx: NodeIndex,
+    doc_exist: &dyn Fn(u64) -> bool,
+    deltas: &mut Vec<(NodeIndex, NodeGcDelta)>,
+) {
+    if let Some(delta) = scan_node_delta(tree, node_idx, doc_exist) {
+        deltas.push((node_idx, delta));
+    }
+
+    if let Some((left, right)) = tree.node(node_idx).child_indices() {
+        scan_all_dfs(tree, left, doc_exist, deltas);
+        scan_all_dfs(tree, right, doc_exist, deltas);
+    }
+}
+
+/// Walk the tree depth-first, calling `visitor(node, depth)` for each node.
+pub fn walk_with_depth(tree: &NumericRangeTree, visitor: &mut dyn FnMut(&NumericRangeNode, usize)) {
+    fn walk_inner(
+        tree: &NumericRangeTree,
+        node_idx: NodeIndex,
+        depth: usize,
+        visitor: &mut dyn FnMut(&NumericRangeNode, usize),
+    ) {
+        let node = tree.node(node_idx);
+        visitor(node, depth);
+        if let NumericRangeNode::Internal(internal) = node {
+            walk_inner(tree, internal.left_index(), depth + 1, visitor);
+            walk_inner(tree, internal.right_index(), depth + 1, visitor);
+        }
+    }
+    walk_inner(tree, tree.root_index(), 0, visitor);
+}
+
+/// Apply GC to every node in the tree that has GC work.
+pub fn gc_all_leaves(tree: &mut NumericRangeTree, doc_exist: &dyn Fn(u64) -> bool) {
+    let deltas = scan_all_node_deltas(tree, doc_exist);
+    for (node_idx, delta) in deltas {
+        tree.apply_gc_to_node(node_idx, delta);
+    }
+}

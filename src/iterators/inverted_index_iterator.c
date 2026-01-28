@@ -8,6 +8,7 @@
 */
 
 #include "inverted_index_iterator.h"
+#include "iterator_api.h"
 #include "redis_index.h"
 #include "idf.h"
 
@@ -42,7 +43,7 @@ static ValidateStatus NumericCheckAbort(QueryIterator *base) {
 
   // sctx and rt should always be set, except in some tests.
   RS_ASSERT(nit->rt);
-  if (nit->rt->revisionId != nit->revisionId) {
+  if (NumericRangeTree_GetRevisionId(nit->rt) != nit->revisionId) {
     // The numeric tree was either completely deleted or a node was split or removed.
     // The cursor is invalidated.
     return VALIDATE_ABORTED;
@@ -427,7 +428,66 @@ QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const Re
   InitInvIndIterator(&numIt->base, INV_IDX_NUMERIC_ITERATOR, idx, NewNumericResult(), fieldCtx, sctx, &decoderCtx, NumericCheckAbort);
 
   if (rt) {
-    numIt->revisionId = rt->revisionId;
+    numIt->revisionId = NumericRangeTree_GetRevisionId(rt);
+    numIt->rt = rt;
+  }
+
+  numIt->rangeMin = rangeMin;
+  numIt->rangeMax = rangeMax;
+  return &numIt->base.base;
+}
+
+// Internal helper to initialize an InvIndIterator from an already-created IndexReader
+static QueryIterator *InitInvIndIteratorFromReader(InvIndIterator *it,  enum IteratorType it_type, IndexReader *reader, RSIndexResult *res, const FieldFilterContext *filterCtx,
+                                                   const RedisSearchCtx *sctx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
+  it->reader = reader;
+  it->sctx = sctx;
+  it->filterCtx = *filterCtx;
+  it->CheckAbort = (ValidateStatus (*)(struct InvIndIterator *))checkAbortFn;
+
+  QueryIterator *base = &it->base;
+  base->current = res;
+  base->type = it_type;
+  base->atEOF = false;
+  base->lastDocId = 0;
+  base->NumEstimated = InvIndIterator_NumEstimated;
+  base->Free = InvIndIterator_Free;
+  base->Rewind = InvIndIterator_Rewind;
+  base->Revalidate = InvIndIterator_Revalidate;
+
+  // Choose the Read and SkipTo methods for best performance
+  bool skipMulti = ShouldSkipMulti(it);
+  bool hasExpiration = HasExpiration(it);
+
+  if (skipMulti && hasExpiration) {
+    base->Read = InvIndIterator_Read_SkipMulti_CheckExpiration;
+  } else if (skipMulti) {
+    base->Read = InvIndIterator_Read_SkipMulti;
+  } else if (hasExpiration) {
+    base->Read = InvIndIterator_Read_CheckExpiration;
+  } else {
+    base->Read = InvIndIterator_Read_Default;
+  }
+
+  if (hasExpiration) {
+    base->SkipTo = InvIndIterator_SkipTo_CheckExpiration;
+  } else {
+    base->SkipTo = InvIndIterator_SkipTo;
+  }
+
+  return base;
+}
+
+QueryIterator *NewInvIndIterator_NumericQueryFromReader(IndexReader *reader, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
+                                                        const NumericRangeTree *rt, double rangeMin, double rangeMax) {
+  RS_ASSERT(reader);
+
+  NumericInvIndIterator *numIt = rm_calloc(1, sizeof(*numIt));
+  // Initialize the iterator from the pre-created reader
+  InitInvIndIteratorFromReader(&numIt->base, INV_IDX_NUMERIC_ITERATOR, reader, NewNumericResult(), fieldCtx, sctx, NumericCheckAbort);
+
+  if (rt) {
+    numIt->revisionId = NumericRangeTree_GetRevisionId(rt);
     numIt->rt = rt;
   }
 

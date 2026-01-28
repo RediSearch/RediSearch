@@ -143,7 +143,7 @@ def testBasic(env):
     #         sizeof IndexBlock = 48
     #         header of thin block vector = 8
     #     Buffer grows up to 121 bytes trying to store 13 entries 8 bytes each.
-    expected_info['inverted_sz_mb'] = 397 / (1024 * 1024)
+    expected_info['inverted_sz_mb'] = 376 / (1024 * 1024)
     compare_index_info_dict(env, 'idx1', expected_info, "idx1 after insert")
 
     # Expected size of inverted index for idx2 = 88 + 26 = 114

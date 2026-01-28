@@ -13,6 +13,8 @@ ffi.workspace = true
 field.workspace = true
 inverted_index.workspace = true
 inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi", features = ["test_utils"] }
+numeric_range_tree_ffi = { path = "../c_entrypoint/numeric_range_tree_ffi" }
+numeric_range_tree.workspace = true
 libc.workspace = true
 query_error.workspace = true
 redis_mock.workspace = true

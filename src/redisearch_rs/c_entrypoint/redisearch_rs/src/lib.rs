@@ -21,6 +21,7 @@ pub use fnv_ffi as fnv;
 pub use inverted_index_ffi as inverted_index;
 pub use iterators_ffi as iterators;
 pub use module_init_ffi as tracing_redismodule;
+pub use numeric_range_tree_ffi as numeric_range_tree;
 pub use query_error_ffi as query_error;
 pub use result_processor_ffi as result_processor;
 pub use search_result_ffi as search_result;
