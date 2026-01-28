@@ -465,19 +465,20 @@ TEST_F(IndexTest, testNumericInverted) {
 
   // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 
-  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
+  IndexReader *reader = NewIndexReader(idx, decoderCtx);
+  RSIndexResult *res = NewNumericResult();
+
   t_docId i = 1;
-  while (ITERATOR_EOF != it->Read(it)) {
-    RSIndexResult *res = it->current;
+  while (IndexReader_Next(reader, res)) {
     // printf("%d %f\n", res->docId, res->num.value);
 
     ASSERT_EQ(i++, res->docId);
     ASSERT_EQ(IndexResult_NumValue(res), (float)res->docId);
   }
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
   InvertedIndex_Free(idx);
-  it->Free(it);
 }
 
 TEST_F(IndexTest, testNumericVaried) {
@@ -498,20 +499,20 @@ TEST_F(IndexTest, testNumericVaried) {
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
-  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
+  IndexReader *reader = NewIndexReader(idx, decoderCtx);
+  RSIndexResult *res = NewNumericResult();
 
   for (size_t i = 0; i < numCount; i++) {
     // printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
-    IteratorStatus rv = it->Read(it);
-    ASSERT_NE(ITERATOR_EOF, rv);
-    ASSERT_LT(fabs(nums[i] - IndexResult_NumValue(it->current)), 0.01);
+    ASSERT_TRUE(IndexReader_Next(reader, res));
+    ASSERT_LT(fabs(nums[i] - IndexResult_NumValue(res)), 0.01);
   }
 
-  ASSERT_EQ(ITERATOR_EOF, it->Read(it));
+  ASSERT_FALSE(IndexReader_Next(reader, res));
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
   InvertedIndex_Free(idx);
-  it->Free(it);
 }
 
 typedef struct {
@@ -562,25 +563,35 @@ void testNumericEncodingHelper(bool isMulti) {
     }
   }
 
-  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
+  IndexReader *reader = NewIndexReader(idx, decoderCtx);
+  RSIndexResult *res = NewNumericResult();
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\nReading [%lu]\n", ii);
 
-    IteratorStatus rc = it->Read(it);
-    ASSERT_NE(rc, ITERATOR_EOF);
+    ASSERT_TRUE(IndexReader_Next(reader, res));
     // printf("%lf <-> %lf\n", infos[ii].value, res->num.value);
-    if (fabs(infos[ii].value) == INFINITY) {
-      ASSERT_EQ(infos[ii].value, IndexResult_NumValue(it->current));
+    if (isinf(infos[ii].value)) {
+      ASSERT_EQ(infos[ii].value, IndexResult_NumValue(res));
     } else {
-      ASSERT_LT(fabs(infos[ii].value - IndexResult_NumValue(it->current)), 0.01);
+      ASSERT_NEAR(infos[ii].value, IndexResult_NumValue(res), 0.01);
+    }
+
+    if (isMulti) {
+      // In multi mode, each value is written twice, so read it again
+      ASSERT_TRUE(IndexReader_Next(reader, res));
+      if (isinf(infos[ii].value)) {
+        ASSERT_EQ(infos[ii].value, IndexResult_NumValue(res));
+      } else {
+        ASSERT_NEAR(infos[ii].value, IndexResult_NumValue(res), 0.01);
+      }
     }
   }
 
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
   InvertedIndex_Free(idx);
-  it->Free(it);
 }
 
 TEST_F(IndexTest, testNumericEncoding) {

@@ -283,7 +283,7 @@ fn get_item_static_values_success() {
     let sv = RSSortingVector::from_iter([sv_value1, sv_value2]);
 
     let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new(&rlookup);
-    row.set_sorting_vector(&sv);
+    row.set_sorting_vector(Some(&sv));
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
@@ -306,7 +306,7 @@ fn get_item_missing_svsrc_flag() {
     let sv = RSSortingVector::from_iter([sv_value]);
 
     let mut row = RLookupRow::new(&rlookup);
-    row.set_sorting_vector(&sv);
+    row.set_sorting_vector(Some(&sv));
 
     let key = create_test_key(&rlookup, 0, 0, RLookupKeyFlags::empty()); // No SvSrc flag
 
@@ -338,7 +338,7 @@ fn get_item_static_out_of_bounds() {
     let sv = RSSortingVector::from_iter([sv_value]);
 
     let mut row = RLookupRow::new(&rlookup);
-    row.set_sorting_vector(&sv);
+    row.set_sorting_vector(Some(&sv));
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
@@ -373,7 +373,7 @@ fn get_item_empty_dynamic_valid_static() {
 
     let mut row = RLookupRow::new(&rlookup);
     // No dynamic values added
-    row.set_sorting_vector(&sv);
+    row.set_sorting_vector(Some(&sv));
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
@@ -414,7 +414,7 @@ fn get_item_priority_dynamic_over_static() {
     let key = create_test_key(&rlookup, 0, 0, RLookupKeyFlags::empty());
     // Index 0 created for both
     row.write_key(&key, RSValueMock::create_string(b"dynamic_value".to_vec()));
-    row.set_sorting_vector(&sv);
+    row.set_sorting_vector(Some(&sv));
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);

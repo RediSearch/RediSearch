@@ -1,0 +1,128 @@
+name: Daily CI Report
+
+on:
+  schedule:
+    # Runs at 5:00 AM UTC+2 (3:00 AM UTC)
+    # Note: GitHub Actions uses UTC, so 5:00 AM UTC+2 = 3:00 AM UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:  # Allows manual triggering
+    inputs:
+      date:
+        description: 'Date to generate report for (YYYY-MM-DD). Leave empty for yesterday.'
+        required: false
+        type: string
+  workflow_call:  # Allow this workflow to be called from other workflows
+    inputs:
+      date:
+        description: 'Date to generate report for (YYYY-MM-DD). Leave empty for yesterday.'
+        required: false
+        type: string
+
+jobs:
+  generate-and-send-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      
+      - name: Install dependencies
+        run: |
+          pip install requests
+      
+      - name: Determine date
+        id: date
+        env:
+          INPUT_DATE: ${{ inputs.date }}
+        run: |
+          # Use input date if provided, otherwise use yesterday
+          if [ -n "$INPUT_DATE" ]; then
+            TARGET_DATE="$INPUT_DATE"
+            # Validate date format (YYYY-MM-DD)
+            if ! echo "$TARGET_DATE" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+              echo "Invalid date format. Expected YYYY-MM-DD" >&2
+              exit 1
+            fi
+            echo "Using manually specified date: $TARGET_DATE"
+          else
+            TARGET_DATE=$(date -d "yesterday" +%Y-%m-%d)
+            echo "Using yesterday's date: $TARGET_DATE"
+          fi
+          echo "date=$TARGET_DATE" >> $GITHUB_OUTPUT
+      
+      - name: Run collect_nightly_results.py
+        id: collect
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/collect_nightly_results.py --date "${{ steps.date.outputs.date }}"
+      
+      - name: Handle collect failure
+        if: steps.collect.outcome == 'failure'
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}          
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "header": "❌ CI Report Generation Failed - ${{ steps.date.outputs.date }}",
+              "error": "The collect_nightly_results.py script failed. Check workflow logs for details."
+            }
+      
+      - name: Read summary file
+        id: summary
+        run: |
+          DATE="${{ steps.date.outputs.date }}"
+          SUMMARY_FILE="merge-to-queue_${DATE}/merge-to-queue_${DATE}_summary.txt"
+          if [ -f "$SUMMARY_FILE" ]; then
+            echo "summary_exists=true" >> $GITHUB_OUTPUT
+            # Capture file content, escape for JSON
+            CONTENT=$(cat "$SUMMARY_FILE" | jq -Rs .)
+            echo "summary_content=$CONTENT" >> $GITHUB_OUTPUT
+          else
+            echo "summary_exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Summary file not found: $SUMMARY_FILE"
+          fi
+      
+      - name: Read failure report file
+        id: failure_report
+        run: |
+          DATE="${{ steps.date.outputs.date }}"
+          FAILURE_FILE="merge-to-queue_${DATE}/merge-to-queue_${DATE}_failure_report.txt"
+          if [ -f "$FAILURE_FILE" ]; then
+            echo "failure_exists=true" >> $GITHUB_OUTPUT
+            # Capture file content up until DETAILED FAILURE LOGS section, escape for JSON
+            CONTENT=$(sed -n '/^DETAILED FAILURE LOGS/q;p' "$FAILURE_FILE" | jq -Rs .)
+            echo "failure_content=$CONTENT" >> $GITHUB_OUTPUT
+          else
+            echo "failure_exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Failure report file not found: $FAILURE_FILE"
+          fi
+      
+      - name: Send reports to Slack
+        if: steps.summary.outputs.summary_exists == 'true' || steps.failure_report.outputs.failure_exists == 'true'
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "header": "📊 Daily CI Report - ${{ steps.date.outputs.date }}",
+              "summary_report": ${{ steps.summary.outputs.summary_exists == 'true' && steps.summary.outputs.summary_content || '"(No summary available)"' }},
+              "failure_report": ${{ steps.failure_report.outputs.failure_exists == 'true' && steps.failure_report.outputs.failure_content || '"(No failures)"' }}
+            }
+      
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-reports-${{ steps.date.outputs.date }}
+          path: merge-to-queue_${{ steps.date.outputs.date }}/
+          retention-days: 30
+
