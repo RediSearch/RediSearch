@@ -3100,9 +3100,10 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     if (MRReply_Type(curr_rep) == MR_REPLY_ERROR) {
       rCtx->errorOccurred = true;
       rCtx->lastError = curr_rep;
-      QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(curr_rep, NULL));
+      const char *errStr = MRReply_String(curr_rep, NULL);
+      QueryErrorCode errCode = QueryError_GetCodeFromMessage(errStr);
       if (should_return_error(errCode)) {
-        QueryError_SetError(&rCtx->status, errCode, NULL);
+        QueryError_SetError(&rCtx->status, errCode, errStr);
         goto unblock_client;
       }
     }
