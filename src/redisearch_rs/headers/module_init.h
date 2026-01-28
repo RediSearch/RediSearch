@@ -33,6 +33,14 @@ void RustPanicHook_Init(void);
  */
 void AddToInfo_RustBacktrace(RedisModuleInfoCtx *ctx);
 
+/**
+ * Intentionally trigger a crash in Rust code,
+ * to verify the crash handling mechanism.
+ *
+ * Used by the crash result processor.
+ */
+void CrashInRust(void);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

@@ -14,7 +14,7 @@
 #include "extension.h"
 #include <util/minmax_heap.h>
 #include "ext/default.h"
-#include "result_processor_rs.h"
+#include "module-init.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
