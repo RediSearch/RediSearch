@@ -141,7 +141,13 @@ impl CaptureState {
 
     /// Finalize the current map builder.
     pub(super) fn finalize_map(&mut self, _len: i64) {
-        if let Some(ContainerBuilder::Map { pairs, .. }) = self.builder_stack.pop() {
+        if let Some(ContainerBuilder::Map {
+            pairs, pending_key, ..
+        }) = self.builder_stack.pop()
+        {
+            if pending_key.is_some() {
+                panic!("Map is being finalized, but the last key doesn't have a matching value");
+            }
             self.push_value(ReplyValue::Map(pairs));
         }
     }
