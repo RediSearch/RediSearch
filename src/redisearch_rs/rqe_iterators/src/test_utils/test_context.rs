@@ -117,8 +117,12 @@ fn create_spec_sctx(
 }
 
 impl TestContext {
-    /// Create a new [`TestContext`] with a numeric inverted index having the given records
-    pub fn numeric<I>(records: I) -> Self
+    /// Create a new [`TestContext`] with a numeric inverted index having the given records.
+    ///
+    /// # Arguments
+    /// * `records` - An iterator over the records to be indexed.
+    /// * `multi` - Whether each record should be added twice.
+    pub fn numeric<I>(records: I, multi: bool) -> Self
     where
         I: Iterator<Item = RSIndexResult<'static>>,
     {
@@ -154,6 +158,17 @@ impl TestContext {
                     record_val,
                     0,
                 );
+            }
+
+            if multi {
+                unsafe {
+                    ffi::NumericRangeTree_Add(
+                        numeric_range_tree.as_ptr(),
+                        record.doc_id as t_docId,
+                        record_val,
+                        1,
+                    );
+                }
             }
         }
 
