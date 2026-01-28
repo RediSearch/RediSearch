@@ -3081,6 +3081,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   searchReducerCtx *rCtx = rm_calloc(1, sizeof(searchReducerCtx));
   rCtx->status = QueryError_Default();
 
+
   // Save the rctx in the request so it can be used in reply_callback of unblock client
   req->rctx = rCtx;
 
@@ -3146,6 +3147,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
     }
   } else {
+    const bool is_resp3 = mc->cmd.protocol == 3;
     for (int i = 0; i < count; ++i) {
       MRReply *mr_reply;
 
@@ -3154,7 +3156,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
         continue;
       }
 
-      if (is_resp3(ctx)) {
+      if (is_resp3) {
         mr_reply = MRReply_MapElement(replies[i], "Results");
       } else {
         mr_reply = MRReply_ArrayElement(replies[i], 0);
