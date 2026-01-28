@@ -169,7 +169,6 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
                                rs_wall_clock_convert_ns_to_ms_d(req->profileParseTime));
   }
 
-  // Print workers queue time (time spent waiting in workers thread pool queue)
   if (profile_verbose) {
     RedisModule_ReplyKV_Double(reply, "Workers queue time",
                                rs_wall_clock_convert_ns_to_ms_d(req->profileQueueTime));
