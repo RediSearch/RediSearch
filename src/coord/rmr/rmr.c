@@ -153,6 +153,11 @@ void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn) {
   ctx->fn = fn;
 }
 
+int MRCtx_GetCommandProtocol(struct MRCtx *ctx) {
+  return ctx->cmd.protocol;
+}
+
+
 static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
   if (p) {
     MRCtx *mc = p;

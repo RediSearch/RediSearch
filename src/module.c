@@ -3147,7 +3147,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
     }
   } else {
-    const bool is_resp3 = mc->cmd.protocol == 3;
+    const bool resp3 = MRCtx_GetCommandProtocol(mc) == 3;
     for (int i = 0; i < count; ++i) {
       MRReply *mr_reply;
 
@@ -3156,7 +3156,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
         continue;
       }
 
-      if (is_resp3) {
+      if (resp3) {
         mr_reply = MRReply_MapElement(replies[i], "Results");
       } else {
         mr_reply = MRReply_ArrayElement(replies[i], 0);
