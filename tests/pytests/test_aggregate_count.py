@@ -73,7 +73,8 @@ def _get_standalone_RP_profile(env, res) -> list:
         RP_and_count = [(item['Type'], item['Results processed']) for item in profile]
         return RP_and_count
     else:
-        profile = res[1][1][0][11]
+        # Index 13 is Result processors profile (after adding Workers queue time field at indices 6-7)
+        profile = res[1][1][0][13]
         RP_and_count = [(item[1], item[5]) for item in profile]
         return RP_and_count
 

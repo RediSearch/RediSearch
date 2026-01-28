@@ -167,6 +167,7 @@ def test_profile(env):
         'Shards': [{
           'Total profile time': ANY,
           'Parsing time': ANY,
+          'Workers queue time': ANY,
           'Pipeline creation time': ANY,
           'Warning': ['None'],
           'Iterators profile':
@@ -640,6 +641,7 @@ def test_profile_crash_mod5323():
               'Type': 'INTERSECT'
             },
           'Parsing time': ANY,
+          'Workers queue time': ANY,
           'Pipeline creation time': ANY,
           'Warning': ['None'],
           'Result processors profile': [
@@ -688,6 +690,7 @@ def test_profile_child_itrerators_array():
               'Type': 'UNION'
             },
           'Parsing time': ANY,
+          'Workers queue time': ANY,
           'Pipeline creation time': ANY,
           'Warning': ['None'],
           'Result processors profile': [
@@ -725,6 +728,7 @@ def test_profile_child_itrerators_array():
               'Type': 'INTERSECT'
             },
           'Parsing time': ANY,
+          'Workers queue time': ANY,
           'Pipeline creation time': ANY,
           'Warning': ['None'],
           'Result processors profile': [
