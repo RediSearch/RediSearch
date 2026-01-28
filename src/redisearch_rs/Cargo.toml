@@ -10,11 +10,13 @@ members = [
     "hyperloglog",
     "inverted_index",
     "inverted_index_bencher",
+    "numeric_range_tree",
     "thin_vec",
     "qint",
     "query_error",
     "redis_json_api",
     "redis_mock",
+    "redis_reply",
     "result_processor",
     "rlookup",
     "rqe_iterators",
@@ -32,7 +34,8 @@ members = [
     "varint",
     "varint_bencher",
     "wildcard",
-    "workspace_hack"]
+    "workspace_hack",
+]
 
 resolver = "3"
 
@@ -78,6 +81,8 @@ field = { path = "./field" }
 fnv = { path = "./fnv" }
 hyperloglog = { path = "./hyperloglog" }
 inverted_index = { path = "./inverted_index" }
+numeric_range_tree = { path = "./numeric_range_tree" }
+redis_reply = { path = "./redis_reply" }
 qint = { path = "./qint" }
 query_error = { path = "./query_error" }
 redis_json_api = { path = "./redis_json_api" }

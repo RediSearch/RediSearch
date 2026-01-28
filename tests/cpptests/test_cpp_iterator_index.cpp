@@ -18,6 +18,7 @@ extern "C" {
 #include "src/index_result.h"
 #include "src/tag_index.h"
 #include "src/numeric_index.h"
+#include "numeric_range_tree.h"
 #include "redisearch_rs/headers/triemap.h"
 #include "src/index_result/query_term/query_term.h"
 
@@ -588,7 +589,7 @@ private:
 
         // Add numeric data to the range tree
         for (size_t i = 0; i < n_docs; ++i) {
-            NumericRangeTree_Add(numericRangeTree, resultSet[i], static_cast<double>(i * 10), false);
+            NumericRangeTree_AddCompat(numericRangeTree, resultSet[i], static_cast<double>(i * 10), false);
         }
 
         // Create a numeric filter to find ranges
@@ -605,11 +606,9 @@ private:
         };
 
         // Find a range that covers our data to get the inverted index
-        Vector *ranges = NumericRangeTree_Find(numericRangeTree, &tempFilter);
-        ASSERT_TRUE(ranges != nullptr && Vector_Size(ranges) > 0);
-        NumericRange *range;
-        Vector_Get(ranges, 0, &range);
-        numericIdx = range->entries;
+        NumericRangeTreeFindResult findResult = NumericRangeTree_Find(numericRangeTree, &tempFilter);
+        ASSERT_TRUE(findResult.len > 0);
+        const NumericRange *range = findResult.ranges[0];
 
         // Create the numeric filter with the field spec
         numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, fs);
@@ -622,9 +621,12 @@ private:
               rt = openNumericOrGeoIndex(spec, const_cast<FieldSpec *>(fs), DONT_CREATE_INDEX);
               RS_ASSERT(rt);
           }
-        iterator = NewInvIndIterator_NumericQuery(numericIdx, sctx, &fieldCtx, numericFilter, rt, -INFINITY, INFINITY);
 
-        Vector_Free(ranges);
+        // Create an IndexReader from the Rust numeric range, then create the iterator
+        IndexReader *reader = NumericRange_NewIndexReader(range, numericFilter);
+        iterator = NewInvIndIterator_NumericQueryFromReader(reader, sctx, &fieldCtx, rt, -INFINITY, INFINITY);
+
+        NumericRangeTreeFindResult_Free(findResult);
         numericIdxNeedsFreeing = false; // Managed by IndexSpec
     }
 
@@ -885,16 +887,19 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
             NumericInvIndIterator *numIt = (NumericInvIndIterator *)iterator;
             uint32_t originalRevisionId = numIt->revisionId;
 
-            // Simulate the range tree being modified by incrementing its revision ID
-            // This simulates a scenario where the tree was modified (e.g., node split, removal)
-            // while the iterator was suspended
-            numericRangeTree->revisionId++;
+            // Simulate the range tree being modified by adding a document
+            // This will increment the revision ID when the tree structure changes
+            // (e.g., node split). Use a large doc ID to ensure we add to a different
+            // location than the iterator is currently at.
+            NumericRangeTree_AddCompat(numericRangeTree, 999999, 0.0, false);
+
+            // Verify that the revision ID has indeed changed
+            uint32_t newRevisionId = NumericRangeTree_GetRevisionId(numericRangeTree);
+            ASSERT_NE(originalRevisionId, newRevisionId)
+                << "Revision ID should have changed after adding a document";
 
             // Now Revalidate should return VALIDATE_ABORTED because the revision IDs don't match
             ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_ABORTED);
-
-            // Restore the original revision ID for proper cleanup
-            numericRangeTree->revisionId--;
         } else if (IsTermIterator() || IsTagIterator() || IsWildcardIterator() || IsMissingIterator()) {
             // For term and tag iterators, we can simulate index disappearance by
             // setting the iterator's idx pointer to a different value than what

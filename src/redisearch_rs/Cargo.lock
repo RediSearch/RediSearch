@@ -1229,6 +1229,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "numeric_range_tree"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "hyperloglog",
+ "inverted_index",
+ "numeric_range_tree",
+ "pretty_assertions",
+ "proptest",
+ "redis_mock",
+ "redis_reply",
+ "redisearch_rs",
+ "thiserror",
+ "tracing",
+ "workspace_hack",
+]
+
+[[package]]
+name = "numeric_range_tree_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "inverted_index",
+ "inverted_index_ffi",
+ "numeric_range_tree",
+ "redis-module",
+ "redis_mock",
+ "rmp-serde",
+ "serde",
+ "tracing",
+ "workspace_hack",
+]
+
+[[package]]
 name = "object"
 version = "0.37.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1589,6 +1626,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "redis_reply"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "insta",
+ "proptest",
+ "redis_mock",
+ "workspace_hack",
+]
+
+[[package]]
 name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
@@ -1598,6 +1646,7 @@ dependencies = [
  "inverted_index_ffi",
  "iterators_ffi",
  "module_init_ffi",
+ "numeric_range_tree_ffi",
  "query_error_ffi",
  "quote 1.0.44",
  "redis-module",

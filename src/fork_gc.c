@@ -280,32 +280,33 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 
     NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);
 
-    NumericRangeNode *currNode = NULL;
+    const NumericRangeNode *currNode = NULL;
     tagNumHeader header = {.type = RSFLDTYPE_NUMERIC,
                            .field = HiddenString_GetUnsafe(numericFields[i]->fieldName, NULL),
-                           .uniqueId = rt->uniqueId};
+                           .uniqueId = NumericRangeTree_GetUniqueId(rt)};
 
     numCbCtx nctx;
     IndexRepairParams params = {.repair_callback = countRemain, .repair_arg = &nctx};
     hll_init(&nctx.majority_card, NR_BIT_PRECISION);
     hll_init(&nctx.last_block_card, NR_BIT_PRECISION);
     while ((currNode = NumericRangeTreeIterator_Next(gcIterator))) {
-      if (!currNode->range) {
+      const NumericRange *range = NumericRangeNode_GetRange(currNode);
+      if (!range) {
         continue;
       }
       nctx.last_block = NULL;
       hll_clear(&nctx.majority_card);
       hll_clear(&nctx.last_block_card);
 
-      InvertedIndex *idx = currNode->range->entries;
-      header.curPtr = currNode;
+      const InvertedIndexNumeric *idx = NumericRange_GetEntries(range);
+      header.curPtr = (NumericRangeNode *)currNode;  // Cast away const for storage
 
       CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &header };
       II_GCCallback cb = { .ctx = &cbCtx, .call = sendNumericTagHeader };
 
       II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
 
-      bool repaired = InvertedIndex_GcDelta_Scan(
+      bool repaired = InvertedIndexNumeric_GcDelta_Scan(
           &wr, sctx, idx,
           &cb, &params
       );
@@ -497,48 +498,67 @@ error:
 }
 
 static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocksSinceFork) {
+  // Set the HLL registers from the GC scan results
   if (info->info.blocks_ignored == 0) {
-    hll_set_registers(&range->hll, info->registersWithLastBlock, NR_REG_SIZE);
+    NumericRange_SetHllRegisters(range, info->registersWithLastBlock);
     if (blocksSinceFork == 0) {
-      return; // No blocks were added since the fork. We're done
+      return;  // No new blocks since fork, we're done
     }
   } else {
-    hll_set_registers(&range->hll, info->registersWithoutLastBlock, NR_REG_SIZE);
-    blocksSinceFork++; // Count the ignored block as well
+    NumericRange_SetHllRegisters(range, info->registersWithoutLastBlock);
+    blocksSinceFork++;  // The last block was ignored, so we need to re-add it too
   }
-  // Add the entries that were added since the fork to the HLL
-  size_t startIdx = InvertedIndex_NumBlocks(range->entries) - blocksSinceFork; // Here `blocksSinceFork` > 0
-  const IndexBlock *startBlock = InvertedIndex_BlockRef(range->entries, startIdx);
-  t_docId startId = IndexBlock_FirstId(startBlock);
-  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
-  IndexReader *reader = NewIndexReader(range->entries, decoderCtx);
-  RSIndexResult *res = NewNumericResult();
-  IndexReader_SkipTo(reader, startId);
-  bool reading = IndexReader_Next(reader, res);
 
-  // Continue reading the rest
-  while (reading) {
-    double value = IndexResult_NumValue(res);
-    hll_add(&range->hll, &value, sizeof(value));
-    reading = IndexReader_Next(reader, res);
+  // Get the starting point for HLL update - iterate entries added since fork
+  const InvertedIndexNumeric *entries = NumericRange_GetEntries(range);
+  size_t numBlocks = InvertedIndexNumeric_NumBlocks(entries);
+  if (blocksSinceFork > numBlocks) {
+    return;  // Safety check
   }
-  IndexReader_Free(reader);
+  size_t startIdx = numBlocks - blocksSinceFork;
+  t_docId startId = InvertedIndexNumeric_BlockFirstId(entries, startIdx);
+
+  // Create reader and iterate to update HLL with entries added since fork
+  IndexReader *reader = NumericRange_NewIndexReader(range, NULL);
+  IndexReader_SkipTo(reader, startId);
+
+  RSIndexResult *res = NewNumericResult();
+  while (IndexReader_Next(reader, res)) {
+    double value = IndexResult_NumValue(res);
+    NumericRange_HllAdd(range, value);
+  }
   IndexResult_Free(res);
+  IndexReader_Free(reader);
 }
 
 static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   NumericRangeNode *currNode = ninfo->node;
   InvertedIndexGcDelta *delta = ninfo->delta;
-  II_GCScanStats *info = &ninfo->info;
-  size_t blocksSinceFork = InvertedIndex_NumBlocks(currNode->range->entries) - GcScanDelta_LastBlockIdx(delta) - 1; // record before applying changes
-  InvertedIndex_ApplyGcDelta(currNode->range->entries, delta, info);
-  ninfo->delta = NULL;
-  currNode->range->invertedIndexSize += info->bytes_allocated;
-  currNode->range->invertedIndexSize -= info->bytes_freed;
+  NumericRange *range = NumericRangeNode_GetRangeMut(currNode);
 
-  FGC_updateStats(gc, sctx, info->entries_removed, info->bytes_freed, info->bytes_allocated, info->blocks_ignored);
+  if (!range) {
+    InvertedIndex_GcDelta_Free(delta);
+    ninfo->delta = NULL;
+    return;
+  }
 
-  resetCardinality(ninfo, currNode->range, blocksSinceFork);
+  // Get the number of blocks before applying GC to calculate blocks added since fork
+  const InvertedIndexNumeric *entries = NumericRange_GetEntries(range);
+  size_t blocksBefore = InvertedIndexNumeric_NumBlocks(entries);
+  size_t lastBlockIdx = GcScanDelta_LastBlockIdx(delta);
+  size_t blocksSinceFork = (blocksBefore > lastBlockIdx + 1) ? blocksBefore - lastBlockIdx - 1 : 0;
+
+  // Apply GC delta to the Rust numeric inverted index
+  II_GCScanStats info = {0};
+  InvertedIndexNumeric_ApplyGcDelta((InvertedIndexNumeric *)entries, delta, &info);
+  ninfo->delta = NULL;  // Ownership transferred to ApplyGcDelta
+  ninfo->info = info;
+
+  FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed,
+                  info.bytes_allocated, info.blocks_ignored);
+
+  // Reset cardinality with proper HLL recalculation
+  resetCardinality(ninfo, range, blocksSinceFork);
 }
 
 static FGCError FGC_parentHandleTerms(ForkGC *gc) {
@@ -668,24 +688,28 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       initialized = true;
     }
 
-    if (rt->uniqueId != rtUniqueId) {
+    if (NumericRangeTree_GetUniqueId(rt) != rtUniqueId) {
       status = FGC_PARENT_ERROR;
       goto loop_cleanup;
     }
 
-    if (!ninfo.node->range) {
+    const NumericRange *range = NumericRangeNode_GetRange(ninfo.node);
+    if (!range) {
       gc->stats.gcNumericNodesMissed++;
       goto loop_cleanup;
     }
 
     applyNumIdx(gc, sctx, &ninfo);
     shouldFreeDeltas = false; // ownership passed to applyNumIdx
-    rt->numEntries -= ninfo.info.entries_removed;
-    rt->invertedIndexesSize -= ninfo.info.bytes_freed;
-    rt->invertedIndexesSize += ninfo.info.bytes_allocated;
+    // Update tree stats with GC results
+    NumericRangeTree_SubtractNumEntries(rt, ninfo.info.entries_removed);
+    NumericRangeTree_UpdateInvertedIndexesSize(rt, (intptr_t)ninfo.info.bytes_allocated - (intptr_t)ninfo.info.bytes_freed);
 
-    if (InvertedIndex_NumDocs(ninfo.node->range->entries) == 0) {
-      rt->emptyLeaves++;
+    // Re-fetch range after applyNumIdx (mutable operation)
+    const NumericRange *rangeAfter = NumericRangeNode_GetRange(ninfo.node);
+    const InvertedIndexNumeric *entries = rangeAfter ? NumericRange_GetEntries(rangeAfter) : NULL;
+    if (entries && InvertedIndexNumeric_NumDocs(entries) == 0) {
+      NumericRangeTree_IncrementEmptyLeaves(rt);
     }
 
   loop_cleanup:
@@ -709,7 +733,9 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     if (!sp) return FGC_SPEC_DELETED;
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
     RedisSearchCtx_LockSpecWrite(&sctx);
-    if (rt->emptyLeaves >= rt->numLeaves / 2) {
+    size_t emptyLeaves = NumericRangeTree_GetEmptyLeaves(rt);
+    size_t numLeaves = NumericRangeTree_GetNumLeaves(rt);
+    if (emptyLeaves >= numLeaves / 2) {
       NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
       // rv.sz is the number of bytes added. Since we are cleaning empty leaves, it should be negative
       FGC_updateStats(gc, &sctx, 0, -rv.sz, 0, 0);
