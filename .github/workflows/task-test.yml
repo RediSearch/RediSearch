@@ -494,7 +494,7 @@ jobs:
         run: make pytest ${{ inputs.test-config }}
 
       - name: Rust tests (MIRI)
-        if: inputs.san == 'address'
+        if: ${{ inputs.unit-tests }} && inputs.san == 'address'
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: rust_unit_tests_miri
         continue-on-error: ${{ !inputs.fail-fast }}
