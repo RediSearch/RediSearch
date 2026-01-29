@@ -93,7 +93,7 @@ typedef struct {
 /* Create a new MapReduce context */
 MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *privdata, int replyCap) {
   RS_ASSERT(cluster_g);
-  MRCtx *ret = rm_malloc(sizeof(MRCtx));
+  MRCtx *ret = rm_calloc(1, sizeof(MRCtx));
   ret->numReplied = 0;
   ret->numErrored = 0;
   ret->numExpected = 0;
@@ -116,8 +116,6 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
 MRCtx *MR_CreateBailoutCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, QueryError *status) {
   RS_ASSERT(status && QueryError_HasError(status));
   MRCtx *ret = MR_CreateCtx(ctx, bc, NULL, 0);
-  // Indicate that this is a bailout context by setting cmd.strs to NULL
-  ret->cmd.strs = NULL;
   QueryError_CloneFrom(status, &ret->status);
   return ret;
 }
@@ -128,12 +126,7 @@ QueryError *MRCtx_GetStatus(MRCtx *ctx) {
 
 void MRCtx_Free(MRCtx *ctx) {
 
-  // In case of bailout, the command was not initialized.
-  // In case of normal execution, cmd.strs is initialized in MRCommand_Init.
-  if(ctx->cmd.strs) {
-    MRCommand_Free(&ctx->cmd);
-  }
-
+  MRCommand_Free(&ctx->cmd);
   QueryError_ClearError(&ctx->status);
 
   for (int i = 0; i < ctx->numReplied; i++) {
