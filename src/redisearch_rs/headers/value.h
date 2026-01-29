@@ -249,6 +249,12 @@ const struct RsValue *SharedRsValue_NewTrio(const struct RsValue *left,
  */
 double SharedRsValue_Number_Get(const struct RsValue *v);
 
+struct RsValue *RSValue_NewString(char *str, uint32_t len);
+
+struct RsValue *RSValue_NewConstString(const char *str, uint32_t len);
+
+struct RsValue *RSValue_NewRedisString(const RedisModuleString *str);
+
 /**
  * Returns the type of the given [`RsValue`].
  *
