@@ -108,6 +108,7 @@ typedef struct {
   rs_wall_clock profileClock;
   void *reducer;
   bool queryOOM;
+  bool queryTimedOut;
 
   struct searchReducerCtx *rctx;
 } searchRequestCtx;

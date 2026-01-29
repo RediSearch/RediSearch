@@ -2846,6 +2846,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
       // We use the cluster warning since shard level warning sent via empty reply bailout
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
+    } if (req->queryTimedOut) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }
@@ -3942,8 +3945,6 @@ static int DistSearchTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **
 // Called on the main thread when the blocking client times out.
 // For RETURN policy - returns partial results instead of error
 static int DistSearchTimeoutPartialClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  UNUSED(argv);
-  UNUSED(argc);
 
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!mrctx) {
@@ -3962,10 +3963,7 @@ static int DistSearchTimeoutPartialClient(RedisModuleCtx *ctx, RedisModuleString
   // If parsing hasn't completed, reply with empty results and skip reducer
   if (!req->queryString) {
     // Parsing hasn't completed - reply with empty results
-    req->format = is_resp3(ctx) ? QEXEC_FORMAT_EXPAND : 0;
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    sendSearchResults_EmptyResults(reply, req);
-    RedisModule_EndReply(reply);
+    coord_search_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
   }
 
@@ -3982,20 +3980,17 @@ static int DistSearchTimeoutPartialClient(RedisModuleCtx *ctx, RedisModuleString
 
   // Reply with results from reducer
   searchReducerCtx *rCtx = req->rctx;
-  if (rCtx) {
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    if (req->profileArgs > 0) {
-      profileSearchReply(reply, rCtx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), &req->profileClock, rs_wall_clock_now_ns());
-    } else {
-      sendSearchResults(reply, rCtx);
-    }
-    RedisModule_EndReply(reply);
+  // rCtx must be set - either we ran the reducer or waited for it to complete
+  RS_ASSERT(rCtx);
+  req->queryTimedOut = true;
+
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  if (req->profileArgs > 0) {
+    profileSearchReply(reply, rCtx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), &req->profileClock, rs_wall_clock_now_ns());
   } else {
-    // rctx not set - reply empty
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    sendSearchResults_EmptyResults(reply, req);
-    RedisModule_EndReply(reply);
+    sendSearchResults(reply, rCtx);
   }
+  RedisModule_EndReply(reply);
 
   return REDISMODULE_OK;
 }
