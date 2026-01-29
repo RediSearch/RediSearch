@@ -16,6 +16,8 @@ const HEADER_SIZE: usize = 2 * std::mem::size_of::<usize>();
 
 #[inline]
 fn layout_for(total: usize) -> Layout {
+    debug_assert!(total > 0);
+    debug_assert!(total < (isize::MAX / 2) as usize);
     Layout::from_size_align(total, ALIGNMENT).unwrap()
 }
 

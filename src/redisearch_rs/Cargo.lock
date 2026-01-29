@@ -1711,6 +1711,7 @@ dependencies = [
 name = "rlookup"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "document",
  "enumflags2",
  "ffi",
@@ -1720,6 +1721,8 @@ dependencies = [
  "proptest",
  "redis-module",
  "redis_mock",
+ "redisearch_rs",
+ "rlookup",
  "sorting_vector",
  "strum",
  "thiserror",
@@ -2105,8 +2108,12 @@ dependencies = [
 name = "sorting_vector"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "ffi",
  "icu_casemap",
+ "redis_mock",
+ "redisearch_rs",
+ "sorting_vector",
  "value",
  "workspace_hack",
 ]
