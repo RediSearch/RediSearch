@@ -308,9 +308,8 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     IndexResultAsyncRead_RefillPool(&self->async);
 
     // Step 2: Try to serve a ready result if we have one
-    if (self->async.readyResultsIndex < array_len(self->async.readyResults)) {
-      RSIndexResult *indexResult = IndexResultAsyncRead_PopReadyResult(&self->async);
-      RS_ASSERT(indexResult);  // Should always be valid
+    RSIndexResult *indexResult = IndexResultAsyncRead_PopReadyResult(&self->async);
+    if (indexResult) {
       RS_ASSERT(indexResult->dmd);  // DMD should be populated
 
       if (!validateDmdSlot(self, indexResult->dmd)) {

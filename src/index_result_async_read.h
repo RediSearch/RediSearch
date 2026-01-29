@@ -19,9 +19,6 @@
 extern "C" {
 #endif
 
-// Forward declarations
-typedef struct RSIndexResult RSIndexResult;
-
 /**
  * IndexResultNode - Node wrapper for IndexResults in async disk I/O pipeline
  * 
