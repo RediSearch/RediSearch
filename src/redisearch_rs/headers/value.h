@@ -159,24 +159,36 @@ void RsValueArray_SetEntry(RsValueArray *arr, size_t i, const struct RsValue *va
 
 /**
  * Creates and returns a new **owned** [`RsValue`] object of type undefined.
+ *
+ * The caller must make sure to pass the returned [`RsValue`] to one of the
+ * ownership taking `RSValue_` methods, directly or indirectly.
  */
 struct RsValue *RSValue_NewUndefined(void);
 
 /**
  * Creates and returns a new **owned** [`RsValue`] object of type null.
+ *
+ * The caller must make sure to pass the returned [`RsValue`] to one of the
+ * ownership taking `RSValue_` methods, directly or indirectly.
  */
 struct RsValue *RSValue_NewNull(void);
 
 /**
  * Creates and returns a new **owned** [`RsValue`] object of type number
  * containing the given numeric value.
+ *
+ * The caller must make sure to pass the returned [`RsValue`] to one of the
+ * ownership taking `RSValue_` methods, directly or indirectly.
  */
 struct RsValue *RSValue_NewNumber(double value);
 
 /**
  * Creates and returns a new **owned** [`RsValue`] object of type trio from three [`RsValue`]s.
  *
- * Takes ownership of all three values.
+ * Takes ownership of all three arguments.
+ *
+ * The caller must make sure to pass the returned [`RsValue`] to one of the
+ * ownership taking `RSValue_` methods, directly or indirectly.
  *
  * # Safety
  *
@@ -203,6 +215,9 @@ double RSValue_Number_Get(const struct RsValue *value);
 /**
  * Gets the left value of a trio [`RsValue`].
  *
+ * Returns a **non-owned** reference to the underlying [`RsValue`].
+ * It may only be used in `RSValue_` methods not requiring **owned** methods.
+ *
  * # Safety
  *
  * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
@@ -216,6 +231,9 @@ const struct RsValue *RSValue_Trio_GetLeft(const struct RsValue *value);
 /**
  * Gets the middle value of a trio [`RsValue`].
  *
+ * Returns a **non-owned** reference to the underlying [`RsValue`].
+ * It may only be used in `RSValue_` methods not requiring **owned** methods.
+ *
  * # Safety
  *
  * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
@@ -228,6 +246,9 @@ const struct RsValue *RSValue_Trio_GetMiddle(const struct RsValue *value);
 
 /**
  * Gets the right value of a trio [`RsValue`].
+ *
+ * Returns a **non-owned** reference to the underlying [`RsValue`].
+ * It may only be used in `RSValue_` methods not requiring **owned** methods.
  *
  * # Safety
  *
@@ -249,6 +270,10 @@ const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
  * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
  *    `RSValue_*` function returning an owned [`RsValue`] object.
  * 2. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
+ *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
  */
 void RSValue_SetNumber(struct RsValue *value, double n);
 
@@ -262,6 +287,10 @@ void RSValue_SetNumber(struct RsValue *value, double n);
  * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
  *    `RSValue_*` function returning an owned [`RsValue`] object.
  * 2. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
+ *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
  */
 void RSValue_SetNull(struct RsValue *value);
 
