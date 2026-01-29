@@ -19,18 +19,7 @@
 #include <sstream>
 #include <algorithm>
 
-// POC HACK: Helper to serialize a plan to a string for logging
-static std::string serializePlanToString(const AGGPlan *pln) {
-  char **arr = (char **)AGPLN_Serialize(pln);
-  std::string result;
-  for (size_t i = 0; i < array_len(arr); ++i) {
-    if (i > 0) result += " ";
-    result += arr[i];
-    rm_free(arr[i]);
-  }
-  array_free(arr);
-  return result;
-}
+
 
 static char *getLastAlias(const PLN_GroupStep *gstp) {
   return gstp->reducers[array_len(gstp->reducers) - 1].alias;
@@ -399,7 +388,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
 
   // TODO: The while condition is buggy, since it returns the `AGGPlan`, not the `PLN_BaseStep` that is actually needed
   // Should be fixed to `DLLIST_FOREACH(it, ll) {}`.
-  while (current != PLN_END_STEP(src)) {
+  while (current && current != PLN_END_STEP(src)) {
     switch (current->type) {
       case PLN_T_ROOT:
         current = PLN_NEXT_STEP(current);
@@ -407,6 +396,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
       case PLN_T_FILTER:
         // POC HACK: After GROUP, skip to next step - only looking for ARRANGE
         if (afterGroup) {
+          RedisModule_Log(RSDummyContext, "warning", "POC HACK: skipping FILTER after GROUP");
           current = PLN_NEXT_STEP(current);
           break;
         }
@@ -465,6 +455,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
       case PLN_T_APPLY: {
         // POC HACK: After GROUP, skip to next step - only looking for ARRANGE
         if (afterGroup) {
+          RedisModule_Log(RSDummyContext, "warning", "POC HACK: skipping LOAD/APPLY after GROUP");
           current = PLN_NEXT_STEP(current);
           break;
         }
@@ -481,7 +472,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           *newStp = *astp;
           // POC HACK: Hardcode limit to 600 for distributed SORTBY to reduce shard->coordinator traffic
           if (afterGroup) {
-            RedisModule_Log(RSDummyContext, "warning", "POC HACK: Distributing ARRANGE after GROUP with limit=600 (original limit=%llu)", (unsigned long long)astp->limit);
+            RedisModule_Log(RSDummyContext, "warning", "POC HACK: reached ARRANGE after GROUP");
             newStp->limit = 600;
             newStp->offset = 0;
           }
@@ -496,8 +487,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         hadArrange = true;
         // POC HACK: After GROUP, once we've handled ARRANGE, we're done
         if (afterGroup) {
-          std::string remotePlanStr = serializePlanToString(remote);
-          RedisModule_Log(RSDummyContext, "warning", "POC HACK: After GROUP, handled ARRANGE. Remote plan: %s", remotePlanStr.c_str());
+          RedisModule_Log(RSDummyContext, "warning", "POC HACK: done with ARRANGE after GROUP, breaking");
           goto loop_break;
         }
         // whether we pushed an arrange step to the remote or not, we still need to move on
@@ -505,7 +495,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         break;
       }
       case PLN_T_GROUP:
-        RedisModule_Log(RSDummyContext, "warning", "POC HACK: Processing GROUP step, will look for ARRANGE after");
+        RedisModule_Log(RSDummyContext, "warning", "POC HACK: reached GROUP");
         // If we had an arrange step, we must have the group step locally
         if (!hadArrange) {
           distributeGroupStep(src, remote, current, dstp, status);
@@ -513,14 +503,16 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
             goto error;
           }
         }
+        RedisModule_Log(RSDummyContext, "warning", "POC HACK: after distributeGroupStep");
         // POC HACK: Continue to distribute ARRANGE after GROUP (instead of breaking)
         afterGroup = true;
         current = PLN_NEXT_STEP(current);
+        RedisModule_Log(RSDummyContext, "warning", "POC HACK: after PLN_NEXT_STEP, current=%p", (void*)current);
         break;
       default:
         // POC HACK: If we're after GROUP and hit an unknown step type, break
         if (afterGroup) {
-          RedisModule_Log(RSDummyContext, "warning", "POC HACK: After GROUP, hit step type %d, breaking", current->type);
+          RedisModule_Log(RSDummyContext, "warning", "POC HACK: hit default after GROUP");
         }
         goto loop_break;
     }

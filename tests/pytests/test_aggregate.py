@@ -1489,3 +1489,105 @@ def testeAggregateBadApplyFunction(env):
         .contains("Unknown function name 'unexisting_function'")
     env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', '!!unexisting_function(@title)').error() \
         .contains("Unknown function name 'unexisting_function'")
+
+# POC HACK TEST: Test for distributed SORTBY after GROUPBY with limit
+@skip(cluster=False)  # Only run in cluster mode
+def test_poc_groupby_apply_sortby_limit(env):
+    """
+    Test query structure similar to:
+    FT.AGGREGATE idx "*"
+      LOAD ...
+      APPLY "..." AS the_score
+      GROUPBY 2 @parent_id @profile_id
+        REDUCE SUM 1 the_score AS total_score
+      APPLY "@total_score" AS final_score
+      SORTBY 2 @final_score DESC
+      LIMIT 0 400
+
+    This tests the POC hack that distributes SORTBY to shards after GROUPBY.
+    Check Redis logs for "POC HACK" warnings to verify the hack is triggered.
+    """
+    conn = getConnectionByEnv(env)
+
+    # Create index with fields similar to the real query
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'parent_id', 'TAG', 'SORTABLE',
+               'profile_id', 'TAG', 'SORTABLE',
+               'score', 'NUMERIC', 'SORTABLE').ok()
+
+    # Add test documents - enough to have multiple groups
+    for i in range(100):
+        parent = f'parent_{i % 10}'
+        profile = f'profile_{i % 5}'
+        score = float(i)
+        conn.execute_command('HSET', f'doc_{i}',
+                           'parent_id', parent,
+                           'profile_id', profile,
+                           'score', score)
+
+    # Run the query with GROUPBY -> APPLY -> SORTBY -> LIMIT pattern
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*',
+        'LOAD', '3', '@parent_id', '@profile_id', '@score',
+        'APPLY', '@score', 'AS', 'the_score',
+        'GROUPBY', '2', '@parent_id', '@profile_id',
+        'REDUCE', 'SUM', '1', 'the_score', 'AS', 'total_score',
+        'APPLY', '@total_score', 'AS', 'final_score',
+        'SORTBY', '2', '@final_score', 'DESC',
+        'LIMIT', '0', '10'
+    )
+
+    # Verify we got results
+    env.assertGreater(len(res), 1, message="Expected results from aggregate query")
+    env.assertGreaterEqual(res[0], 1, message="Expected at least 1 result count")
+
+# POC HACK TEST: Test for distributed SORTBY after GROUPBY with limit
+def test_poc_groupby_apply_sortby_limit(env):
+    """
+    Test query structure similar to:
+    FT.AGGREGATE idx "*"
+      LOAD ...
+      APPLY "..." AS the_score
+      GROUPBY 2 @parent_id @profile_id
+        REDUCE SUM 1 the_score AS total_score
+      APPLY "@total_score" AS final_score
+      SORTBY 2 @final_score DESC
+      LIMIT 0 400
+
+    This tests the POC hack that distributes SORTBY to shards after GROUPBY.
+    """
+    conn = getConnectionByEnv(env)
+
+    # Create index with fields similar to the real query
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'parent_id', 'TAG', 'SORTABLE',
+               'profile_id', 'TAG', 'SORTABLE',
+               'score', 'NUMERIC', 'SORTABLE').ok()
+
+    # Add test documents
+    for i in range(100):
+        parent = f'parent_{i % 10}'
+        profile = f'profile_{i % 5}'
+        score = float(i)
+        conn.execute_command('HSET', f'doc_{i}',
+                           'parent_id', parent,
+                           'profile_id', profile,
+                           'score', score)
+
+    # Run the query with GROUPBY -> APPLY -> SORTBY -> LIMIT pattern
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*',
+        'LOAD', '3', '@parent_id', '@profile_id', '@score',
+        'APPLY', '@score', 'AS', 'the_score',
+        'GROUPBY', '2', '@parent_id', '@profile_id',
+        'REDUCE', 'SUM', '1', 'the_score', 'AS', 'total_score',
+        'APPLY', '@total_score', 'AS', 'final_score',
+        'SORTBY', '2', '@final_score', 'DESC',
+        'LIMIT', '0', '10'
+    )
+
+    # Verify we got results
+    env.assertGreater(len(res), 1, message="Expected results from aggregate query")
+    env.assertGreaterEqual(res[0], 1, message="Expected at least 1 result count")
