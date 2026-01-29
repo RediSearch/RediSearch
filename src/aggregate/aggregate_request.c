@@ -204,13 +204,13 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
 }
 
 // Parse the timeout value
-int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status) {
+int parseTimeout(size_t *timeout, ArgsCursor *ac, QueryError *status) {
   if (AC_NumRemaining(ac) < 1) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Need an argument for TIMEOUT");
     return REDISMODULE_ERR;
   }
 
-  if (AC_GetLongLong(ac, timeout, AC_F_GE0) != AC_OK) {
+  if (AC_GetSize(ac, timeout, AC_F_GE0) != AC_OK) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
       "TIMEOUT requires a non negative integer.");
     return REDISMODULE_ERR;

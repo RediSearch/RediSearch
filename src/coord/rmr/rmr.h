@@ -90,6 +90,9 @@ MRReply** MRCtx_GetReplies(struct MRCtx *ctx);
 RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx);
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
 
+int MRCtx_GetCommandProtocol(struct MRCtx *ctx);
+
+QueryError *MRCtx_GetStatus(struct MRCtx *ctx);
 
 /* Free the MapReduce context */
 void MRCtx_Free(struct MRCtx *ctx);
@@ -97,6 +100,12 @@ void MRCtx_Free(struct MRCtx *ctx);
 /* Create a new MapReduce context with a given private data. In a redis module
  * this should be the RedisModuleCtx */
 struct MRCtx *MR_CreateCtx(struct RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc, void *privdata, int replyCap);
+
+/* Create a new MapReduce context for bailout.
+  Used when we need to send an error to the client, and we don't expect any replies.
+  The status parameter is used to pass the error to the client after we unblock it, must not be NULL.*/
+struct MRCtx *MR_CreateBailoutCtx(struct RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc, QueryError *status);
+
 
 typedef struct MRIteratorCallbackCtx MRIteratorCallbackCtx;
 typedef struct MRIteratorCtx MRIteratorCtx;

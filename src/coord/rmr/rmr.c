@@ -70,6 +70,7 @@ typedef struct MRCtx {
   RedisModuleBlockedClient *bc;
   MRCommand cmd;
   IORuntimeCtx *ioRuntime;
+  QueryError status;
 
   /**
    * This is a reduce function inside the MRCtx.
@@ -105,12 +106,33 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   RS_ASSERT(ctx || bc);
   ret->fn = NULL;
   ret->ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
+  ret->status = QueryError_Default();
   return ret;
+}
+
+/* Create a new MapReduce context for bailout.
+  Used when we need to send an error to the client, and we don't expect any replies.
+  The status parameter is used to pass the error to the client after we unblock it, must not be NULL or OK.*/
+MRCtx *MR_CreateBailoutCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, QueryError *status) {
+  RS_ASSERT(status && QueryError_HasError(status));
+  MRCtx *ret = MR_CreateCtx(ctx, bc, NULL, 0);
+  QueryError_CloneFrom(status, &ret->status);
+  return ret;
+}
+
+QueryError *MRCtx_GetStatus(MRCtx *ctx) {
+  return &ctx->status;
 }
 
 void MRCtx_Free(MRCtx *ctx) {
 
-  MRCommand_Free(&ctx->cmd);
+  // No need to free cmd in case of bailout.
+  // Bailout is indicated by QueryError
+  if(QueryError_IsOk(&ctx->status)) {
+    MRCommand_Free(&ctx->cmd);
+  }
+
+  QueryError_ClearError(&ctx->status);
 
   for (int i = 0; i < ctx->numReplied; i++) {
     if (ctx->replies[i] != NULL) {
@@ -152,6 +174,11 @@ RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx) {
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn) {
   ctx->fn = fn;
 }
+
+int MRCtx_GetCommandProtocol(struct MRCtx *ctx) {
+  return ctx->cmd.protocol;
+}
+
 
 static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
   if (p) {

@@ -82,13 +82,15 @@ do {                                            \
     return REDISMODULE_ERR;                                           \
   }
 
+// Forward declaration of searchReducerCtx
+struct searchReducerCtx;
+
 typedef struct {
   char *queryString;
   long long offset;
   long long limit;
   long long requestedResultsCount;
   rs_wall_clock initClock;
-  long long timeout;
   int withScores;
   int withExplainScores;
   int withPayload;
@@ -106,6 +108,8 @@ typedef struct {
   rs_wall_clock profileClock;
   void *reducer;
   bool queryOOM;
+
+  struct searchReducerCtx *rctx;
 } searchRequestCtx;
 
 bool debugCommandsEnabled(RedisModuleCtx *ctx);
