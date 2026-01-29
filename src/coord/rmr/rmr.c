@@ -116,6 +116,8 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
 MRCtx *MR_CreateBailoutCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, QueryError *status) {
   RS_ASSERT(status && QueryError_HasError(status));
   MRCtx *ret = MR_CreateCtx(ctx, bc, NULL, 0);
+  // Indicate that this is a bailout context by setting cmd.strs to NULL
+  ret->cmd.strs = NULL;
   QueryError_CloneFrom(status, &ret->status);
   return ret;
 }
@@ -126,9 +128,9 @@ QueryError *MRCtx_GetStatus(MRCtx *ctx) {
 
 void MRCtx_Free(MRCtx *ctx) {
 
-  // No need to free cmd in case of bailout.
-  // Bailout is indicated by QueryError
-  if(QueryError_IsOk(&ctx->status)) {
+  // In case of bailout, the command was not initialized.
+  // In case of normal execution, cmd.strs is initialized in MRCommand_Init.
+  if(ctx->cmd.strs) {
     MRCommand_Free(&ctx->cmd);
   }
 
