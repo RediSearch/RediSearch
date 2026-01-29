@@ -467,13 +467,13 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "deepdiff", specifier = "<=8.3.0" },
+    { name = "deepdiff", specifier = "<=8.6.1" },
     { name = "distro", specifier = "<=1.9.0" },
     { name = "faker", specifier = "<=37.1.0" },
     { name = "gevent", specifier = "<=24.11.1" },
     { name = "ml-dtypes", specifier = "<=0.5.3" },
     { name = "numpy", specifier = "<=2.2.4" },
-    { name = "orderly-set", specifier = "<=5.3.0" },
+    { name = "orderly-set", specifier = "<=5.4.1" },
     { name = "packaging", specifier = "<=24.2" },
     { name = "redis", specifier = ">=5.2.1,<7.0.0" },
     { name = "rltest", specifier = ">=0.7.18,<0.8.0" },
