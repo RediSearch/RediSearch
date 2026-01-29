@@ -3755,6 +3755,10 @@ static searchRequestCtx *createReq(RedisModuleString **argv, int argc, RedisModu
   searchRequestCtx *req = rscParseRequest(argv, argc, status);
 
   if (!req) {
+    // If status is not set, it's a generic parsing error
+    if (QueryError_IsOk(status)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, QueryError_Strerror(QUERY_ERROR_CODE_PARSE_ARGS));
+    }
     bailOut(bc, status);
     return NULL;
   }
