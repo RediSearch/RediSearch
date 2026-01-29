@@ -40,6 +40,8 @@ void MRCommand_Free(MRCommand *cmd) {
   rm_free(cmd->targetShard);
   rm_free(cmd->strs);
   rm_free(cmd->lens);
+
+  memset(cmd, 0, sizeof(*cmd));
 }
 
 static void assignStr(MRCommand *cmd, size_t idx, const char *s, size_t n) {
