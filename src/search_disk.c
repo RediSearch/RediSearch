@@ -78,14 +78,14 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
 }
 
 // Index API wrappers
-bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask) {
+bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq) {
     RS_ASSERT(disk && index);
-    return disk->index.indexDocument(index, term, termLen, docId, fieldMask);
+    return disk->index.indexDocument(index, term, termLen, docId, fieldMask, freq);
 }
 
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_fieldMask fieldMask, double weight) {
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_fieldMask fieldMask, double weight, double idf, double bm25_idf) {
     RS_ASSERT(disk && index && term);
-    return disk->index.newTermIterator(index, term, termLen, fieldMask, weight);
+    return disk->index.newTermIterator(index, term, termLen, fieldMask, weight, idf, bm25_idf);
 }
 
 QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight) {

@@ -9,11 +9,11 @@
 
 //! Supporting types for [`Numeric`] and [`Term`].
 
-use std::ptr::NonNull;
+use std::{f64, ptr::NonNull};
 
 use ffi::{
-    IndexFlags_Index_WideSchema, RS_INVALID_FIELD_INDEX, RedisSearchCtx, t_docId, t_fieldIndex,
-    t_fieldMask,
+    IndexFlags_Index_WideSchema, NumericRangeTree, RS_INVALID_FIELD_INDEX, RedisSearchCtx, t_docId,
+    t_fieldIndex, t_fieldMask,
 };
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{IndexReader, NumericReader, RSIndexResult, TermReader};
@@ -39,6 +39,7 @@ pub struct InvIndIterator<'index, R> {
     result: RSIndexResult<'index>,
 
     /// Query context used to revalidate the iterator and to check for expiration.
+    /// TODO: remove the Option once Term::new_simple() has been removed.
     query_ctx: Option<QueryContext>,
 
     /// The implementation of the `read` method.
@@ -186,7 +187,7 @@ where
         }
 
         while self.reader.next_record(&mut self.result)? {
-            if !self.check_current_expiration() {
+            if self.is_current_doc_expired() {
                 continue;
             }
             self.last_doc_id = self.result.doc_id;
@@ -211,7 +212,7 @@ where
                 // Prevent returning the same doc
                 continue;
             }
-            if !self.check_current_expiration() {
+            if self.is_current_doc_expired() {
                 continue;
             }
             self.last_doc_id = self.result.doc_id;
@@ -223,13 +224,13 @@ where
         Ok(None)
     }
 
-    /// Returns `false` if the current document is expired.
+    /// Returns `true` if the current document is expired.
     ///
     /// # Safety
     /// 1. self.query_ctx cannot be `None`.
     /// 2. `query_ctx.sctx` and `query_ctx.sctx.spec` are valid pointers to their respective types.
     ///    Guaranteed by the 3. from [`InvIndIterator::new`].
-    fn check_current_expiration(&self) -> bool {
+    fn is_current_doc_expired(&self) -> bool {
         // SAFETY: 1
         let query_ctx = unsafe { self.query_ctx.as_ref().unwrap_unchecked() };
         // SAFETY: 2
@@ -246,7 +247,7 @@ where
             // - 2. guarantees that the ttl pointer is valid.
             // - We just allocated `current_time` on the stack so its pointer is valid.
             FieldMaskOrIndex::Index(index) => unsafe {
-                ffi::TimeToLiveTable_VerifyDocAndField(
+                !ffi::TimeToLiveTable_VerifyDocAndField(
                     spec.docs.ttl,
                     self.result.doc_id,
                     index,
@@ -260,7 +261,7 @@ where
             // - 2. guarantees that the ttl pointer is valid.
             // - We just allocated `current_time` on the stack so its pointer is valid.
             unsafe {
-                ffi::TimeToLiveTable_VerifyDocAndFieldMask(
+                !ffi::TimeToLiveTable_VerifyDocAndFieldMask(
                     spec.docs.ttl,
                     self.result.doc_id,
                     (self.result.field_mask & mask) as u32,
@@ -275,7 +276,7 @@ where
                 // - 2. guarantees that the ttl pointer is valid.
                 // - We just allocated `current_time` on the stack so its pointer is valid.
                 unsafe {
-                    ffi::TimeToLiveTable_VerifyDocAndWideFieldMask(
+                    !ffi::TimeToLiveTable_VerifyDocAndWideFieldMask(
                         spec.docs.ttl,
                         self.result.doc_id,
                         self.result.field_mask & mask,
@@ -323,11 +324,13 @@ where
             return Ok(None);
         }
 
-        while self.reader.seek_record(doc_id, &mut self.result)? {
-            if !self.check_current_expiration() {
-                continue;
-            }
+        if !self.reader.seek_record(doc_id, &mut self.result)? {
+            // reached end of iterator
+            self.at_eos = true;
+            return Ok(None);
+        }
 
+        if !self.is_current_doc_expired() {
             // The seeker found a doc id that is greater or equal to the requested doc id
             // and the doc id did not expired.
             self.last_doc_id = self.result.doc_id;
@@ -341,9 +344,20 @@ where
             }
         }
 
-        // exited the while loop so we reached the end of the index
-        self.at_eos = true;
-        Ok(None)
+        // The seeker found a record but it's expired. Fall back to read to get the next valid record.
+        // This matches the C implementation behavior in InvIndIterator_SkipTo_CheckExpiration.
+        match self.read()? {
+            Some(_) => {
+                // Found a valid record, it must be greater than the requested doc_id.
+                // It cannot be equal to the requested doc_id because multi-values indices are only
+                // possible with JSON indices, which don't have field expiration.
+                Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
+            }
+            None => {
+                // No more records
+                Ok(None)
+            }
+        }
     }
 }
 
@@ -392,8 +406,6 @@ where
     }
 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // TODO: NumericCheckAbort when implementing queries
-
         if !self.reader.needs_revalidation() {
             return Ok(RQEValidateStatus::Ok);
         }
@@ -429,8 +441,24 @@ where
 /// # Type Parameters
 ///
 /// * `'index` - The lifetime of the index being iterated over.
+/// * `R` - The type of the numeric reader.
 pub struct Numeric<'index, R> {
     it: InvIndIterator<'index, R>,
+    /// The numeric range tree and its revision ID, used to detect changes during revalidation.
+    range_tree_info: Option<RangeTreeInfo>,
+    /// Minimum numeric range, only used in debug print.
+    range_min: f64,
+    /// Maximum numeric range, only used in debug print.
+    range_max: f64,
+}
+
+/// Information about the numeric range tree backing a [`Numeric`] iterator.
+struct RangeTreeInfo {
+    /// Pointer to the numeric range tree.
+    tree: NonNull<ffi::NumericRangeTree>,
+    /// The revision ID at the time the iterator was created.
+    /// Used to detect if the tree has been modified.
+    revision_id: u32,
 }
 
 impl<'index, R> Numeric<'index, R>
@@ -443,37 +471,43 @@ where
     /// a [`NumericReader`] such as [`inverted_index::FilterNumericReader`]
     /// or [`inverted_index::FilterGeoReader`].
     ///
-    /// This constructor should only used in tests, production code should use
-    /// [`Numeric::new`] instead.
-    #[doc(hidden)]
-    pub fn new_simple(reader: R) -> Self {
-        let result = RSIndexResult::numeric(0.0);
-        Self {
-            it: InvIndIterator::new(reader, result, None),
-        }
-    }
-
-    /// Create an iterator returning results from a numeric inverted index.
-    ///
-    /// Filtering the results can be achieved by wrapping the reader with
-    /// a [`NumericReader`] such as [`inverted_index::FilterNumericReader`]
-    /// or [`inverted_index::FilterGeoReader`].
-    ///
     /// `context`, `index` and `predicate` are used to check for expired
     /// documents when reading from the inverted index.
+    ///
+    /// `range_tree` is the underlying range tree backing the iterator.
+    /// It is used during revalidation to check if the iterator is still valid.
+    ///
+    /// `range_min` and `range_max` are the minimum and maximum numeric ranges,
+    /// respectively. They are only used in debug print.
     ///
     /// # Safety
     ///
     /// 1. `context` is a valid pointer to a `RedisSearchCtx`.
     /// 2. `context.spec` is a valid pointer to an `IndexSpec`.
     /// 3. 1 and 2 must stay valid during the iterator's lifetime.
+    /// 4. If `range_tree` is Some, it must be a valid pointer to a `NumericRangeTree`.
+    /// 5. If `range_tree` is Some, it must stay valid during the iterator's lifetime.
     pub fn new(
         reader: R,
         context: NonNull<RedisSearchCtx>,
         index: t_fieldIndex,
         predicate: FieldExpirationPredicate,
+        range_tree: Option<NonNull<NumericRangeTree>>,
+        range_min: Option<f64>,
+        range_max: Option<f64>,
     ) -> Self {
         let result = RSIndexResult::numeric(0.0);
+
+        let range_tree_info = range_tree.map(|tree| RangeTreeInfo {
+            tree,
+            // SAFETY: 4.
+            revision_id: unsafe { tree.as_ref().revisionId },
+        });
+
+        let range_min = range_min.unwrap_or(f64::NEG_INFINITY);
+        let range_max = range_max.unwrap_or(f64::INFINITY);
+        assert!(range_min <= range_max);
+
         Self {
             it: InvIndIterator::new(
                 reader,
@@ -486,7 +520,35 @@ where
                     },
                 }),
             ),
+            range_tree_info,
+            range_min,
+            range_max,
         }
+    }
+
+    const fn should_abort(&self) -> bool {
+        if self.it.query_ctx.is_none() {
+            return false;
+        }
+
+        // If there's no range tree, we can't check for changes
+        let Some(ref info) = self.range_tree_info else {
+            return false;
+        };
+
+        // SAFETY: 5. from [`Self::new`]
+        let rt = unsafe { info.tree.as_ref() };
+        // If the revision id changed the numeric tree was either completely deleted or a node was split or removed.
+        // The cursor is invalidated so we cannot revalidate the iterator.
+        rt.revisionId != info.revision_id
+    }
+
+    pub const fn range_min(&self) -> f64 {
+        self.range_min
+    }
+
+    pub const fn range_max(&self) -> f64 {
+        self.range_max
     }
 }
 
@@ -534,6 +596,10 @@ where
 
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        if self.should_abort() {
+            return Ok(RQEValidateStatus::Aborted);
+        }
+
         self.it.revalidate()
     }
 }

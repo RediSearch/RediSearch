@@ -1576,7 +1576,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
       return REDISMODULE_ERR;
     }
     // Disable GC when running in Flex mode
-    RSGlobalConfig.gcConfigParams.enableGC = 0;
+    RSGlobalConfig.gcConfigParams.enableGC = false;
     RedisModule_Log(ctx, "notice", "GC disabled (Flex mode)");
   }
 

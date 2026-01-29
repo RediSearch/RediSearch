@@ -79,9 +79,10 @@ typedef struct IndexDiskAPI {
    * @param termLen Length of the term
    * @param docId Document ID to index
    * @param fieldMask Field mask indicating which fields are present in the document
+   * @param freq Frequency of the term in the document
    * @return true if the write was successful, false otherwise
    */
-  bool (*indexDocument)(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask);
+  bool (*indexDocument)(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
 
   /**
    * @brief Deletes a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
@@ -102,9 +103,11 @@ typedef struct IndexDiskAPI {
    * @param termLen Length of the term
    * @param fieldMask Field mask indicating which fields are present in the document
    * @param weight Weight for the iterator (used in scoring)
+   * @param idf IDF for the term (used in scoring)
+   * @param bm25_idf BM25 IDF for the term (used in scoring)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, const char* term, size_t termLen, t_fieldMask fieldMask, double weight);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, const char* term, size_t termLen, t_fieldMask fieldMask, double weight, double idf, double bm25_idf);
 
   /**
    * @brief Returns the number of documents in the index

@@ -89,9 +89,10 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
  * @param termLen Length of the term
  * @param docId Document ID to index
  * @param fieldMask Field mask indicating which fields are present
+ * @param freq Frequency of the term in the document
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask);
+bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
 
 /**
  * @brief Delete a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
@@ -115,9 +116,11 @@ void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key
  * @param termLen Length of the term
  * @param fieldMask Field mask indicating which fields are present
  * @param weight Weight for the term (used in scoring)
+ * @param idf IDF for the term (used in scoring)
+ * @param bm25_idf BM25 IDF for the term (used in scoring)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_fieldMask fieldMask, double weight);
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_fieldMask fieldMask, double weight, double idf, double bm25_idf);
 
 /**
  * @brief Create an IndexIterator for all the existing documents
