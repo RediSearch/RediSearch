@@ -84,12 +84,8 @@ impl Counter {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::test_utils::{Chain, MockResultProcessor, from_iter};
-    use std::{
-        iter,
-        ptr::{self, NonNull},
-        sync::atomic::{AtomicUsize, Ordering},
-    };
+    use crate::test_utils::{Chain, from_iter};
+    use std::iter;
 
     #[test]
     fn basically_works() {
