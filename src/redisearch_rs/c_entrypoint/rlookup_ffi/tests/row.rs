@@ -24,7 +24,6 @@ use rlookup_ffi::row::{
 use std::ffi::c_char;
 use std::ffi::c_int;
 use value::RSValueFFI;
-use value::RSValueTrait;
 
 #[test]
 fn rlookuprow_move() {
@@ -36,7 +35,7 @@ fn rlookuprow_move() {
     let key = lookup
         .get_key_write(c"foo", RLookupKeyFlags::empty())
         .unwrap();
-    src.write_key(key, RSValueFFI::create_num(42.0));
+    src.write_key(key, RSValueFFI::new_num(42.0));
 
     src.assert_valid("tests::row::rlookuprow_move");
     dst.assert_valid("tests::row::rlookuprow_move");
@@ -72,7 +71,7 @@ fn rlookuprow_writebyname() {
             name.as_ptr(),
             len,
             Some(NonNull::from(&mut row)),
-            NonNull::new(value.as_ptr()),
+            NonNull::new(value.as_raw()),
         );
     }
 
@@ -95,7 +94,7 @@ fn rlookuprow_writebynameowned() {
             name.as_ptr(),
             len,
             Some(NonNull::from(&mut row)),
-            NonNull::new(value.as_ptr()),
+            NonNull::new(value.as_raw()),
         );
     }
 

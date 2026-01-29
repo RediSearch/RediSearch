@@ -167,8 +167,6 @@ typedef struct RLookup {
   struct KeyList keys;
 } RLookup;
 
-typedef struct RLookupRow RLookupRow;
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -606,7 +604,7 @@ RSValue *RLookupRow_Get(const struct RLookupKey *key, const RLookupRow *row);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-const RSSortingVector<RSValueFFI> *RLookupRow_GetSortingVector(const RLookupRow *row);
+const RSSortingVector *RLookupRow_GetSortingVector(const RLookupRow *row);
 
 /**
  * Sets the sorting vector for the row.
@@ -619,7 +617,7 @@ const RSSortingVector<RSValueFFI> *RLookupRow_GetSortingVector(const RLookupRow 
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookupRow_SetSortingVector(RLookupRow *row,
-                                 const RSSortingVector<RSValueFFI> *sv);
+                                 const RSSortingVector *sv);
 
 #ifdef __cplusplus
 }  // extern "C"
