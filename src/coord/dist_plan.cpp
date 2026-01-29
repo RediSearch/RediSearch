@@ -454,6 +454,9 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           PLN_ArrangeStep *newStp = (PLN_ArrangeStep *)rm_calloc(1, sizeof(*newStp));
 
           *newStp = *astp;
+          // POC HACK: Hardcode limit to 600 for distributed SORTBY to reduce shard->coordinator traffic
+          newStp->limit = 600;
+          newStp->offset = 0;
           AGPLN_AddStep(remote, &newStp->base);
           if (astp->sortKeys) {
             newStp->sortKeys = array_new(const char *, array_len(astp->sortKeys));
@@ -475,7 +478,9 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
             goto error;
           }
         }
-        // After the group step, the rest of the steps are local only.
+        // POC HACK: Continue to distribute ARRANGE after GROUP (instead of breaking)
+        current = PLN_NEXT_STEP(current);
+        break;
       default:
         goto loop_break;
     }
