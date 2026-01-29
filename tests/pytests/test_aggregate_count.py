@@ -54,14 +54,12 @@ def _get_cluster_RP_profile(env, res) -> list:
 
     else:
         for i in range(len(res[1][1])):
-            # Index 19 is Result processors profile (after adding Workers queue time field at indices 6-7)
             shard = res[1][1][i][19]
             shard_RP_and_count.append([(item[1], item[5]) for item in shard])
 
         # sort shard by the number of results processed by the first RP
         shard_RP_and_count.sort(key=lambda x: x[0][1])
         # Extract the RP types from the coordinator
-        # Index 13 is Result processors profile (after adding Workers queue time field at indices 6-7)
         coord = res[1][3][13]
         coord_RP_and_count = [(item[1], item[5]) for item in coord]
         return [shard_RP_and_count, coord_RP_and_count]
@@ -73,7 +71,6 @@ def _get_standalone_RP_profile(env, res) -> list:
         RP_and_count = [(item['Type'], item['Results processed']) for item in profile]
         return RP_and_count
     else:
-        # Index 13 is Result processors profile (after adding Workers queue time field at indices 6-7)
         profile = res[1][1][0][13]
         RP_and_count = [(item[1], item[5]) for item in profile]
         return RP_and_count

@@ -1311,19 +1311,14 @@ def run_profile_with_paused_pool(env, pause_cmd, resume_cmd, pause_duration_ms=5
 
 def get_shard_parsing_time(env, profile_result):
   """Extract Parsing time from shard profile."""
-  if env.isCluster():
-    if env.protocol == 3:
-      # In cluster RESP3, profile is under 'Profile' -> 'Shards' (list)
-      shards = profile_result['Profile']['Shards']
-      return float(shards[0]['Parsing time'])
-    else:
-      _, shards = extract_profile_coordinator_and_shards(env, profile_result)
-      return float(shards[0]['Parsing time'])
+  if env.protocol == 3:
+    # RESP3: profile is under 'Profile' -> 'Shards' (list) for both cluster and standalone
+    shards = profile_result['Profile']['Shards']
+    return float(shards[0]['Parsing time'])
   else:
-    # Standalone: profile is in result directly
-    if env.protocol == 3:
-      # In standalone RESP3, the profile is nested under 'Profile' -> 'Shards' -> [0]
-      shards = profile_result['Profile']['Shards']
+    # RESP2
+    if env.isCluster():
+      _, shards = extract_profile_coordinator_and_shards(env, profile_result)
       return float(shards[0]['Parsing time'])
     else:
       profile_dict = to_dict(profile_result[-1])
@@ -1358,25 +1353,11 @@ def testParsingTimeDoesNotIncludeCoordQueueTime():
             f"Expected < {pause_duration_ms * 0.5}ms. Full result: {result}")
 
 def get_shard_workers_queue_time(profile_result):
-  """
-  Extract 'Workers queue time' from the first shard's profile result.
-  Handles both standalone and cluster modes, and RESP2/RESP3 differences.
-  """
+  """Extract 'Workers queue time' from the first shard's profile result (RESP3 only)."""
   profile = profile_result.get('Profile', profile_result.get('profile', {}))
-
-  # Try standalone format first (RESP3)
   shards = profile.get('Shards', profile.get('shards', []))
   if isinstance(shards, list) and len(shards) > 0:
-    shard = shards[0]
-    return shard.get('Workers queue time', 0)
-
-  # Try cluster format (RESP3) - shards is a dict with 'Shard #1', etc.
-  if isinstance(shards, dict):
-    for key in shards:
-      if key.startswith('Shard'):
-        shard = shards[key]
-        return shard.get('Workers queue time', 0)
-
+    return shards[0].get('Workers queue time', 0)
   raise ValueError(f"Could not find Workers queue time in profile result: {profile_result}")
 
 def get_coordinator_queue_time(profile_result):
