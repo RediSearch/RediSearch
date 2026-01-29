@@ -467,7 +467,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "deepdiff", specifier = ">=8.6.1" },
+    { name = "deepdiff", specifier = "==8.6.1" },
     { name = "distro", specifier = "<=1.9.0" },
     { name = "faker", specifier = "<=37.1.0" },
     { name = "gevent", specifier = "<=24.11.1" },
