@@ -35,7 +35,7 @@ default-features = true
 [dev-dependencies]
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
-value = { workspace = true, features = ["test_utils"] }
+value = { workspace = true }
 
 # Crate required to invoke C symbols
 rlookup = { path = ".", features = ["unittest"] }
