@@ -10,8 +10,10 @@
 pub use crate::{
     collection::{Array, Map},
     shared::SharedRsValue,
+    strings::{ConstString, RedisString, RmAllocString},
     trio::RsValueTrio,
 };
+use std::ffi::CStr;
 
 /// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
 /// Rust port of the RSValue type.
@@ -27,6 +29,7 @@ pub use test_utils::RSValueMock;
 
 mod collection;
 pub mod shared;
+pub mod strings;
 pub mod trio;
 
 /// An actual [`RsValue`] object
@@ -38,8 +41,14 @@ pub enum RsValue {
     Null,
     /// Numeric value
     Number(f64),
-    /// String value (placeholder)
-    String(String),
+    /// String value
+    String(Box<CStr>),
+    /// String value backed by a rm_alloc'd string
+    RmAllocString(RmAllocString),
+    /// String value backed by a constant C string
+    ConstString(ConstString),
+    /// String value backed by a Redis string
+    RedisString(RedisString),
     /// Array value
     Array(Array),
     /// Reference value
@@ -65,6 +74,9 @@ impl RsValue {
             RsValue::Null => "Null",
             RsValue::Number(_) => "Number",
             RsValue::String(_) => "String",
+            RsValue::RmAllocString(_) => "RmAllocString",
+            RsValue::ConstString(_) => "ConstString",
+            RsValue::RedisString(_) => "RedisString",
             RsValue::Array(_) => "Array",
             RsValue::Ref(_) => "Ref",
             RsValue::Trio(_) => "Trio",
