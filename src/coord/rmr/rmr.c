@@ -112,9 +112,9 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
 
 /* Create a new MapReduce context for bailout.
   Used when we need to send an error to the client, and we don't expect any replies.
-  The status parameter is used to pass the error to the client after we unblock it, must not be NULL.*/
+  The status parameter is used to pass the error to the client after we unblock it, must not be NULL or OK.*/
 MRCtx *MR_CreateBailoutCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, QueryError *status) {
-  RS_ASSERT(status);
+  RS_ASSERT(status && QueryError_HasError(status));
   MRCtx *ret = MR_CreateCtx(ctx, bc, NULL, 0);
   QueryError_CloneFrom(status, &ret->status);
   return ret;
