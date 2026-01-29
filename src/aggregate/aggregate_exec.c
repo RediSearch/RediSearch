@@ -892,6 +892,12 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
+
+  if (IsProfile(req)) {
+    req->profileQueueTime = rs_wall_clock_elapsed_ns(&req->initClock);
+    rs_wall_clock_init(&req->initClock);
+  }
+
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
   QueryError status = QueryError_Default();
 

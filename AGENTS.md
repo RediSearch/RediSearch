@@ -1,6 +1,8 @@
 # RediSearch Development Guide
 
-RediSearch is a Redis module providing full-text search, secondary indexing, and vector similarity search. 
+See also: [AGENTS.local.md](AGENTS.local.md) for local-specific instructions.
+
+RediSearch is a Redis module providing full-text search, secondary indexing, and vector similarity search.
 The primary development focus is porting C code from `src/` to Rust in `src/redisearch_rs/`.
 
 ## Build Commands
