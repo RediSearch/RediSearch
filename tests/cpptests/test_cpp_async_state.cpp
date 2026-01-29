@@ -186,7 +186,7 @@ TEST_F(AsyncStateTest, testPendingToReady) {
   }
 }
 
-// Test: State 4 → State 5: Ready → Consumed (simulated popReadyResult)
+// Test: State 4 → State 5: Ready → Consumed (using actual popReadyResult)
 TEST_F(AsyncStateTest, testReadyToConsumed) {
   // Setup: Create ready results
   for (t_docId i = 1; i <= 3; i++) {
@@ -211,31 +211,26 @@ TEST_F(AsyncStateTest, testReadyToConsumed) {
     docId++;
   }
 
-  // Consume results one by one (simulating popReadyResult)
+  // Consume results one by one using the actual function
   for (int i = 0; i < 3; i++) {
-    ASSERT_LT(state.readyResultsIndex, array_len(state.readyResults));
+    uint16_t pendingCountBefore = countNodes(&state.pendingResults);
 
-    AsyncReadResult *result = &state.readyResults[state.readyResultsIndex];
-    IndexResultNode *node = (IndexResultNode *)result->user_data;
-
-    // Populate DMD in IndexResult (what popReadyResult does)
-    node->result->dmd = result->dmd;
-    result->dmd = NULL;
+    // Call the actual PopReadyResult function
+    RSIndexResult *indexResult = IndexResultAsyncRead_PopReadyResult(&state);
 
     // Verify the result
-    ASSERT_EQ(node->result->docId, i + 1);
-    ASSERT_NE(node->result->dmd, nullptr);
-    ASSERT_EQ(node->result->dmd->id, i + 1);
+    ASSERT_NE(indexResult, nullptr);
+    ASSERT_EQ(indexResult->docId, i + 1);
+    ASSERT_NE(indexResult->dmd, nullptr);
+    ASSERT_EQ(indexResult->dmd->id, i + 1);
 
-    // Remove from pending (what popReadyResult does)
-    dllist_delete(&node->node);
+    // Verify state changes
+    ASSERT_EQ(state.readyResultsIndex, i + 1);
+    ASSERT_EQ(countNodes(&state.pendingResults), pendingCountBefore - 1);
 
-    // Clean up (in real code, this happens later)
-    DMD_Return(node->result->dmd);
-    IndexResult_Free(node->result);
-    rm_free(node);
-
-    state.readyResultsIndex++;
+    // Clean up (in real code, this happens later via lastReturnedIndexResult)
+    DMD_Return(indexResult->dmd);
+    IndexResult_Free(indexResult);
   }
 
   // Verify consumed state

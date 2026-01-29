@@ -162,7 +162,7 @@ bool SearchDisk_IsAsyncIOSupported() {
     if (!disk || !disk_db) {
         return false;
     }
-    // Check both the global flag and the underlying disk support
+    // Check if the underlying disk backend supports async I/O
     return disk->basic.isAsyncIOSupported(disk_db);
 }
 

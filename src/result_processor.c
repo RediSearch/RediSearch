@@ -39,6 +39,10 @@
 // Maximum number of concurrent async disk reads
 #define MAX_ONGOING_READ_SIZE 16
 
+// Timeout for async disk poll when iterator is at EOF (in milliseconds)
+// When the iterator is exhausted, we wait for pending async reads to complete
+#define ASYNC_POLL_TIMEOUT_AT_EOF_MS 1000
+
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
  *
@@ -186,7 +190,7 @@ static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadat
  * Set the search result data from a DMD and IndexResult.
  */
 static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexResult *indexResult,
-                            const RSDocumentMetadata *dmd, t_docId docId) {
+                            const RSDocumentMetadata *dmd) {
   RS_LOG_ASSERT(SearchResult_GetDocumentMetadata(res) == NULL, "SearchResult already has associated document metadata");
   base->parent->totalResults++;
   SearchResult_SetDocId(res, dmd->id);
@@ -264,7 +268,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
       continue;
     }
 
-    setSearchResult(base, res, it->current, dmd, it->lastDocId);
+    setSearchResult(base, res, it->current, dmd);
     return RS_RESULT_OK;
   }
 }
@@ -274,7 +278,6 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   RPQueryIterator *self = (RPQueryIterator *)base;
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
-  const RSDocumentMetadata *dmd;
 
   // Handle spec lock and revalidation
   // no need store the return value since validate current result is not needed for async disk path
@@ -316,14 +319,14 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
         IndexResult_Free(indexResult);
         continue;
       }
-      setSearchResult(base, res, indexResult, indexResult->dmd, indexResult->dmd->id);
+      setSearchResult(base, res, indexResult, indexResult->dmd);
       // Track this IndexResult so we can free it on the next call
       self->async.lastReturnedIndexResult = indexResult;
       return RS_RESULT_OK;
     }
 
     // Step 3: No ready results - poll for more
-    int timeout_ms = it->atEOF ? 1000 : 0;
+    int timeout_ms = it->atEOF ? ASYNC_POLL_TIMEOUT_AT_EOF_MS : 0;
 
     // Poll writes directly to the arrays (capacity is ASYNC_POOL_SIZE)
     const size_t pendingCount = SearchDisk_PollAsyncReads(
@@ -377,14 +380,11 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
     RedisSearchDiskAsyncReadPool asyncPool =
         SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, MAX_ONGOING_READ_SIZE);
 
-    if (asyncPool && IndexResultAsyncRead_SetupAsyncPool(&ret->async, asyncPool)) {
+    if (asyncPool) {
       // Async disk flow with buffering
+      IndexResultAsyncRead_SetupAsyncPool(&ret->async, asyncPool);
       ret->base.Next = rpQueryItNext_AsyncDisk;
     } else {
-      // Failed to setup async - cleanup and fall back to sync
-      if (asyncPool) {
-        SearchDisk_FreeAsyncReadPool(asyncPool);
-      }
       ret->base.Next = rpQueryItNext;
     }
   } else {

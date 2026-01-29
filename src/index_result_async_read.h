@@ -82,9 +82,8 @@ void IndexResultAsyncRead_Init(IndexResultAsyncReadState *state, uint16_t poolSi
  *
  * @param state Async read state structure
  * @param asyncPool Pre-created async read pool handle
- * @return true if setup successful, false on allocation failure
  */
-bool IndexResultAsyncRead_SetupAsyncPool(IndexResultAsyncReadState *state,
+void IndexResultAsyncRead_SetupAsyncPool(IndexResultAsyncReadState *state,
                                          RedisSearchDiskAsyncReadPool asyncPool);
 
 /**
@@ -98,12 +97,12 @@ void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state);
  * Refill the async pool from the iterator buffer
  *
  * Moves IndexResults from iteratorResults to pendingResults by submitting
- * them to the async read pool. Maintains FIFO ordering.
+ * them to the async read pool. Maintains FIFO ordering. Stops when the pool
+ * is full or no more buffered results are available.
  *
  * @param state Async read state structure
- * @return Number of entries added to the async pool
  */
-uint16_t IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state);
+void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state);
 
 /**
  * Pop a ready result from the completed async reads

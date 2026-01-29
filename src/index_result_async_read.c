@@ -25,7 +25,7 @@ void IndexResultAsyncRead_Init(IndexResultAsyncReadState *state, uint16_t poolSi
   state->lastReturnedIndexResult = NULL;
 }
 
-bool IndexResultAsyncRead_SetupAsyncPool(IndexResultAsyncReadState *state,
+void IndexResultAsyncRead_SetupAsyncPool(IndexResultAsyncReadState *state,
                                          RedisSearchDiskAsyncReadPool asyncPool) {
   RS_ASSERT(asyncPool);
 
@@ -34,8 +34,6 @@ bool IndexResultAsyncRead_SetupAsyncPool(IndexResultAsyncReadState *state,
   // Allocate async I/O buffers with capacity for poll results (len=0 initially)
   state->readyResults = array_new(AsyncReadResult, state->poolSize);
   state->failedUserData = array_new(uint64_t, state->poolSize);
-
-  return true;
 }
 
 void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state) {
@@ -89,7 +87,7 @@ void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state) {
   }
 }
 
-uint16_t IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
+void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
   uint16_t added = 0;
 
   // Move nodes from iteratorResults to pendingResults
@@ -113,8 +111,6 @@ uint16_t IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
     state->iteratorResultCount--;
     added++;
   }
-
-  return added;
 }
 
 RSIndexResult* IndexResultAsyncRead_PopReadyResult(IndexResultAsyncReadState *state) {
