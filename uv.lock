@@ -120,14 +120,14 @@ wheels = [
 
 [[package]]
 name = "deepdiff"
-version = "8.3.0"
+version = "8.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orderly-set" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/06/23/26a13806c06d9a9202433dae15740444d0bfbb365965a8af8a0b6b3a95bb/deepdiff-8.3.0.tar.gz", hash = "sha256:92a8d7c75a4b26b385ec0372269de258e20082307ccf74a4314341add3d88391", size = 509468, upload-time = "2025-03-06T00:02:00.012Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/76/36c9aab3d5c19a94091f7c6c6e784efca50d87b124bf026c36e94719f33c/deepdiff-8.6.1.tar.gz", hash = "sha256:ec56d7a769ca80891b5200ec7bd41eec300ced91ebcc7797b41eb2b3f3ff643a", size = 634054, upload-time = "2025-09-03T19:40:41.461Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/01/a5/79af91ab5909fa98a150b2fb16b2ab0aaaa440cb1264abe3ffc9806e391e/deepdiff-8.3.0-py3-none-any.whl", hash = "sha256:838acf1b17d228f4155bcb69bb265c41cbb5b2aba2575f07efa67ad9b9b7a0b5", size = 86227, upload-time = "2025-03-06T00:01:58.329Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/e6/efe534ef0952b531b630780e19cabd416e2032697019d5295defc6ef9bd9/deepdiff-8.6.1-py3-none-any.whl", hash = "sha256:ee8708a7f7d37fb273a541fa24ad010ed484192cd0c4ffc0fa0ed5e2d4b9e78b", size = 91378, upload-time = "2025-09-03T19:40:39.679Z" },
 ]
 
 [[package]]
@@ -301,11 +301,11 @@ wheels = [
 
 [[package]]
 name = "orderly-set"
-version = "5.3.0"
+version = "5.4.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e7/0e/ef328b512c2595831304e51f25e9287697b7bf13be0527ca9592a2659c16/orderly_set-5.3.0.tar.gz", hash = "sha256:80b3d8fdd3d39004d9aad389eaa0eab02c71f0a0511ba3a6d54a935a6c6a0acc", size = 20026, upload-time = "2025-02-03T17:51:53.87Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/03/4a/38030da31c13dcd5a531490006e63a0954083fb115113be9393179738e25/orderly_set-5.4.1.tar.gz", hash = "sha256:a1fb5a4fdc5e234e9e8d8e5c1bbdbc4540f4dfe50d12bf17c8bc5dbf1c9c878d", size = 20943, upload-time = "2025-05-06T22:34:13.512Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/df/fe/8009ebb64a19cf4bdf51b16d3074375010735d8c30408efada6ce02bf37e/orderly_set-5.3.0-py3-none-any.whl", hash = "sha256:c2c0bfe604f5d3d9b24e8262a06feb612594f37aa3845650548befd7772945d1", size = 12179, upload-time = "2025-02-03T17:51:52.081Z" },
+    { url = "https://files.pythonhosted.org/packages/12/bc/e0dfb4db9210d92b44e49d6e61ba5caefbd411958357fa9d7ff489eeb835/orderly_set-5.4.1-py3-none-any.whl", hash = "sha256:b5e21d21680bd9ef456885db800c5cb4f76a03879880c0175e1b077fb166fd83", size = 12339, upload-time = "2025-05-06T22:34:12.564Z" },
 ]
 
 [[package]]
@@ -467,13 +467,13 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "deepdiff", specifier = "<=8.3.0" },
+    { name = "deepdiff", specifier = "==8.6.1" },
     { name = "distro", specifier = "<=1.9.0" },
     { name = "faker", specifier = "<=37.1.0" },
     { name = "gevent", specifier = "<=24.11.1" },
     { name = "ml-dtypes", specifier = "<=0.5.3" },
     { name = "numpy", specifier = "<=2.2.4" },
-    { name = "orderly-set", specifier = "<=5.3.0" },
+    { name = "orderly-set", specifier = "<=5.4.1" },
     { name = "packaging", specifier = "<=24.2" },
     { name = "redis", specifier = ">=5.2.1,<7.0.0" },
     { name = "rltest", specifier = ">=0.7.18,<0.8.0" },
