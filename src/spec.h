@@ -433,12 +433,16 @@ int CompareVersions(Version v1, Version v2);
  */
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
 
+IndexSpecCache *IndexSpecCache_New();
+
 /**
  * Decrement the reference count of the spec cache. Should be matched
  * with a previous call of GetSpecCache()
  * Can handle NULL
  */
 void IndexSpecCache_Decref(IndexSpecCache *cache);
+
+void IndexSpecCache_Incref(IndexSpecCache *cache);
 
 /*
  * Get a field spec by field name. Case insensitive!
