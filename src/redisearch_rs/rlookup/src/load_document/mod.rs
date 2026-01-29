@@ -27,6 +27,12 @@ impl Display for LoadDocumentError {
 
 impl Error for LoadDocumentError {}
 
+impl From<redis_json_api::SerializeError> for LoadDocumentError {
+    fn from(_: redis_json_api::SerializeError) -> Self {
+        LoadDocumentError {}
+    }
+}
+
 //   // Load the document from the schema. This should be simple enough...
 //   void *key = NULL;  // This is populated by getKeyCommon; we free it at the end
 //   DocumentType type = options->dmd ? options->dmd->type : options->type;

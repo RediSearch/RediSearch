@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 ffi.workspace = true
 document.workspace = true
+redis_json_api.workspace = true
 sorting_vector.workspace = true
 value = { workspace = true, features = ["c_ffi_impl"] }
 redis_mock.workspace = true
@@ -20,6 +21,7 @@ pin-project.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 redis-module.workspace = true
+tracing.workspace = true
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,
