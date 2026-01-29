@@ -336,10 +336,10 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     // Reset index to start consuming from the beginning of readyResults
     self->async.readyResultsIndex = 0;
 
-    // Step 3a: Clean up nodes for failed reads (not found/error)
+    // Step 3b: Clean up nodes for failed reads (not found/error)
     IndexResultAsyncRead_CleanupFailedReads(&self->async);
 
-    // Step 6: Check if we're completely done
+    // Step 4: Check if we're completely done
     if (IndexResultAsyncRead_IsIterationComplete(&self->async, it->atEOF, pendingCount)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
     }
