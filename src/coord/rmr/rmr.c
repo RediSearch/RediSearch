@@ -126,8 +126,9 @@ QueryError *MRCtx_GetStatus(MRCtx *ctx) {
 
 void MRCtx_Free(MRCtx *ctx) {
 
-  // cmd can be NULL in case of bailout
-  if(ctx->cmd) {
+  // No need to free cmd in case of bailout.
+  // Bailout is indicated by QueryError
+  if(QueryError_IsOk(&ctx->status)) {
     MRCommand_Free(&ctx->cmd);
   }
 
