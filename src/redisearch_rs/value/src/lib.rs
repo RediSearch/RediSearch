@@ -7,7 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{
+pub use crate::{
+    collection::{Array, Map},
     shared::SharedRsValue,
     strings::{ConstString, RedisString, RmAllocString, RsValueString},
     trio::RsValueTrio,
@@ -25,6 +26,7 @@ mod test_utils;
 #[cfg(feature = "test_utils")]
 pub use test_utils::RSValueMock;
 
+mod collection;
 pub mod shared;
 pub mod strings;
 pub mod trio;
@@ -47,13 +49,13 @@ pub enum RsValue {
     /// String value
     String(Box<RsValueString>),
     /// Array value
-    Array(Box<[SharedRsValue]>),
+    Array(Array),
     /// Reference value
     Ref(SharedRsValue),
     /// Trio value
     Trio(RsValueTrio),
     /// Map value
-    Map(Box<[(SharedRsValue, SharedRsValue)]>),
+    Map(Map),
 }
 
 impl RsValue {

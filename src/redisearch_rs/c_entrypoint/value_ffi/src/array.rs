@@ -8,7 +8,7 @@
 */
 
 use crate::util::expect_value;
-use value::{RsValue, shared::SharedRsValue};
+use value::{Array, RsValue, shared::SharedRsValue};
 
 /// Allocates an array of null pointers with space for `len` [`RsValue`] pointers.
 ///
@@ -46,7 +46,7 @@ pub unsafe extern "C" fn RSValue_NewArray(values: *mut *mut RsValue, len: u32) -
         .map(|val| unsafe { SharedRsValue::from_raw(val) })
         .collect();
 
-    let value = RsValue::Array(array);
+    let value = RsValue::Array(Array::new(array));
     let shared = SharedRsValue::new(value);
     shared.into_raw() as *mut _
 }
@@ -64,7 +64,7 @@ pub unsafe extern "C" fn RSValue_ArrayLen(value: *const RsValue) -> u32 {
     let value = unsafe { expect_value(value) };
 
     if let RsValue::Array(array) = value {
-        array.len() as u32
+        array.len_u32()
     } else {
         // Compatibility: C returns 0 on non array types.
         0
