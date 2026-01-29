@@ -118,6 +118,33 @@ impl RSValueFFI {
         Self(NonNull::new(value).expect("RSValue_NewArray returned a null pointer"))
     }
 
+    pub fn new_map(
+        entries: impl IntoIterator<IntoIter: ExactSizeIterator, Item = (RSValueFFI, RSValueFFI)>,
+    ) -> Self {
+        let iter = entries.into_iter();
+        let len = iter.len();
+        debug_assert!(u32::try_from(len).is_ok());
+
+        // Safety: RSValueMap_AllocUninit allocates memory for `len` RSValueMapEntry structs
+        let mut map = unsafe { ffi::RSValueMap_AllocUninit(len as u32) };
+
+        for (i, (key, value)) in iter.enumerate() {
+            // Safety: `map` was allocated for `len` entries, and `i < len`
+            unsafe {
+                ffi::RSValueMap_SetEntry(&mut map, i, key.as_raw(), value.as_raw());
+            }
+            // Prevent the RSValueFFI from decrementing the refcount when dropped,
+            // as ownership is transferred to the map.
+            std::mem::forget(key);
+            std::mem::forget(value);
+        }
+
+        // Safety: RSValue_NewMap takes ownership of the `map`
+        let value = unsafe { ffi::RSValue_NewMap(map) };
+
+        Self(NonNull::new(value).expect("RSValue_NewMap returned a null pointer"))
+    }
+
     pub fn get_type(&self) -> ffi::RSValueType {
         // Safety: self.0 is a valid pointer to an RSValue struct which RSValue_Type expects.
         unsafe { ffi::RSValue_Type(self.0.as_ptr()) }
