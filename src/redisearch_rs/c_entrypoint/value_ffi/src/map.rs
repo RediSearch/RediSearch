@@ -9,7 +9,7 @@
 
 use crate::util::expect_value;
 use std::mem::MaybeUninit;
-use value::{RsValue, shared::SharedRsValue};
+use value::{Map, RsValue, SharedRsValue};
 
 /// Opaque map structure used during map construction.
 /// Holds uninitialized entries that are populated via `RSValueMap_SetEntry`
@@ -85,7 +85,7 @@ pub unsafe extern "C" fn RSValue_NewMap(map: *mut RSValueMap) -> *mut RsValue {
         })
         .collect();
 
-    let value = RsValue::Map(map);
+    let value = RsValue::Map(Map::new(map));
     let shared = SharedRsValue::new(value);
     shared.into_raw() as *mut _
 }
@@ -105,7 +105,7 @@ pub unsafe extern "C" fn RSValue_Map_Len(map: *const RsValue) -> u32 {
     let map = unsafe { expect_value(map) };
 
     if let RsValue::Map(map) = map {
-        map.len() as u32
+        map.len_u32()
     } else {
         // Compatibility: C does an RS_ASSERT on incorrect type
         panic!("Expected a map value")
