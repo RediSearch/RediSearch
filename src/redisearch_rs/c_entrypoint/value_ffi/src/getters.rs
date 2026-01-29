@@ -28,11 +28,11 @@ pub unsafe extern "C" fn RSValue_Number_Get(value: *const RsValue) -> c_double {
     if let RsValue::Number(number) = value {
         *number
     } else {
-        panic!("not a number")
+        panic!("Expected a number value")
     }
 }
 
-/// Gets the left value of a trio [`RsValue`].
+/// Borrows an immutable reference to the left value of a trio.
 ///
 /// # Safety
 ///
@@ -49,11 +49,11 @@ pub unsafe extern "C" fn RSValue_Trio_GetLeft(value: *const RsValue) -> *const R
     if let RsValue::Trio(trio) = value {
         trio.left().as_ptr()
     } else {
-        panic!("Expected trio")
+        panic!("Expected a trio value")
     }
 }
 
-/// Gets the middle value of a trio [`RsValue`].
+/// Borrows an immutable reference to the middle value of a trio.
 ///
 /// # Safety
 ///
@@ -70,11 +70,11 @@ pub unsafe extern "C" fn RSValue_Trio_GetMiddle(value: *const RsValue) -> *const
     if let RsValue::Trio(trio) = value {
         trio.middle().as_ptr()
     } else {
-        panic!("Expected trio")
+        panic!("Expected a trio value")
     }
 }
 
-/// Gets the right value of a trio [`RsValue`].
+/// Borrows an immutable reference to the right value of a trio.
 ///
 /// # Safety
 ///
@@ -91,6 +91,6 @@ pub unsafe extern "C" fn RSValue_Trio_GetRight(value: *const RsValue) -> *const 
     if let RsValue::Trio(trio) = value {
         trio.right().as_ptr()
     } else {
-        panic!("Expected trio")
+        panic!("Expected a trio value")
     }
 }

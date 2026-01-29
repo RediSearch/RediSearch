@@ -12,12 +12,18 @@ use value::trio::RsValueTrio;
 use value::{RsValue, shared::SharedRsValue};
 
 /// Creates and returns a new **owned** [`RsValue`] object of type undefined.
+///
+/// The caller must make sure to pass the returned [`RsValue`] to one of the
+/// ownership taking `RSValue_` methods, directly or indirectly.
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_NewUndefined() -> *mut RsValue {
     SharedRsValue::new(RsValue::Undefined).into_raw() as *mut _
 }
 
 /// Creates and returns a new **owned** [`RsValue`] object of type null.
+///
+/// The caller must make sure to pass the returned [`RsValue`] to one of the
+/// ownership taking `RSValue_` methods, directly or indirectly.
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_NewNull() -> *mut RsValue {
     SharedRsValue::new(RsValue::Null).into_raw() as *mut _
@@ -25,6 +31,9 @@ pub extern "C" fn RSValue_NewNull() -> *mut RsValue {
 
 /// Creates and returns a new **owned** [`RsValue`] object of type number
 /// containing the given numeric value.
+///
+/// The caller must make sure to pass the returned [`RsValue`] to one of the
+/// ownership taking `RSValue_` methods, directly or indirectly.
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_NewNumber(value: c_double) -> *mut RsValue {
     SharedRsValue::new(RsValue::Number(value)).into_raw() as *mut _
@@ -32,7 +41,10 @@ pub extern "C" fn RSValue_NewNumber(value: c_double) -> *mut RsValue {
 
 /// Creates and returns a new **owned** [`RsValue`] object of type trio from three [`RsValue`]s.
 ///
-/// Takes ownership of all three values.
+/// Takes ownership of all three arguments.
+///
+/// The caller must make sure to pass the returned [`RsValue`] to one of the
+/// ownership taking `RSValue_` methods, directly or indirectly.
 ///
 /// # Safety
 ///

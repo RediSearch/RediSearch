@@ -20,6 +20,10 @@ use value::RsValue;
 /// 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
 ///    `RSValue_*` function returning an owned [`RsValue`] object.
 /// 2. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
+///
+/// # Panic
+///
+/// Panics if more than 1 reference exists to this [`RsValue`] object.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_SetNumber(value: *mut RsValue, n: c_double) {
     // Safety: ensured by caller (1.)
@@ -38,6 +42,10 @@ pub unsafe extern "C" fn RSValue_SetNumber(value: *mut RsValue, n: c_double) {
 /// 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
 ///    `RSValue_*` function returning an owned [`RsValue`] object.
 /// 2. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
+///
+/// # Panic
+///
+/// Panics if more than 1 reference exists to this [`RsValue`] object.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_SetNull(value: *mut RsValue) {
     // Safety: ensured by caller (1.)
