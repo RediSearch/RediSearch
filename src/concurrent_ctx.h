@@ -49,6 +49,7 @@ typedef struct ConcurrentSearchHandlerCtx {
   rs_wall_clock_ns_t coordStartTime;  // Time when command was received on coordinator
   rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
   WeakRef spec_ref;                   // Weak reference to the index spec
+  bool isProfile;                     // Whether this is an FT.PROFILE command
 } ConcurrentSearchHandlerCtx;
 
 #define CMDCTX_KEEP_RCTX 0x01

@@ -1265,7 +1265,7 @@ def testCoordDispatchTimeInProfileResp2():
 # Queue Time Tests - Validation tests for queue time tracking in FT.PROFILE
 # =============================================================================
 
-def run_profile_with_paused_pool(env, pause_cmd, resume_cmd, pause_duration_ms=50):
+def run_profile_with_paused_pool(env, pause_cmd, resume_cmd, pause_duration_ms=100):
   """
   Helper to run FT.PROFILE while a thread pool is paused.
   Returns the profile result after resuming the pool.
@@ -1335,7 +1335,7 @@ def testParsingTimeDoesNotIncludeCoordQueueTime():
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
   conn.execute_command('HSET', 'doc1', 't', 'hello')
 
-  pause_duration_ms = 50
+  pause_duration_ms = 100
 
   result = run_profile_with_paused_pool(
     env,
@@ -1348,6 +1348,7 @@ def testParsingTimeDoesNotIncludeCoordQueueTime():
 
   # Coordinator queue time should NOT be in shard's Parsing time
   # Parsing time should be much less than the pause duration
+  # Note: This assertion can be removed if this test becomes flaky
   env.assertLess(parsing_time, pause_duration_ms * 0.5,
     message=f"Parsing time ({parsing_time}ms) should NOT include coordinator queue wait. "
             f"Expected < {pause_duration_ms * 0.5}ms. Full result: {result}")
@@ -1385,7 +1386,7 @@ def testWorkersQueueTimeInProfile():
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
   conn.execute_command('HSET', 'doc1', 't', 'hello')
 
-  pause_duration_ms = 50
+  pause_duration_ms = 100
 
   result = run_profile_with_paused_pool(
     env,
@@ -1403,6 +1404,7 @@ def testWorkersQueueTimeInProfile():
             f"Expected >= {pause_duration_ms * 0.8}ms. Full result: {result}")
 
   # Parsing time should NOT include queue wait time anymore
+  # Note: This assertion can be removed if this test becomes flaky
   env.assertLess(parsing_time, pause_duration_ms * 0.5,
     message=f"Parsing time ({parsing_time}ms) should NOT include queue wait time. "
             f"Expected < {pause_duration_ms * 0.5}ms. Full result: {result}")
@@ -1418,7 +1420,7 @@ def testCoordinatorQueueTimeInProfile():
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
   conn.execute_command('HSET', 'doc1', 't', 'hello')
 
-  pause_duration_ms = 50
+  pause_duration_ms = 100
 
   result = run_profile_with_paused_pool(
     env,

@@ -216,7 +216,7 @@ def test_coord_profile():
                                                       {'Type': 'Scorer', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Sorter', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Loader', 'Time': ANY, 'Results processed': ANY}]}],
-        'Coordinator': {'Coordinator queue time': ANY, 'Total Coordinator time': ANY, 'Post Processing time': ANY},
+        'Coordinator': {'Total Coordinator time': ANY, 'Post Processing time': ANY, 'Coordinator queue time': ANY},
       },
     }
     res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', 'FORMAT', 'STRING', 'SCORER', 'TFIDF')
