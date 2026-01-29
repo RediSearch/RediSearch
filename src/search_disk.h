@@ -159,9 +159,10 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key
  * @param handle Handle to the document table
  * @param docId Document ID
  * @param dmd Pointer to the document metadata structure to populate
- * @return true if found, false if not found or on error
+ * @param current_time Current time for expiration check.
+ * @return true if found and not expired, false if not found, expired, or on error
  */
-bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd);
+bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time);
 
 /**
  * @brief Check if a document ID is deleted
