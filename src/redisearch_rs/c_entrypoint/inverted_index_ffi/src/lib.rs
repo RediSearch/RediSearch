@@ -884,6 +884,13 @@ macro_rules! ir_dispatch {
     };
 }
 
+impl<'index_and_filter> IndexReader<'index_and_filter> {
+    /// Get the flags associated with this index reader.
+    pub fn flags(&self) -> IndexFlags {
+        ir_dispatch!(self, flags)
+    }
+}
+
 /// Create a new inverted index reader for the given inverted index and filter. The returned pointer
 /// must be freed using [`IndexReader_Free`] when no longer needed.
 ///
@@ -1184,7 +1191,7 @@ pub unsafe extern "C" fn IndexReader_Flags(ir: *const IndexReader) -> IndexFlags
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
     let ir = unsafe { &*ir };
 
-    ir_dispatch!(ir, flags)
+    ir.flags()
 }
 
 /// Get a pointer to the numeric filter used by the index reader. If the index reader does not use

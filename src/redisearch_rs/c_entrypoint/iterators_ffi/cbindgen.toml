@@ -4,6 +4,7 @@ cpp_compat = true
 pragma_once = true
 after_includes = """
 #include "iterators/iterator_api.h"
+#include "iterators/inverted_index_iterator.h"
 #include "query.h"
 """
 
