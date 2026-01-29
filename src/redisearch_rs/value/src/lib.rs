@@ -7,10 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ffi::CStr;
+
 use crate::{
     collection::{RsValueArray, RsValueMap},
     shared::SharedRsValue,
-    strings::{ConstString, RedisString, RmAllocString, RsValueString},
+    strings::{ConstString, RedisString, RmAllocString},
     trio::RsValueTrio,
 };
 
@@ -47,7 +49,7 @@ pub enum RsValue {
     /// String value backed by a Redis string
     RedisString(RedisString),
     /// String value
-    String(Box<RsValueString>),
+    String(Box<CStr>),
     /// Array value
     Array(RsValueArray),
     /// Reference value
