@@ -55,7 +55,7 @@ impl RSValueTrait for RSValueMock {
         while let RSValueMockInner::Reference(reference) = result.0.as_ref() {
             result = reference;
         }
-        return ManuallyDrop::new(Cow::Borrowed(result));
+        ManuallyDrop::new(Cow::Borrowed(result))
     }
 
     fn as_str_bytes(&self) -> Option<&[u8]> {

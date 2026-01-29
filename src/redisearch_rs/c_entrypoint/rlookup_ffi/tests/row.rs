@@ -124,12 +124,12 @@ pub extern "C" fn RSValue_NewNumber(numval: f64) -> *mut ffi::RSValue {
     Arc::into_raw(Arc::new(numval)) as *mut ffi::RSValue
 }
 
-/// Mock implementation of `RSValue_GetRefcount` for testing purposes
+/// Mock implementation of `RSValue_Refcount` for testing purposes
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_Refcount(v: *mut ffi::RSValue) -> u16 {
     let arc = unsafe { Arc::from_raw(v as *mut f64) };
     let count = Arc::strong_count(&arc);
-    std::mem::forget(arc);
+    mem::forget(arc);
     count as u16
 }
 
