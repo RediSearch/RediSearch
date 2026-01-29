@@ -29,7 +29,9 @@ pub unsafe extern "C" fn rs_fnv_32a_buf(buf: *const c_void, len: usize, hval: u3
 
     fnv.write(bytes);
 
-    fnv.finish() as u32
+    // Safety: Fnv32 produces 32-bit hashes but is forced to return a 64-bit value due to the Hash trait.
+    // values are always safe to cast to 32-bit though
+    unsafe { u32::try_from(fnv.finish()).unwrap_unchecked() }
 }
 
 /// Returns the 64-bit [FNV-1a hash] of `buf` of length `len` using an [offset basis] `hval`.

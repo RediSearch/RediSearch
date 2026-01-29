@@ -107,5 +107,5 @@ pub unsafe extern "C" fn RedisModule_KeyType(key: *mut redis_module::raw::RedisM
         KeyType::Module => redis_module::raw::REDISMODULE_KEYTYPE_MODULE,
         KeyType::Stream => redis_module::raw::REDISMODULE_KEYTYPE_STREAM,
     };
-    res as i32
+    i32::try_from(res).unwrap()
 }

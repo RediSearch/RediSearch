@@ -235,6 +235,7 @@ impl Encoder for NumericFloatCompression {
     }
 }
 
+#[expect(clippy::cast_possible_truncation, reason = "manually checked")]
 fn encode<W: Write + std::io::Seek>(
     mut writer: W,
     delta: NumericDelta,
@@ -443,6 +444,7 @@ impl Decoder for NumericFloatCompression {
     }
 }
 
+#[expect(clippy::cast_precision_loss, reason = "manually checked")]
 fn decode<'index>(
     cursor: &mut Cursor<&'index [u8]>,
     base: t_docId,
@@ -461,7 +463,7 @@ fn decode<'index>(
             let delta = read_only_u64(cursor, delta_bytes)?;
             let num = upper_bits;
 
-            (delta, num as f64)
+            (delta, f64::from(num))
         }
         Numeric::INT_POS_TYPE => {
             let (delta, num) = read_u64_and_u64(cursor, delta_bytes, upper_bits as usize + 1)?;
@@ -477,12 +479,12 @@ fn decode<'index>(
             FLOAT32_POSITIVE => {
                 let (delta, num) = read_u64_and_f32(cursor, delta_bytes)?;
 
-                (delta, num as f64)
+                (delta, f64::from(num))
             }
             FLOAT32_NEGATIVE => {
                 let (delta, num) = read_u64_and_f32(cursor, delta_bytes)?;
 
-                (delta, num.copysign(-1.0) as f64)
+                (delta, f64::from(num.copysign(-1.0)))
             }
             FLOAT64_POSITIVE => {
                 let (delta, num) = read_u64_and_f64(cursor, delta_bytes)?;
@@ -625,6 +627,12 @@ enum Value {
 }
 
 impl Value {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss,
+        reason = "manually checked"
+    )]
     fn from(value: f64, compress_floats: bool) -> Self {
         let abs_val = value.abs();
         let u64_val = abs_val as u64;
@@ -643,11 +651,11 @@ impl Value {
                 f64::NEG_INFINITY => Value::FloatNegInfinity,
                 v => {
                     let f32_value = abs_val as f32;
-                    let back_to_f64 = f32_value as f64;
+                    let back_to_f64 = f64::from(f32_value);
 
                     if back_to_f64 == abs_val
                         || (compress_floats
-                            && (abs_val - f32_value as f64).abs()
+                            && (abs_val - f64::from(f32_value)).abs()
                                 < NumericFloatCompression::FLOAT_COMPRESSION_THRESHOLD)
                     {
                         if v.is_sign_positive() {

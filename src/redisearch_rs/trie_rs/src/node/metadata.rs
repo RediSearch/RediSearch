@@ -280,7 +280,7 @@ impl<Data> PtrMetadata<Data> {
     ) -> NonNull<u8> {
         // SAFETY:
         // The safety preconditions must be verified by the caller.
-        unsafe { header_ptr.byte_offset(self.children_first_bytes_offset as isize) }.cast()
+        unsafe { header_ptr.byte_add(self.children_first_bytes_offset) }.cast()
     }
 
     /// A pointer to the first element of the child pointer array for this node.
@@ -304,7 +304,7 @@ impl<Data> PtrMetadata<Data> {
     ) -> NonNull<Node<Data>> {
         // SAFETY:
         // The safety preconditions must be verified by the caller.
-        unsafe { header_ptr.byte_offset(self.children_offset as isize) }.cast()
+        unsafe { header_ptr.byte_add(self.children_offset) }.cast()
     }
 
     /// A pointer to the label associated with this node.
@@ -325,7 +325,7 @@ impl<Data> PtrMetadata<Data> {
     pub const unsafe fn label_ptr(header_ptr: NonNull<NodeHeader>) -> NonNull<u8> {
         // SAFETY:
         // The safety preconditions must be verified by the caller.
-        unsafe { header_ptr.byte_offset(Self::LABEL_OFFSET as isize) }.cast()
+        unsafe { header_ptr.byte_add(Self::LABEL_OFFSET) }.cast()
     }
 
     /// A pointer to value stored in this node.
@@ -346,7 +346,7 @@ impl<Data> PtrMetadata<Data> {
     pub const unsafe fn value_ptr(&self, header_ptr: NonNull<NodeHeader>) -> NonNull<Option<Data>> {
         // SAFETY:
         // The safety preconditions must be verified by the caller.
-        unsafe { header_ptr.byte_offset(self.value_offset as isize) }.cast()
+        unsafe { header_ptr.byte_add(self.value_offset) }.cast()
     }
 
     /// Deallocate the node behind the provided pointer.

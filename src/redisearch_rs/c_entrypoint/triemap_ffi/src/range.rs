@@ -71,6 +71,7 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
             debug_assert!(!min.is_null(), "min cannot be NULL if minlen > 0");
             // SAFETY: caller is to ensure that min is not null in case minlen > 0,
             // and that min points to a contiguous slice of bytes of len minlen
+            #[expect(clippy::cast_sign_loss, reason = "checked minlen to be positive above")]
             Some(unsafe { std::slice::from_raw_parts(min.cast(), minlen as usize) })
         }
     };
@@ -82,6 +83,7 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
             debug_assert!(!max.is_null(), "max cannot be NULL if maxlen > 0");
             // SAFETY: caller is to ensure that max is not null in case maxlen > 0,
             // and that max points to a contiguous slice of bytes of len maxlen
+            #[expect(clippy::cast_sign_loss, reason = "checked maxlen to be positive above")]
             Some(unsafe { std::slice::from_raw_parts(max.cast(), maxlen as usize) })
         }
     };

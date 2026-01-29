@@ -63,6 +63,14 @@ missing_const_for_fn = "warn"
 # These types are specified in clippy.toml.
 disallowed_types = "warn"
 
+# numeric safety
+cast_possible_truncation = "warn"
+cast_possible_wrap = "warn"
+cast_precision_loss = "warn"
+cast_sign_loss = "warn"
+cast_lossless = "warn"
+checked_conversions = "warn"
+
 [workspace.package]
 version = "0.0.1"
 edition = "2024"

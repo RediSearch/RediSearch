@@ -54,8 +54,8 @@ impl Decoder for FieldsOnly {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, field_mask] = decoded_values;
 
-        result.doc_id = base + delta as t_docId;
-        result.field_mask = field_mask as t_fieldMask;
+        result.doc_id = base + t_docId::from(delta);
+        result.field_mask = t_fieldMask::from(field_mask);
         Ok(())
     }
 
@@ -99,7 +99,7 @@ impl Decoder for FieldsOnlyWide {
         let delta = u32::read_as_varint(cursor)?;
         let field_mask = u128::read_as_varint(cursor)?;
 
-        result.doc_id = base + delta as t_docId;
+        result.doc_id = base + t_docId::from(delta);
         result.field_mask = field_mask;
         Ok(())
     }

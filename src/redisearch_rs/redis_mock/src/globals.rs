@@ -17,16 +17,19 @@ pub fn is_crdt() -> bool {
 }
 
 /// Returns the Redis server version as an integer.
-pub fn get_server_version() -> i32 {
+pub fn get_server_version() -> u32 {
     // Safety: We access the global config, which is setup during module initialization, we readonly access the serverVersion field here.
     // which is safe as it is never changed after initialization.
-    unsafe { ffi::RSGlobalConfig.serverVersion }
+    let version = unsafe { ffi::RSGlobalConfig.serverVersion };
+    u32::try_from(version).unwrap_or_else(|_| {
+        panic!("unexpected negative redis server version {version} . this is a bug!")
+    })
 }
 
 /// Returns true if the Redis server has the Scan Key API feature.
 pub fn has_scan_key_feature() -> bool {
     let server_version = get_server_version();
-    let min_version_for_feature = ffi::RM_SCAN_KEY_API_FIX as i32;
+    let min_version_for_feature = ffi::RM_SCAN_KEY_API_FIX;
     min_version_for_feature <= server_version
 }
 

@@ -38,7 +38,7 @@ impl Encoder for FreqsOffsets {
         assert!(matches!(record.data, RSResultData::Term(_)));
 
         let offsets = offsets(record);
-        let offsets_sz = offsets.len() as u32;
+        let offsets_sz = u32::try_from(offsets.len()).unwrap();
 
         let mut bytes_written = qint_encode(&mut writer, [delta, record.freq, offsets_sz])?;
 
@@ -80,14 +80,14 @@ impl Decoder for FreqsOffsets {
                 Err(error) => return Err(error),
             };
 
-            base += delta as t_docId;
+            base += t_docId::from(delta);
 
             if base >= target {
                 break (freq, offsets_sz);
             }
 
             // Skip offsets
-            cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
+            cursor.seek(SeekFrom::Current(i64::from(offsets_sz)))?;
         };
 
         decode_term_record_offsets(cursor, base, 0, 0, freq, offsets_sz, result)?;

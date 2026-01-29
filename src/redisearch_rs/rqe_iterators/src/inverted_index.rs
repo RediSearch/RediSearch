@@ -255,6 +255,10 @@ where
                     current_time,
                 )
             },
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "we check against `IndexFlags_Index_WideSchema` to ensure this fits into u32."
+            )]
             FieldMaskOrIndex::Mask(mask)
                 if self.reader.flags() & IndexFlags_Index_WideSchema == 0 =>
             // SAFETY:
@@ -394,7 +398,7 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.reader.unique_docs() as usize
+        usize::try_from(self.reader.unique_docs()).unwrap()
     }
 
     fn last_doc_id(&self) -> t_docId {

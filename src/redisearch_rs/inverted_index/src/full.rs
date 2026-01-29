@@ -57,7 +57,7 @@ impl Encoder for Full {
                 .expect("Need to use the wide variant of the Full encoder to support field masks bigger than u32");
 
         let offsets = offsets(record);
-        let offsets_sz = offsets.len() as u32;
+        let offsets_sz = u32::try_from(offsets.len()).unwrap();
 
         let mut bytes_written =
             qint_encode(&mut writer, [delta, record.freq, field_mask, offsets_sz])?;
@@ -84,7 +84,7 @@ pub fn decode_term_record_offsets<'index>(
     result: &mut RSIndexResult<'index>,
 ) -> std::io::Result<()> {
     // borrow the offsets vector from the cursor
-    let start = cursor.position() as usize;
+    let start = usize::try_from(cursor.position()).unwrap();
     let end = start + offsets_sz as usize;
     let data = {
         let offsets = cursor.get_ref();
@@ -104,7 +104,7 @@ pub fn decode_term_record_offsets<'index>(
 
     let offsets = RSOffsetVector::with_data(data, offsets_sz);
 
-    result.doc_id = base + delta as t_docId;
+    result.doc_id = base + t_docId::from(delta);
     result.field_mask = field_mask;
     result.freq = freq;
 
@@ -129,7 +129,7 @@ impl Decoder for Full {
             cursor,
             base,
             delta,
-            field_mask as t_fieldMask,
+            t_fieldMask::from(field_mask),
             freq,
             offsets_sz,
             result,
@@ -155,14 +155,14 @@ impl Decoder for Full {
                 Err(error) => return Err(error),
             };
 
-            base += delta as t_docId;
+            base += t_docId::from(delta);
 
             if base >= target {
-                break (freq, field_mask as t_fieldMask, offsets_sz);
+                break (freq, t_fieldMask::from(field_mask), offsets_sz);
             }
 
             // Skip offsets
-            cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
+            cursor.seek(SeekFrom::Current(i64::from(offsets_sz)))?;
         };
 
         decode_term_record_offsets(
@@ -203,7 +203,7 @@ impl Encoder for FullWide {
         assert!(matches!(record.data, RSResultData::Term(_)));
 
         let offsets = offsets(record);
-        let offsets_sz = offsets.len() as u32;
+        let offsets_sz = u32::try_from(offsets.len()).unwrap();
 
         let mut bytes_written = qint_encode(&mut writer, [delta, record.freq, offsets_sz])?;
         bytes_written += record.field_mask.write_as_varint(&mut writer)?;
@@ -248,14 +248,14 @@ impl Decoder for FullWide {
             };
             let field_mask = t_fieldMask::read_as_varint(cursor)?;
 
-            base += delta as t_docId;
+            base += t_docId::from(delta);
 
             if base >= target {
                 break (freq, field_mask, offsets_sz);
             }
 
             // Skip offsets
-            cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
+            cursor.seek(SeekFrom::Current(i64::from(offsets_sz)))?;
         };
 
         decode_term_record_offsets(cursor, base, 0, field_mask, freq, offsets_sz, result)?;
