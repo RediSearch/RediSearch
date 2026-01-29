@@ -30,6 +30,12 @@ impl Deref for RSValueFFIRef<'_> {
 #[repr(transparent)]
 pub struct RSValueFFI(NonNull<ffi::RSValue>);
 
+// const assertion to ensure that the layout of `RSValueFFI` is AND STAYS the same as `*mut ffi::RSValue`
+const _: () = {
+    assert!(size_of::<RSValueFFI>() == size_of::<*mut ffi::RSValue>());
+    assert!(align_of::<RSValueFFI>() == align_of::<*mut ffi::RSValue>());
+};
+
 // Clone is used to increment the reference count of the underlying C struct.
 impl Clone for RSValueFFI {
     fn clone(&self) -> Self {
@@ -84,6 +90,32 @@ impl RSValueFFI {
         let value = unsafe { ffi::RSValue_NewCopiedString(str.as_ptr().cast(), str.len()) };
 
         Self(NonNull::new(value).expect("RSValue_NewCopiedString returned a null pointer"))
+    }
+
+    pub fn new_array(
+        values: impl IntoIterator<IntoIter: ExactSizeIterator, Item = RSValueFFI>,
+    ) -> Self {
+        let iter = values.into_iter();
+        let len = iter.len();
+        debug_assert!(u32::try_from(len).is_ok());
+
+        // Safety: RSValue_AllocateArray allocates memory for `len` RSValue pointers
+        let arr = unsafe { ffi::RSValue_AllocateArray(len as u32) };
+
+        for (i, value) in iter.enumerate() {
+            // Safety: `arr` was allocated for `len` elements, and `i < len`
+            unsafe {
+                arr.add(i).write(value.as_raw());
+            }
+            // Prevent the RSValueFFI from decrementing the refcount when dropped,
+            // as ownership is transferred to the array.
+            std::mem::forget(value);
+        }
+
+        // Safety: RSValue_NewArray takes ownership of the `arr` pointer
+        let value = unsafe { ffi::RSValue_NewArray(arr, len as u32) };
+
+        Self(NonNull::new(value).expect("RSValue_NewArray returned a null pointer"))
     }
 
     pub fn get_type(&self) -> ffi::RSValueType {
