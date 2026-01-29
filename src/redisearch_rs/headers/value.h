@@ -215,6 +215,14 @@ struct RsValue *RSValue_NewTrio(struct RsValue *left,
                                 struct RsValue *middle,
                                 struct RsValue *right);
 
+struct RsValue *RSValue_NewString(char *str, uint32_t len);
+
+struct RsValue *RSValue_NewConstString(const char *str, uint32_t len);
+
+struct RsValue *RSValue_NewRedisString(const RedisModuleString *str);
+
+struct RsValue *RSValue_NewCopiedString(const char *str, uint32_t len);
+
 /**
  * Gets the numeric value from an [`RsValue`].
  *
