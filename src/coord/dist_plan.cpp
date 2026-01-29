@@ -377,6 +377,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
   auto current = const_cast<PLN_BaseStep *>(AGPLN_FindStep(src, NULL, NULL, PLN_T_ROOT));
   bool hadArrange = false;
   bool afterGroup = false;  // POC HACK: flag to track if we're past GROUP, looking for ARRANGE only
+  const char *remoteReducerAlias = nullptr;  // POC HACK: store the remote reducer alias for SORTBY translation
 
   PLN_DistributeStep *dstp = (PLN_DistributeStep *)rm_calloc(1, sizeof(*dstp));
   dstp->base.type = PLN_T_DISTRIBUTE;
@@ -472,7 +473,11 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           *newStp = *astp;
           // POC HACK: Hardcode limit to 600 for distributed SORTBY to reduce shard->coordinator traffic
           if (afterGroup) {
-            RedisModule_Log(RSDummyContext, "warning", "POC HACK: reached ARRANGE after GROUP");
+            RedisModule_Log(RSDummyContext, "warning", "POC HACK: reached ARRANGE after GROUP, sortKeys count=%zu",
+                            astp->sortKeys ? array_len(astp->sortKeys) : 0);
+            if (astp->sortKeys && array_len(astp->sortKeys) > 0) {
+              RedisModule_Log(RSDummyContext, "warning", "POC HACK: sortKey[0]=%s", astp->sortKeys[0]);
+            }
             newStp->limit = 600;
             newStp->offset = 0;
           }
@@ -480,7 +485,14 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           if (astp->sortKeys) {
             newStp->sortKeys = array_new(const char *, array_len(astp->sortKeys));
             for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
-              array_append(newStp->sortKeys, astp->sortKeys[ii]);
+              // POC HACK: If we're after GROUP and have a remote reducer alias, use it for the sort key
+              if (afterGroup && remoteReducerAlias) {
+                RedisModule_Log(RSDummyContext, "warning", "POC HACK: translating sortKey from %s to %s",
+                                astp->sortKeys[ii], remoteReducerAlias);
+                array_append(newStp->sortKeys, remoteReducerAlias);
+              } else {
+                array_append(newStp->sortKeys, astp->sortKeys[ii]);
+              }
             }
           }
         }
@@ -494,8 +506,11 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         current = PLN_NEXT_STEP(current);
         break;
       }
-      case PLN_T_GROUP:
+      case PLN_T_GROUP: {
         RedisModule_Log(RSDummyContext, "warning", "POC HACK: reached GROUP");
+        // POC HACK: Save next step BEFORE distributeGroupStep, because it pops current from the list
+        PLN_BaseStep *nextStep = PLN_NEXT_STEP(current);
+        RedisModule_Log(RSDummyContext, "warning", "POC HACK: saved nextStep=%p, type=%d", (void*)nextStep, nextStep ? nextStep->type : -1);
         // If we had an arrange step, we must have the group step locally
         if (!hadArrange) {
           distributeGroupStep(src, remote, current, dstp, status);
@@ -506,9 +521,25 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         RedisModule_Log(RSDummyContext, "warning", "POC HACK: after distributeGroupStep");
         // POC HACK: Continue to distribute ARRANGE after GROUP (instead of breaking)
         afterGroup = true;
-        current = PLN_NEXT_STEP(current);
-        RedisModule_Log(RSDummyContext, "warning", "POC HACK: after PLN_NEXT_STEP, current=%p", (void*)current);
+        current = nextStep;
+
+        // POC HACK: Find the remote GROUP step and get the reducer alias mapping
+        // We need this to translate SORTBY field names from local to remote
+        // For simplicity, we only support single reducer for now
+        PLN_BaseStep *remoteGroupStep = const_cast<PLN_BaseStep *>(AGPLN_FindStep(remote, NULL, NULL, PLN_T_GROUP));
+        if (remoteGroupStep) {
+          PLN_GroupStep *remoteGroup = (PLN_GroupStep *)remoteGroupStep;
+          size_t nreducers = array_len(remoteGroup->reducers);
+          RedisModule_Log(RSDummyContext, "warning", "POC HACK: remote GROUP has %zu reducers", nreducers);
+          if (nreducers > 0) {
+            remoteReducerAlias = remoteGroup->reducers[nreducers - 1].alias;  // Use last reducer's alias
+            RedisModule_Log(RSDummyContext, "warning", "POC HACK: stored remoteReducerAlias=%s", remoteReducerAlias);
+          }
+        }
+
+        RedisModule_Log(RSDummyContext, "warning", "POC HACK: current now=%p", (void*)current);
         break;
+      }
       default:
         // POC HACK: If we're after GROUP and hit an unknown step type, break
         if (afterGroup) {
