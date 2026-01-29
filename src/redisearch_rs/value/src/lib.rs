@@ -7,9 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ffi::CStr;
+
 use crate::{
     collection::{RsValueArray, RsValueMap},
     shared::SharedRsValue,
+    strings::{ConstString, RedisString, RmAllocString},
     trio::RsValueTrio,
 };
 
@@ -27,6 +30,7 @@ pub use test_utils::RSValueMock;
 
 pub mod collection;
 pub mod shared;
+pub mod strings;
 pub mod trio;
 
 /// An actual [`RsValue`] object
@@ -38,8 +42,14 @@ pub enum RsValue {
     Null,
     /// Numeric value
     Number(f64),
-    /// String value (placeholder)
-    String(String),
+    /// String value
+    String(Box<CStr>),
+    /// String value backed by a rm_alloc'd string
+    RmAllocString(RmAllocString),
+    /// String value backed by a constant C string
+    ConstString(ConstString),
+    /// String value backed by a Redis string
+    RedisString(RedisString),
     /// Array value
     Array(RsValueArray),
     /// Reference value
