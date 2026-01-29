@@ -10,20 +10,21 @@ pub mod vecsim_disk;
 
 use crate::index_spec::IndexSpec;
 use crate::index_spec::deleted_ids::DeletedIdsStore;
-use crate::index_spec::doc_table::{flags_from_oss, flags_to_oss};
+use crate::index_spec::doc_table::{DocumentFlag, flags_from_oss, flags_to_oss};
 use crate::path_prefix::PathPrefix;
 use crate::vecsim_disk::{SpeeDBHandles, VecSimDisk_CreateIndex};
 use document::DocumentType;
 use ffi::{
     AllocateKeyCallback, BasicDiskAPI, DiskColumnFamilyMetrics, DocTableDiskAPI, IndexDiskAPI,
-    IteratorType_INV_IDX_ITERATOR, MetricsDiskAPI, QueryIterator, REDISMODULE_ERR, REDISMODULE_OK,
-    RSDocumentMetadata, RedisModuleCtx, RedisSearchDisk, RedisSearchDiskAPI,
-    RedisSearchDiskIndexSpec, VecSimDiskContext, VecSimParamsDisk, VectorDiskAPI, t_docId,
-    t_fieldMask,
+    IteratorType_INV_IDX_TERM_ITERATOR, IteratorType_INV_IDX_WILDCARD_ITERATOR, MetricsDiskAPI,
+    QueryIterator, REDISMODULE_ERR, REDISMODULE_OK, RSDocumentMetadata, RedisModuleCtx,
+    RedisSearchDisk, RedisSearchDiskAPI, RedisSearchDiskIndexSpec, VecSimDiskContext,
+    VecSimParamsDisk, VectorDiskAPI, t_docId, t_fieldMask,
 };
 use rqe_iterators_interop::RQEIteratorWrapper;
 
 use std::ffi::{CStr, OsStr, c_char, c_void};
+use std::time::{Duration, UNIX_EPOCH};
 use tracing::{debug, error, warn};
 
 /// Registers the Redis module allocator as the global allocator for the application.
@@ -337,6 +338,7 @@ extern "C" fn index_spec_index_doc(
     term_len: usize,
     doc_id: t_docId,
     field_mask: t_fieldMask,
+    _frequency: u32,
 ) -> bool {
     // Safety: see safety point 2 above.
     let term = unsafe {
@@ -437,6 +439,7 @@ extern "C" fn index_spec_put_doc(
     max_term_freq: u32,
     doc_len: u32,
     old_len: *mut u32,
+    expiration: ffi::timespec,
 ) -> t_docId {
     // Safety: see safety point 2 above.
     let key = unsafe { std::slice::from_raw_parts(key.cast::<u8>(), key_len) };
@@ -454,9 +457,34 @@ extern "C" fn index_spec_put_doc(
 
     let flags = flags_from_oss(flags);
 
+    // Convert timespec to Option<SystemTime> based on HasExpiration flag
+    let expiration = if flags.contains(DocumentFlag::HasExpiration) {
+        if !(expiration.tv_sec >= 0
+            && expiration.tv_nsec >= 0
+            && (expiration.tv_sec > 0 || expiration.tv_nsec > 0))
+        {
+            error!("expiration time must be positive");
+            return INVALID_DOC_ID;
+        }
+        if expiration.tv_nsec >= 1_000_000_000 {
+            error!(
+                "tv_nsec must be less than 1 billion, got {}",
+                expiration.tv_nsec
+            );
+            return INVALID_DOC_ID;
+        }
+        Some(UNIX_EPOCH + Duration::new(expiration.tv_sec as u64, expiration.tv_nsec as u32))
+    } else {
+        if expiration.tv_sec != 0 || expiration.tv_nsec != 0 {
+            error!("expiration time must be 0 when HasExpiration flag is not set");
+            return INVALID_DOC_ID;
+        }
+        None
+    };
+
     match index
         .doc_table()
-        .insert_document(key, score, flags, max_term_freq, doc_len)
+        .insert_document(key, score, flags, max_term_freq, doc_len, expiration)
     {
         Ok((new_doc_id, old_doc_len)) => {
             // Safety: see safety point 3 above.
@@ -487,6 +515,8 @@ extern "C" fn index_spec_new_term_iterator(
     term_len: usize,
     field_mask: t_fieldMask,
     weight: f64,
+    _idf: f64,
+    _bm25_idf: f64,
 ) -> *mut QueryIterator {
     // Safety: see safety point 2 above.
     let term = unsafe {
@@ -515,7 +545,7 @@ extern "C" fn index_spec_new_term_iterator(
         .inverted_index()
         .term_iterator(term, field_mask, weight)
     {
-        Ok(iterator) => RQEIteratorWrapper::boxed_new(IteratorType_INV_IDX_ITERATOR, iterator),
+        Ok(iterator) => RQEIteratorWrapper::boxed_new(IteratorType_INV_IDX_TERM_ITERATOR, iterator),
         Err(error) => {
             error!(
                 error = &error as &dyn std::error::Error,
@@ -543,7 +573,9 @@ extern "C" fn index_spec_new_wildcard_iterator(
     };
 
     match index.doc_table().wildcard_iterator(weight) {
-        Ok(iterator) => RQEIteratorWrapper::boxed_new(IteratorType_INV_IDX_ITERATOR, iterator),
+        Ok(iterator) => {
+            RQEIteratorWrapper::boxed_new(IteratorType_INV_IDX_WILDCARD_ITERATOR, iterator)
+        }
         Err(error) => {
             error!(
                 error = &error as &dyn std::error::Error,

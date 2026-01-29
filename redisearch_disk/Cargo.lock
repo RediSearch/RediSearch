@@ -668,10 +668,10 @@ dependencies = [
  "enumflags2",
  "ffi",
  "field",
- "low_memory_thin_vec",
  "qint",
  "serde",
  "smallvec",
+ "thin_vec",
  "varint",
  "workspace_hack",
 ]
@@ -821,13 +821,6 @@ name = "log"
 version = "0.4.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
-
-[[package]]
-name = "low_memory_thin_vec"
-version = "0.0.1"
-dependencies = [
- "workspace_hack",
-]
 
 [[package]]
 name = "lz4-sys"
@@ -1452,6 +1445,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "thin_vec"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
 name = "thiserror"
 version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1593,6 +1593,7 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "ffi",
+ "redis-module",
  "thiserror",
  "workspace_hack",
 ]
@@ -1744,6 +1745,7 @@ dependencies = [
  "clap_builder",
  "either",
  "getrandom",
+ "itertools 0.13.0",
  "libc",
  "memchr",
  "miniz_oxide",

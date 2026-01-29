@@ -1,8 +1,12 @@
+use std::time::{Duration, UNIX_EPOCH};
+
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use redisearch_disk::index_spec::Key;
 use redisearch_disk::index_spec::doc_table::{DocumentFlag, DocumentFlags, DocumentMetadata};
 
 fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
+    const MAX_EXPIRATION_SECS: u64 = u64::MAX / 2;
+    const MAX_EXPIRATION_NANOS: u32 = 999_999_999;
     vec![
         (
             "small_key",
@@ -12,6 +16,7 @@ fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
                 flags: DocumentFlags::empty(),
                 max_term_freq: 10,
                 doc_len: 50,
+                expiration: None,
             },
         ),
         (
@@ -22,6 +27,7 @@ fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
                 flags: DocumentFlag::HasExpiration | DocumentFlag::HasOffsetVector,
                 max_term_freq: 100,
                 doc_len: 500,
+                expiration: Some(UNIX_EPOCH + Duration::new(1706460000, 123456789)),
             },
         ),
         (
@@ -37,6 +43,7 @@ fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
                     | DocumentFlag::FailedToOpen,
                 max_term_freq: 1000,
                 doc_len: 5000,
+                expiration: Some(UNIX_EPOCH + Duration::new(1893456000, 987654321)),
             },
         ),
         (
@@ -47,6 +54,9 @@ fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
                 flags: DocumentFlags::all(),
                 max_term_freq: u32::MAX,
                 doc_len: u32::MAX,
+                expiration: Some(
+                    UNIX_EPOCH + Duration::new(MAX_EXPIRATION_SECS, MAX_EXPIRATION_NANOS),
+                ),
             },
         ),
     ]

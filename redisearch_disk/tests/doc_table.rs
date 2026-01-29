@@ -12,6 +12,7 @@ use redisearch_disk::{
     },
 };
 use rqe_iterators::{RQEIterator, SkipToOutcome};
+use std::time::{Duration, UNIX_EPOCH};
 use tempfile::TempDir;
 
 fn get_temp_doc_table() -> DocTable {
@@ -36,14 +37,19 @@ fn adding_documents() {
         flags: DocumentFlag::Deleted | DocumentFlag::HasPayload,
         max_term_freq: 4,
         doc_len: 1,
+        expiration: None,
     };
 
     let doc_2 = DocumentMetadata {
         key: b"doc2".to_vec(),
         score: 5.6,
-        flags: DocumentFlag::Deleted | DocumentFlag::HasPayload | DocumentFlag::HasSortVector,
+        flags: DocumentFlag::Deleted
+            | DocumentFlag::HasPayload
+            | DocumentFlag::HasSortVector
+            | DocumentFlag::HasExpiration,
         max_term_freq: 8,
         doc_len: 3,
+        expiration: Some(UNIX_EPOCH + Duration::new(1706460000, 123456789)),
     };
 
     let (doc_id1, old_len1) = doc_table
@@ -53,6 +59,7 @@ fn adding_documents() {
             doc_1.flags,
             doc_1.max_term_freq,
             doc_1.doc_len,
+            doc_1.expiration,
         )
         .unwrap();
     let (doc_id2, old_len2) = doc_table
@@ -62,6 +69,7 @@ fn adding_documents() {
             doc_2.flags,
             doc_2.max_term_freq,
             doc_2.doc_len,
+            doc_2.expiration,
         )
         .unwrap();
 
@@ -93,6 +101,7 @@ fn updating_documents() {
         flags: DocumentFlag::Deleted | DocumentFlag::HasPayload,
         max_term_freq: 4,
         doc_len: 5,
+        expiration: None,
     };
 
     let (doc_id1, old_len1) = doc_table
@@ -102,6 +111,7 @@ fn updating_documents() {
             doc.flags,
             doc.max_term_freq,
             doc.doc_len * 2,
+            doc.expiration,
         )
         .unwrap();
 
@@ -119,6 +129,7 @@ fn updating_documents() {
             doc.flags,
             doc.max_term_freq,
             doc.doc_len,
+            doc.expiration,
         )
         .unwrap();
 
@@ -160,6 +171,7 @@ fn deleting_documents() {
         flags: DocumentFlag::Deleted | DocumentFlag::HasPayload,
         max_term_freq: 4,
         doc_len: 5,
+        expiration: None,
     };
 
     let doc_2 = DocumentMetadata {
@@ -168,6 +180,7 @@ fn deleting_documents() {
         flags: DocumentFlag::Deleted | DocumentFlag::HasPayload | DocumentFlag::HasSortVector,
         max_term_freq: 8,
         doc_len: 10,
+        expiration: None,
     };
 
     // Insert two documents
@@ -178,6 +191,7 @@ fn deleting_documents() {
             doc_1.flags,
             doc_1.max_term_freq,
             doc_1.doc_len,
+            doc_1.expiration,
         )
         .unwrap();
     assert_eq!(
@@ -192,6 +206,7 @@ fn deleting_documents() {
             doc_2.flags,
             doc_2.max_term_freq,
             doc_2.doc_len,
+            doc_2.expiration,
         )
         .unwrap();
     assert_eq!(
@@ -283,6 +298,7 @@ fn iterator() {
                 DocumentFlag::Deleted | DocumentFlag::HasPayload,
                 i * 100,
                 i * 1000,
+                None,
             )
             .unwrap();
         assert_eq!(old_len, 0, "old_len should be 0 for new documents");
@@ -334,6 +350,7 @@ fn updating_documents_lengths() {
         flags: DocumentFlag::Deleted | DocumentFlag::HasPayload,
         max_term_freq: 4,
         doc_len: 100,
+        expiration: None,
     };
 
     // Insert the first document
@@ -344,6 +361,7 @@ fn updating_documents_lengths() {
             doc.flags,
             doc.max_term_freq,
             doc.doc_len,
+            doc.expiration,
         )
         .unwrap();
 
@@ -358,6 +376,7 @@ fn updating_documents_lengths() {
             doc.flags,
             doc.max_term_freq,
             200, // new doc_len
+            doc.expiration,
         )
         .unwrap();
 

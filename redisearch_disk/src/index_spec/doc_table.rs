@@ -28,6 +28,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
+use std::time::SystemTime;
 
 use redis_module::raw::{RedisModuleIO, load_unsigned, save_unsigned};
 
@@ -146,6 +147,7 @@ impl DocTable {
         flags: DocumentFlags,
         max_term_freq: u32,
         doc_len: u32,
+        expiration: Option<SystemTime>,
     ) -> Result<(t_docId, u32), speedb::Error> {
         let key: Key = key.into();
 
@@ -168,6 +170,7 @@ impl DocTable {
             flags,
             max_term_freq,
             doc_len,
+            expiration,
         }
         .serialize();
 

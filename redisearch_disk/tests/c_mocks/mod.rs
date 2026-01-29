@@ -11,7 +11,7 @@
 //! Mock implementations or stubs of C symbol that aren't provided
 //! by the static C libraries we are linking against in build.rs.
 
-redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 /// Define an empty stub function for each given symbols.
 /// This is used to define C functions the linker requires but which are not actually used by the tests.
