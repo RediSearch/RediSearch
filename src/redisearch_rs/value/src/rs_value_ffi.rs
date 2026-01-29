@@ -146,7 +146,7 @@ impl RSValueTrait for RSValueFFI {
             let cstr: *mut c_char =
                 unsafe { ffi::RSValue_String_Get(self.0.as_ptr(), &mut len as *mut _) };
 
-            // Safety: We received a valid char pointer and its associated len is properly set.
+            // Safety: We assume the returned char pointer and associated len are valid.
             Some(unsafe { slice::from_raw_parts(cstr.cast(), len as usize) })
         } else {
             None
@@ -155,7 +155,7 @@ impl RSValueTrait for RSValueFFI {
 
     fn as_num(&self) -> Option<f64> {
         if self.get_type() == ffi::RSValueType_RSValueType_Number {
-            // Safety: self.0 points to a valid RSValue Number type as checked above which RSValue_Number_Get expects.
+            // Safety: we checked the RSValue to be a number above.
             let value = unsafe { ffi::RSValue_Number_Get(self.0.as_ptr()) };
             Some(value)
         } else {
