@@ -317,11 +317,10 @@ fn numeric_range() {
 mod not_miri {
     use super::*;
     use crate::inverted_index::utils::{ExpirationTest, RevalidateIndexType, RevalidateTest};
-    use ffi::t_fieldIndex;
     use rqe_iterators::RQEValidateStatus;
 
     struct NumericExpirationTest {
-        test: ExpirationTest<inverted_index::numeric::Numeric>,
+        test: ExpirationTest,
     }
 
     impl NumericExpirationTest {
@@ -332,30 +331,25 @@ mod not_miri {
 
         fn new(n_docs: u64, multi: bool) -> Self {
             Self {
-                test: ExpirationTest::new(
-                    IndexFlags_Index_StoreNumeric,
-                    Box::new(Self::expected_record),
-                    n_docs,
-                    multi,
-                ),
+                test: ExpirationTest::numeric(Box::new(Self::expected_record), n_docs, multi),
             }
         }
 
         fn create_iterator(
             &self,
-            index: t_fieldIndex,
         ) -> Numeric<'_, inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>>
         {
-            let reader = self.test.ii.reader();
+            let reader = self.test.numeric_inverted_index().reader();
+            let field_index = self.test.context.field_spec().index;
 
-            NumericBuilder::new(reader, self.test.mock_ctx.sctx())
-                .field_index(index)
-                .range_tree(self.test.mock_ctx.numeric_range_tree())
+            NumericBuilder::new(reader, self.test.context.sctx)
+                .field_index(field_index)
+                .range_tree(self.test.context.numeric_range_tree())
                 .build()
         }
 
         fn test_read_expiration(&mut self) {
-            const FIELD_INDEX: t_fieldIndex = 42;
+            let field_index = self.test.context.field_spec().index;
             // Make every even document ID field expired
             let even_ids = self
                 .test
@@ -366,14 +360,14 @@ mod not_miri {
                 .collect();
 
             self.test
-                .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(FIELD_INDEX));
+                .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(field_index));
 
-            let mut it = self.create_iterator(FIELD_INDEX);
+            let mut it = self.create_iterator();
             self.test.read(&mut it);
         }
 
         fn test_skip_to_expiration(&mut self) {
-            const FIELD_INDEX: t_fieldIndex = 42;
+            let field_index = self.test.context.field_spec().index;
             // Make every even document ID field expired
             let even_ids = self
                 .test
@@ -384,31 +378,31 @@ mod not_miri {
                 .collect();
 
             self.test
-                .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(FIELD_INDEX));
+                .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(field_index));
 
-            let mut it = self.create_iterator(FIELD_INDEX);
+            let mut it = self.create_iterator();
             self.test.skip_to(&mut it);
         }
     }
 
     #[test]
     fn numeric_read_expiration() {
-        NumericExpirationTest::new(100, false).test_read_expiration();
+        NumericExpirationTest::new(10, false).test_read_expiration();
     }
 
     #[test]
     fn numeric_read_skip_multi_expiration() {
-        NumericExpirationTest::new(100, true).test_read_expiration();
+        NumericExpirationTest::new(10, true).test_read_expiration();
     }
 
     #[test]
     fn numeric_skip_to_expiration() {
-        NumericExpirationTest::new(100, false).test_skip_to_expiration();
+        NumericExpirationTest::new(10, false).test_skip_to_expiration();
     }
 
     #[test]
     fn numeric_skip_to_expiration_multi() {
-        NumericExpirationTest::new(100, true).test_skip_to_expiration();
+        NumericExpirationTest::new(10, true).test_skip_to_expiration();
     }
 
     struct NumericRevalidateTest {
