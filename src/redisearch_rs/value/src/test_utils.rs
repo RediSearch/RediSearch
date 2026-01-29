@@ -93,7 +93,7 @@ impl RSValueTrait for RSValueMock {
         std::mem::size_of::<Self>()
     }
 
-    fn refcount(&self) -> Option<usize> {
-        Some(Arc::strong_count(&self.0))
+    fn refcount(&self) -> usize {
+        Arc::strong_count(&self.0)
     }
 }

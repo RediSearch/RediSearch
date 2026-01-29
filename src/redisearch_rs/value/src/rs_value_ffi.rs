@@ -56,7 +56,7 @@ where
     fn mem_size() -> usize;
 
     /// Returns the reference count or `None` if the value type does not participate in reference counting.
-    fn refcount(&self) -> Option<usize>;
+    fn refcount(&self) -> usize;
 }
 
 /// [RSValueFFI] is a wrapper around the C struct `RSValue` implement as new-type over a [std::ptr::NonNull<ffi::RSValue>].
@@ -178,9 +178,9 @@ impl RSValueTrait for RSValueFFI {
         unsafe { ffi::RSValueSize }
     }
 
-    fn refcount(&self) -> Option<usize> {
+    fn refcount(&self) -> usize {
         // Safety: self.0 is a valid pointer to an RSValue struct.
-        Some(unsafe { ffi::RSValue_Refcount(self.0.as_ptr()) } as usize)
+        unsafe { ffi::RSValue_Refcount(self.0.as_ptr()) as usize }
     }
 }
 

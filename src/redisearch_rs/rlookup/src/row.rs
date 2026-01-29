@@ -355,10 +355,11 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     #[cfg(any(debug_assertions, test))]
     pub fn assert_valid(&self, ctx: &str) {
         for val in &self.dyn_values {
-            if let Some(val) = val
-                && let Some(refcount) = val.refcount()
-            {
-                assert!(refcount >= 1, "{ctx} RSValue refcount must not be zero");
+            if let Some(val) = val {
+                assert!(
+                    val.refcount() >= 1,
+                    "{ctx} RSValue refcount must not be zero"
+                );
             }
         }
     }
