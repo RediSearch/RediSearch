@@ -64,7 +64,7 @@ fn rlookuprow_writebyname() {
     let mut row = RLookupRow::new(&lookup);
     let value = unsafe { RSValueFFI::from_raw(NonNull::new(RSValue_NewNumber(42.0)).unwrap()) };
 
-    assert_eq!(value.refcount(), Some(1));
+    assert_eq!(value.refcount(), 1);
 
     unsafe {
         RLookupRow_WriteByName(
@@ -76,7 +76,7 @@ fn rlookuprow_writebyname() {
         );
     }
 
-    assert_eq!(value.refcount(), Some(2));
+    assert_eq!(value.refcount(), 2);
 }
 
 #[test]
@@ -87,7 +87,7 @@ fn rlookuprow_writebynameowned() {
     let mut row = RLookupRow::new(&lookup);
     let value = unsafe { RSValueFFI::from_raw(NonNull::new(RSValue_NewNumber(42.0)).unwrap()) };
 
-    assert_eq!(value.refcount(), Some(1));
+    assert_eq!(value.refcount(), 1);
 
     unsafe {
         RLookupRow_WriteByNameOwned(
@@ -99,7 +99,7 @@ fn rlookuprow_writebynameowned() {
         );
     }
 
-    assert_eq!(value.refcount(), Some(1));
+    assert_eq!(value.refcount(), 1);
 
     // See the comment regarding `mem::forget()` at the end of `RLookupRow_WriteByName()` for more info.
     mem::forget(value);
