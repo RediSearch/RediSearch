@@ -3,12 +3,11 @@ pub use term::reader::{
     Reader as PostingsListReader, ReaderCreateError as PostingReaderCreateError,
 };
 
-use std::{mem::size_of, sync::Arc};
+use std::mem::size_of;
 
 use ffi::{t_docId, t_fieldMask};
 use inverted_index::{FilterMaskReader, RSIndexResult};
 use rqe_iterators::inverted_index::InvIndIterator;
-use speedb::BoundColumnFamily;
 
 use super::DeletedIdsStore;
 use crate::merge_op::DeletedIdsMergeOperator;
@@ -19,7 +18,7 @@ use speedb::{
 };
 
 use crate::{
-    database::{Speedb, SpeedbMultithreadedDatabase},
+    database::{ColumnFamilyGuard, Speedb, SpeedbMultithreadedDatabase},
     key_traits::AsKeyExt,
 };
 
@@ -27,17 +26,15 @@ use crate::metrics::CFMetrics;
 
 /// An inverted index maps terms to the documents which contain the term.
 pub struct InvertedIndex {
-    /// The Speedb database where we store the inverted index.
-    database: SpeedbMultithreadedDatabase,
-
-    /// The name of the column family where we store the inverted index.
-    ///
-    /// We can't currently store the column family handle directly because it has a lifetime
-    /// tied to the database instance, which complicates ownership (does not compile).
-    cf_name: String,
+    /// The column family handle for the inverted index.
+    /// Must be declared before database handle
+    cf: ColumnFamilyGuard,
 
     /// Write options for the inverted index
     write_options: WriteOptions,
+
+    /// The Speedb database where we store the inverted index.
+    database: SpeedbMultithreadedDatabase,
 }
 
 /// Key structure for inverted index entries.
@@ -215,17 +212,17 @@ impl InvertedIndex {
 
     /// Creates a new inverted index with the given Speedb database.
     pub fn new(database: SpeedbMultithreadedDatabase) -> Self {
-        // Verify the column family exists
-        database
-            .cf_handle(Self::COLUMN_FAMILY_NAME)
+        // SAFETY: The database field is declared after cf in the struct,
+        // so cf will be dropped first, ensuring proper cleanup order.
+        let cf = unsafe { database.cf_guard(Self::COLUMN_FAMILY_NAME) }
             .expect("Inverted index column family should exist");
 
         let mut write_options = WriteOptions::default();
         write_options.disable_wal(true);
         InvertedIndex {
-            database,
-            cf_name: Self::COLUMN_FAMILY_NAME.to_string(),
+            cf,
             write_options,
+            database,
         }
     }
 
@@ -264,12 +261,6 @@ impl InvertedIndex {
         ColumnFamilyDescriptor::new(Self::COLUMN_FAMILY_NAME, cf_options)
     }
 
-    /// Returns the Speedb column family handle for the inverted index.
-    fn cf_handle(&self) -> Arc<BoundColumnFamily<'_>> {
-        // SAFETY: we verified the column family exists in `new()`
-        self.database.cf_handle(&self.cf_name).unwrap()
-    }
-
     fn term_and_doc_key(prefix: &str, last_doc_id: Option<t_docId>) -> InvertedIndexKey<'_> {
         InvertedIndexKey {
             prefix,
@@ -298,7 +289,7 @@ impl InvertedIndex {
         let block = block.serialize();
 
         self.database
-            .put_cf_opt(&self.cf_handle(), key.as_key(), block, &self.write_options)?;
+            .put_cf_opt(&self.cf, key.as_key(), block, &self.write_options)?;
 
         Ok(())
     }
@@ -316,7 +307,7 @@ impl InvertedIndex {
         let key = Self::term_and_doc_key(term, None).as_key();
 
         let iterator = self.database.iterator_cf(
-            &self.cf_handle(),
+            &self.cf,
             speedb::IteratorMode::From(&key, speedb::Direction::Forward),
         );
         let reader = PostingsListReader::new(iterator, term.to_string())?;
@@ -329,8 +320,7 @@ impl InvertedIndex {
 
     /// Collect metrics for the text inverted index column family.
     pub fn collect_metrics(&self) -> crate::metrics::CFMetrics {
-        let cf = self.cf_handle();
-        CFMetrics::collect(&self.database, &cf)
+        CFMetrics::collect(&self.database, &self.cf)
     }
 }
 

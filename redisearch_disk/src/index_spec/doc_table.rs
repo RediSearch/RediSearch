@@ -10,24 +10,20 @@ pub use document_metadata::DocumentMetadata;
 use inverted_index::RSIndexResult;
 
 use speedb::{
-    BlockBasedOptions, Cache, ColumnFamilyDescriptor, Options as SpeedbDbOptions, WriteBatch,
-    WriteOptions,
+    BlockBasedOptions, Cache, ColumnFamilyDescriptor, IteratorMode, Options as SpeedbDbOptions,
+    WriteBatch, WriteOptions,
 };
 
 use crate::{
     INVALID_DOC_ID,
-    database::{Speedb, SpeedbMultithreadedDatabase},
+    database::{ColumnFamilyGuard, Speedb, SpeedbMultithreadedDatabase},
     index_spec::{Key, deleted_ids::DeletedIdsStore},
     key_traits::{AsKeyExt, FromKeyExt},
 };
 use document::DocumentType;
 use ffi::t_docId;
 use rqe_iterators::inverted_index::InvIndIterator;
-use speedb::{BoundColumnFamily, IteratorMode};
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
-};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
 use redis_module::raw::{RedisModuleIO, load_unsigned, save_unsigned};
@@ -40,26 +36,29 @@ use crate::metrics::CFMetrics;
 /// metadata. It is used to look up documents by their IDs and to generate new document IDs
 /// for documents added to the index.
 pub struct DocTable {
+    /// The colunm family handle for the document table
+    /// All CF handles must be declared before database so they're dropped first,
+    /// ensuring the database has the last reference to clean up properly
+    cf: ColumnFamilyGuard,
+
+    /// The column family handle for the reverse lookup table.
+    reverse_lookup_cf: ColumnFamilyGuard,
+
     /// The last assigned document ID in the index (atomic for thread-safe ID generation)
     last_document_id: AtomicU64,
 
     /// The type of documents that are indexed.
     document_type: DocumentType,
 
-    /// The Speedb database instance used for storage.
-    database: SpeedbMultithreadedDatabase,
-
-    /// The name of the Speedb column family used for the document table.
-    ///
-    /// We can't currently store the column family handle directly because it has a lifetime
-    /// tied to the database instance, which complicates ownership (does not compile).
-    cf_name: String,
-
     /// Write options for the document table
     write_options: WriteOptions,
 
     /// Set of deleted document IDs tracked using a roaring bitmap
     deleted_ids: DeletedIdsStore,
+
+    /// The Speedb database instance used for storage.
+    /// It needs to be declared last so it's dropped after CF handles
+    database: SpeedbMultithreadedDatabase,
 }
 
 impl DocTable {
@@ -71,15 +70,25 @@ impl DocTable {
         database: SpeedbMultithreadedDatabase,
         deleted_ids: DeletedIdsStore,
     ) -> Result<Self, speedb::Error> {
+        // SAFETY: The database field is declared after cf fields in the struct,
+        // so cf handles will be dropped first, ensuring proper cleanup order.
+        let cf = unsafe { database.cf_guard(Self::COLUMN_FAMILY_NAME) }
+            .expect("Document table column family should exist");
+        // SAFETY: same as above
+        let reverse_lookup_cf =
+            unsafe { database.cf_guard(Self::REVERSE_LOOKUP_COLUMN_FAMILY_NAME) }
+                .expect("Reverse lookup column family should exist");
+
         let mut write_options = WriteOptions::default();
         write_options.disable_wal(true);
         Ok(Self {
+            cf,
+            reverse_lookup_cf,
             last_document_id: AtomicU64::new(1),
             document_type,
-            database,
-            cf_name: Self::COLUMN_FAMILY_NAME.to_string(),
             write_options,
             deleted_ids,
+            database,
         })
     }
 
@@ -112,22 +121,8 @@ impl DocTable {
         )
     }
 
-    /// Returns the Speedb column family handle for the document table.
-    fn cf_handle(&self) -> Arc<BoundColumnFamily<'_>> {
-        // SAFETY: we verified the column family exists in `new()`
-        self.database.cf_handle(&self.cf_name).unwrap()
-    }
-
     pub fn collect_deleted_ids(&self) -> Vec<t_docId> {
         self.deleted_ids.collect_all()
-    }
-
-    /// Temporary reverse lookup solution until we have a way to use the metadata api in order to store the old document id
-    fn reverse_lookup_cf_handle(&self) -> Arc<BoundColumnFamily<'_>> {
-        // SAFETY: we verified the column family exists in `new()`
-        self.database
-            .cf_handle(Self::REVERSE_LOOKUP_COLUMN_FAMILY_NAME)
-            .unwrap()
     }
 
     /// Inserts a new document to the document table to generate a new document ID.
@@ -181,12 +176,12 @@ impl DocTable {
 
         // If updating an existing document, delete the old doc_table entry in the same batch
         if let Some(old_id) = old_doc_id {
-            batch.delete_cf(&self.cf_handle(), old_id.as_key());
+            batch.delete_cf(&self.cf, old_id.as_key());
         }
 
-        batch.put_cf(&self.cf_handle(), entry_key, dmd_bytes);
+        batch.put_cf(&self.cf, entry_key, dmd_bytes);
         batch.put_cf(
-            &self.reverse_lookup_cf_handle(),
+            &self.reverse_lookup_cf,
             <Vec<u8> as AsRef<[u8]>>::as_ref(&key),
             new_doc_id.as_key(),
         );
@@ -206,7 +201,7 @@ impl DocTable {
     fn find_doc_id_by_key(&self, key: &Key) -> Option<t_docId> {
         self.database
             .get_cf(
-                &self.reverse_lookup_cf_handle(),
+                &self.reverse_lookup_cf,
                 <Vec<u8> as AsRef<[u8]>>::as_ref(key),
             )
             .ok()?
@@ -228,7 +223,7 @@ impl DocTable {
     ) -> Result<Option<DocumentMetadata>, speedb::Error> {
         let dmd = self
             .database
-            .get_cf(&self.cf_handle(), doc_id.as_key())?
+            .get_cf(&self.cf, doc_id.as_key())?
             .map(|dmd_bytes| DocumentMetadata::deserialize(&dmd_bytes));
 
         Ok(dmd)
@@ -265,9 +260,9 @@ impl DocTable {
             // Use a batch write to ensure atomicity: both the document metadata and reverse lookup
             // are deleted together.
             let mut batch = WriteBatch::default();
-            batch.delete_cf(&self.cf_handle(), doc_id.as_key());
+            batch.delete_cf(&self.cf, doc_id.as_key());
             batch.delete_cf(
-                &self.reverse_lookup_cf_handle(),
+                &self.reverse_lookup_cf,
                 <Vec<u8> as AsRef<[u8]>>::as_ref(&key),
             );
 
@@ -295,8 +290,7 @@ impl DocTable {
     /// or an error if the database operation fails.
     #[allow(dead_code)]
     pub fn delete_document(&self, doc_id: t_docId) -> Result<(), speedb::Error> {
-        self.database
-            .delete_cf(&self.cf_handle(), doc_id.as_key())?;
+        self.database.delete_cf(&self.cf, doc_id.as_key())?;
 
         self.deleted_ids.mark_deleted(doc_id);
 
@@ -308,9 +302,7 @@ impl DocTable {
         &self,
         weight: f64,
     ) -> Result<InvIndIterator<'_, DocTableReader<'_, Speedb>>, DocTableReaderCreateError> {
-        let iterator = self
-            .database
-            .iterator_cf(&self.cf_handle(), IteratorMode::Start);
+        let iterator = self.database.iterator_cf(&self.cf, IteratorMode::Start);
 
         let reader = DocTableReader::new(iterator)?;
 
@@ -394,7 +386,6 @@ impl DocTable {
 
     /// Collect metrics for the document table column family.
     pub fn collect_metrics(&self) -> crate::metrics::CFMetrics {
-        let cf = self.cf_handle();
-        CFMetrics::collect(&self.database, &cf)
+        CFMetrics::collect(&self.database, &self.cf)
     }
 }

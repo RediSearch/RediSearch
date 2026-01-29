@@ -9,6 +9,8 @@ use speedb::{
 };
 use tracing::{debug, error};
 
+pub use speedb::ColumnFamilyGuard;
+
 /// Alias to make it easy to refer to multi-threaded Speedb databases.
 pub type Speedb = DBWithThreadMode<MultiThreaded>;
 

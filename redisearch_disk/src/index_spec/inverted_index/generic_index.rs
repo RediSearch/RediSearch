@@ -1,9 +1,10 @@
-use std::sync::Arc;
-
 use ffi::t_docId;
-use speedb::{BoundColumnFamily, ColumnFamilyDescriptor};
+use speedb::ColumnFamilyDescriptor;
 
-use crate::{database::SpeedbMultithreadedDatabase, key_traits::AsKeyExt};
+use crate::{
+    database::{ColumnFamilyGuard, SpeedbMultithreadedDatabase},
+    key_traits::AsKeyExt,
+};
 
 use super::{
     DeletedIdsStore, InvertedIndexKey, DOC_ID_KEY_SIZE,
@@ -13,32 +14,23 @@ use super::{
 /// A generic inverted index that works with any block type implementing IndexConfig.
 /// This eliminates code duplication between term and tag inverted indexes.
 pub struct GenericInvertedIndex<Config> {
+    /// The column family handle for the inverted index
+    /// Must be declared before database
+    cf: ColumnFamilyGuard,
+
     /// The Speedb database where we store the inverted index.
     database: SpeedbMultithreadedDatabase,
-
-    /// The name of the column family where we store the inverted index.
-    cf_name: String,
 }
 
 impl<Config: IndexConfig> GenericInvertedIndex<Config> {
     /// Creates a new generic inverted index with the given Speedb database.
     pub fn new(database: SpeedbMultithreadedDatabase) -> Self {
-        // Verify the column family exists
-        database
-            .cf_handle(Config::COLUMN_FAMILY_NAME)
+        // SAFETY: The database field is declared after cf in the struct,
+        // so cf will be dropped first, ensuring proper cleanup order.
+        let cf = unsafe { database.cf_guard(Config::COLUMN_FAMILY_NAME) }
             .expect("Inverted index column family should exist");
 
-        GenericInvertedIndex {
-            database,
-            cf_name: Config::COLUMN_FAMILY_NAME.to_string(),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-
-    /// Returns the Speedb column family handle for the inverted index.
-    pub fn cf_handle(&self) -> Arc<BoundColumnFamily<'_>> {
-        // SAFETY: we verified the column family exists in `new()`
-        self.database.cf_handle(&self.cf_name).unwrap()
+        GenericInvertedIndex { cf, database }
     }
 
     /// Strips the doc_id suffix from a key, returning the prefix portion.
@@ -76,8 +68,7 @@ impl<Config: IndexConfig> GenericInvertedIndex<Config> {
         let block: Config::SerializableBlock = doc.into();
         let serialized = block.serialize();
 
-        self.database
-            .put_cf(&self.cf_handle(), key.as_key(), serialized)?;
+        self.database.put_cf(&self.cf, key.as_key(), serialized)?;
 
         Ok(())
     }
