@@ -1454,10 +1454,10 @@ mod tests {
         };
 
         let mut lookup = RLookup::new();
-        let index_spec = IndexSpec::from_ffi(index_spec);
+        let index_spec = unsafe { IndexSpec::from_raw(&raw const index_spec) };
 
         // Act
-        let actual = super::create_keys_from_spec(&mut lookup, &index_spec);
+        let actual = super::create_keys_from_spec(&mut lookup, index_spec);
 
         // Assert
         assert_eq!(actual.len(), 3);
