@@ -47,13 +47,13 @@ pub enum RsValue {
     /// String value
     String(Box<RsValueString>),
     /// Array value
-    Array(Vec<SharedRsValue>),
+    Array(Box<[SharedRsValue]>),
     /// Reference value
     Ref(SharedRsValue),
     /// Trio value
     Trio(RsValueTrio),
     /// Map value
-    Map(Vec<(SharedRsValue, SharedRsValue)>),
+    Map(Box<[(SharedRsValue, SharedRsValue)]>),
 }
 
 impl RsValue {
