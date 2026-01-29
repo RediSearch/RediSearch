@@ -33,4 +33,3 @@ callgrind.out.*
 tests/deps/RedisJSON
 **/target/*
 compile_commands.json
-AGENTS.local.md
