@@ -27,25 +27,13 @@ void IndexResultAsyncRead_Init(IndexResultAsyncReadState *state, uint16_t poolSi
 
 bool IndexResultAsyncRead_SetupAsyncPool(IndexResultAsyncReadState *state,
                                          RedisSearchDiskAsyncReadPool asyncPool) {
-  if (!asyncPool) {
-    return false;
-  }
+  RS_ASSERT(asyncPool);
 
   state->asyncPool = asyncPool;
 
   // Allocate async I/O buffers with capacity for poll results (len=0 initially)
   state->readyResults = array_new(AsyncReadResult, state->poolSize);
   state->failedUserData = array_new(uint64_t, state->poolSize);
-
-  if (!state->readyResults || !state->failedUserData) {
-    // Cleanup on allocation failure
-    array_free(state->readyResults);
-    array_free(state->failedUserData);
-    state->readyResults = NULL;
-    state->failedUserData = NULL;
-    state->asyncPool = NULL;
-    return false;
-  }
 
   return true;
 }
@@ -86,7 +74,6 @@ void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state) {
         DMD_Return(result->dmd);
       }
     });
-    array_free(state->readyResults);
     state->readyResults = NULL;
   }
 

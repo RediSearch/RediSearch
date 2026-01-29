@@ -109,8 +109,14 @@ uint16_t IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state);
  * Pop a ready result from the completed async reads
  *
  * Returns an IndexResult with its DMD field populated from a completed
- * async disk read. The caller takes ownership of the IndexResult and
- * must free it (or store it in lastReturnedIndexResult for deferred cleanup).
+ * async disk read. The caller takes ownership of the IndexResult.
+ *
+ * Ownership model:
+ * - The IndexResult is passed to the parent result processor via SearchResult
+ * - The parent processor will eventually free it via IndexResult_Free
+ * - Store the pointer in state->lastReturnedIndexResult for cleanup tracking
+ * - On the next call to PopReadyResult, the previous IndexResult will be freed
+ *   (it has been consumed by the parent processor by then)
  *
  * @param state Async read state structure
  * @return IndexResult with DMD populated, or NULL if no ready results

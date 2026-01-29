@@ -62,11 +62,7 @@ protected:
 
   // Helper: Verify state consistency
   void assertStateConsistent() {
-    // Count actual nodes in iteratorResults
-    uint16_t actualCount = 0;
-    DLLIST_FOREACH(dlnode, &state.iteratorResults) {
-      actualCount++;
-    }
+    uint16_t actualCount = countNodes(&state.iteratorResults);
     ASSERT_EQ(actualCount, state.iteratorResultCount)
       << "iteratorResultCount mismatch: expected " << actualCount
       << " but got " << state.iteratorResultCount;
