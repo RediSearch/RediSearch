@@ -160,7 +160,9 @@ impl CaptureState {
                 pairs, pending_key, ..
             }) => {
                 if pending_key.is_some() {
-                    panic!("Map is being finalized, but the last key doesn't have a matching value");
+                    panic!(
+                        "Map is being finalized, but the last key doesn't have a matching value"
+                    );
                 }
                 self.push_value(ReplyValue::Map(pairs));
             }
