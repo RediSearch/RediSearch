@@ -43,9 +43,6 @@ pub const unsafe extern "C" fn RSValue_Type(value: *const RsValue) -> RsValueTyp
         RsValue::Undefined => Undef,
         RsValue::Null => Null,
         RsValue::Number(_) => Number,
-        RsValue::RmAllocString(_) => String,
-        RsValue::ConstString(_) => String,
-        RsValue::RedisString(_) => RedisString,
         RsValue::String(_) => String,
         RsValue::Array(_) => Array,
         RsValue::Ref(_) => Reference,
@@ -96,13 +93,7 @@ pub const unsafe extern "C" fn RSValue_IsString(value: *const RsValue) -> bool {
         return false;
     };
 
-    matches!(
-        value,
-        RsValue::RmAllocString(_)
-            | RsValue::ConstString(_)
-            | RsValue::RedisString(_)
-            | RsValue::String(_)
-    )
+    matches!(value, RsValue::String(_))
 }
 
 /// Returns whether the given [`RsValue`] is an array type, or `false` if `value` is NULL.
