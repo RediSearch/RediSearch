@@ -302,64 +302,6 @@ void RSValue_SetNumber(struct RsValue *value, double n);
 void RSValue_SetNull(struct RsValue *value);
 
 /**
- * Creates a heap-allocated `RsValue` wrapping a string.
- * Doesn't duplicate the string. Use strdup if the value needs to be detached.
- *
- * # Safety
- * - (1) `str` must not be NULL;
- * - (2) `len` must match the length of `str`;
- * - (3) `str` must point to a valid, C string with a length of at most `u32::MAX` bytes;
- * - (4) `str` must not be aliased.
- * - (5) `str` must point to a location allocated using `rm_alloc`
- * - (6) `RedisModule_Alloc` must not be mutated for the lifetime of the
- *   `OpaqueRsValue`.
- *
- * @param str The string to wrap (ownership is transferred)
- * @param len The length of the string
- * @return A pointer to a heap-allocated RsValue
- */
-const struct RsValue *SharedRsValue_NewString(char *str, uint32_t len);
-
-/**
- * Creates a heap-allocated `SharedRsValue` wrapping a const string.
- *
- * # Safety
- * - (1) `str` must live as least as long as the returned [`SharedRsValue`].
- * - (2) `str` must point to a byte sequence that is valid for reads of `len` bytes.
- *
- * @param str The null-terminated string to wrap (ownership is transferred)
- * @return A pointer to a heap-allocated RsValue wrapping a constant C string
- */
-const struct RsValue *SharedRsValue_NewConstString(const char *str, uint32_t len);
-
-/**
- * Creates a heap-allocated `RsValue` which increments and owns a reference to the Redis string.
- * The RsValue will decrement the refcount when freed.
- *
- * # Safety
- * - (1) `str` must be non-null
- * - (2) `str` must point to a valid [`RedisModuleString`]
- *   with a reference count of at least 1.
- *
- * @param str The RedisModuleString to wrap (refcount is incremented)
- * @return A pointer to a heap-allocated RsValue
- */
-const struct RsValue *SharedRsValue_NewRedisString(RedisModuleString *str);
-
-/**
- * Creates a heap-allocated `RsValue` with a copied string.
- * The string is duplicated using `rm_malloc`.
- *
- * # Safety
- * - (1) `str` must be a valid pointer to a char sequence of `len` chars.
- *
- * @param s The string to copy
- * @param dst The length of the string to copy
- * @return A pointer to a heap-allocated `RsValue` owning the copied string
- */
-const struct RsValue *SharedRsValue_NewCopiedString(const char *str, uint32_t len);
-
-/**
  * Creates a heap-allocated `RsValue` by parsing a string as a number.
  * Returns an undefined value if the string cannot be parsed as a valid number.
  *
