@@ -10,7 +10,45 @@
 #include <result_processor.h>
 #include <util/block_alloc.h>
 #include <util/khash.h>
+#include <util/wyhash.h>
 #include "reducer.h"
+
+// Local hash function for RSValue using wyhash (no FFI overhead).
+static uint64_t GrouperHashValue(const RSValue *v, uint64_t hval) {
+  switch (v->t) {
+    case RSValue_Reference:
+      return GrouperHashValue(v->ref, hval);
+    case RSValue_String:
+      return wyhash(v->strval.str, v->strval.len, hval);
+    case RSValue_Number:
+      return wyhash(&v->numval, sizeof(double), hval);
+    case RSValue_RedisString:
+    case RSValue_OwnRstring: {
+      size_t sz;
+      const char *c = RedisModule_StringPtrLen(v->rstrval, &sz);
+      return wyhash(c, sz, hval);
+    }
+    case RSValue_Null:
+      return hval + 1;
+    case RSValue_Array:
+      for (uint32_t i = 0; i < v->arrval.len; i++) {
+        hval = GrouperHashValue(v->arrval.vals[i], hval);
+      }
+      return hval;
+    case RSValue_Map:
+      // Map pairs are stored as [key0, val0, key1, val1, ...]
+      for (uint32_t i = 0; i < v->mapval.len; i++) {
+        hval = GrouperHashValue(v->mapval.pairs[i * 2], hval);      // key
+        hval = GrouperHashValue(v->mapval.pairs[i * 2 + 1], hval);  // value
+      }
+      return hval;
+    case RSValue_Duo:
+      return GrouperHashValue(v->duoval.vals[0], hval);
+    case RSValue_Undef:
+      return 0;
+  }
+  return 0;
+}
 
 /**
  * A group represents the allocated context of all reducers in a group, and the
@@ -176,11 +214,11 @@ static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t 
   const RSValue *v = RSValue_Dereference(xarr[xpos]);
   // regular value - just move one step -- increment XPOS
   if (v->t != RSValue_Array) {
-    hval = RSValue_Hash(v, hval);
+    hval = GrouperHashValue(v, hval);
     extractGroups(g, xarr, xpos + 1, xlen, hval, res);
   } else if (RSValue_ArrayLen(v) == 0) {
     // Empty array - hash as null
-    hval = RSValue_Hash(RS_NullVal(), hval);
+    hval = GrouperHashValue(RS_NullVal(), hval);
     const RSValue *array = xarr[xpos];
     xarr[xpos] = RS_NullVal();
     extractGroups(g, xarr, xpos + 1, xlen, hval, res);
@@ -192,7 +230,7 @@ static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t 
     for (size_t i = 0; i < RSValue_ArrayLen(v); i++) {
       const RSValue *elem = RSValue_ArrayItem(v, i);
       // hash the element, even if it's an array
-      uint64_t hh = RSValue_Hash(elem, hval);
+      uint64_t hh = GrouperHashValue(elem, hval);
       xarr[xpos] = elem;
       extractGroups(g, xarr, xpos + 1, xlen, hh, res);
     }

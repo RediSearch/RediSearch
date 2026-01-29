@@ -395,7 +395,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         current = PLN_NEXT_STEP(current);
         break;
       case PLN_T_FILTER:
-        // POC HACK: After GROUP, skip to next step - only looking for ARRANGE
+        // POC HACK: After GROUP, skip FILTER - only looking for ARRANGE
         if (afterGroup) {
           RedisModule_Log(RSDummyContext, "warning", "POC HACK: skipping FILTER after GROUP");
           current = PLN_NEXT_STEP(current);
@@ -454,7 +454,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         break;
       case PLN_T_LOAD:
       case PLN_T_APPLY: {
-        // POC HACK: After GROUP, skip to next step - only looking for ARRANGE
+        // POC HACK: After GROUP, skip LOAD/APPLY - only looking for ARRANGE
         if (afterGroup) {
           RedisModule_Log(RSDummyContext, "warning", "POC HACK: skipping LOAD/APPLY after GROUP");
           current = PLN_NEXT_STEP(current);
@@ -485,7 +485,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           if (astp->sortKeys) {
             newStp->sortKeys = array_new(const char *, array_len(astp->sortKeys));
             for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
-              // POC HACK: If we're after GROUP and have a remote reducer alias, use it for the sort key
+              // POC HACK: Translate sort key from local alias to remote alias
               if (afterGroup && remoteReducerAlias) {
                 RedisModule_Log(RSDummyContext, "warning", "POC HACK: translating sortKey from %s to %s",
                                 astp->sortKeys[ii], remoteReducerAlias);

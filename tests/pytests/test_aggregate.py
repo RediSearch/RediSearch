@@ -1577,8 +1577,9 @@ def test_poc_groupby_apply_sortby_limit(env):
                            'score', score)
 
     # Run the query with GROUPBY -> SORTBY -> LIMIT pattern
-    # Note: SORTBY must use a field from REDUCE (total_score), not from APPLY after GROUP
-    # because the POC distributes SORTBY to shards where APPLY hasn't run yet
+    # The POC distributes SORTBY to shards with limit=600
+    # Note: SORTBY uses the remote reducer alias (__generated_aliassumthe_score)
+    # which is translated from total_score
     res = conn.execute_command(
         'FT.AGGREGATE', 'idx', '*',
         'LOAD', '3', '@parent_id', '@profile_id', '@score',
