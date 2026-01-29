@@ -83,6 +83,8 @@ do {                                            \
   }
 
 #define IS_SST_RDB_IN_PROCESS(ctx) (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB)
+// Forward declaration of searchReducerCtx
+struct searchReducerCtx;
 
 typedef struct {
   char *queryString;
@@ -90,7 +92,6 @@ typedef struct {
   long long limit;
   long long requestedResultsCount;
   rs_wall_clock initClock;
-  long long timeout;
   int withScores;
   int withExplainScores;
   int withPayload;
@@ -108,6 +109,8 @@ typedef struct {
   rs_wall_clock profileClock;
   void *reducer;
   bool queryOOM;
+
+  struct searchReducerCtx *rctx;
 } searchRequestCtx;
 
 bool debugCommandsEnabled(RedisModuleCtx *ctx);
