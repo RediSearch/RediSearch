@@ -353,14 +353,6 @@ const struct RsValue *SharedRsValue_NewCopiedString(const char *str, uint32_t le
 const struct RsValue *SharedRsValue_NewParsedNumber(const char *str, uintptr_t len);
 
 /**
- * Creates a heap-allocated `RsValue` containing a number.
- *
- * @param n The numeric value to wrap
- * @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Number`
- */
-const struct RsValue *SharedRsValue_NewNumber(double n);
-
-/**
  * Creates a heap-allocated `RsValue` containing a number from an int64.
  * This operation casts the passed `i64` to an `f64`, possibly losing information.
  *
@@ -387,33 +379,6 @@ const struct RsValue *SharedRsValue_NewArray(RsValueArray vals);
  * @return A pointer to a heap-allocated RsValue of type RsValueType_Map
  */
 const struct RsValue *SharedRsValue_NewMap(RsValueMap map);
-
-/**
- * Creates a heap-allocated RsValue Trio from three RsValues.
- * Takes ownership of all three values.
- *
- * # Safety
- *
- * - (1) `left`, `middle`, and `right` must be valid pointers to [`RsValue`]
- *   obtained from [`SharedRsValue::into_raw`].
- *
- * @param left The left value (ownership is transferred)
- * @param middle The middle value (ownership is transferred)
- * @param right The right value (ownership is transferred)
- * @return A pointer to a heap-allocated RsValue of type RsValueType_Trio
- */
-const struct RsValue *SharedRsValue_NewTrio(const struct RsValue *left,
-                                            const struct RsValue *middle,
-                                            const struct RsValue *right);
-
-/**
- * Gets the `f64` wrapped by the `SharedRsValue`
- *
- * # Safety
- * - (1) `v` must be a valid pointer to [`RsValue`] obtained from [`SharedRsValue::into_raw`].
- * - (2) `v` must be a number value.
- */
-double SharedRsValue_Number_Get(const struct RsValue *v);
 
 /**
  * Returns the type of the given [`RsValue`].
