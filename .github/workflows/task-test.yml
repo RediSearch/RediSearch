@@ -434,12 +434,25 @@ jobs:
                              ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
                              ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
+      - name: Setup LLVM for LTO
+        id: lto
+        run: |
+          # Enable LTO on platforms having the required clang version.
+          LTO_PLATFORMS=("ubuntu:noble")
+          CONTAINER="${{ needs.get-config.outputs.container }}"
+          if [[ " ${LTO_PLATFORMS[@]} " =~ " ${CONTAINER} " ]]; then
+            echo "LTO enabled for platform: $CONTAINER"
+            echo "enabled=1" >> $GITHUB_OUTPUT
+          else
+            echo "LTO not enabled for platform: $CONTAINER"
+            echo "enabled=0" >> $GITHUB_OUTPUT
+          fi
       - name: Build
         env:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
-        run: make build TESTS=1
+        run: make build TESTS=1 ${{ steps.lto.outputs.enabled == '1' && 'LTO=1' || '' }}
       - name: Check disk space after build
         run: |
           echo "Disk space after build:"
@@ -467,7 +480,7 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
-        run: make rust-tests
+        run: make rust-tests ${{ steps.lto.outputs.enabled == '1' && 'LTO=1' || '' }}
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
