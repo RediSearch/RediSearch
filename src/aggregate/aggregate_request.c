@@ -1295,11 +1295,18 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
     QueryNode_ApplyAttributes(vecNode, pvd->attributes, array_len(pvd->attributes), status);
   }
 
-  // Set vector node as ast->root and use setFilterNode for proper filter integration
-  // setFilterNode handles both KNN (child relationship) and RANGE (intersection) properly
+  // Set vector node as ast->root and use SetFilterNode for proper filter integration.
+  // SetFilterNode handles both KNN (child relationship) and RANGE (intersection) properly.
+  // For RANGE queries without explicit FILTER, we skip filter integration to keep
+  // the vector node as root directly, preserving BY_SCORE ordering from the iterator.
   QueryNode *oldRoot = ast->root;
   ast->root = vecNode;
-  SetFilterNode(ast, oldRoot);
+  if (!pvd->skipFilterIntegration) {
+    SetFilterNode(ast, oldRoot);
+  } else {
+    // Free the old root node since we're not using it
+    QueryNode_Free(oldRoot);
+  }
 
   return REDISMODULE_OK;
 }

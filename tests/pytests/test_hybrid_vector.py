@@ -63,54 +63,96 @@ def setup_basic_index(env, sorted_ids=True):
 
 def test_hybrid_vector_knn():
     env = Env()
-    setup_basic_index(env)
     env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', '$BLOB',\
-                        'KNN', '2', 'K', '1',
-                        'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" )
-    results, count = get_results_from_hybrid_response(response)
-    env.assertEqual(count, len(results.keys()))
-    env.assertTrue(set(results.keys()) == {"doc:2"})
+    for sorted_ids in [True, False]:
+        setup_basic_index(env, sorted_ids)
+        response = env.cmd(
+            'FT.HYBRID', 'idx',
+            'SEARCH', 'green',
+            'VSIM' ,'@embedding', '$BLOB', 'KNN', '2', 'K', '1',
+            'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" )
+        results, count = get_results_from_hybrid_response(response)
+        env.assertEqual(count, len(results.keys()))
+        env.assertTrue(set(results.keys()) == {"doc:2"})
+        env.flush()
 
 def test_hybrid_vector_knn_with_filter():
     env = Env()
-    setup_basic_index(env)
     env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding','$BLOB',\
-                        'KNN', '2', 'K', '2', 'FILTER', '@description:blue',
-                        'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" )
-    results, count = get_results_from_hybrid_response(response)
-    env.assertEqual(count, len(results.keys()))
-    env.assertTrue(set(results.keys()) == {"doc:4"})
+    for sorted_ids in [True, False]:
+        setup_basic_index(env, sorted_ids)
+        response = env.cmd(
+            'FT.HYBRID', 'idx',
+            'SEARCH', 'green',
+            'VSIM' ,'@embedding','$BLOB', 'KNN', '2', 'K', '2',
+                'FILTER', '@description:blue',
+            'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" )
+        results, count = get_results_from_hybrid_response(response)
+        env.assertEqual(count, len(results.keys()))
+        env.assertTrue(set(results.keys()) == {"doc:4"})
+        env.flush()
 
 def test_hybrid_vector_range():
     env = Env()
-    setup_basic_index(env)
-    env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', '$BLOB',\
-                        'RANGE', '2', 'RADIUS', '1', 'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" )
-    results, count = get_results_from_hybrid_response(response)
-    env.assertEqual(count, len(results.keys()))
-    env.assertTrue(set(results.keys()) == {"doc:2", "doc:4"})
+
+    vector_and_expected_results = [
+        ([1.2, 0.2], ["doc:2", "doc:4"]),
+        ([0.1, 0.3], ["doc:1", "doc:3", "doc:2"])
+    ]
+
+    for sorted_ids in [True, False]:
+        setup_basic_index(env, sorted_ids)
+        for vector, expected_results in vector_and_expected_results:
+            blob = np.array(vector).astype(np.float32).tobytes()
+            response = env.cmd(
+                'FT.HYBRID', 'idx',
+                'SEARCH', 'green',
+                'VSIM' ,'@embedding', '$BLOB',
+                    'RANGE', '2', 'RADIUS', '1',
+                'PARAMS', "2", "BLOB", blob)
+            results, count = get_results_from_hybrid_response(response)
+            env.assertEqual(count, len(results.keys()))
+            # get the keys from the results
+            keys = [r['__key'] for r in results.values()]
+            env.assertEqual(keys, expected_results,
+                            message=f"sorted_ids={sorted_ids}")
+        env.flush()
 
 def test_hybrid_vector_range_with_filter():
     env = Env()
-    env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
+    blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
     # Test with unsorted ids, to make sure we don't rely on sorted ids in the
     # test, which is hiding a bug in the implementation, where the order of the
     # ids were assumed to be the same as the order of the vector results.
 
     for sorted_ids in [True, False]:
         setup_basic_index(env, sorted_ids)
+
+        # query 1: returns 1 result
         response = env.cmd(
             'FT.HYBRID', 'idx',
             'SEARCH', 'green',
             'VSIM' ,'@embedding', '$BLOB',
-                'RANGE', '2', 'RADIUS', '1', 'FILTER', '@description:blue',
-            'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" )
+                'RANGE', '2', 'RADIUS', '1',
+                'FILTER', '@description:blue',
+            'PARAMS', "2", "BLOB", blob)
         results, count = get_results_from_hybrid_response(response)
         env.assertTrue(set(results.keys()) == {"doc:4"})
         env.assertEqual(count, len(results.keys()))
+
+        # query 2: returns 2 results
+        response = env.cmd(
+            'FT.HYBRID', 'idx',
+            'SEARCH', 'green',
+            'VSIM' ,'@embedding', '$BLOB',
+                'RANGE', '2', 'RADIUS', '1',
+                'FILTER', '@description:running | @description:shoes',
+            'PARAMS', "2", "BLOB", blob)
+        results, count = get_results_from_hybrid_response(response)
+        env.assertEqual(count, len(results.keys()))
+        env.assertTrue(set(results.keys()) == {"doc:2", "doc:4"})
+
+        env.flush()
 
 def test_hybrid_vector_invalid_filter_with_weight():
     """Test that hybrid vector filter fails when it contains weight attribute"""

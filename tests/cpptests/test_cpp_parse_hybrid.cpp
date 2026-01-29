@@ -573,7 +573,7 @@ TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
 }
 
 TEST_F(ParseHybridTest, testVsimRangeBasic) {
-  // Parse hybrid request
+  // Parse hybrid request - no explicit VSIM FILTER clause
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
     "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "2", "RADIUS", "0.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
@@ -581,12 +581,12 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
 
   AREQ* vecReq = result.vector;
 
-  // Verify AST structure for basic RANGE query with filter
+  // Verify AST structure for RANGE query without explicit VSIM FILTER
+  // The vector node is the root directly (no PHRASE/intersection needed)
   ASSERT_TRUE(vecReq->ast.root != NULL);
-  ASSERT_EQ(vecReq->ast.root->type, QN_PHRASE); // Root should be PHRASE for RANGE queries with filters
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  QueryNode *vn = findVectorNodeChild(vecReq->ast.root);
-  ASSERT_TRUE(vn != NULL) << "Vector node not found as child of PHRASE";
+  QueryNode *vn = vecReq->ast.root;
 
   // Verify QueryNode structure
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance); // Vector queries always have this flag
@@ -607,7 +607,9 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
   ASSERT_EQ(vq->range.radius, 0.5);
-  ASSERT_EQ(vq->range.order, BY_ID);
+  // RANGE queries in FT.HYBRID without explicit VSIM FILTER use BY_SCORE,
+  // so the iterator returns results sorted by distance.
+  ASSERT_EQ(vq->range.order, BY_SCORE);
 
   // Verify BLOB parameter was correctly resolved (parameter resolution test)
   const char* expectedBlob = TEST_BLOB_DATA;
@@ -618,19 +620,19 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
 }
 
 TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
-  // Parse hybrid request
+  // Parse hybrid request - no explicit VSIM FILTER clause
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "4", "RADIUS", "0.8", "EPSILON", "0.01", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
   AREQ* vecReq = result.vector;
 
-  // Verify AST structure for RANGE query with EPSILON
+  // Verify AST structure for RANGE query without explicit VSIM FILTER
+  // The vector node is the root directly (no PHRASE/intersection needed)
   ASSERT_TRUE(vecReq->ast.root != NULL);
-  ASSERT_EQ(vecReq->ast.root->type, QN_PHRASE); // Root should be PHRASE for RANGE queries with filters
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  QueryNode *vn = findVectorNodeChild(vecReq->ast.root);
-  ASSERT_TRUE(vn != NULL) << "Vector node not found as child of PHRASE";
+  QueryNode *vn = vecReq->ast.root;
 
   // Verify QueryNode structure
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
@@ -644,9 +646,9 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
   ASSERT_EQ(vq->range.radius, 0.8);
-  // RANGE queries in FT.HYBRID use BY_ID because they're combined with a filter
-  // via a PHRASE node which requires ID-sorted results
-  ASSERT_EQ(vq->range.order, BY_ID);
+  // RANGE queries in FT.HYBRID without explicit VSIM FILTER use BY_SCORE,
+  // so the iterator returns results sorted by distance.
+  ASSERT_EQ(vq->range.order, BY_SCORE);
 
   // Verify BLOB parameter was correctly resolved (parameter resolution test)
   const char* expectedBlob = TEST_BLOB_DATA;

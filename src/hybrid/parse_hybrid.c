@@ -419,18 +419,17 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
       goto error;
     }
     vq->type = VECSIM_QT_RANGE;
-    // RANGE queries in FT.HYBRID are always combined with a filter
-    // (implicit '*' or explicit) via a PHRASE node which creates an
-    // intersection.
-    // The intersection iterator uses SkipTo which requires results to be
-    // sorted by document ID. This matches FT.SEARCH behavior where RANGE
-    // queries are also ordered by document ID by default
-    // (see NewVectorNode_WithParams in query.c).
-    vq->range.order = BY_ID;
+    // Default to BY_SCORE - the iterator returns results sorted by distance.
+    // This will be changed to BY_ID below if an explicit FILTER clause is
+    // provided, because filtering requires an intersection iterator that uses
+    // SkipTo.
+    vq->range.order = BY_SCORE;
   }
 
   // Check for optional FILTER clause - argument may not be in our scope
+  bool hasExplicitFilter = false;
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
+    hasExplicitFilter = true;
     unsigned long long count = 0;
     if (AC_IsAtEnd(ac)) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument count for FILTER");
@@ -445,6 +444,13 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
       }
     } else if (parseFilterClause(ac, vreq, pvd, status, count) != REDISMODULE_OK) {
       goto error;
+    }
+
+    // RANGE queries with explicit FILTER need BY_ID ordering because the filter
+    // creates a PHRASE node which uses an intersection iterator with SkipTo.
+    // SkipTo requires child iterators to be sorted by document ID.
+    if (vq->type == VECSIM_QT_RANGE) {
+      vq->range.order = BY_ID;
     }
   }
 
@@ -461,8 +467,17 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   }
 
 final:
-  if (!vreq->query) {  // meaning there is no filter clause
+  // Set implicit "*" filter if no explicit filter was provided.
+  // For RANGE queries without explicit FILTER, we also set skipFilterIntegration
+  // so the vector node becomes the root directly (no PHRASE/intersection needed).
+  // This preserves BY_SCORE ordering from the iterator.
+  if (!vreq->query) {
     vreq->query = "*";
+    // For RANGE without explicit filter, skip the filter integration
+    // so the vector node is the root and returns results sorted by score.
+    if (vq->type == VECSIM_QT_RANGE) {
+      pvd->skipFilterIntegration = true;
+    }
   }
 
   // Set vector data in VectorQuery based on type (KNN vs RANGE)
