@@ -895,7 +895,6 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
   if (IsProfile(req)) {
     req->profileQueueTime = rs_wall_clock_elapsed_ns(&req->initClock);
-    rs_wall_clock_init(&req->initClock);
   }
 
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
@@ -990,7 +989,8 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   if (is_profile) {
     rs_wall_clock_init(&parseClock);
     // Calculate the time elapsed for profileParseTime by using the initialized parseClock
-    req->profileParseTime = rs_wall_clock_diff_ns(&req->initClock, &parseClock);
+    // Subtract queue time since initClock includes time spent waiting in the queue
+    req->profileParseTime = rs_wall_clock_diff_ns(&req->initClock, &parseClock) - req->profileQueueTime;
   }
 
   rc = AREQ_BuildPipeline(req, status);
