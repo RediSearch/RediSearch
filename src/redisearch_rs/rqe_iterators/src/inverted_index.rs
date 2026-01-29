@@ -550,6 +550,13 @@ where
     pub const fn range_max(&self) -> f64 {
         self.range_max
     }
+
+    /// Get a reference to the underlying reader.
+    ///
+    /// This is used by FFI code to access the reader.
+    pub const fn reader(&self) -> &R {
+        &self.it.reader
+    }
 }
 
 impl<'index, R> RQEIterator<'index> for Numeric<'index, R>
