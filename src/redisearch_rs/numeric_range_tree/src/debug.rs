@@ -197,24 +197,20 @@ fn reply_node_debug(
         }
     }
 
-    if !node.is_leaf() {
-        map.kv_double(c"value", node.split_value());
-        map.kv_long_long(c"maxDepth", node.max_depth() as i64);
+    if let NumericRangeNode::Internal(internal) = node {
+        map.kv_double(c"value", internal.value);
+        map.kv_long_long(c"maxDepth", internal.max_depth as i64);
 
-        if let Some(left) = node.left() {
+        {
             let mut left_map = map.kv_map(c"left");
-            let left_stats = reply_node_debug(&mut left_map, left, minimal);
+            let left_stats = reply_node_debug(&mut left_map, &internal.left, minimal);
             stats.total_efficiency += left_stats.total_efficiency;
-        } else {
-            map.kv_empty_map(c"left");
         }
 
-        if let Some(right) = node.right() {
+        {
             let mut right_map = map.kv_map(c"right");
-            let right_stats = reply_node_debug(&mut right_map, right, minimal);
+            let right_stats = reply_node_debug(&mut right_map, &internal.right, minimal);
             stats.total_efficiency += right_stats.total_efficiency;
-        } else {
-            map.kv_empty_map(c"right");
         }
     }
 

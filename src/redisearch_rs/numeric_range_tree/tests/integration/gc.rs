@@ -115,8 +115,17 @@ fn apply_node_gc_removes_all_entries() {
 
 #[test]
 fn apply_node_gc_on_node_without_range() {
-    let mut tree = build_single_leaf_tree(0, false);
-    tree.root_mut().set_range(None);
+    // Build a tree that has splits, then strip the root's range so we can test
+    // apply_node_gc on a node without a range. Internal nodes may have their
+    // range trimmed (range: None), which is what we're simulating here.
+    let mut tree = NumericRangeTree::new(false);
+    for i in 1..=500 {
+        tree.add(i, i as f64, false, 0);
+    }
+    // The root should be an internal node with no range
+    // after the inserts above.
+    assert!(!tree.root().is_leaf());
+    assert!(!tree.root().has_range());
 
     // Build a dummy delta from a throwaway tree.
     let helper = build_single_leaf_tree(1, false);
@@ -345,28 +354,26 @@ fn collect_gc_work_inner(
     path: &mut Vec<Direction>,
 ) {
     if node.is_leaf() {
-        if let Some(range) = node.range()
-            && let Some(delta) = range
+        if let Some(range) = node.range() {
+            if let Some(delta) = range
                 .entries()
                 .scan_gc(doc_exist)
                 .expect("scan should not fail")
-        {
-            work.push(GcWork {
-                path: path.clone(),
-                delta,
-            });
+            {
+                work.push(GcWork {
+                    path: path.clone(),
+                    delta,
+                });
+            }
         }
-    } else {
-        if let Some(left) = node.left() {
-            path.push(Direction::Left);
-            collect_gc_work_inner(left, doc_exist, work, path);
-            path.pop();
-        }
-        if let Some(right) = node.right() {
-            path.push(Direction::Right);
-            collect_gc_work_inner(right, doc_exist, work, path);
-            path.pop();
-        }
+    } else if let Some((left, right)) = node.children() {
+        path.push(Direction::Left);
+        collect_gc_work_inner(left, doc_exist, work, path);
+        path.pop();
+
+        path.push(Direction::Right);
+        collect_gc_work_inner(right, doc_exist, work, path);
+        path.pop();
     }
 }
 
@@ -375,9 +382,10 @@ fn find_node_by_path<'a>(
     path: &[Direction],
 ) -> &'a mut NumericRangeNode {
     for dir in path {
+        let (left, right) = node.children_mut().expect("expected internal node");
         node = match dir {
-            Direction::Left => node.left_mut().expect("left child must exist"),
-            Direction::Right => node.right_mut().expect("right child must exist"),
+            Direction::Left => left,
+            Direction::Right => right,
         };
     }
     node

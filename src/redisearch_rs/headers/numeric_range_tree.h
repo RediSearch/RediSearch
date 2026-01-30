@@ -43,26 +43,10 @@ typedef struct NumericRange NumericRange;
 /**
  * A node in the numeric range tree.
  *
- * Nodes can be either:
- * - **Leaf nodes**: Have a range but no children (`left` and `right` are `None`)
- * - **Internal nodes**: Have both children and optionally retain a range for query efficiency
- *
- * # Invariants
- *
- * - A node is a leaf if and only if both `left` and `right` are `None`.
- * - Internal nodes always have both children (never just one).
- * - Leaf nodes always have a range (`range.is_some()`).
- * - Internal nodes may or may not have a range, depending on depth trimming.
- *
- * # Field Semantics by Node Type
- *
- * | Field       | Leaf Node           | Internal Node                        |
- * |-------------|---------------------|--------------------------------------|
- * | `value`     | Unused (0.0)        | Split point for child routing        |
- * | `max_depth` | 0                   | Max depth of subtree (for balancing) |
- * | `left`      | `None`              | Always `Some`                        |
- * | `right`     | `None`              | Always `Some`                        |
- * | `range`     | Always `Some`       | `Some` if retained, else `None`      |
+ * Nodes are either:
+ * - **Leaf nodes**: Have a range but no children.
+ * - **Internal nodes**: Have both children, a split value, depth tracking,
+ *   and optionally retain a range for query efficiency.
  */
 typedef struct NumericRangeNode NumericRangeNode;
 

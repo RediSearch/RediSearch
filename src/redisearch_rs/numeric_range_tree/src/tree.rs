@@ -167,7 +167,7 @@ impl NumericRangeTree {
     /// If `compress_floats` is true, the tree will use float compression.
     /// Check out [`NumericFloatCompression`][`inverted_index::numeric::NumericFloatCompression`] for more information.
     pub fn new(compress_floats: bool) -> Self {
-        let root = NumericRangeNode::new_leaf(compress_floats);
+        let root = NumericRangeNode::leaf(compress_floats);
         let inverted_indexes_size = root.range().map(|r| r.memory_usage()).unwrap_or(0);
 
         Self {
@@ -247,11 +247,6 @@ impl NumericRangeTree {
     /// ranges in internal nodes, we call `add_without_cardinality` because
     /// the cardinality is already tracked by the leaf descendants.
     ///
-    /// # Panics
-    ///
-    /// Panics if an internal node is missing its left or right child. This
-    /// indicates tree corruption, as internal nodes must always have both
-    /// children after splitting.
     fn node_add(
         node: &mut NumericRangeNode,
         doc_id: t_docId,
@@ -261,74 +256,70 @@ impl NumericRangeTree {
         max_depth_range: usize,
         compress_floats: bool,
     ) {
-        if !node.is_leaf() {
-            debug_assert!(
-                node.left().is_some() && node.right().is_some(),
-                "internal node must have both children"
-            );
+        match node {
+            NumericRangeNode::Internal(internal) => {
+                // Internal node: recursively add to the appropriate child
+                let child: &mut NumericRangeNode = if value < internal.value {
+                    &mut internal.left
+                } else {
+                    &mut internal.right
+                };
 
-            // Internal node: recursively add to the appropriate child
-            let child = if value < node.split_value() {
-                node.left_mut().expect("internal node must have left child")
-            } else {
-                node.right_mut()
-                    .expect("internal node must have right child")
-            };
+                Self::node_add(
+                    child,
+                    doc_id,
+                    value,
+                    rv,
+                    depth + 1,
+                    max_depth_range,
+                    compress_floats,
+                );
 
-            Self::node_add(
-                child,
-                doc_id,
-                value,
-                rv,
-                depth + 1,
-                max_depth_range,
-                compress_floats,
-            );
+                // If this inner node retains a range, add the value without updating cardinality
+                if let Some(range) = internal.range.as_mut() {
+                    let size = range.add_without_cardinality(doc_id, value);
+                    rv.size_delta += size as i64;
+                    rv.num_records += 1;
+                }
 
-            // If this inner node retains a range, add the value without updating cardinality
-            if let Some(range) = node.range_mut() {
-                let size = range.add_without_cardinality(doc_id, value);
-                rv.size_delta += size as i64;
-                rv.num_records += 1;
-            }
+                // Balance the node if the tree structure changed
+                if rv.changed {
+                    Self::balance_node(node);
 
-            // Balance the node if the tree structure changed
-            if rv.changed {
-                Self::balance_node(node);
-
-                // Check if we're too high up to retain this node's range
-                if node.max_depth() > max_depth_range as i32 {
-                    Self::remove_range(node, rv);
+                    // Check if we're too high up to retain this node's range
+                    if node.max_depth() > max_depth_range as i32 {
+                        Self::remove_range(node, rv);
+                    }
                 }
             }
-        } else {
-            // Leaf node: add and check if we need to split
-            let range = node.range_mut().expect("leaf node must have a range");
+            NumericRangeNode::Leaf(leaf) => {
+                // Leaf node: add and check if we need to split
 
-            // Update cardinality for leaf nodes
-            range.update_cardinality(value);
+                // Update cardinality for leaf nodes
+                leaf.range.update_cardinality(value);
 
-            let size = range.add_without_cardinality(doc_id, value);
-            *rv = AddResult {
-                size_delta: size as i64,
-                num_records: 1,
-                changed: false,
-                num_ranges_delta: 0,
-                num_leaves_delta: 0,
-            };
+                let size = leaf.range.add_without_cardinality(doc_id, value);
+                *rv = AddResult {
+                    size_delta: size as i64,
+                    num_records: 1,
+                    changed: false,
+                    num_ranges_delta: 0,
+                    num_leaves_delta: 0,
+                };
 
-            let card = range.cardinality();
-            let num_entries = range.num_entries();
+                let card = leaf.range.cardinality();
+                let num_entries = leaf.range.num_entries();
 
-            // Check if we need to split
-            if card >= get_split_cardinality(depth)
-                || (num_entries > MAXIMUM_RANGE_SIZE && card > 1)
-            {
-                Self::split_node(node, rv, compress_floats);
+                // Check if we need to split
+                if card >= get_split_cardinality(depth)
+                    || (num_entries > MAXIMUM_RANGE_SIZE && card > 1)
+                {
+                    Self::split_node(node, rv, compress_floats);
 
-                // Check if we're too high up to retain this node's range
-                if node.max_depth() > max_depth_range as i32 {
-                    Self::remove_range(node, rv);
+                    // Check if we're too high up to retain this node's range
+                    if node.max_depth() > max_depth_range as i32 {
+                        Self::remove_range(node, rv);
+                    }
                 }
             }
         }
@@ -403,8 +394,8 @@ impl NumericRangeTree {
         };
 
         // Create new leaf children
-        let mut left = NumericRangeNode::new_leaf(compress_floats);
-        let mut right = NumericRangeNode::new_leaf(compress_floats);
+        let mut left = NumericRangeNode::leaf(compress_floats);
+        let mut right = NumericRangeNode::leaf(compress_floats);
 
         // Account for initial inverted index sizes
         rv.size_delta += left.range().map(|r| r.memory_usage() as i64).unwrap_or(0);
@@ -426,17 +417,13 @@ impl NumericRangeTree {
             rv.num_records += 1;
         }
 
-        // Set up the internal node
-        node.set_max_depth(1);
-        node.set_split_value(split);
-        node.set_left(Some(Box::new(left)));
-        node.set_right(Some(Box::new(right)));
+        // Take the existing range from the leaf and convert to an internal node.
+        let old_range = node.take_range();
+        *node = NumericRangeNode::internal(split, left, right, old_range);
 
         rv.changed = true;
         rv.num_ranges_delta += 2;
         rv.num_leaves_delta += 1; // Split one leaf into two = +1 leaf
-
-        debug_assert!(!node.is_leaf(), "node should be internal after split");
     }
 
     /// Compute the median value from a range's entries.
@@ -501,45 +488,93 @@ impl NumericRangeTree {
     /// match its new subtree, but this is acceptable for query correctness since
     /// ranges only need to be supersets of their subtree's values.
     fn balance_node(node: &mut NumericRangeNode) {
-        let left_depth = node.left().map(|n| n.max_depth()).unwrap_or(0);
-        let right_depth = node.right().map(|n| n.max_depth()).unwrap_or(0);
+        let (left_depth, right_depth) = if let NumericRangeNode::Internal(internal) = node {
+            (internal.left.max_depth(), internal.right.max_depth())
+        } else {
+            (0, 0)
+        };
 
         if right_depth - left_depth > MAXIMUM_DEPTH_IMBALANCE {
-            // Rotate to the left
-            if let Some(mut right) = node.take_right() {
-                let right_left = right.take_left();
-                node.set_right(right_left);
+            // Rotate to the left: the right child becomes the new root.
+            //
+            // We destructure the current internal node, detach the right child,
+            // steal the right child's left subtree (right_left) and make it our
+            // new right child, then make the demoted node the left child of the
+            // promoted right node.
+            let NumericRangeNode::Internal(ref mut current) = *node else {
+                // balance_node is only called on internal nodes
+                return;
+            };
 
-                // Update the node's max_depth
-                let new_left_depth = node.left().map(|n| n.max_depth()).unwrap_or(0);
-                let new_right_depth = node.right().map(|n| n.max_depth()).unwrap_or(0);
-                node.set_max_depth(new_left_depth.max(new_right_depth) + 1);
+            // Take the right child's left subtree
+            let NumericRangeNode::Internal(ref mut right_internal) = *current.right else {
+                // Right child is a leaf — nothing to rotate
+                return;
+            };
 
-                // Swap: old node becomes left child of right
-                let old_node = std::mem::replace(node, *right);
-                node.set_left(Some(Box::new(old_node)));
-            }
+            // Steal right_left: it becomes the current node's new right child.
+            // We temporarily put a placeholder leaf in right_left's place.
+            let right_left_subtree = std::mem::replace(
+                &mut right_internal.left,
+                Box::new(NumericRangeNode::default()),
+            );
+
+            // Now detach the entire right child from the current node.
+            let NumericRangeNode::Internal(ref mut current) = *node else {
+                unreachable!()
+            };
+            let promoted = std::mem::replace(&mut current.right, right_left_subtree);
+
+            // Update the demoted node's max_depth before swapping
+            let NumericRangeNode::Internal(ref mut current) = *node else {
+                unreachable!()
+            };
+            current.max_depth = current.left.max_depth().max(current.right.max_depth()) + 1;
+
+            // Swap: the old node becomes the left child of the promoted node
+            let old_node = std::mem::replace(node, *promoted);
+            let NumericRangeNode::Internal(ref mut current) = *node else {
+                unreachable!()
+            };
+            current.left = Box::new(old_node);
         } else if left_depth - right_depth > MAXIMUM_DEPTH_IMBALANCE {
-            // Rotate to the right
-            if let Some(mut left) = node.take_left() {
-                let left_right = left.take_right();
-                node.set_left(left_right);
+            // Rotate to the right: the left child becomes the new root.
+            let NumericRangeNode::Internal(ref mut current) = *node else {
+                return;
+            };
 
-                // Update the node's max_depth
-                let new_left_depth = node.left().map(|n| n.max_depth()).unwrap_or(0);
-                let new_right_depth = node.right().map(|n| n.max_depth()).unwrap_or(0);
-                node.set_max_depth(new_left_depth.max(new_right_depth) + 1);
+            let NumericRangeNode::Internal(ref mut left_internal) = *current.left else {
+                return;
+            };
 
-                // Swap: old node becomes right child of left
-                let old_node = std::mem::replace(node, *left);
-                node.set_right(Some(Box::new(old_node)));
-            }
+            let left_right_subtree = std::mem::replace(
+                &mut left_internal.right,
+                Box::new(NumericRangeNode::default()),
+            );
+
+            let NumericRangeNode::Internal(ref mut current) = *node else {
+                unreachable!()
+            };
+            let promoted = std::mem::replace(&mut current.left, left_right_subtree);
+
+            // Update the demoted node's max_depth before swapping
+            let NumericRangeNode::Internal(ref mut current) = *node else {
+                unreachable!()
+            };
+            current.max_depth = current.left.max_depth().max(current.right.max_depth()) + 1;
+
+            // Swap: the old node becomes the right child of the promoted node
+            let old_node = std::mem::replace(node, *promoted);
+            let NumericRangeNode::Internal(ref mut current) = *node else {
+                unreachable!()
+            };
+            current.right = Box::new(old_node);
         }
 
         // Update max_depth after potential rotation
-        let left_depth = node.left().map(|n| n.max_depth()).unwrap_or(0);
-        let right_depth = node.right().map(|n| n.max_depth()).unwrap_or(0);
-        node.set_max_depth(left_depth.max(right_depth) + 1);
+        if let NumericRangeNode::Internal(ref mut internal) = *node {
+            internal.max_depth = internal.left.max_depth().max(internal.right.max_depth()) + 1;
+        }
     }
 
     /// Get a reference to the root node.
@@ -811,49 +846,43 @@ impl NumericRangeTree {
             // Node has no range
         }
 
-        // For non-leaf nodes, descend into children
-        if !node.is_leaf() {
-            if filter.ascending {
-                // Ascending: left first, then right
-                if min <= node.split_value()
-                    && let Some(left) = node.left()
-                {
-                    Self::recursive_find_ranges(ranges, left, filter, total);
-                }
-                if max >= node.split_value()
-                    && let Some(right) = node.right()
-                {
-                    Self::recursive_find_ranges(ranges, right, filter, total);
-                }
-            } else {
-                // Descending: right first, then left
-                if max >= node.split_value()
-                    && let Some(right) = node.right()
-                {
-                    Self::recursive_find_ranges(ranges, right, filter, total);
-                }
-                if min <= node.split_value()
-                    && let Some(left) = node.left()
-                {
-                    Self::recursive_find_ranges(ranges, left, filter, total);
+        match node {
+            NumericRangeNode::Internal(internal) => {
+                if filter.ascending {
+                    // Ascending: left first, then right
+                    if min <= internal.value {
+                        Self::recursive_find_ranges(ranges, &internal.left, filter, total);
+                    }
+                    if max >= internal.value {
+                        Self::recursive_find_ranges(ranges, &internal.right, filter, total);
+                    }
+                } else {
+                    // Descending: right first, then left
+                    if max >= internal.value {
+                        Self::recursive_find_ranges(ranges, &internal.right, filter, total);
+                    }
+                    if min <= internal.value {
+                        Self::recursive_find_ranges(ranges, &internal.left, filter, total);
+                    }
                 }
             }
-        } else if let Some(range) = node.range() {
-            // Leaf node with overlap
-            if range.overlaps(min, max) {
-                // Special case for the first overlapping leaf with no offset:
-                // We count it as 1 to ensure it gets included (since total > offset
-                // means total > 0, and 1 > 0 is true). For all other cases, we use
-                // the actual document count to properly track pagination progress.
-                // This handles the edge case where the first range might have 0 docs
-                // but we still want to include it for completeness.
-                *total += if *total == 0 && filter.offset == 0 {
-                    1
-                } else {
-                    range.num_docs() as usize
-                };
-                if *total > filter.offset {
-                    ranges.push(range);
+            NumericRangeNode::Leaf(leaf) => {
+                // Leaf node with overlap
+                if leaf.range.overlaps(min, max) {
+                    // Special case for the first overlapping leaf with no offset:
+                    // We count it as 1 to ensure it gets included (since total > offset
+                    // means total > 0, and 1 > 0 is true). For all other cases, we use
+                    // the actual document count to properly track pagination progress.
+                    // This handles the edge case where the first range might have 0 docs
+                    // but we still want to include it for completeness.
+                    *total += if *total == 0 && filter.offset == 0 {
+                        1
+                    } else {
+                        leaf.range.num_docs() as usize
+                    };
+                    if *total > filter.offset {
+                        ranges.push(&leaf.range);
+                    }
                 }
             }
         }
@@ -884,25 +913,17 @@ impl NumericRangeTree {
     /// Returns true if this node is empty (CHILD_EMPTY), false otherwise (CHILD_NOT_EMPTY).
     fn remove_empty_children(node: &mut NumericRangeNode, rv: &mut AddResult) -> bool {
         // Stop condition: leaf node
-        if node.is_leaf() {
-            if let Some(range) = node.range() {
-                return range.num_docs() == 0;
-            }
-            return true; // No range means empty
+        if let NumericRangeNode::Leaf(leaf) = node {
+            return leaf.range.num_docs() == 0;
         }
 
-        // Recursively check children
-        let right_empty = if let Some(right) = node.right_mut() {
-            Self::remove_empty_children(right, rv)
-        } else {
-            true
+        // Internal node: recursively check children
+        let NumericRangeNode::Internal(internal) = node else {
+            unreachable!()
         };
 
-        let left_empty = if let Some(left) = node.left_mut() {
-            Self::remove_empty_children(left, rv)
-        } else {
-            true
-        };
+        let right_empty = Self::remove_empty_children(&mut internal.right, rv);
+        let left_empty = Self::remove_empty_children(&mut internal.left, rv);
 
         // If both children are not empty, just balance if needed
         if !right_empty && !left_empty {
@@ -913,8 +934,8 @@ impl NumericRangeTree {
         }
 
         // Check if this node has data we need to keep
-        if let Some(range) = node.range()
-            && range.num_docs() != 0
+        if let Some(r) = internal.range.as_ref()
+            && r.num_docs() != 0
         {
             // We have data but some children are empty.
             // TODO: In the future, we should trim empty children but
@@ -922,70 +943,60 @@ impl NumericRangeTree {
             return false;
         }
 
+        // At least one child is empty, and this node has no data worth keeping.
         rv.changed = true;
 
-        // At least one child is empty. Replace this node with the non-empty child.
+        // Take the whole node out and destructure it.
+        let old = std::mem::take(node);
+        let NumericRangeNode::Internal(old_internal) = old else {
+            unreachable!()
+        };
+
+        // Free this node's range if any
+        if let Some(r) = old_internal.range {
+            rv.size_delta -= r.memory_usage() as i64;
+            rv.num_records -= r.num_entries() as i32;
+            rv.num_ranges_delta -= 1;
+        }
+
         if right_empty {
             // Right is empty, keep left as the replacement
-            if let Some(left) = node.take_left() {
-                // Free the right subtree
-                if let Some(right) = node.take_right() {
-                    Self::free_subtree(right, rv);
-                }
-                // Free this node's range if any
-                Self::remove_range(node, rv);
-
-                // Replace this node with the left child
-                *node = *left;
-            } else {
-                // Both children are gone, this becomes a leaf
-                if let Some(right) = node.take_right() {
-                    Self::free_subtree(right, rv);
-                }
-            }
+            Self::free_subtree(old_internal.right, rv);
+            *node = *old_internal.left;
         } else {
             // Left is empty, keep right as the replacement
-            if let Some(right) = node.take_right() {
-                // Free the left subtree
-                if let Some(left) = node.take_left() {
-                    Self::free_subtree(left, rv);
-                }
-                // Free this node's range if any
-                Self::remove_range(node, rv);
-
-                // Replace this node with the right child
-                *node = *right;
-            }
+            Self::free_subtree(old_internal.left, rv);
+            *node = *old_internal.right;
         }
 
         // Return whether the result is empty.
         // If right_empty, we replaced with left, so return left_empty.
-        // If !right_empty (else branch), left_empty is true and we replaced with right, so return right_empty (false).
-        // This simplifies to: both children must be empty for the result to be empty.
+        // If !right_empty, left_empty is true and we replaced with right, so return right_empty (false).
         right_empty && left_empty
     }
 
     /// Free an entire subtree, updating the result with freed resources.
+    #[expect(
+        clippy::boxed_local,
+        reason = "recursive calls pass Box children from Internal variant"
+    )]
     fn free_subtree(node: Box<NumericRangeNode>, rv: &mut AddResult) {
-        let mut node = node;
-
-        if node.is_leaf() {
-            rv.num_leaves_delta -= 1;
-        }
-
-        // Free this node's range
-        if let Some(range) = node.take_range() {
-            rv.size_delta -= range.memory_usage() as i64;
-            rv.num_records -= range.num_entries() as i32;
-            rv.num_ranges_delta -= 1;
-        }
-
-        // Recursively free children
-        if let Some(left) = node.take_left() {
-            Self::free_subtree(left, rv);
-        }
-        if let Some(right) = node.take_right() {
-            Self::free_subtree(right, rv);
+        match *node {
+            NumericRangeNode::Leaf(leaf) => {
+                rv.num_leaves_delta -= 1;
+                rv.size_delta -= leaf.range.memory_usage() as i64;
+                rv.num_records -= leaf.range.num_entries() as i32;
+                rv.num_ranges_delta -= 1;
+            }
+            NumericRangeNode::Internal(internal) => {
+                if let Some(range) = internal.range {
+                    rv.size_delta -= range.memory_usage() as i64;
+                    rv.num_records -= range.num_entries() as i32;
+                    rv.num_ranges_delta -= 1;
+                }
+                Self::free_subtree(internal.left, rv);
+                Self::free_subtree(internal.right, rv);
+            }
         }
     }
 }

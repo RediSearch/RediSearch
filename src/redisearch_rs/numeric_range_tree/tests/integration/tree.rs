@@ -9,7 +9,7 @@
 
 //! Tests for NumericRangeTree.
 
-use numeric_range_tree::NumericRangeTree;
+use numeric_range_tree::{NumericRangeNode, NumericRangeTree};
 use rstest::rstest;
 
 #[test]
@@ -86,34 +86,6 @@ fn test_default_impl() {
 }
 
 #[test]
-fn test_root_mut() {
-    let mut tree = NumericRangeTree::new(false);
-
-    // Modify the root through root_mut
-    let root = tree.root_mut();
-    root.set_split_value(42.0);
-
-    // Verify the modification persisted
-    assert_eq!(tree.root().split_value(), 42.0);
-}
-
-#[test]
-fn test_root_mut_add_to_range() {
-    let mut tree = NumericRangeTree::new(false);
-
-    // Add directly to root's range through root_mut
-    let root = tree.root_mut();
-    if let Some(range) = root.range_mut() {
-        range.add(100, 50.0);
-    }
-
-    // Verify via root accessor
-    let range = tree.root().range().unwrap();
-    assert_eq!(range.min_val(), 50.0);
-    assert_eq!(range.max_val(), 50.0);
-}
-
-#[test]
 fn test_inverted_indexes_size() {
     let tree = NumericRangeTree::new(false);
     // A new tree has an empty inverted index
@@ -184,18 +156,6 @@ fn test_mem_usage() {
 }
 
 #[test]
-#[should_panic(expected = "leaf node must have a range")]
-fn test_add_to_tree_without_range_panics() {
-    let mut tree = NumericRangeTree::new(false);
-
-    // Remove the root's range - this is an invalid state
-    tree.root_mut().set_range(None);
-
-    // Adding should panic because leaf nodes must have ranges
-    tree.add(1, 5.0, false, 0);
-}
-
-#[test]
 fn test_multiple_sequential_adds() {
     let mut tree = NumericRangeTree::new(false);
 
@@ -229,27 +189,17 @@ fn assert_tree_invariants(tree: &NumericRangeTree) {
     let mut actual_leaves = 0usize;
     let mut actual_ranges = 0usize;
 
-    fn walk(
-        node: &numeric_range_tree::NumericRangeNode,
-        actual_leaves: &mut usize,
-        actual_ranges: &mut usize,
-    ) {
+    fn walk(node: &NumericRangeNode, actual_leaves: &mut usize, actual_ranges: &mut usize) {
         if node.range().is_some() {
             *actual_ranges += 1;
         }
-        if node.is_leaf() {
-            *actual_leaves += 1;
-            assert!(node.range().is_some(), "leaf node must have a range");
-        } else {
-            assert!(
-                node.left().is_some() && node.right().is_some(),
-                "internal node must have both children"
-            );
-            if let Some(left) = node.left() {
-                walk(left, actual_leaves, actual_ranges);
+        match node {
+            NumericRangeNode::Leaf(_) => {
+                *actual_leaves += 1;
             }
-            if let Some(right) = node.right() {
-                walk(right, actual_leaves, actual_ranges);
+            NumericRangeNode::Internal(internal) => {
+                walk(internal.left(), actual_leaves, actual_ranges);
+                walk(internal.right(), actual_leaves, actual_ranges);
             }
         }
     }

@@ -9,183 +9,200 @@
 
 //! Numeric range tree node implementation.
 //!
-//! This module defines the node structure used in the numeric range tree.
+//! This module defines the node enum used in the numeric range tree.
 //! Nodes form a binary tree where internal nodes partition the value space
 //! and leaf nodes store the actual document-value entries.
 
 use crate::NumericRange;
 
-/// A node in the numeric range tree.
-///
-/// Nodes can be either:
-/// - **Leaf nodes**: Have a range but no children (`left` and `right` are `None`)
-/// - **Internal nodes**: Have both children and optionally retain a range for query efficiency
-///
-/// # Invariants
-///
-/// - A node is a leaf if and only if both `left` and `right` are `None`.
-/// - Internal nodes always have both children (never just one).
-/// - Leaf nodes always have a range (`range.is_some()`).
-/// - Internal nodes may or may not have a range, depending on depth trimming.
-///
-/// # Field Semantics by Node Type
-///
-/// | Field       | Leaf Node           | Internal Node                        |
-/// |-------------|---------------------|--------------------------------------|
-/// | `value`     | Unused (0.0)        | Split point for child routing        |
-/// | `max_depth` | 0                   | Max depth of subtree (for balancing) |
-/// | `left`      | `None`              | Always `Some`                        |
-/// | `right`     | `None`              | Always `Some`                        |
-/// | `range`     | Always `Some`       | `Some` if retained, else `None`      |
+/// A leaf node containing a range of document-value entries.
 #[derive(Debug)]
-pub struct NumericRangeNode {
+pub struct LeafNode {
+    /// The numeric range containing document-value entries.
+    /// Always present on leaf nodes.
+    pub(crate) range: NumericRange,
+}
+
+/// An internal node that partitions the value space.
+#[derive(Debug)]
+pub struct InternalNode {
     /// The split value for routing values to children.
-    ///
-    /// - **Internal nodes**: Values < `value` go to `left`, values >= `value` go to `right`.
-    /// - **Leaf nodes**: This field is unused and set to 0.0.
-    value: f64,
+    /// Values < `value` go to `left`, values >= `value` go to `right`.
+    pub(crate) value: f64,
 
     /// Maximum depth of the subtree rooted at this node.
     ///
-    /// Used for AVL-like balancing. For leaf nodes, this is always 0.
-    /// For internal nodes, it equals `max(left.max_depth, right.max_depth) + 1`.
+    /// Used for AVL-like balancing. Equals `max(left.max_depth, right.max_depth) + 1`.
     ///
     /// Note: This is `i32` (not `usize`) to match the C implementation and allow
     /// signed arithmetic when computing depth differences for balance checks.
-    max_depth: i32,
+    pub(crate) max_depth: i32,
 
     /// Left child subtree (values < split value).
-    ///
-    /// - **Leaf nodes**: Always `None`.
-    /// - **Internal nodes**: Always `Some` after splitting.
-    left: Option<Box<NumericRangeNode>>,
+    pub(crate) left: Box<NumericRangeNode>,
 
     /// Right child subtree (values >= split value).
-    ///
-    /// - **Leaf nodes**: Always `None`.
-    /// - **Internal nodes**: Always `Some` after splitting.
-    right: Option<Box<NumericRangeNode>>,
+    pub(crate) right: Box<NumericRangeNode>,
 
     /// The numeric range containing document-value entries.
     ///
-    /// - **Leaf nodes**: Always `Some`. Contains the actual indexed data for this
-    ///   portion of the value space.
-    /// - **Internal nodes**: `Some` if the range is retained for query optimization
-    ///   (when `max_depth <= max_depth_range`), `None` if trimmed to save memory.
+    /// `Some` if the range is retained for query optimization
+    /// (when `max_depth <= max_depth_range`), `None` if trimmed to save memory.
     ///
-    /// When present on internal nodes, the range contains all entries from the
+    /// When present, the range contains all entries from the
     /// entire subtree, enabling queries that span the full range to use this
     /// single range instead of unioning all descendant ranges.
-    range: Option<NumericRange>,
+    pub(crate) range: Option<NumericRange>,
+}
+
+impl InternalNode {
+    /// Get the left child subtree.
+    pub fn left(&self) -> &NumericRangeNode {
+        &self.left
+    }
+
+    /// Get the right child subtree.
+    pub fn right(&self) -> &NumericRangeNode {
+        &self.right
+    }
+}
+
+/// A node in the numeric range tree.
+///
+/// Nodes are either:
+/// - **Leaf nodes**: Have a range but no children.
+/// - **Internal nodes**: Have both children, a split value, depth tracking,
+///   and optionally retain a range for query efficiency.
+#[derive(Debug)]
+pub enum NumericRangeNode {
+    /// A leaf node containing a range of document-value entries.
+    Leaf(LeafNode),
+    /// An internal node that partitions the value space.
+    Internal(InternalNode),
 }
 
 impl NumericRangeNode {
     /// Create a new leaf node with an empty range.
     ///
     /// If `compress_floats` is true, the range will use float compression.
-    pub fn new_leaf(compress_floats: bool) -> Self {
-        Self {
-            value: 0.0,
-            max_depth: 0,
-            left: None,
-            right: None,
-            range: Some(NumericRange::new(compress_floats)),
-        }
+    pub fn leaf(compress_floats: bool) -> Self {
+        Self::Leaf(LeafNode {
+            range: NumericRange::new(compress_floats),
+        })
+    }
+
+    /// Create a new internal node with the given split value, children, and optional range.
+    ///
+    /// Computes `max_depth` automatically from the children's depths.
+    pub fn internal(
+        value: f64,
+        left: NumericRangeNode,
+        right: NumericRangeNode,
+        range: Option<NumericRange>,
+    ) -> Self {
+        let max_depth = left.max_depth().max(right.max_depth()) + 1;
+        Self::Internal(InternalNode {
+            value,
+            max_depth,
+            left: Box::new(left),
+            right: Box::new(right),
+            range,
+        })
     }
 
     /// Check if this node is a leaf (no children).
     pub const fn is_leaf(&self) -> bool {
-        self.left.is_none() && self.right.is_none()
+        matches!(self, Self::Leaf(_))
     }
 
     /// Get the split value.
+    ///
+    /// Returns `0.0` for leaf nodes.
     pub const fn split_value(&self) -> f64 {
-        self.value
-    }
-
-    /// Set the split value.
-    pub const fn set_split_value(&mut self, value: f64) {
-        self.value = value;
+        match self {
+            Self::Leaf(_) => 0.0,
+            Self::Internal(internal) => internal.value,
+        }
     }
 
     /// Get the maximum depth of the subtree rooted at this node.
+    ///
+    /// Returns `0` for leaf nodes.
     pub const fn max_depth(&self) -> i32 {
-        self.max_depth
-    }
-
-    /// Set the maximum depth.
-    pub const fn set_max_depth(&mut self, depth: i32) {
-        self.max_depth = depth;
-    }
-
-    /// Get a reference to the left child.
-    pub fn left(&self) -> Option<&NumericRangeNode> {
-        self.left.as_deref()
-    }
-
-    /// Get a mutable reference to the left child.
-    pub fn left_mut(&mut self) -> Option<&mut NumericRangeNode> {
-        self.left.as_deref_mut()
-    }
-
-    /// Get a reference to the right child.
-    pub fn right(&self) -> Option<&NumericRangeNode> {
-        self.right.as_deref()
-    }
-
-    /// Get a mutable reference to the right child.
-    pub fn right_mut(&mut self) -> Option<&mut NumericRangeNode> {
-        self.right.as_deref_mut()
-    }
-
-    /// Set the left child.
-    pub fn set_left(&mut self, child: Option<Box<NumericRangeNode>>) {
-        self.left = child;
-    }
-
-    /// Set the right child.
-    pub fn set_right(&mut self, child: Option<Box<NumericRangeNode>>) {
-        self.right = child;
-    }
-
-    /// Take the left child, leaving None in its place.
-    pub const fn take_left(&mut self) -> Option<Box<NumericRangeNode>> {
-        self.left.take()
-    }
-
-    /// Take the right child, leaving None in its place.
-    pub const fn take_right(&mut self) -> Option<Box<NumericRangeNode>> {
-        self.right.take()
+        match self {
+            Self::Leaf(_) => 0,
+            Self::Internal(internal) => internal.max_depth,
+        }
     }
 
     /// Get a reference to the range, if present.
+    ///
+    /// Always `Some` for leaf nodes, optional for internal nodes.
     pub const fn range(&self) -> Option<&NumericRange> {
-        self.range.as_ref()
+        match self {
+            Self::Leaf(leaf) => Some(&leaf.range),
+            Self::Internal(internal) => internal.range.as_ref(),
+        }
     }
 
     /// Get a mutable reference to the range, if present.
-    pub const fn range_mut(&mut self) -> Option<&mut NumericRange> {
-        self.range.as_mut()
+    ///
+    /// Always `Some` for leaf nodes, optional for internal nodes.
+    pub(crate) const fn range_mut(&mut self) -> Option<&mut NumericRange> {
+        match self {
+            Self::Leaf(leaf) => Some(&mut leaf.range),
+            Self::Internal(internal) => internal.range.as_mut(),
+        }
     }
 
-    /// Take the range from this node, leaving None in its place.
-    pub const fn take_range(&mut self) -> Option<NumericRange> {
-        self.range.take()
+    /// Take the range from this node, leaving `None` in its place for internal nodes.
+    ///
+    /// For leaf nodes, this takes the range and replaces the node with a leaf
+    /// containing a default (empty, uncompressed) range — callers that take a
+    /// leaf's range typically replace the entire node immediately after.
+    pub(crate) fn take_range(&mut self) -> Option<NumericRange> {
+        match self {
+            Self::Leaf(leaf) => {
+                // Replace with a default range; callers are expected to replace the whole node.
+                Some(std::mem::replace(&mut leaf.range, NumericRange::new(false)))
+            }
+            Self::Internal(internal) => internal.range.take(),
+        }
     }
 
-    /// Set the range for this node.
-    pub fn set_range(&mut self, range: Option<NumericRange>) {
-        self.range = range;
+    /// Get the left and right children, if this is an internal node.
+    ///
+    /// Returns `None` for leaf nodes.
+    pub const fn children(&self) -> Option<(&NumericRangeNode, &NumericRangeNode)> {
+        match self {
+            Self::Leaf(_) => None,
+            Self::Internal(internal) => Some((&internal.left, &internal.right)),
+        }
+    }
+
+    /// Get mutable references to the left and right children, if this is an internal node.
+    ///
+    /// Returns `None` for leaf nodes.
+    pub const fn children_mut(&mut self) -> Option<(&mut NumericRangeNode, &mut NumericRangeNode)> {
+        match self {
+            Self::Leaf(_) => None,
+            Self::Internal(internal) => Some((&mut internal.left, &mut internal.right)),
+        }
     }
 
     /// Check if this node has a range.
+    ///
+    /// Always `true` for leaf nodes.
     pub const fn has_range(&self) -> bool {
-        self.range.is_some()
+        match self {
+            Self::Leaf(_) => true,
+            Self::Internal(internal) => internal.range.is_some(),
+        }
     }
 }
 
 impl Default for NumericRangeNode {
     fn default() -> Self {
-        Self::new_leaf(false)
+        Self::leaf(false)
     }
 }

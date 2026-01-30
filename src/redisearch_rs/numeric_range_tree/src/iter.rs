@@ -61,12 +61,10 @@ impl<'a> Iterator for DepthFirstNumericRangeTreeIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let node = self.stack.pop()?;
 
-        // Push children onto stack (right first so left is processed first)
-        if let Some(right) = node.right() {
-            self.stack.push(right);
-        }
-        if let Some(left) = node.left() {
-            self.stack.push(left);
+        if let NumericRangeNode::Internal(internal) = node {
+            // Push children onto stack (right first so left is processed first)
+            self.stack.push(&internal.right);
+            self.stack.push(&internal.left);
         }
 
         Some(node)

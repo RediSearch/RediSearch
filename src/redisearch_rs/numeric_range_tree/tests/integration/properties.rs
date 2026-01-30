@@ -34,18 +34,10 @@ mod proptests {
             }
             if node.is_leaf() {
                 *leaves += 1;
-                assert!(node.range().is_some(), "leaf must have a range");
-            } else {
-                assert!(
-                    node.left().is_some() && node.right().is_some(),
-                    "internal node must have both children"
-                );
-                if let Some(left) = node.left() {
-                    walk(left, leaves, ranges, depth + 1);
-                }
-                if let Some(right) = node.right() {
-                    walk(right, leaves, ranges, depth + 1);
-                }
+                // Leaf always has a range — enforced by the enum.
+            } else if let Some((left, right)) = node.children() {
+                walk(left, leaves, ranges, depth + 1);
+                walk(right, leaves, ranges, depth + 1);
             }
         }
 
@@ -141,20 +133,16 @@ mod proptests {
 
             // Verify depth imbalance at every node is bounded.
             fn check_balance(node: &numeric_range_tree::NumericRangeNode) {
-                if !node.is_leaf() {
-                    let left_depth = node.left().map(|n| n.max_depth()).unwrap_or(0);
-                    let right_depth = node.right().map(|n| n.max_depth()).unwrap_or(0);
+                if let Some((left, right)) = node.children() {
+                    let left_depth = left.max_depth();
+                    let right_depth = right.max_depth();
                     let imbalance = (left_depth - right_depth).abs();
                     assert!(
                         imbalance <= 3,
                         "depth imbalance ({imbalance}) exceeds threshold at node"
                     );
-                    if let Some(left) = node.left() {
-                        check_balance(left);
-                    }
-                    if let Some(right) = node.right() {
-                        check_balance(right);
-                    }
+                    check_balance(left);
+                    check_balance(right);
                 }
             }
             check_balance(tree.root());
@@ -281,28 +269,26 @@ mod proptests {
             path: &mut Vec<Dir>,
         ) {
             if node.is_leaf() {
-                if let Some(range) = node.range()
-                    && let Some(delta) = range
+                if let Some(range) = node.range() {
+                    if let Some(delta) = range
                         .entries()
                         .scan_gc(doc_exist)
                         .expect("scan should not fail")
-                {
-                    work.push(Work {
-                        path: path.clone(),
-                        delta,
-                    });
+                    {
+                        work.push(Work {
+                            path: path.clone(),
+                            delta,
+                        });
+                    }
                 }
-            } else {
-                if let Some(left) = node.left() {
-                    path.push(Dir::Left);
-                    collect(left, doc_exist, work, path);
-                    path.pop();
-                }
-                if let Some(right) = node.right() {
-                    path.push(Dir::Right);
-                    collect(right, doc_exist, work, path);
-                    path.pop();
-                }
+            } else if let Some((left, right)) = node.children() {
+                path.push(Dir::Left);
+                collect(left, doc_exist, work, path);
+                path.pop();
+
+                path.push(Dir::Right);
+                collect(right, doc_exist, work, path);
+                path.pop();
             }
         }
 
@@ -311,9 +297,10 @@ mod proptests {
             path: &[Dir],
         ) -> &'a mut NumericRangeNode {
             for dir in path {
+                let (left, right) = node.children_mut().expect("expected internal node");
                 node = match dir {
-                    Dir::Left => node.left_mut().expect("left child"),
-                    Dir::Right => node.right_mut().expect("right child"),
+                    Dir::Left => left,
+                    Dir::Right => right,
                 };
             }
             node

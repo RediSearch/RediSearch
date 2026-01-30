@@ -46,7 +46,7 @@ fn test_iterator_visits_all_leaves() {
 
 #[test]
 fn test_from_node_single_leaf() {
-    let node = NumericRangeNode::new_leaf(false);
+    let node = NumericRangeNode::leaf(false);
     let mut iter = DepthFirstNumericRangeTreeIterator::from_node(&node);
 
     // Should yield exactly one node
@@ -59,10 +59,12 @@ fn test_from_node_single_leaf() {
 #[test]
 fn test_from_node_with_children() {
     // Build a multi-level tree manually
-    let mut root = NumericRangeNode::new_leaf(false);
-    root.set_split_value(5.0);
-    root.set_left(Some(Box::new(NumericRangeNode::new_leaf(false))));
-    root.set_right(Some(Box::new(NumericRangeNode::new_leaf(false))));
+    let root = NumericRangeNode::internal(
+        5.0,
+        NumericRangeNode::leaf(false),
+        NumericRangeNode::leaf(false),
+        None,
+    );
 
     let iter = DepthFirstNumericRangeTreeIterator::from_node(&root);
 
@@ -79,24 +81,14 @@ fn test_iterator_traverses_multi_level_tree() {
     //     left   right
     //    /   \
     //  ll    lr
-    let mut left_left = NumericRangeNode::new_leaf(false);
-    left_left.set_split_value(1.0);
+    let left = NumericRangeNode::internal(
+        2.0,
+        NumericRangeNode::leaf(false),
+        NumericRangeNode::leaf(false),
+        None,
+    );
 
-    let mut left_right = NumericRangeNode::new_leaf(false);
-    left_right.set_split_value(3.0);
-
-    let mut left = NumericRangeNode::new_leaf(false);
-    left.set_split_value(2.0);
-    left.set_left(Some(Box::new(left_left)));
-    left.set_right(Some(Box::new(left_right)));
-
-    let mut right = NumericRangeNode::new_leaf(false);
-    right.set_split_value(7.0);
-
-    let mut root = NumericRangeNode::new_leaf(false);
-    root.set_split_value(5.0);
-    root.set_left(Some(Box::new(left)));
-    root.set_right(Some(Box::new(right)));
+    let root = NumericRangeNode::internal(5.0, left, NumericRangeNode::leaf(false), None);
 
     let iter = DepthFirstNumericRangeTreeIterator::from_node(&root);
     let nodes: Vec<_> = iter.collect();
@@ -107,17 +99,20 @@ fn test_iterator_traverses_multi_level_tree() {
     // Verify depth-first order: root, left, ll, lr, right
     assert_eq!(nodes[0].split_value(), 5.0); // root
     assert_eq!(nodes[1].split_value(), 2.0); // left
-    assert_eq!(nodes[2].split_value(), 1.0); // left_left
-    assert_eq!(nodes[3].split_value(), 3.0); // left_right
-    assert_eq!(nodes[4].split_value(), 7.0); // right
+    assert!(nodes[2].is_leaf()); // left_left
+    assert!(nodes[3].is_leaf()); // left_right
+    assert!(nodes[4].is_leaf()); // right
 }
 
 #[test]
 fn test_iterator_counts_internal_and_leaf_nodes() {
     // Build tree with mixed internal and leaf nodes
-    let mut root = NumericRangeNode::new_leaf(false);
-    root.set_left(Some(Box::new(NumericRangeNode::new_leaf(false))));
-    root.set_right(Some(Box::new(NumericRangeNode::new_leaf(false))));
+    let root = NumericRangeNode::internal(
+        0.0,
+        NumericRangeNode::leaf(false),
+        NumericRangeNode::leaf(false),
+        None,
+    );
 
     let iter = DepthFirstNumericRangeTreeIterator::from_node(&root);
 
@@ -144,19 +139,14 @@ fn test_into_iterator(#[case] compress_floats: bool) {
         tree.add(i, i as f64, false, 0);
     }
 
-    // Use the `IntoIterator` impl (`for node in &tree`).
     let mut count = 0;
+    let mut n_leaves = 0;
     for node in &tree {
         count += 1;
-        // Every node should be either a leaf or have both children.
-        if !node.is_leaf() {
-            assert!(node.left().is_some());
-            assert!(node.right().is_some());
+        if node.is_leaf() {
+            n_leaves += 1;
         }
     }
     assert!(count > 0, "iterator should yield at least one node");
-
-    // The leaf count from the iterator should match the tree's num_leaves.
-    let leaf_count = (&tree).into_iter().filter(|n| n.is_leaf()).count();
-    assert_eq!(leaf_count, tree.num_leaves());
+    assert_eq!(n_leaves, tree.num_leaves());
 }
