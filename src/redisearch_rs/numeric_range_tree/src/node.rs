@@ -65,6 +65,136 @@ impl InternalNode {
     pub fn right(&self) -> &NumericRangeNode {
         &self.right
     }
+
+    /// Perform a left rotation, returning the new root.
+    ///
+    /// The right child (`B`) is promoted to root and the old root (`A`) becomes
+    /// `B`'s left child. `B`'s former left subtree (`y`) is re-parented as `A`'s
+    /// new right child.
+    ///
+    /// ```text
+    ///       A              B
+    ///      / \            / \
+    ///     x   B    =>   A   z
+    ///        / \       / \
+    ///       y   z     x   y
+    /// ```
+    ///
+    /// If the right child is a [`Leaf`](NumericRangeNode::Leaf), rotation is
+    /// impossible and the node is returned unchanged.
+    pub(crate) fn rotate_left(self) -> NumericRangeNode {
+        let InternalNode {
+            value,
+            left,
+            right,
+            range,
+            max_depth,
+        } = self;
+
+        let NumericRangeNode::Internal(right_internal) = *right else {
+            // Right child is a leaf — nothing to rotate, reconstruct unchanged.
+            return NumericRangeNode::Internal(InternalNode {
+                value,
+                max_depth,
+                left,
+                right,
+                range,
+            });
+        };
+
+        let InternalNode {
+            value: promoted_value,
+            left: right_left,
+            right: right_right,
+            range: promoted_range,
+            ..
+        } = right_internal;
+
+        // Build the demoted node (old root becomes left child of promoted node).
+        let demoted_depth = left.max_depth().max(right_left.max_depth()) + 1;
+        let demoted = Box::new(NumericRangeNode::Internal(InternalNode {
+            value,
+            max_depth: demoted_depth,
+            left,
+            right: right_left,
+            range,
+        }));
+
+        // Build the promoted node (old right child becomes new root).
+        let promoted_depth = demoted_depth.max(right_right.max_depth()) + 1;
+        NumericRangeNode::Internal(InternalNode {
+            value: promoted_value,
+            max_depth: promoted_depth,
+            left: demoted,
+            right: right_right,
+            range: promoted_range,
+        })
+    }
+
+    /// Perform a right rotation, returning the new root.
+    ///
+    /// The left child (`B`) is promoted to root and the old root (`A`) becomes
+    /// `B`'s right child. `B`'s former right subtree (`y`) is re-parented as
+    /// `A`'s new left child.
+    ///
+    /// ```text
+    ///       A            B
+    ///      / \          / \
+    ///     B   z   =>   x   A
+    ///    / \               / \
+    ///   x   y             y   z
+    /// ```
+    ///
+    /// If the left child is a [`Leaf`](NumericRangeNode::Leaf), rotation is
+    /// impossible and the node is returned unchanged.
+    pub(crate) fn rotate_right(self) -> NumericRangeNode {
+        let InternalNode {
+            value,
+            left,
+            right,
+            range,
+            max_depth,
+        } = self;
+
+        let NumericRangeNode::Internal(left_internal) = *left else {
+            // Left child is a leaf — nothing to rotate, reconstruct unchanged.
+            return NumericRangeNode::Internal(InternalNode {
+                value,
+                max_depth,
+                left,
+                right,
+                range,
+            });
+        };
+
+        let InternalNode {
+            value: promoted_value,
+            left: left_left,
+            right: left_right,
+            range: promoted_range,
+            ..
+        } = left_internal;
+
+        // Build the demoted node (old root becomes right child of promoted node).
+        let demoted_depth = left_right.max_depth().max(right.max_depth()) + 1;
+        let demoted = Box::new(NumericRangeNode::Internal(InternalNode {
+            value,
+            max_depth: demoted_depth,
+            left: left_right,
+            right,
+            range,
+        }));
+
+        // Build the promoted node (old left child becomes new root).
+        let promoted_depth = left_left.max_depth().max(demoted_depth) + 1;
+        NumericRangeNode::Internal(InternalNode {
+            value: promoted_value,
+            max_depth: promoted_depth,
+            left: left_left,
+            right: demoted,
+            range: promoted_range,
+        })
+    }
 }
 
 /// A node in the numeric range tree.

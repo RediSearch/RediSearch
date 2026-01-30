@@ -477,8 +477,10 @@ impl NumericRangeTree {
     ///
     /// - **Left rotation** (right-heavy): The right child becomes the new root,
     ///   and the old root becomes the left child of the new root.
+    ///   See [`InternalNode::rotate_left`].
     /// - **Right rotation** (left-heavy): The left child becomes the new root,
     ///   and the old root becomes the right child of the new root.
+    ///   See [`InternalNode::rotate_right`].
     ///
     /// # Note on Range Retention
     ///
@@ -491,89 +493,26 @@ impl NumericRangeTree {
         let (left_depth, right_depth) = if let NumericRangeNode::Internal(internal) = node {
             (internal.left.max_depth(), internal.right.max_depth())
         } else {
-            (0, 0)
+            return;
         };
 
         if right_depth - left_depth > MAXIMUM_DEPTH_IMBALANCE {
-            // Rotate to the left: the right child becomes the new root.
-            //
-            // We destructure the current internal node, detach the right child,
-            // steal the right child's left subtree (right_left) and make it our
-            // new right child, then make the demoted node the left child of the
-            // promoted right node.
-            let NumericRangeNode::Internal(ref mut current) = *node else {
-                // balance_node is only called on internal nodes
-                return;
-            };
-
-            // Take the right child's left subtree
-            let NumericRangeNode::Internal(ref mut right_internal) = *current.right else {
-                // Right child is a leaf — nothing to rotate
-                return;
-            };
-
-            // Steal right_left: it becomes the current node's new right child.
-            // We temporarily put a placeholder leaf in right_left's place.
-            let right_left_subtree = std::mem::replace(
-                &mut right_internal.left,
-                Box::new(NumericRangeNode::default()),
-            );
-
-            // Now detach the entire right child from the current node.
-            let NumericRangeNode::Internal(ref mut current) = *node else {
+            let owned = std::mem::take(node);
+            let NumericRangeNode::Internal(internal) = owned else {
                 unreachable!()
             };
-            let promoted = std::mem::replace(&mut current.right, right_left_subtree);
-
-            // Update the demoted node's max_depth before swapping
-            let NumericRangeNode::Internal(ref mut current) = *node else {
-                unreachable!()
-            };
-            current.max_depth = current.left.max_depth().max(current.right.max_depth()) + 1;
-
-            // Swap: the old node becomes the left child of the promoted node
-            let old_node = std::mem::replace(node, *promoted);
-            let NumericRangeNode::Internal(ref mut current) = *node else {
-                unreachable!()
-            };
-            current.left = Box::new(old_node);
+            *node = internal.rotate_left();
         } else if left_depth - right_depth > MAXIMUM_DEPTH_IMBALANCE {
-            // Rotate to the right: the left child becomes the new root.
-            let NumericRangeNode::Internal(ref mut current) = *node else {
-                return;
-            };
-
-            let NumericRangeNode::Internal(ref mut left_internal) = *current.left else {
-                return;
-            };
-
-            let left_right_subtree = std::mem::replace(
-                &mut left_internal.right,
-                Box::new(NumericRangeNode::default()),
-            );
-
-            let NumericRangeNode::Internal(ref mut current) = *node else {
+            let owned = std::mem::take(node);
+            let NumericRangeNode::Internal(internal) = owned else {
                 unreachable!()
             };
-            let promoted = std::mem::replace(&mut current.left, left_right_subtree);
-
-            // Update the demoted node's max_depth before swapping
-            let NumericRangeNode::Internal(ref mut current) = *node else {
-                unreachable!()
-            };
-            current.max_depth = current.left.max_depth().max(current.right.max_depth()) + 1;
-
-            // Swap: the old node becomes the right child of the promoted node
-            let old_node = std::mem::replace(node, *promoted);
-            let NumericRangeNode::Internal(ref mut current) = *node else {
-                unreachable!()
-            };
-            current.right = Box::new(old_node);
-        }
-
-        // Update max_depth after potential rotation
-        if let NumericRangeNode::Internal(ref mut internal) = *node {
-            internal.max_depth = internal.left.max_depth().max(internal.right.max_depth()) + 1;
+            *node = internal.rotate_right();
+        } else {
+            // No rotation needed — just update max_depth.
+            if let NumericRangeNode::Internal(ref mut internal) = *node {
+                internal.max_depth = internal.left.max_depth().max(internal.right.max_depth()) + 1;
+            }
         }
     }
 
