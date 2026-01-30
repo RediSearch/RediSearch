@@ -427,9 +427,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   }
 
   // Check for optional FILTER clause - argument may not be in our scope
-  bool hasExplicitFilter = false;
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
-    hasExplicitFilter = true;
     unsigned long long count = 0;
     if (AC_IsAtEnd(ac)) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument count for FILTER");
