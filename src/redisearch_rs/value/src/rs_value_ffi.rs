@@ -96,24 +96,27 @@ impl RSValueFFI {
         values: impl IntoIterator<IntoIter: ExactSizeIterator, Item = RSValueFFI>,
     ) -> Self {
         let iter = values.into_iter();
-        let len = iter.len();
-        debug_assert!(u32::try_from(len).is_ok());
+        let len = u32::try_from(iter.len()).unwrap();
 
-        // Safety: RSValue_AllocateArray allocates memory for `len` RSValue pointers
-        let arr = unsafe { ffi::RSValue_AllocateArray(len as u32) };
+        // Safety: RSValue_NewArrayBuilder allocates memory for `len` RSValue pointers
+        let builder = NonNull::new(unsafe { ffi::RSValue_NewArrayBuilder(len) })
+            .expect("RSValue_AllocateArray returned null pointer");
 
         for (i, value) in iter.enumerate() {
             // Safety: `arr` was allocated for `len` elements, and `i < len`
+            let ptr = unsafe { builder.add(i) };
+            // Safety: we allocated the array above
             unsafe {
-                arr.add(i).write(value.as_raw());
+                ptr.write(value.as_ptr());
             }
+
             // Prevent the RSValueFFI from decrementing the refcount when dropped,
             // as ownership is transferred to the array.
             std::mem::forget(value);
         }
 
         // Safety: RSValue_NewArray takes ownership of the `arr` pointer
-        let value = unsafe { ffi::RSValue_NewArray(arr, len as u32) };
+        let value = unsafe { ffi::RSValue_NewArrayFromBuilder(builder.as_ptr(), len) };
 
         Self(NonNull::new(value).expect("RSValue_NewArray returned a null pointer"))
     }
@@ -122,16 +125,16 @@ impl RSValueFFI {
         entries: impl IntoIterator<IntoIter: ExactSizeIterator, Item = (RSValueFFI, RSValueFFI)>,
     ) -> Self {
         let iter = entries.into_iter();
-        let len = iter.len();
-        debug_assert!(u32::try_from(len).is_ok());
+        let len = u32::try_from(iter.len()).unwrap();
 
         // Safety: RSValueMap_AllocUninit allocates memory for `len` RSValueMapEntry structs
-        let mut map = unsafe { ffi::RSValueMap_AllocUninit(len as u32) };
+        let builder = NonNull::new(unsafe { ffi::RSValue_NewMapBuilder(len) })
+            .expect("RSValue_AllocateArray returned null pointer");
 
         for (i, (key, value)) in iter.enumerate() {
             // Safety: `map` was allocated for `len` entries, and `i < len`
             unsafe {
-                ffi::RSValueMap_SetEntry(&mut map, i, key.as_raw(), value.as_raw());
+                ffi::RSValue_MapBuilderSetEntry(builder.as_ptr(), i, key.as_ptr(), value.as_ptr());
             }
             // Prevent the RSValueFFI from decrementing the refcount when dropped,
             // as ownership is transferred to the map.
@@ -140,9 +143,21 @@ impl RSValueFFI {
         }
 
         // Safety: RSValue_NewMap takes ownership of the `map`
-        let value = unsafe { ffi::RSValue_NewMap(map) };
+        let value = unsafe { ffi::RSValue_NewMapFromBuilder(builder.as_ptr()) };
 
         Self(NonNull::new(value).expect("RSValue_NewMap returned a null pointer"))
+    }
+
+    pub fn new_trio(left: RSValueFFI, middle: RSValueFFI, right: RSValueFFI) -> Self {
+        // Safety: RSValue_NewTrio takes ownership of all three values
+        let value = unsafe { ffi::RSValue_NewTrio(left.as_ptr(), middle.as_ptr(), right.as_ptr()) };
+        // Prevent the RSValueFFI from decrementing the refcount when dropped,
+        // as ownership is transferred to the trio.
+        std::mem::forget(left);
+        std::mem::forget(middle);
+        std::mem::forget(right);
+
+        Self(NonNull::new(value).expect("RSValue_NewTrio returned a null pointer"))
     }
 
     pub fn get_type(&self) -> ffi::RSValueType {
