@@ -3148,7 +3148,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  bool useSst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
+  bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   if (sp->diskSpec && useSst) {
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
@@ -3258,7 +3258,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   // sst-files, even if this is a duplicate.
   // In the case of a duplicate, `sp->diskSpec=NULL` thus handled appropriately
   // On the disk side (RDB is depleted, without updating index fields).
-  bool useSst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
+  bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && useSst) {
     IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
     if (sp->terms) {
