@@ -1763,6 +1763,7 @@ dependencies = [
  "types_ffi",
  "value",
  "value_ffi",
+ "varint_ffi",
  "workspace_hack",
 ]
 

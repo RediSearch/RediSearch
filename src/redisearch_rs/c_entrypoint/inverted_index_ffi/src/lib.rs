@@ -79,6 +79,50 @@ pub enum InvertedIndex {
     NumericFloatCompression(EntriesTrackingIndex<NumericFloatCompression>),
 }
 
+impl InvertedIndex {
+    /// Returns a mutable reference to the numeric inverted index.
+    ///
+    /// Only meant to be used internally by tests.
+    ///
+    /// # Panic
+    /// Will panic if the inverted index is not of type `Numeric`.
+    #[cfg(feature = "test_utils")]
+    pub fn as_numeric(&mut self) -> &mut inverted_index::InvertedIndex<Numeric> {
+        match self {
+            Self::Numeric(ii) => ii.inner_mut(),
+            _ => panic!("Unexpected inverted index type"),
+        }
+    }
+
+    /// Returns a reference to the Full inverted index.
+    ///
+    /// Only meant to be used internally by tests.
+    ///
+    /// # Panic
+    /// Will panic if the inverted index is not of type `Full`.
+    #[cfg(feature = "test_utils")]
+    pub fn as_full(&self) -> &FieldMaskTrackingIndex<Full> {
+        match self {
+            Self::Full(ii) => ii,
+            _ => panic!("Unexpected inverted index type, expected Full"),
+        }
+    }
+
+    /// Returns a reference to the FullWide inverted index.
+    ///
+    /// Only meant to be used internally by tests.
+    ///
+    /// # Panic
+    /// Will panic if the inverted index is not of type `FullWide`.
+    #[cfg(feature = "test_utils")]
+    pub fn as_full_wide(&self) -> &FieldMaskTrackingIndex<FullWide> {
+        match self {
+            Self::FullWide(ii) => ii,
+            _ => panic!("Unexpected inverted index type, expected FullWide"),
+        }
+    }
+}
+
 impl Debug for InvertedIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
