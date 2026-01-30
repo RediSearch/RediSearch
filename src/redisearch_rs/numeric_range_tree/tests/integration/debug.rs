@@ -11,8 +11,23 @@
 
 use numeric_range_tree::NumericRangeTree;
 use numeric_range_tree::debug;
+use redis_mock::reply::{ReplyValue, capture_replies};
 
-use crate::{capture_single_reply, mock_ctx};
+fn mock_ctx() -> *mut redis_reply::RedisModuleCtx {
+    redis_mock::init_redis_module_mock();
+    std::ptr::dangling_mut::<redis_reply::RedisModuleCtx>()
+}
+
+fn capture_single_reply(f: impl FnOnce()) -> ReplyValue {
+    let mut replies = capture_replies(f);
+    assert_eq!(
+        replies.len(),
+        1,
+        "expected single reply, got {}",
+        replies.len()
+    );
+    replies.pop().unwrap()
+}
 
 /// Run a snapshot assertion with nondeterministic fields redacted.
 ///
