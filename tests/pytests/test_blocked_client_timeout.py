@@ -192,11 +192,11 @@ class TestCoordinatorTimeout:
 
         This test:
         1. Sets timeout policy to 'return-strict' (partial results)
-        2. Pauses one shard
+        2. Pauses all shards except the coordinator
         3. Runs FT.SEARCH from the coordinator
-        4. Waits for the query to be processed by workers (non-paused shards)
+        4. Waits for the query to be processed by the coordinator's worker
         5. Manually unblocks the client with timeout using CLIENT UNBLOCK
-        6. Verifies partial results and timeout warning
+        6. Verifies partial results match the coordinator's doc count and timeout warning
         """
         env = self.env
 
@@ -205,17 +205,24 @@ class TestCoordinatorTimeout:
 
         initial_jobs_done = getWorkersThpoolStats(env)['totalJobsDone']
 
+        # Get coordinator PID and count docs in coordinator shard
         coord_pid = pid_cmd(env.con)
+        coord_doc_count = len(env.cmd('KEYS', '*'))
+
+        # Get all other shard PIDs (not coordinator)
         shards_pid = list(get_all_shards_pid(env))
         shards_pid.remove(coord_pid)
 
-        # Pause one shard (not the coordinator)
-        shard_to_pause_pid = shards_pid[0]
-        shard_to_pause_p = psutil.Process(shard_to_pause_pid)
+        # Pause ALL shards except the coordinator
+        paused_processes = []
+        for shard_pid in shards_pid:
+            p = psutil.Process(shard_pid)
+            p.suspend()
+            paused_processes.append(p)
 
-        shard_to_pause_p.suspend()
-        with TimeLimit(30, 'Timeout while waiting for shard to pause'):
-            while shard_to_pause_p.status() != psutil.STATUS_STOPPED:
+        # Wait for all shards to be paused
+        with TimeLimit(30, 'Timeout while waiting for shards to pause'):
+            while not all(p.status() == psutil.STATUS_STOPPED for p in paused_processes):
                 time.sleep(0.1)
 
         blocked_client_id = env.cmd('CLIENT', 'ID')
@@ -245,14 +252,21 @@ class TestCoordinatorTimeout:
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
-        # Resume the paused shard
-        shard_to_pause_p.resume()
+        # Resume all paused shards
+        for p in paused_processes:
+            p.resume()
 
         # Verify partial results and timeout warning
         env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
         result = query_result[0]
-        result = result['Results'] if 'Results' in result else result
-        env.assertEqual(result['warning'], TIMEOUT_WARNING)
+        results = result.get('results', result.get('Results', result))
+        warning = result.get('warning', results.get('warning', None) if isinstance(results, dict) else None)
+
+        # The results should only contain docs from the coordinator shard
+        total_results = result.get('total_results', results.get('total_results', None) if isinstance(results, dict) else len(results))
+        env.assertEqual(total_results, coord_doc_count,
+                        message=f"Expected {coord_doc_count} docs (coordinator shard only), got {total_results}")
+        env.assertEqual(warning, TIMEOUT_WARNING, message="Expected timeout warning")
 
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 

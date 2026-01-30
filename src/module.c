@@ -1984,7 +1984,7 @@ static void searchRequestCtx_Free(searchRequestCtx *r) {
   rm_free(r);
 }
 
-static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies);
+static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, bool fromTimeout);
 
 int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
@@ -3064,7 +3064,7 @@ void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *
 
 static void searchResultReducer_wrapper(void *mc_v) {
   struct MRCtx *mc = mc_v;
-  searchResultReducer(mc, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc));
+  searchResultReducer(mc, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc), false);
 }
 
 static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply **replies) {
@@ -3087,13 +3087,14 @@ bool should_return_error(QueryErrorCode errCode) {
   return true;
 }
 
-static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
+static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, bool fromTimeout) {
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
 
   // Try to claim the REDUCING state - if timeout callback already claimed it,
-  // skip reduction but still call UnblockClient to trigger free_privdata
-  bool ownsReducing = MRCtx_TryClaimReducing(mc);
+  // skip reduction but still call UnblockClient to trigger free_privdata.
+  // If called from timeout callback, we already own reducing (claimed before calling).
+  bool ownsReducing = fromTimeout || MRCtx_TryClaimReducing(mc);
   if (!ownsReducing) {
     // Timeout callback is handling the reduction, just unblock and return
     goto unblock_client;
@@ -3105,6 +3106,14 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   // Save the rctx in the request so it can be used in reply_callback of unblock client
   req->rctx = rCtx;
+  // Set searchCtx early so it's available even if we bail out early
+  rCtx->searchCtx = req;
+
+  // Initialize heap early so it's available even if we bail out
+  // (timeout callback may need to call sendSearchResults with partial/empty results)
+  size_t num = req->requestedResultsCount;
+  rCtx->pq = rm_malloc(heap_sizeof(num));
+  heap_init(rCtx->pq, cmp_results, req, num);
 
   int profile = req->profileArgs > 0;
 
@@ -3130,15 +3139,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     }
   }
 
-  rCtx->searchCtx = req;
-
   // Get reply offsets
   getReplyOffsets(rCtx->searchCtx, &rCtx->offsets);
-
-  // Init results heap.
-  size_t num = req->requestedResultsCount;
-  rCtx->pq = rm_malloc(heap_sizeof(num));
-  heap_init(rCtx->pq, cmp_results, req, num);
 
   // Default result process and post process operations
   rCtx->processReply = (processReplyCB) processSearchReply;
@@ -3971,8 +3973,7 @@ static int DistSearchTimeoutPartialClient(RedisModuleCtx *ctx, RedisModuleString
   // If we don't get it, reducer is already running - wait for it
   if (MRCtx_TryClaimReducing(mrctx)) {
     // We claimed reducing - run reducer on main thread with current replies
-    // This will call UnblockClient (which is a no-op for reply but triggers free_privdata)
-    searchResultReducer(mrctx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx));
+    searchResultReducer(mrctx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), true);
   } else {
     // Reducer already running - wait for it to complete
     MRCtx_WaitForReducerComplete(mrctx);
