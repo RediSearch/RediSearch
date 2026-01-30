@@ -9,6 +9,7 @@
 
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::ptr;
 use std::{ffi::c_char, mem::ManuallyDrop, ptr::NonNull, slice};
 
 pub struct RSValueFFIRef<'a>(ManuallyDrop<RSValueFFI>, PhantomData<&'a ffi::RSValue>);
@@ -96,24 +97,32 @@ impl RSValueFFI {
         values: impl IntoIterator<IntoIter: ExactSizeIterator, Item = RSValueFFI>,
     ) -> Self {
         let iter = values.into_iter();
-        let len = iter.len();
-        debug_assert!(u32::try_from(len).is_ok());
+        let len = u32::try_from(iter.len()).unwrap();
 
-        // Safety: RSValue_AllocateArray allocates memory for `len` RSValue pointers
-        let arr = unsafe { ffi::RSValue_AllocateArray(len as u32) };
+        let value = if len > 0 {
+            // Safety: RSValue_AllocateArray allocates memory for `len` RSValue pointers
+            let arr = NonNull::new(unsafe { ffi::RSValue_AllocateArray(len) })
+                .expect("RSValue_AllocateArray returned null pointer");
 
-        for (i, value) in iter.enumerate() {
-            // Safety: `arr` was allocated for `len` elements, and `i < len`
-            unsafe {
-                arr.add(i).write(value.as_raw());
+            for (i, value) in iter.enumerate() {
+                // Safety: `arr` was allocated for `len` elements, and `i < len`
+                let ptr = unsafe { arr.add(i) };
+                // Safety: we allocated the array above
+                unsafe {
+                    ptr.write(value.as_raw());
+                }
+
+                // Prevent the RSValueFFI from decrementing the refcount when dropped,
+                // as ownership is transferred to the array.
+                std::mem::forget(value);
             }
-            // Prevent the RSValueFFI from decrementing the refcount when dropped,
-            // as ownership is transferred to the array.
-            std::mem::forget(value);
-        }
 
-        // Safety: RSValue_NewArray takes ownership of the `arr` pointer
-        let value = unsafe { ffi::RSValue_NewArray(arr, len as u32) };
+            // Safety: RSValue_NewArray takes ownership of the `arr` pointer
+            unsafe { ffi::RSValue_NewArray(arr.as_ptr(), len) }
+        } else {
+            // Safety: we pass NULL and 0 which the implementation treats as "empty array"
+            unsafe { ffi::RSValue_NewArray(ptr::null_mut(), 0) }
+        };
 
         Self(NonNull::new(value).expect("RSValue_NewArray returned a null pointer"))
     }
@@ -122,11 +131,10 @@ impl RSValueFFI {
         entries: impl IntoIterator<IntoIter: ExactSizeIterator, Item = (RSValueFFI, RSValueFFI)>,
     ) -> Self {
         let iter = entries.into_iter();
-        let len = iter.len();
-        debug_assert!(u32::try_from(len).is_ok());
+        let len = u32::try_from(iter.len()).unwrap();
 
         // Safety: RSValueMap_AllocUninit allocates memory for `len` RSValueMapEntry structs
-        let mut map = unsafe { ffi::RSValueMap_AllocUninit(len as u32) };
+        let mut map = unsafe { ffi::RSValueMap_AllocUninit(len) };
 
         for (i, (key, value)) in iter.enumerate() {
             // Safety: `map` was allocated for `len` entries, and `i < len`
@@ -143,6 +151,18 @@ impl RSValueFFI {
         let value = unsafe { ffi::RSValue_NewMap(map) };
 
         Self(NonNull::new(value).expect("RSValue_NewMap returned a null pointer"))
+    }
+
+    pub fn new_trio(left: RSValueFFI, middle: RSValueFFI, right: RSValueFFI) -> Self {
+        // Safety: RSValue_NewTrio takes ownership of all three values
+        let value = unsafe { ffi::RSValue_NewTrio(left.as_raw(), middle.as_raw(), right.as_raw()) };
+        // Prevent the RSValueFFI from decrementing the refcount when dropped,
+        // as ownership is transferred to the trio.
+        std::mem::forget(left);
+        std::mem::forget(middle);
+        std::mem::forget(right);
+
+        Self(NonNull::new(value).expect("RSValue_NewTrio returned a null pointer"))
     }
 
     pub fn get_type(&self) -> ffi::RSValueType {
