@@ -8,6 +8,7 @@
 #include "common.h"
 #include "profile/options.h"
 #include "vector_index.h"
+#include "shard_window_ratio.h"
 
 #include <vector>
 
@@ -20,6 +21,9 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                                   IndexSpec *sp,
                                   HybridPipelineParams *hybridParams,
                                   VectorQuery *vq);
+
+// Access the global NumShards variable for testing
+extern size_t NumShards;
 }
 
 class HybridBuildMRCommandTest : public ::testing::Test {
@@ -54,6 +58,21 @@ protected:
             printf("%.*s ", (int)len, str);
         }
         printf("\n");
+    }
+
+    // Helper function to find K value in MRCommand
+    // Returns the index of K keyword, or -1 if not found
+    // If found, kValue will contain the K value as long long
+    int findKValue(const MRCommand *cmd, long long *kValue) {
+        for (int i = 0; i < cmd->num; i++) {
+            if (strcasecmp(cmd->strs[i], "K") == 0 && i + 1 < cmd->num) {
+                if (kValue) {
+                    *kValue = atoll(cmd->strs[i + 1]);
+                }
+                return i;
+            }
+        }
+        return -1;
     }
 
     // Helper function to test command transformation
@@ -292,4 +311,161 @@ TEST_F(HybridBuildMRCommandTest, testMinimalCommand) {
     testCommandTransformationWithIndexSpec({
         "FT.HYBRID", "idx", "SEARCH", "test", "VSIM", "@vec", "data"
     });
+}
+
+// Test SHARD_K_RATIO modifies K value in distributed command with multiple shards
+TEST_F(HybridBuildMRCommandTest, testShardKRatioModifiesK) {
+    // Save original NumShards and set to 4 shards for this test
+    size_t originalNumShards = NumShards;
+    NumShards = 4;
+
+    // Input command with K=100
+    std::vector<const char*> inputArgs = {
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", TEST_BLOB_DATA,
+        "KNN", "2", "K", "100"
+    };
+
+    std::vector<const char*> argsWithNull = inputArgs;
+    argsWithNull.push_back(nullptr);
+
+    RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
+
+    // Create a VectorQuery with SHARD_K_RATIO = 0.5
+    // effectiveK = max(K/#shards, ceil(K * ratio))
+    //            = max(100/4, ceil(100 * 0.5)) = max(25, 50) = 50
+    VectorQuery vq;
+    memset(&vq, 0, sizeof(vq));
+    vq.type = VECSIM_QT_KNN;
+    vq.knn.k = 100;
+    vq.knn.shardWindowRatio = 0.5;  // 50% ratio
+
+    MRCommand xcmd;
+    HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, nullptr,
+                                 &hybridParams, &vq);
+
+    // Verify the command was built correctly
+    EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
+
+    // With 4 shards, K=100, ratio=0.5:
+    // effectiveK = max(100/4, ceil(100*0.5)) = max(25, 50) = 50
+    long long kValue;
+    int kIndex = findKValue(&xcmd, &kValue);
+    EXPECT_NE(kIndex, -1) << "K keyword should be present in output command";
+    EXPECT_EQ(kValue, 50) << "K value should be modified to 50 (effectiveK)";
+
+    MRCommand_Free(&xcmd);
+    NumShards = originalNumShards;  // Restore
+}
+
+// Test SHARD_K_RATIO with small ratio where min guarantee kicks in
+TEST_F(HybridBuildMRCommandTest, testShardKRatioMinGuarantee) {
+    // Save original NumShards and set to 4 shards for this test
+    size_t originalNumShards = NumShards;
+    NumShards = 4;
+
+    std::vector<const char*> inputArgs = {
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", TEST_BLOB_DATA,
+        "KNN", "2", "K", "100"
+    };
+
+    std::vector<const char*> argsWithNull = inputArgs;
+    argsWithNull.push_back(nullptr);
+
+    RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
+
+    // Create a VectorQuery with SHARD_K_RATIO = 0.1
+    // effectiveK = max(K/#shards, ceil(K * ratio))
+    //            = max(100/4, ceil(100 * 0.1)) = max(25, 10) = 25
+    // The min guarantee (K/numShards) should take precedence
+    VectorQuery vq;
+    memset(&vq, 0, sizeof(vq));
+    vq.type = VECSIM_QT_KNN;
+    vq.knn.k = 100;
+    vq.knn.shardWindowRatio = 0.1;  // 10% ratio
+
+    MRCommand xcmd;
+    HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, nullptr,
+                                 &hybridParams, &vq);
+
+    // With 4 shards, K=100, ratio=0.1:
+    // effectiveK = max(100/4, ceil(100*0.1)) = max(25, 10) = 25
+    long long kValue;
+    int kIndex = findKValue(&xcmd, &kValue);
+    EXPECT_NE(kIndex, -1) << "K keyword should be present in output command";
+    EXPECT_EQ(kValue, 25) << "K value should be 25 (min guarantee K/numShards)";
+
+    MRCommand_Free(&xcmd);
+    NumShards = originalNumShards;  // Restore
+}
+
+// Test SHARD_K_RATIO with ratio = 1.0 (no modification)
+TEST_F(HybridBuildMRCommandTest, testShardKRatioNoModificationWhenRatioIsOne) {
+    // Save original NumShards and set to 4 shards for this test
+    size_t originalNumShards = NumShards;
+    NumShards = 4;
+
+    std::vector<const char*> inputArgs = {
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", TEST_BLOB_DATA,
+        "KNN", "2", "K", "50"
+    };
+
+    std::vector<const char*> argsWithNull = inputArgs;
+    argsWithNull.push_back(nullptr);
+
+    RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
+
+    // Create a VectorQuery with SHARD_K_RATIO = 1.0 (no optimization)
+    VectorQuery vq;
+    memset(&vq, 0, sizeof(vq));
+    vq.type = VECSIM_QT_KNN;
+    vq.knn.k = 50;
+    vq.knn.shardWindowRatio = 1.0;  // No optimization
+
+    MRCommand xcmd;
+    HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, nullptr,
+                                 &hybridParams, &vq);
+
+    // K value should remain 50 since ratio = 1.0 means no modification
+    long long kValue;
+    int kIndex = findKValue(&xcmd, &kValue);
+    EXPECT_NE(kIndex, -1) << "K keyword should be present in output command";
+    EXPECT_EQ(kValue, 50) << "K value should remain 50 when ratio = 1.0";
+
+    MRCommand_Free(&xcmd);
+    NumShards = originalNumShards;  // Restore
+}
+
+// Test SHARD_K_RATIO with NULL VectorQuery (backward compatibility)
+TEST_F(HybridBuildMRCommandTest, testShardKRatioNullVectorQuery) {
+    // Save original NumShards and set to 4 shards for this test
+    size_t originalNumShards = NumShards;
+    NumShards = 4;
+
+    std::vector<const char*> inputArgs = {
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", TEST_BLOB_DATA,
+        "KNN", "2", "K", "25"
+    };
+
+    std::vector<const char*> argsWithNull = inputArgs;
+    argsWithNull.push_back(nullptr);
+
+    RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
+
+    // Pass NULL for VectorQuery - should not modify K
+    MRCommand xcmd;
+    HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, nullptr,
+                                 &hybridParams, NULL);
+
+    // K value should remain 25 since no VectorQuery provided
+    long long kValue;
+    int kIndex = findKValue(&xcmd, &kValue);
+    EXPECT_NE(kIndex, -1) << "K keyword should be present in output command";
+    EXPECT_EQ(kValue, 25) << "K value should remain 25 when VectorQuery is NULL";
+
+    MRCommand_Free(&xcmd);
+    NumShards = originalNumShards;  // Restore
 }
