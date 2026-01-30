@@ -145,6 +145,20 @@ impl RSValueFFI {
         Self(NonNull::new(value).expect("RSValue_NewMap returned a null pointer"))
     }
 
+    pub fn new_trio(left: RSValueFFI, middle: RSValueFFI, right: RSValueFFI) -> Self {
+        // Safety: RSValue_NewTrio takes ownership of all three values
+        let value = unsafe {
+            ffi::RSValue_NewTrio(left.as_raw(), middle.as_raw(), right.as_raw())
+        };
+        // Prevent the RSValueFFI from decrementing the refcount when dropped,
+        // as ownership is transferred to the trio.
+        std::mem::forget(left);
+        std::mem::forget(middle);
+        std::mem::forget(right);
+
+        Self(NonNull::new(value).expect("RSValue_NewTrio returned a null pointer"))
+    }
+
     pub fn get_type(&self) -> ffi::RSValueType {
         // Safety: self.0 is a valid pointer to an RSValue struct which RSValue_Type expects.
         unsafe { ffi::RSValue_Type(self.0.as_ptr()) }
