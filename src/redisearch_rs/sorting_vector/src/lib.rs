@@ -149,7 +149,7 @@ impl<T: RSValueTrait> RSSortingVector<T> {
 
             // the original behavior would by-pass references in the middle of the chain
             // fixup in: MOD-10347
-            let value = walk_down_rsvalue_ref_chain(&self.values[idx]);
+            let value = self.values[idx].deep_deref();
 
             if value.get_type() == ffi::RSValueType_RSValueType_String {
                 sz += value.as_str_bytes().unwrap().len();
@@ -197,13 +197,4 @@ where
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         self.values.index_mut(index)
     }
-}
-
-/// Walks down the reference chain of a `RSValue` until it reaches a non-reference value.
-fn walk_down_rsvalue_ref_chain<T: RSValueTrait>(origin: &T) -> &T {
-    let mut loop_var = origin;
-    while loop_var.get_ref().is_some() {
-        loop_var = loop_var.get_ref().unwrap();
-    }
-    loop_var
 }

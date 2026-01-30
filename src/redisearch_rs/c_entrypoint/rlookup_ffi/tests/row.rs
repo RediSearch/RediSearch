@@ -10,7 +10,7 @@
 use std::mem::{self, offset_of};
 use std::ptr;
 use std::ptr::NonNull;
-use std::sync::atomic::AtomicU16;
+use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::{cmp, ffi::CString};
@@ -64,7 +64,7 @@ fn rlookuprow_writebyname() {
     let mut row = RLookupRow::new(&lookup);
     let value = unsafe { RSValueFFI::from_raw(NonNull::new(RSValue_NewNumber(42.0)).unwrap()) };
 
-    assert_eq!(value.refcount(), Some(1));
+    assert_eq!(value.refcount(), 1);
 
     unsafe {
         RLookupRow_WriteByName(
@@ -76,7 +76,7 @@ fn rlookuprow_writebyname() {
         );
     }
 
-    assert_eq!(value.refcount(), Some(2));
+    assert_eq!(value.refcount(), 2);
 }
 
 #[test]
@@ -87,7 +87,7 @@ fn rlookuprow_writebynameowned() {
     let mut row = RLookupRow::new(&lookup);
     let value = unsafe { RSValueFFI::from_raw(NonNull::new(RSValue_NewNumber(42.0)).unwrap()) };
 
-    assert_eq!(value.refcount(), Some(1));
+    assert_eq!(value.refcount(), 1);
 
     unsafe {
         RLookupRow_WriteByNameOwned(
@@ -99,7 +99,7 @@ fn rlookuprow_writebynameowned() {
         );
     }
 
-    assert_eq!(value.refcount(), Some(1));
+    assert_eq!(value.refcount(), 1);
 
     // See the comment regarding `mem::forget()` at the end of `RLookupRow_WriteByName()` for more info.
     mem::forget(value);
@@ -107,49 +107,30 @@ fn rlookuprow_writebynameowned() {
 
 /// Mock implementation of `RSValue_IncrRef` for testing purposes
 #[unsafe(no_mangle)]
-pub extern "C" fn RSValue_IncrRef(v: Option<NonNull<ffi::RSValue>>) -> *mut ffi::RSValue {
-    const MAX_REFCOUNT: u16 = (i16::MAX) as u16;
-
-    let v = v.unwrap();
-    let refcount_ptr = unsafe {
-        v.byte_add(offset_of!(ffi::RSValue, _refcount))
-            .cast::<u16>()
-    };
-    let refcount = unsafe { AtomicU16::from_ptr(refcount_ptr.as_ptr()) };
-    let old_size = refcount.fetch_add(1, Ordering::Relaxed);
-    if old_size > MAX_REFCOUNT {
-        std::process::abort();
-    }
-    v.as_ptr()
+pub extern "C" fn RSValue_IncrRef(v: *mut ffi::RSValue) -> *mut ffi::RSValue {
+    unsafe { Arc::increment_strong_count(v as *mut f64) };
+    v
 }
 
 /// Mock implementation of `RSValue_DecrRef` for testing purposes
 #[unsafe(no_mangle)]
-pub extern "C" fn RSValue_DecrRef(v: Option<NonNull<ffi::RSValue>>) {
-    let v = v.unwrap();
-    let refcount_ptr = unsafe {
-        v.byte_add(offset_of!(ffi::RSValue, _refcount))
-            .cast::<u16>()
-    };
-    let refcount = unsafe { AtomicU16::from_ptr(refcount_ptr.as_ptr()) };
-    if refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
-        drop(unsafe { Box::from_raw(v.as_ptr()) });
-    }
+pub extern "C" fn RSValue_DecrRef(v: *mut ffi::RSValue) {
+    unsafe { Arc::from_raw(v as *mut f64) };
 }
 
 /// Mock implementation of `RSValue_NewNumber` for testing purposes
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_NewNumber(numval: f64) -> *mut ffi::RSValue {
-    Box::into_raw(Box::new(ffi::RSValue {
-        __bindgen_anon_1: ffi::RSValue__bindgen_ty_1 { _numval: numval },
-        _bitfield_align_1: [0u8; 0],
-        _bitfield_1: {
-            let mut field = ffi::__BindgenBitfieldUnit::new([0; _]);
-            field.set_bit(0, true);
-            field
-        },
-        _refcount: 1,
-    }))
+    Arc::into_raw(Arc::new(numval)) as *mut ffi::RSValue
+}
+
+/// Mock implementation of `RSValue_Refcount` for testing purposes
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_Refcount(v: *mut ffi::RSValue) -> u16 {
+    let arc = unsafe { Arc::from_raw(v as *mut f64) };
+    let count = Arc::strong_count(&arc);
+    mem::forget(arc);
+    count as u16
 }
 
 #[derive(Default, Copy, Clone)]
