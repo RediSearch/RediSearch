@@ -106,6 +106,7 @@ typedef struct {
   int profileArgs;
   int profileLimited;
   rs_wall_clock profileClock;
+  rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
   void *reducer;
   bool queryOOM;
 
