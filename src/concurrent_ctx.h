@@ -42,6 +42,7 @@ struct ConcurrentCmdCtx;
 typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
                                      struct ConcurrentCmdCtx *);
 
+
 #define CMDCTX_KEEP_RCTX 0x01
 
 /**

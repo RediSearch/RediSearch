@@ -261,6 +261,7 @@ typedef struct AREQ {
   /** Profile variables */
   rs_wall_clock initClock;                      // Time of start. Reset for each cursor call
   rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accumulate cursors times
+  rs_wall_clock_ns_t profileQueueTime;          // Time spent waiting in workers thread pool queue
   rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query
   rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline
 
