@@ -124,6 +124,7 @@ struct ConcurrentCmdCtx;
 typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
                                      struct ConcurrentCmdCtx *);
 
+
 #define CMDCTX_KEEP_RCTX 0x01
 #define CMDCTX_NO_GIL 0x02
 
