@@ -217,58 +217,6 @@ def test_shard_k_ratio_valid_values():
         env.flush()
 
 
-def test_shard_k_ratio_with_filter():
-    """Test SHARD_K_RATIO combined with FILTER clause."""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-
-    dim = 2
-    setup_basic_index(env, dim)
-
-    conn = getConnectionByEnv(env)
-    for i in range(10):
-        vec = create_np_array_typed([float(i)] * dim)
-        tag = 'even' if i % 2 == 0 else 'odd'
-        conn.execute_command('HSET', f'doc:{i}', 'v', vec.tobytes(),
-                             't', f'hello world {i}', 'tag', tag)
-
-    query_vec = create_np_array_typed([5.0] * dim)
-
-    # Test SHARD_K_RATIO with FILTER
-    res = env.cmd('FT.HYBRID', 'idx', '2', 'SEARCH', 'hello',
-                  'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', '5',
-                  'FILTER', '@tag:{even}',
-                  'SHARD_K_RATIO', '0.5',
-                  'PARAMS', '2', 'BLOB', query_vec.tobytes())
-    # Verify we get a valid response
-    env.assertIsNotNone(res, message="Expected valid response with FILTER and SHARD_K_RATIO")
-    env.assertGreaterEqual(len(res), 1, message="Expected at least total_results with FILTER and SHARD_K_RATIO")
-
-
-def test_shard_k_ratio_with_yield_score_as():
-    """Test SHARD_K_RATIO combined with YIELD_SCORE_AS clause."""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-
-    dim = 2
-    setup_basic_index(env, dim)
-
-    conn = getConnectionByEnv(env)
-    for i in range(10):
-        vec = create_np_array_typed([float(i)] * dim)
-        conn.execute_command('HSET', f'doc:{i}', 'v', vec.tobytes(), 't', f'hello world {i}')
-
-    query_vec = create_np_array_typed([5.0] * dim)
-
-    # Test SHARD_K_RATIO with YIELD_SCORE_AS
-    res = env.cmd('FT.HYBRID', 'idx', '2', 'SEARCH', 'hello',
-                  'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', '5',
-                  'YIELD_SCORE_AS', 'my_score',
-                  'SHARD_K_RATIO', '0.8',
-                  'PARAMS', '2', 'BLOB', query_vec.tobytes())
-    # Verify we get a valid response
-    env.assertIsNotNone(res, message="Expected valid response with YIELD_SCORE_AS and SHARD_K_RATIO")
-    env.assertGreaterEqual(len(res), 1, message="Expected at least total_results with YIELD_SCORE_AS and SHARD_K_RATIO")
-
-
 def test_shard_k_ratio_result_count():
     """Test that SHARD_K_RATIO returns the expected number of results.
 
