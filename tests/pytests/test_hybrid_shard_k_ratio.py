@@ -14,31 +14,39 @@ from common import *
 
 def ValidateHybridError(env, res, expected_error_message, message="", depth=1):
     """Helper to validate error response from FT.HYBRID command"""
-    env.assertTrue(res.errorRaised, message=message, depth=depth+1)
-    env.assertContains(expected_error_message, res.res, message=message, depth=depth+1)
+    env.assertTrue(res.errorRaised, message=message, depth=depth + 1)
+    env.assertContains(expected_error_message, res.res, message=message, depth=depth + 1)
 
 
-def setup_basic_index(env, dim=2):
+def setup_basic_index(env, dim=2, docs_per_shard=None, uniform_vectors=True):
     """
-    Create a basic index with a single document for error-checking tests.
+    Create a basic index with optional sharded document distribution.
 
     Args:
         env: The test environment
         dim: Vector dimension (default: 2)
+        docs_per_shard:
+            Optional list of integers specifying how many documents each shard
+            should contain (e.g., [1, 1, 5]).
+            If None, creates a single document for simple tests.
     """
     env.expect(
         'FT.CREATE', 'idx', 'SCHEMA',
         'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', dim,
             'DISTANCE_METRIC', 'L2',
         't', 'TEXT',
-        'tag', 'TAG').ok()
+        'tag', 'TAG',
+        'shard_tag', 'TAG').ok()
 
-    conn = getConnectionByEnv(env)
-    vec = create_np_array_typed([1.0] * dim)
-    conn.execute_command('HSET', 'doc:1', 'v', vec.tobytes(), 't', 'hello')
+    if docs_per_shard is not None:
+        setup_sharded_documents(env, docs_per_shard, dim, uniform_vectors)
+    else:
+        conn = getConnectionByEnv(env)
+        vec = create_np_array_typed([1.0] * dim)
+        conn.execute_command('HSET', 'doc:1', 'v', vec.tobytes(), 't', 'hello')
 
 
-def setup_sharded_documents(env, target_docs_per_shard, dim):
+def setup_sharded_documents(env, docs_per_shard, dim, uniform_vectors=True):
     """
     Set up documents distributed across shards according to a specified target
     distribution.
@@ -49,8 +57,8 @@ def setup_sharded_documents(env, target_docs_per_shard, dim):
 
     Args:
         env: The test environment
-        target_docs_per_shard: List of integers specifying how many documents
-                               each shard should contain (e.g., [1, 1, 5])
+        docs_per_shard: List of integers specifying how many documents
+                        each shard should contain (e.g., [1, 1, 5])
         dim: Vector dimension
 
     Note:
@@ -68,11 +76,19 @@ def setup_sharded_documents(env, target_docs_per_shard, dim):
     for shard_idx in range(3):
         hash_tag = shard_hash_tags[shard_idx]
         shard_tag_value = hash_tag.strip('{}')  # e.g., 'shard:0'
-        for doc_idx in range(target_docs_per_shard[shard_idx]):
+        for doc_idx in range(docs_per_shard[shard_idx]):
             doc_key = f'{hash_tag}:doc{doc_idx}'
-            # Use doc_idx only (not shard_idx) so all shards have same vector
-            # distribution
-            vec = create_np_array_typed([float(doc_idx)] * dim)
+
+            if uniform_vectors:
+                # Use doc_idx only (not shard_idx) so all shards have same
+                # vector distribution
+                vector = ([float(doc_idx)] * dim)
+            else:
+                # Use doc_idx + shard_idx offset so each shard has unique vector
+                # distribution
+                vector = ([float(doc_idx) + 5 * shard_idx] * dim)
+
+            vec = create_np_array_typed(vector)
             conn.execute_command('HSET', doc_key, 'v', vec.tobytes(),
                                  't', 'some text',
                                  'shard_tag', shard_tag_value)
@@ -80,14 +96,14 @@ def setup_sharded_documents(env, target_docs_per_shard, dim):
     # Verify each shard has the expected number of documents
     for shard_idx, shard_conn in enumerate(env.getOSSMasterNodesConnectionList()):
         keys = shard_conn.execute_command('KEYS', '*')
-        env.assertEqual(len(keys), target_docs_per_shard[shard_idx],
-                       message=f"Shard {shard_idx} should have {target_docs_per_shard[shard_idx]} keys, got {len(keys)}")
+        env.assertEqual(
+            len(keys), docs_per_shard[shard_idx],
+            message=f"Shard {shard_idx} should have {docs_per_shard[shard_idx]} keys, got {len(keys)}")
 
 
 def test_shard_k_ratio_parameter_validation():
     """Test SHARD_K_RATIO parameter validation and error handling for FT.HYBRID."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-
     setup_basic_index(env)
     query_vec = create_np_array_typed([2.0] * 2)
 
@@ -99,22 +115,23 @@ def test_shard_k_ratio_parameter_validation():
                          'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', '5',
                          'SHARD_K_RATIO', str(ratio),
                          'PARAMS', '2', 'BLOB', query_vec.tobytes())
-        ValidateHybridError(env, res, "Invalid shard k ratio value",
-                           message=f"FT.HYBRID expected error for invalid shard k ratio: {ratio}")
+        ValidateHybridError(
+            env, res, "Invalid shard k ratio value",
+            message=f"FT.HYBRID expected error for invalid shard k ratio: {ratio}")
 
     # Test non-numeric value
     res = env.expect('FT.HYBRID', 'idx', '2', 'SEARCH', 'hello',
                      'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', '5',
                      'SHARD_K_RATIO', 'invalid',
                      'PARAMS', '2', 'BLOB', query_vec.tobytes())
-    ValidateHybridError(env, res, "Invalid shard k ratio value",
-                       message="FT.HYBRID expected error for non-numeric shard k ratio")
+    ValidateHybridError(
+        env, res, "Invalid shard k ratio value",
+        message="FT.HYBRID expected error for non-numeric shard k ratio")
 
 
 def test_shard_k_ratio_missing_value():
     """Test SHARD_K_RATIO with missing value for FT.HYBRID."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-
     setup_basic_index(env)
     query_vec = create_np_array_typed([2.0] * 2)
 
@@ -124,8 +141,9 @@ def test_shard_k_ratio_missing_value():
                      'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', '5',
                      'SHARD_K_RATIO',
                      'PARAMS', '2', 'BLOB', query_vec.tobytes())
-    ValidateHybridError(env, res, "Invalid shard k ratio value",
-                       message="FT.HYBRID expected error for missing SHARD_K_RATIO value")
+    ValidateHybridError(
+        env, res, "Invalid shard k ratio value",
+        message="FT.HYBRID expected error for missing SHARD_K_RATIO value")
 
 
 def test_shard_k_ratio_duplicate():
@@ -141,36 +159,62 @@ def test_shard_k_ratio_duplicate():
                      'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', '5',
                      'SHARD_K_RATIO', '0.5', 'SHARD_K_RATIO', '0.8',
                      'PARAMS', '2', 'BLOB', query_vec.tobytes())
-    ValidateHybridError(env, res, "SHARD_K_RATIO",
-                       message="FT.HYBRID expected error for duplicate SHARD_K_RATIO")
+    ValidateHybridError(
+        env, res, "SHARD_K_RATIO",
+        message="FT.HYBRID expected error for duplicate SHARD_K_RATIO")
 
 
 def test_shard_k_ratio_valid_values():
     """Test SHARD_K_RATIO with valid values for FT.HYBRID."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-
     dim = 2
-    setup_basic_index(env, dim)
-
-    conn = getConnectionByEnv(env)
-    # Create enough documents for meaningful tests
-    for i in range(10):
-        vec = create_np_array_typed([float(i)] * dim)
-        conn.execute_command('HSET', f'doc:{i}', 'v', vec.tobytes(), 't', f'hello world {i}')
-
+    k = 15
     query_vec = create_np_array_typed([5.0] * dim)
 
-    # Test valid ratio values - should all succeed
-    valid_ratios = [0.1, 0.5, 0.9, 1.0]
-    for ratio in valid_ratios:
-        res = env.cmd('FT.HYBRID', 'idx', '2', 'SEARCH', 'hello',
-                      'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', '5',
-                      'SHARD_K_RATIO', str(ratio),
-                      'PARAMS', '2', 'BLOB', query_vec.tobytes())
-        # Verify we get a valid response - check total_results is present (RESP2 format)
-        # Response format: [total_results, doc1, attrs1, doc2, attrs2, ...]
-        env.assertIsNotNone(res, message=f"Expected response for ratio {ratio}")
-        env.assertGreaterEqual(len(res), 1, message=f"Expected at least total_results for ratio {ratio}")
+    for uniform_vectors in [True, False] if CLUSTER else [True]:
+        if CLUSTER:
+            # ensure we have enough results in each shard
+            setup_basic_index(env, dim, [k + 20] * env.shardsCount,
+                              uniform_vectors)
+        else:
+            setup_basic_index(env, dim)
+            conn = getConnectionByEnv(env)
+            for i in range(k + 5):
+                vec = create_np_array_typed([float(i)] * dim)
+                conn.execute_command(
+                    'HSET', f'doc:{i}', 'v', vec.tobytes(), 't', f'hello {i}')
+
+        # Test valid ratio values - should all succeed
+        valid_ratios = [0.1, 0.5, 0.9, 1.0]
+        for ratio in valid_ratios:
+            res = env.cmd(
+                'FT.HYBRID', 'idx', '2', 'SEARCH', 'unexistent_term_xyz',
+                'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', k,
+                'SHARD_K_RATIO', str(ratio),
+                'GROUPBY', '1', '@shard_tag',
+                'REDUCE', 'COUNT', '0', 'AS', 'count',
+                'SORTBY', '2', '@shard_tag', 'ASC',
+                'PARAMS', '2', 'BLOB', query_vec.tobytes())
+
+            # Response format: ['total_results', N, 'results', [...], ...]
+            results = res[3]
+
+            if uniform_vectors and env.shardsCount == 3:
+                # With uniform vectors, each shard should have the same number
+                # of results
+                expected_results = [
+                    ['shard_tag', 'shard:0', 'count', '5'],
+                    ['shard_tag', 'shard:1', 'count', '5'],
+                    ['shard_tag', 'shard:3', 'count', '5']
+                ]
+                env.assertEqual(results, expected_results)
+
+            expected_result_count = k
+            total_count = sum(int(row[3]) for row in results)
+            env.assertEqual(
+                total_count, expected_result_count,
+                message=f"FT.HYBRID with SHARD_K_RATIO: expected {expected_result_count} results, got {total_count}")
+        env.flush()
 
 
 def test_shard_k_ratio_with_filter():
@@ -239,22 +283,19 @@ def test_shard_k_ratio_result_count():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
 
     dim = 2
-    datatype = 'FLOAT32'
     k = 100
-    num_docs = k * max(env.shardsCount, 1) * 3  # ensure we have enough results in each shard
+    if CLUSTER:
+        # ensure we have enough results in each shard
+        setup_basic_index(env, dim, [k + 20] * env.shardsCount)
+    else:
+        setup_basic_index(env, dim)
+        conn = getConnectionByEnv(env)
+        for i in range(k + 20):
+            vec = create_np_array_typed([float(i)] * dim)
+            conn.execute_command(
+                'HSET', f'doc:{i}', 'v', vec.tobytes(), 't', f'hello world {i}')
 
-    # Create index with vector and text fields
-    env.expect('FT.CREATE', 'idx', 'SCHEMA',
-               'v', 'VECTOR', 'FLAT', '6', 'TYPE', datatype, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-               't', 'TEXT').ok()
-
-    conn = getConnectionByEnv(env)
-    # Create documents with vector field only (no matching text for SEARCH)
-    for i in range(1, num_docs + 1):
-        vec = create_np_array_typed([float(i % 100)] * dim)
-        conn.execute_command('HSET', f'doc{i}', 'v', vec.tobytes(), 't', 'some text')
-
-    query_vec = create_random_np_array_typed(dim, datatype)
+    query_vec = create_random_np_array_typed(dim, 'FLOAT32')
 
     min_shard_ratio = 1 / float(max(env.shardsCount, 1))
     ratios = [min_shard_ratio, 0.01, 0.5, 0.9, 1.0]
@@ -264,18 +305,19 @@ def test_shard_k_ratio_result_count():
         # Use a SEARCH query that matches zero docs, so only VSIM results are returned
         # Use LIMIT and WINDOW to ensure we can get K results (defaults are 10 and 20)
         res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'nonexistent_term_xyz',
-                      'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', str(k),
+                      'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', k,
                       'SHARD_K_RATIO', str(ratio),
-                      'COMBINE', 'RRF', '2', 'WINDOW', str(k),
-                      'LIMIT', '0', str(k),
+                      'COMBINE', 'RRF', '2', 'WINDOW', k,
+                      'LIMIT', '0', k,
                       'PARAMS', '2', 'BLOB', query_vec.tobytes())
 
-        # Response format: ['total_results', N, 'results', [...], 'warnings', [], 'execution_time', ...]
+        # Response format: ['total_results', N, 'results', [...], ...]
         # Results are in res[3]
         actual_result_count = len(res[3])
 
-        env.assertEqual(actual_result_count, k,
-                       message=f"FT.HYBRID with K={k}, ratio={ratio}: expected {k} results, got {actual_result_count}")
+        env.assertEqual(
+            actual_result_count, k,
+            message=f"FT.HYBRID with K={k}, ratio={ratio}: expected {k} results, got {actual_result_count}")
 
 
 def test_shard_k_ratio_small_k():
@@ -287,29 +329,25 @@ def test_shard_k_ratio_small_k():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
 
     dim = 2
-    datatype = 'FLOAT32'
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA',
-               'v', 'VECTOR', 'FLAT', '6', 'TYPE', datatype, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-               't', 'TEXT').ok()
+    setup_basic_index(env, dim)
 
     conn = getConnectionByEnv(env)
     for i in range(1, 11):
         vec = create_np_array_typed([float(i)] * dim)
         conn.execute_command('HSET', f'doc{i}', 'v', vec.tobytes(), 't', 'some text')
 
-    query_vec = create_random_np_array_typed(dim, datatype)
+    query_vec = create_random_np_array_typed(dim, 'FLOAT32')
 
     ratio = 0.5
 
     # Test small K values with a non-matching SEARCH query
     for k in [1, 2, 3]:
         res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'nonexistent_term_xyz',
-                      'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', str(k),
+                      'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', k,
                       'SHARD_K_RATIO', str(ratio),
                       'PARAMS', '2', 'BLOB', query_vec.tobytes())
 
-        # Response format: ['total_results', N, 'results', [...], 'warnings', [], 'execution_time', ...]
+        # Response format: ['total_results', N, 'results', [...], ...]
         actual_result_count = len(res[3])
         env.assertEqual(actual_result_count, k,
                        message=f"FT.HYBRID with K={k}: expected {k} results, got {actual_result_count}")
@@ -338,7 +376,6 @@ def test_shard_k_ratio_per_shard_verification():
         env.skip()
 
     dim = 2
-    datatype = 'FLOAT32'
 
     # We want enough docs per shard to verify limiting works
     # With 5 docs per shard and effectiveK = 3, we can verify limiting
@@ -352,31 +389,28 @@ def test_shard_k_ratio_per_shard_verification():
     k = effective_k_per_shard * num_shards  # K = 9
     ratio = effective_k_per_shard / k  # ratio = 3/9 = 1/3
 
-    # Create index with vector, text, and tag fields
-    env.expect('FT.CREATE', 'idx', 'SCHEMA',
-               'v', 'VECTOR', 'FLAT', '6', 'TYPE', datatype, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-               't', 'TEXT',
-               'shard_tag', 'TAG').ok()
-
-    # Set up documents: 5 docs per shard (equal distribution)
+    # Set up index and documents: 5 docs per shard (equal distribution)
     target_docs_per_shard = [docs_per_shard] * num_shards
-    setup_sharded_documents(env, target_docs_per_shard, dim)
+    setup_basic_index(env, dim, target_docs_per_shard)
 
-    query_vec = create_random_np_array_typed(dim, datatype)
+    query_vec = create_random_np_array_typed(dim, 'FLOAT32')
 
     # Run FT.HYBRID with SHARD_K_RATIO
     # Use non-matching SEARCH query so only VSIM results are returned
     # Use GROUPBY @shard_tag with REDUCE COUNT to count results per shard
     res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'nonexistent_term_xyz',
-                  'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', str(k),
+                  'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', k,
                   'SHARD_K_RATIO', str(ratio),
-                  'COMBINE', 'RRF', '2', 'WINDOW', str(k),
+                  'COMBINE', 'RRF', '2', 'WINDOW', k,
                   'LOAD', '1', '@shard_tag',
-                  'GROUPBY', '1', '@shard_tag', 'REDUCE', 'COUNT', '0', 'AS', 'count',
+                  'GROUPBY', '1', '@shard_tag',
+                  'REDUCE', 'COUNT', '0', 'AS', 'count',
+                  'SORTBY', '2', '@shard_tag', 'ASC',
                   'PARAMS', '2', 'BLOB', query_vec.tobytes())
 
-    # Response format: ['total_results', N, 'results', [...], 'warnings', [], 'execution_time', ...]
-    # With GROUPBY, results are grouped rows like: [{'shard_tag': 'shard:0', 'count': '1'}, ...]
+    # Response format: ['total_results', N, 'results', [...], ...]
+    # With GROUPBY, results are grouped rows like:
+    #                   [{'shard_tag': 'shard:0', 'count': '1'}, ...]
     results = res[3]
 
     # Parse GROUPBY results into shard_counts dict
@@ -425,24 +459,16 @@ def test_shard_k_ratio_insufficient_docs():
         env.skip()
 
     dim = 2
-    datatype = 'FLOAT32'
     k = 5  # Request 5 results
     ratio = 0.1
     # effectiveK = max(5/3, ceil(5*0.1)) = max(2, 1) = 2
 
-    # Create index with vector and text fields
-    env.expect(
-        'FT.CREATE', 'idx', 'SCHEMA',
-        'v', 'VECTOR', 'FLAT', '6', 'TYPE', datatype, 'DIM', dim,
-            'DISTANCE_METRIC', 'L2',
-        't', 'TEXT',
-        'shard_tag', 'TAG').ok()
-
-    # Set up documents: [1, 1, 5] docs per shard (unequal distribution)
+    # Set up index and documents: [1, 1, 5] docs per shard (unequal distribution)
     target_docs_per_shard = [1, 1, 5]
-    setup_sharded_documents(env, target_docs_per_shard, dim)
+    setup_basic_index(env, dim, target_docs_per_shard)
 
-    query_vec = create_np_array_typed([0.5] * dim)  # Fixed query vector for reproducibility
+    # Fixed query vector for reproducibility
+    query_vec = create_np_array_typed([0.5] * dim)
 
     # Use non-matching SEARCH query so only VSIM results are returned
     # Use GROUPBY @shard_tag with REDUCE COUNT to count results per shard
@@ -451,12 +477,13 @@ def test_shard_k_ratio_insufficient_docs():
                   'SHARD_K_RATIO', str(ratio),
                   'LOAD', '1', '@shard_tag',
                   'GROUPBY', '1', '@shard_tag',
-                    'REDUCE', 'COUNT', '0', 'AS', 'count',
+                  'REDUCE', 'COUNT', '0', 'AS', 'count',
                   'SORTBY', '2', '@shard_tag', 'ASC',
                   'PARAMS', '2', 'BLOB', query_vec.tobytes())
 
-    # Response format: ['total_results', N, 'results', [...], 'warnings', [], 'execution_time', ...]
-    # With GROUPBY, results are grouped rows like: [{'shard_tag': 'shard:0', 'count': '1'}, ...]
+    # Response format: ['total_results', N, 'results', [...], ...]
+    # With GROUPBY, results are grouped rows like:
+    #                   [{'shard_tag': 'shard:0', 'count': '1'}, ...]
     results = res[3]
 
     # With effectiveK=2:
@@ -473,5 +500,6 @@ def test_shard_k_ratio_insufficient_docs():
     # Total expected: 1 + 1 + 2 = 4 (same as FT.SEARCH/FT.AGGREGATE)
     expected_result_count = 4
     total_count = sum(int(row[3]) for row in results)
-    env.assertEqual(total_count, expected_result_count,
-                   message=f"FT.HYBRID with SHARD_K_RATIO: expected {expected_result_count} results, got {total_count}")
+    env.assertEqual(
+        total_count, expected_result_count,
+        message=f"FT.HYBRID with SHARD_K_RATIO: expected {expected_result_count} results, got {total_count}")

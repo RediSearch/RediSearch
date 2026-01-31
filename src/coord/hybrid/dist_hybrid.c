@@ -158,8 +158,10 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
     if (ratio < MAX_SHARD_WINDOW_RATIO) {
       // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
       size_t numShards = GetNumShards_UnSafe();
-      effectiveK = calculateEffectiveK(vq->knn.k, ratio, numShards);
-      shouldModifyK = (effectiveK != vq->knn.k);
+      if (numShards > 1) {
+        effectiveK = calculateEffectiveK(vq->knn.k, ratio, numShards);
+        shouldModifyK = (effectiveK != vq->knn.k);
+      }
     }
   }
 
@@ -184,8 +186,9 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 
           // Append effectiveK instead of original K value
           char effectiveK_str[32];
-          snprintf(effectiveK_str, sizeof(effectiveK_str), "%zu", effectiveK);
-          MRCommand_Append(xcmd, effectiveK_str, strlen(effectiveK_str));
+          int len = snprintf(effectiveK_str, sizeof(effectiveK_str), "%zu", effectiveK);
+          MRCommand_Append(xcmd, effectiveK_str, len);
+          shouldModifyK = false;
         } else {
           // Regular argument - append as-is
           MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);
