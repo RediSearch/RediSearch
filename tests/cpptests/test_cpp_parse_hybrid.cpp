@@ -945,7 +945,8 @@ TEST_F(ParseHybridTest, testKNNDuplicateYieldDistanceAs) {
       "KNN", "2", "K", "10",
       "YIELD_SCORE_AS", "dist1", "YIELD_SCORE_AS", "dist2",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "YIELD_SCORE_AS: Unknown argument");
+  testErrorCode(args, QUERY_ERROR_CODE_DUP_PARAM,
+                "Duplicate YIELD_SCORE_AS argument");
 }
 
 TEST_F(ParseHybridTest, testKNNCountingYieldDistanceAs) {
@@ -1015,7 +1016,8 @@ TEST_F(ParseHybridTest, testRangeDuplicateYieldDistanceAs) {
       "RANGE", "2", "RADIUS", "0.5",
       "YIELD_SCORE_AS", "dist1", "YIELD_SCORE_AS", "dist2",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "YIELD_SCORE_AS: Unknown argument");
+  testErrorCode(args, QUERY_ERROR_CODE_DUP_PARAM,
+                "Duplicate YIELD_SCORE_AS argument");
 }
 
 TEST_F(ParseHybridTest, testRangeCountingYieldDistanceAs) {
@@ -1525,17 +1527,15 @@ TEST_F(ParseHybridTest, testShardKRatioMissingValueAtEnd) {
 }
 
 TEST_F(ParseHybridTest, testShardKRatioDuplicate) {
-  // Test duplicate SHARD_K_RATIO argument - currently second SHARD_K_RATIO is
-  // not recognized since parsing doesn't loop, so it becomes an unknown argument.
-  // NOTE: Once proper duplicate detection is implemented by looping through
-  // optional args, this should expect QUERY_ERROR_CODE_DUP_PARAM.
+  // Test duplicate SHARD_K_RATIO argument - proper duplicate detection via
+  // looping through optional args.
   RMCK::ArgvList args(
     ctx, "FT.HYBRID", index_name.c_str(),
     "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
     "SHARD_K_RATIO", "0.5", "SHARD_K_RATIO", "0.7",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS,
-    "SHARD_K_RATIO: Unknown argument");
+  testErrorCode(args, QUERY_ERROR_CODE_DUP_PARAM,
+    "Duplicate SHARD_K_RATIO argument");
 }
 
 TEST_F(ParseHybridTest, testShardKRatioWithFilter) {
@@ -1557,13 +1557,36 @@ TEST_F(ParseHybridTest, testShardKRatioWithFilter) {
   ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.8);
 }
 
-TEST_F(ParseHybridTest, testShardKRatioWithYieldScoreAs) {
+TEST_F(ParseHybridTest, testShardKRatioAfterYieldScoreAs) {
   // Test SHARD_K_RATIO combined with YIELD_SCORE_AS
   RMCK::ArgvList args(
     ctx, "FT.HYBRID", index_name.c_str(),
     "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
     "YIELD_SCORE_AS", "my_score",
     "SHARD_K_RATIO", "0.75",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  AREQ* vecReq = result.vector;
+  ASSERT_TRUE(vecReq->ast.root != NULL);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
+
+  VectorQuery *vq = vecReq->ast.root->vn.vq;
+  ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.75);
+
+  // YIELD_SCORE_AS is stored in QueryNode opts.distField (not in parsedVectorData)
+  QueryNode *vn = vecReq->ast.root;
+  ASSERT_STREQ(vn->opts.distField, "my_score");
+}
+
+TEST_F(ParseHybridTest, testShardKRatioBeforeYieldScoreAs) {
+  // Test SHARD_K_RATIO combined with YIELD_SCORE_AS
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
+    "SHARD_K_RATIO", "0.75",
+    "YIELD_SCORE_AS", "my_score",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);

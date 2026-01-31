@@ -483,17 +483,18 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
   }
 
-  // Check for optional YIELD_SCORE_AS clause
-  if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
-    if (parseYieldScoreClause(ac, pvd, status) != REDISMODULE_OK) {
-      goto error;
-    }
-  }
-
-  // Check for optional SHARD_K_RATIO clause
-  if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
-    if (parseShardKRatioClause(ac, pvd, status) != REDISMODULE_OK) {
-      goto error;
+  // Check for optional YIELD_SCORE_AS and SHARD_K_RATIO clauses (in any order)
+  while (!AC_IsAtEnd(ac)) {
+    if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+      if (parseYieldScoreClause(ac, pvd, status) != REDISMODULE_OK) {
+        goto error;
+      }
+    } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
+      if (parseShardKRatioClause(ac, pvd, status) != REDISMODULE_OK) {
+        goto error;
+      }
+    } else {
+      break;  // Unknown argument, exit loop to continue with rest of parsing
     }
   }
 
