@@ -352,7 +352,8 @@ static int parseYieldScoreClause(ArgsCursor *ac, ParsedVectorData *pvd, QueryErr
   return REDISMODULE_OK;
 }
 
-static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd, QueryError *status) {
+static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
+                                  QueryError *status) {
   // VSIM @vectorfield vector [KNN/RANGE ...] [FILTER ...] SHARD_K_RATIO <ratio>
   //                                                       ^
   if (pvd->hasShardKRatio) {

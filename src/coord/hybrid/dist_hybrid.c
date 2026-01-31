@@ -639,9 +639,13 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
     // Construct the command string
     MRCommand xcmd;
-    // Get the VectorQuery from the vector request for SHARD_K_RATIO optimization
-    VectorQuery *vq = hreq->requests[VECTOR_INDEX]->parsedVectorData ?
-                      hreq->requests[VECTOR_INDEX]->parsedVectorData->query : NULL;
+    // Get the VectorQuery from the vector request's AST for SHARD_K_RATIO
+    // optimization
+    // Note: parsedVectorData is only set on shards, not on coordinator
+    // The coordinator has the VectorQuery in the AST after parsing
+    AREQ *vectorRequest = hreq->requests[VECTOR_INDEX];
+    VectorQuery *vq = (vectorRequest->ast.root && vectorRequest->ast.root->type == QN_VECTOR)
+                      ? vectorRequest->ast.root->vn.vq : NULL;
     HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized, sp, &hybridParams, vq);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
