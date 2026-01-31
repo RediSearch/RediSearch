@@ -90,6 +90,10 @@ typedef struct MRCtx {
   _Atomic(bool) reducing;       // Set when reducer starts, cleared when done
   pthread_mutex_t reducingLock; // Mutex for reducingCond
   pthread_cond_t reducingCond;  // For waiting on reducer completion
+
+  /* Parsing phase synchronization */
+  pthread_mutex_t parsingLock;  // Mutex to synchronize parsing phase
+  _Atomic(bool) parsingDone;    // Set when parsing completes (success or error)
 } MRCtx;
 
 // Data structure to pass iterator and private data to callback
@@ -122,16 +126,10 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   pthread_mutex_init(&ret->reducingLock, NULL);
   pthread_cond_init(&ret->reducingCond, NULL);
 
-  return ret;
-}
+  // Initialize parsing phase synchronization
+  pthread_mutex_init(&ret->parsingLock, NULL);
+  atomic_init(&ret->parsingDone, false);
 
-/* Create a new MapReduce context for bailout.
-  Used when we need to send an error to the client, and we don't expect any replies.
-  The status parameter is used to pass the error to the client after we unblock it, must not be NULL or OK.*/
-MRCtx *MR_CreateBailoutCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, QueryError *status) {
-  RS_ASSERT(status && QueryError_HasError(status));
-  MRCtx *ret = MR_CreateCtx(ctx, bc, NULL, 0);
-  QueryError_CloneFrom(status, &ret->status);
   return ret;
 }
 
@@ -155,6 +153,9 @@ void MRCtx_Free(MRCtx *ctx) {
   // Destroy state tracking synchronization primitives
   pthread_mutex_destroy(&ctx->reducingLock);
   pthread_cond_destroy(&ctx->reducingCond);
+
+  // Destroy parsing phase synchronization primitives
+  pthread_mutex_destroy(&ctx->parsingLock);
 
   // free the context
   rm_free(ctx);
@@ -234,6 +235,34 @@ void MRCtx_WaitForReducerComplete(struct MRCtx *ctx) {
     pthread_cond_wait(&ctx->reducingCond, &ctx->reducingLock);
   }
   pthread_mutex_unlock(&ctx->reducingLock);
+}
+
+/* Parsing phase synchronization for coordinating between coordinator thread
+ * and timeout callback (main thread). */
+
+/* Try to lock parsing phase. Returns true if lock acquired, false if already locked. */
+bool MRCtx_TryLockParsing(struct MRCtx *ctx) {
+  return pthread_mutex_trylock(&ctx->parsingLock) == 0;
+}
+
+/* Lock parsing phase (blocking). */
+void MRCtx_LockParsing(struct MRCtx *ctx) {
+  pthread_mutex_lock(&ctx->parsingLock);
+}
+
+/* Unlock parsing phase. */
+void MRCtx_UnlockParsing(struct MRCtx *ctx) {
+  pthread_mutex_unlock(&ctx->parsingLock);
+}
+
+/* Mark parsing as done. */
+void MRCtx_SetParsingDone(struct MRCtx *ctx) {
+  atomic_store(&ctx->parsingDone, true);
+}
+
+/* Check if parsing is done. */
+bool MRCtx_IsParsingDone(struct MRCtx *ctx) {
+  return atomic_load(&ctx->parsingDone);
 }
 
 static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {

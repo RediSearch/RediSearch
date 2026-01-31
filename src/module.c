@@ -2845,10 +2845,14 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     } else if (req->queryOOM) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
       // We use the cluster warning since shard level warning sent via empty reply bailout
-      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
-    } if (req->queryTimedOut) {
+      RedisModule_Reply_Array(reply);
+        RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
+      RedisModule_Reply_ArrayEnd(reply);
+    } else if (req->queryTimedOut) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
-      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+      RedisModule_Reply_Array(reply);
+        RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+      RedisModule_Reply_ArrayEnd(reply);
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }
@@ -3678,13 +3682,15 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
 }
 
 static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
-  RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
-  struct MRCtx *mrctx = MR_CreateBailoutCtx(clientCtx, bc, status);
+  // Get the existing MRCtx that was set as privdata on the main thread
+  struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
+  // Clone the error into the MRCtx status (so timeout callback can see it)
+  QueryError_CloneFrom(status, MRCtx_GetStatus(mrctx));
   // Clear the original status after cloning to avoid double-free or leaks
   QueryError_ClearError(status);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
+  // Unblock with mrctx - if timeout already fired, this is a no-op.
   RedisModule_UnblockClient(bc, mrctx);
-  RedisModule_FreeThreadSafeContext(clientCtx);
 }
 
 static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBlockedClient *bc, int protocol,
@@ -3745,9 +3751,7 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
     MRCommand_Free(cmd);
-    searchRequestCtx_Free(req);
     QueryError_SetCode(status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-    bailOut(bc, status);
     return REDISMODULE_ERR;
   }
 
@@ -3787,6 +3791,13 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   // Get MRCtx from blocked client privdata (set on main thread)
   struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
 
+  // Try to lock parsing - if timeout already has the lock, it handles everything
+  if (!MRCtx_TryLockParsing(mrctx)) {
+    // Timeout has control - unblock and return (timeout will reply)
+    RedisModule_UnblockClient(bc, mrctx);
+    return REDISMODULE_OK;
+  }
+
   // Get pre-allocated searchRequestCtx from MRCtx privdata (allocated on main thread)
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
 
@@ -3794,6 +3805,10 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   if (rscPopulateRequest(req, argv, argc, &status) != REDISMODULE_OK) {
     // SetError will not overwrite an existing error, so this is safe
     QueryError_SetError(&status, QUERY_ERROR_CODE_PARSE_ARGS, QueryError_Strerror(QUERY_ERROR_CODE_PARSE_ARGS));
+    // Set error in mrctx, mark parsing done, unlock, then bailOut
+    QueryError_CloneFrom(&status, MRCtx_GetStatus(mrctx));
+    MRCtx_SetParsingDone(mrctx);
+    MRCtx_UnlockParsing(mrctx);
     bailOut(bc, &status);
     return REDISMODULE_OK;
   }
@@ -3804,8 +3819,17 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   cmd.coordStartTime = handlerCtx->coordStartTime;
   int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, handlerCtx->spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
+    // Set error in mrctx, mark parsing done, unlock, then bailOut
+    QueryError_CloneFrom(&status, MRCtx_GetStatus(mrctx));
+    MRCtx_SetParsingDone(mrctx);
+    MRCtx_UnlockParsing(mrctx);
+    bailOut(bc, &status);
     return REDISMODULE_OK;
   }
+
+  // Parsing complete successfully - mark done and unlock
+  MRCtx_SetParsingDone(mrctx);
+  MRCtx_UnlockParsing(mrctx);
 
   MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
   MR_Fanout(mrctx, NULL, cmd, false);
@@ -3882,7 +3906,7 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
 
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
 
-  // Bailout case: no request context was set (MR_CreateBailoutCtx was used)
+  // Bailout case: no request context was set
   // In this case, no IO request was started, so we only free the MRCtx
   if (!req) {
     MRCtx_Free(mrctx);
@@ -3961,12 +3985,37 @@ static int DistSearchTimeoutPartialClient(RedisModuleCtx *ctx, RedisModuleString
   // Get searchRequestCtx (always valid - allocated on main thread before blocking)
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
 
-  // Check if parsing completed (queryString is set during parsing)
-  // If parsing hasn't completed, reply with empty results and skip reducer
-  if (!req->queryString) {
-    // Parsing hasn't completed - reply with empty results
-    coord_search_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
-    return REDISMODULE_OK;
+  // Check if parsing is done
+  if (MRCtx_IsParsingDone(mrctx)) {
+    // Parsing done - check for error, otherwise proceed to reduce
+    QueryError *status = MRCtx_GetStatus(mrctx);
+    if (QueryError_HasError(status)) {
+      RedisModule_ReplyWithError(ctx, QueryError_GetUserError(status));
+      return REDISMODULE_OK;
+    }
+    // No error - proceed to reduce below
+  } else {
+    // Parsing not done - try to lock parsing
+    if (MRCtx_TryLockParsing(mrctx)) {
+      // We got the lock - parsing hasn't started or coordinator failed to get lock
+      coord_search_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
+      MRCtx_UnlockParsing(mrctx);
+      return REDISMODULE_OK;
+    } else {
+      // Lock held by coordinator - parsing in progress
+      // Claim reducing so coordinator can't start it
+      MRCtx_TryClaimReducing(mrctx);
+      // Wait for parsing to finish (wait for lock to be released)
+      MRCtx_LockParsing(mrctx);
+      MRCtx_UnlockParsing(mrctx);
+      // Now check for error
+      QueryError *status = MRCtx_GetStatus(mrctx);
+      if (QueryError_HasError(status)) {
+        RedisModule_ReplyWithError(ctx, QueryError_GetUserError(status));
+        return REDISMODULE_OK;
+      }
+      // No error - proceed to reduce below (we already claimed it)
+    }
   }
 
   // Try to claim reducing - if we get it, run reducer on main thread
@@ -3975,7 +4024,7 @@ static int DistSearchTimeoutPartialClient(RedisModuleCtx *ctx, RedisModuleString
     // We claimed reducing - run reducer on main thread with current replies
     searchResultReducer(mrctx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), true);
   } else {
-    // Reducer already running - wait for it to complete
+    // Reducer already running OR we claimed it above - wait for it to complete if running
     MRCtx_WaitForReducerComplete(mrctx);
   }
 
@@ -4491,6 +4540,13 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
   // Get MRCtx from blocked client privdata (set on main thread)
   struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
 
+  // Try to lock parsing - if timeout already has the lock, it handles everything
+  if (!MRCtx_TryLockParsing(mrctx)) {
+    // Timeout has control - unblock and return (timeout will reply)
+    RedisModule_UnblockClient(bc, mrctx);
+    return REDISMODULE_OK;
+  }
+
   // Get pre-allocated searchRequestCtx from MRCtx privdata (allocated on main thread)
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
 
@@ -4498,6 +4554,10 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
 
   if (QueryError_HasError(&status)) {
     RS_ASSERT(debug_params.debug_params_count == 0);
+    // Set error in mrctx, mark parsing done, unlock, then bailOut
+    QueryError_CloneFrom(&status, MRCtx_GetStatus(mrctx));
+    MRCtx_SetParsingDone(mrctx);
+    MRCtx_UnlockParsing(mrctx);
     bailOut(bc, &status);
     return REDISMODULE_OK;
   }
@@ -4509,6 +4569,10 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
   if (rscPopulateRequest(req, argv, base_argc, &status) != REDISMODULE_OK) {
     // SetError will not overwrite an existing error, so this is safe
     QueryError_SetError(&status, QUERY_ERROR_CODE_PARSE_ARGS, QueryError_Strerror(QUERY_ERROR_CODE_PARSE_ARGS));
+    // Set error in mrctx, mark parsing done, unlock, then bailOut
+    QueryError_CloneFrom(&status, MRCtx_GetStatus(mrctx));
+    MRCtx_SetParsingDone(mrctx);
+    MRCtx_UnlockParsing(mrctx);
     bailOut(bc, &status);
     return REDISMODULE_OK;
   }
@@ -4517,8 +4581,17 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
   cmd.coordStartTime = handlerCtx->coordStartTime;
   int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, handlerCtx->spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
+    // Set error in mrctx, mark parsing done, unlock, then bailOut
+    QueryError_CloneFrom(&status, MRCtx_GetStatus(mrctx));
+    MRCtx_SetParsingDone(mrctx);
+    MRCtx_UnlockParsing(mrctx);
+    bailOut(bc, &status);
     return REDISMODULE_OK;
   }
+
+  // Parsing complete successfully - mark done and unlock
+  MRCtx_SetParsingDone(mrctx);
+  MRCtx_UnlockParsing(mrctx);
 
   MRCommand_Insert(&cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
   // insert also debug params at the end
