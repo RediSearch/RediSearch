@@ -17,10 +17,24 @@
 #include "coord/special_case_ctx.h"
 #include "config.h"
 #include "vector_index.h"
+#include "query_error.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * Validate a SHARD_K_RATIO value string.
+ *
+ * Parses the string as a double and validates it's within the valid range:
+ * (MIN_SHARD_WINDOW_RATIO, MAX_SHARD_WINDOW_RATIO] (exclusive min, inclusive max)
+ *
+ * @param value The string value to parse and validate
+ * @param ratio Output parameter for the parsed ratio value
+ * @param status QueryError to populate on failure
+ * @return 1 on success, 0 on failure (with status populated)
+ */
+int ValidateShardKRatio(const char *value, double *ratio, QueryError *status);
 
 /**
  * Calculate effective K value for shard window ratio optimization.

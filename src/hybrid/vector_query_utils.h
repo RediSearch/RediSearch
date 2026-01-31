@@ -30,6 +30,8 @@ typedef struct {
   bool hasExplicitK;           // Flag to track if K was explicitly set in KNN query
   char *vectorScoreFieldAlias; // Alias for the vector score field (OWNED) - NULL if not explicitly set
   uint32_t queryNodeFlags;     // QueryNode flags to be applied when creating the vector node
+  double shardKRatio;          // Shard K ratio for the query
+  bool hasShardKRatio;         // Flag to track if SHARD_K_RATIO was explicitly set
 } ParsedVectorData;
 
 void ParsedVectorData_Free(ParsedVectorData *pvd);

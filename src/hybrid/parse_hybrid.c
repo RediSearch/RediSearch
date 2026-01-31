@@ -21,6 +21,8 @@
 #include "spec.h"
 #include "param.h"
 #include "rmalloc.h"
+#include "config.h"
+#include "shard_window_ratio.h"
 
 #include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
@@ -350,6 +352,35 @@ static int parseYieldScoreClause(ArgsCursor *ac, ParsedVectorData *pvd, QueryErr
   return REDISMODULE_OK;
 }
 
+static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
+                                  QueryError *status) {
+  // VSIM @vectorfield vector [KNN/RANGE ...] [FILTER ...] SHARD_K_RATIO <ratio>
+  //                                                       ^
+  if (pvd->hasShardKRatio) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate SHARD_K_RATIO argument");
+    return REDISMODULE_ERR;
+  }
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for SHARD_K_RATIO");
+    return REDISMODULE_ERR;
+  }
+
+  const char *ratioStr;
+  if (AC_GetString(ac, &ratioStr, NULL, 0) != AC_OK) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid SHARD_K_RATIO value");
+    return REDISMODULE_ERR;
+  }
+
+  double shardKRatio;
+  if (!ValidateShardKRatio(ratioStr, &shardKRatio, status)) {
+    return REDISMODULE_ERR;
+  }
+
+  pvd->shardKRatio = shardKRatio;
+  pvd->hasShardKRatio = true;
+  return REDISMODULE_OK;
+}
+
 static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   // Check for required VSIM keyword
   if (!AC_AdvanceIfMatch(ac, "VSIM")) {
@@ -441,10 +472,18 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
   }
 
-  // Check for optional YIELD_SCORE_AS clause
-  if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
-    if (parseYieldScoreClause(ac, pvd, status) != REDISMODULE_OK) {
-      goto error;
+  // Check for optional YIELD_SCORE_AS and SHARD_K_RATIO clauses (in any order)
+  while (!AC_IsAtEnd(ac)) {
+    if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+      if (parseYieldScoreClause(ac, pvd, status) != REDISMODULE_OK) {
+        goto error;
+      }
+    } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
+      if (parseShardKRatioClause(ac, pvd, status) != REDISMODULE_OK) {
+        goto error;
+      }
+    } else {
+      break;  // Unknown argument, exit loop to continue with rest of parsing
     }
   }
 
@@ -464,6 +503,9 @@ final:
     case VECSIM_QT_KNN:
       vq->knn.vector = (void*)vectorParam;
       vq->knn.vecLen = vectorParamLen;
+      // Copy shardKRatio from ParsedVectorData to VectorQuery.knn
+      // Use explicit value if provided, otherwise use default (1.0 = no optimization)
+      vq->knn.shardWindowRatio = pvd->hasShardKRatio ? pvd->shardKRatio : DEFAULT_SHARD_WINDOW_RATIO;
       break;
     case VECSIM_QT_RANGE:
       vq->range.vector = (void*)vectorParam;
