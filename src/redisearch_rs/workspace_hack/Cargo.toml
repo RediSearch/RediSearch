@@ -18,6 +18,7 @@ publish = false
 clap = { version = "4" }
 clap_builder = { version = "4", default-features = false, features = ["color", "help", "std", "suggestions", "usage"] }
 either = { version = "1", default-features = false, features = ["use_std"] }
+insta = { version = "1", features = ["filters"] }
 itertools = { version = "0.13" }
 libc = { version = "0.2", features = ["extra_traits"] }
 memchr = { version = "2" }
@@ -31,6 +32,7 @@ rand_chacha = { version = "0.9", default-features = false, features = ["std"] }
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8" }
+semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["alloc", "derive"] }
 serde_core = { version = "1", features = ["alloc"] }
 serde_json = { version = "1", features = ["unbounded_depth"] }
@@ -44,6 +46,7 @@ zerocopy = { version = "0.8", default-features = false, features = ["derive", "s
 clap = { version = "4" }
 clap_builder = { version = "4", default-features = false, features = ["color", "help", "std", "suggestions", "usage"] }
 either = { version = "1", default-features = false, features = ["use_std"] }
+insta = { version = "1", features = ["filters"] }
 itertools = { version = "0.13" }
 libc = { version = "0.2", features = ["extra_traits"] }
 memchr = { version = "2" }
@@ -57,6 +60,7 @@ rand_chacha = { version = "0.9", default-features = false, features = ["std"] }
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8" }
+semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["alloc", "derive"] }
 serde_core = { version = "1", features = ["alloc"] }
 serde_json = { version = "1", features = ["unbounded_depth"] }
@@ -68,87 +72,105 @@ tracing-core = { version = "0.1" }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
-bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
+bindgen-76a6958a3b5fde4 = { package = "bindgen", version = "0.72", default-features = false, features = ["runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
+redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42" }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
-bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
+bindgen-76a6958a3b5fde4 = { package = "bindgen", version = "0.72", default-features = false, features = ["runtime"] }
+bindgen-ff0559df52cfec06 = { package = "bindgen", version = "0.66", default-features = false, features = ["logging", "prettyplease", "runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
+redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42" }
 
 [target.aarch64-unknown-linux-gnu.dependencies]
-bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
+bindgen-76a6958a3b5fde4 = { package = "bindgen", version = "0.72", default-features = false, features = ["runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
+redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42" }
 
 [target.aarch64-unknown-linux-gnu.build-dependencies]
-bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
+bindgen-76a6958a3b5fde4 = { package = "bindgen", version = "0.72", default-features = false, features = ["runtime"] }
+bindgen-ff0559df52cfec06 = { package = "bindgen", version = "0.66", default-features = false, features = ["logging", "prettyplease", "runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
+redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42" }
 
 [target.x86_64-apple-darwin.dependencies]
-bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
+bindgen-76a6958a3b5fde4 = { package = "bindgen", version = "0.72", default-features = false, features = ["runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
+redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42" }
 
 [target.x86_64-apple-darwin.build-dependencies]
-bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
+bindgen-76a6958a3b5fde4 = { package = "bindgen", version = "0.72", default-features = false, features = ["runtime"] }
+bindgen-ff0559df52cfec06 = { package = "bindgen", version = "0.66", default-features = false, features = ["logging", "prettyplease", "runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
+redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42" }
 
 [target.aarch64-apple-darwin.dependencies]
-bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
+bindgen-76a6958a3b5fde4 = { package = "bindgen", version = "0.72", default-features = false, features = ["runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
+redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42" }
 
 [target.aarch64-apple-darwin.build-dependencies]
-bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
+bindgen-76a6958a3b5fde4 = { package = "bindgen", version = "0.72", default-features = false, features = ["runtime"] }
+bindgen-ff0559df52cfec06 = { package = "bindgen", version = "0.66", default-features = false, features = ["logging", "prettyplease", "runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
+redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42" }
 
 [target.x86_64-unknown-linux-musl.dependencies]
-bindgen = { version = "0.72", default-features = false, features = ["static"] }
+bindgen-76a6958a3b5fde4 = { package = "bindgen", version = "0.72", default-features = false, features = ["static"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "static"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
+redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42", default-features = false, features = ["bindgen-static", "min-redis-compatibility-version-6-0", "min-redis-compatibility-version-7-2"] }
 
 [target.x86_64-unknown-linux-musl.build-dependencies]
-bindgen = { version = "0.72", default-features = false, features = ["static"] }
+bindgen-76a6958a3b5fde4 = { package = "bindgen", version = "0.72", default-features = false, features = ["static"] }
+bindgen-ff0559df52cfec06 = { package = "bindgen", version = "0.66", default-features = false, features = ["logging", "prettyplease", "static"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "static"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
+redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42", default-features = false, features = ["bindgen-static", "min-redis-compatibility-version-6-0", "min-redis-compatibility-version-7-2"] }
 
 [target.aarch64-unknown-linux-musl.dependencies]
-bindgen = { version = "0.72", default-features = false, features = ["static"] }
+bindgen-76a6958a3b5fde4 = { package = "bindgen", version = "0.72", default-features = false, features = ["static"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "static"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
+redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42", default-features = false, features = ["bindgen-static", "min-redis-compatibility-version-6-0", "min-redis-compatibility-version-7-2"] }
 
 [target.aarch64-unknown-linux-musl.build-dependencies]
-bindgen = { version = "0.72", default-features = false, features = ["static"] }
+bindgen-76a6958a3b5fde4 = { package = "bindgen", version = "0.72", default-features = false, features = ["static"] }
+bindgen-ff0559df52cfec06 = { package = "bindgen", version = "0.66", default-features = false, features = ["logging", "prettyplease", "static"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "static"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
+redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42", default-features = false, features = ["bindgen-static", "min-redis-compatibility-version-6-0", "min-redis-compatibility-version-7-2"] }
 
 ### END HAKARI SECTION

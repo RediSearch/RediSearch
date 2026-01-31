@@ -10,7 +10,7 @@
 //! This module contains the inverted index implementation for the RediSearch module.
 #![allow(non_upper_case_globals)]
 
-mod fork_gc;
+pub mod fork_gc;
 
 use std::{
     ffi::{c_char, c_void},
