@@ -583,11 +583,6 @@ impl NumericRangeTree {
         self.revision_id = self.revision_id.wrapping_add(1);
     }
 
-    /// Subtract from the number of entries (used by fork GC).
-    pub(crate) const fn subtract_num_entries(&mut self, count: usize) {
-        self.num_entries = self.num_entries.saturating_sub(count);
-    }
-
     /// Update the inverted indexes size by a delta (can be negative).
     pub(crate) const fn update_inverted_indexes_size(&mut self, delta: isize) {
         if delta < 0 {
@@ -598,71 +593,91 @@ impl NumericRangeTree {
         }
     }
 
-    /// Increment the empty leaves counter.
-    pub(crate) const fn increment_empty_leaves(&mut self) {
-        self.empty_leaves = self.empty_leaves.saturating_add(1);
+    /// Apply a batch of GC deltas to the tree using DFS traversal order.
+    ///
+    /// The `deltas` iterator must yield one `Option<NodeGcDelta>` per node in
+    /// pre-order DFS (root, left, right). `None` means "skip this node" (no GC
+    /// work), `Some` means "apply the delta to this node's range".
+    ///
+    /// This method uses a two-phase approach to avoid aliasing UB:
+    /// - **Phase 1**: Recursive DFS over `&mut node` only — applies deltas to
+    ///   individual nodes and accumulates stats.
+    /// - **Phase 2**: Applies accumulated stats to tree-level fields
+    ///   (`num_entries`, `inverted_indexes_size`, `empty_leaves`).
+    pub fn apply_gc_batch(
+        &mut self,
+        deltas: &mut impl Iterator<Item = Option<NodeGcDelta>>,
+    ) -> BatchGcResult {
+        let mut result = BatchGcResult::default();
+
+        // Phase 1: DFS over nodes, accumulating stats.
+        Self::apply_gc_dfs(&mut self.root, deltas, &mut result);
+
+        // Phase 2: Apply accumulated stats to tree-level fields.
+        self.num_entries = self
+            .num_entries
+            .saturating_sub(result.total_entries_removed);
+        let size_delta = result.total_bytes_allocated as isize - result.total_bytes_freed as isize;
+        self.update_inverted_indexes_size(size_delta);
+        self.empty_leaves = self.empty_leaves.saturating_add(result.empty_leaves_found);
+
+        result
     }
 
-    /// Apply GC deltas to a specific node in the tree.
+    /// Phase 1 of batch GC: recursively apply deltas in pre-order DFS.
     ///
-    /// This combines the per-node GC application logic:
-    /// 1. Gets the mutable range from the node
-    /// 2. Computes how many blocks were added since the fork
-    /// 3. Applies the GC delta to the inverted index
-    /// 4. Resets cardinality using HLL registers
-    /// 5. Updates tree statistics (entries, index size, empty leaves)
+    /// For each node, consumes one item from the iterator:
+    /// - `None` → skip (no GC work for this node)
+    /// - `Some(delta)` → apply the delta to the node's range
     ///
-    /// Returns a [`NodeGcResult`] with the GC results.
-    /// If the node has no range, returns a result with `valid = false`.
-    pub fn apply_node_gc(
-        &mut self,
+    /// Then recurses into children (left, then right) for internal nodes.
+    fn apply_gc_dfs(
         node: &mut NumericRangeNode,
-        delta: GcScanDelta,
-        registers_with_last_block: &[u8; 64],
-        registers_without_last_block: &[u8; 64],
-    ) -> NodeGcResult {
-        let Some(range) = node.range_mut() else {
-            return NodeGcResult {
-                entries_removed: 0,
-                bytes_freed: 0,
-                bytes_allocated: 0,
-                blocks_ignored: 0,
-                valid: false,
-            };
+        deltas: &mut impl Iterator<Item = Option<NodeGcDelta>>,
+        result: &mut BatchGcResult,
+    ) {
+        let Some(delta) = deltas.next() else {
+            unreachable!(
+                "Expected a GC delta (either Some or None) for the current node, but neither was provided"
+            );
         };
 
-        // Get the number of blocks before applying GC to calculate blocks added since fork
-        let blocks_before = range.entries().num_blocks();
-        let last_block_idx = delta.last_block_idx();
-        let blocks_since_fork = blocks_before.saturating_sub(last_block_idx + 1);
+        if let Some(delta) = delta {
+            if let Some(range) = node.range_mut() {
+                // Compute blocks added since fork.
+                let blocks_before = range.entries().num_blocks();
+                let last_block_idx = delta.delta.last_block_idx();
+                let blocks_since_fork = blocks_before.saturating_sub(last_block_idx + 1);
 
-        // Apply GC delta to the index
-        let info: GcApplyInfo = range.entries_mut().apply_gc(delta);
+                // Apply GC delta to the index.
+                let info: GcApplyInfo = range.entries_mut().apply_gc(delta.delta);
 
-        // Reset cardinality with proper HLL recalculation
-        range.reset_cardinality_after_gc(
-            info.blocks_ignored,
-            blocks_since_fork,
-            registers_with_last_block,
-            registers_without_last_block,
-        );
+                // Reset cardinality with proper HLL recalculation.
+                range.reset_cardinality_after_gc(
+                    info.blocks_ignored,
+                    blocks_since_fork,
+                    &delta.registers_with_last_block,
+                    &delta.registers_without_last_block,
+                );
 
-        // Update tree stats
-        self.subtract_num_entries(info.entries_removed);
-        let size_delta = info.bytes_allocated as isize - info.bytes_freed as isize;
-        self.update_inverted_indexes_size(size_delta);
+                // Track empty ranges.
+                if range.entries().num_docs() == 0 {
+                    result.empty_leaves_found += 1;
+                }
 
-        // Track empty ranges
-        if range.entries().num_docs() == 0 {
-            self.increment_empty_leaves();
+                // Accumulate stats.
+                result.total_entries_removed += info.entries_removed;
+                result.total_bytes_freed += info.bytes_freed;
+                result.total_bytes_allocated += info.bytes_allocated;
+                result.total_blocks_ignored += info.blocks_ignored as u64;
+                result.nodes_applied += 1;
+            }
         }
 
-        NodeGcResult {
-            entries_removed: info.entries_removed,
-            bytes_freed: info.bytes_freed,
-            bytes_allocated: info.bytes_allocated,
-            blocks_ignored: info.blocks_ignored as u64,
-            valid: true,
+        // Recurse into children for internal nodes.
+        if let Some((left, right)) = node.children_mut() {
+            Self::apply_gc_dfs(left, deltas, result);
+            Self::apply_gc_dfs(right, deltas, result);
         }
     }
 
@@ -940,21 +955,37 @@ impl NumericRangeTree {
     }
 }
 
-/// Result of applying GC to a single node in the tree.
+/// GC delta data for a single node, as computed by the child process.
 ///
-/// Returned by [`NumericRangeTree::apply_node_gc`].
-#[derive(Debug, Clone, Copy)]
-pub struct NodeGcResult {
-    /// Number of entries removed from the index.
-    pub entries_removed: usize,
-    /// Number of bytes freed.
-    pub bytes_freed: usize,
-    /// Number of bytes allocated (for new compacted blocks).
-    pub bytes_allocated: usize,
-    /// Number of blocks that were skipped because the index changed since the scan.
-    pub blocks_ignored: u64,
-    /// Whether the GC was actually applied. `false` if the node had no range.
-    pub valid: bool,
+/// Contains the inverted index GC delta plus the HyperLogLog registers
+/// captured during the scan. One `NodeGcDelta` is produced per DFS node
+/// that had GC work.
+pub struct NodeGcDelta {
+    /// The inverted index GC scan delta.
+    pub delta: GcScanDelta,
+    /// HLL registers including the last scanned block's cardinality.
+    pub registers_with_last_block: [u8; 64],
+    /// HLL registers excluding the last scanned block's cardinality.
+    pub registers_without_last_block: [u8; 64],
+}
+
+/// Accumulated result of applying a batch of GC deltas to a tree.
+///
+/// Returned by [`NumericRangeTree::apply_gc_batch`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BatchGcResult {
+    /// Total number of entries removed across all nodes.
+    pub total_entries_removed: usize,
+    /// Total bytes freed across all nodes.
+    pub total_bytes_freed: usize,
+    /// Total bytes allocated (for new compacted blocks) across all nodes.
+    pub total_bytes_allocated: usize,
+    /// Total blocks ignored across all nodes.
+    pub total_blocks_ignored: u64,
+    /// Number of nodes where GC was actually applied.
+    pub nodes_applied: usize,
+    /// Number of leaves that became empty after GC.
+    empty_leaves_found: usize,
 }
 
 impl Default for NumericRangeTree {

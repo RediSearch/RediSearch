@@ -47,7 +47,7 @@ use std::ffi::c_int;
 use tracing::debug;
 
 // Re-export FFI types needed for GC scan
-pub use inverted_index_ffi::fork_gc::{InvertedIndexGCCallback, InvertedIndexGCWriter};
+pub use inverted_index_ffi::fork_gc::InvertedIndexGCReader;
 
 // Re-export IndexReader type from inverted_index_ffi for C code to use.
 pub use inverted_index_ffi::IndexReader;

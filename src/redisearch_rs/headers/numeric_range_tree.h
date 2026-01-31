@@ -115,32 +115,64 @@ typedef struct NumericRangeTreeFindResult {
 } NumericRangeTreeFindResult;
 
 /**
- * Result of applying GC to a single numeric node.
+ * Result of a batch GC scan. Contains the serialized DFS-ordered deltas.
  *
- * Returned by [`NumericRangeTree_ApplyNodeGc`].
+ * If `has_work` is false, the buffer is empty and should not be sent.
+ * Free with [`NumericGcScanBuffer_Free`].
  */
-typedef struct NumericNodeGcResult {
+typedef struct NumericGcScanBuffer {
   /**
-   * Number of entries removed from the index.
+   * Pointer to the buffer data. NULL if no work.
+   */
+  const uint8_t *data;
+  /**
+   * Length of the buffer in bytes.
+   */
+  uintptr_t len;
+  /**
+   * Whether any node had GC work.
+   */
+  bool has_work;
+  /**
+   * Capacity (for deallocation).
+   */
+  uintptr_t capacity;
+} NumericGcScanBuffer;
+
+/**
+ * Result of applying a batch of GC deltas to a numeric range tree.
+ *
+ * Returned by [`NumericRangeTree_ApplyGcBatch`].
+ */
+typedef struct NumericBatchGcResult {
+  /**
+   * Total number of entries removed across all nodes.
    */
   uintptr_t entries_removed;
   /**
-   * Number of bytes freed.
+   * Total bytes freed across all nodes.
    */
   uintptr_t bytes_freed;
   /**
-   * Number of bytes allocated (for new compacted blocks).
+   * Total bytes allocated (for new compacted blocks) across all nodes.
    */
   uintptr_t bytes_allocated;
   /**
-   * Number of blocks that were skipped because the index changed since the scan.
+   * Total blocks ignored across all nodes.
    */
   uint64_t blocks_ignored;
   /**
-   * Whether the GC was actually applied. `false` if the node had no range.
+   * Number of nodes where GC was actually applied.
    */
-  bool valid;
-} NumericNodeGcResult;
+  uintptr_t nodes_applied;
+  /**
+   * Number of bytes consumed from the pipe reader.
+   *
+   * The parent uses this together with `batch_len` to skip any remaining
+   * bytes on deserialization error, preventing pipe desync.
+   */
+  uintptr_t bytes_consumed;
+} NumericBatchGcResult;
 
 #ifdef __cplusplus
 extern "C" {
@@ -301,60 +333,6 @@ void NumericRangeTree_DebugDumpTree(RedisModuleCtx *ctx,
                                     bool minimal);
 
 /**
- * Scan a numeric inverted index for garbage collection.
- *
- * This scans the index for deleted documents, computes the GC deltas,
- * and tracks HLL cardinality using Rust closures. If there are deltas,
- * the callback `cb` is called, then the deltas and HLL registers are
- * serialized to the writer `wr`.
- *
- * The wire format written is: `[delta_msgpack][regs_with_64b][regs_without_64b]`.
- *
- * Returns `true` if GC work was found and written, `false` otherwise.
- *
- * # Safety
- *
- * - `wr` must point to a valid [`InvertedIndexGCWriter`] and cannot be NULL.
- * - `sctx` must point to a valid [`RedisSearchCtx`] and cannot be NULL.
- * - `idx` must point to a valid [`InvertedIndexNumeric`] and cannot be NULL.
- * - `cb` must point to a valid [`InvertedIndexGCCallback`] and cannot be NULL.
- */
-bool InvertedIndexNumeric_GcDelta_Scan(II_GCWriter *wr,
-                                       RedisSearchCtx *sctx,
-                                       const InvertedIndexNumeric *idx,
-                                       II_GCCallback *cb);
-
-/**
- * Apply GC deltas to a specific node in a numeric range tree.
- *
- * This combines the per-node GC application logic:
- * 1. Gets the mutable range from the node
- * 2. Applies the GC delta to the inverted index
- * 3. Resets cardinality using HLL registers
- * 4. Updates tree statistics (entries, index size, empty leaves)
- *
- * The `delta` pointer is consumed by this function - do NOT call
- * `InvertedIndex_GcDelta_Free` on it afterward.
- *
- * If the node has no range, returns a result with `valid = false` and
- * the delta is freed.
- *
- * # Safety
- *
- * - `tree` must point to a valid mutable [`NumericRangeTree`] and cannot be NULL.
- * - `node` must point to a valid mutable [`NumericRangeNode`] belonging to the tree
- *   and cannot be NULL.
- * - `delta` must point to a valid [`GcScanDelta`] created by `InvertedIndex_GcDelta_Read`.
- * - `registers_with_last_block` must point to 64 valid bytes and cannot be NULL.
- * - `registers_without_last_block` must point to 64 valid bytes and cannot be NULL.
- */
-struct NumericNodeGcResult NumericRangeTree_ApplyNodeGc(struct NumericRangeTree *tree,
-                                                        struct NumericRangeNode *node,
-                                                        InvertedIndexGcDelta *delta,
-                                                        const uint8_t *registers_with_last_block,
-                                                        const uint8_t *registers_without_last_block);
-
-/**
  * Conditionally trim empty leaves from a numeric range tree.
  *
  * Checks if the number of empty leaves exceeds half the total number of
@@ -367,6 +345,57 @@ struct NumericNodeGcResult NumericRangeTree_ApplyNodeGc(struct NumericRangeTree 
  * - No iterators should be active on this tree while calling this function.
  */
 uintptr_t NumericRangeTree_ConditionalTrimEmptyLeaves(struct NumericRangeTree *t);
+
+/**
+ * Free a [`NumericGcScanBuffer`] returned by [`NumericRangeTree_GcScanBatch`].
+ *
+ * # Safety
+ *
+ * - `buf` must have been obtained from [`NumericRangeTree_GcScanBatch`].
+ */
+void NumericGcScanBuffer_Free(struct NumericGcScanBuffer buf);
+
+/**
+ * Scan all nodes in a numeric range tree for GC work (child-side batch scan).
+ *
+ * Traverses the tree in pre-order DFS and scans each node's range for deleted
+ * documents. Returns a [`NumericGcScanBuffer`] containing the serialized
+ * DFS-ordered deltas. The caller should check `has_work` and, if true, send
+ * the header followed by the buffer content to the pipe.
+ *
+ * # Wire format per node (in the buffer)
+ *
+ * - `0x00` = skip (no range, or no GC work)
+ * - `0x01` = apply, followed by `[delta_msgpack][64-byte hll_with][64-byte hll_without]`
+ *
+ * # Safety
+ *
+ * - `sctx` must point to a valid [`RedisSearchCtx`] and cannot be NULL.
+ * - `tree` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ */
+struct NumericGcScanBuffer NumericRangeTree_GcScanBatch(RedisSearchCtx *sctx,
+                                                        const struct NumericRangeTree *tree);
+
+/**
+ * Apply a batch of GC deltas to a numeric range tree (parent-side).
+ *
+ * Reads the DFS-ordered skip/apply messages from the reader and applies
+ * them to the tree. The parent must have the same tree structure as when
+ * the child performed the scan (verified by `revision_id` check before
+ * calling this function).
+ *
+ * # Wire format per node
+ *
+ * - `0x00` = skip
+ * - `0x01` = apply, followed by `[delta_msgpack][64-byte hll_with][64-byte hll_without]`
+ *
+ * # Safety
+ *
+ * - `tree` must point to a valid mutable [`NumericRangeTree`] and cannot be NULL.
+ * - `rd` must point to a valid [`InvertedIndexGCReader`] and cannot be NULL.
+ */
+struct NumericBatchGcResult NumericRangeTree_ApplyGcBatch(struct NumericRangeTree *tree,
+                                                          II_GCReader *rd);
 
 /**
  * Create a new iterator over all nodes in the tree.

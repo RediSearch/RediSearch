@@ -247,76 +247,39 @@ mod proptests {
         }
     }
 
-    /// Inline GC helper — applies GC to every leaf in the tree.
+    /// Inline GC helper — applies GC to every leaf in the tree using batch DFS.
     fn gc_all_leaves_inline(tree: &mut NumericRangeTree, delete_threshold: u64) {
-        use numeric_range_tree::NumericRangeNode;
+        use numeric_range_tree::{NodeGcDelta, NumericRangeNode};
 
-        #[derive(Clone, Copy)]
-        enum Dir {
-            Left,
-            Right,
-        }
-
-        struct Work {
-            path: Vec<Dir>,
-            delta: inverted_index::GcScanDelta,
-        }
-
-        fn collect(
+        fn scan_dfs(
             node: &NumericRangeNode,
             doc_exist: &dyn Fn(u64) -> bool,
-            work: &mut Vec<Work>,
-            path: &mut Vec<Dir>,
+            deltas: &mut Vec<Option<NodeGcDelta>>,
         ) {
-            if node.is_leaf() {
-                if let Some(range) = node.range() {
-                    if let Some(delta) = range
+            let delta = node
+                .range()
+                .and_then(|range| {
+                    range
                         .entries()
                         .scan_gc(doc_exist)
                         .expect("scan should not fail")
-                    {
-                        work.push(Work {
-                            path: path.clone(),
-                            delta,
-                        });
-                    }
-                }
-            } else if let Some((left, right)) = node.children() {
-                path.push(Dir::Left);
-                collect(left, doc_exist, work, path);
-                path.pop();
+                })
+                .map(|delta| NodeGcDelta {
+                    delta,
+                    registers_with_last_block: [0u8; 64],
+                    registers_without_last_block: [0u8; 64],
+                });
+            deltas.push(delta);
 
-                path.push(Dir::Right);
-                collect(right, doc_exist, work, path);
-                path.pop();
+            if let Some((left, right)) = node.children() {
+                scan_dfs(left, doc_exist, deltas);
+                scan_dfs(right, doc_exist, deltas);
             }
-        }
-
-        fn find_node<'a>(
-            mut node: &'a mut NumericRangeNode,
-            path: &[Dir],
-        ) -> &'a mut NumericRangeNode {
-            for dir in path {
-                let (left, right) = node.children_mut().expect("expected internal node");
-                node = match dir {
-                    Dir::Left => left,
-                    Dir::Right => right,
-                };
-            }
-            node
         }
 
         let doc_exist = move |doc_id: u64| doc_id > delete_threshold;
-        let mut work = Vec::new();
-        collect(tree.root(), &doc_exist, &mut work, &mut Vec::new());
-
-        for item in work {
-            let node_ptr = find_node(tree.root_mut(), &item.path) as *mut NumericRangeNode;
-            // SAFETY: Same disjoint-mutation pattern as in gc.rs tests.
-            let node = unsafe { &mut *node_ptr };
-            let hll_with = [0u8; 64];
-            let hll_without = [0u8; 64];
-            tree.apply_node_gc(node, item.delta, &hll_with, &hll_without);
-        }
+        let mut deltas = Vec::new();
+        scan_dfs(tree.root(), &doc_exist, &mut deltas);
+        tree.apply_gc_batch(&mut deltas.into_iter());
     }
 }

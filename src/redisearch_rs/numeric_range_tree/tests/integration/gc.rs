@@ -9,7 +9,7 @@
 
 //! Tests for garbage collection in the numeric range tree.
 
-use numeric_range_tree::{NumericRangeNode, NumericRangeTree};
+use numeric_range_tree::{NodeGcDelta, NumericRangeNode, NumericRangeTree};
 use rstest::rstest;
 
 /// Build a single-leaf tree (no splits) with `count` entries.
@@ -31,120 +31,65 @@ fn build_single_leaf_tree(count: u64, compress_floats: bool) -> NumericRangeTree
     tree
 }
 
-/// Scan the root node's range for GC. Panics if root has no range.
-fn scan_root(
-    tree: &NumericRangeTree,
-    doc_exist: impl Fn(u64) -> bool,
-) -> inverted_index::GcScanDelta {
-    tree.root()
-        .range()
-        .expect("root must have a range")
-        .entries()
-        .scan_gc(doc_exist)
-        .expect("scan_gc should not fail")
-        .expect("scan_gc should return Some delta")
-}
-
-/// Apply GC to the root node of `tree`.
-///
-/// Uses raw pointers to obtain a mutable reference to the root node that is
-/// disjoint from `&mut tree`, mirroring how the FFI layer invokes
-/// `apply_node_gc` (tree and node come from separate C pointers).
-fn apply_gc_to_root(
-    tree: &mut NumericRangeTree,
-    delta: inverted_index::GcScanDelta,
-    hll_with: &[u8; 64],
-    hll_without: &[u8; 64],
-) -> numeric_range_tree::NodeGcResult {
-    // SAFETY: `root_mut()` returns a reference into `tree`. We immediately
-    // convert it to a raw pointer and drop the mutable borrow so that we can
-    // pass `&mut tree` separately. This is safe because `apply_node_gc` only
-    // mutates tree-level statistics and the node's range — the node *is* part
-    // of the tree, but `apply_node_gc` is designed for exactly this usage
-    // pattern (see the FFI callsite in `gc.rs`).
-    let node_ptr: *mut NumericRangeNode = tree.root_mut() as *mut _;
-    // SAFETY: The raw pointer was just obtained from `tree.root_mut()`. We
-    // create a second `&mut` to the root node while also holding `&mut tree`.
-    // This mirrors the FFI callsite where tree and node arrive as independent
-    // C pointers. `apply_node_gc` only touches disjoint fields (tree stats vs
-    // node range), so no aliased mutation occurs.
-    let node = unsafe { &mut *node_ptr };
-    tree.apply_node_gc(node, delta, hll_with, hll_without)
-}
-
 // ============================================================================
-// apply_node_gc tests
+// apply_gc_batch tests
 // ============================================================================
 
 #[test]
-fn apply_node_gc_basic() {
+fn apply_gc_batch_single_leaf() {
     let mut tree = build_single_leaf_tree(10, false);
     let entries_before = tree.num_entries();
-    let size_before = tree.inverted_indexes_size();
 
-    // Mark docs 1..=5 as deleted.
-    let delta = scan_root(&tree, |doc_id| doc_id > 5);
-    let hll_with = [0u8; 64];
-    let hll_without = [0u8; 64];
+    // Scan and build batch deltas.
+    let deltas = scan_batch_deltas(&tree, &|doc_id| doc_id > 5);
 
-    let result = apply_gc_to_root(&mut tree, delta, &hll_with, &hll_without);
+    let result = tree.apply_gc_batch(&mut deltas.into_iter());
 
-    assert!(result.valid);
-    assert_eq!(result.entries_removed, 5);
+    assert_eq!(result.nodes_applied, 1);
+    assert_eq!(result.total_entries_removed, 5);
     assert_eq!(tree.num_entries(), entries_before - 5);
-    assert!(result.bytes_freed > 0 || result.bytes_allocated > 0);
-    assert_ne!(tree.inverted_indexes_size(), size_before);
 }
 
 #[test]
-fn apply_node_gc_removes_all_entries() {
-    let mut tree = build_single_leaf_tree(10, false);
-
-    let delta = scan_root(&tree, |_| false);
-    let hll_with = [0u8; 64];
-    let hll_without = [0u8; 64];
-
-    let result = apply_gc_to_root(&mut tree, delta, &hll_with, &hll_without);
-
-    assert!(result.valid);
-    assert_eq!(result.entries_removed, 10);
-    assert_eq!(tree.num_entries(), 0);
-    assert_eq!(tree.root().range().unwrap().num_docs(), 0);
-    assert_eq!(tree.empty_leaves(), 1);
-}
-
-#[test]
-fn apply_node_gc_on_node_without_range() {
-    // Build a tree that has splits, then strip the root's range so we can test
-    // apply_node_gc on a node without a range. Internal nodes may have their
-    // range trimmed (range: None), which is what we're simulating here.
+fn apply_gc_batch_multi_node_mixed() {
+    // Build a tree with multiple leaves.
     let mut tree = NumericRangeTree::new(false);
-    for i in 1..=500 {
+    for i in 1..=500u64 {
         tree.add(i, i as f64, false, 0);
     }
-    // The root should be an internal node with no range
-    // after the inserts above.
-    assert!(!tree.root().is_leaf());
-    assert!(!tree.root().has_range());
+    assert!(tree.num_leaves() > 1);
 
-    // Build a dummy delta from a throwaway tree.
-    let helper = build_single_leaf_tree(1, false);
-    let delta = scan_root(&helper, |_| false);
-    let hll_with = [0u8; 64];
-    let hll_without = [0u8; 64];
+    let entries_before = tree.num_entries();
 
-    let result = apply_gc_to_root(&mut tree, delta, &hll_with, &hll_without);
+    // Delete docs 1..=250 — some leaves will have work, some won't.
+    let deltas = scan_batch_deltas(&tree, &|doc_id| doc_id > 250);
 
-    assert!(!result.valid);
-    assert_eq!(result.entries_removed, 0);
+    let result = tree.apply_gc_batch(&mut deltas.into_iter());
+
+    assert!(result.nodes_applied > 0);
+    assert!(result.total_entries_removed > 0);
+    assert!(tree.num_entries() < entries_before);
+}
+
+#[test]
+fn apply_gc_batch_all_skip() {
+    // No documents deleted — every node should be skipped.
+    let mut tree = build_single_leaf_tree(10, false);
+    let entries_before = tree.num_entries();
+
+    let deltas = scan_batch_deltas(&tree, &|_| true);
+
+    let result = tree.apply_gc_batch(&mut deltas.into_iter());
+
+    assert_eq!(result.nodes_applied, 0);
+    assert_eq!(result.total_entries_removed, 0);
+    assert_eq!(tree.num_entries(), entries_before);
 }
 
 #[rstest]
 #[case(false)]
 #[case(true)]
-fn apply_node_gc_with_blocks_added_since_fork(#[case] compress_floats: bool) {
-    // Use a single value to keep cardinality at 1, preventing splits even with
-    // many entries. This lets us add enough docs to create multiple blocks.
+fn apply_gc_batch_with_blocks_added_since_fork(#[case] compress_floats: bool) {
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=2000 {
         tree.add(i, 42.0, false, 0);
@@ -152,21 +97,47 @@ fn apply_node_gc_with_blocks_added_since_fork(#[case] compress_floats: bool) {
     assert!(tree.root().is_leaf());
 
     // Scan captures the block layout at fork time.
-    let delta = scan_root(&tree, |doc_id| doc_id > 500);
+    let deltas = scan_batch_deltas(&tree, &|doc_id| doc_id > 500);
 
     // Simulate parent writes after fork.
     for i in 2001..=2500 {
         tree.add(i, 42.0, false, 0);
     }
 
-    let hll_with = [0u8; 64];
-    let hll_without = [0u8; 64];
-    let result = apply_gc_to_root(&mut tree, delta, &hll_with, &hll_without);
+    let result = tree.apply_gc_batch(&mut deltas.into_iter());
 
-    assert!(result.valid);
-    // Entries added after the scan may cause blocks to be ignored, but all
-    // originally-deleted entries that fit in unmodified blocks are still removed.
-    assert!(result.entries_removed <= 500);
+    assert_eq!(result.nodes_applied, 1);
+    assert!(result.total_entries_removed <= 500);
+}
+
+#[test]
+fn apply_gc_batch_empty_leaves_tracking() {
+    let mut tree = build_single_leaf_tree(10, false);
+    assert_eq!(tree.empty_leaves(), 0);
+
+    // Delete all documents.
+    let deltas = scan_batch_deltas(&tree, &|_| false);
+    tree.apply_gc_batch(&mut deltas.into_iter());
+
+    assert_eq!(tree.empty_leaves(), 1);
+    assert_eq!(tree.num_entries(), 0);
+}
+
+#[test]
+fn apply_gc_batch_removes_all_multi_leaf() {
+    let mut tree = NumericRangeTree::new(false);
+    for i in 1..=500u64 {
+        tree.add(i, i as f64, false, 0);
+    }
+    let leaves = tree.num_leaves();
+    assert!(leaves > 1);
+
+    // Delete everything.
+    let deltas = scan_batch_deltas(&tree, &|_| false);
+    tree.apply_gc_batch(&mut deltas.into_iter());
+
+    assert_eq!(tree.num_entries(), 0);
+    assert!(tree.empty_leaves() > 0);
 }
 
 // ============================================================================
@@ -267,15 +238,16 @@ fn cardinality_after_gc_no_new_blocks() {
     let cardinality_before = tree.root().range().unwrap().cardinality();
     assert!(cardinality_before > 0);
 
-    let delta = scan_root(&tree, |doc_id| doc_id > 7);
-
-    // Provide non-zero HLL registers so cardinality is non-zero after GC.
-    let mut hll_with = [0u8; 64];
-    hll_with[0] = 5;
-    hll_with[1] = 3;
-    let hll_without = [0u8; 64];
-
-    apply_gc_to_root(&mut tree, delta, &hll_with, &hll_without);
+    // Delete docs 1..=7, keeping 8..=15.
+    // Use non-zero HLL registers so cardinality is non-zero after GC.
+    let deltas = scan_batch_deltas_with_hll(&tree, &|doc_id| doc_id > 7, |_| {
+        let mut hll_with = [0u8; 64];
+        hll_with[0] = 5;
+        hll_with[1] = 3;
+        let hll_without = [0u8; 64];
+        (hll_with, hll_without)
+    });
+    tree.apply_gc_batch(&mut deltas.into_iter());
 
     let cardinality_after = tree.root().range().unwrap().cardinality();
     assert!(cardinality_after > 0);
@@ -292,16 +264,15 @@ fn cardinality_after_gc_with_new_blocks(#[case] compress_floats: bool) {
     }
     assert!(tree.root().is_leaf());
 
-    let delta = scan_root(&tree, |doc_id| doc_id > 500);
+    // Scan captures the block layout at fork time.
+    let deltas = scan_batch_deltas(&tree, &|doc_id| doc_id > 500);
 
     // Simulate parent writes after fork.
     for i in 2001..=3000 {
         tree.add(i, 42.0, false, 0);
     }
 
-    let hll_with = [0u8; 64];
-    let hll_without = [0u8; 64];
-    apply_gc_to_root(&mut tree, delta, &hll_with, &hll_without);
+    tree.apply_gc_batch(&mut deltas.into_iter());
 
     // New blocks added after fork should be rescanned for cardinality.
     // With a single value (42.0), cardinality should be 1 after rescan.
@@ -310,85 +281,97 @@ fn cardinality_after_gc_with_new_blocks(#[case] compress_floats: bool) {
 }
 
 // ============================================================================
-// Helpers for multi-leaf GC
+// Helpers for batch GC
 // ============================================================================
 
-/// Apply GC to every leaf in the tree.
-fn gc_all_leaves(tree: &mut NumericRangeTree, doc_exist: &dyn Fn(u64) -> bool) {
-    let mut work: Vec<GcWork> = Vec::new();
-    collect_gc_work(tree.root(), doc_exist, &mut work);
-
-    for item in work {
-        let node_ptr = find_node_by_path(tree.root_mut(), &item.path) as *mut NumericRangeNode;
-        // SAFETY: Same disjoint-mutation pattern as `apply_gc_to_root`.
-        let node = unsafe { &mut *node_ptr };
-        let hll_with = [0u8; 64];
-        let hll_without = [0u8; 64];
-        tree.apply_node_gc(node, item.delta, &hll_with, &hll_without);
-    }
+/// Scan the entire tree in DFS order and produce a batch of deltas.
+///
+/// Returns a `Vec<Option<NodeGcDelta>>` with one entry per DFS node.
+/// `None` = skip (no range or no GC work), `Some` = apply.
+fn scan_batch_deltas(
+    tree: &NumericRangeTree,
+    doc_exist: &dyn Fn(u64) -> bool,
+) -> Vec<Option<NodeGcDelta>> {
+    let mut deltas = Vec::new();
+    scan_batch_dfs(tree.root(), doc_exist, &mut deltas);
+    deltas
 }
 
-struct GcWork {
-    path: Vec<Direction>,
-    delta: inverted_index::GcScanDelta,
+/// Like [`scan_batch_deltas`] but with custom HLL register values.
+///
+/// `hll_fn` receives the delta and returns `(hll_with, hll_without)`.
+fn scan_batch_deltas_with_hll(
+    tree: &NumericRangeTree,
+    doc_exist: &dyn Fn(u64) -> bool,
+    hll_fn: impl Fn(&inverted_index::GcScanDelta) -> ([u8; 64], [u8; 64]),
+) -> Vec<Option<NodeGcDelta>> {
+    let mut deltas = Vec::new();
+    scan_batch_dfs_with_hll(tree.root(), doc_exist, &mut deltas, &hll_fn);
+    deltas
 }
 
-#[derive(Clone, Copy)]
-enum Direction {
-    Left,
-    Right,
-}
-
-fn collect_gc_work(
+fn scan_batch_dfs(
     node: &NumericRangeNode,
     doc_exist: &dyn Fn(u64) -> bool,
-    work: &mut Vec<GcWork>,
+    deltas: &mut Vec<Option<NodeGcDelta>>,
 ) {
-    collect_gc_work_inner(node, doc_exist, work, &mut Vec::new());
-}
-
-fn collect_gc_work_inner(
-    node: &NumericRangeNode,
-    doc_exist: &dyn Fn(u64) -> bool,
-    work: &mut Vec<GcWork>,
-    path: &mut Vec<Direction>,
-) {
-    if node.is_leaf() {
-        if let Some(range) = node.range() {
-            if let Some(delta) = range
+    // One delta per DFS node.
+    let delta = node
+        .range()
+        .and_then(|range| {
+            range
                 .entries()
                 .scan_gc(doc_exist)
-                .expect("scan should not fail")
-            {
-                work.push(GcWork {
-                    path: path.clone(),
-                    delta,
-                });
-            }
-        }
-    } else if let Some((left, right)) = node.children() {
-        path.push(Direction::Left);
-        collect_gc_work_inner(left, doc_exist, work, path);
-        path.pop();
+                .expect("scan_gc should not fail")
+        })
+        .map(|delta| NodeGcDelta {
+            delta,
+            registers_with_last_block: [0u8; 64],
+            registers_without_last_block: [0u8; 64],
+        });
+    deltas.push(delta);
 
-        path.push(Direction::Right);
-        collect_gc_work_inner(right, doc_exist, work, path);
-        path.pop();
+    // Recurse: left then right (pre-order DFS).
+    if let Some((left, right)) = node.children() {
+        scan_batch_dfs(left, doc_exist, deltas);
+        scan_batch_dfs(right, doc_exist, deltas);
     }
 }
 
-fn find_node_by_path<'a>(
-    mut node: &'a mut NumericRangeNode,
-    path: &[Direction],
-) -> &'a mut NumericRangeNode {
-    for dir in path {
-        let (left, right) = node.children_mut().expect("expected internal node");
-        node = match dir {
-            Direction::Left => left,
-            Direction::Right => right,
-        };
+fn scan_batch_dfs_with_hll(
+    node: &NumericRangeNode,
+    doc_exist: &dyn Fn(u64) -> bool,
+    deltas: &mut Vec<Option<NodeGcDelta>>,
+    hll_fn: &dyn Fn(&inverted_index::GcScanDelta) -> ([u8; 64], [u8; 64]),
+) {
+    let delta = node
+        .range()
+        .and_then(|range| {
+            range
+                .entries()
+                .scan_gc(doc_exist)
+                .expect("scan_gc should not fail")
+        })
+        .map(|delta| {
+            let (hll_with, hll_without) = hll_fn(&delta);
+            NodeGcDelta {
+                delta,
+                registers_with_last_block: hll_with,
+                registers_without_last_block: hll_without,
+            }
+        });
+    deltas.push(delta);
+
+    if let Some((left, right)) = node.children() {
+        scan_batch_dfs_with_hll(left, doc_exist, deltas, hll_fn);
+        scan_batch_dfs_with_hll(right, doc_exist, deltas, hll_fn);
     }
-    node
+}
+
+/// Apply GC to every leaf in the tree using `apply_gc_batch`.
+fn gc_all_leaves(tree: &mut NumericRangeTree, doc_exist: &dyn Fn(u64) -> bool) {
+    let deltas = scan_batch_deltas(tree, doc_exist);
+    tree.apply_gc_batch(&mut deltas.into_iter());
 }
 
 // ============================================================================
@@ -445,14 +428,11 @@ fn test_gc_intensive_alternating_deletes(#[case] compress_floats: bool) {
     assert_eq!(tree.num_entries(), 1000);
     assert!(tree.root().is_leaf(), "single value should not split");
 
-    // Delete odd doc IDs.
-    let delta = scan_root(&tree, |doc_id| doc_id % 2 == 0);
-    let hll_with = [0u8; 64];
-    let hll_without = [0u8; 64];
-    let result = apply_gc_to_root(&mut tree, delta, &hll_with, &hll_without);
+    // Delete odd doc IDs via batch GC.
+    let deltas = scan_batch_deltas(&tree, &|doc_id| doc_id % 2 == 0);
+    let result = tree.apply_gc_batch(&mut deltas.into_iter());
 
-    assert!(result.valid);
-    assert_eq!(result.entries_removed, 500);
+    assert_eq!(result.total_entries_removed, 500);
     assert_eq!(tree.num_entries(), 500);
 
     // The remaining 500 docs should be the even ones.

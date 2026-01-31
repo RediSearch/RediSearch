@@ -78,4 +78,4 @@ pub use inverted_index::NumericFilter;
 pub use iter::DepthFirstNumericRangeTreeIterator;
 pub use node::{InternalNode, LeafNode, NumericRangeNode};
 pub use range::{NumericIndex, NumericRange, NumericRangeReader};
-pub use tree::{AddResult, NodeGcResult, NumericRangeTree};
+pub use tree::{AddResult, BatchGcResult, NodeGcDelta, NumericRangeTree};

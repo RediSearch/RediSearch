@@ -279,6 +279,56 @@ fn test_deep_tree_balancing() {
     assert_tree_invariants(&tree);
 }
 
+#[test]
+fn test_deep_tree_balancing_descending() {
+    let mut tree = NumericRangeTree::new(false);
+
+    // Insert sorted decreasing values to create right-to-left imbalance.
+    // This triggers right rotations via `balance_node`, covering
+    // `rotate_right` and the left-heavy branch in `balance_node`.
+    for i in (1..=5000u64).rev() {
+        tree.add(5001 - i, i as f64, true, 0);
+    }
+
+    let max_depth = tree.root().max_depth();
+    assert!(
+        max_depth <= 30,
+        "tree depth ({max_depth}) should be bounded after descending insertions"
+    );
+    assert_tree_invariants(&tree);
+}
+
+#[test]
+fn test_deep_tree_balancing_mixed() {
+    let mut tree = NumericRangeTree::new(false);
+
+    // Insert values in alternating ascending/descending batches to exercise
+    // both left and right rotations within a single tree.
+    let mut doc_id = 1u64;
+    for batch in 0..10 {
+        if batch % 2 == 0 {
+            // Ascending batch
+            for v in (batch * 500 + 1)..=(batch * 500 + 500) {
+                tree.add(doc_id, v as f64, true, 0);
+                doc_id += 1;
+            }
+        } else {
+            // Descending batch
+            for v in ((batch * 500 + 1)..=(batch * 500 + 500)).rev() {
+                tree.add(doc_id, v as f64, true, 0);
+                doc_id += 1;
+            }
+        }
+    }
+
+    let max_depth = tree.root().max_depth();
+    assert!(
+        max_depth <= 30,
+        "tree depth ({max_depth}) should be bounded after mixed insertions"
+    );
+    assert_tree_invariants(&tree);
+}
+
 #[rstest]
 #[case(false)]
 #[case(true)]

@@ -209,6 +209,7 @@ typedef struct {
   char *tagValue;
   size_t tagLen;
   uint64_t uniqueId;
+  uint32_t revisionId;
   int sentFieldName;
 } tagNumHeader;
 
@@ -220,16 +221,19 @@ static void sendNumericTagHeader(void *opaqueCtx) {
     info->sentFieldName = 1;
     FGC_sendBuffer(ctx->gc, info->field, strlen(info->field));
     FGC_sendFixed(ctx->gc, &info->uniqueId, sizeof info->uniqueId);
+    if (info->type == RSFLDTYPE_NUMERIC) {
+      FGC_sendFixed(ctx->gc, &info->revisionId, sizeof info->revisionId);
+    }
   }
-  FGC_SEND_VAR(ctx->gc, info->curPtr);
   if (info->type == RSFLDTYPE_TAG) {
+    FGC_SEND_VAR(ctx->gc, info->curPtr);
     FGC_sendBuffer(ctx->gc, info->tagValue, info->tagLen);
   }
 }
 
 // If anything other than FGC_COLLECTED is returned, it is an error or done
 static FGCError recvNumericTagHeader(ForkGC *fgc, char **fieldName, size_t *fieldNameLen,
-                                     uint64_t *id) {
+                                     uint64_t *id, uint32_t *revisionId) {
   if (FGC_recvBuffer(fgc, (void **)fieldName, fieldNameLen) != REDISMODULE_OK) {
     return FGC_PARENT_ERROR;
   }
@@ -242,6 +246,13 @@ static FGCError recvNumericTagHeader(ForkGC *fgc, char **fieldName, size_t *fiel
     rm_free(*fieldName);
     *fieldName = NULL;
     return FGC_PARENT_ERROR;
+  }
+  if (revisionId) {
+    if (FGC_recvFixed(fgc, revisionId, sizeof(*revisionId)) != REDISMODULE_OK) {
+      rm_free(*fieldName);
+      *fieldName = NULL;
+      return FGC_PARENT_ERROR;
+    }
   }
   return FGC_COLLECTED;
 }
@@ -257,40 +268,23 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       continue;
     }
 
-    NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);
+    // Scan the entire tree in DFS order, buffering results.
+    NumericGcScanBuffer scanBuf = NumericRangeTree_GcScanBatch(sctx, rt);
 
-    const NumericRangeNode *currNode = NULL;
-    tagNumHeader header = {.type = RSFLDTYPE_NUMERIC,
-                           .field = HiddenString_GetUnsafe(numericFields[i]->fieldName, NULL),
-                           .uniqueId = NumericRangeTree_GetUniqueId(rt)};
+    if (scanBuf.has_work) {
+      // Send the header first (field_name + unique_id + revision_id + batch_len).
+      const char *fieldName = HiddenString_GetUnsafe(numericFields[i]->fieldName, NULL);
+      FGC_sendBuffer(gc, fieldName, strlen(fieldName));
+      uint64_t uniqueId = NumericRangeTree_GetUniqueId(rt);
+      FGC_sendFixed(gc, &uniqueId, sizeof uniqueId);
+      uint32_t revisionId = NumericRangeTree_GetRevisionId(rt);
+      FGC_sendFixed(gc, &revisionId, sizeof revisionId);
+      FGC_sendFixed(gc, &scanBuf.len, sizeof scanBuf.len);
 
-    while ((currNode = NumericRangeTreeIterator_Next(gcIterator))) {
-      const NumericRange *range = NumericRangeNode_GetRange(currNode);
-      if (!range) {
-        continue;
-      }
-
-      const InvertedIndexNumeric *idx = NumericRange_GetEntries(range);
-      header.curPtr = (NumericRangeNode *)currNode;  // Cast away const for storage
-
-      CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &header };
-      II_GCCallback cb = { .ctx = &cbCtx, .call = sendNumericTagHeader };
-
-      II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
-
-      // HLL registers are now written by Rust inside the scan — no C HLL code needed
-      InvertedIndexNumeric_GcDelta_Scan(&wr, sctx, idx, &cb);
+      // Send the buffered DFS batch data.
+      FGC_sendFixed(gc, scanBuf.data, scanBuf.len);
+      NumericGcScanBuffer_Free(scanBuf);
     }
-
-    if (header.sentFieldName) {
-      // If we've repaired at least one entry, send the terminator;
-      // note that "terminator" just means a zero address and not the
-      // "no more strings" terminator in FGC_sendTerminator
-      void *pdummy = NULL;
-      FGC_SEND_VAR(gc, pdummy);
-    }
-
-    NumericRangeTreeIterator_Free(gcIterator);
   }
 
   array_free(numericFields);
@@ -413,42 +407,6 @@ static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
   FGC_sendTerminator(gc);
 }
 
-typedef struct {
-  // Node in the tree that was GC'd
-  NumericRangeNode *node;
-  InvertedIndexGcDelta* delta;
-
-  uint8_t registersWithLastBlock[64];
-  uint8_t registersWithoutLastBlock[64]; // In case the last block was modified
-} NumGcInfo;
-
-static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
-  if (FGC_recvFixed(gc, &ninfo->node, sizeof(ninfo->node)) != REDISMODULE_OK) {
-    return FGC_CHILD_ERROR;
-  }
-  if (ninfo->node == NULL) {
-    return FGC_DONE;
-  }
-
-  II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
-  ninfo->delta = InvertedIndex_GcDelta_Read(&rd);
-  if (ninfo->delta == NULL) {
-    goto error;
-  }
-
-  if (FGC_recvFixed(gc, ninfo->registersWithLastBlock, 64) != REDISMODULE_OK) {
-    goto error;
-  }
-  if (FGC_recvFixed(gc, ninfo->registersWithoutLastBlock, 64) != REDISMODULE_OK) {
-    goto error;
-  }
-  return FGC_COLLECTED;
-
-error:
-  InvertedIndex_GcDelta_Free(ninfo->delta);
-  return FGC_CHILD_ERROR;
-}
-
 static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
   size_t len;
@@ -535,92 +493,104 @@ cleanup:
 static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
   size_t fieldNameLen;
   char *fieldName = NULL;
-  const FieldSpec *fs = NULL;
   uint64_t rtUniqueId;
+  uint32_t rtRevisionId;
   NumericRangeTree *rt = NULL;
-  FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &rtUniqueId);
-  bool initialized = false;
+  FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &rtUniqueId, &rtRevisionId);
   if (status == FGC_DONE) {
     return FGC_DONE;
   }
-
-  NumGcInfo ninfo = {0};
-  while (status == FGC_COLLECTED) {
-    // Read from GC process
-    FGCError status2 = recvNumIdx(gc, &ninfo);
-    bool shouldFreeDeltas = true;
-    if (status2 == FGC_DONE) {
-      break;
-    } else if (status2 != FGC_COLLECTED) {
-      status = status2;
-      break;
-    }
-
-    StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
-    IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (!sp) {
-      status = FGC_SPEC_DELETED;
-      goto loop_cleanup;
-    }
-    RedisSearchCtx _sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
-    RedisSearchCtx *sctx = &_sctx;
-
-    RedisSearchCtx_LockSpecWrite(sctx);
-
-    if (!initialized) {
-      fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
-      rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
-      initialized = true;
-    }
-
-    if (NumericRangeTree_GetUniqueId(rt) != rtUniqueId) {
-      status = FGC_PARENT_ERROR;
-      goto loop_cleanup;
-    }
-
-    NumericNodeGcResult gcResult = NumericRangeTree_ApplyNodeGc(
-        rt, ninfo.node, ninfo.delta,
-        ninfo.registersWithLastBlock, ninfo.registersWithoutLastBlock
-    );
-    ninfo.delta = NULL;  // ownership transferred
-    shouldFreeDeltas = false;
-
-    if (!gcResult.valid) {
-      gc->stats.gcNumericNodesMissed++;
-      goto loop_cleanup;
-    }
-
-    FGC_updateStats(gc, sctx, gcResult.entries_removed, gcResult.bytes_freed,
-                    gcResult.bytes_allocated, gcResult.blocks_ignored);
-
-  loop_cleanup:
-    if (shouldFreeDeltas) {
-      InvertedIndex_GcDelta_Free(ninfo.delta);
-    }
-    if (sp) {
-      RedisSearchCtx_UnlockSpec(sctx);
-      IndexSpecRef_Release(spec_ref);
-    }
+  if (status != FGC_COLLECTED) {
+    rm_free(fieldName);
+    return status;
   }
 
-  rm_free(fieldName);
+  // Receive batch_len from the header (sent by the child).
+  size_t batchLen;
+  if (FGC_recvFixed(gc, &batchLen, sizeof batchLen) != REDISMODULE_OK) {
+    rm_free(fieldName);
+    return FGC_CHILD_ERROR;
+  }
 
-  if (status == FGC_COLLECTED && rt && gc->cleanNumericEmptyNodes) {
-    // We need to have a valid strong reference to the spec in order to dereference rt
-    StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
-    IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (!sp) return FGC_SPEC_DELETED;
-    RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
-    RedisSearchCtx_LockSpecWrite(&sctx);
+  // Set up the pipe reader for the batch data.
+  II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
+
+  StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  if (!sp) {
+    // Spec deleted — skip the batch data by reading batchLen raw bytes.
+    if (batchLen > 0) {
+      void *discard = rm_malloc(batchLen);
+      (void)FGC_recvFixed(gc, discard, batchLen);
+      rm_free(discard);
+    }
+    rm_free(fieldName);
+    return FGC_SPEC_DELETED;
+  }
+  RedisSearchCtx _sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
+  RedisSearchCtx *sctx = &_sctx;
+
+  RedisSearchCtx_LockSpecWrite(sctx);
+
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
+  rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
+
+  if (!rt || NumericRangeTree_GetUniqueId(rt) != rtUniqueId ||
+      NumericRangeTree_GetRevisionId(rt) != rtRevisionId) {
+    // Tree was replaced, removed, or restructured — skip batch_len raw bytes.
+    if (batchLen > 0) {
+      void *discard = rm_malloc(batchLen);
+      (void)FGC_recvFixed(gc, discard, batchLen);
+      rm_free(discard);
+    }
+    gc->stats.gcNumericNodesMissed++;
+    RedisSearchCtx_UnlockSpec(sctx);
+    IndexSpecRef_Release(spec_ref);
+    rm_free(fieldName);
+    return FGC_COLLECTED;
+  }
+
+  // Apply the batch.
+  NumericBatchGcResult gcResult = NumericRangeTree_ApplyGcBatch(rt, &rd);
+
+  // If the apply consumed fewer bytes than expected (e.g. mid-message
+  // deserialization error), skip the remaining bytes to keep the pipe in sync.
+  if (gcResult.bytes_consumed < batchLen) {
+    size_t remaining = batchLen - gcResult.bytes_consumed;
+    RedisModule_Log(gc->ctx, "warning",
+                    "ForkGC numeric: apply consumed %zu of %zu batch bytes, skipping %zu remaining",
+                    gcResult.bytes_consumed, batchLen, remaining);
+    void *discard = rm_malloc(remaining);
+    (void)FGC_recvFixed(gc, discard, remaining);
+    rm_free(discard);
+  }
+
+  FGC_updateStats(gc, sctx, gcResult.entries_removed, gcResult.bytes_freed,
+                  gcResult.bytes_allocated, gcResult.blocks_ignored);
+
+  RedisSearchCtx_UnlockSpec(sctx);
+  IndexSpecRef_Release(spec_ref);
+
+  // Conditionally trim empty leaves (re-acquire lock).
+  if (gc->cleanNumericEmptyNodes) {
+    spec_ref = IndexSpecRef_Promote(gc->index);
+    sp = StrongRef_Get(spec_ref);
+    if (!sp) {
+      rm_free(fieldName);
+      return FGC_SPEC_DELETED;
+    }
+    RedisSearchCtx sctx2 = SEARCH_CTX_STATIC(gc->ctx, sp);
+    RedisSearchCtx_LockSpecWrite(&sctx2);
     size_t bytes_freed = NumericRangeTree_ConditionalTrimEmptyLeaves(rt);
     if (bytes_freed > 0) {
-      FGC_updateStats(gc, &sctx, 0, bytes_freed, 0, 0);
+      FGC_updateStats(gc, &sctx2, 0, bytes_freed, 0, 0);
     }
-    RedisSearchCtx_UnlockSpec(&sctx);
+    RedisSearchCtx_UnlockSpec(&sctx2);
     IndexSpecRef_Release(spec_ref);
   }
 
-  return status;
+  rm_free(fieldName);
+  return FGC_COLLECTED;
 }
 
 static FGCError FGC_parentHandleTags(ForkGC *gc) {
@@ -628,7 +598,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
   char *fieldName = NULL;
   uint64_t tagUniqueId;
   InvertedIndex *value = NULL;
-  FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &tagUniqueId);
+  FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &tagUniqueId, NULL);
 
   while (status == FGC_COLLECTED) {
     InvertedIndexGcDelta *delta = NULL;
