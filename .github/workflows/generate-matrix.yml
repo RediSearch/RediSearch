@@ -56,6 +56,8 @@ jobs:
               ('rockylinux:9', 'aarch64'),
               ('debian:bullseye', 'x86_64'),
               ('amazonlinux:2', 'x86_64'),
+              ('amazonlinux:2023', 'x86_64'),
+              ('amazonlinux:2023', 'aarch64'),
               ('mariner:2', 'x86_64'),
               ('azurelinux:3', 'x86_64'),
               ('azurelinux:3', 'aarch64'),
