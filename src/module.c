@@ -3679,7 +3679,6 @@ void sendRequiredFields(const searchRequestCtx *req, MRCommand *cmd) {
 }
 
 static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
-  RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
   struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
   // Clone the error into the MRCtx status (so timeout callback can see it)
   QueryError_CloneFrom(status, MRCtx_GetStatus(mrctx));
@@ -4496,6 +4495,13 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
   QueryError status = QueryError_Default();
 
   struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
+
+  // Check for timeout before doing any work
+  if (MRCtx_IsTimedOut(mrctx)) {
+    RedisModule_BlockedClientMeasureTimeEnd(MRCtx_GetBlockedClient(mrctx));
+    RedisModule_UnblockClient(MRCtx_GetBlockedClient(mrctx), mrctx);
+    return REDISMODULE_OK;
+  }
 
   // Get pre-allocated searchRequestCtx from MRCtx privdata (allocated and parsed on main thread)
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
