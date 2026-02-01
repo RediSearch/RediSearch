@@ -1589,6 +1589,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "redis_reply"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "insta",
+ "proptest",
+ "redis_mock",
+ "workspace_hack",
+]
+
+[[package]]
 name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
@@ -1740,8 +1751,11 @@ dependencies = [
  "ffi",
  "field",
  "inverted_index",
+ "inverted_index_ffi",
+ "libc",
  "pretty_assertions",
  "proptest",
+ "query_error",
  "redis_mock",
  "redisearch_rs",
  "rqe_iterators",

@@ -58,6 +58,16 @@ pub enum RsValue {
     Map(RsValueMap),
 }
 
+impl RsValue {
+    pub fn fully_dereferenced(&self) -> &Self {
+        if let RsValue::Ref(ref_value) = self {
+            ref_value.value().fully_dereferenced()
+        } else {
+            self
+        }
+    }
+}
+
 #[cfg(test)]
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 #[cfg(test)]

@@ -21,6 +21,7 @@ pub mod context;
 pub mod globals;
 pub mod key;
 pub mod log;
+pub mod reply;
 pub mod scan_key_cursor;
 pub mod string;
 
@@ -32,6 +33,7 @@ pub use ffi;
 use key::*;
 use log::*;
 use redis_module::KeyType;
+use reply::*;
 use scan_key_cursor::*;
 use string::*;
 
@@ -215,6 +217,27 @@ pub fn init_redis_module_mock() {
         redis_module::raw::RedisModule_SubscribeToServerEvent =
             Some(RedisModule_SubscribeToServerEvent)
     }
+
+    // Register reply functions.
+    unsafe {
+        redis_module::raw::RedisModule_ReplyWithLongLong = Some(RedisModule_ReplyWithLongLong)
+    };
+    unsafe { redis_module::raw::RedisModule_ReplyWithDouble = Some(RedisModule_ReplyWithDouble) };
+    unsafe {
+        redis_module::raw::RedisModule_ReplyWithSimpleString =
+            Some(RedisModule_ReplyWithSimpleString)
+    };
+    unsafe {
+        redis_module::raw::RedisModule_ReplyWithEmptyArray = Some(RedisModule_ReplyWithEmptyArray)
+    };
+    unsafe { redis_module::raw::RedisModule_ReplyWithArray = Some(RedisModule_ReplyWithArray) };
+    unsafe { redis_module::raw::RedisModule_ReplyWithMap = Some(RedisModule_ReplyWithMap) };
+    unsafe {
+        redis_module::raw::RedisModule_ReplySetArrayLength = Some(RedisModule_ReplySetArrayLength)
+    };
+    unsafe {
+        redis_module::raw::RedisModule_ReplySetMapLength = Some(RedisModule_ReplySetMapLength)
+    };
 }
 
 /// Define an empty stub function for the given list of C symbols.

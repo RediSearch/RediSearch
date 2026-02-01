@@ -998,6 +998,11 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     pub const fn inner(&self) -> &InvertedIndex<E> {
         &self.index
     }
+
+    /// Get a mutable reference to the inner inverted index.
+    pub const fn inner_mut(&mut self) -> &mut InvertedIndex<E> {
+        &mut self.index
+    }
 }
 
 impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {

@@ -80,21 +80,10 @@ src/redisearch_rs/
 
 ## Common Workflows
 
-### Porting a C Module
-1. Create new Rust crate: `src/redisearch_rs/<module_name>/`
-2. Implement Rust logic with comprehensive tests
-3. Create FFI wrapper: `src/redisearch_rs/c_entrypoint/<module_name>_ffi/`
-4. Add to workspace in `src/redisearch_rs/Cargo.toml`
-5. Wire up C code to call Rust via FFI
-
-### Adding Tests
-- Unit tests: in the `tests/` directory.
-  - Use inline `#[cfg(test)]` if and only if the test **must** use a private API
-- Use `proptest` for property-based testing
-- Use `insta` for snapshot testing
-
-## Key Dependencies (Rust)
-- `thiserror` - Error types
+Follow [/rust-docs-guidelines](.skills/rust-docs-guidelines/SKILL.md) when writing documentation for Rust code.
+Invoke [/port-c-module](.skills/port-c-module/SKILL.md) to plan the porting of a C module.
+Invoke [/write-rust-tests](.skills/write-rust-tests/SKILL.md) to add tests to Rust code.
+Invoke [/verify](.skills/verify/SKILL.md) to verify the correctness of your work before wrapping up.
 
 ## License Header (Required)
 ```
