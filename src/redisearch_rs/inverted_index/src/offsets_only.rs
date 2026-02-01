@@ -38,7 +38,7 @@ impl Encoder for OffsetsOnly {
         assert!(matches!(record.data, RSResultData::Term(_)));
 
         let offsets = offsets(record);
-        let offsets_sz = offsets.len() as u32;
+        let offsets_sz = u32::try_from(offsets.len()).unwrap();
 
         let mut bytes_written = qint_encode(&mut writer, [delta, offsets_sz])?;
 
@@ -80,14 +80,14 @@ impl Decoder for OffsetsOnly {
                 Err(error) => return Err(error),
             };
 
-            base += delta as t_docId;
+            base += t_docId::from(delta);
 
             if base >= target {
                 break offsets_sz;
             }
 
             // Skip the offsets
-            cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
+            cursor.seek(SeekFrom::Current(i64::from(offsets_sz)))?;
         };
 
         decode_term_record_offsets(cursor, base, 0, 0, 1, offsets_sz, result)?;

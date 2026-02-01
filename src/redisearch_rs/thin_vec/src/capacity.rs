@@ -47,13 +47,12 @@ impl VecCapacity for u8 {
 
     #[inline]
     fn from_usize(val: usize) -> Self {
-        if val > <Self as VecCapacity>::MAX as usize {
+        u8::try_from(val).unwrap_or_else(|_| {
             panic!(
-                "TinyThinVec size may not exceed the capacity of an {} sized int",
+                "MediumThinVec size may not exceed the capacity of an {} sized int",
                 Self::TYPE_NAME
-            );
-        }
-        val as u8
+            )
+        })
     }
 
     #[inline]
@@ -70,13 +69,12 @@ impl VecCapacity for u16 {
 
     #[inline]
     fn from_usize(val: usize) -> Self {
-        if val > <Self as VecCapacity>::MAX as usize {
+        u16::try_from(val).unwrap_or_else(|_| {
             panic!(
-                "SmallThinVec size may not exceed the capacity of a {} sized int",
+                "MediumThinVec size may not exceed the capacity of a {} sized int",
                 Self::TYPE_NAME
-            );
-        }
-        val as u16
+            )
+        })
     }
 
     #[inline]
@@ -93,13 +91,12 @@ impl VecCapacity for u32 {
 
     #[inline]
     fn from_usize(val: usize) -> Self {
-        if val > <Self as VecCapacity>::MAX as usize {
+        u32::try_from(val).unwrap_or_else(|_| {
             panic!(
                 "MediumThinVec size may not exceed the capacity of a {} sized int",
                 Self::TYPE_NAME
-            );
-        }
-        val as u32
+            )
+        })
     }
 
     #[inline]
@@ -122,9 +119,11 @@ impl VecCapacity for u64 {
     }
 
     #[inline]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "On 32-bit platforms, this could truncate, but in practice we never store more than usize::MAX elements."
+    )]
     fn to_usize(self) -> usize {
-        // On 32-bit platforms, this could truncate, but in practice
-        // we never store more than usize::MAX elements.
         self as usize
     }
 }

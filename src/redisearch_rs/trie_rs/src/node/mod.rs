@@ -120,7 +120,11 @@ impl<Data> Node<Data> {
             label_len,
             // A node can have at most 255 children, since that's
             // the number of unique `u8` values.
-            n_children: N as u8,
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "checked conversion not yet stable in const context"
+            )]
+            n_children: const { N as u8 },
         };
         let mut new_ptr = header.metadata().allocate();
         // Initialize the allocated buffer with valid values.
@@ -324,6 +328,8 @@ impl<Data> Node<Data> {
             offset < self.label_len() as usize,
             "The label offset must be fully contained within the current label"
         );
+
+        #[expect(clippy::cast_possible_truncation, reason = "manually checked above")]
         let child_header = NodeHeader {
             label_len: self.label_len() - offset as u16,
             n_children: self.n_children(),
@@ -380,7 +386,7 @@ impl<Data> Node<Data> {
         unsafe {
             child_ptr.children().ptr().copy_from_nonoverlapping(
                 old_ptr.children().ptr(),
-                child_header.n_children as usize,
+                usize::from(child_header.n_children),
             )
         };
 
@@ -393,6 +399,10 @@ impl<Data> Node<Data> {
         // The child node is fully initialized now.
         let child = unsafe { child_ptr.assume_init() };
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "manually checked at the top of this function"
+        )]
         let new_header = NodeHeader {
             label_len: offset as u16,
             n_children: 1 + if extra_child.is_some() { 1 } else { 0 },
@@ -496,11 +506,12 @@ impl<Data> Node<Data> {
     /// This version uses `realloc` for more efficient memory usage.
     fn prepend(mut self, prefix: &[u8]) -> Self {
         debug_assert!(
-            self.label_len() as usize + prefix.len() <= u16::MAX as usize,
+            u16::try_from(self.label_len() as usize + prefix.len()).is_ok(),
             "The new label length exceeds u16::MAX, {}",
             u16::MAX
         );
 
+        #[expect(clippy::cast_possible_truncation, reason = "manually checked above")]
         let new_header = NodeHeader {
             label_len: self.label_len() + prefix.len() as u16,
             n_children: self.n_children(),

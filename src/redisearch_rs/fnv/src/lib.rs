@@ -57,7 +57,7 @@ impl Fnv32 {
 impl Hasher for Fnv32 {
     #[inline]
     fn finish(&self) -> u64 {
-        self.0 as u64
+        u64::from(self.0)
     }
 
     #[inline]
@@ -65,7 +65,7 @@ impl Hasher for Fnv32 {
         let Fnv32(mut hash) = *self;
 
         for &byte in bytes {
-            hash ^= byte as u32;
+            hash ^= u32::from(byte);
             hash = hash.wrapping_mul(Self::PRIME);
         }
 
@@ -127,7 +127,7 @@ impl Hasher for Fnv64 {
         let Fnv64(mut hash) = *self;
 
         for &byte in bytes {
-            hash ^= byte as u64;
+            hash ^= u64::from(byte);
             hash = hash.wrapping_mul(Self::PRIME);
         }
 

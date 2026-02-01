@@ -47,7 +47,7 @@ impl Encoder for FieldsOffsets {
                 .expect("Need to use the wide variant of the FieldsOffsets encoder to support field masks bigger than u32");
 
         let offsets = offsets(record);
-        let offsets_sz = offsets.len() as u32;
+        let offsets_sz = u32::try_from(offsets.len()).unwrap();
 
         let mut bytes_written = qint_encode(&mut writer, [delta, field_mask, offsets_sz])?;
 
@@ -71,7 +71,7 @@ impl Decoder for FieldsOffsets {
             cursor,
             base,
             delta,
-            field_mask as t_fieldMask,
+            t_fieldMask::from(field_mask),
             1,
             offsets_sz,
             result,
@@ -97,21 +97,21 @@ impl Decoder for FieldsOffsets {
                 Err(error) => return Err(error),
             };
 
-            base += delta as t_docId;
+            base += t_docId::from(delta);
 
             if base >= target {
                 break (field_mask, offsets_sz);
             }
 
             // Skip the offsets
-            cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
+            cursor.seek(SeekFrom::Current(i64::from(offsets_sz)))?;
         };
 
         decode_term_record_offsets(
             cursor,
             base,
             0,
-            field_mask as t_fieldMask,
+            t_fieldMask::from(field_mask),
             1,
             offsets_sz,
             result,
@@ -143,7 +143,7 @@ impl Encoder for FieldsOffsetsWide {
         assert!(matches!(record.data, RSResultData::Term(_)));
 
         let offsets = offsets(record);
-        let offsets_sz = offsets.len() as u32;
+        let offsets_sz = u32::try_from(offsets.len()).unwrap();
 
         let mut bytes_written = qint_encode(&mut writer, [delta, offsets_sz])?;
         bytes_written += record.field_mask.write_as_varint(&mut writer)?;
@@ -196,14 +196,14 @@ impl Decoder for FieldsOffsetsWide {
             };
             let field_mask = t_fieldMask::read_as_varint(cursor)?;
 
-            base += delta as t_docId;
+            base += t_docId::from(delta);
 
             if base >= target {
                 break (field_mask, offsets_sz);
             }
 
             // Skip the offsets
-            cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
+            cursor.seek(SeekFrom::Current(i64::from(offsets_sz)))?;
         };
 
         decode_term_record_offsets(

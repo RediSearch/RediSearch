@@ -130,7 +130,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
         let delta = target_id - self.last_doc_id();
         // We then pick the minimum between the "naive" top (the full length)
         // and the "smart" top.
-        let mut top = (self.offset + delta as usize).min(len);
+        let mut top = (self.offset + usize::try_from(delta).unwrap()).min(len);
 
         // We hand-roll a binary search, rather than using
         //

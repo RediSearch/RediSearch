@@ -163,6 +163,7 @@ where
     }
     cursor.seek(SeekFrom::Start(pos))?;
     cursor.write_all(&[leading])?;
+    #[allow(clippy::cast_possible_wrap)]
     cursor.seek(SeekFrom::Current(ret as i64 - 1))?;
     Ok(ret)
 }
@@ -209,6 +210,7 @@ impl ValidQIntSize for [u32; 4] {}
 
 // Internal: Encodes one byte of using qint encoding, called in a loop.
 #[inline(always)]
+#[expect(clippy::cast_possible_truncation, reason = "truncation on purpose")]
 fn qint_encode_stepwise<W>(
     leading: &mut u8,
     cursor: &mut W,
@@ -255,13 +257,13 @@ where
             // 1 byte
             let mut buf = [0; 1];
             reader.read_exact(&mut buf)?;
-            Ok((buf[0] as u32, 1))
+            Ok((u32::from(buf[0]), 1))
         }
         1 => {
             // 2 bytes
             let mut buf = [0; 2];
             reader.read_exact(&mut buf)?;
-            Ok((u16::from_ne_bytes(buf) as u32, 2))
+            Ok((u32::from(u16::from_ne_bytes(buf)), 2))
         }
         2 => {
             // 3 bytes (mask off highest byte)

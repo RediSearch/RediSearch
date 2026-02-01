@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(clippy::cast_precision_loss)]
+
 use std::ptr::NonNull;
 use trie_bencher::{RustTrieMap, corpus::CorpusType};
 

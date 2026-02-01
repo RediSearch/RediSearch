@@ -76,7 +76,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
 
     // This should always return total results from the iterator, even after some yields.
     fn num_estimated(&self) -> usize {
-        self.top_id as usize
+        usize::try_from(self.top_id).unwrap()
     }
 
     fn last_doc_id(&self) -> t_docId {

@@ -43,7 +43,7 @@ impl Decoder for FreqsOnly {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, freq] = decoded_values;
 
-        result.doc_id = base + delta as t_docId;
+        result.doc_id = base + t_docId::from(delta);
         result.freq = freq;
         Ok(())
     }

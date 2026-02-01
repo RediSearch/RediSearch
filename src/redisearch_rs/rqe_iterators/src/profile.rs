@@ -69,6 +69,7 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
     /// Returns the accumulated wall time in nanoseconds assuming u64 is enough and there is
     /// no risk of overflow.
     #[inline]
+    #[expect(clippy::cast_possible_truncation, reason = "risk of overflow is low")]
     pub const fn wall_time_ns(&self) -> u64 {
         self.wall_time.as_nanos() as u64
     }

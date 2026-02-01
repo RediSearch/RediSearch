@@ -51,7 +51,7 @@ impl Decoder for RawDocIdsOnly {
         std::io::Read::read_exact(cursor, &mut delta_bytes)?;
         let delta = u32::from_ne_bytes(delta_bytes);
 
-        result.doc_id = base + delta as t_docId;
+        result.doc_id = base + t_docId::from(delta);
         Ok(())
     }
 
@@ -69,7 +69,7 @@ impl Decoder for RawDocIdsOnly {
         let mut delta_bytes = [0u8; 4];
         std::io::Read::read_exact(cursor, &mut delta_bytes)?;
         let delta = u32::from_ne_bytes(delta_bytes);
-        let mut doc_id = base + delta as t_docId;
+        let mut doc_id = base + t_docId::from(delta);
 
         if doc_id >= target {
             result.doc_id = doc_id;
@@ -87,7 +87,7 @@ impl Decoder for RawDocIdsOnly {
             cursor.set_position(mid * 4);
             std::io::Read::read_exact(cursor, &mut delta_bytes)?;
             let delta = u32::from_ne_bytes(delta_bytes);
-            doc_id = base + delta as t_docId;
+            doc_id = base + t_docId::from(delta);
 
             if doc_id < target {
                 left = mid + 1;
@@ -105,7 +105,7 @@ impl Decoder for RawDocIdsOnly {
         cursor.set_position(left * 4);
         std::io::Read::read_exact(cursor, &mut delta_bytes)?;
         let delta = u32::from_ne_bytes(delta_bytes);
-        doc_id = base + delta as t_docId;
+        doc_id = base + t_docId::from(delta);
 
         result.doc_id = doc_id;
         Ok(true)
