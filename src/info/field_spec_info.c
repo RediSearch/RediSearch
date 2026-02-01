@@ -194,6 +194,8 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(FieldSpec *fs){
   const VecSimIndexStatsInfo info = VecSimIndex_StatsInfo(vecsim);
   stats.memory += info.memory;
   stats.marked_deleted += info.numberOfMarkedDeleted;
+  stats.direct_hnsw_insertions += info.directHNSWInsertions;
+  stats.flat_buffer_size += info.flatBufferSize;
   return stats;
 }
 
@@ -206,6 +208,8 @@ VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
       VectorIndexStats field_stats = IndexSpec_GetVectorIndexStats(fs);
       stats.memory += field_stats.memory;
       stats.marked_deleted += field_stats.marked_deleted;
+      stats.direct_hnsw_insertions += field_stats.direct_hnsw_insertions;
+      stats.flat_buffer_size += field_stats.flat_buffer_size;
     }
   }
   return stats;

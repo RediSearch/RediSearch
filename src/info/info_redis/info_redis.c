@@ -26,6 +26,7 @@ static inline void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsI
 // General sections info
 static inline void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
+static inline void AddToInfo_VectorIndex(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Cursors(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
@@ -65,6 +66,9 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
   // Memory
   AddToInfo_Memory(ctx, &total_info);
+
+  // Vector index
+  AddToInfo_VectorIndex(ctx, &total_info);
 
   // Cursors
   AddToInfo_Cursors(ctx);
@@ -236,9 +240,14 @@ void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   // Max
   RedisModule_InfoAddFieldULongLong(ctx, "largest_memory_index", total_info->max_mem);
   RedisModule_InfoAddFieldDouble(ctx, "largest_memory_index_human", MEMORY_MB(total_info->max_mem));
+}
 
-  // Vector memory
+void AddToInfo_VectorIndex(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
+  RedisModule_InfoAddSection(ctx, "vector_index");
+
   RedisModule_InfoAddFieldULongLong(ctx, "used_memory_vector_index", total_info->fields_stats.total_vector_idx_mem);
+  RedisModule_InfoAddFieldULongLong(ctx, "hnsw_direct_main_thread_insertions", total_info->fields_stats.total_direct_hnsw_insertions);
+  RedisModule_InfoAddFieldULongLong(ctx, "tiered_index_frontend_buffer_size", total_info->fields_stats.total_flat_buffer_size);
 }
 
 void AddToInfo_Cursors(RedisModuleInfoCtx *ctx) {

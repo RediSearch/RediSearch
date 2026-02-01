@@ -18,8 +18,10 @@ extern "C" {
 
 typedef struct {
   // Vector Indexing
-  size_t total_vector_idx_mem;        // Total memory used by the vector index
-  size_t total_mark_deleted_vectors;  // Number of vectors marked as deleted
+  size_t total_vector_idx_mem;            // Total memory used by the vector index
+  size_t total_mark_deleted_vectors;      // Number of vectors marked as deleted
+  size_t total_direct_hnsw_insertions;    // Total vectors inserted directly to HNSW (bypassing flat buffer)
+  size_t total_flat_buffer_size;          // Total flat buffer size across all tiered indexes
 } TotalIndexesFieldsInfo;
 
 typedef struct {
