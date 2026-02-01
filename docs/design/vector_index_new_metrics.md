@@ -56,7 +56,7 @@ AddToInfo_*()                    →  Renders to INFO command output
 #### 1.1 Add counter to TieredHNSWIndex
 In `hnsw_tiered.h`, add a counter field:
 ```cpp
-std::atomic<size_t> directHNSWInsertions{0};
+size_t directHNSWInsertions{0};
 ```
 
 Increment in `addVector()` when inserting directly to HNSW (both WriteInPlace and full-buffer cases).
@@ -165,13 +165,13 @@ RedisModule_InfoAddFieldULongLong(ctx, "vector_flat_buffer_size",
 
 ## INFO Output
 
-The new metrics will appear in the `search_indexes` section:
+The new metrics will appear in a new `search_vector_indexe` section:
 ```
-# search_indexes
+# search_vector_index
 ...
 used_memory_vector_index:12345678
-vector_direct_hnsw_insertions:42
-vector_flat_buffer_size:1000
+hnsw_direct_main_thread_insertions:42
+tiered_index_frontend_buffer_size:1000
 ```
 
 And in per-field statistics (FT.INFO):
@@ -187,9 +187,8 @@ field statistics:
 
 ## Testing
 
-1. **Unit tests**: Verify counter increments in WriteInPlace mode and full-buffer scenarios
+1. **Unit tests**: Verify counter increments in WriteInPlace mode and full-buffer scenarios (in VectorSimilarity)
 2. **Integration tests**: Verify INFO output contains new metrics with correct values
-3. **Cluster tests**: Verify aggregation works correctly across shards
 
 ## Notes
 

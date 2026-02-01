@@ -2575,7 +2575,7 @@ def test_vecsim_hnsw_tiered_info_metrics():
   env.assertEqual(field_stats2['flat_buffer_size'], vectors_in_idx2)
   env.assertEqual(field_stats2['direct_hnsw_insertions'], 0)
 
-  # --- Test 3: Direct insertions when buffer is full ---
+  # --- Test 3: Direct insertions to idx1 when buffer is full ---
   extra_vectors = 5
   for i in range(buffer_limit, buffer_limit + extra_vectors):
     vector = np.random.rand(dim).astype(np.float32).tobytes()
@@ -2590,7 +2590,7 @@ def test_vecsim_hnsw_tiered_info_metrics():
   env.assertEqual(field_stats1['direct_hnsw_insertions'], extra_vectors)
   env.assertEqual(field_stats1['flat_buffer_size'], buffer_limit)
 
-  # --- Test 4: Direct insertions are cumulative ---
+  # --- Test 4: Direct insertions are cumulative - insert more vector to idx1 ---
   more_vectors = 3
   for i in range(buffer_limit + extra_vectors, buffer_limit + extra_vectors + more_vectors):
     vector = np.random.rand(dim).astype(np.float32).tobytes()
