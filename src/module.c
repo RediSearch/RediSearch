@@ -4105,10 +4105,25 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
+  // For debug commands, parse debug params first to get the correct argc for rscParseRequest.
+  // Debug parameters (e.g., TIMEOUT_AFTER_N 100 DEBUG_PARAMS_COUNT 2) are appended at the end
+  // and must be excluded from the search query parsing to avoid false keyword matches.
+  int parse_argc = argc;
+  if (isDebug) {
+    AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
+    if (QueryError_HasError(&status)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
+      return QueryError_ReplyAndClear(ctx, &status);
+    }
+    // Calculate base_argc excluding debug params: argc - (debug_params_count + 2)
+    // The +2 accounts for "DEBUG_PARAMS_COUNT" and "<count>" arguments
+    parse_argc = argc - (debug_params.debug_params_count + 2);
+  }
+
   // Allocate searchRequestCtx on main thread for partial timeout support.
   // This ensures the timeout callback can always access it (even if parsing hasn't completed).
   // queryString == NULL indicates parsing hasn't completed yet.
-  searchRequestCtx *req = rscParseRequest(argv, argc, &status);
+  searchRequestCtx *req = rscParseRequest(argv, parse_argc, &status);
   if (!req) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, &status);

@@ -10,16 +10,6 @@ ON_TIMEOUT_CONFIG = 'search-on-timeout'
 def run_cmd_expect_timeout(env, query_args):
     env.expect(*query_args).error().contains(TIMEOUT_ERROR)
 
-
-def get_docs_per_shard(env, n_shards):
-    """Count documents in each shard."""
-    docs_per_shard = []
-    for i in range(n_shards):
-        conn = env.getConnection(i)
-        keys = conn.execute_command('KEYS', '*')
-        docs_per_shard.append(len(keys))
-    return docs_per_shard
-
 def pid_cmd(conn):
     """Get the process ID of a Redis connection."""
     return conn.execute_command('info', 'server')['process_id']
