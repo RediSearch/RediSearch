@@ -326,17 +326,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 
     // Step 3: No ready results - poll for more
     int timeout_ms = it->atEOF ? ASYNC_POLL_TIMEOUT_AT_EOF_MS : 0;
-
-    // Poll writes directly to the arrays (capacity is ASYNC_POOL_SIZE)
-    const size_t pendingCount = SearchDisk_PollAsyncReads(
-        self->async.asyncPool, timeout_ms, 
-        self->async.readyResults, self->async.failedUserData);
-
-    // Reset index to start consuming from the beginning of readyResults
-    self->async.readyResultsIndex = 0;
-
-    // Step 3b: Clean up nodes for failed reads (not found/error)
-    IndexResultAsyncRead_CleanupFailedReads(&self->async);
+    const size_t pendingCount = IndexResultAsyncRead_Poll(&self->async, timeout_ms);
 
     // Step 4: Check if we're completely done
     if (IndexResultAsyncRead_IsIterationComplete(&self->async, it->atEOF, pendingCount)) {

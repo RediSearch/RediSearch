@@ -113,6 +113,21 @@ void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
   }
 }
 
+size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, int timeout_ms) {
+  // Poll writes directly to the arrays (capacity is poolSize)
+  const size_t pendingCount = SearchDisk_PollAsyncReads(
+      state->asyncPool, timeout_ms,
+      state->readyResults, state->failedUserData);
+
+  // Reset index to start consuming from the beginning of readyResults
+  state->readyResultsIndex = 0;
+
+  // Clean up nodes for failed reads (not found/error)
+  IndexResultAsyncRead_CleanupFailedReads(state);
+
+  return pendingCount;
+}
+
 RSIndexResult* IndexResultAsyncRead_PopReadyResult(IndexResultAsyncReadState *state) {
   if (state->readyResultsIndex >= array_len(state->readyResults)) {
     return NULL;  // No more ready results

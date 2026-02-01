@@ -102,6 +102,19 @@ void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state);
 void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state);
 
 /**
+ * Poll for completed async reads
+ *
+ * Polls the async pool for completed reads and updates the ready results.
+ * Resets the readyResultsIndex to start consuming from the beginning.
+ * Cleans up any failed reads (not found/error).
+ *
+ * @param state Async read state structure
+ * @param timeout_ms Timeout in milliseconds for the poll operation
+ * @return Number of pending async reads still in progress
+ */
+size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, int timeout_ms);
+
+/**
  * Pop a ready result from the completed async reads
  *
  * Returns an IndexResult with its DMD field populated from a completed
