@@ -2112,26 +2112,6 @@ cleanup:
   return NULL;
 }
 
-// Prepare a sortby special case.
-void prepareSortbyCase(searchRequestCtx *req, RedisModuleString **argv, int argc, int sortByIndex) {
-  const char* sortkey = RedisModule_StringPtrLen(argv[sortByIndex + 1], NULL);
-  specialCaseCtx *ctx = SpecialCaseCtx_New();
-  ctx->specialCaseType = SPECIAL_CASE_SORTBY;
-  ctx->sortby.sortKey = rm_strdup(sortkey);
-  ctx->sortby.asc = true;
-  req->sortAscending = true;
-  if (req->withSortby && sortByIndex + 2 < argc) {
-    if (RMUtil_StringEqualsCaseC(argv[sortByIndex + 2], "DESC")) {
-      ctx->sortby.asc = false;
-      req->sortAscending = false;
-    }
-  }
-  if(!req->specialCases) {
-      req->specialCases = array_new(specialCaseCtx*, 1);
-    }
-  array_append(req->specialCases, ctx);
-}
-
 searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError* status) {
 
   searchRequestCtx *req = searchRequestCtx_New();
@@ -2149,68 +2129,137 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   req->queryString = rm_strdup(RedisModule_StringPtrLen(argv[argvOffset++], NULL));
   req->limit = 10;
   req->offset = 0;
-  // marks the user set WITHSCORES. internally it's always set
-  req->withScores = RMUtil_ArgExists("WITHSCORES", argv, argc, argvOffset) != 0;
-  req->withExplainScores = RMUtil_ArgExists("EXPLAINSCORE", argv, argc, argvOffset) != 0;
   req->specialCases = NULL;
   req->requiredFields = NULL;
+  req->withSortby = false;
+  req->format = QEXEC_FORMAT_DEFAULT;
 
-  req->withSortingKeys = RMUtil_ArgExists("WITHSORTKEYS", argv, argc, argvOffset) != 0;
+  // Single-pass argument parsing using ArgsCursor and ACArgSpec
+  // This replaces multiple RMUtil_ArgExists/RMUtil_ArgIndex/RMUtil_ParseArgsAfter calls
+  // with a single O(n) iteration through the arguments.
+  int withScores = 0;
+  int withExplainScores = 0;
+  int withSortingKeys = 0;
+  int noContent = 0;
+  int withPayload = 0;
+  long long numReturns = -1;  // -1 means RETURN was not specified
+  ArgsCursor limitArgs = {0};
+  ArgsCursor sortbyArgs = {0};
+  ArgsCursor dialectArgs = {0};
+  ArgsCursor formatArgs = {0};
 
-  // Detect "NOCONTENT"
-  req->noContent = RMUtil_ArgExists("NOCONTENT", argv, argc, argvOffset) != 0;
+  // Note: SORTBY captures only the field name. ASC/DESC is checked separately
+  // because it's optional and we don't want to fail if it's missing.
+  ACArgSpec specs[] = {
+    {.name = "WITHSCORES",    .type = AC_ARGTYPE_BOOLFLAG, .target = &withScores},
+    {.name = "EXPLAINSCORE",  .type = AC_ARGTYPE_BOOLFLAG, .target = &withExplainScores},
+    {.name = "WITHSORTKEYS",  .type = AC_ARGTYPE_BOOLFLAG, .target = &withSortingKeys},
+    {.name = "NOCONTENT",     .type = AC_ARGTYPE_BOOLFLAG, .target = &noContent},
+    {.name = "WITHPAYLOADS",  .type = AC_ARGTYPE_BOOLFLAG, .target = &withPayload},
+    {.name = "RETURN",        .type = AC_ARGTYPE_LLONG,    .target = &numReturns},
+    {.name = "LIMIT",         .type = AC_ARGTYPE_SUBARGS_N, .target = &limitArgs, .slicelen = 2},
+    {.name = "SORTBY",        .type = AC_ARGTYPE_SUBARGS_N, .target = &sortbyArgs, .slicelen = 1},
+    {.name = "DIALECT",       .type = AC_ARGTYPE_SUBARGS_N, .target = &dialectArgs, .slicelen = 1},
+    {.name = "FORMAT",        .type = AC_ARGTYPE_SUBARGS_N, .target = &formatArgs, .slicelen = 1},
+    {NULL}  // Sentinel
+  };
 
-  // if RETURN exists - make sure we don't have RETURN 0
-  if (!req->noContent && RMUtil_ArgExists("RETURN", argv, argc, argvOffset)) {
-    long long numReturns = -1;
-    RMUtil_ParseArgsAfter("RETURN", argv, argc, "l", &numReturns);
-    // RETURN 0 equals NOCONTENT
-    if (numReturns <= 0) {
-      req->noContent = 1;
+  ArgsCursor ac;
+  ArgsCursor_InitRString(&ac, argv + argvOffset, argc - argvOffset);
+  // Parse all known arguments in a single pass. Unknown arguments are skipped.
+  // AC_ParseArgSpec returns AC_ERR_ENOENT for unknown args, which we handle by advancing.
+  while (!AC_IsAtEnd(&ac)) {
+    ACArgSpec *errSpec = NULL;
+    int rv = AC_ParseArgSpec(&ac, specs, &errSpec);
+    if (rv == AC_ERR_ENOENT) {
+      // Unknown argument - skip it and continue
+      AC_Advance(&ac);
+    } else if (rv != AC_OK) {
+      // Parse error (e.g., missing value for an argument)
+      if (errSpec && errSpec->name) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Need an argument for %s", errSpec->name);
+      } else {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Error parsing arguments");
+      }
+      searchRequestCtx_Free(req);
+      return NULL;
     }
   }
 
-  req->withPayload = RMUtil_ArgExists("WITHPAYLOADS", argv, argc, argvOffset) != 0;
+  // Apply parsed values to request context
+  req->withScores = withScores;
+  req->withExplainScores = withExplainScores;
+  req->withSortingKeys = withSortingKeys;
+  req->noContent = noContent;
+  req->withPayload = withPayload;
 
-  // Parse LIMIT argument
-  RMUtil_ParseArgsAfter("LIMIT", argv + argvOffset, argc - argvOffset, "ll", &req->offset, &req->limit);
+  // if RETURN 0 was specified, treat as NOCONTENT
+  if (!req->noContent && numReturns >= 0 && numReturns <= 0) {
+    req->noContent = 1;
+  }
+
+  // Parse LIMIT offset and count from captured sub-arguments
+  if (AC_IsInitialized(&limitArgs) && limitArgs.argc >= 2) {
+    AC_GetLongLong(&limitArgs, &req->offset, 0);
+    AC_GetLongLong(&limitArgs, &req->limit, 0);
+  }
   if (req->limit < 0 || req->offset < 0) {
     searchRequestCtx_Free(req);
     return NULL;
   }
   req->requestedResultsCount = req->limit + req->offset;
 
-  // Handle special cases
-  // Parse SORTBY ... ASC.
-  // Parse it ALWAYS first so the sortkey will be send first
-  int sortByIndex = RMUtil_ArgIndex("SORTBY", argv, argc);
-  if (sortByIndex > 2) {
+  // Handle SORTBY special case
+  if (AC_IsInitialized(&sortbyArgs) && sortbyArgs.argc >= 1) {
     req->withSortby = true;
-    // Check for command error where no sortkey is given.
-    if(sortByIndex + 1 >= argc) {
+    // Get the sort field name
+    const char *sortKey = AC_GetStringNC(&sortbyArgs, NULL);
+    if (!sortKey) {
       searchRequestCtx_Free(req);
       return NULL;
     }
-    prepareSortbyCase(req, argv, argc, sortByIndex);
-  } else {
-    req->withSortby = false;
-  }
+    // Create sortby context
+    specialCaseCtx *ctx = SpecialCaseCtx_New();
+    ctx->specialCaseType = SPECIAL_CASE_SORTBY;
+    ctx->sortby.sortKey = rm_strdup(sortKey);
+    ctx->sortby.asc = true;
+    req->sortAscending = true;
 
-  unsigned int dialect = RSGlobalConfig.requestConfigParams.dialectVersion;
-  int argIndex = RMUtil_ArgExists("DIALECT", argv, argc, argvOffset);
-  if(argIndex > 0) {
-      argIndex++;
-      ArgsCursor ac;
-      ArgsCursor_InitRString(&ac, argv+argIndex, argc-argIndex);
-      if (parseDialect(&dialect, &ac, status) != REDISMODULE_OK) {
-        searchRequestCtx_Free(req);
-        return NULL;
+    // Check for ASC/DESC - the sortbyArgs.objs points to the field name,
+    // so the next element (if exists) would be ASC/DESC
+    // sortbyArgs.objs[0] is the field, sortbyArgs.objs[1] would be ASC/DESC if present
+    // But we only captured 1 arg, so we need to check the original argv
+    // The sortbyArgs.objs pointer points into the original argv array
+    RedisModuleString **sortbyPtr = (RedisModuleString **)sortbyArgs.objs;
+    // Check if there's an argument after the sort field in the original argv
+    ptrdiff_t sortFieldIdx = sortbyPtr - argv;
+    if (sortFieldIdx + 1 < argc) {
+      size_t orderLen;
+      const char *order = RedisModule_StringPtrLen(argv[sortFieldIdx + 1], &orderLen);
+      if (orderLen == 4 && !strncasecmp(order, "DESC", 4)) {
+        ctx->sortby.asc = false;
+        req->sortAscending = false;
       }
+    }
+
+    if (!req->specialCases) {
+      req->specialCases = array_new(specialCaseCtx*, 1);
+    }
+    array_append(req->specialCases, ctx);
   }
 
-  if(dialect >= 2) {
+  // Parse DIALECT
+  unsigned int dialect = RSGlobalConfig.requestConfigParams.dialectVersion;
+  if (AC_IsInitialized(&dialectArgs) && dialectArgs.argc >= 1) {
+    if (parseDialect(&dialect, &dialectArgs, status) != REDISMODULE_OK) {
+      searchRequestCtx_Free(req);
+      return NULL;
+    }
+  }
+
+  if (dialect >= 2) {
     // Note: currently there is only one single case. For extending those cases we should use a trie here.
-    if(strcasestr(req->queryString, "KNN")) {
+    if (strcasestr(req->queryString, "KNN")) {
       specialCaseCtx *knnCtx = prepareOptionalTopKCase(req->queryString, argv, argc, dialect, status);
       if (QueryError_HasError(status)) {
         searchRequestCtx_Free(req);
@@ -2222,13 +2271,9 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     }
   }
 
-  req->format = QEXEC_FORMAT_DEFAULT;
-  argIndex = RMUtil_ArgExists("FORMAT", argv, argc, argvOffset);
-  if(argIndex > 0) {
-    argIndex++;
-    ArgsCursor ac;
-    ArgsCursor_InitRString(&ac, argv+argIndex, argc-argIndex);
-    if (parseValueFormat(&req->format, &ac, status) != REDISMODULE_OK) {
+  // Parse FORMAT
+  if (AC_IsInitialized(&formatArgs) && formatArgs.argc >= 1) {
+    if (parseValueFormat(&req->format, &formatArgs, status) != REDISMODULE_OK) {
       searchRequestCtx_Free(req);
       return NULL;
     }
