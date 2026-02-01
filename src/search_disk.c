@@ -98,9 +98,9 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key
     return disk->docTable.putDocument(handle, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl);
 }
 
-bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd) {
-    RS_ASSERT(disk && handle);
-    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen);
+bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time) {
+    RS_ASSERT(disk && handle && current_time);
+    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, *current_time);
 }
 
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
