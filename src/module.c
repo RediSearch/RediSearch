@@ -3796,6 +3796,9 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   // Get pre-allocated searchRequestCtx from MRCtx privdata (allocated on main thread)
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
 
+  // Copy coordinator queue time for profile output
+  req->coordQueueTime = handlerCtx->coordQueueTime;
+
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
 
   // Set coordinator start time for dispatch time tracking
