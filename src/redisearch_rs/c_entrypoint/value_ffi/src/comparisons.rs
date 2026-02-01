@@ -1,3 +1,4 @@
+use crate::util::expect_value;
 use query_error::{QueryError, QueryErrorCode};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
@@ -10,13 +11,8 @@ pub unsafe extern "C" fn RSValue_Cmp(
     v2: *const RsValue,
     status: *mut QueryError,
 ) -> c_int {
-    let shared_v1 = unsafe { SharedRsValue::from_raw(v1) };
-    let shared_v1 = ManuallyDrop::new(shared_v1);
-    let shared_v2 = unsafe { SharedRsValue::from_raw(v2) };
-    let shared_v2 = ManuallyDrop::new(shared_v2);
-
-    let v1 = shared_v1.fully_dereferenced_value();
-    let v2 = shared_v2.fully_dereferenced_value();
+    let v1 = unsafe { expect_value(v1) };
+    let v2 = unsafe { expect_value(v2) };
 
     match compare(v1, v2, status.is_null()) {
         Ok(Ordering::Less) => -1,
@@ -42,13 +38,8 @@ pub unsafe extern "C" fn RSValue_Equal(
     v2: *const RsValue,
     status: *mut QueryError,
 ) -> c_int {
-    let shared_v1 = unsafe { SharedRsValue::from_raw(v1) };
-    let shared_v1 = ManuallyDrop::new(shared_v1);
-    let shared_v2 = unsafe { SharedRsValue::from_raw(v2) };
-    let shared_v2 = ManuallyDrop::new(shared_v2);
-
-    let v1 = shared_v1.fully_dereferenced_value();
-    let v2 = shared_v2.fully_dereferenced_value();
+    let v1 = unsafe { expect_value(v1) };
+    let v2 = unsafe { expect_value(v2) };
 
     // For equality, don't fall back to string comparison - conversion failure means not equal
     match compare(v1, v2, false) {
