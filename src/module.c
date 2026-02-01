@@ -4521,8 +4521,6 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
   int debug_argv_count = debug_params.debug_params_count + 2;
   int base_argc = argc - debug_argv_count;
 
-  // Request was already parsed on main thread - no need to repopulate
-
   MRCommand cmd = MR_NewCommandFromRedisStrings(base_argc, argv);
   cmd.coordStartTime = handlerCtx->coordStartTime;
   int rc = prepareCommand(&cmd, req, protocol, argv, argc, handlerCtx->spec_ref, &status);
