@@ -29,6 +29,8 @@
 #include <pthread.h>
 #include <sys/param.h>
 #include <stddef.h>
+#include <stdatomic.h>
+#include <stdbool.h>
 
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
@@ -82,6 +84,12 @@ typedef struct MRCtx {
    * needs to unblock the client.
    */
   MRReduceFunc fn;
+
+  /* State tracking for partial timeout support */
+  _Atomic(bool) timedOut;       // Set by timeout callback to stop accepting replies
+  _Atomic(bool) reducing;       // Set when reducer starts, cleared when done
+  pthread_mutex_t reducingLock; // Mutex for reducingCond
+  pthread_cond_t reducingCond;  // For waiting on reducer completion
 } MRCtx;
 
 // Data structure to pass iterator and private data to callback
@@ -107,16 +115,13 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->fn = NULL;
   ret->ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
   ret->status = QueryError_Default();
-  return ret;
-}
 
-/* Create a new MapReduce context for bailout.
-  Used when we need to send an error to the client, and we don't expect any replies.
-  The status parameter is used to pass the error to the client after we unblock it, must not be NULL or OK.*/
-MRCtx *MR_CreateBailoutCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, QueryError *status) {
-  RS_ASSERT(status && QueryError_HasError(status));
-  MRCtx *ret = MR_CreateCtx(ctx, bc, NULL, 0);
-  QueryError_CloneFrom(status, &ret->status);
+  // Initialize state tracking for partial timeout support
+  atomic_init(&ret->timedOut, false);
+  atomic_init(&ret->reducing, false);
+  pthread_mutex_init(&ret->reducingLock, NULL);
+  pthread_cond_init(&ret->reducingCond, NULL);
+
   return ret;
 }
 
@@ -137,6 +142,10 @@ void MRCtx_Free(MRCtx *ctx) {
   }
   rm_free(ctx->replies);
 
+  // Destroy state tracking synchronization primitives
+  pthread_mutex_destroy(&ctx->reducingLock);
+  pthread_cond_destroy(&ctx->reducingCond);
+
   // free the context
   rm_free(ctx);
 }
@@ -144,6 +153,11 @@ void MRCtx_Free(MRCtx *ctx) {
 /* Get the user stored private data from the context */
 void *MRCtx_GetPrivData(struct MRCtx *ctx) {
   return ctx->privdata;
+}
+
+/* Set the user stored private data in the context */
+void MRCtx_SetPrivData(struct MRCtx *ctx, void *privdata) {
+  ctx->privdata = privdata;
 }
 
 int MRCtx_GetNumReplied(struct MRCtx *ctx) {
@@ -174,6 +188,43 @@ int MRCtx_GetCommandProtocol(struct MRCtx *ctx) {
   return ctx->cmd.protocol;
 }
 
+void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc) {
+  ctx->bc = bc;
+}
+
+/* State management for partial timeout support */
+
+void MRCtx_SetTimedOut(struct MRCtx *ctx) {
+  atomic_store(&ctx->timedOut, true);
+}
+
+bool MRCtx_IsTimedOut(struct MRCtx *ctx) {
+  return atomic_load(&ctx->timedOut);
+}
+
+/* Try to claim the reducing state. Returns true if we successfully claimed it,
+ * false if reducer already started (someone else claimed it). */
+bool MRCtx_TryClaimReducing(struct MRCtx *ctx) {
+  bool expected = false;
+  return atomic_compare_exchange_strong(&ctx->reducing, &expected, true);
+}
+
+/* Signal that reducer has completed. */
+void MRCtx_SignalReducerComplete(struct MRCtx *ctx) {
+  pthread_mutex_lock(&ctx->reducingLock);
+  atomic_store(&ctx->reducing, false);
+  pthread_cond_broadcast(&ctx->reducingCond);
+  pthread_mutex_unlock(&ctx->reducingLock);
+}
+
+/* Wait for reducer to complete if it's currently running. */
+void MRCtx_WaitForReducerComplete(struct MRCtx *ctx) {
+  pthread_mutex_lock(&ctx->reducingLock);
+  while (atomic_load(&ctx->reducing)) {
+    pthread_cond_wait(&ctx->reducingCond, &ctx->reducingLock);
+  }
+  pthread_mutex_unlock(&ctx->reducingLock);
+}
 
 static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
   if (p) {
@@ -201,6 +252,15 @@ static int unblockHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 /* The callback called from each fanout request to aggregate their replies */
 static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRCtx *ctx = privdata;
+
+  // Check if timed out - discard reply and return early.
+  // Timeout callback handles the reply, no need to track completion here.
+  if (MRCtx_IsTimedOut(ctx)) {
+    if (r) {
+      MRReply_Free(r);
+    }
+    return;
+  }
 
   if (!r) {
     ctx->numErrored++;
