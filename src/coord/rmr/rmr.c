@@ -87,7 +87,8 @@ typedef struct MRCtx {
 
   /* State tracking for partial timeout support */
   _Atomic(bool) timedOut;       // Set by timeout callback to stop accepting replies
-  _Atomic(bool) reducing;       // Set when reducer starts, cleared when done
+  _Atomic(bool) reducing;       // Set when reducer is claimed, never cleared (prevents double-claim)
+  _Atomic(bool) reducerDone;    // Set when reducer completes, for signaling waiters
   pthread_mutex_t reducingLock; // Mutex for reducingCond
   pthread_cond_t reducingCond;  // For waiting on reducer completion
 } MRCtx;
@@ -119,6 +120,7 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   // Initialize state tracking for partial timeout support
   atomic_init(&ret->timedOut, false);
   atomic_init(&ret->reducing, false);
+  atomic_init(&ret->reducerDone, false);
   pthread_mutex_init(&ret->reducingLock, NULL);
   pthread_cond_init(&ret->reducingCond, NULL);
 
@@ -204,18 +206,21 @@ bool MRCtx_TryClaimReducing(struct MRCtx *ctx) {
   return atomic_compare_exchange_strong(&ctx->reducing, &expected, true);
 }
 
-/* Signal that reducer has completed. */
+/* Signal that reducer has completed.
+ * Sets reducerDone to true (never reset) and broadcasts to waiters.
+ * Note: reducing stays true forever once claimed to prevent double-claim. */
 void MRCtx_SignalReducerComplete(struct MRCtx *ctx) {
   pthread_mutex_lock(&ctx->reducingLock);
-  atomic_store(&ctx->reducing, false);
+  atomic_store(&ctx->reducerDone, true);
   pthread_cond_broadcast(&ctx->reducingCond);
   pthread_mutex_unlock(&ctx->reducingLock);
 }
 
-/* Wait for reducer to complete if it's currently running. */
+/* Wait for reducer to complete if it's currently running.
+ * Waits until reducerDone becomes true. */
 void MRCtx_WaitForReducerComplete(struct MRCtx *ctx) {
   pthread_mutex_lock(&ctx->reducingLock);
-  while (atomic_load(&ctx->reducing)) {
+  while (!atomic_load(&ctx->reducerDone)) {
     pthread_cond_wait(&ctx->reducingCond, &ctx->reducingLock);
   }
   pthread_mutex_unlock(&ctx->reducingLock);
