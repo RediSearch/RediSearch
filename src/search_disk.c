@@ -63,7 +63,7 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
 }
 
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
-    RS_ASSERT(index);
+    RS_ASSERT(disk_db && index);
     disk->basic.closeIndexSpec(disk_db, index);
 }
 
