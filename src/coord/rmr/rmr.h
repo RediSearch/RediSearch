@@ -83,9 +83,6 @@ void MR_FreeCluster();
 /* Get the user stored private data from the context */
 void *MRCtx_GetPrivData(struct MRCtx *ctx);
 
-/* Set the user stored private data in the context */
-void MRCtx_SetPrivData(struct MRCtx *ctx, void *privdata);
-
 struct RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx);
 int MRCtx_GetNumReplied(struct MRCtx *ctx);
 void MRCtx_RequestCompleted(struct MRCtx *ctx);
