@@ -35,7 +35,7 @@ static inline void AddToInfo_Dialects(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx);
-static inline void AddToInfo_Disk(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
+static inline void AddToInfo_Disk(RedisModuleInfoCtx *ctx);
 /* ========================== MAIN FUNC ============================ */
 
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
@@ -89,7 +89,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
   // Disk metrics, on Flex only.
   if (SearchDisk_IsEnabled()) {
-    AddToInfo_Disk(ctx, &total_info);
+    AddToInfo_Disk(ctx);
   }
 
   // Active operations
@@ -444,51 +444,7 @@ void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx) {
   AddCursorsToInfo(ctx, blockedQueries);
 }
 
-/**
- * @brief Adds disk column family metrics to Redis INFO output
- *
- * @param ctx Redis module info context
- * @param metrics Disk metrics structure to report
- */
-static void addDiskColumnFamilyMetrics(RedisModuleInfoCtx *ctx, const DiskColumnFamilyMetrics *metrics) {
-  // Memtable metrics
-  RedisModule_InfoAddFieldULongLong(ctx, "num_immutable_memtables", metrics->num_immutable_memtables);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_immutable_memtables_flushed", metrics->num_immutable_memtables_flushed);
-  RedisModule_InfoAddFieldULongLong(ctx, "mem_table_flush_pending", metrics->mem_table_flush_pending);
-  RedisModule_InfoAddFieldULongLong(ctx, "active_memtable_size", metrics->active_memtable_size);
-  RedisModule_InfoAddFieldULongLong(ctx, "size_all_mem_tables", metrics->size_all_mem_tables);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_entries_active_memtable", metrics->num_entries_active_memtable);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_entries_imm_memtables", metrics->num_entries_imm_memtables);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_deletes_active_memtable", metrics->num_deletes_active_memtable);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_deletes_imm_memtables", metrics->num_deletes_imm_memtables);
-
-  // Compaction metrics
-  RedisModule_InfoAddFieldULongLong(ctx, "compaction_pending", metrics->compaction_pending);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_running_compactions", metrics->num_running_compactions);
-  RedisModule_InfoAddFieldULongLong(ctx, "num_running_flushes", metrics->num_running_flushes);
-  RedisModule_InfoAddFieldULongLong(ctx, "estimate_pending_compaction_bytes", metrics->estimate_pending_compaction_bytes);
-
-  // Data size estimates
-  RedisModule_InfoAddFieldULongLong(ctx, "estimate_num_keys", metrics->estimate_num_keys);
-  RedisModule_InfoAddFieldULongLong(ctx, "estimate_live_data_size", metrics->estimate_live_data_size);
-  RedisModule_InfoAddFieldULongLong(ctx, "live_sst_files_size", metrics->live_sst_files_size);
-
-  // Version tracking
-  RedisModule_InfoAddFieldULongLong(ctx, "num_live_versions", metrics->num_live_versions);
-
-  // Memory usage
-  RedisModule_InfoAddFieldULongLong(ctx, "estimate_table_readers_mem", metrics->estimate_table_readers_mem);
-}
-
-void AddToInfo_Disk(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
-  // Doc table metrics
-  RedisModule_InfoAddSection(ctx, "disk");
-  RedisModule_InfoBeginDictField(ctx, "disk_doc_table");
-  addDiskColumnFamilyMetrics(ctx, &total_info->disk_doc_table);
-  RedisModule_InfoEndDictField(ctx);
-
-  // Inverted index metrics
-  RedisModule_InfoBeginDictField(ctx, "disk_text_inverted_index");
-  addDiskColumnFamilyMetrics(ctx, &total_info->disk_inverted_index);
-  RedisModule_InfoEndDictField(ctx);
+void AddToInfo_Disk(RedisModuleInfoCtx *ctx) {
+  // Delegate to the disk API which outputs aggregated metrics directly
+  SearchDisk_OutputInfoMetrics(ctx);
 }
