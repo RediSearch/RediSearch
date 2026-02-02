@@ -539,7 +539,7 @@ const fn create_redis_search_ctx(module_ctx: *mut ffi::RedisModuleCtx) -> ffi::R
 #[cfg(test)]
 #[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {
-    use crate::mock::array_new;
+    use crate::mock::{array_free, array_new};
 
     use super::*;
 
@@ -1465,6 +1465,15 @@ mod tests {
         assert_eq!(actual[2].name(), c"fn1");
         assert_eq!(actual[2].path(), &Some(c"fp1".into()));
         assert_eq!(actual[2].rlookup_id(), lookup.id());
+
+        // Clean up
+        unsafe { array_free(schema_rule.filter_fields) };
+        for fs in field_specs {
+            unsafe {
+                ffi::HiddenString_Free(fs.fieldName, false);
+                ffi::HiddenString_Free(fs.fieldPath, false);
+            }
+        }
     }
 
     fn filter_fields_array(filter_fields: &[&CStr]) -> *mut *mut i8 {
