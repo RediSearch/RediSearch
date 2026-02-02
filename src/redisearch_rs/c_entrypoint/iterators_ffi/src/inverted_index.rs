@@ -381,7 +381,8 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
 ///
 /// 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
 /// 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
-/// 3. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
+/// 3. If `it` iterator type is IteratorType_INV_IDX_WILDCARD_ITERATOR, it has been created using `NewInvIndIterator_WildcardQuery`.
+/// 4. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
 ///
 /// # Returns
 ///
@@ -403,10 +404,15 @@ pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
             };
             wrapper.inner.flags()
         }
+        ffi::IteratorType_INV_IDX_WILDCARD_ITERATOR => {
+            // SAFETY: 3. the wildcard iterator is in Rust.
+            // Return DocIdsOnly flags since wildcard always uses DocIdsOnly index
+            ffi::IndexFlags_Index_DocIdsOnly
+        }
         _ => {
             // C iterator
             let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
-            // SAFETY: 3.
+            // SAFETY: 4.
             let reader_ref = unsafe { &*reader };
             reader_ref.flags()
         }
@@ -522,4 +528,55 @@ pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
             reader_ref.swap_index(ii_ref);
         }
     }
+}
+
+/// Creates a new wildcard inverted index iterator for querying all existing documents.
+///
+/// # Parameters
+///
+/// * `idx` - Pointer to the existingDocs inverted index (DocIdsOnly encoded).
+/// * `sctx` - Pointer to the Redis search context.
+/// * `weight` - Weight to apply to all results.
+///
+/// # Returns
+///
+/// A pointer to a `QueryIterator` that can be used from C code.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+///
+/// 1. `idx` must be a valid pointer to a DocIdsOnly `InvertedIndex` and cannot be NULL.
+/// 2. `idx` must remain valid for the lifetime of the returned iterator.
+/// 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
+/// 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NewInvIndIterator_WildcardQuery_Rs(
+    idx: *const ffi::InvertedIndex,
+    sctx: *const ffi::RedisSearchCtx,
+    weight: f64,
+) -> *mut ffi::QueryIterator {
+    debug_assert!(!idx.is_null(), "idx must not be null");
+
+    // Cast to the FFI wrapper enum which handles type dispatch
+    let idx_ffi: *const inverted_index_ffi::InvertedIndex = idx.cast();
+    // SAFETY: 1. guarantees idx is valid and non-null
+    let ii_ref = unsafe { &*idx_ffi };
+
+    // Get the reader from the DocumentIdOnly variant
+    let reader = match ii_ref {
+        inverted_index_ffi::InvertedIndex::DocumentIdOnly(ii) => ii.reader(),
+        _ => panic!(
+            "Wildcard iterator requires a DocIdsOnly inverted index, got: {:?}",
+            std::mem::discriminant(ii_ref)
+        ),
+    };
+
+    debug_assert!(!sctx.is_null(), "sctx must not be null");
+    // SAFETY: 3. guarantees sctx is valid and non-null
+    let sctx = unsafe { NonNull::new_unchecked(sctx as *mut _) };
+
+    let iterator = rqe_iterators::inverted_index::Wildcard::new(reader, sctx, weight);
+
+    RQEIteratorWrapper::boxed_new(ffi::IteratorType_INV_IDX_WILDCARD_ITERATOR, iterator)
 }
