@@ -29,8 +29,8 @@ fn main() {
         println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
     }
 
+    let redis_modules = root.join("deps").join("RedisModulesSDK");
     let includes = {
-        let redis_modules = root.join("deps").join("RedisModulesSDK");
         let src = root.join("src");
         let deps = root.join("deps");
 
@@ -39,7 +39,7 @@ fn main() {
         let vecsim = deps.join("VectorSimilarity").join("src");
 
         [
-            redis_modules,
+            redis_modules.clone(),
             src,
             deps,
             redisearch_rs,
@@ -52,7 +52,8 @@ fn main() {
         let buffer_h = root.join("src").join("buffer.h");
         let redisearch_h = root.join("src").join("redisearch.h");
         let result_processor_h = root.join("src").join("result_processor.h");
-        [buffer_h, redisearch_h, result_processor_h]
+        let redismodules_h = redis_modules.join("redismodule.h");
+        [buffer_h, redisearch_h, result_processor_h, redismodules_h]
     };
 
     let mut bindings = bindgen::Builder::default();
