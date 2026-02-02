@@ -2559,6 +2559,18 @@ static void IndexScoringStats_RdbSave(RedisModuleIO *rdb, ScoringIndexStats *sta
   RedisModule_SaveUnsigned(rdb, stats->totalDocsLen);
 }
 
+static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
+  IndexScoringStats_RdbSave(rdb, &stats->scoring);
+  RedisModule_SaveUnsigned(rdb, stats->numRecords);
+  RedisModule_SaveUnsigned(rdb, stats->invertedSize);
+  RedisModule_SaveUnsigned(rdb, 0); // invertedCap
+  RedisModule_SaveUnsigned(rdb, 0); // skipIndexesSize
+  RedisModule_SaveUnsigned(rdb, 0); // scoreIndexesSize
+  RedisModule_SaveUnsigned(rdb, stats->offsetVecsSize);
+  RedisModule_SaveUnsigned(rdb, stats->offsetVecRecords);
+  RedisModule_SaveUnsigned(rdb, stats->termsSize);
+}
+
 static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats, int encver) {
   IndexScoringStats_RdbLoad(rdb, &stats->scoring, encver);
   stats->numRecords = RedisModule_LoadUnsigned(rdb);
@@ -3150,7 +3162,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   if (sp->diskSpec && useSst) {
-    IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
+    IndexStats_RdbSave(rdb, &sp->stats);
     TrieType_GenericSave(rdb, sp->terms, false, true);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
   }
@@ -3260,7 +3272,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   // On the disk side (RDB is depleted, without updating index fields).
   bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && useSst) {
-    IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
+    IndexStats_RdbLoad(rdb, &sp->stats, encver);
     if (sp->terms) {
       TrieType_Free(sp->terms);
     }
