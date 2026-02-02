@@ -37,17 +37,20 @@ def get_vecsim_info(conn, index_name, field_name):
 
 
 def test_create_hnsw_disk_index(redis_env):
-    """Test creating an HNSW disk index."""
+    """Test creating an HNSW disk index with all required parameters."""
     conn = redis_env.getConnection()
 
+    # Disk mode requires: M, EF_CONSTRUCTION, EF_RUNTIME, RERANK (no defaults allowed)
     result = conn.execute_command(
         'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
-        'vec', 'VECTOR', 'HNSW', '10',
+        'vec', 'VECTOR', 'HNSW', '13',
         'TYPE', 'FLOAT32',
         'DIM', '4',
         'DISTANCE_METRIC', 'L2',
         'M', '16',
-        'EF_CONSTRUCTION', '200'
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK'
     )
     assert result == 'OK', f"FT.CREATE failed: {result}"
 
@@ -65,15 +68,17 @@ def test_add_vectors_and_knn_query(redis_env):
     """
     conn = redis_env.getConnection()
 
-    # Create index
+    # Create index with all required disk parameters
     conn.execute_command(
         'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
-        'vec', 'VECTOR', 'HNSW', '10',
+        'vec', 'VECTOR', 'HNSW', '13',
         'TYPE', 'FLOAT32',
         'DIM', '4',
         'DISTANCE_METRIC', 'L2',
         'M', '16',
-        'EF_CONSTRUCTION', '200'
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK'
     )
 
     # Add vectors - these go through the stub which doesn't actually store them
@@ -111,15 +116,17 @@ def test_delete_vector_and_requery(redis_env):
     """
     conn = redis_env.getConnection()
 
-    # Create index
+    # Create index with all required disk parameters
     conn.execute_command(
         'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
-        'vec', 'VECTOR', 'HNSW', '10',
+        'vec', 'VECTOR', 'HNSW', '13',
         'TYPE', 'FLOAT32',
         'DIM', '4',
         'DISTANCE_METRIC', 'L2',
         'M', '16',
-        'EF_CONSTRUCTION', '200'
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK'
     )
 
     # Add vectors
@@ -153,15 +160,125 @@ def test_drop_index(redis_env):
     """Test dropping an HNSW disk index."""
     conn = redis_env.getConnection()
 
-    # Create index
+    # Create index with all required disk parameters
     conn.execute_command(
         'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
-        'vec', 'VECTOR', 'HNSW', '6',
+        'vec', 'VECTOR', 'HNSW', '13',
         'TYPE', 'FLOAT32',
         'DIM', '4',
-        'DISTANCE_METRIC', 'L2'
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK'
     )
 
     # Drop index with DD (delete documents)
     result = conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
     assert result == 'OK', f"FT.DROPINDEX failed: {result}"
+
+
+def test_create_disk_index_rejects_flat_algorithm(redis_env):
+    """Test that FLAT algorithm is rejected in disk mode."""
+    conn = redis_env.getConnection()
+
+    with pytest.raises(Exception) as exc_info:
+        conn.execute_command(
+            'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+            'vec', 'VECTOR', 'FLAT', '6',
+            'TYPE', 'FLOAT32',
+            'DIM', '4',
+            'DISTANCE_METRIC', 'L2'
+        )
+    assert 'Disk index does not support FLAT algorithm' in str(exc_info.value)
+
+
+def test_create_disk_index_rejects_float64(redis_env):
+    """Test that FLOAT64 type is rejected in disk mode."""
+    conn = redis_env.getConnection()
+
+    with pytest.raises(Exception) as exc_info:
+        conn.execute_command(
+            'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+            'vec', 'VECTOR', 'HNSW', '13',
+            'TYPE', 'FLOAT64',
+            'DIM', '4',
+            'DISTANCE_METRIC', 'L2',
+            'M', '16',
+            'EF_CONSTRUCTION', '200',
+            'EF_RUNTIME', '10',
+            'RERANK'
+        )
+    assert 'Disk index does not support FLOAT64 vector type' in str(exc_info.value)
+
+
+def test_create_disk_index_requires_m_parameter(redis_env):
+    """Test that M parameter is mandatory in disk mode (has default in RAM)."""
+    conn = redis_env.getConnection()
+
+    with pytest.raises(Exception) as exc_info:
+        conn.execute_command(
+            'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+            'vec', 'VECTOR', 'HNSW', '11',
+            'TYPE', 'FLOAT32',
+            'DIM', '4',
+            'DISTANCE_METRIC', 'L2',
+            'EF_CONSTRUCTION', '200',
+            'EF_RUNTIME', '10',
+            'RERANK'
+        )
+    assert 'Disk HNSW index requires M parameter' in str(exc_info.value)
+
+
+def test_create_disk_index_requires_ef_construction(redis_env):
+    """Test that EF_CONSTRUCTION is mandatory in disk mode (has default in RAM)."""
+    conn = redis_env.getConnection()
+
+    with pytest.raises(Exception) as exc_info:
+        conn.execute_command(
+            'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+            'vec', 'VECTOR', 'HNSW', '11',
+            'TYPE', 'FLOAT32',
+            'DIM', '4',
+            'DISTANCE_METRIC', 'L2',
+            'M', '16',
+            'EF_RUNTIME', '10',
+            'RERANK'
+        )
+    assert 'Disk HNSW index requires EF_CONSTRUCTION parameter' in str(exc_info.value)
+
+
+def test_create_disk_index_requires_ef_runtime(redis_env):
+    """Test that EF_RUNTIME is mandatory in disk mode (has default in RAM)."""
+    conn = redis_env.getConnection()
+
+    with pytest.raises(Exception) as exc_info:
+        conn.execute_command(
+            'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+            'vec', 'VECTOR', 'HNSW', '11',
+            'TYPE', 'FLOAT32',
+            'DIM', '4',
+            'DISTANCE_METRIC', 'L2',
+            'M', '16',
+            'EF_CONSTRUCTION', '200',
+            'RERANK'
+        )
+    assert 'Disk HNSW index requires EF_RUNTIME parameter' in str(exc_info.value)
+
+
+def test_create_disk_index_requires_rerank(redis_env):
+    """Test that RERANK parameter is mandatory in disk mode."""
+    conn = redis_env.getConnection()
+
+    with pytest.raises(Exception) as exc_info:
+        conn.execute_command(
+            'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+            'vec', 'VECTOR', 'HNSW', '12',
+            'TYPE', 'FLOAT32',
+            'DIM', '4',
+            'DISTANCE_METRIC', 'L2',
+            'M', '16',
+            'EF_CONSTRUCTION', '200',
+            'EF_RUNTIME', '10'
+        )
+    assert 'Disk HNSW index requires RERANK parameter' in str(exc_info.value)
