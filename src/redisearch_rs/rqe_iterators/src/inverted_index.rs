@@ -16,7 +16,10 @@ use ffi::{
     t_fieldIndex, t_fieldMask,
 };
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::{IndexReader, NumericReader, RSIndexResult, TermReader};
+use inverted_index::{
+    IndexReader, IndexReaderCore, NumericReader, RSIndexResult, TermReader,
+    doc_ids_only::DocIdsOnly,
+};
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
@@ -692,6 +695,132 @@ where
 
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        self.it.revalidate()
+    }
+}
+
+/// An iterator over all existing documents in an index.
+///
+/// Used for wildcard queries (`*`) when the index tracks all existing
+/// documents via `spec->existingDocs`.
+///
+/// # Type Parameters
+///
+/// * `'index` - The lifetime of the index being iterated over.
+pub struct Wildcard<'index> {
+    it: InvIndIterator<'index, IndexReaderCore<'index, DocIdsOnly>>,
+}
+
+impl<'index> Wildcard<'index> {
+    /// Create an iterator returning all documents from the existingDocs index.
+    ///
+    /// `context` is the search context used to check for expiration.
+    ///
+    /// `existing_docs_ptr` is a raw pointer to the existingDocs inverted index,
+    /// used during revalidation to detect if the index has been garbage collected.
+    ///
+    /// `weight` is the weight applied to all results.
+    ///
+    /// # Safety
+    ///
+    /// 1. `context` must be a valid pointer to a `RedisSearchCtx`.
+    /// 2. `context.spec` must be a valid pointer to an `IndexSpec`.
+    /// 3. 1 and 2 must stay valid during the iterator's lifetime.
+    pub fn new(
+        reader: IndexReaderCore<'index, DocIdsOnly>,
+        context: NonNull<RedisSearchCtx>,
+        weight: f64,
+    ) -> Self {
+        use ffi::RS_FIELDMASK_ALL;
+
+        let result = RSIndexResult::virt()
+            .weight(weight)
+            .field_mask(RS_FIELDMASK_ALL)
+            .frequency(1);
+
+        Self {
+            it: InvIndIterator::new(
+                reader,
+                result,
+                context,
+                FieldFilterContext {
+                    field: FieldMaskOrIndex::Index(RS_INVALID_FIELD_INDEX),
+                    predicate: FieldExpirationPredicate::Default,
+                },
+            ),
+        }
+    }
+
+    /// Check if the iterator should abort revalidation.
+    ///
+    /// Returns true if the existingDocs index has been garbage collected.
+    fn should_abort(&self) -> bool {
+        // SAFETY: sctx is valid per constructor contract
+        let sctx_ref = unsafe { self.it.sctx.as_ref() };
+        let Some(spec) = (unsafe { sctx_ref.spec.as_ref() }) else {
+            return true;
+        };
+
+        let existing_docs = spec
+            .existingDocs
+            .cast::<inverted_index_ffi::InvertedIndex>();
+        let existing_docs = unsafe { existing_docs.as_ref().expect("spec.existingDocs is NULL") };
+        let existing_docs = existing_docs.as_doc_ids_only();
+
+        !self.it.reader.is_index(existing_docs)
+    }
+
+    /// Get a reference to the underlying reader.
+    pub const fn reader(&self) -> &IndexReaderCore<'index, DocIdsOnly> {
+        &self.it.reader
+    }
+}
+
+impl<'index> RQEIterator<'index> for Wildcard<'index> {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        self.it.current()
+    }
+
+    #[inline(always)]
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.it.read()
+    }
+
+    #[inline(always)]
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        self.it.skip_to(doc_id)
+    }
+
+    #[inline(always)]
+    fn rewind(&mut self) {
+        self.it.rewind()
+    }
+
+    #[inline(always)]
+    fn num_estimated(&self) -> usize {
+        self.it.num_estimated()
+    }
+
+    #[inline(always)]
+    fn last_doc_id(&self) -> t_docId {
+        self.it.last_doc_id()
+    }
+
+    #[inline(always)]
+    fn at_eof(&self) -> bool {
+        self.it.at_eof()
+    }
+
+    #[inline(always)]
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        if self.should_abort() {
+            return Ok(RQEValidateStatus::Aborted);
+        }
+
         self.it.revalidate()
     }
 }

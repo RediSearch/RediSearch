@@ -28,7 +28,7 @@ pub mod util;
 pub use empty::Empty;
 pub use id_list::IdList;
 pub use intersection::Intersection;
-pub use inverted_index::{Numeric, Term};
+pub use inverted_index::{Numeric, Term, Wildcard as WildcardInvInd};
 pub use metric::Metric;
 pub use wildcard::Wildcard;
 
