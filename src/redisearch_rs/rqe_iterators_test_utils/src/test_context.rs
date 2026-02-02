@@ -69,7 +69,7 @@ impl ModuleCtx {
         }
     }
 
-    fn as_ptr(&self) -> *mut ffi::RedisModuleCtx {
+    const fn as_ptr(&self) -> *mut ffi::RedisModuleCtx {
         self.ctx.as_ptr()
     }
 }
@@ -337,7 +337,7 @@ impl TestContext {
     }
 
     /// Get the field spec for this context.
-    pub fn field_spec(&self) -> &ffi::FieldSpec {
+    pub const fn field_spec(&self) -> &ffi::FieldSpec {
         match self.inner {
             TestContextInner::Numeric { field_spec, .. }
             | TestContextInner::Term { field_spec, .. } => unsafe { field_spec.as_ref() },
@@ -380,7 +380,7 @@ impl TestContext {
     ///
     /// The `ftId` is the full-text field ID, distinct from the general `index` field.
     /// Use this when filtering term records by field or marking field expiration.
-    pub fn text_field_bit(&self) -> ffi::t_fieldMask {
+    pub const fn text_field_bit(&self) -> ffi::t_fieldMask {
         1 << self.field_spec().ftId
     }
 
