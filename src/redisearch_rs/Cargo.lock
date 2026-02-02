@@ -1753,7 +1753,6 @@ dependencies = [
  "ffi",
  "field",
  "inverted_index",
- "inverted_index_ffi",
  "libc",
  "pretty_assertions",
  "proptest",
@@ -1761,10 +1760,12 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "rqe_iterators",
+ "rqe_iterators_test_utils",
  "thiserror",
  "types_ffi",
  "value",
  "value_ffi",
+ "varint_ffi",
  "workspace_hack",
 ]
 
@@ -1795,6 +1796,21 @@ dependencies = [
  "ffi",
  "inverted_index",
  "rqe_iterators",
+ "workspace_hack",
+]
+
+[[package]]
+name = "rqe_iterators_test_utils"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "field",
+ "inverted_index",
+ "inverted_index_ffi",
+ "libc",
+ "query_error",
+ "redis_mock",
+ "varint_ffi",
  "workspace_hack",
 ]
 
