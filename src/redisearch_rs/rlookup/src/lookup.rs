@@ -1428,27 +1428,22 @@ mod tests {
     #[test]
     fn create_keys_from_spec() {
         // Arrange
-        let index_spec = {
-            let mut index_spec = unsafe { MaybeUninit::<ffi::IndexSpec>::zeroed().assume_init() };
+        let mut index_spec = unsafe { MaybeUninit::<ffi::IndexSpec>::zeroed().assume_init() };
 
-            let mut schema_rule = {
-                let mut schema_rule =
-                    unsafe { MaybeUninit::<ffi::SchemaRule>::zeroed().assume_init() };
-                schema_rule.filter_fields_index = [-1, 0, 1].as_mut_ptr();
-                schema_rule.filter_fields = filter_fields_array(&[c"ff0", c"ff1", c"ff2"]);
-                schema_rule
-            };
-            index_spec.rule = ptr::from_mut(&mut schema_rule);
+        let mut schema_rule = unsafe { MaybeUninit::<ffi::SchemaRule>::zeroed().assume_init() };
+        let mut filter_fields_index = [-1, 0, 1];
+        schema_rule.filter_fields_index = filter_fields_index.as_mut_ptr();
+        schema_rule.filter_fields = filter_fields_array(&[c"ff0", c"ff1", c"ff2"]);
 
-            let mut field_specs = [
-                field_spec(c"fn0", c"fp0"),
-                field_spec(c"fn1", c"fp1"),
-                field_spec(c"fn2", c"fp2"),
-            ];
-            index_spec.fields = field_specs.as_mut_ptr();
-            index_spec.numFields = field_specs.len().try_into().unwrap();
-            index_spec
-        };
+        index_spec.rule = ptr::from_mut(&mut schema_rule);
+
+        let mut field_specs = [
+            field_spec(c"fn0", c"fp0"),
+            field_spec(c"fn1", c"fp1"),
+            field_spec(c"fn2", c"fp2"),
+        ];
+        index_spec.fields = field_specs.as_mut_ptr();
+        index_spec.numFields = field_specs.len().try_into().unwrap();
 
         let mut lookup = RLookup::new();
         let index_spec = unsafe { IndexSpec::from_raw(&raw const index_spec) };
