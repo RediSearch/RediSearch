@@ -385,6 +385,7 @@ impl TestContext {
     }
 
     /// Get the ffi inverted index for this context.
+    #[allow(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
     pub fn numeric_inverted_index(&self) -> &mut inverted_index_ffi::InvertedIndex {
         // Create a numeric filter to find ranges
         let filter = NumericFilter {
