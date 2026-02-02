@@ -3,7 +3,7 @@ Flow test for disk path placement.
 
 This test verifies that RediSearch disk storage is placed in the correct directory:
 - The bigredis-path config (e.g., /path/to/flash/bigstore-1) is used to compute the disk path
-- The disk path is: parent of bigredis-path + "/redisearch" (e.g., /path/to/flash/redisearch)
+- The disk path is: bigredis-path + "/redisearch" (e.g., /path/to/flash/bigstore-1/redisearch)
 - Each index database is at: {disk_path}_{index_name}_{doc_type}
 """
 
@@ -14,13 +14,11 @@ def get_expected_disk_path(bigredis_path: str, idx_name: str, doc_type: str) -> 
     Compute the expected disk path from bigredis-path.
 
     This mirrors the Rust compute_disk_path function:
-    - Extract parent directory from bigredis-path
-    - Append "/redisearch_{idx_name}_{doc_type}"
+    - Append "/redisearch_{idx_name}_{doc_type}" to bigredis-path
 
-    Example: /tmp/test/redis.big -> /tmp/test/redisearch_idx_hash
+    Example: /tmp/test/redis.big -> /tmp/test/redis.big/redisearch_idx_hash
     """
-    parent = Path(bigredis_path).parent
-    return str(parent / f"redisearch_{idx_name}_{doc_type}")
+    return str(Path(bigredis_path) / f"redisearch_{idx_name}_{doc_type}")
 
 
 def get_bigredis_path(redis_env) -> str:
@@ -35,8 +33,8 @@ def get_bigredis_path(redis_env) -> str:
 def test_disk_database_placed_in_correct_directory(redis_env):
     """
     Test that the disk database is created in the correct directory.
-    
-    The expected path is: parent(bigredis-path)/redisearch_{index_name}_{doc_type}
+
+    The expected path is: bigredis-path/redisearch_{index_name}_{doc_type}
     """
     conn = redis_env.getConnection()
 

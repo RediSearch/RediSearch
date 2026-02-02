@@ -73,15 +73,15 @@ pub fn get_redis_config_value(ctx: &redis_module::Context, config_name: &str) ->
 
 /// Computes the disk storage path from the bigredis-path configuration.
 ///
-/// Takes the bigredis-path (e.g., "/var/opt/redislabs/flash/bigstore-1"),
-/// extracts the parent directory, and appends "/redisearch".
+/// Takes the bigredis-path (e.g., "/var/opt/redislabs/flash/bigstore-1")
+/// and appends "/redisearch" to it.
 ///
 /// # Arguments
 /// * `bigredis_path` - The bigredis-path configuration value
 ///
 /// # Returns
-/// * `Some(String)` - The computed disk path (e.g., "/var/opt/redislabs/flash/redisearch")
-/// * `None` - If the path is invalid (no parent directory)
+/// * `Some(String)` - The computed disk path (e.g., "/var/opt/redislabs/flash/bigstore-1/redisearch")
+/// * `None` - If the path is empty
 ///
 /// # Examples
 /// ```
@@ -89,24 +89,20 @@ pub fn get_redis_config_value(ctx: &redis_module::Context, config_name: &str) ->
 ///
 /// assert_eq!(
 ///     compute_disk_path("/var/opt/redislabs/flash/bigstore-1"),
-///     Some("/var/opt/redislabs/flash/redisearch".to_string())
+///     Some("/var/opt/redislabs/flash/bigstore-1/redisearch".to_string())
 /// );
-/// assert_eq!(compute_disk_path("/"), None);
+/// assert_eq!(compute_disk_path("/"), Some("/redisearch".to_string()));
 /// assert_eq!(compute_disk_path(""), None);
 /// ```
 pub fn compute_disk_path(bigredis_path: &str) -> Option<String> {
-    let path = Path::new(bigredis_path);
-
-    // Get the parent directory
-    let parent = path.parent()?;
-
-    // Parent must not be empty (i.e., bigredis_path must have at least one component after root)
-    if parent.as_os_str().is_empty() {
+    if bigredis_path.is_empty() {
         return None;
     }
 
-    // Append "/redisearch" to the parent directory
-    let disk_path = parent.join("redisearch");
+    let path = Path::new(bigredis_path);
+
+    // Append "/redisearch" directly to the bigredis_path
+    let disk_path = path.join("redisearch");
 
     disk_path.to_str().map(|s| s.to_string())
 }
@@ -117,17 +113,17 @@ mod tests {
 
     #[test]
     fn test_compute_disk_path_with_trailing_slash() {
-        // Path::parent handles trailing slashes correctly
+        // Path::join handles trailing slashes correctly
         assert_eq!(
             compute_disk_path("/var/opt/redislabs/flash/bigstore-1/"),
-            Some("/var/opt/redislabs/flash/redisearch".to_string())
+            Some("/var/opt/redislabs/flash/bigstore-1/redisearch".to_string())
         );
     }
 
     #[test]
     fn test_compute_disk_path_root_only() {
-        // Root path "/" has no parent we can use
-        assert_eq!(compute_disk_path("/"), None);
+        // Root path "/" appends redisearch
+        assert_eq!(compute_disk_path("/"), Some("/redisearch".to_string()));
     }
 
     #[test]
@@ -137,7 +133,10 @@ mod tests {
 
     #[test]
     fn test_compute_disk_path_single_component() {
-        // "/foo" -> parent is "/" which is not empty, so we get "/redisearch"
-        assert_eq!(compute_disk_path("/foo"), Some("/redisearch".to_string()));
+        // "/foo" -> "/foo/redisearch"
+        assert_eq!(
+            compute_disk_path("/foo"),
+            Some("/foo/redisearch".to_string())
+        );
     }
 }
