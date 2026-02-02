@@ -57,8 +57,10 @@ VecSimIndex* NewIndex(const VecSimParamsDisk* params) {
         .indexParams = hnsw_backend_params,
         .diskContext = params->diskContext,
     };
-    auto* hnswDiskIndex =
-        dynamic_cast<HNSWDiskIndex<float, float>*>(HNSWDiskFactory::NewIndex(&hnsw_params_disk, true));
+    // static_cast is safe here because HNSWDiskFactory::NewIndex() with float type parameters
+    // always returns HNSWDiskIndex<float, float>* (see hnsw_disk_factory.cpp). The assert below
+    // catches null returns but not type mismatches, so we rely on the factory's type guarantee.
+    auto* hnswDiskIndex = static_cast<HNSWDiskIndex<float, float>*>(HNSWDiskFactory::NewIndex(&hnsw_params_disk, true));
     assert(hnswDiskIndex);
 
     // Initialize Brute Force frontend index.

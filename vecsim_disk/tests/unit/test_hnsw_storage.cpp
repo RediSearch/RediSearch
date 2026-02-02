@@ -11,6 +11,7 @@
 #include "test_utils.h"
 #include "storage/encoding.h"
 #include "storage/edge_merge_operator.h"
+#include "VecSim/utils/vecsim_stl.h"
 
 #include <memory>
 #include <cstring>
@@ -24,12 +25,28 @@ protected:
     static constexpr size_t VECTOR_SIZE = DIM * sizeof(float);
 
     std::unique_ptr<TempSpeeDB> db_;
+    std::shared_ptr<VecSimAllocator> allocator_;
 
-    void SetUp() override { db_ = std::make_unique<TempSpeeDB>(); }
+    void SetUp() override {
+        db_ = std::make_unique<TempSpeeDB>();
+        allocator_ = VecSimAllocator::newVecsimAllocator();
+    }
 
-    void TearDown() override { db_.reset(); }
+    void TearDown() override {
+        db_.reset();
+        allocator_.reset();
+    }
 
     std::unique_ptr<HNSWStorage<float>> CreateStorage() { return db_->createStorage<float>(); }
+
+    // Helper to create vecsim_stl::vector for edges
+    vecsim_stl::vector<idType> makeEdges(std::initializer_list<idType> init) {
+        vecsim_stl::vector<idType> edges(allocator_);
+        for (auto e : init) {
+            edges.push_back(e);
+        }
+        return edges;
+    }
 
     // Helper to append multiple edges using single-edge API
     static bool AppendEdges(HNSWStorage<float>* storage, idType id, levelType level,
@@ -142,13 +159,13 @@ TEST_F(HNSWStorageTest, PutAndGetOutgoingEdges) {
 
     idType id = 42;
     unsigned short level = 0;
-    std::vector<idType> edges = {1, 2, 3, 4, 5};
+    auto edges = makeEdges({1, 2, 3, 4, 5});
 
     // Put edges
     ASSERT_TRUE(storage->put_outgoing_edges(id, level, edges));
 
     // Get edges back
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_outgoing_edges(id, level, retrieved));
 
     // Verify data
@@ -164,13 +181,13 @@ TEST_F(HNSWStorageTest, PutAndGetIncomingEdges) {
 
     idType id = 42;
     unsigned short level = 1;
-    std::vector<idType> edges = {10, 20, 30};
+    auto edges = makeEdges({10, 20, 30});
 
     // Put edges
     ASSERT_TRUE(storage->put_incoming_edges(id, level, edges));
 
     // Get edges back
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
 
     // Verify data
@@ -184,20 +201,22 @@ TEST_F(HNSWStorageTest, GetNonExistentOutgoingEdges) {
     auto storage = CreateStorage();
     ASSERT_NE(storage, nullptr);
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
 
-    // Should return false for non-existent edges
-    EXPECT_FALSE(storage->get_outgoing_edges(999, 0, retrieved));
+    // Should return true with empty list for non-existent edges (not found is valid)
+    EXPECT_TRUE(storage->get_outgoing_edges(999, 0, retrieved));
+    EXPECT_TRUE(retrieved.empty());
 }
 
 TEST_F(HNSWStorageTest, GetNonExistentIncomingEdges) {
     auto storage = CreateStorage();
     ASSERT_NE(storage, nullptr);
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
 
-    // Should return false for non-existent edges
-    EXPECT_FALSE(storage->get_incoming_edges(999, 0, retrieved));
+    // Should return true with empty list for non-existent edges (not found is valid)
+    EXPECT_TRUE(storage->get_incoming_edges(999, 0, retrieved));
+    EXPECT_TRUE(retrieved.empty());
 }
 
 TEST_F(HNSWStorageTest, EmptyEdgeList) {
@@ -206,13 +225,13 @@ TEST_F(HNSWStorageTest, EmptyEdgeList) {
 
     idType id = 42;
     unsigned short level = 0;
-    std::vector<idType> empty_edges;
+    vecsim_stl::vector<idType> empty_edges(allocator_);
 
     // Put empty edge list
     ASSERT_TRUE(storage->put_outgoing_edges(id, level, empty_edges));
 
     // Get it back
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_outgoing_edges(id, level, retrieved));
 
     // Should be empty
@@ -225,16 +244,17 @@ TEST_F(HNSWStorageTest, DeleteOutgoingEdges) {
 
     idType id = 42;
     unsigned short level = 0;
-    std::vector<idType> edges = {1, 2, 3};
+    auto edges = makeEdges({1, 2, 3});
 
     ASSERT_TRUE(storage->put_outgoing_edges(id, level, edges));
 
     // Delete edges
     ASSERT_TRUE(storage->del_outgoing_edges(id, level));
 
-    // Should no longer exist
-    std::vector<idType> retrieved;
-    EXPECT_FALSE(storage->get_outgoing_edges(id, level, retrieved));
+    // Should return true with empty list after deletion (not found is valid)
+    vecsim_stl::vector<idType> retrieved(allocator_);
+    EXPECT_TRUE(storage->get_outgoing_edges(id, level, retrieved));
+    EXPECT_TRUE(retrieved.empty());
 }
 
 TEST_F(HNSWStorageTest, DeleteIncomingEdges) {
@@ -243,16 +263,17 @@ TEST_F(HNSWStorageTest, DeleteIncomingEdges) {
 
     idType id = 42;
     unsigned short level = 1;
-    std::vector<idType> edges = {10, 20};
+    auto edges = makeEdges({10, 20});
 
     ASSERT_TRUE(storage->put_incoming_edges(id, level, edges));
 
     // Delete edges
     ASSERT_TRUE(storage->del_incoming_edges(id, level));
 
-    // Should no longer exist
-    std::vector<idType> retrieved;
-    EXPECT_FALSE(storage->get_incoming_edges(id, level, retrieved));
+    // Should return true with empty list after deletion (not found is valid)
+    vecsim_stl::vector<idType> retrieved(allocator_);
+    EXPECT_TRUE(storage->get_incoming_edges(id, level, retrieved));
+    EXPECT_TRUE(retrieved.empty());
 }
 
 TEST_F(HNSWStorageTest, OverwriteOutgoingEdges) {
@@ -261,8 +282,8 @@ TEST_F(HNSWStorageTest, OverwriteOutgoingEdges) {
 
     idType id = 42;
     unsigned short level = 0;
-    std::vector<idType> edges1 = {1, 2, 3};
-    std::vector<idType> edges2 = {4, 5, 6, 7};
+    auto edges1 = makeEdges({1, 2, 3});
+    auto edges2 = makeEdges({4, 5, 6, 7});
 
     // Put first edge list
     ASSERT_TRUE(storage->put_outgoing_edges(id, level, edges1));
@@ -271,7 +292,7 @@ TEST_F(HNSWStorageTest, OverwriteOutgoingEdges) {
     ASSERT_TRUE(storage->put_outgoing_edges(id, level, edges2));
 
     // Should get second edge list
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_outgoing_edges(id, level, retrieved));
     ASSERT_EQ(retrieved.size(), edges2.size());
     for (size_t i = 0; i < edges2.size(); i++) {
@@ -284,9 +305,9 @@ TEST_F(HNSWStorageTest, DifferentLevelsSameNode) {
     ASSERT_NE(storage, nullptr);
 
     idType id = 42;
-    std::vector<idType> edges_level0 = {1, 2, 3};
-    std::vector<idType> edges_level1 = {4, 5};
-    std::vector<idType> edges_level2 = {6};
+    auto edges_level0 = makeEdges({1, 2, 3});
+    auto edges_level1 = makeEdges({4, 5});
+    auto edges_level2 = makeEdges({6});
 
     // Put edges at different levels
     ASSERT_TRUE(storage->put_outgoing_edges(id, 0, edges_level0));
@@ -294,7 +315,7 @@ TEST_F(HNSWStorageTest, DifferentLevelsSameNode) {
     ASSERT_TRUE(storage->put_outgoing_edges(id, 2, edges_level2));
 
     // Get edges from each level
-    std::vector<idType> retrieved0, retrieved1, retrieved2;
+    vecsim_stl::vector<idType> retrieved0(allocator_), retrieved1(allocator_), retrieved2(allocator_);
     ASSERT_TRUE(storage->get_outgoing_edges(id, 0, retrieved0));
     ASSERT_TRUE(storage->get_outgoing_edges(id, 1, retrieved1));
     ASSERT_TRUE(storage->get_outgoing_edges(id, 2, retrieved2));
@@ -311,15 +332,15 @@ TEST_F(HNSWStorageTest, OutgoingAndIncomingEdgesSeparate) {
 
     idType id = 42;
     unsigned short level = 0;
-    std::vector<idType> outgoing = {1, 2, 3};
-    std::vector<idType> incoming = {4, 5, 6};
+    auto outgoing = makeEdges({1, 2, 3});
+    auto incoming = makeEdges({4, 5, 6});
 
     // Put both outgoing and incoming edges
     ASSERT_TRUE(storage->put_outgoing_edges(id, level, outgoing));
     ASSERT_TRUE(storage->put_incoming_edges(id, level, incoming));
 
     // Get both back
-    std::vector<idType> retrieved_out, retrieved_in;
+    vecsim_stl::vector<idType> retrieved_out(allocator_), retrieved_in(allocator_);
     ASSERT_TRUE(storage->get_outgoing_edges(id, level, retrieved_out));
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved_in));
 
@@ -336,7 +357,7 @@ TEST_F(HNSWStorageTest, LargeEdgeList) {
     unsigned short level = 0;
 
     // Create a large edge list
-    std::vector<idType> edges;
+    vecsim_stl::vector<idType> edges(allocator_);
     for (idType i = 0; i < 1000; i++) {
         edges.push_back(i);
     }
@@ -344,7 +365,7 @@ TEST_F(HNSWStorageTest, LargeEdgeList) {
     // Put and get large edge list
     ASSERT_TRUE(storage->put_outgoing_edges(id, level, edges));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_outgoing_edges(id, level, retrieved));
 
     // Verify all edges
@@ -364,7 +385,7 @@ TEST_F(HNSWStorageTest, MixedVectorAndEdgeOperations) {
 
     idType id = 42;
     float vec[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
-    std::vector<idType> edges = {1, 2, 3};
+    auto edges = makeEdges({1, 2, 3});
 
     // Store vector and edges
     ASSERT_TRUE(storage->put_vector(id, vec, VECTOR_SIZE));
@@ -379,7 +400,7 @@ TEST_F(HNSWStorageTest, MixedVectorAndEdgeOperations) {
     }
 
     // Retrieve and verify edges
-    std::vector<idType> retrieved_out, retrieved_in;
+    vecsim_stl::vector<idType> retrieved_out(allocator_), retrieved_in(allocator_);
     ASSERT_TRUE(storage->get_outgoing_edges(id, 0, retrieved_out));
     ASSERT_TRUE(storage->get_incoming_edges(id, 0, retrieved_in));
     EXPECT_EQ(retrieved_out, edges);
@@ -404,8 +425,8 @@ TEST_F(HNSWStorageTest, OverwriteVectorAndEdges) {
     ASSERT_TRUE(storage->put_vector(id, vec1, VECTOR_SIZE));
 
     // Store initial edges
-    std::vector<idType> edges1_out = {10, 20, 30};
-    std::vector<idType> edges1_in = {100, 200};
+    auto edges1_out = makeEdges({10, 20, 30});
+    auto edges1_in = makeEdges({100, 200});
     ASSERT_TRUE(storage->put_outgoing_edges(id, level, edges1_out));
     ASSERT_TRUE(storage->put_incoming_edges(id, level, edges1_in));
 
@@ -416,7 +437,7 @@ TEST_F(HNSWStorageTest, OverwriteVectorAndEdges) {
         EXPECT_FLOAT_EQ(retrieved_vec[i], vec1[i]);
     }
 
-    std::vector<idType> retrieved_out, retrieved_in;
+    vecsim_stl::vector<idType> retrieved_out(allocator_), retrieved_in(allocator_);
     ASSERT_TRUE(storage->get_outgoing_edges(id, level, retrieved_out));
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved_in));
     EXPECT_EQ(retrieved_out, edges1_out);
@@ -427,8 +448,8 @@ TEST_F(HNSWStorageTest, OverwriteVectorAndEdges) {
     ASSERT_TRUE(storage->put_vector(id, vec2, VECTOR_SIZE));
 
     // Overwrite with new edges (different sizes and values)
-    std::vector<idType> edges2_out = {50, 60, 70, 80, 90}; // More edges
-    std::vector<idType> edges2_in = {500};                 // Fewer edges
+    auto edges2_out = makeEdges({50, 60, 70, 80, 90}); // More edges
+    auto edges2_in = makeEdges({500});                 // Fewer edges
     ASSERT_TRUE(storage->put_outgoing_edges(id, level, edges2_out));
     ASSERT_TRUE(storage->put_incoming_edges(id, level, edges2_in));
 
@@ -531,9 +552,9 @@ TEST_F(HNSWStorageTest, AppendIncomingEdge) {
     ASSERT_TRUE(storage->append_incoming_edge(id, level, 20));
     ASSERT_TRUE(storage->append_incoming_edge(id, level, 30));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({10, 20, 30}));
+    EXPECT_EQ(retrieved, makeEdges({10, 20, 30}));
 }
 
 TEST_F(HNSWStorageTest, MergeDeleteIncomingEdge) {
@@ -545,9 +566,9 @@ TEST_F(HNSWStorageTest, MergeDeleteIncomingEdge) {
     ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 3}));
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({1, 3}));
+    EXPECT_EQ(retrieved, makeEdges({1, 3}));
 }
 
 // Test: FullMergeV2 with existing base value (Put) followed by merge operands.
@@ -561,7 +582,8 @@ TEST_F(HNSWStorageTest, FullMergeV2WithExistingValue) {
     levelType level = 0;
 
     // First, set a base value using Put (not Merge)
-    ASSERT_TRUE(storage->put_incoming_edges(id, level, {10, 20, 30}));
+    auto initial_edges = makeEdges({10, 20, 30});
+    ASSERT_TRUE(storage->put_incoming_edges(id, level, initial_edges));
 
     // Now apply merge operations on top of the existing value
     ASSERT_TRUE(storage->append_incoming_edge(id, level, 40));
@@ -571,9 +593,9 @@ TEST_F(HNSWStorageTest, FullMergeV2WithExistingValue) {
     // FullMergeV2 is invoked during read with:
     // - existing_value = {10, 20, 30} (from Put)
     // - operand_list = [append(40), delete(20), append(50)]
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({10, 30, 40, 50}));
+    EXPECT_EQ(retrieved, makeEdges({10, 30, 40, 50}));
 }
 
 // =============================================================================
@@ -591,9 +613,9 @@ TEST_F(HNSWStorageTest, MergeAppendToEmpty) {
     // Append to non-existent key
     ASSERT_TRUE(AppendEdges(storage.get(), id, level, {10, 20, 30}));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({10, 20, 30}));
+    EXPECT_EQ(retrieved, makeEdges({10, 20, 30}));
 }
 
 // Test: Multiple consecutive appends
@@ -608,9 +630,9 @@ TEST_F(HNSWStorageTest, MergeMultipleAppends) {
     ASSERT_TRUE(AppendEdges(storage.get(), id, level, {3, 4}));
     ASSERT_TRUE(storage->append_incoming_edge(id, level, 5));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({1, 2, 3, 4, 5}));
+    EXPECT_EQ(retrieved, makeEdges({1, 2, 3, 4, 5}));
 }
 
 // Test: Delete from empty list (edge doesn't exist)
@@ -624,7 +646,7 @@ TEST_F(HNSWStorageTest, MergeDeleteFromEmpty) {
     // Delete from non-existent key - should not crash
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 999));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
     EXPECT_TRUE(retrieved.empty());
 }
@@ -640,9 +662,9 @@ TEST_F(HNSWStorageTest, MergeDeleteNonExistent) {
     ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 3}));
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 999)); // Edge doesn't exist
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({1, 2, 3})); // Unchanged
+    EXPECT_EQ(retrieved, makeEdges({1, 2, 3})); // Unchanged
 }
 
 // Test: Delete all edges one by one
@@ -658,7 +680,7 @@ TEST_F(HNSWStorageTest, MergeDeleteAllEdges) {
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2));
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 3));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
     EXPECT_TRUE(retrieved.empty());
 }
@@ -674,9 +696,9 @@ TEST_F(HNSWStorageTest, MergeDeleteFirstEdge) {
     ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 3, 4, 5}));
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 1));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({2, 3, 4, 5}));
+    EXPECT_EQ(retrieved, makeEdges({2, 3, 4, 5}));
 }
 
 // Test: Delete last edge
@@ -690,9 +712,9 @@ TEST_F(HNSWStorageTest, MergeDeleteLastEdge) {
     ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 3, 4, 5}));
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 5));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({1, 2, 3, 4}));
+    EXPECT_EQ(retrieved, makeEdges({1, 2, 3, 4}));
 }
 
 // Test: Delete middle edge
@@ -706,9 +728,9 @@ TEST_F(HNSWStorageTest, MergeDeleteMiddleEdge) {
     ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 3, 4, 5}));
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 3));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({1, 2, 4, 5}));
+    EXPECT_EQ(retrieved, makeEdges({1, 2, 4, 5}));
 }
 
 // Test: Delete only removes first occurrence (duplicates shouldn't exist in HNSW)
@@ -723,9 +745,9 @@ TEST_F(HNSWStorageTest, MergeDeleteDuplicateEdges) {
     ASSERT_TRUE(AppendEdges(storage.get(), id, level, {1, 2, 2, 3, 2}));
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2)); // Removes only first occurrence
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({1, 2, 3, 2}));
+    EXPECT_EQ(retrieved, makeEdges({1, 2, 3, 2}));
 }
 
 // Test: Interleaved append and delete operations
@@ -743,9 +765,9 @@ TEST_F(HNSWStorageTest, MergeInterleavedOperations) {
     ASSERT_TRUE(storage->append_incoming_edge(id, level, 6));
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 5));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({3, 4, 6}));
+    EXPECT_EQ(retrieved, makeEdges({3, 4, 6}));
 }
 
 // Test: Single edge operations
@@ -758,9 +780,9 @@ TEST_F(HNSWStorageTest, MergeSingleEdge) {
 
     ASSERT_TRUE(storage->append_incoming_edge(id, level, 42));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({42}));
+    EXPECT_EQ(retrieved, makeEdges({42}));
 
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 42));
     retrieved.clear();
@@ -781,14 +803,14 @@ TEST_F(HNSWStorageTest, MergeLargeEdgeIds) {
 
     ASSERT_TRUE(AppendEdges(storage.get(), id, level, {0, 1, almostMax, maxId}));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({0, 1, almostMax, maxId}));
+    EXPECT_EQ(retrieved, makeEdges({0, 1, almostMax, maxId}));
 
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, maxId));
     retrieved.clear();
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({0, 1, almostMax}));
+    EXPECT_EQ(retrieved, makeEdges({0, 1, almostMax}));
 }
 
 // Test: Operations on different levels
@@ -805,14 +827,14 @@ TEST_F(HNSWStorageTest, MergeDifferentLevels) {
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, 0, 2));
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, 1, 10));
 
-    std::vector<idType> level0, level1, level2;
+    vecsim_stl::vector<idType> level0(allocator_), level1(allocator_), level2(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, 0, level0));
     ASSERT_TRUE(storage->get_incoming_edges(id, 1, level1));
     ASSERT_TRUE(storage->get_incoming_edges(id, 2, level2));
 
-    EXPECT_EQ(level0, std::vector<idType>({1, 3}));
-    EXPECT_EQ(level1, std::vector<idType>({20}));
-    EXPECT_EQ(level2, std::vector<idType>({100}));
+    EXPECT_EQ(level0, makeEdges({1, 3}));
+    EXPECT_EQ(level1, makeEdges({20}));
+    EXPECT_EQ(level2, makeEdges({100}));
 }
 
 // Test: Large number of edges
@@ -833,7 +855,7 @@ TEST_F(HNSWStorageTest, MergeLargeEdgeList) {
         ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, i));
     }
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
 
     // Should have only odd numbers
@@ -855,9 +877,9 @@ TEST_F(HNSWStorageTest, MergeDeleteSameEdgeTwice) {
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2));
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2)); // Delete again (no-op)
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({1, 3}));
+    EXPECT_EQ(retrieved, makeEdges({1, 3}));
 }
 
 // Test: Incoming edges with merge operator
@@ -871,9 +893,9 @@ TEST_F(HNSWStorageTest, MergeIncomingEdges) {
     ASSERT_TRUE(AppendEdges(storage.get(), id, level, {100, 200, 300}));
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 200));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({100, 300}));
+    EXPECT_EQ(retrieved, makeEdges({100, 300}));
 }
 
 // Test: Append after delete restores edge
@@ -888,9 +910,9 @@ TEST_F(HNSWStorageTest, MergeAppendAfterDelete) {
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2));
     ASSERT_TRUE(storage->append_incoming_edge(id, level, 2)); // Re-add deleted edge
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({1, 3, 2})); // 2 is at the end now
+    EXPECT_EQ(retrieved, makeEdges({1, 3, 2})); // 2 is at the end now
 }
 
 // =============================================================================
@@ -1022,9 +1044,9 @@ TEST_F(HNSWStorageTest, RepeatedAddDeleteEdge) {
     // Add edge one more time (final operation is ADD)
     ASSERT_TRUE(storage->append_incoming_edge(id, level, target_edge));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({target_edge})); // Edge should be present
+    EXPECT_EQ(retrieved, makeEdges({target_edge})); // Edge should be present
 }
 
 TEST_F(HNSWStorageTest, RepeatedAddDeleteEdgeFinalDelete) {
@@ -1047,7 +1069,7 @@ TEST_F(HNSWStorageTest, RepeatedAddDeleteEdgeFinalDelete) {
     // Delete edge again (final operation is DELETE)
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, target_edge));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
     EXPECT_TRUE(retrieved.empty()); // Edge should NOT be present
 }
@@ -1074,7 +1096,7 @@ TEST_F(HNSWStorageTest, RepeatedAddDeleteWithOtherEdges) {
     // Final delete of edge 2
     ASSERT_TRUE(storage->delete_edge_from_incoming(id, level, 2));
 
-    std::vector<idType> retrieved;
+    vecsim_stl::vector<idType> retrieved(allocator_);
     ASSERT_TRUE(storage->get_incoming_edges(id, level, retrieved));
-    EXPECT_EQ(retrieved, std::vector<idType>({1, 3, 4, 5})); // 2 should be gone
+    EXPECT_EQ(retrieved, makeEdges({1, 3, 4, 5})); // 2 should be gone
 }

@@ -55,6 +55,11 @@ endif()
 option(BUILD_TESTS "Build vecsim_disk unit tests" ON)
 
 if(BUILD_TESTS)
+    # Add test helpers include path so hnsw_disk.h can find hnsw_disk_test_helpers.h
+    target_include_directories(vecsim_disk PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit
+    )
+
     # Enable testing
     enable_testing()
 

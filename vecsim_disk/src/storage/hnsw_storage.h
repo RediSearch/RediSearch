@@ -26,6 +26,7 @@
 #include <vector>
 #include <cstdint>
 #include "VecSim/vec_sim_common.h"
+#include "VecSim/utils/vecsim_stl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -34,6 +35,15 @@
 
 typedef uint16_t levelType;
 static_assert(sizeof(idType) == 4 && "IDType must be 4 bytes");
+
+/**
+ * @brief Edge operation type for batch merge operations.
+ */
+enum class EdgeOperation : uint8_t {
+    Append, ///< Append an edge to the incoming edges list
+    Delete  ///< Delete an edge from the incoming edges list
+};
+
 /**
  * @brief SpeedB/RocksDB storage for disk-based vector indexes.
  *
@@ -48,6 +58,23 @@ public:
     HNSWStorage(rocksdb::DB* db, rocksdb::ColumnFamilyHandle* cf) : db_(db), cf_(cf) {}
 
     ~HNSWStorage() = default;
+
+    bool batch_merge_incoming_edges(
+        const vecsim_stl::vector<std::tuple<idType, levelType, idType, EdgeOperation>>& operations) {
+        // Each tuple: (node_id, level, edge_id, operation)
+        rocksdb::WriteBatch batch;
+        for (const auto& [id, level, edge, op] : operations) {
+            char key_buf[kEdgeKeySize];
+            incomingEdgesKey(id, level, key_buf);
+            std::string_view key(key_buf, kEdgeKeySize);
+            std::string operand = (op == EdgeOperation::Append)
+                                      ? rocksdb::EdgeListMergeOperator::CreateAppendOperand(edge)
+                                      : rocksdb::EdgeListMergeOperator::CreateDeleteOperand(edge);
+            batch.Merge(cf_, key, operand);
+        }
+        rocksdb::Status status = db_->Write(writeOpts_, &batch);
+        return status.ok();
+    }
 
     // Merge operations for incoming edges only (outgoing edges use GET + PUT per design)
     bool append_incoming_edge(idType id, levelType level, idType edge) {
@@ -80,7 +107,7 @@ public:
         return status.ok();
     }
 
-    bool put_outgoing_edges(idType id, levelType level, const std::vector<idType>& edges) {
+    bool put_outgoing_edges(idType id, levelType level, const vecsim_stl::vector<idType>& edges) {
         char key_buf[kEdgeKeySize];
         outgoingEdgesKey(id, level, key_buf);
         std::string_view key(key_buf, kEdgeKeySize);
@@ -90,7 +117,7 @@ public:
         return status.ok();
     }
 
-    bool put_incoming_edges(idType id, levelType level, const std::vector<idType>& edges) {
+    bool put_incoming_edges(idType id, levelType level, const vecsim_stl::vector<idType>& edges) {
         char key_buf[kEdgeKeySize];
         incomingEdgesKey(id, level, key_buf);
         std::string_view key(key_buf, kEdgeKeySize);
@@ -115,26 +142,36 @@ public:
         return true;
     }
 
-    bool get_outgoing_edges(idType id, levelType level, std::vector<idType>& edges) const {
+    bool get_outgoing_edges(idType id, levelType level, vecsim_stl::vector<idType>& edges) const {
         char key_buf[kEdgeKeySize];
         outgoingEdgesKey(id, level, key_buf);
         std::string_view key(key_buf, kEdgeKeySize);
         rocksdb::PinnableSlice value;
         rocksdb::Status status = db_->Get(readOpts_, cf_, key, &value);
-        if (!status.ok())
-            return false;
+        if (status.IsNotFound()) {
+            edges.clear();
+            return true; // Not found is valid - empty edge list
+        }
+        if (!status.ok()) {
+            return false; // Actual error
+        }
         deserializeEdges(value, edges);
         return true;
     }
 
-    bool get_incoming_edges(idType id, levelType level, std::vector<idType>& edges) const {
+    bool get_incoming_edges(idType id, levelType level, vecsim_stl::vector<idType>& edges) const {
         char key_buf[kEdgeKeySize];
         incomingEdgesKey(id, level, key_buf);
         std::string_view key(key_buf, kEdgeKeySize);
         rocksdb::PinnableSlice value;
         rocksdb::Status status = db_->Get(readOpts_, cf_, key, &value);
-        if (!status.ok())
-            return false;
+        if (status.IsNotFound()) {
+            edges.clear();
+            return true; // Not found is valid - empty edge list
+        }
+        if (!status.ok()) {
+            return false; // Actual error
+        }
         deserializeEdges(value, edges);
         return true;
     }
@@ -195,7 +232,7 @@ private:
     }
 
     // Edge serialization/deserialization functions - uses little-endian encoding
-    static std::string_view serializeEdges(const std::vector<idType>& edges, std::string& value_buf) noexcept {
+    static std::string_view serializeEdges(const vecsim_stl::vector<idType>& edges, std::string& value_buf) noexcept {
         const size_t result_size = edges.size() * sizeof(idType);
         if constexpr (encoding::kIsLittleEndian) {
             return std::string_view(reinterpret_cast<const char*>(edges.data()), result_size);
@@ -214,7 +251,7 @@ private:
         return std::string_view(value_buf.data(), result_size);
     }
 
-    static void deserializeEdges(const rocksdb::PinnableSlice& data, std::vector<idType>& edges) noexcept {
+    static void deserializeEdges(const rocksdb::PinnableSlice& data, vecsim_stl::vector<idType>& edges) noexcept {
         size_t size = data.size();
         assert(size % sizeof(idType) == 0 && "Invalid edge data size");
 

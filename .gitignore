@@ -48,3 +48,6 @@ CMakeFiles/
 
 # Added by cargo
 target/
+
+# Augment AI feature tracking (local only)
+.augment/*

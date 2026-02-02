@@ -11,6 +11,10 @@
 #include "algorithms/hnsw/hnsw_disk.h"
 #include "storage/hnsw_storage.h"
 #include "VecSim/memory/vecsim_malloc.h"
+#include "VecSim/spaces/computer/preprocessors.h"
+#include "VecSim/spaces/computer/preprocessor_container.h"
+#include "VecSim/spaces/computer/calculator.h"
+#include "VecSim/spaces/spaces.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/merge_operator.h"
@@ -131,7 +135,7 @@ class TestIndex {
 public:
     TestIndex(size_t dim, VecSimMetric metric = VecSimMetric_L2, size_t M = 16, size_t efConstruction = 200,
               size_t efRuntime = 10)
-        : allocator_(VecSimAllocator::newVecsimAllocator()), db_(std::make_unique<TempSpeeDB>()) {
+        : db_(std::make_unique<TempSpeeDB>()) {
 
         HNSWParams params = {
             .type = VecSimType_FLOAT32,
@@ -148,7 +152,9 @@ public:
         // Create abstract init params for disk backend:
         // - storedDataSize = SQ8 quantized size
         // - inputBlobSize = FP32 size
+        // This creates the allocator that will be used for the index and all its components
         auto abstractInitParams = VecSimDiskFactory::NewDiskInitParams(&params, nullptr);
+        allocator_ = abstractInitParams.allocator; // Use the same allocator everywhere
 
         // Create disk-specific components with multi-mode calculator
         // is_normalized=true: disk backend assumes vectors are already normalized (for Cosine)
