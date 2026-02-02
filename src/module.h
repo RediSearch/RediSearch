@@ -82,6 +82,7 @@ do {                                            \
     return REDISMODULE_ERR;                                           \
   }
 
+#define IS_SST_RDB_IN_PROCESS(ctx) (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB)
 // Forward declaration of searchReducerCtx
 struct searchReducerCtx;
 
@@ -106,6 +107,7 @@ typedef struct {
   int profileArgs;
   int profileLimited;
   rs_wall_clock profileClock;
+  rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
   void *reducer;
   bool queryOOM;
 
