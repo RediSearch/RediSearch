@@ -144,7 +144,7 @@ pub extern "C" fn RSValue_NewNumber(numval: f64) -> *mut ffi::RSValue {
         __bindgen_anon_1: ffi::RSValue__bindgen_ty_1 { _numval: numval },
         _bitfield_align_1: [0u8; 0],
         _bitfield_1: {
-            let mut field = ffi::__BindgenBitfieldUnit::new([0; _]);
+            let mut field = ffi::__BindgenBitfieldUnit::new([0u8; 1]);
             field.set_bit(0, true);
             field
         },

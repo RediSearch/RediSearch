@@ -39,7 +39,21 @@ set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE)
 add_subdirectory(${root}/deps/libuv ${CMAKE_CURRENT_BINARY_DIR}/libuv)
 
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
-add_subdirectory(${root}/deps/VectorSimilarity ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity)
+option(USE_RUST_VECSIM "Use Rust VecSim implementation instead of C++" OFF)
+
+if(USE_RUST_VECSIM)
+    message(STATUS "Using Rust VecSim implementation")
+    add_subdirectory(${root}/deps/VectorSimilarity/rust/vecsim-c ${CMAKE_CURRENT_BINARY_DIR}/vecsim-c)
+    # Create an alias to match the C++ target name
+    add_library(VectorSimilarity ALIAS vecsim_c_static)
+    # Add include directories for the Rust vecsim-c headers
+    # Use BEFORE to ensure Rust headers take precedence over any C++ VecSim headers
+    include_directories(BEFORE ${VECSIM_C_INCLUDE_DIR})
+else()
+    # Add C++ VectorSimilarity include path only when not using Rust
+    include_directories(${root}/deps/VectorSimilarity/src)
+    add_subdirectory(${root}/deps/VectorSimilarity ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity)
+endif()
 
 #----------------------------------------------------------------------------------------------
 # Add subdirectories for src/ components
@@ -132,7 +146,11 @@ target_link_libraries(redisearch_c
     ttl_table
     ${HIREDIS_LIBS})
 
-add_dependencies(redisearch_c VectorSimilarity)
+if(USE_RUST_VECSIM)
+    add_dependencies(redisearch_c vecsim_c_rust_build)
+else()
+    add_dependencies(redisearch_c VectorSimilarity)
+endif()
 add_dependencies(redisearch_c generate_command_info)
 
 #----------------------------------------------------------------------------------------------

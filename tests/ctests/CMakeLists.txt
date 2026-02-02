@@ -4,6 +4,15 @@ if (NOT TEST_MODULE)
     set(TEST_MODULE redisearch)
 endif()
 
+# Add VecSim include path based on which implementation is used
+if(USE_RUST_VECSIM)
+    # Rust VecSim headers - use BEFORE to ensure precedence
+    include_directories(BEFORE ${VECSIM_C_INCLUDE_DIR})
+else()
+    # C++ VectorSimilarity headers
+    include_directories(${root}/deps/VectorSimilarity/src)
+endif()
+
 function(define_test name)
     add_executable("${name}" "${name}.c")
     target_link_libraries("${name}" ${TEST_MODULE} ${CMAKE_LD_LIBS})

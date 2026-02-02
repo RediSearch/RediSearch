@@ -10,6 +10,15 @@ include_directories(${root}/deps)
 include_directories(${root}/src/redisearch_rs/headers)
 include_directories(.)
 
+# Add VecSim include path based on which implementation is used
+if(USE_RUST_VECSIM)
+    # Rust VecSim headers - use BEFORE to ensure precedence
+    include_directories(BEFORE ${VECSIM_C_INCLUDE_DIR})
+else()
+    # C++ VectorSimilarity headers
+    include_directories(${root}/deps/VectorSimilarity/src)
+endif()
+
 if (NOT TEST_MODULE)
   set(TEST_MODULE redisearch)
 endif()
@@ -22,6 +31,8 @@ add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp iterator_util.c
 target_link_libraries(rstest gtest ${TEST_MODULE} redismock ${CMAKE_LD_LIBS})
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
 add_dependencies(rstest example_extension)
+target_compile_definitions(rstest PRIVATE
+    EXT_TEST_PATH="${CMAKE_BINARY_DIR}/example_extension/libexample_extension.so")
 gtest_discover_tests(rstest
     PROPERTIES TIMEOUT 300  # Timeout for each individual test
 )
@@ -38,3 +49,11 @@ file(GLOB BENCHMARK_SOURCES "benchmark_*.cpp")
 add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp stacktrace.cpp)
 target_link_libraries(rsbench ${TEST_MODULE} redismock ${CMAKE_LD_LIBS} pthread)
 set_target_properties(rsbench PROPERTIES LINKER_LANGUAGE CXX)
+
+# Simple VecSim benchmark for comparing backends
+add_executable(simple_vecsim_bench simple_vecsim_benchmark.cpp)
+target_link_libraries(simple_vecsim_bench ${TEST_MODULE} redismock ${CMAKE_LD_LIBS} pthread)
+set_target_properties(simple_vecsim_bench PROPERTIES LINKER_LANGUAGE CXX)
+if(USE_RUST_VECSIM)
+    target_compile_definitions(simple_vecsim_bench PRIVATE USE_RUST_VECSIM)
+endif()

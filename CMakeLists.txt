@@ -29,7 +29,8 @@ function(setup_cc_options)
     # Common compiler flags
     set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
     set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
-    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_CXX_STANDARD 20 PARENT_SCOPE)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON PARENT_SCOPE)
     # Release/Debug/Profile specific flags
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
@@ -216,6 +217,7 @@ message(STATUS "BOOST_DIR: ${BOOST_DIR}")
 set(BOOST_ROOT ${BOOST_DIR})
 set(Boost_NO_WARN_NEW_VERSIONS ON)
 
+# Note: VectorSimilarity include path is added conditionally in src/CMakeLists.txt based on USE_RUST_VECSIM
 #----------------------------------------------------------------------------------------------
 # Include directories (needed by both src/ and tests/)
 include_directories(
@@ -227,7 +229,6 @@ include_directories(
     ${root}/deps/libuv/include
     ${root}/deps
     ${root}/deps/RedisModulesSDK
-    ${root}/deps/VectorSimilarity/src
     ${root}/src/ttl_table
     ${BOOST_DIR}
     ${root})
