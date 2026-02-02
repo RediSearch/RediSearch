@@ -486,7 +486,9 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields<'a>(
     let dst_row = unsafe { dst_row.unwrap().as_mut() };
 
     // Safety: ensured by caller (4.)
-    let index_spec = unsafe { IndexSpec::from_raw(index_spec.unwrap().as_ref()) };
+    let index_spec = unsafe { index_spec.unwrap().as_ref() };
+    // Safety: ensured by caller (4.)
+    let index_spec = unsafe { IndexSpec::from_raw(index_spec) };
 
     // Safety: ensured by caller (5., 6., 7.)
     let key = unsafe { CStr::from_ptr(key) };

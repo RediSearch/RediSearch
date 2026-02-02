@@ -497,9 +497,10 @@ fn load_many_keys<'a>(
 
     let mut sctx = create_redis_search_ctx(module_ctx);
 
-    // TODO: Add comment explaining why "for real" temp.
-    // Safety: ...
-    let mut status = unsafe { mem::transmute(QueryError::default()) };
+    // Safety: The size and alignment of the Rust source struct matches the target C struct exactly. This is the only way we can inialize such a struct.
+    let mut status = unsafe {
+        mem::transmute::<query_error::QueryError, ffi::QueryError>(QueryError::default())
+    };
 
     let mut options = ffi::RLookupLoadOptions {
         keys: keys.as_mut_ptr(),
@@ -514,6 +515,7 @@ fn load_many_keys<'a>(
         forceString: false,
     };
 
+    // Safety: All pointers passed to this function are non-null and properly aligned since we created them above in this function.
     unsafe { ffi::loadIndividualKeys(lookup, dst_row, &mut options) }
 }
 
