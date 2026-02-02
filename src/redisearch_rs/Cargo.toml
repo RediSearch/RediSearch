@@ -12,6 +12,7 @@ members = [
     "inverted_index_bencher",
     "thin_vec",
     "qint",
+    "index_error",
     "query_error",
     "redis_json_api",
     "redis_mock",
@@ -81,6 +82,7 @@ fnv = { path = "./fnv" }
 hyperloglog = { path = "./hyperloglog" }
 inverted_index = { path = "./inverted_index" }
 qint = { path = "./qint" }
+index_error = { path = "./index_error" }
 query_error = { path = "./query_error" }
 redis_json_api = { path = "./redis_json_api" }
 redis_mock = { path = "./redis_mock" }
