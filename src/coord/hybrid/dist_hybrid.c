@@ -115,17 +115,18 @@ static int MRCommand_appendVsimFilter(MRCommand *xcmd, RedisModuleString **argv,
  * Appends all VSIM-related arguments to MR command.
  * This includes VSIM keyword, field, vector, KNN/RANGE method, and VSIM FILTER
  * if present.
- * When SHARD_K_RATIO is set and < 1.0, modifies the K value to effectiveK for
- * shard distribution.
+ * For KNN queries, replaces the K value with the provided effectiveK value.
+ * For RANGE queries, effectiveK is ignored.
  *
  * @param xcmd - destination MR command to append arguments to
  * @param argv - source command arguments array
  * @param argc - total argument count
  * @param vsimOffset - offset where VSIM keyword appears
- * @param vq - VectorQuery containing the parsed query parameters (may be NULL)
+ * @param effectiveK - K value to use for KNN queries (0 for RANGE or when no
+ *        replacement needed)
  */
 static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
-                                 int argc, int vsimOffset, VectorQuery *vq) {
+                                 int argc, int vsimOffset, size_t effectiveK) {
   // Add VSIM keyword and field
   MRCommand_AppendRstr(xcmd, argv[vsimOffset]);     // VSIM
   MRCommand_AppendRstr(xcmd, argv[vsimOffset + 1]); // field
@@ -150,21 +151,6 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
     argOffset = RMUtil_ArgIndex("RANGE", argv + vsimOffset, argc - vsimOffset);
   }
 
-  // Calculate effective K for shard distribution if SHARD_K_RATIO is set
-  size_t effectiveK = 0;
-  bool shouldModifyK = false;
-  if (vq && vq->type == VECSIM_QT_KNN) {
-    double ratio = vq->knn.shardWindowRatio;
-    if (ratio < MAX_SHARD_WINDOW_RATIO) {
-      // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
-      size_t numShards = GetNumShards_UnSafe();
-      if (numShards > 1) {
-        effectiveK = calculateEffectiveK(vq->knn.k, ratio, numShards);
-        shouldModifyK = (effectiveK != vq->knn.k);
-      }
-    }
-  }
-
   if (argOffset != -1) {
     vectorMethodOffset = argOffset + vsimOffset;
     if (vectorMethodOffset < argc - 2) {
@@ -174,13 +160,14 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
       MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset]);     // KNN or RANGE
       MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + 1]); // argument count
 
-      // Append method arguments, modifying K value if needed for KNN
+      // Append method arguments, replacing K value if effectiveK is provided
       // Format for KNN: KNN <count> K <value> [EF_RUNTIME <value>]...
       for (int i = 2; i < methodNargs + 2; ++i) {
-        const char *argStr = RedisModule_StringPtrLen(argv[vectorMethodOffset + i], NULL);
+        size_t argLen;
+        const char *argStr = RedisModule_StringPtrLen(argv[vectorMethodOffset + i], &argLen);
 
-        if (shouldModifyK && strcasecmp(argStr, "K") == 0 && i + 1 < methodNargs + 2) {
-          // Found K keyword - append it and then the modified effectiveK value
+        if (effectiveK > 0 && argLen == 1 && strncasecmp(argStr, "K", 1) == 0 && i + 1 < methodNargs + 2) {
+          // Found K keyword - append it and then the effectiveK value
           MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);  // K keyword
           ++i;  // Move to K value
 
@@ -188,7 +175,6 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
           char effectiveK_str[32];
           int len = snprintf(effectiveK_str, sizeof(effectiveK_str), "%zu", effectiveK);
           MRCommand_Append(xcmd, effectiveK_str, len);
-          shouldModifyK = false;
         } else {
           // Regular argument - append as-is
           MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);
@@ -258,9 +244,21 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   MRCommand_appendSearch(xcmd, argv, argc, searchOffset);
 
   // Add all VSIM-related arguments (VSIM, field, vector, methods, filter)
-  // Pass the VectorQuery to allow SHARD_K_RATIO optimization
+  // Calculate effective K for KNN queries if SHARD_K_RATIO is set
   int vsimOffset = RMUtil_ArgIndex("VSIM", argv, argc);
-  MRCommand_appendVsim(xcmd, argv, argc, vsimOffset, vq);
+  size_t effectiveK = 0;
+  if (vq && vq->type == VECSIM_QT_KNN) {
+    effectiveK = vq->knn.k;
+    double shardWindowRatio = vq->knn.shardWindowRatio;
+    if (shardWindowRatio < MAX_SHARD_WINDOW_RATIO) {
+      // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
+      size_t numShards = GetNumShards_UnSafe();
+      if (numShards > 1) {
+        effectiveK = calculateEffectiveK(vq->knn.k, shardWindowRatio, numShards);
+      }
+    }
+  }
+  MRCommand_appendVsim(xcmd, argv, argc, vsimOffset, effectiveK);
 
   int combineOffset = RMUtil_ArgIndex("COMBINE", argv + vsimOffset, argc - vsimOffset);
   combineOffset = combineOffset != -1 ? combineOffset + vsimOffset : -1;
