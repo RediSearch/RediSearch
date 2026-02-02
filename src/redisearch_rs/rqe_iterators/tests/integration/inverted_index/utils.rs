@@ -341,7 +341,7 @@ pub(super) mod not_miri {
                 expected_record,
                 context,
                 index_type: ExpirationIndexType::Numeric,
-                _guard: GlobalGuard::new(),
+                _guard: GlobalGuard::default(),
             }
         }
 
@@ -371,7 +371,7 @@ pub(super) mod not_miri {
                 expected_record,
                 context,
                 index_type,
-                _guard: GlobalGuard::new(),
+                _guard: GlobalGuard::default(),
             }
         }
 
@@ -561,7 +561,7 @@ pub(super) mod not_miri {
             Self {
                 doc_ids,
                 context,
-                _guard: GlobalGuard::new(),
+                _guard: GlobalGuard::default(),
             }
         }
 

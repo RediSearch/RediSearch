@@ -556,13 +556,13 @@ impl Drop for TestContext {
 /// when the process exits, ensuring it's called exactly once after all tests complete.
 pub struct GlobalGuard;
 
-impl GlobalGuard {
+impl Default for GlobalGuard {
     // atexit() is only available on Linux.
     // This means means global resources are not cleaned up on non-Linux platforms.
     // It's not that bad as those are tests and the real goal here is to detect actual memory leaks
     // using Valgrind which is only available on Linux as well.
     #[cfg(target_os = "linux")]
-    pub fn new() -> Self {
+    fn default() -> Self {
         use std::sync::atomic::{AtomicBool, Ordering};
 
         static REGISTERED: AtomicBool = AtomicBool::new(false);
@@ -599,7 +599,7 @@ impl GlobalGuard {
     }
 
     #[cfg(not(target_os = "linux"))]
-    pub fn new() -> Self {
+    fn default() -> Self {
         Self {}
     }
 }
