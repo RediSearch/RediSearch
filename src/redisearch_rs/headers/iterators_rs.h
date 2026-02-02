@@ -186,9 +186,9 @@ void InvIndIterator_Rs_SwapIndex(InvIndIterator *it, const InvertedIndex *ii);
  * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
  * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
  */
-QueryIterator *NewInvIndIterator_WildcardQuery_Rs(const InvertedIndex *idx,
-                                                  const RedisSearchCtx *sctx,
-                                                  double weight);
+QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx,
+                                               const RedisSearchCtx *sctx,
+                                               double weight);
 
 /**
  * Creates a new metric iterator sorted by ID.
