@@ -21,6 +21,7 @@ members = [
     "rqe_iterators",
     "rqe_iterators_bencher",
     "rqe_iterators_interop",
+    "rqe_iterators_test_utils",
     "search_result",
     "slots_tracker",
     "sorting_vector",
@@ -88,6 +89,7 @@ result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
 rqe_iterators = { path = "./rqe_iterators" }
 rqe_iterators_interop = { path = "./rqe_iterators_interop" }
+rqe_iterators_test_utils = { path = "./rqe_iterators_test_utils" }
 search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
