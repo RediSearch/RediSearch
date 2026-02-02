@@ -15,7 +15,7 @@ pub use ffi::{
 use ffi::{IteratorStatus, RedisModule_Alloc, RedisModule_Free, ValidateStatus};
 use inverted_index::{RSIndexResult, t_docId};
 use query_term::RSQueryTerm;
-use std::{ffi::c_void, ptr, ptr::NonNull};
+use std::{ffi::c_void, ptr};
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
@@ -91,21 +91,6 @@ impl QueryIterator {
 
         free_redis_search_ctx(query_eval_ctx);
         Self(it)
-    }
-
-    /// Create a wildcard iterator from an inverted index.
-    ///
-    /// # Safety
-    /// - `ii` must be a valid pointer to an `InvertedIndex` created with `Index_DocIdsOnly` flags.
-    /// - `sctx` must be a valid pointer to a `RedisSearchCtx`.
-    #[inline(always)]
-    pub unsafe fn new_wildcard(
-        ii: *const ffi::InvertedIndex,
-        sctx: NonNull<ffi::RedisSearchCtx>,
-        weight: f64,
-    ) -> Self {
-        // SAFETY: The caller guarantees that `ii` and `sctx` are valid pointers.
-        Self(unsafe { ffi::NewInvIndIterator_WildcardQuery(ii, sctx.as_ptr(), weight) })
     }
 
     #[inline(always)]
