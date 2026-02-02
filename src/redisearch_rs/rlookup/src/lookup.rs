@@ -543,10 +543,10 @@ mod tests {
 
     use super::*;
 
-    use std::ffi::CString;
     #[cfg(not(miri))]
     use std::mem::MaybeUninit;
     use std::ptr::{self, NonNull};
+    use std::{ffi::CString, mem::MaybeUninit};
 
     use enumflags2::make_bitflags;
     use pretty_assertions::assert_eq;
