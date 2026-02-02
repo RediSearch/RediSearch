@@ -217,7 +217,7 @@ static void Profile_PrintCommon(RedisModule_Reply *reply,
 
   if (profile_verbose) {
     RedisModule_ReplyKV_Double(reply, "Workers queue time",
-                               rs_wall_clock_convert_ns_to_ms_d(req->profileClocks.profileQueueTime));
+                               rs_wall_clock_convert_ns_to_ms_d(clocks->profileQueueTime));
   }
 
   // Print iterators creation time

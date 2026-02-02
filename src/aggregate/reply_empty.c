@@ -61,7 +61,7 @@ int coord_search_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv
 
     // PROFILE for FT.SEARCH requires no additional parsing
     QueryError status = QueryError_Default();
-    if (rscParseProfile(&req, argv, &status) != REDISMODULE_OK) {
+    if (rscParseProfile(&req, argv) != REDISMODULE_OK) {
         return QueryError_ReplyAndClear(ctx, &status);
     }
 

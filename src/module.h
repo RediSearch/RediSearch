@@ -139,7 +139,7 @@ int QueryMemoryGuardFailure_WithReply(RedisModuleCtx *ctx);
 
 void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req);
 
-int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv, QueryError *status);
+int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv);
 
 typedef int (*execCommandCommonHandler)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              CommandType type, ProfileOptions profileOptions);

@@ -310,7 +310,7 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r) {
       AREQ_AddRequestFlags(r, QEXEC_F_PROFILE_LIMITED);
     }
     if (RMUtil_ArgIndex("QUERY", argv + 3, 2) == -1) {
-      QueryError_SetError(AREQ_QueryProcessingCtx(r)->err, QUERY_ERROR_CODE_PARSE_ARGS, "No QUERY keyword provided");
+      QueryError_SetError(AREQ_QueryProcessingCtx(r)->err, QUERY_ERROR_CODE_PARSE_ARGS, "The QUERY keyword is expected");
       return -1;
     }
   }
