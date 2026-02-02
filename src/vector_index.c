@@ -17,6 +17,7 @@
 #include "redis_index.h"
 #include "search_disk.h"
 
+#include <string.h>
 
 #if defined(__x86_64__) && defined(__GLIBC__)
 #include <cpuid.h>
@@ -643,8 +644,11 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
       RSErrorCode = QUERY_ERROR_CODE_GENERIC;
     }
   }
-  const char *error_msg = QueryError_Strerror(RSErrorCode);
-  QueryError_SetWithUserDataFmt(status, RSErrorCode, "Error parsing vector similarity parameters", ": %s", error_msg);
+  const char *full_error_msg = QueryError_Strerror(RSErrorCode);
+  const char *colon_pos = strchr(full_error_msg, ':');
+  const char *user_msg = colon_pos ? colon_pos + 2 : full_error_msg;
+  QueryError_SetWithUserDataFmt(status, RSErrorCode, user_msg,
+                                " (Error parsing vector similarity parameters)");
   return vecSimCode;
 }
 

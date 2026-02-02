@@ -27,8 +27,24 @@ void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, cons
   rm_vasprintf(&formatted, fmt, ap);
   va_end(ap);
 
+  // Get the error code prefix from the full Rust message
+  const char *full_rust_message = QueryError_Strerror(code);
+  const char *colon_pos = strchr(full_rust_message, ':');
+
   char *detail = NULL;
-  rm_asprintf(&detail, "%s%s", message, formatted);
+  if (colon_pos) {
+    // Extract just the prefix part (including the colon and space)
+    size_t prefix_len = colon_pos - full_rust_message + 2; // +2 for ": "
+    char *error_prefix = rm_malloc(prefix_len + 1);
+    strncpy(error_prefix, full_rust_message, prefix_len);
+    error_prefix[prefix_len] = '\0';
+
+    rm_asprintf(&detail, "%s%s%s", error_prefix, message, formatted);
+    rm_free(error_prefix);
+  } else {
+    // Fallback if no colon found (shouldn't happen)
+    rm_asprintf(&detail, "%s%s", message, formatted);
+  }
   rm_free(formatted);
 
   QueryError_SetError(status, code, message);
@@ -72,6 +88,6 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
     n = strlen(s);
   }
 
-  QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%.*s` at position %lu for %s",
+  QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%.*s` at position %lu for %s",
                          (int)n, s, ac->offset, name);
 }

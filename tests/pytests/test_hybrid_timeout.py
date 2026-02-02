@@ -48,13 +48,13 @@ def test_debug_timeout_fail_search():
     """Test FAIL policy with search timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
-    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('Timeout limit was reached')
+    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT: Timeout limit was reached')
 
 def test_debug_timeout_fail_vsim():
     """Test FAIL policy with vector similarity timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
-    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('Timeout limit was reached')
+    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT: Timeout limit was reached')
 
 #TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -62,7 +62,7 @@ def test_debug_timeout_fail_both():
     """Test FAIL policy with both components timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
-    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '2', 'DEBUG_PARAMS_COUNT', '4').error().contains('Timeout limit was reached')
+    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '2', 'DEBUG_PARAMS_COUNT', '4').error().contains('SEARCH_TIMEOUT: Timeout limit was reached')
 
 #TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -70,7 +70,7 @@ def test_debug_timeout_fail_tail():
     """Test FAIL policy with tail timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
-    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_TAIL', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('Timeout limit was reached')
+    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_TAIL', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT: Timeout limit was reached')
 
 #TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -80,7 +80,7 @@ def test_debug_timeout_return_tail():
     setup_basic_index(env)
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 
                        'TIMEOUT_AFTER_N_TAIL', '1', 'DEBUG_PARAMS_COUNT', '2')
-    env.assertEqual(['Timeout limit was reached (POST PROCESSING)'], get_warnings(response))
+    env.assertEqual(['SEARCH_TIMEOUT: Timeout limit was reached (POST PROCESSING)'], get_warnings(response))
 
 
 #TODO: remove skip once FT.HYBRID for cluster is implemented
@@ -91,7 +91,7 @@ def test_debug_timeout_return_search():
     setup_basic_index(env)
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 
                        'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2')
-    env.assertEqual(['Timeout limit was reached (SEARCH)'], get_warnings(response))
+    env.assertEqual(['SEARCH_TIMEOUT: Timeout limit was reached (SEARCH)'], get_warnings(response))
 
 #TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -101,7 +101,7 @@ def test_debug_timeout_return_vsim():
     setup_basic_index(env)
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 
                        'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '2')
-    env.assertEqual(['Timeout limit was reached (VSIM)'], get_warnings(response))
+    env.assertEqual(['SEARCH_TIMEOUT: Timeout limit was reached (VSIM)'], get_warnings(response))
 
 #TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -112,8 +112,8 @@ def test_debug_timeout_return_both():
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 
                        'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '4')
     warnings = get_warnings(response)
-    env.assertTrue('Timeout limit was reached (SEARCH)' in get_warnings(response))
-    env.assertTrue('Timeout limit was reached (VSIM)' in get_warnings(response))
+    env.assertTrue('SEARCH_TIMEOUT: Timeout limit was reached (SEARCH)' in get_warnings(response))
+    env.assertTrue('SEARCH_TIMEOUT: Timeout limit was reached (VSIM)' in get_warnings(response))
     # TODO: add test for tail timeout once MOD-11004 is merged
 
 #TODO: remove skip once FT.HYBRID for cluster is implemented
@@ -189,5 +189,5 @@ def test_tail_property_not_loaded_error():
     response = env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', \
                           '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', \
                           query_vector, 'LOAD', '1', '@__key', 'APPLY', '2*@__score',\
-                          'AS', 'doubled_score').error().contains('Property `__score` not loaded nor in pipeline')
+                          'AS', 'doubled_score').error().contains('SEARCH_PROP_NOT_FOUND: Property not loaded nor in pipeline: `__score`')
 

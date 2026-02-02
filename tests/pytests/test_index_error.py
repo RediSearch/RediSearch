@@ -37,7 +37,7 @@ def test_vector_index_failures(env):
 
     expected_error_dict = {
                             indexing_failures_str: 1,
-                            last_indexing_error_str: 'Could not add vector with blob size 4 (expected size 8)',
+                            last_indexing_error_str: 'SEARCH_VECTOR_BLOB_SIZE_MISMATCH: Could not add vector with blob size 4 (expected size 8)',
                             last_indexing_error_key_str: 'doc{1}',
                           }
 
@@ -69,7 +69,7 @@ def test_numeric_index_failures(env):
 
     expected_error_dict = {
                             indexing_failures_str: 1,
-                            last_indexing_error_str: 'Invalid numeric value: \'aaaa\'',
+                            last_indexing_error_str: 'SEARCH_NUMERIC_VALUE_INVALID: Invalid numeric value: \'aaaa\'',
                             last_indexing_error_key_str: 'doc{1}',
                           }
 
@@ -122,7 +122,7 @@ def test_alter_failures(env):
   env.assertEqual(info['num_docs'], 0)
   expected_error_dict = {
       indexing_failures_str: 1,
-      last_indexing_error_str: f"Invalid numeric value: \'meow\'",
+      last_indexing_error_str: f"SEARCH_NUMERIC_VALUE_INVALID: Invalid numeric value: \'meow\'",
       last_indexing_error_key_str: 'doc',
       'background indexing status': 'OK',
       }
@@ -133,7 +133,7 @@ def test_alter_failures(env):
   expected_failed_field_stats = [
       'identifier', 'n2', 'attribute', 'n2' , 'Index Errors',
       ['indexing failures', 1, 'last indexing error',
-        f"Invalid numeric value: \'meow\'",
+        f"SEARCH_NUMERIC_VALUE_INVALID: Invalid numeric value: \'meow\'",
         'last indexing error key', 'doc']
   ]
 
@@ -159,7 +159,7 @@ def test_mixed_index_failures(env):
 
     expected_error_dict = {
                             indexing_failures_str: 1,
-                            last_indexing_error_str: 'Invalid numeric value: \'aaaa\'',
+                            last_indexing_error_str: 'SEARCH_NUMERIC_VALUE_INVALID: Invalid numeric value: \'aaaa\'',
                             last_indexing_error_key_str: 'doc{1}',
                           }
 
@@ -188,7 +188,7 @@ def test_mixed_index_failures(env):
 
     expected_error_dict = {
                             indexing_failures_str: 1,
-                            last_indexing_error_str: 'Could not add vector with blob size 4 (expected size 8)',
+                            last_indexing_error_str: 'SEARCH_VECTOR_BLOB_SIZE_MISMATCH: Could not add vector with blob size 4 (expected size 8)',
                             last_indexing_error_key_str: 'doc{1}',
                           }
 
@@ -249,7 +249,7 @@ def test_geo_index_failures(env):
 
   expected_error_dict = {
                           indexing_failures_str: 1,
-                          last_indexing_error_str: 'Invalid geo coordinates: 1000.000000, 1000.000000',
+                          last_indexing_error_str: 'SEARCH_GEO_COORDINATES_INVALID: Invalid geo coordinates: 1000.000000, 1000.000000',
                           last_indexing_error_key_str: 'doc{1}',
                         }
 
@@ -301,7 +301,7 @@ def test_partial_doc_index_failures(env):
   expected_text_stats = ['identifier', 't', 'attribute', 't', 'Index Errors',
                          ['indexing failures', 0, 'last indexing error', 'N/A', 'last indexing error key', 'N/A']]
   excepted_numeric_stats = ['identifier', 'n', 'attribute', 'n', 'Index Errors',
-                            ['indexing failures', 1, 'last indexing error', "Invalid numeric value: 'banana'", 'last indexing error key', 'doc']]
+                            ['indexing failures', 1, 'last indexing error', "SEARCH_NUMERIC_VALUE_INVALID: Invalid numeric value: 'banana'", 'last indexing error key', 'doc']]
   for _ in env.reloadingIterator():
     info = index_info(env)
     env.assertEqual(info['num_docs'], 0)
@@ -324,7 +324,7 @@ def test_multiple_index_failures(env):
 
         expected_error_dict = {
             indexing_failures_str: 1,
-            last_indexing_error_str: f"Invalid numeric value: '{index_to_errors_strings[idx]}'",
+            last_indexing_error_str: f"SEARCH_NUMERIC_VALUE_INVALID: Invalid numeric value: '{index_to_errors_strings[idx]}'",
             last_indexing_error_key_str: 'doc',
             'background indexing status': 'OK',
             }
@@ -340,7 +340,7 @@ def test_multiple_index_failures(env):
         expected_failed_field_stats = [
             'identifier', index_to_failed_field[idx], 'attribute', index_to_failed_field[idx], 'Index Errors',
             ['indexing failures', 1, 'last indexing error',
-            f"Invalid numeric value: '{index_to_errors_strings[idx]}'",
+            f"SEARCH_NUMERIC_VALUE_INVALID: Invalid numeric value: '{index_to_errors_strings[idx]}'",
             'last indexing error key', 'doc']
         ]
 
@@ -370,7 +370,7 @@ def test_vector_indexing_with_json(env):
 
     expected_error_dict = {
                             indexing_failures_str: 1,
-                            last_indexing_error_str: 'Invalid vector length. Expected 2, got 3',
+                            last_indexing_error_str: 'SEARCH_VECTOR_LEN_BAD: Invalid vector length. Expected 2, got 3',
                             last_indexing_error_key_str: 'doc{1}',
                           }
 
@@ -398,7 +398,7 @@ def test_multiple_index_failures_json(env):
 
           expected_error_dict = {
               indexing_failures_str: 1,
-              last_indexing_error_str: f"Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field",
+              last_indexing_error_str: f"SEARCH_JSON_TYPE_INVALID: Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field",
               last_indexing_error_key_str: 'doc',
               'background indexing status': 'OK',
           }
@@ -414,7 +414,7 @@ def test_multiple_index_failures_json(env):
           expected_failed_field_stats = [
               'identifier', f"$.{index_to_failed_field[idx]}", 'attribute', index_to_failed_field[idx], 'Index Errors',
               ['indexing failures', 1, 'last indexing error',
-              f"Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field",
+              f"SEARCH_JSON_TYPE_INVALID: Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field",
               'last indexing error key', 'doc']
           ]
 

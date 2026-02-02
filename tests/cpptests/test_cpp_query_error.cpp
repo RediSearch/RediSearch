@@ -17,11 +17,11 @@ class QueryErrorTest : public ::testing::Test {};
 TEST_F(QueryErrorTest, testQueryErrorStrerror) {
   // Test error code to string conversion
   ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_OK), "Success (not an error)");
-  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_SYNTAX), "Parsing/Syntax error for query string");
-  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_GENERIC), "Generic error evaluating the query");
-  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_PARSE_ARGS), "Error parsing query/aggregation arguments");
-  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_NO_RESULTS), "Query matches no results");
-  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_BAD_ATTR), "Attribute not supported for term");
+  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_SYNTAX), "SEARCH_SYNTAX: Parsing/Syntax error for query string");
+  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_GENERIC), "SEARCH_GENERIC: Generic error evaluating the query");
+  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_PARSE_ARGS), "SEARCH_PARSE_ARGS: Error parsing query/aggregation arguments");
+  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_NO_RESULTS), "SEARCH_NO_RESULTS: Query matches no results");
+  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_BAD_ATTR), "SEARCH_ATTR_BAD: Attribute not supported for term");
 
   // Test unknown error code
   ASSERT_STREQ(QueryError_Strerror((QueryErrorCode)-1), "Unknown status code");
@@ -42,7 +42,7 @@ TEST_F(QueryErrorTest, testQueryErrorSetError) {
   QueryError_SetError(&err, QUERY_ERROR_CODE_GENERIC, NULL);
   ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_GENERIC);
   ASSERT_TRUE(QueryError_HasError(&err));
-  ASSERT_STREQ(QueryError_GetUserError(&err), "Generic error evaluating the query");
+  ASSERT_STREQ(QueryError_GetUserError(&err), "SEARCH_GENERIC: Generic error evaluating the query");
 
   QueryError_ClearError(&err);
 }
@@ -54,7 +54,7 @@ TEST_F(QueryErrorTest, testQueryErrorSetCode) {
   QueryError_SetCode(&err, QUERY_ERROR_CODE_PARSE_ARGS);
   ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_PARSE_ARGS);
   ASSERT_TRUE(QueryError_HasError(&err));
-  ASSERT_STREQ(QueryError_GetUserError(&err), "Error parsing query/aggregation arguments");
+  ASSERT_STREQ(QueryError_GetUserError(&err), "SEARCH_PARSE_ARGS: Error parsing query/aggregation arguments");
 
   QueryError_ClearError(&err);
 }
@@ -113,7 +113,7 @@ TEST_F(QueryErrorTest, testQueryErrorWithUserDataFmt) {
   QueryError_SetWithUserDataFmt(&err, QUERY_ERROR_CODE_SYNTAX, "Syntax error", " at offset %d near %s", 10, "hello");
   ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);
   ASSERT_TRUE(QueryError_HasError(&err));
-  ASSERT_STREQ(QueryError_GetUserError(&err), "Syntax error at offset 10 near hello");
+  ASSERT_STREQ(QueryError_GetUserError(&err), "SEARCH_SYNTAX: Syntax error at offset 10 near hello");
 
   QueryError_ClearError(&err);
 }
@@ -163,7 +163,7 @@ TEST_F(QueryErrorTest, testQueryErrorGetDisplayableError) {
 
   // Test non-obfuscated (should show full detail)
   const char *full_error = QueryError_GetDisplayableError(&err, false);
-  ASSERT_STREQ(full_error, "Syntax error at position 42");
+  ASSERT_STREQ(full_error, "SEARCH_SYNTAX: Syntax error at position 42");
 
   // Test obfuscated (should show only message without user data)
   const char *obfuscated_error = QueryError_GetDisplayableError(&err, true);
@@ -175,7 +175,7 @@ TEST_F(QueryErrorTest, testQueryErrorGetDisplayableError) {
   // Test with error that has no custom message
   QueryError_SetCode(&err, QUERY_ERROR_CODE_GENERIC);
   const char *default_error = QueryError_GetDisplayableError(&err, true);
-  ASSERT_STREQ(default_error, "Generic error evaluating the query");
+  ASSERT_STREQ(default_error, "SEARCH_GENERIC: Generic error evaluating the query");
 
   QueryError_ClearError(&err);
 }
