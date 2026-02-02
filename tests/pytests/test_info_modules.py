@@ -2641,3 +2641,30 @@ def test_vecsim_hnsw_tiered_info_metrics():
                   message="FT.INFO flat buffer should be empty after draining")
   env.assertEqual(field_stats1['direct_hnsw_insertions'], total_direct,
                   message="FT.INFO direct insertions should be preserved after draining")
+
+  # --- Test 8: Direct insertions when WORKERS=0 (no tiered buffering) ---
+  # Change workers to 0 at runtime - this disables tiered indexing
+  env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
+
+  # Create a new HNSW index after workers are disabled
+  env.expect('FT.CREATE', 'idx_hnsw_no_workers', 'PREFIX', '1', 'hnsw_nw:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
+             'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+  # Insert vectors - should go directly to HNSW since workers=0
+  workers_0_vectors = 7
+  for i in range(workers_0_vectors):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw_nw:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], 0,
+                  message="Flat buffer should remain 0 when WORKERS=0")
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], total_direct + workers_0_vectors,
+                  message="Direct insertions should increase when WORKERS=0")
+
+  # Verify FT.INFO for the new index shows direct insertions and no flat buffer
+  field_stats_nw = get_field_stats('idx_hnsw_no_workers')
+  env.assertEqual(field_stats_nw['flat_buffer_size'], 0,
+                  message="FT.INFO flat buffer should be 0 when WORKERS=0")
+  env.assertEqual(field_stats_nw['direct_hnsw_insertions'], workers_0_vectors,
+                  message="FT.INFO should show direct insertions when WORKERS=0")
