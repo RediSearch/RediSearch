@@ -7,13 +7,14 @@ pub mod doc_table;
 pub mod inverted_index;
 
 use crate::database::SpeedbMultithreadedDatabase;
+use crate::disk_context::DiskContext;
 use crate::index_spec::deleted_ids::DeletedIdsStore;
 use document::DocumentType;
 use speedb::{
     ColumnFamilyDescriptor, DEFAULT_COLUMN_FAMILY_NAME, Error as SpeedbError,
     Options as SpeedbDbOptions,
 };
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use self::doc_table::DocTable;
 use self::inverted_index::InvertedIndex;
@@ -52,24 +53,28 @@ pub struct IndexSpec {
 }
 
 impl IndexSpec {
-    const DB_WRITE_BUFFER_SIZE: usize = 5000 * 1024 * 1024; // 5 GB;
-    const DOC_TABLE_CACHE_SIZE: usize = 300 * 1024 * 1024; // 300 MB;
     const DOC_TABLE_BLOOM_FILTER_BITS_PER_KEY: f64 = 10.0;
 
     /// Creates a new IndexSpec with the given name and document type.
     ///
     /// This will create or open a Speedb database at `{base_path}_{index_name}_{doc_type}/`
     /// with two column families: "doc_table" and "fulltext".
+    ///
+    /// # Arguments
+    /// * `name` - The name of the index
+    /// * `document_type` - The type of documents this index will contain
+    /// * `disk_context` - Reference to the shared disk context containing base path, cache, and write buffer manager
+    /// * `deleted_ids` - Store for tracking deleted document IDs
     pub fn new(
         name: String,
         document_type: DocumentType,
-        base_path: impl AsRef<Path>,
+        disk_context: &DiskContext,
         deleted_ids: DeletedIdsStore,
     ) -> Result<Self, SpeedbError> {
         // Create database path: {base_path}_{index_name}_{doc_type}
         // We use PathBuf operations to preserve non-UTF-8 bytes on Unix systems.
         // Converting to string with .display() would perform lossy UTF-8 conversion.
-        let db_path = PathBuf::from(base_path.as_ref());
+        let db_path = PathBuf::from(disk_context.base_path());
 
         // Append the suffix to the path using OsString to avoid UTF-8 conversion
         let mut path_os = db_path.into_os_string();
@@ -80,7 +85,10 @@ impl IndexSpec {
         let mut db_options = SpeedbDbOptions::default();
         db_options.create_if_missing(true);
         db_options.create_missing_column_families(true);
-        db_options.set_write_buffer_size(Self::DB_WRITE_BUFFER_SIZE);
+        // Use the shared WriteBufferManager to limit memory usage across all databases.
+        // This replaces the per-database write_buffer_size setting, providing global
+        // memory control instead of per-database limits.
+        db_options.set_write_buffer_manager(disk_context.write_buffer_manager());
 
         // Always use open_cf_descriptors with create_missing_column_families=true
         // This handles both new databases and partially-created databases gracefully:
@@ -90,7 +98,7 @@ impl IndexSpec {
         let cf_descriptors = vec![
             ColumnFamilyDescriptor::new(DEFAULT_COLUMN_FAMILY_NAME, SpeedbDbOptions::default()),
             DocTable::cf_descriptor(
-                Self::DOC_TABLE_CACHE_SIZE,
+                disk_context.cache(),
                 Self::DOC_TABLE_BLOOM_FILTER_BITS_PER_KEY,
             ),
             DocTable::reverse_lookup_cf_descriptor(),

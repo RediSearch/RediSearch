@@ -94,13 +94,13 @@ impl DocTable {
     }
 
     /// Returns the column family descriptor for the document table.
-    pub fn cf_descriptor(
-        cache_size: usize,
-        bloom_filter_bits_per_key: f64,
-    ) -> ColumnFamilyDescriptor {
+    ///
+    /// # Arguments
+    /// * `cache` - Shared block cache for all databases (managed by DiskContext)
+    /// * `bloom_filter_bits_per_key` - Number of bits per key for the bloom filter
+    pub fn cf_descriptor(cache: &Cache, bloom_filter_bits_per_key: f64) -> ColumnFamilyDescriptor {
         let mut block_based_options = BlockBasedOptions::default();
-        let block_cache = Cache::new_lru_cache(cache_size);
-        block_based_options.set_block_cache(&block_cache);
+        block_based_options.set_block_cache(cache);
 
         // the second parameter is ignored
         // see: https://github.com/facebook/rocksdb/blob/35148aca91cda84d6fa9b295eb5500d6d965dca6/include/rocksdb/filter_policy.h#L155

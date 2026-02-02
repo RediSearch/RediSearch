@@ -1,18 +1,18 @@
 pub mod database;
+pub mod disk_context;
 pub mod document_id_key;
 pub mod index_spec;
 pub mod key_traits;
 pub mod merge_op;
 pub mod metrics;
-pub mod path_prefix;
 pub mod utils;
 pub mod value_traits;
 pub mod vecsim_disk;
 
+use crate::disk_context::DiskContext;
 use crate::index_spec::IndexSpec;
 use crate::index_spec::deleted_ids::DeletedIdsStore;
 use crate::index_spec::doc_table::{DocumentFlag, flags_from_oss, flags_to_oss};
-use crate::path_prefix::PathPrefix;
 use crate::vecsim_disk::{SpeeDBHandles, VecSimDisk_CreateIndex};
 use document::DocumentType;
 use ffi::{
@@ -126,10 +126,10 @@ extern "C" fn open(_ctx: *mut RedisModuleCtx, db_path: *const c_char) -> *mut Re
     // Safety: see safety point 1 above.
     let db_path_osstr = unsafe { OsStr::from_encoded_bytes_unchecked(db_path_cstr.to_bytes()) };
 
-    // Pass the path directly to PathPrefix without converting to String.
+    // Pass the path directly to DiskContext without converting to String.
     // This preserves the exact bytes of the path, which is important on Unix
     // systems where paths can contain arbitrary bytes that aren't valid UTF-8.
-    PathPrefix::new(db_path_osstr).into_ptr()
+    DiskContext::new(db_path_osstr).into_ptr()
 }
 
 /// Closes the on-disk index db.
@@ -145,7 +145,7 @@ extern "C" fn close(disk_ptr: *mut RedisSearchDisk) {
     }
 
     // Safety: see safety point 1 above.
-    let _ = unsafe { PathPrefix::from_ptr(disk_ptr) };
+    let _ = unsafe { DiskContext::from_ptr(disk_ptr) };
 
     debug!("closing search disk");
 }
@@ -164,7 +164,7 @@ extern "C" fn index_spec_open(
 ) -> *mut RedisSearchDiskIndexSpec {
     // Handle null pointer case (when open failed)
     // Safety: See safety point 2 above.
-    let Some(path_prefix) = (unsafe { PathPrefix::try_as_mut(disk) }) else {
+    let Some(disk_context) = (unsafe { DiskContext::try_as_mut(disk) }) else {
         warn!("index_spec_open called with null disk pointer, returning null");
         return std::ptr::null_mut();
     };
@@ -186,12 +186,8 @@ extern "C" fn index_spec_open(
     };
 
     // Create the IndexSpec, which will create its own database
-    match IndexSpec::new(
-        index_name.clone(),
-        document_type,
-        path_prefix.as_path(),
-        deleted_ids,
-    ) {
+    // Pass the disk context which contains the shared cache and WriteBufferManager
+    match IndexSpec::new(index_name.clone(), document_type, disk_context, deleted_ids) {
         Ok(index_spec) => index_spec.into_ptr(),
         Err(error) => {
             error!(
@@ -747,17 +743,17 @@ extern "C" fn index_spec_get_deleted_ids(
     utils::fill_buf(buf_slice, &deleted_ids[..])
 }
 
-/// FFI methods and associated functions for converting a [`PathPrefix`] to and
+/// FFI methods and associated functions for converting a [`DiskContext`] to and
 /// from the corresponding types on the C-side.
-impl PathPrefix {
+impl DiskContext {
     /// Leaks `self` into an opaque pointer type.
     fn into_ptr(self) -> *mut RedisSearchDisk {
-        let path_prefix = Box::new(self);
+        let disk_context = Box::new(self);
 
-        Box::into_raw(path_prefix).cast::<RedisSearchDisk>()
+        Box::into_raw(disk_context).cast::<RedisSearchDisk>()
     }
 
-    /// Casts an opaque `RedisSearchDisk` to a mutable `PathPrefix` reference.
+    /// Casts an opaque `RedisSearchDisk` to a mutable `DiskContext` reference.
     /// Does not consume the pointer.
     ///
     /// # Safety
@@ -766,22 +762,22 @@ impl PathPrefix {
     ///
     /// Returns `None` if `ptr` is null.
     unsafe fn try_as_mut<'a>(ptr: *mut RedisSearchDisk) -> Option<&'a mut Self> {
-        let path_prefix: *mut Self = ptr.cast();
+        let disk_context: *mut Self = ptr.cast();
         // Safety: see safety point 1 above.
-        unsafe { path_prefix.as_mut() }
+        unsafe { disk_context.as_mut() }
     }
 
-    /// Casts an opaque `RedisSearchDisk` to an owned `PathPrefix`.
+    /// Casts an opaque `RedisSearchDisk` to an owned `DiskContext`.
     /// Consumes the provided pointer.
     ///
     /// # Safety
     /// 1. `ptr` must have been returned from [`Self::into_ptr`].
     unsafe fn from_ptr(ptr: *mut RedisSearchDisk) -> Self {
-        let path_prefix = ptr.cast();
+        let disk_context = ptr.cast();
         // Safety: see safety point 1 above.
-        let path_prefix = unsafe { Box::from_raw(path_prefix) };
+        let disk_context = unsafe { Box::from_raw(disk_context) };
 
-        *path_prefix
+        *disk_context
     }
 }
 

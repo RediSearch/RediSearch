@@ -4,6 +4,7 @@
 mod c_mocks;
 
 use document::DocumentType;
+use redisearch_disk::disk_context::DiskContext;
 use redisearch_disk::index_spec::{IndexSpec, deleted_ids::DeletedIdsStore};
 use tempfile::TempDir;
 
@@ -18,13 +19,21 @@ fn test_index_spec_normal_drop_does_not_delete() {
     let temp_dir = get_temp_dir();
     let base_path = temp_dir.path().join("test_index_normal_drop");
 
+    // Create a DiskContext with the base path
+    let disk_context = DiskContext::new(&base_path);
+
     // Create an IndexSpec
     let index_name = "test_index_normal_drop".to_string();
     let document_type = DocumentType::Hash;
     let deleted_ids = DeletedIdsStore::new();
 
-    let index_spec = IndexSpec::new(index_name.clone(), document_type, &base_path, deleted_ids)
-        .expect("Failed to create IndexSpec");
+    let index_spec = IndexSpec::new(
+        index_name.clone(),
+        document_type,
+        &disk_context,
+        deleted_ids,
+    )
+    .expect("Failed to create IndexSpec");
 
     // The actual database path is constructed by appending _{index_name}_{doc_type} to base_path
     // For example: /tmp/test_index_normal_drop_myindex_hash
@@ -53,13 +62,21 @@ fn test_index_spec_marked_for_deletion_deletes_files() {
     let temp_dir = get_temp_dir();
     let base_path = temp_dir.path().join("test_index_marked_deletion");
 
+    // Create a DiskContext with the base path
+    let disk_context = DiskContext::new(&base_path);
+
     // Create an IndexSpec
     let index_name = "test_index_marked_deletion".to_string();
     let document_type = DocumentType::Hash;
     let deleted_ids = DeletedIdsStore::new();
 
-    let mut index_spec = IndexSpec::new(index_name.clone(), document_type, &base_path, deleted_ids)
-        .expect("Failed to create IndexSpec");
+    let mut index_spec = IndexSpec::new(
+        index_name.clone(),
+        document_type,
+        &disk_context,
+        deleted_ids,
+    )
+    .expect("Failed to create IndexSpec");
 
     // The actual database path is constructed by appending _{index_name}_{doc_type} to base_path
     let db_path = {
