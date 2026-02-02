@@ -26,14 +26,6 @@ extern "C" {
  */
 ResultProcessor *RPCounter_New(void);
 
-/**
- * Intentionally trigger a crash in Rust code,
- * to verify the crash handling mechanism.
- *
- * Used by the crash result processor.
- */
-void CrashInRust(void);
-
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

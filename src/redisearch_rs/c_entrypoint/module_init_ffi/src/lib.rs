@@ -91,3 +91,12 @@ pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<ffi::RedisModuleIn
     // SAFETY: `ctx` is a valid pointer and `backtrace_cstr` is a valid null-terminated C string.
     unsafe { info_add_field_cstring(ctx.as_ptr(), c"backtrace".as_ptr(), backtrace_cstr.as_ptr()) };
 }
+
+/// Intentionally trigger a crash in Rust code,
+/// to verify the crash handling mechanism.
+///
+/// Used by the crash result processor.
+#[unsafe(no_mangle)]
+pub extern "C" fn CrashInRust() {
+    panic!("Crash in Rust code");
+}

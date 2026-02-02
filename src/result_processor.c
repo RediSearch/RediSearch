@@ -14,7 +14,7 @@
 #include "extension.h"
 #include <util/minmax_heap.h>
 #include "ext/default.h"
-#include "result_processor_rs.h"
+#include "module_init.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
@@ -1504,7 +1504,7 @@ ResultProcessor *RPCrash_New(enum CrashLocation location) {
 
 void PipelineAddCrash(struct AREQ *r, enum CrashLocation location) {
   ResultProcessor *crash = RPCrash_New(location);
-  addResultProcessor(AREQ_QueryProcessingCtx(r), crash);
+  addResultProcessor(r, crash);
 }
 
 /*******************************************************************************************************************
