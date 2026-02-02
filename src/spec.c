@@ -2563,21 +2563,20 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
   IndexScoringStats_RdbSave(rdb, &stats->scoring);
   RedisModule_SaveUnsigned(rdb, stats->numRecords);
   RedisModule_SaveUnsigned(rdb, stats->invertedSize);
-  RedisModule_SaveUnsigned(rdb, 0); // invertedCap
-  RedisModule_SaveUnsigned(rdb, 0); // skipIndexesSize
-  RedisModule_SaveUnsigned(rdb, 0); // scoreIndexesSize
   RedisModule_SaveUnsigned(rdb, stats->offsetVecsSize);
   RedisModule_SaveUnsigned(rdb, stats->offsetVecRecords);
   RedisModule_SaveUnsigned(rdb, stats->termsSize);
 }
 
-static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats, int encver) {
+static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats, int encver, bool loadUnused) {
   IndexScoringStats_RdbLoad(rdb, &stats->scoring, encver);
   stats->numRecords = RedisModule_LoadUnsigned(rdb);
   stats->invertedSize = RedisModule_LoadUnsigned(rdb);
-  RedisModule_LoadUnsigned(rdb); // Consume `invertedCap`
-  RedisModule_LoadUnsigned(rdb); // Consume `skipIndexesSize`
-  RedisModule_LoadUnsigned(rdb); // Consume `scoreIndexesSize`
+  if (loadUnused) {
+    RedisModule_LoadUnsigned(rdb); // Consume `invertedCap`
+    RedisModule_LoadUnsigned(rdb); // Consume `skipIndexesSize`
+    RedisModule_LoadUnsigned(rdb); // Consume `scoreIndexesSize`
+  }
   stats->offsetVecsSize = RedisModule_LoadUnsigned(rdb);
   stats->offsetVecRecords = RedisModule_LoadUnsigned(rdb);
   stats->termsSize = RedisModule_LoadUnsigned(rdb);
@@ -3272,7 +3271,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   // On the disk side (RDB is depleted, without updating index fields).
   bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && useSst) {
-    IndexStats_RdbLoad(rdb, &sp->stats, encver);
+    IndexStats_RdbLoad(rdb, &sp->stats, encver, false);
     if (sp->terms) {
       TrieType_Free(sp->terms);
     }
@@ -3375,7 +3374,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 
-  IndexStats_RdbLoad(rdb, &sp->stats, encver);
+  IndexStats_RdbLoad(rdb, &sp->stats, encver, true);
 
   DocTable_LegacyRdbLoad(&sp->docs, rdb, encver);
   /* For version 3 or up - load the generic trie */
