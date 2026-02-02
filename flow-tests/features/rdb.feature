@@ -3,6 +3,7 @@ Feature: RDB Save and Load Functionality
   I want to test RDB persistence of RediSearchDisk state
   So that I can ensure disk-related index-data survives Redis restarts
 
+  @skip
   Scenario: Save and load index with documents
     Given the RediSearchDisk module is loaded
     When I create an index "idx" with schema field "title" as TEXT

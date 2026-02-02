@@ -24,9 +24,11 @@ use ffi::{
 };
 use rqe_iterators_interop::RQEIteratorWrapper;
 
-use std::ffi::{CStr, OsStr, c_char, c_void};
+use std::ffi::{OsStr, c_char, c_void};
 use std::time::{Duration, UNIX_EPOCH};
 use tracing::{debug, error, warn};
+
+use crate::utils::{compute_disk_path, get_redis_config_value};
 
 /// Registers the Redis module allocator as the global allocator for the application.
 #[cfg(feature = "redis_allocator")]
@@ -113,23 +115,46 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut RedisSearchDiskAPI {
 
 /// Opens the on-disk index db.
 ///
-/// This stores the base path prefix for creating individual index databases.
+/// This function retrieves the `bigredis-path` configuration from Redis,
+/// computes the disk storage path by extracting the parent directory and
+/// appending "/redisearch", then creates the PathPrefix for individual index databases.
 ///
 /// # Safety
-/// 1. `path` must be a null-terminated c-string. Additionally, it must contain
-///    bytes which are a valid filesystem path for the target platform.
-extern "C" fn open(_ctx: *mut RedisModuleCtx, db_path: *const c_char) -> *mut RedisSearchDisk {
+/// 1. `ctx` must be a valid RedisModuleCtx pointer.
+extern "C" fn open(ctx: *mut RedisModuleCtx) -> *mut RedisSearchDisk {
     debug!("opening search disk");
 
-    // Safety: see safety point 1 above.
-    let db_path_cstr = unsafe { CStr::from_ptr(db_path) };
-    // Safety: see safety point 1 above.
-    let db_path_osstr = unsafe { OsStr::from_encoded_bytes_unchecked(db_path_cstr.to_bytes()) };
+    // Safety: ctx is a valid RedisModuleCtx pointer (see safety point 1 above)
+    let redis_ctx = redis_module::Context::new(ctx as *mut redis_module::raw::RedisModuleCtx);
 
-    // Pass the path directly to DiskContext without converting to String.
-    // This preserves the exact bytes of the path, which is important on Unix
-    // systems where paths can contain arbitrary bytes that aren't valid UTF-8.
-    DiskContext::new(db_path_osstr).into_ptr()
+    // Get the bigredis-path configuration from Redis
+    let bigredis_path = match get_redis_config_value(&redis_ctx, "bigredis-path") {
+        Some(path) if !path.is_empty() => path,
+        Some(_) => {
+            error!("bigredis-path configuration is empty, cannot initialize disk storage");
+            return std::ptr::null_mut();
+        }
+        None => {
+            error!("bigredis-path configuration not set, cannot initialize disk storage");
+            return std::ptr::null_mut();
+        }
+    };
+
+    // Compute the disk path: extract parent directory and append "/redisearch"
+    let disk_path = match compute_disk_path(&bigredis_path) {
+        Some(path) => path,
+        None => {
+            error!(
+                "bigredis-path '{}' is invalid (cannot extract parent directory)",
+                bigredis_path
+            );
+            return std::ptr::null_mut();
+        }
+    };
+
+    debug!("RediSearch disk storage path: {}", disk_path);
+
+    DiskContext::new(OsStr::new(&disk_path)).into_ptr()
 }
 
 /// Closes the on-disk index db.

@@ -24,3 +24,31 @@ def configure_search_cluster_single_shard(conn, port):
         'ADDR', f'password@127.0.0.1:{port}',
         'MASTER'
     )
+
+def waitForRdbSaveToFinish(env):
+    if env.isCluster():
+        conns = env.getOSSMasterNodesConnectionList()
+    else:
+        conns = [env.getConnection()]
+
+    # Busy wait until all connection are done rdb bgsave
+    check_bgsave = True
+    while check_bgsave:
+        check_bgsave = False
+        for conn in conns:
+            if conn.execute_command('info', 'Persistence')['rdb_bgsave_in_progress']:
+                check_bgsave = True
+                break
+
+def waitForIndex(env, idx = 'idx'):
+    waitForRdbSaveToFinish(env)
+    while True:
+        res = env.cmd('ft.info', idx)
+        try:
+            if res[res.index('indexing') + 1] == 0:
+                break
+        except:
+            # RESP3
+            if res['indexing'] == 0:
+                break
+        time.sleep(0.1)
