@@ -15,6 +15,7 @@
 #include "VecSim/query_result_definitions.h"
 #include "VecSim/utils/vec_utils.h"
 #include "VecSim/info_iterator_struct.h"
+#include "VecSim/tombstone_interface.h"
 #include "storage/hnsw_storage.h"
 #include "factory/components/disk_components_factory.h"
 
@@ -65,7 +66,7 @@ public:
 };
 
 template <typename DataType, typename DistType>
-class HNSWDiskIndex : public VecSimIndexAbstract<DataType, DistType> {
+class HNSWDiskIndex : public VecSimIndexAbstract<DataType, DistType>, public VecSimIndexTombstone {
 public:
     // Constructor for factory use - takes ownership of storage and components
     HNSWDiskIndex(const VecSimParamsDisk* params, const AbstractIndexInitParams& abstractInitParams,
@@ -106,6 +107,15 @@ public:
     HNSWStorage<DataType>* getStorage() const { return storage_.get(); }
 
     void repairNode(idType id, levelType level);
+
+    // TODO: Make thread safe (the the right locking mechanism)
+    vecsim_stl::vector<idType> markDelete(labelType label) override {
+        // Stub - returns dummy ID for testing purposes
+        // TODO: Get internal ID by label, mark as deleted, return deleted IDs
+        vecsim_stl::vector<idType> deleted_ids(this->allocator);
+        deleted_ids.push_back(0); // Dummy ID - real implementation will look up by label
+        return deleted_ids;
+    }
 
 protected:
     void getNeighborsByHeuristic2(candidatesList<DistType>& top_candidates, size_t M,

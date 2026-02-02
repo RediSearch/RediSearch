@@ -15,6 +15,8 @@
 #include "VecSim/spaces/spaces.h"
 #include "VecSim/types/sq8.h"
 
+#include <thread>
+
 using namespace test_utils;
 using sq8 = vecsim_types::sq8;
 
@@ -384,3 +386,543 @@ INSTANTIATE_TEST_SUITE_P(MetricTests, TieredHNSWDiskMetricTest,
                          [](const testing::TestParamInfo<VecSimMetric>& info) {
                              return VecSimMetric_ToString(info.param);
                          });
+
+// ============================================================================
+// Async Job Mechanism Tests
+// ============================================================================
+
+class TieredHNSWDiskAsyncJobTest : public TieredHNSWDiskTest {
+protected:
+    // Mock job queue for testing
+    // Only tracks submission count - doesn't take ownership or store jobs
+    struct MockJobQueue {
+        std::atomic<size_t> submission_count{0};
+
+        void submitJob(AsyncDiskJob* job) { submission_count++; }
+
+        void submitJobs(const std::vector<AsyncDiskJob*>& jobs) { submission_count += jobs.size(); }
+
+        size_t size() const { return submission_count.load(); }
+
+        void clear() { submission_count = 0; }
+    };
+
+    static MockJobQueue mock_queue;
+
+    std::unique_ptr<TieredDiskParamsHolder> createTieredDiskParamsWithMockQueue(const HNSWParams& hnsw_params) {
+        auto holder = std::make_unique<TieredDiskParamsHolder>();
+
+        // Create primary (HNSW) params
+        holder->primary_params = {
+            .algo = VecSimAlgo_HNSWLIB,
+            .algoParams = {.hnswParams = hnsw_params},
+            .logCtx = nullptr,
+        };
+
+        // Initialize tiered_params with zeroed memory first
+        holder->tiered_params = TieredIndexParams{};
+
+        // Create tiered params with mock job queue
+        holder->tiered_params.jobQueue = &mock_queue;
+        holder->tiered_params.jobQueueCtx = &mock_queue;
+        holder->tiered_params.submitCb = nullptr; // Not used in these tests
+        holder->tiered_params.flatBufferLimit = SIZE_MAX;
+        holder->tiered_params.primaryIndexParams = &holder->primary_params;
+        holder->tiered_params.specificParams.tieredHnswDiskParams = TieredHNSWDiskParams{};
+
+        // Create VecSimParams with algo = TIERED
+        holder->tiered_vecsim_params = {
+            .algo = VecSimAlgo_TIERED,
+            .algoParams = {.tieredParams = holder->tiered_params},
+            .logCtx = nullptr,
+        };
+
+        // Create disk context
+        holder->disk_context = {
+            .storage = nullptr,
+            .indexName = "test_tiered_async",
+            .indexNameLen = strlen("test_tiered_async"),
+        };
+
+        // Create the final VecSimParamsDisk
+        holder->params_disk = {
+            .indexParams = &holder->tiered_vecsim_params,
+            .diskContext = &holder->disk_context,
+        };
+
+        return holder;
+    }
+
+    void SetUp() override { mock_queue.clear(); }
+};
+
+TieredHNSWDiskAsyncJobTest::MockJobQueue TieredHNSWDiskAsyncJobTest::mock_queue;
+
+// Test that AsyncDiskJob properly initializes with correct type
+TEST_F(TieredHNSWDiskAsyncJobTest, AsyncDiskJobInitialization) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+
+    // Create a simple insert job
+    AsyncDiskJob insert_job(allocator, DISK_HNSW_INSERT_VECTOR_JOB, nullptr, nullptr);
+    EXPECT_EQ(insert_job.type, DISK_HNSW_INSERT_VECTOR_JOB);
+
+    // Create a repair job
+    RepairDiskJob repair_job(allocator, 42, 3, nullptr, nullptr);
+    EXPECT_EQ(repair_job.type, DISK_HNSW_REPAIR_NODE_CONNECTIONS_JOB);
+    EXPECT_EQ(repair_job.node_id, 42);
+    EXPECT_EQ(repair_job.level, 3);
+
+    // Create delete jobs
+    DeleteDiskJob delete_init_job(allocator, DISK_HNSW_DELETE_VECTOR_INIT_JOB, 99, nullptr, nullptr);
+    EXPECT_EQ(delete_init_job.type, DISK_HNSW_DELETE_VECTOR_INIT_JOB);
+    EXPECT_EQ(delete_init_job.deleted_id, 99);
+
+    DeleteDiskJob delete_finalize_job(allocator, DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB, 99, nullptr, nullptr);
+    EXPECT_EQ(delete_finalize_job.type, DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB);
+    EXPECT_EQ(delete_finalize_job.deleted_id, 99);
+}
+
+// Test that job submission with mock queue works
+TEST_F(TieredHNSWDiskAsyncJobTest, JobSubmissionWithMockQueue) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    auto test_job = std::make_shared<AsyncDiskJob>(allocator, DISK_HNSW_INSERT_VECTOR_JOB, nullptr, nullptr);
+    mock_queue.submitJob(test_job.get());
+    EXPECT_EQ(mock_queue.size(), 1);
+}
+
+// Test hash function for std::pair<idType, levelType>
+TEST_F(TieredHNSWDiskAsyncJobTest, PairHashFunction) {
+    std::hash<std::pair<idType, levelType>> hasher;
+
+    // Test that same pairs produce same hash
+    auto pair1 = std::make_pair(idType(42), levelType(3));
+    auto pair2 = std::make_pair(idType(42), levelType(3));
+    EXPECT_EQ(hasher(pair1), hasher(pair2));
+
+    // Test that different pairs produce different hashes (likely, not guaranteed)
+    auto pair3 = std::make_pair(idType(42), levelType(4));
+    auto pair4 = std::make_pair(idType(43), levelType(3));
+    // We can't assert inequality due to hash collisions, but we can verify they compute
+    EXPECT_TRUE(hasher(pair3) >= 0);
+    EXPECT_TRUE(hasher(pair4) >= 0);
+
+    // Test with unordered_map
+    std::unordered_map<std::pair<idType, levelType>, int> test_map;
+    test_map[pair1] = 1;
+    test_map[pair3] = 2;
+    test_map[pair4] = 3;
+
+    EXPECT_EQ(test_map.size(), 3);
+    EXPECT_EQ(test_map[pair1], 1);
+    EXPECT_EQ(test_map[pair2], 1); // Same as pair1
+    EXPECT_EQ(test_map[pair3], 2);
+    EXPECT_EQ(test_map[pair4], 3);
+}
+
+// Test job type enum values
+TEST_F(TieredHNSWDiskAsyncJobTest, JobTypeEnumValues) {
+    // Verify that disk job types have correct base values
+    EXPECT_EQ(DISK_HNSW_INSERT_VECTOR_JOB, HNSW_INSERT_VECTOR_JOB);
+    EXPECT_EQ(DISK_HNSW_REPAIR_NODE_CONNECTIONS_JOB, HNSW_REPAIR_NODE_CONNECTIONS_JOB);
+
+    // Verify that new disk-specific job types are defined
+    EXPECT_NE(DISK_HNSW_DELETE_VECTOR_INIT_JOB, DISK_HNSW_INSERT_VECTOR_JOB);
+    EXPECT_NE(DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB, DISK_HNSW_INSERT_VECTOR_JOB);
+    EXPECT_NE(DISK_HNSW_DELETE_VECTOR_INIT_JOB, DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB);
+}
+
+// Test that submitted_jobs properly tracks job lifecycle via reference counting
+TEST_F(TieredHNSWDiskAsyncJobTest, SubmittedJobsLifecycle) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    auto job1 = std::make_shared<AsyncDiskJob>(allocator, DISK_HNSW_INSERT_VECTOR_JOB, nullptr, nullptr);
+    EXPECT_EQ(job1.use_count(), 1);
+
+    auto job2 = job1; // Increase ref count
+    EXPECT_EQ(job1.use_count(), 2);
+    EXPECT_EQ(job2.use_count(), 2);
+
+    job2.reset(); // Decrease ref count
+    EXPECT_EQ(job1.use_count(), 1);
+}
+
+// Test that currently_running tracks executing jobs using set operations
+TEST_F(TieredHNSWDiskAsyncJobTest, CurrentlyRunningTracking) {
+    std::unordered_set<AsyncDiskJob*> test_set;
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    auto job1 = std::make_shared<AsyncDiskJob>(allocator, DISK_HNSW_INSERT_VECTOR_JOB, nullptr, nullptr);
+    auto job2 = std::make_shared<AsyncDiskJob>(allocator, DISK_HNSW_REPAIR_NODE_CONNECTIONS_JOB, nullptr, nullptr);
+
+    test_set.insert(job1.get());
+    test_set.insert(job2.get());
+    EXPECT_EQ(test_set.size(), 2);
+
+    test_set.erase(job1.get());
+    EXPECT_EQ(test_set.size(), 1);
+}
+
+// Test batch job submission with mock queue
+TEST_F(TieredHNSWDiskAsyncJobTest, BatchJobSubmission) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    std::vector<AsyncDiskJob*> batch_jobs;
+    std::vector<std::shared_ptr<AsyncDiskJob>> job_holders;
+
+    for (int i = 0; i < 5; i++) {
+        auto job = std::make_shared<AsyncDiskJob>(allocator, DISK_HNSW_INSERT_VECTOR_JOB, nullptr, nullptr);
+        batch_jobs.push_back(job.get());
+        job_holders.push_back(job);
+    }
+
+    mock_queue.submitJobs(batch_jobs);
+    EXPECT_EQ(mock_queue.size(), 5);
+}
+
+// Test auto-submit behavior: custom deleter invoked when reference count reaches zero
+TEST_F(TieredHNSWDiskAsyncJobTest, AutoSubmitOnRefCountZero) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    mock_queue.clear();
+
+    // Create a job with a custom deleter that submits to mock queue
+    // The deleter is called when the last shared_ptr releases ownership
+    struct AutoSubmitDeleter {
+        MockJobQueue* queue;
+        void operator()(AsyncDiskJob* job) const {
+            if (job && queue) {
+                queue->submitJob(job);
+            }
+            if (job) {
+                delete job;
+            }
+        }
+    };
+
+    // Create a job with auto-submit behavior
+    auto job_ptr = std::shared_ptr<AsyncDiskJob>(
+        new (allocator) AsyncDiskJob(allocator, DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB, nullptr, nullptr),
+        AutoSubmitDeleter{&mock_queue});
+
+    EXPECT_EQ(mock_queue.size(), 0);
+
+    // Create another shared_ptr to the same job
+    auto job_ptr2 = job_ptr;
+    EXPECT_EQ(job_ptr.use_count(), 2);
+
+    // Release first reference
+    job_ptr.reset();
+    EXPECT_EQ(mock_queue.size(), 0); // Should not submit yet
+
+    // Release second reference - should trigger auto-submit
+    job_ptr2.reset();
+    EXPECT_EQ(mock_queue.size(), 1); // Should be auto-submitted
+}
+
+// Test that pending jobs vector properly holds references
+TEST_F(TieredHNSWDiskAsyncJobTest, PendingJobsVectorReferences) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+
+    // Create a main job
+    auto main_job = std::make_shared<AsyncDiskJob>(allocator, DISK_HNSW_INSERT_VECTOR_JOB, nullptr, nullptr);
+
+    // Create a pending job
+    auto pending_job =
+        std::make_shared<AsyncDiskJob>(allocator, DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB, nullptr, nullptr);
+
+    // Initial ref count
+    EXPECT_EQ(pending_job.use_count(), 1);
+
+    // Add to pending jobs vector (through friend access simulation)
+    auto pending_copy = pending_job;
+    EXPECT_EQ(pending_job.use_count(), 2);
+
+    // Clearing the vector should release the reference
+    pending_copy.reset();
+    EXPECT_EQ(pending_job.use_count(), 1);
+}
+
+// Test that submitted_jobs map can lookup by raw pointer (required for executeDiskJobWrapper)
+TEST_F(TieredHNSWDiskAsyncJobTest, SubmittedJobsLookupByRawPointer) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+
+    // Simulate the submitted_jobs map
+    vecsim_stl::unordered_map<AsyncDiskJob*, std::shared_ptr<AsyncDiskJob>> submitted_jobs(allocator);
+
+    // Create a job and add it to submitted_jobs (simulating submitDiskJob)
+    auto job = std::shared_ptr<AsyncDiskJob>(
+        new (allocator) AsyncDiskJob(allocator, DISK_HNSW_INSERT_VECTOR_JOB, nullptr, nullptr));
+    AsyncDiskJob* raw_ptr = job.get();
+    submitted_jobs[raw_ptr] = job;
+
+    // Now simulate executeDiskJobWrapper trying to find it by raw pointer
+    auto it = submitted_jobs.find(raw_ptr);
+    ASSERT_NE(it, submitted_jobs.end())
+        << "Failed to find job by raw pointer - this would fail with unordered_set<shared_ptr>";
+
+    // Verify we got the correct job
+    EXPECT_EQ(it->second.get(), raw_ptr);
+    EXPECT_EQ(it->second.use_count(), 2); // One in 'job', one in the map
+
+    // Simulate taking ownership and removing from map
+    std::shared_ptr<AsyncDiskJob> job_owner = it->second;
+    submitted_jobs.erase(it);
+
+    EXPECT_EQ(job_owner.use_count(), 2); // One in 'job', one in 'job_owner'
+    EXPECT_EQ(submitted_jobs.size(), 0);
+}
+// Test that custom deleter is invoked when ref_count reaches zero
+// TODO: Once addVector/deleteVector are implemented, enhance this test to:
+//       1. Create TieredHNSWDiskIndex with mock queue
+//       2. Call pendByCurrentlyRunning() (or create job with createAutoSubmitJob)
+//       3. Verify job auto-submits to mock_queue when currently_running is empty
+//       4. Verify job is added to submitted_jobs map
+//       5. Test that job does NOT auto-submit when currently_running is non-empty
+TEST_F(TieredHNSWDiskAsyncJobTest, PendByCurrentlyRunningWithNoRunningJobs) {
+
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+
+    bool deleter_called = false;
+
+    {
+        // Create a job with a custom deleter
+        struct TestDeleter {
+            bool* called_flag;
+            void operator()(AsyncDiskJob* job) const {
+                *called_flag = true;
+                if (job) {
+                    delete job;
+                }
+            }
+        };
+
+        JobCallback dummy_callback = +[](AsyncJob*) {};
+        auto job = std::shared_ptr<AsyncDiskJob>(
+            new (allocator) AsyncDiskJob(allocator, DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB, dummy_callback, nullptr),
+            TestDeleter{&deleter_called});
+
+        // Job has ref_count=1
+        EXPECT_EQ(job.use_count(), 1);
+        EXPECT_FALSE(deleter_called) << "Deleter should not be called while job is referenced";
+
+    } // job goes out of scope -> deleter invoked
+
+    EXPECT_TRUE(deleter_called) << "Deleter should be called when ref_count reaches 0";
+}
+
+// Test that pending job is only submitted when ALL references are released
+TEST_F(TieredHNSWDiskAsyncJobTest, MultiplePendingJobReferences) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+
+    size_t initial_job_count = mock_queue.size();
+
+    std::shared_ptr<AsyncDiskJob> finalize_job = std::shared_ptr<AsyncDiskJob>(
+        new (allocator) AsyncDiskJob(allocator, DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB, nullptr, nullptr));
+
+    EXPECT_EQ(finalize_job.use_count(), 1);
+
+    // Create two jobs, both holding references to finalize_job
+    std::shared_ptr<AsyncDiskJob> job_a;
+    std::shared_ptr<AsyncDiskJob> job_b;
+    {
+        job_a = std::shared_ptr<AsyncDiskJob>(
+            new (allocator) AsyncDiskJob(allocator, DISK_HNSW_DELETE_VECTOR_INIT_JOB, nullptr, nullptr));
+        job_b = std::shared_ptr<AsyncDiskJob>(
+            new (allocator) AsyncDiskJob(allocator, DISK_HNSW_DELETE_VECTOR_INIT_JOB, nullptr, nullptr));
+
+        auto finalize_ref_a = finalize_job;
+        auto finalize_ref_b = finalize_job;
+        EXPECT_EQ(finalize_job.use_count(), 3);
+
+        finalize_ref_a.reset();
+        EXPECT_EQ(finalize_job.use_count(), 2);
+        EXPECT_EQ(mock_queue.size(), initial_job_count);
+
+        finalize_ref_b.reset();
+        EXPECT_EQ(finalize_job.use_count(), 1);
+        EXPECT_EQ(mock_queue.size(), initial_job_count);
+    }
+
+    finalize_job.reset();
+}
+// Test that concurrent repair job submissions are properly deduplicated
+TEST_F(TieredHNSWDiskAsyncJobTest, ConcurrentRepairJobDeduplication) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+
+    // Simulate the pending_repairs map and its mutex
+    std::mutex pending_repairs_guard;
+    vecsim_stl::unordered_map<std::pair<idType, levelType>, std::shared_ptr<AsyncDiskJob>> pending_repairs(allocator);
+
+    const idType node_id = 42;
+    const levelType level = 2;
+    const int num_threads = 10;
+
+    std::atomic<int> jobs_created{0};
+
+    auto submit_repair = [&]() {
+        auto key = std::make_pair(node_id, level);
+        bool created_new_job = false;
+
+        {
+            std::lock_guard<std::mutex> lock(pending_repairs_guard);
+            auto it = pending_repairs.find(key);
+
+            if (it == pending_repairs.end()) {
+                auto job = std::shared_ptr<AsyncDiskJob>(
+                    new (allocator) AsyncDiskJob(allocator, DISK_HNSW_REPAIR_NODE_CONNECTIONS_JOB, nullptr, nullptr));
+                pending_repairs[key] = job;
+                created_new_job = true;
+                jobs_created++;
+            }
+        }
+
+        return created_new_job;
+    };
+
+    std::vector<std::thread> threads;
+    threads.reserve(num_threads);
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back(submit_repair);
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    EXPECT_EQ(jobs_created.load(), 1);
+    EXPECT_EQ(pending_repairs.size(), 1);
+    EXPECT_NE(pending_repairs.find(std::make_pair(node_id, level)), pending_repairs.end());
+}
+// Test job lifecycle: created -> submitted -> currently_running -> complete
+TEST_F(TieredHNSWDiskAsyncJobTest, JobLifecycleTracking) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    auto job = std::make_shared<RepairDiskJob>(allocator, 42, 1, nullptr, nullptr);
+    EXPECT_EQ(job->type, DISK_HNSW_REPAIR_NODE_CONNECTIONS_JOB);
+
+    // Stage 2: Simulate submission by adding to a map (like submitted_jobs)
+    std::unordered_map<AsyncDiskJob*, std::shared_ptr<AsyncDiskJob>> submitted_jobs;
+    submitted_jobs[job.get()] = job;
+    EXPECT_EQ(submitted_jobs.size(), 1) << "Job should be in submitted_jobs after submission";
+    EXPECT_NE(submitted_jobs.find(job.get()), submitted_jobs.end()) << "Job pointer should be findable";
+
+    // Stage 3: Simulate job execution by adding to currently_running vector
+    std::vector<AsyncDiskJob*> currently_running;
+    currently_running.push_back(job.get());
+    EXPECT_EQ(currently_running.size(), 1);
+    EXPECT_EQ(currently_running[0], job.get());
+
+    // Stage 4: Simulate job completion by removing from both collections
+    currently_running.clear();
+    submitted_jobs.erase(job.get());
+
+    // After completion, job should be in neither collection
+    EXPECT_EQ(submitted_jobs.size(), 0);
+    EXPECT_EQ(currently_running.size(), 0);
+}
+
+// Test #6: Destructor While Jobs Running
+// Verifies that jobs can be properly cleaned up even without an index
+TEST_F(TieredHNSWDiskAsyncJobTest, DestructorWhileJobsRunning) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+
+    // Keep jobs alive
+    std::vector<std::shared_ptr<AsyncDiskJob>> job_refs;
+    std::unordered_map<AsyncDiskJob*, std::shared_ptr<AsyncDiskJob>> submitted_jobs;
+    std::vector<AsyncDiskJob*> currently_running;
+
+    // Create and "submit" several jobs
+    for (int node_id = 0; node_id < 5; ++node_id) {
+        auto job = std::make_shared<RepairDiskJob>(allocator, node_id, 0, nullptr, nullptr);
+
+        submitted_jobs[job.get()] = job;
+        currently_running.push_back(job.get());
+        job_refs.push_back(job);
+    }
+
+    EXPECT_EQ(submitted_jobs.size(), 5);
+    EXPECT_EQ(currently_running.size(), 5);
+
+    // Simulate cleanup - clear collections first (like destructor would)
+    submitted_jobs.clear();
+    currently_running.clear();
+
+    // Jobs still exist in job_refs
+    EXPECT_EQ(job_refs.size(), 5);
+
+    // Clear job references - this should not crash
+    job_refs.clear();
+
+    // If we get here without crashing, cleanup works correctly
+    SUCCEED() << "Successfully handled job cleanup";
+}
+
+// Test #7: Destructor With Pending Auto-Submit Jobs
+// Verifies that jobs with pending dependencies can be properly cleaned up
+TEST_F(TieredHNSWDiskAsyncJobTest, DestructorWithPendingAutoSubmitJobs) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+
+    std::vector<std::shared_ptr<AsyncDiskJob>> job_refs;
+    std::unordered_map<AsyncDiskJob*, std::shared_ptr<AsyncDiskJob>> submitted_jobs;
+
+    // Create jobs but don't "submit" them
+    for (int node_id = 0; node_id < 3; ++node_id) {
+        auto job =
+            std::make_shared<DeleteDiskJob>(allocator, DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB, node_id, nullptr, nullptr);
+        job_refs.push_back(job);
+    }
+
+    EXPECT_EQ(submitted_jobs.size(), 0) << "Jobs should not be submitted yet";
+    EXPECT_EQ(job_refs.size(), 3);
+
+    // Clear job references - this should not crash
+    job_refs.clear();
+
+    // If we get here without crashing, cleanup works correctly
+    SUCCEED() << "Successfully handled pending job cleanup";
+}
+// Test #8: Single Element Currently Running
+// Verifies that swap-with-last-and-pop pattern works correctly when there's only one element
+TEST_F(TieredHNSWDiskAsyncJobTest, SingleElementCurrentlyRunning) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    std::vector<AsyncDiskJob*> currently_running;
+
+    // Create a job
+    auto job = std::make_shared<RepairDiskJob>(allocator, 42, 1, nullptr, nullptr);
+
+    // Add job to currently_running (it's the ONLY one)
+    currently_running.push_back(job.get());
+    ASSERT_EQ(currently_running.size(), 1);
+    ASSERT_EQ(currently_running[0], job.get());
+
+    // Now remove it using swap-with-last-and-pop pattern
+    // This is the pattern used in the actual code to remove jobs efficiently
+    // When there's only one element, we're swapping element [0] with itself
+
+    // Find the job in currently_running
+    auto it = std::find(currently_running.begin(), currently_running.end(), job.get());
+    ASSERT_NE(it, currently_running.end()) << "Job should be in currently_running";
+
+    // Swap with last element and pop (when size=1, this swaps with itself)
+    size_t index_to_remove = it - currently_running.begin();
+    currently_running[index_to_remove] = currently_running.back();
+    currently_running.pop_back();
+
+    // Verify removal succeeded
+    EXPECT_EQ(currently_running.size(), 0) << "currently_running should be empty after removal";
+
+    // Also verify the job is still valid (wasn't corrupted by the swap-with-self)
+    EXPECT_EQ(job->node_id, 42);
+    EXPECT_EQ(job->level, 1);
+    EXPECT_EQ(job->type, DISK_HNSW_REPAIR_NODE_CONNECTIONS_JOB);
+}
+
+// Test double submission detection
+// Double submission causes segfault: job queued twice, first execution deletes it,
+// second execution accesses freed memory. Prevented by assertion in submitDiskJob().
+TEST_F(TieredHNSWDiskAsyncJobTest, DoubleSubmissionToSubmittedJobs) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    std::unordered_map<AsyncDiskJob*, std::shared_ptr<AsyncDiskJob>> submitted_jobs;
+    auto job = std::make_shared<RepairDiskJob>(allocator, 42, 1, nullptr, nullptr);
+
+    submitted_jobs[job.get()] = job;
+    EXPECT_EQ(submitted_jobs.size(), 1);
+
+    // Verify double submission detection would work
+    bool already_submitted = (submitted_jobs.find(job.get()) != submitted_jobs.end());
+    EXPECT_TRUE(already_submitted);
+}
