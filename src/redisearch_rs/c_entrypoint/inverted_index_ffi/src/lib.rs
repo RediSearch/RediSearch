@@ -121,6 +121,17 @@ impl InvertedIndex {
             _ => panic!("Unexpected inverted index type, expected FullWide"),
         }
     }
+
+    /// Returns a reference to the DocIdsOnly inverted index.
+    ///
+    /// # Panic
+    /// Will panic if the inverted index is not of type `DocumentIdOnly`.
+    pub fn as_doc_ids_only(&self) -> &inverted_index::InvertedIndex<DocIdsOnly> {
+        match self {
+            Self::DocumentIdOnly(ii) => ii,
+            _ => panic!("Unexpected inverted index type, expected DocumentIdOnly"),
+        }
+    }
 }
 
 impl Debug for InvertedIndex {
