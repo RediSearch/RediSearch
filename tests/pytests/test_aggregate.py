@@ -1489,3 +1489,62 @@ def testeAggregateBadApplyFunction(env):
         .contains("Unknown function name 'unexisting_function'")
     env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', '!!unexisting_function(@title)').error() \
         .contains("Unknown function name 'unexisting_function'")
+
+# POC HACK TEST: Test for SAMPLE keyword to limit documents before LOAD/APPLY/GROUPBY
+def test_poc_sample_before_groupby(env):
+    """
+    Test query structure similar to:
+    FT.AGGREGATE idx "<query>"
+      SCORER BM25STD.TANH
+      ADDSCORES
+      SAMPLE 50
+      LOAD ...
+      APPLY "..." AS the_score
+      GROUPBY 2 @parent_id @profile_id
+        REDUCE SUM 1 the_score AS total_score
+      SORTBY 2 @total_score DESC
+      LIMIT 0 10
+
+    This tests the POC hack that samples top N documents by score before LOAD/APPLY/GROUPBY.
+    Check Redis logs for "POC HACK" warnings to verify the hack is triggered.
+    """
+    conn = getConnectionByEnv(env)
+
+    # Create index with text field for scoring and fields for grouping
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'content', 'TEXT',
+               'parent_id', 'TAG', 'SORTABLE',
+               'profile_id', 'TAG', 'SORTABLE',
+               'score', 'NUMERIC', 'SORTABLE').ok()
+
+    # Add test documents with varying text content for different scores
+    for i in range(100):
+        parent = f'parent_{i % 10}'
+        profile = f'profile_{i % 5}'
+        score = float(i)
+        # Vary content to get different BM25 scores
+        content = ' '.join(['hello'] * (i % 10 + 1))
+        conn.execute_command('HSET', f'doc_{i}',
+                           'content', content,
+                           'parent_id', parent,
+                           'profile_id', profile,
+                           'score', score)
+
+    # Run the query with SAMPLE keyword (the LTK pattern)
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', 'hello',
+        'SCORER', 'BM25STD.TANH',
+        'ADDSCORES',
+        'SAMPLE', '50',  # POC: Limit to top 50 docs by score before LOAD/APPLY/GROUPBY
+        'LOAD', '3', '@parent_id', '@profile_id', '@score',
+        'APPLY', '@score', 'AS', 'the_score',
+        'GROUPBY', '2', '@parent_id', '@profile_id',
+        'REDUCE', 'SUM', '1', 'the_score', 'AS', 'total_score',
+        'SORTBY', '2', '@total_score', 'DESC',
+        'LIMIT', '0', '10'
+    )
+
+    # Verify we got results
+    env.assertGreater(len(res), 1, message="Expected results from aggregate query")
+    env.assertGreaterEqual(res[0], 1, message="Expected at least 1 result count")

@@ -22,6 +22,7 @@
 #include "query_optimizer.h"
 #include "resp3.h"
 #include "obfuscation/hidden.h"
+#include "module.h"  // POC HACK: for RSDummyContext
 
 extern RSConfig RSGlobalConfig;
 
@@ -376,6 +377,17 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
       return ARG_ERROR;
     }
+  } else if (AC_AdvanceIfMatch(ac, "SAMPLE")) {
+    // POC HACK: Parse SAMPLE <num> to limit documents before LOAD/APPLY/GROUPBY
+    if (AC_NumRemaining(ac) < 1) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for SAMPLE");
+      return ARG_ERROR;
+    }
+    if (AC_GetU64(ac, &req->sampleLimit, AC_F_GE1) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "SAMPLE requires a positive integer");
+      return ARG_ERROR;
+    }
+    RedisModule_Log(RSDummyContext, "warning", "POC HACK: parsed SAMPLE keyword");
   } else {
     return ARG_UNKNOWN;
   }
@@ -1592,6 +1604,16 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
       rp = RPMaxScoreNormalizer_New(scoreKey);
       PUSH_RP();
       }
+    }
+
+    // POC HACK: Add a sampler (sorter by score) right after the scorer for FT.AGGREGATE with ADDSCORES.
+    // This limits documents flowing into LOAD/APPLY/GROUPBY to top N by query score.
+    // The sorter uses a heap internally (like Elasticsearch's TopScoreDocCollector).
+    // Only apply for FT.AGGREGATE (not FT.SEARCH) with ADDSCORES and SAMPLE specified.
+    if (IsAggregate(req) && HasScoreInPipeline(req) && req->sampleLimit > 0) {
+      RedisModule_Log(RSDummyContext, "warning", "POC HACK: adding sampler after scorer");
+      rp = RPSorter_NewByScore(req->sampleLimit);
+      PUSH_RP();
     }
   }
 

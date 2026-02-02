@@ -225,6 +225,10 @@ typedef struct AREQ {
   size_t prefixesOffset;
 
   ProfilePrinterCtx profileCtx;
+
+  // POC HACK: Sample limit for limiting documents before LOAD/APPLY/GROUPBY
+  // 0 means no sampling (default)
+  size_t sampleLimit;
 } AREQ;
 
 /**
