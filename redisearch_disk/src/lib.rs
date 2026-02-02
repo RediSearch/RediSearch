@@ -34,6 +34,22 @@ use tracing::{debug, error, warn};
 static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
 
 const INVALID_DOC_ID: t_docId = 0;
+const INVALID_NANOSECONDS_THRESHOLD: u32 = 1_000_000_000;
+
+/// Validates that a timespec represents a valid positive time value.
+/// Returns `true` if valid, or `false` if invalid.
+#[cfg(debug_assertions)]
+fn validate_timespec(ts: &ffi::timespec) -> bool {
+    ts.tv_sec >= 0
+        && ts.tv_nsec >= 0
+        && (ts.tv_sec > 0 || ts.tv_nsec > 0)
+        && ts.tv_nsec < INVALID_NANOSECONDS_THRESHOLD as i64
+}
+
+/// Converts a timespec to a SystemTime.
+fn timespec_to_system_time(ts: &ffi::timespec) -> std::time::SystemTime {
+    UNIX_EPOCH + Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+}
 
 /// Converts a C string pointer and length to a Rust &str.
 /// Returns None if ptr is null, len is 0, or the bytes are not valid UTF-8.
@@ -431,6 +447,9 @@ extern "C" fn index_spec_delete_document(
 /// 1. `index` must have been returned from [`index_spec_open`].
 /// 2. `key` must point to a valid buffer of at least `key_len` bytes.
 /// 3. `old_len` must be either null or point to a valid `u32`.
+/// 4. If `HasExpiration` flag is set, `expiration` must be a valid positive timespec:
+///    tv_sec >= 0, tv_nsec >= 0, tv_sec > 0 or tv_nsec > 0, and tv_nsec < 1 billion.
+/// 5. If `HasExpiration` flag is not set, `expiration` must be zeroed.
 extern "C" fn index_spec_put_doc(
     index: *mut RedisSearchDiskIndexSpec,
     key: *const c_char,
@@ -460,21 +479,11 @@ extern "C" fn index_spec_put_doc(
 
     // Convert timespec to Option<SystemTime> based on HasExpiration flag
     let expiration = if flags.contains(DocumentFlag::HasExpiration) {
-        if !(expiration.tv_sec >= 0
-            && expiration.tv_nsec >= 0
-            && (expiration.tv_sec > 0 || expiration.tv_nsec > 0))
-        {
-            error!("expiration time must be positive");
-            return INVALID_DOC_ID;
-        }
-        if expiration.tv_nsec >= 1_000_000_000 {
-            error!(
-                "tv_nsec must be less than 1 billion, got {}",
-                expiration.tv_nsec
-            );
-            return INVALID_DOC_ID;
-        }
-        Some(UNIX_EPOCH + Duration::new(expiration.tv_sec as u64, expiration.tv_nsec as u32))
+        debug_assert!(
+            validate_timespec(&expiration),
+            "invalid expiration timespec"
+        );
+        Some(timespec_to_system_time(&expiration))
     } else {
         if expiration.tv_sec != 0 || expiration.tv_nsec != 0 {
             error!("expiration time must be 0 when HasExpiration flag is not set");
@@ -607,6 +616,7 @@ extern "C" fn index_spec_is_doc_id_deleted(
 }
 
 /// Retrieves the document metadata for `doc_id` and writes it to `dmd`.
+/// Returns false if the document is not found or has expired.
 ///
 /// # Safety
 /// 1. `index` must have been returned from [`index_spec_open`].
@@ -616,6 +626,7 @@ extern "C" fn index_spec_get_document_metadata(
     doc_id: t_docId,
     dmd: *mut RSDocumentMetadata,
     allocate_key: AllocateKeyCallback,
+    current_time: ffi::timespec,
 ) -> bool {
     debug!(doc_id, "getting metadata for document with id");
 
@@ -641,6 +652,19 @@ extern "C" fn index_spec_get_document_metadata(
     let Ok(Some(doc_table_dmd)) = doc_table.get_document_metadata(doc_id) else {
         return false;
     };
+
+    // Check if document has expired
+    if let Some(expiration) = doc_table_dmd.expiration {
+        debug_assert!(
+            validate_timespec(&current_time),
+            "invalid current_time timespec"
+        );
+        let current = timespec_to_system_time(&current_time);
+        if expiration <= current {
+            debug!(doc_id, "document has expired");
+            return false;
+        }
+    }
 
     dmd.id = doc_id;
     // Safety: `doc_table_dmd.key` is an owned Vec<u8>, and `allocate_key` only
