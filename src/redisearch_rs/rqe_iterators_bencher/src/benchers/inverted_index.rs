@@ -27,7 +27,7 @@ use crate::ffi::{self, QueryIterator, QueryTermBuilder};
 
 use rqe_iterators_test_utils::TestContext;
 
-const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
+const MEASUREMENT_TIME: Duration = Duration::from_millis(2000);
 const WARMUP_TIME: Duration = Duration::from_millis(200);
 /// The number of documents in the index.
 const INDEX_SIZE: u64 = 1_000_000;
