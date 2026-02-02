@@ -29,7 +29,7 @@ typedef const void* RedisSearchDiskIterator;
 typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 
 typedef struct BasicDiskAPI {
-  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, const char *path);
+  RedisSearchDisk *(*open)(RedisModuleCtx *ctx);
   void (*close)(RedisSearchDisk *disk);
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type);
   void (*closeIndexSpec)(RedisSearchDiskIndexSpec *index);

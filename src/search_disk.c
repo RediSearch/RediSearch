@@ -37,40 +37,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   }
   RedisModule_Log(ctx, "warning", "RediSearch disk API enabled");
 
-  // Get the bigredis-path from Redis configuration
-  char *bigredisPath = getRedisConfigValue(ctx, "bigredis-path");
-  if (!bigredisPath || bigredisPath[0] == '\0') {
-    RedisModule_Log(ctx, "warning", "bigredis-path configuration not set, cannot initialize disk storage");
-    rm_free(bigredisPath);
-    return false;
-  }
-
-  // Find the last '/' to remove the last path component (e.g., "bigstore-1")
-  // Example: "/var/opt/redislabs/flash/bigstore-1" -> "/var/opt/redislabs/flash"
-  char *lastSlash = strrchr(bigredisPath, '/');
-  if (!lastSlash || lastSlash == bigredisPath) {
-    // No slash found or only root slash - invalid path
-    RedisModule_Log(ctx, "warning", "bigredis-path '%s' is invalid (cannot extract parent directory)", bigredisPath);
-    rm_free(bigredisPath);
-    return false;
-  }
-
-  // Truncate at the last slash to get the parent directory
-  *lastSlash = '\0';
-
-  // Build the final path: parent_dir + "/redisearch"
-  size_t parentLen = strlen(bigredisPath);
-  size_t suffixLen = strlen("/redisearch");
-  char *diskPath = rm_malloc(parentLen + suffixLen + 1);
-  memcpy(diskPath, bigredisPath, parentLen);
-  memcpy(diskPath + parentLen, "/redisearch", suffixLen + 1);  // +1 for null terminator
-
-  rm_free(bigredisPath);
-
-  RedisModule_Log(ctx, "notice", "RediSearch disk storage path: %s", diskPath);
-
-  disk_db = disk->basic.open(ctx, diskPath);
-  rm_free(diskPath);
+  disk_db = disk->basic.open(ctx);
 
   return disk_db != NULL;
 }
