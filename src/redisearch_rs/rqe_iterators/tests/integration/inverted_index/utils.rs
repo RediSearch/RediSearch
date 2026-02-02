@@ -301,7 +301,7 @@ pub(super) mod not_miri {
     use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
 
     // Re-export TestContext and GlobalGuard from the main library's test_utils module
-    pub use rqe_iterators::test_utils::{GlobalGuard, TestContext};
+    pub use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     /// ---------- Expiration Tests ----------
 

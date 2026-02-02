@@ -25,12 +25,6 @@ pub mod wildcard;
 
 pub mod util;
 
-// Make test_utils available when:
-// - Running tests (cfg(test))
-// - Building with the test-utils feature
-#[cfg(any(test, feature = "test-utils"))]
-pub mod test_utils;
-
 pub use empty::Empty;
 pub use id_list::IdList;
 pub use intersection::Intersection;

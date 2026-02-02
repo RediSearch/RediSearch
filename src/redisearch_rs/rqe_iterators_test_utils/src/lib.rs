@@ -12,6 +12,8 @@
 //! This module provides utilities for testing iterators, including contexts
 //! for setting up test environments.
 
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[allow(clippy::multiple_unsafe_ops_per_block)]
 pub mod test_context;
 
 pub use test_context::{GlobalGuard, TestContext};

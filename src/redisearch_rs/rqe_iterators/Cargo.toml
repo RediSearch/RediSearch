@@ -12,8 +12,6 @@ unittest = []
 # They currently trigger a bug in hybrid (MOD-12370). This feature should be removed
 # once the bug has been fixed.
 disable_sort_checks_in_idlist = []
-# Enable test utilities for use in benchmarks and other crates
-test-utils = ["dep:inverted_index_ffi"]
 
 [build-dependencies]
 build_utils = { path = "../build_utils" }
@@ -26,7 +24,6 @@ libc.workspace = true
 query_error.workspace = true
 thiserror.workspace = true
 redis_mock.workspace = true
-inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi", features = ["test_utils"], optional = true }
 value_ffi = { path = "../c_entrypoint/value_ffi" }
 types_ffi = { path = "../c_entrypoint/types_ffi" }
 varint_ffi = { path = "../c_entrypoint/varint_ffi" }
@@ -36,7 +33,8 @@ workspace_hack.workspace = true
 [dev-dependencies]
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
-rqe_iterators = { path = ".", features = ["unittest", "test-utils"] }
+rqe_iterators = { path = ".", features = ["unittest"] }
+rqe_iterators_test_utils = { workspace = true }
 
 # Crate required to invoke C symbols
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
