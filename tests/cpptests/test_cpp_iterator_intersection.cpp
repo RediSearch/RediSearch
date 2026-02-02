@@ -424,14 +424,12 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
   children[2] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
   // Create a READER Iterator and set the `isWildCard` flag so that it is removed by the reducer
   size_t memsize;
-  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
+  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(Index_DocIdsOnly), &memsize);
   ASSERT_TRUE(idx != nullptr);
   for (t_docId i = 1; i < 1000; ++i) {
     auto res = (RSIndexResult) {
       .docId = i,
-      .fieldMask = 1,
-      .freq = 1,
-      .data = {.term_tag = RSResultData_Tag::RSResultData_Term},
+      .data = {.tag = RSResultData_Virtual},
     };
     InvertedIndex_WriteEntryGeneric(idx, &res);
   }
