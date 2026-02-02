@@ -31,7 +31,9 @@ impl HiddenStringRef {
     ///
     /// This is safe **only if** the C function returns a pointer that stays valid
     /// for at least the lifetime of `&self`, and the memory contains a NUL at `len`.
-    pub fn get_secret_value(&self) -> &CStr {
+    ///
+    /// This consumes the `HiddenStringRef` and can only be called once.
+    pub fn into_secret_value<'a>(self) -> &'a CStr {
         let mut len = 0;
 
         // Safety:
@@ -61,7 +63,7 @@ mod test {
         let ffi_hs = unsafe { ffi::NewHiddenString(input.as_ptr(), input.count_bytes(), false) };
         let sut = unsafe { HiddenStringRef::from_raw(ffi_hs) };
 
-        let actual = sut.get_secret_value();
+        let actual = sut.into_secret_value();
 
         assert_eq!(actual, input);
 

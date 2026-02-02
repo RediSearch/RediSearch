@@ -62,8 +62,8 @@ mod test {
 
         let sut = unsafe { FieldSpec::from_raw(ptr::from_ref(&fs)) };
 
-        assert_eq!(sut.field_name().get_secret_value(), name);
-        assert_eq!(sut.field_path().get_secret_value(), path);
+        assert_eq!(sut.field_name().into_secret_value(), name);
+        assert_eq!(sut.field_path().into_secret_value(), path);
 
         unsafe {
             ffi::HiddenString_Free(fs.fieldName, false);
