@@ -470,7 +470,6 @@ fn create_key_from_data<'a>(
         let field_spec = &field_specs[index];
         let field_name = field_spec.field_name().get_secret_value();
         let path = field_spec.field_path().get_secret_value();
-        let path = Cow::Borrowed(path);
 
         RLookupKey::new_with_path(lookup, field_name, path, RLookupKeyFlags::empty())
     }
