@@ -387,9 +387,11 @@ impl TestContext {
     /// Get the ffi inverted index for this context.
     pub fn numeric_inverted_index(&self) -> &mut inverted_index_ffi::InvertedIndex {
         // Create a numeric filter to find ranges
-        let mut filter = NumericFilter::default();
-        filter.ascending = false;
-        filter.field_spec = self.field_spec();
+        let filter = NumericFilter {
+            ascending: false,
+            field_spec: self.field_spec(),
+            ..Default::default()
+        };
 
         // Find a range that covers our data to get the inverted index
         let ranges = unsafe {
