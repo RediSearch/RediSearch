@@ -19,6 +19,7 @@
 #include "util/arr.h"
 #include "rs_wall_clock.h"
 #include "debug_commands.h"
+#include "module.h"  // POC HACK: for RSDummyContext
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -417,6 +418,9 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
 
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
+    // POC HACK: Log when sorter finishes accumulating
+    RedisModule_Log(RSDummyContext, "warning", "POC HACK: sorter finished accumulating, heap size=%zu, count=%zu",
+                    self->pq->size, self->pq->count);
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
   } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {

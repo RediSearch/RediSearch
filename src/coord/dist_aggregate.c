@@ -114,6 +114,13 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     array_append(tmparr, "ADDSCORES");
   }
 
+  // POC HACK: Forward SAMPLE keyword to shards
+  argOffset = RMUtil_ArgIndex("SAMPLE", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
+    array_append(tmparr, "SAMPLE");
+    array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the sample limit
+  }
+
   if (RMUtil_ArgIndex("VERBATIM", argv + 3 + profileArgs, argc - 3 - profileArgs) != -1) {
     array_append(tmparr, "VERBATIM");
   }
