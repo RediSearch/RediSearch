@@ -460,11 +460,7 @@ fn create_key_from_data<'a>(
 ) -> RLookupKey<'a> {
     const NO_MATCH: i32 = -1;
     if NO_MATCH == index {
-        dbg!(RLookupKey::new(
-            lookup,
-            filter_field,
-            RLookupKeyFlags::empty()
-        ))
+        RLookupKey::new(lookup, filter_field, RLookupKeyFlags::empty())
     } else {
         let index = usize::try_from(index).expect("index must be positive and fit into usize");
         let field_spec = &field_specs[index];
