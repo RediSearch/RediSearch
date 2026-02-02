@@ -493,7 +493,7 @@ fn load_many_keys<'a>(
 
     let mut sctx = create_redis_search_ctx(module_ctx);
 
-    // Safety: The size and alignment of the Rust source struct matches the target C struct exactly. This is the only way we can inialize such a struct.
+    // Safety: The size and alignment of the Rust source struct matches the target C struct exactly. This is the only way we can initialize such a struct.
     let mut status = unsafe {
         mem::transmute::<query_error::QueryError, ffi::QueryError>(QueryError::default())
     };
