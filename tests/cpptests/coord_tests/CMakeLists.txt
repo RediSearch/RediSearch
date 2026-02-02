@@ -11,6 +11,15 @@ include_directories(${root}/src/coord/hybrid)
 include_directories(..)
 include_directories(.)
 
+# Add VecSim include path based on which implementation is used
+if(USE_RUST_VECSIM)
+    # Rust VecSim headers - use BEFORE to ensure precedence
+    include_directories(BEFORE ${VECSIM_C_INCLUDE_DIR})
+else()
+    # C++ VectorSimilarity headers
+    include_directories(${root}/deps/VectorSimilarity/src)
+endif()
+
 if (NOT TEST_MODULE)
   set(TEST_MODULE redisearch)
 endif()
