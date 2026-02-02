@@ -53,15 +53,12 @@ impl SharedRsValue {
     }
 
     /// Set a new [`RsValue`] for this [`SharedRsValue`].
-    ///
-    /// # Safety
-    ///
     /// Only exactly one reference to the underlying [`RsValue`] must exist.
     ///
     /// # Panic
     ///
     /// Panics if more than one reference to the underlying [`RsValue`] exists.
-    pub unsafe fn set_value(&mut self, new_value: RsValue) {
+    pub fn set_value(&mut self, new_value: RsValue) {
         let value =
             Arc::get_mut(&mut self.inner).expect("Failed to get mutable reference to inner value");
 

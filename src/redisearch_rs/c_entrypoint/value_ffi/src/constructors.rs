@@ -13,20 +13,20 @@ use value::{RsValue, shared::SharedRsValue};
 
 /// Creates and returns a new **owned** [`RsValue`] object of type undefined.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewUndefined() -> *mut RsValue {
+pub extern "C" fn RSValue_NewUndefined() -> *mut RsValue {
     SharedRsValue::new(RsValue::Undefined).into_raw() as *mut _
 }
 
 /// Creates and returns a new **owned** [`RsValue`] object of type null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewNull() -> *mut RsValue {
+pub extern "C" fn RSValue_NewNull() -> *mut RsValue {
     SharedRsValue::new(RsValue::Null).into_raw() as *mut _
 }
 
 /// Creates and returns a new **owned** [`RsValue`] object of type number
 /// containing the given numeric value.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewNumber(value: c_double) -> *mut RsValue {
+pub extern "C" fn RSValue_NewNumber(value: c_double) -> *mut RsValue {
     SharedRsValue::new(RsValue::Number(value)).into_raw() as *mut _
 }
 
@@ -37,7 +37,7 @@ pub unsafe extern "C" fn RSValue_NewNumber(value: c_double) -> *mut RsValue {
 /// # Safety
 ///
 /// 1. All three arguments must point to a valid **owned** [`RsValue`] obtained from an
-/// `RSValue_*` function returning an owned [`RsValue`] object.
+///    `RSValue_*` function returning an owned [`RsValue`] object.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewTrio(
     left: *mut RsValue,

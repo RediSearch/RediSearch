@@ -197,7 +197,7 @@ struct RsValue *RSValue_NewNumber(double value);
  * # Safety
  *
  * 1. All three arguments must point to a valid **owned** [`RsValue`] obtained from an
- * `RSValue_*` function returning an owned [`RsValue`] object.
+ *    `RSValue_*` function returning an owned [`RsValue`] object.
  */
 struct RsValue *RSValue_NewTrio(struct RsValue *left,
                                 struct RsValue *middle,
