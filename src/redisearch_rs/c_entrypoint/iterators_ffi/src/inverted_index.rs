@@ -14,7 +14,7 @@ use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, IndexReaderCore, NumericFilter,
     NumericReader, RSIndexResult, t_docId,
 };
-use rqe_iterators::inverted_index::Numeric;
+use rqe_iterators::inverted_index::{Numeric, Wildcard};
 use rqe_iterators_interop::RQEIteratorWrapper;
 
 /// Wrapper around different numeric reader types to avoid generics in FFI code.
@@ -517,6 +517,22 @@ pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
                 "Numeric iterators use revision ID for revalidation, not index swapping"
             );
         }
+        ffi::IteratorType_INV_IDX_WILDCARD_ITERATOR => {
+            // SAFETY: the wildcard iterator is in Rust, created by NewInvIndIterator_WildcardQuery.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<Wildcard<'static>>::mut_ref_from_header_ptr(it.cast())
+            };
+            let ii: *const inverted_index_ffi::InvertedIndex = ii.cast();
+            // SAFETY: 3. guarantees ii is valid and matching.
+            let ii_ref = unsafe { &*ii };
+            match ii_ref {
+                inverted_index_ffi::InvertedIndex::DocumentIdOnly(ii) => {
+                    let mut ii = ii;
+                    wrapper.inner.swap_index(&mut ii);
+                }
+                _ => panic!("Wildcard iterator requires a DocIdsOnly inverted index"),
+            }
+        }
         _ => {
             // C iterator
             let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
@@ -551,7 +567,7 @@ pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
 /// 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
 /// 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn NewInvIndIterator_WildcardQuery_Rs(
+pub unsafe extern "C" fn NewInvIndIterator_WildcardQuery(
     idx: *const ffi::InvertedIndex,
     sctx: *const ffi::RedisSearchCtx,
     weight: f64,

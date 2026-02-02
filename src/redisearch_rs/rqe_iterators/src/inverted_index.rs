@@ -774,6 +774,11 @@ impl<'index> Wildcard<'index> {
     pub const fn reader(&self) -> &IndexReaderCore<'index, DocIdsOnly> {
         &self.it.reader
     }
+
+    /// Swap the underlying inverted index of the reader. Used by C tests to trigger revalidation.
+    pub fn swap_index(&mut self, index: &mut &'index inverted_index::InvertedIndex<DocIdsOnly>) {
+        self.it.reader.swap_index(index);
+    }
 }
 
 impl<'index> RQEIterator<'index> for Wildcard<'index> {
