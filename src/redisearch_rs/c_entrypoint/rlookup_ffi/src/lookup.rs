@@ -493,18 +493,6 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
 }
 
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
-fn maybe_allocate_and_clear_flag(
-    name: &CStr,
-    flags: RLookupKeyFlags,
-) -> (Cow<'_, CStr>, RLookupKeyFlags) {
-    if flags.contains(RLookupKeyFlag::NameAlloc) {
-        (name.to_owned().into(), flags & !RLookupKeyFlag::NameAlloc)
-    } else {
-        (name.into(), flags)
-    }
-}
-
-/// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
 fn handle_name_alloc_flag(name: &CStr, flags: RLookupKeyFlags) -> (Cow<'_, CStr>, RLookupKeyFlags) {
     if flags.contains(RLookupKeyFlag::NameAlloc) {
         (name.to_owned().into(), flags & !RLookupKeyFlag::NameAlloc)
