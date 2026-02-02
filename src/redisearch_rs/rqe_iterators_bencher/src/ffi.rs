@@ -255,6 +255,29 @@ impl QueryIterator {
             }
         }
 
+        // Create a local IteratorsConfig with minUnionIterHeap set to MAX to use flat algorithm.
+        // This matches the C struct layout from config.h:
+        // typedef struct {
+        //   long long maxPrefixExpansions;
+        //   long long minTermPrefix;
+        //   unsigned int minStemLength;
+        //   long long minUnionIterHeap;
+        // } IteratorsConfig;
+        #[repr(C)]
+        struct IteratorsConfig {
+            max_prefix_expansions: i64,
+            min_term_prefix: i64,
+            min_stem_length: u32,
+            min_union_iter_heap: i64,
+        }
+
+        let config = IteratorsConfig {
+            max_prefix_expansions: 0,
+            min_term_prefix: 0,
+            min_stem_length: 0,
+            min_union_iter_heap: i64::MAX, // Use flat algorithm for benchmarking consistency
+        };
+
         // Create union iterator (takes ownership of children array)
         Self(unsafe {
             bindings::NewUnionIterator(
@@ -264,7 +287,7 @@ impl QueryIterator {
                 weight,
                 bindings::QueryNodeType_QN_UNION,
                 std::ptr::null(), // q_str
-                std::ptr::null_mut(), // config - will use defaults
+                &config as *const IteratorsConfig as *mut bindings::IteratorsConfig,
             )
         })
     }

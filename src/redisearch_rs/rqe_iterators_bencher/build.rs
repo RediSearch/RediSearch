@@ -22,6 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "not_iterator.h",
         "optional_iterator.h",
         "intersection_iterator.h",
+        "union_iterator.h",
     ]
     .iter()
     .map(|h| root.join("src").join("iterators").join(h))
@@ -30,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Add the Rust-generated iterators header
     headers.push(root.join("src/redisearch_rs/headers/iterators_rs.h"));
 
-    generate_c_bindings(headers, ".*/iterators/.*.h|.*/headers/iterators_rs.h")?;
+    generate_c_bindings(headers, ".*/iterators/.*.h|.*/headers/iterators_rs.h|.*/config.h")?;
 
     Ok(())
 }
