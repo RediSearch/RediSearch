@@ -539,12 +539,10 @@ const fn create_redis_search_ctx(module_ctx: *mut ffi::RedisModuleCtx) -> ffi::R
 #[cfg(test)]
 #[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {
-    use crate::mock::{array_free, array_new};
-
     use super::*;
 
-    #[cfg(not(miri))]
-    use std::mem::MaybeUninit;
+    use crate::mock::{array_free, array_new};
+
     use std::ptr::{self, NonNull};
     use std::{ffi::CString, mem::MaybeUninit};
 
