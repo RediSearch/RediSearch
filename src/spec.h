@@ -149,6 +149,11 @@ extern dict *legacySpecRules;
 typedef struct {
   size_t numDocuments;
   size_t numTerms;
+  size_t totalDocsLen;
+} ScoringIndexStats;
+
+typedef struct {
+  ScoringIndexStats scoring;  // Statistics used for scoring functions
   size_t numRecords;
   size_t invertedSize;
   size_t offsetVecsSize;
@@ -156,7 +161,6 @@ typedef struct {
   size_t termsSize;
   rs_wall_clock_ns_t totalIndexTime;
   IndexError indexError;
-  size_t totalDocsLen;
   uint32_t activeQueries;
   uint32_t activeWrites;
 } IndexStats;
@@ -549,12 +553,14 @@ void IndexesScanner_Cancel(struct IndexesScanner *scanner);
 void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
 
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
-#ifdef FTINFO_FOR_INFO_MODULES
 /**
  * Exposing all the fields of the index to INFO command.
+ * @param ctx - the redis module info context
+ * @param sp - the index spec
+ * @param obfuscate - if true, obfuscate the index name and field names
+ * @param skip_unsafe_ops - if true, skips operations unsafe in signal handler context (allocations, locks)
  */
-void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
-#endif
+void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate, bool skip_unsafe_ops);
 
 /**
  * Gets the next text id from the index. This does not currently
@@ -715,7 +721,7 @@ void Indexes_Init(RedisModuleCtx *ctx);
 /*
  * Free all indexes.
  * @param deleteDiskData - delete the disk data
-*/ 
+*/
 void Indexes_Free(dict *d, bool deleteDiskData);
 size_t Indexes_Count();
 void Indexes_Propagate(RedisModuleCtx *ctx);

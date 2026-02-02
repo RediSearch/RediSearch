@@ -40,7 +40,6 @@ extern "C" {
 // docs and code.
 #define CMD_INTERNAL "internal"
 
-int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfig, int isClusterEnabled);
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 
 extern redisearch_thpool_t *depleterPool;
@@ -83,13 +82,16 @@ do {                                            \
     return REDISMODULE_ERR;                                           \
   }
 
+#define IS_SST_RDB_IN_PROCESS(ctx) (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB)
+// Forward declaration of searchReducerCtx
+struct searchReducerCtx;
+
 typedef struct {
   char *queryString;
   long long offset;
   long long limit;
   long long requestedResultsCount;
   rs_wall_clock initClock;
-  long long timeout;
   int withScores;
   int withExplainScores;
   int withPayload;
@@ -105,8 +107,11 @@ typedef struct {
   int profileArgs;
   int profileLimited;
   rs_wall_clock profileClock;
+  rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
   void *reducer;
   bool queryOOM;
+
+  struct searchReducerCtx *rctx;
 } searchRequestCtx;
 
 bool debugCommandsEnabled(RedisModuleCtx *ctx);

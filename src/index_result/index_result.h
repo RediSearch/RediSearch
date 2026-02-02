@@ -10,7 +10,6 @@
 #define __INDEX_RESULT_H__
 
 #include "varint.h"
-#include "redisearch.h"
 #include "rmalloc.h"
 #include "util/arr.h"
 #include "value.h"
@@ -20,9 +19,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
-void Term_Free(RSQueryTerm *t);
 
 /* Add the metrics of a child to a parent. */
 void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *child);

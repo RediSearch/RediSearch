@@ -19,6 +19,7 @@ extern "C" {
 #include "src/tag_index.h"
 #include "src/numeric_index.h"
 #include "redisearch_rs/headers/triemap.h"
+#include "src/index_result/query_term/query_term.h"
 
 extern "C" {
 #include "src/redis_index.h"
@@ -903,7 +904,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
             // Create a dummy index to simulate the "new" index that would be returned
             // by the lookup after GC
             size_t memsize;
-            InvertedIndex *dummyIdx = NewInvertedIndex(IndexReader_Flags(invIt->reader), &memsize);
+            InvertedIndex *dummyIdx = NewInvertedIndex(InvIndIterator_GetReaderFlags(invIt), &memsize);
 
             // Temporarily replace the iterator's index pointer
             IndexReader_SwapIndex(invIt->reader, dummyIdx);

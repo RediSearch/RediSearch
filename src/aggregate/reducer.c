@@ -66,7 +66,7 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
     }
     // We currently allow implicit loading only for known fields from the schema.
     // If we can't load keys, or the key we loaded is not in the schema, we fail.
-    if (!options->loadKeys || !((*out)->flags & RLOOKUP_F_SCHEMASRC)) {
+    if (!options->loadKeys || !(RLookupKey_GetFlags(*out) & RLOOKUP_F_SCHEMASRC)) {
       QueryError_SetWithUserDataFmt(options->status, QUERY_ERROR_CODE_NO_PROP_KEY, "Property is not present in document or pipeline", ": `%s`", keyName);
       return 0;
     }

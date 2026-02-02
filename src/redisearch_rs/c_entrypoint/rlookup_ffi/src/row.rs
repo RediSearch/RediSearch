@@ -13,7 +13,7 @@ use rlookup::{RLookup, RLookupKey};
 use std::{
     ffi::{CStr, c_char},
     mem::{self, ManuallyDrop},
-    ptr::NonNull,
+    ptr::{self, NonNull},
     slice,
 };
 use value::RSValueFFI;
@@ -30,7 +30,7 @@ pub type RLookupRow<'a> = rlookup::RLookupRow<'a, RSValueFFI>;
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookup_WriteKey(
+pub unsafe extern "C" fn RLookup_WriteKey(
     key: *const RLookupKey,
     row: Option<NonNull<RLookupRow>>,
     value: Option<NonNull<ffi::RSValue>>,
@@ -59,7 +59,7 @@ unsafe extern "C" fn RLookup_WriteKey(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookup_WriteOwnKey(
+pub unsafe extern "C" fn RLookup_WriteOwnKey(
     key: *const RLookupKey,
     row: Option<NonNull<RLookupRow>>,
     value: Option<NonNull<ffi::RSValue>>,
@@ -82,7 +82,7 @@ unsafe extern "C" fn RLookup_WriteOwnKey(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Wipe(row: Option<NonNull<RLookupRow>>) {
+pub unsafe extern "C" fn RLookupRow_Wipe(row: Option<NonNull<RLookupRow>>) {
     // Safety: ensured by caller (1.)
     let row = unsafe { row.expect("`row` must not be null").as_mut() };
     row.wipe();
@@ -98,7 +98,7 @@ unsafe extern "C" fn RLookupRow_Wipe(row: Option<NonNull<RLookupRow>>) {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<RLookupRow>>) {
+pub unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<RLookupRow>>) {
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
     let vec = unsafe { row.expect("`row` must not be null").as_mut() };
     vec.reset_dyn_values();
@@ -327,4 +327,45 @@ unsafe extern "C" fn RLookupRow_Get(
     let row = unsafe { row.as_ref().unwrap() };
 
     row.get(key).map(|x| NonNull::new(x.as_ptr()).unwrap())
+}
+
+/// Returns the sorting vector for the row, or null if none exists.
+///
+/// # Safety
+///
+/// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_GetSortingVector(
+    row: *const RLookupRow,
+) -> *const sorting_vector::RSSortingVector<RSValueFFI> {
+    // Safety: ensured by caller (1.)
+    let row = unsafe { row.as_ref().unwrap() };
+
+    row.sorting_vector()
+        .map(ptr::from_ref)
+        .unwrap_or(std::ptr::null())
+}
+
+/// Sets the sorting vector for the row.
+///
+/// # Safety
+///
+/// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+/// 2. `sv` must be either null or a [valid], non-null pointer to an [`sorting_vector::RSSortingVector`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+const unsafe extern "C" fn RLookupRow_SetSortingVector(
+    row: Option<NonNull<RLookupRow>>,
+    sv: *const sorting_vector::RSSortingVector<RSValueFFI>,
+) {
+    // Safety: ensured by caller (1.)
+    let row = unsafe { row.unwrap().as_mut() };
+
+    // Safety: ensured by caller (2.)
+    let sv = unsafe { sv.as_ref() };
+
+    row.set_sorting_vector(sv);
 }

@@ -178,7 +178,7 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   t_len slen = 0;
   float score = 0;
   int dist = 0;
-  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
+  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, NULL, &dist)) {
     size_t termLen;
     char *term = runesToStr(rstr, slen, &termLen);
     InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, termLen, DONT_CREATE_INDEX, NULL);
@@ -603,7 +603,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
       RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting a term '%s' from"
                       " trie in index '%s' failed", RSGlobalConfig.hideUserDataFromLog ? Obfuscate_Text(term) : term, name);
     }
-    sctx->spec->stats.numTerms--;
+    sctx->spec->stats.scoring.numTerms--;
     sctx->spec->stats.termsSize -= len;
     if (sctx->spec->suffix) {
       deleteSuffixTrie(sctx->spec->suffix, term, len);
@@ -1187,7 +1187,6 @@ static void statsCb(RedisModule_Reply *reply, void *gcCtx) {
   REPLY_KVNUM("gc_blocks_denied", (double)gc->stats.gcBlocksDenied);
 }
 
-#ifdef FTINFO_FOR_INFO_MODULES
 static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   ForkGC *gc = gcCtx;
   RedisModule_InfoBeginDictField(ctx, "gc_stats");
@@ -1200,7 +1199,6 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   RedisModule_InfoAddFieldDouble(ctx, "gc_blocks_denied", (double)gc->stats.gcBlocksDenied);
   RedisModule_InfoEndDictField(ctx);
 }
-#endif
 
 static void deleteCb(void *ctx) {
   ForkGC *gc = ctx;
@@ -1228,9 +1226,7 @@ ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->onTerm = onTerminateCb;
   callbacks->periodicCallback = periodicCb;
   callbacks->renderStats = statsCb;
-  #ifdef FTINFO_FOR_INFO_MODULES
   callbacks->renderStatsForInfo = statsForInfoCb;
-  #endif
   callbacks->getInterval = getIntervalCb;
   callbacks->onDelete = deleteCb;
 

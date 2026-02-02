@@ -260,7 +260,7 @@ typedef struct AREQ {
   /** Time when command was received on coordinator in ns (for dispatch time tracking) */
   rs_wall_clock_ns_t coordStartTime;
 
-  /** Dispatch time from coordinator to shard in ns (for timeout adjustment) */
+  /** Dispatch time from coordinator to shard in ns (for timeout adjustment) for internal commands */
   rs_wall_clock_ns_t coordDispatchTime;
 
   /** Cursor configuration */
@@ -269,6 +269,7 @@ typedef struct AREQ {
   /** Profile variables */
   rs_wall_clock initClock;                      // Time of start. Reset for each cursor call
   rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accumulate cursors times
+  rs_wall_clock_ns_t profileQueueTime;          // Time spent waiting in workers thread pool queue
   rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query
   rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline
 
@@ -489,7 +490,7 @@ int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status);
 
 
 int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status);
-int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status);
+int parseTimeout(size_t *timeout, ArgsCursor *ac, QueryError *status);
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status);
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, int execOptions, QueryError *status);

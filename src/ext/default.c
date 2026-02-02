@@ -24,6 +24,7 @@
 #include "stemmer.h"
 #include "phonetic_manager.h"
 #include "score_explain.h"
+#include "extension.h"
 
 /******************************************************************************************
  *

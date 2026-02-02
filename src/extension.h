@@ -50,6 +50,11 @@ int Extension_Load(const char *name, RSExtensionInitFunc func);
  * is set to NULL on success or an error message on failure */
 int Extension_LoadDynamic(const char *path, char **errMsg);
 
+/* Register a scoring function by its alias. privdata is an optional pointer to a user defined
+ * struct. ff is a free function releasing any resources allocated at the end of query execution */
+int Ext_RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFreeFunction ff,
+                                void *privdata);
+
 #ifdef __cplusplus
 }
 #endif

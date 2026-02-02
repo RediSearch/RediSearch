@@ -96,6 +96,9 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
                              DebugIndexesScanner *dScanner);
 static void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx, bool pauseField, DebugIndexScannerCode code);
 
+// Forward declaration for disk validation
+inline static bool isSpecOnDiskForValidation(const IndexSpec *sp);
+
 //---------------------------------------------------------------------------------------------
 
 // This function should be called after the first background scan OOM error
@@ -746,79 +749,91 @@ int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, Query
 
 #define VECSIM_ALGO_PARAM_MSG(algo, param) "vector similarity " algo " index `" param "`"
 
-static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status) {
+static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status, bool *rerank) {
   int rc;
 
   // HNSW mandatory params.
   bool mandtype = false;
   bool mandsize = false;
   bool mandmetric = false;
+  // Disk-mode mandatory params (tracked here, validated later in parseVectorField)
+  bool mandM = false;
+  bool mandEfConstruction = false;
+  bool mandEfRuntime = false;
+  *rerank = false;
 
-  // Get number of parameters
-  size_t expNumParam, numParam = 0;
+  // Get number of parameters and create a sub-cursor for them
+  size_t expNumParam;
   if ((rc = AC_GetSize(ac, &expNumParam, 0)) != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for vector similarity number of parameters: %s", AC_Strerror(rc));
     return 0;
-  } else if (expNumParam % 2) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Bad number of arguments for vector similarity index: got %d but expected even number (as algorithm parameters should be submitted as named arguments)", expNumParam);
+  }
+  // Create a sub-cursor with exactly expNumParam arguments
+  ArgsCursor subAc;
+  if ((rc = AC_GetSlice(ac, &subAc, expNumParam)) != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for vector similarity: not enough arguments");
     return 0;
-  } else {
-    expNumParam /= 2;
   }
 
-  while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
-    if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
-      if ((rc = parseVectorField_GetType(ac, &params->algoParams.hnswParams.type)) != AC_OK) {
+  while (!AC_IsAtEnd(&subAc)) {
+    if (AC_AdvanceIfMatch(&subAc, VECSIM_TYPE)) {
+      if ((rc = parseVectorField_GetType(&subAc, &params->algoParams.hnswParams.type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_TYPE), rc);
         return 0;
       }
       mandtype = true;
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.dim, AC_F_GE1)) != AC_OK) {
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_DIM)) {
+      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.dim, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_DIM), rc);
         return 0;
       }
       mandsize = true;
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
-      if ((rc = parseVectorField_GetMetric(ac, &params->algoParams.hnswParams.metric)) != AC_OK) {
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_DISTANCE_METRIC)) {
+      if ((rc = parseVectorField_GetMetric(&subAc, &params->algoParams.hnswParams.metric)) != AC_OK) {
         QERR_MKBADARGS_AC(status,  VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_DISTANCE_METRIC), rc);
         return 0;
       }
       mandmetric = true;
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_INITIAL_CAP)) {
-      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.initialCapacity, 0)) != AC_OK) {
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_INITIAL_CAP)) {
+      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.initialCapacity, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_INITIAL_CAP), rc);
         return 0;
       }
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_M)) {
-      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.M, AC_F_GE1)) != AC_OK) {
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_M)) {
+      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.M, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_M), rc);
         return 0;
       }
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_EFCONSTRUCTION)) {
-      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.efConstruction, AC_F_GE1)) != AC_OK) {
+      mandM = true;
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_EFCONSTRUCTION)) {
+      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.efConstruction, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EFCONSTRUCTION), rc);
         return 0;
       }
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_EFRUNTIME)) {
-      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
+      mandEfConstruction = true;
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_EFRUNTIME)) {
+      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EFRUNTIME), rc);
         return 0;
       }
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
-      if ((rc = AC_GetDouble(ac, &params->algoParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
+      mandEfRuntime = true;
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_EPSILON)) {
+      if ((rc = AC_GetDouble(&subAc, &params->algoParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EPSILON), rc);
         return 0;
       }
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_RERANK)) {
+      // RERANK is a boolean flag (no value)
+      if (*rerank) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+          "Duplicate RERANK parameter");
+        return 0;
+      }
+      *rerank = true;
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(ac, NULL));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(&subAc, NULL));
       return 0;
     }
-    numParam++;
-  }
-  if (expNumParam > numParam) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
-    return 0;
   }
   if (!mandtype) {
     VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_HNSW, VECSIM_TYPE);
@@ -832,6 +847,42 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
     VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_HNSW, VECSIM_DISTANCE_METRIC);
     return 0;
   }
+
+  // Disk-mode validation: enforce mandatory parameters
+  if (isSpecOnDiskForValidation(sp)) {
+    if (params->algoParams.hnswParams.type != VecSimType_FLOAT32) {
+      const char *typeName = VecSimType_ToString(params->algoParams.hnswParams.type);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk index does not support %s vector type", typeName);
+      return 0;
+    }
+    if (params->algoParams.hnswParams.multi) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk index does not support multi-value vectors");
+      return 0;
+    }
+    if (!mandM) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk HNSW index requires M parameter");
+      return 0;
+    }
+    if (!mandEfConstruction) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk HNSW index requires EF_CONSTRUCTION parameter");
+      return 0;
+    }
+    if (!mandEfRuntime) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk HNSW index requires EF_RUNTIME parameter");
+      return 0;
+    }
+    if (!*rerank) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk HNSW index requires RERANK parameter");
+      return 0;
+    }
+  }
+
   // Calculating expected blob size of a vector in bytes.
   fs->vectorOpts.expBlobSize = params->algoParams.hnswParams.dim * VecSimType_sizeof(params->algoParams.hnswParams.type);
 
@@ -1165,6 +1216,14 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   fs->vectorOpts.vecSimParams.logCtx = logCtx;
 
   if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_BF)) {
+    // Disk mode does not support FLAT algorithm
+    if (isSpecOnDiskForValidation(sp)) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk index does not support FLAT algorithm");
+      rm_free(logCtx);
+      fs->vectorOpts.vecSimParams.logCtx = NULL;  // Prevent double-free in cleanup
+      return 0;
+    }
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.initialCapacity = SIZE_MAX;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.blockSize = 0;
@@ -1185,7 +1244,8 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->algoParams.hnswParams.multi = multi;
     // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
-    result = parseVectorField_hnsw(fs, params, ac, status);
+    bool rerank = false;
+    result = parseVectorField_hnsw(sp, fs, params, ac, status, &rerank);
     // Build disk params if disk mode is enabled
     if (result && sp->diskSpec) {
       size_t nameLen;
@@ -1194,9 +1254,18 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
         .storage = sp->diskSpec,
         .indexName = rm_strndup(namePtr, nameLen),
         .indexNameLen = nameLen,
+        .rerank = rerank,
       };
     }
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
+    // Disk mode does not support SVS algorithm
+    if (isSpecOnDiskForValidation(sp)) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk index does not support SVS algorithm");
+      rm_free(logCtx);
+      fs->vectorOpts.vecSimParams.logCtx = NULL;  // Prevent double-free in cleanup
+      return 0;
+    }
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
 
@@ -1596,10 +1665,12 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
       rm_free((void*)fs->vectorOpts.diskCtx.indexName);
     }
 
+    // TODO: rerank is not persisted in RDB, defaulting to true on load.
     fs->vectorOpts.diskCtx = (VecSimDiskContext){
       .storage = sp->diskSpec,
       .indexName = rm_strndup(namePtr, nameLen),
       .indexNameLen = nameLen,
+      .rerank = true,
     };
   }
 }
@@ -1768,13 +1839,16 @@ StrongRef IndexSpec_ParseC(const char *name, const char **argv, int argc, QueryE
   return IndexSpec_Parse(hidden, argv, argc, status);
 }
 
+static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoring, RSIndexStats *stats) {
+  stats->numDocs = scoring->numDocuments;
+  stats->numTerms = scoring->numTerms;
+  stats->avgDocLen = stats->numDocs ? (double)scoring->totalDocsLen / (double)scoring->numDocuments : 0;
+}
+
 /* Initialize some index stats that might be useful for scoring functions */
 // Assuming the spec is properly locked before calling this function
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
-  stats->numDocs = sp->stats.numDocuments;
-  stats->numTerms = sp->stats.numTerms;
-  stats->avgDocLen =
-      stats->numDocs ? (double)sp->stats.totalDocsLen / (double)sp->stats.numDocuments : 0;
+  RSIndexStats_FromScoringStats(&sp->stats.scoring, stats);
 }
 
 size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
@@ -1783,9 +1857,9 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
 
 // Assuming the spec is properly locked for writing before calling this function.
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
-  int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
+  int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL, 1);
   if (isNew) {
-    sp->stats.numTerms++;
+    sp->stats.scoring.numTerms++;
     sp->stats.termsSize += len;
   }
 }
@@ -2540,9 +2614,24 @@ fail:
   return REDISMODULE_ERR;
 }
 
-static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
+static void IndexScoringStats_RdbLoad(RedisModuleIO *rdb, ScoringIndexStats *stats, int encver) {
   stats->numDocuments = RedisModule_LoadUnsigned(rdb);
   stats->numTerms = RedisModule_LoadUnsigned(rdb);
+  if (encver >= INDEX_DISK_VERSION) {
+    stats->totalDocsLen = RedisModule_LoadUnsigned(rdb);
+  } else {
+    stats->totalDocsLen = 0;
+  }
+}
+
+static void IndexScoringStats_RdbSave(RedisModuleIO *rdb, ScoringIndexStats *stats) {
+  RedisModule_SaveUnsigned(rdb, stats->numDocuments);
+  RedisModule_SaveUnsigned(rdb, stats->numTerms);
+  RedisModule_SaveUnsigned(rdb, stats->totalDocsLen);
+}
+
+static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats, int encver) {
+  IndexScoringStats_RdbLoad(rdb, &stats->scoring, encver);
   stats->numRecords = RedisModule_LoadUnsigned(rdb);
   stats->invertedSize = RedisModule_LoadUnsigned(rdb);
   RedisModule_LoadUnsigned(rdb); // Consume `invertedCap`
@@ -2845,12 +2934,9 @@ void ReindexPool_ThreadPoolDestroy() {
 
 //---------------------------------------------------------------------------------------------
 
-#ifdef FTINFO_FOR_INFO_MODULES
-void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
-  char *temp = "info";
-  char name[sp->nameLen + 4 + 2]; // 4 for info and 2 for null termination
-  sprintf(name, "%s_%s", temp, sp->name);
-  RedisModule_InfoAddSection(ctx, name);
+void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate, bool skip_unsafe_ops) {
+  const char* indexName = IndexSpec_FormatName(sp, obfuscate);
+  RedisModule_InfoAddSection(ctx, indexName);
 
   // Index flags
   if (sp->flags & ~(Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreByteOffsets) || sp->flags & Index_WideSchema) {
@@ -2872,8 +2958,14 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   RedisModule_InfoBeginDictField(ctx, "index_definition");
   SchemaRule *rule = sp->rule;
   RedisModule_InfoAddFieldCString(ctx, "type", (char*)DocumentType_ToString(rule->type));
-  if (rule->filter_exp_str)
-    RedisModule_InfoAddFieldCString(ctx, "filter", rule->filter_exp_str);
+  if (rule->filter_exp_str) {
+    const char *filter = HiddenString_GetUnsafe(rule->filter_exp_str, NULL);
+    if (obfuscate) {
+      RedisModule_InfoAddFieldCString(ctx, "filter", Obfuscate_Text(filter));
+    } else {
+      RedisModule_InfoAddFieldCString(ctx, "filter", filter);
+    }
+  }
   if (rule->lang_default)
     RedisModule_InfoAddFieldCString(ctx, "default_language", (char*)RSLanguage_ToString(rule->lang_default));
   if (rule->lang_field)
@@ -2886,16 +2978,22 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     RedisModule_InfoAddFieldCString(ctx, "payload_field", rule->payload_field);
   // Prefixes
   int num_prefixes = array_len(rule->prefixes);
-  if (num_prefixes && rule->prefixes[0][0] != '\0') {
-    arrayof(char) prefixes = array_new(char, 512);
-    for (int i = 0; i < num_prefixes; ++i) {
-      prefixes = array_ensure_append_1(prefixes, "\"");
-      prefixes = array_ensure_append_n(prefixes, rule->prefixes[i], strlen(rule->prefixes[i]));
-      prefixes = array_ensure_append_n(prefixes, "\",", 2);
+  if (num_prefixes && !skip_unsafe_ops) {
+    const char *first_prefix = HiddenUnicodeString_GetUnsafe(rule->prefixes[0], NULL);
+    if (first_prefix && first_prefix[0] != '\0') {
+      // Skip when unsafe operations should be avoided (e.g., in signal handler) due to memory allocations
+      arrayof(char) prefixes = array_new(char, 512);
+      for (int i = 0; i < num_prefixes; ++i) {
+        const char *prefix = HiddenUnicodeString_GetUnsafe(rule->prefixes[i], NULL);
+        const char *prefix_to_use = obfuscate ? Obfuscate_Prefix(prefix) : prefix;
+        prefixes = array_ensure_append_1(prefixes, "\"");
+        prefixes = array_ensure_append_n(prefixes, prefix_to_use, strlen(prefix_to_use));
+        prefixes = array_ensure_append_n(prefixes, "\",", 2);
+      }
+      prefixes[array_len(prefixes)-1] = '\0';
+      RedisModule_InfoAddFieldCString(ctx, "prefixes", prefixes);
+      array_free(prefixes);
     }
-    prefixes[array_len(prefixes)-1] = '\0';
-    RedisModule_InfoAddFieldCString(ctx, "prefixes", prefixes);
-    array_free(prefixes);
   }
   RedisModule_InfoEndDictField(ctx);
 
@@ -2906,8 +3004,18 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     sprintf(title, "%s_%d", "field", (i+1));
     RedisModule_InfoBeginDictField(ctx, title);
 
-    RedisModule_InfoAddFieldCString(ctx, "identifier", fs->path);
-    RedisModule_InfoAddFieldCString(ctx, "attribute", fs->name);
+    // if we can't perform allocation then use a local buffer to format the field name
+    if (skip_unsafe_ops) {
+      char path[MAX_OBFUSCATED_PATH_NAME];
+      char name[MAX_OBFUSCATED_FIELD_NAME];
+      Obfuscate_FieldPath(fs->index, path);
+      Obfuscate_Field(fs->index, name);
+      RedisModule_InfoAddFieldCString(ctx, "identifier", path);
+      RedisModule_InfoAddFieldCString(ctx, "attribute", name);
+    } else {
+      RedisModule_InfoAddFieldCString(ctx, "identifier", FieldSpec_FormatPath(fs, obfuscate));
+      RedisModule_InfoAddFieldCString(ctx, "attribute", FieldSpec_FormatName(fs, obfuscate));
+    }
 
     if (fs->options & FieldSpec_Dynamic)
       RedisModule_InfoAddFieldCString(ctx, "type", "<DYNAMIC>");
@@ -2932,55 +3040,61 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   }
 
   // More properties
-  RedisModule_InfoAddFieldLongLong(ctx, "number_of_docs", sp->stats.numDocuments);
+  RedisModule_InfoAddFieldLongLong(ctx, "number_of_docs", sp->stats.scoring.numDocuments);
 
   RedisModule_InfoBeginDictField(ctx, "index_properties");
   RedisModule_InfoAddFieldULongLong(ctx, "max_doc_id", sp->docs.maxDocId);
-  RedisModule_InfoAddFieldLongLong(ctx, "num_terms", sp->stats.numTerms);
+  RedisModule_InfoAddFieldLongLong(ctx, "num_terms", sp->stats.scoring.numTerms);
   RedisModule_InfoAddFieldLongLong(ctx, "num_records", sp->stats.numRecords);
   RedisModule_InfoEndDictField(ctx);
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_in_mb");
   RedisModule_InfoAddFieldDouble(ctx, "inverted_size", sp->stats.invertedSize / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", IndexSpec_VectorIndexesSize(sp) / (float)0x100000);
+  if (!skip_unsafe_ops) {
+    // Skip when unsafe - calls dictFetchValue which can trigger dict rehashing with rm_free
+    RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", IndexSpec_VectorIndexesSize(sp) / (float)0x100000);
+  }
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", sp->docs.memsize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "key_table_size", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
-  RedisModule_InfoAddFieldDouble("tag_overhead_size_mb", IndexSpec_collect_tags_overhead(sp) / (float)0x100000);
-  RedisModule_InfoAddFieldDouble("text_overhead_size_mb", IndexSpec_collect_text_overhead(sp) / (float)0x100000);
-  RedisModule_InfoAddFieldDouble("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp) / (float)0x100000);
+  if (!skip_unsafe_ops) {
+    // Skip when unsafe - tag overhead calls dictFetchValue which can trigger dict rehashing with rm_free
+    RedisModule_InfoAddFieldDouble(ctx, "tag_overhead_size_mb", IndexSpec_collect_tags_overhead(sp) / (float)0x100000);
+    RedisModule_InfoAddFieldDouble(ctx, "text_overhead_size_mb", IndexSpec_collect_text_overhead(sp) / (float)0x100000);
+    RedisModule_InfoAddFieldDouble(ctx, "total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp, 0, 0, 0, 0) / (float)0x100000);
+  }
   RedisModule_InfoEndDictField(ctx);
 
+  // TotalIIBlocks is safe - just an atomic read, no locks or allocations
   RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", TotalIIBlocks());
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_averages");
-  RedisModule_InfoAddFieldDouble(ctx, "records_per_doc_avg",(float)sp->stats.numRecords / (float)sp->stats.numDocuments);
+  RedisModule_InfoAddFieldDouble(ctx, "records_per_doc_avg",(float)sp->stats.numRecords / (float)sp->stats.scoring.numDocuments);
   RedisModule_InfoAddFieldDouble(ctx, "bytes_per_record_avg",(float)sp->stats.invertedSize / (float)sp->stats.numRecords);
   RedisModule_InfoAddFieldDouble(ctx, "offsets_per_term_avg",(float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
   RedisModule_InfoAddFieldDouble(ctx, "offset_bits_per_record_avg",8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
   RedisModule_InfoEndDictField(ctx);
 
   RedisModule_InfoBeginDictField(ctx, "index_failures");
-  RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexingFailures);
+  RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexError.error_count);
   RedisModule_InfoAddFieldLongLong(ctx, "indexing", !!global_spec_scanner || sp->scan_in_progress);
-  IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
-  double percent_indexed = IndexesScanner_IndexedPercent(ctx, scanner, sp);
-  RedisModule_InfoAddFieldDouble(ctx, "percent_indexed", percent_indexed);
   RedisModule_InfoEndDictField(ctx);
 
-  // Garbage collector
-  if (sp->gc)
+  // Garbage collector - safe to call, just reads struct fields
+  if (sp->gc) {
     GCContext_RenderStatsForInfo(sp->gc, ctx);
+  }
 
-  // Cursor stat
+  // Cursor stats - safe to call, uses trylock and won't deadlock
   Cursors_RenderStatsForInfo(&g_CursorsList, &g_CursorsListCoord, sp, ctx);
 
   // Stop words
-  if (sp->flags & Index_HasCustomStopwords)
+  if (!skip_unsafe_ops && (sp->flags & Index_HasCustomStopwords)) {
+    // Skip when unsafe operations should be avoided - AddStopWordsListToInfo allocates memory
     AddStopWordsListToInfo(ctx, sp->stopwords);
+  }
 }
-#endif // FTINFO_FOR_INFO_MODULES
 
 // Assumes that the spec is in a safe state to set a scanner on it (write lock or main thread)
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
@@ -3002,7 +3116,7 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   size_t termLen;
 
   TrieIterator *it = Trie_Iterate(ctx.spec->terms, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModuleString *keyName = Legacy_fmtRedisTermKey(&ctx, res, strlen(res));
     Redis_LegacyDropScanHandler(ctx.redisCtx, keyName, &ctx);
@@ -3105,8 +3219,10 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  bool useSst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
+  bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   if (sp->diskSpec && useSst) {
+    IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
+    TrieType_GenericSave(rdb, sp->terms, false, true);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
   }
 }
@@ -3213,8 +3329,14 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   // sst-files, even if this is a duplicate.
   // In the case of a duplicate, `sp->diskSpec=NULL` thus handled appropriately
   // On the disk side (RDB is depleted, without updating index fields).
-  bool useSst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
+  bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && useSst) {
+    IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
+    if (sp->terms) {
+      TrieType_Free(sp->terms);
+    }
+    sp->terms = TrieType_GenericLoad(rdb, false, true);
+    RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
     if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec) != REDISMODULE_OK) {
       goto cleanup;
     }
@@ -3312,12 +3434,12 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 
-  IndexStats_RdbLoad(rdb, &sp->stats);
+  IndexStats_RdbLoad(rdb, &sp->stats, encver);
 
   DocTable_LegacyRdbLoad(&sp->docs, rdb, encver);
   /* For version 3 or up - load the generic trie */
   if (encver >= 3) {
-    sp->terms = TrieType_GenericLoad(rdb, 0);
+    sp->terms = TrieType_GenericLoad(rdb, false, false);
   } else {
     sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   }
@@ -3658,10 +3780,10 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   }
 
   // Update the stats
-  RS_LOG_ASSERT(spec->stats.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
-  spec->stats.totalDocsLen -= docLen;
-  RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
-  spec->stats.numDocuments--;
+  RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
+  spec->stats.scoring.totalDocsLen -= docLen;
+  RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
+  spec->stats.scoring.numDocuments--;
 
   // Increment the index's garbage collector's scanning frequency after document deletions
   if (spec->gc) {

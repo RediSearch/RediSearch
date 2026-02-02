@@ -40,6 +40,8 @@ void MRCommand_Free(MRCommand *cmd) {
   rm_free(cmd->targetShard);
   rm_free(cmd->strs);
   rm_free(cmd->lens);
+
+  memset(cmd, 0, sizeof(*cmd));
 }
 
 static void assignStr(MRCommand *cmd, size_t idx, const char *s, size_t n) {
@@ -308,7 +310,10 @@ void MRCommand_SetDispatchTime(MRCommand *cmd) {
   bool is_cmd_supported = false;
 #ifdef ENABLE_ASSERT
   cmd_pos = !strcmp(cmd->strs[0], "_FT.DEBUG") ? 1 : 0;
-  is_cmd_supported = !strcmp(cmd->strs[cmd_pos], "_FT.AGGREGATE") || !strcmp(cmd->strs[cmd_pos], "_FT.SEARCH") || !strcmp(cmd->strs[cmd_pos], "_FT.PROFILE");
+  is_cmd_supported = !strcmp(cmd->strs[cmd_pos], "_FT.AGGREGATE") ||
+                     !strcmp(cmd->strs[cmd_pos], "_FT.SEARCH") ||
+                     !strcmp(cmd->strs[cmd_pos], "_FT.PROFILE") ||
+                     !strcmp(cmd->strs[cmd_pos], "_FT.HYBRID");
 #endif
   if (cmd->dispatchTimeArgIndex == 0) {
     RS_LOG_ASSERT_FMT(!is_cmd_supported, "Dispatch time placeholder was not prepared for command %s", cmd->strs[cmd_pos]);
@@ -319,6 +324,7 @@ void MRCommand_SetDispatchTime(MRCommand *cmd) {
   RS_LOG_ASSERT(cmd->dispatchTimeArgIndex > 0, "Dispatch time placeholder was not prepared");
   RS_ASSERT(cmd->dispatchTimeArgIndex < cmd->num);
   RS_ASSERT(!strcmp(cmd->strs[cmd->dispatchTimeArgIndex - 1], COORD_DISPATCH_TIME_STR));
+  RS_ASSERT(cmd->coordStartTime > 0);
   // Calculate dispatch time from coordinator start
   // Add 1ns as epsilon value so we can verify that the dispatch time is greater than 0.
   rs_wall_clock_ns_t dispatchTime = rs_wall_clock_now_ns() - cmd->coordStartTime + 1;
