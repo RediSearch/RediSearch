@@ -9,7 +9,9 @@
 
 use crate::row::RLookupRow;
 use libc::size_t;
-use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule};
+use rlookup::{
+    IndexSpec, IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule,
+};
 use std::{
     borrow::Cow,
     ffi::{CStr, c_char},
@@ -467,10 +469,10 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_LoadRuleFields(
+pub unsafe extern "C" fn RLookup_LoadRuleFields<'a>(
     module_ctx: Option<NonNull<ffi::RedisModuleCtx>>,
-    lookup: Option<NonNull<RLookup<'_>>>,
-    dst_row: Option<NonNull<RLookupRow<'_>>>,
+    lookup: Option<NonNull<RLookup<'a>>>,
+    dst_row: Option<NonNull<RLookupRow<'a>>>,
     index_spec: Option<NonNull<ffi::IndexSpec>>,
     key: *const c_char,
 ) -> i32 {
