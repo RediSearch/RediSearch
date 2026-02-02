@@ -29,6 +29,7 @@
 #include "util/workers.h"
 #include "util/references.h"
 #include "util/mempool.h"
+#include "concurrent_ctx.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
@@ -3733,7 +3734,7 @@ static searchRequestCtx *createReq(RedisModuleString **argv, int argc, RedisModu
 }
 
 int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
-  RedisModuleString **argv, int argc, WeakRef spec_ref, rs_wall_clock_ns_t coordQueueTime) {
+  RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
   searchRequestCtx *req = createReq(argv, argc, bc, &status);
@@ -3743,10 +3744,10 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   }
 
   // Copy coordinator queue time for profile output
-  req->coordQueueTime = coordQueueTime;
+  req->coordQueueTime = handlerCtx->coordQueueTime;
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, spec_ref, &status);
+  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, handlerCtx->spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
     return REDISMODULE_OK;
   }
@@ -3764,18 +3765,15 @@ typedef struct SearchCmdCtx {
   int argc;
   RedisModuleBlockedClient* bc;
   int protocol;
-  WeakRef spec_ref;
-  rs_wall_clock_ns_t coordStartTime;  // Time when command was received on coordinator
-  bool isProfile;                     // Whether this is an FT.PROFILE command
+  ConcurrentSearchHandlerCtx handlerCtx;
 } SearchCmdCtx;
 
 static void DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
-  rs_wall_clock_ns_t coordQueueTime = 0;
-  if (sCmdCtx->isProfile) {
-    coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->coordStartTime;
+  if (sCmdCtx->handlerCtx.isProfile) {
+    sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
-  FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, sCmdCtx->spec_ref, coordQueueTime);
+  FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
@@ -3863,9 +3861,10 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
-  sCmdCtx->spec_ref = StrongRef_Demote(spec_ref);
-  sCmdCtx->coordStartTime = coordInitialTime;
-  sCmdCtx->isProfile = isProfile;
+  sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
+  sCmdCtx->handlerCtx.coordStartTime = coordInitialTime;
+  sCmdCtx->handlerCtx.coordQueueTime = 0;
+  sCmdCtx->handlerCtx.isProfile = isProfile;
   RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
@@ -4241,7 +4240,7 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
 /* ======================= DEBUG ONLY ======================= */
 
 static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
-  RedisModuleString **argv, int argc, WeakRef spec_ref, rs_wall_clock_ns_t coordQueueTime) {
+  RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
   AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
 
@@ -4259,10 +4258,10 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
   }
 
   // Copy coordinator queue time for profile output
-  req->coordQueueTime = coordQueueTime;
+  req->coordQueueTime = handlerCtx->coordQueueTime;
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(base_argc, argv);
-  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, spec_ref, &status);
+  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, handlerCtx->spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
     return REDISMODULE_OK;
   }
@@ -4284,12 +4283,11 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
 
 static void DEBUG_DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
-  rs_wall_clock_ns_t coordQueueTime = 0;
-  if (sCmdCtx->isProfile) {
-    coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->coordStartTime;
+  if (sCmdCtx->handlerCtx.isProfile) {
+    sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
   // send argv not including the _FT.DEBUG
-  DEBUG_FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, sCmdCtx->spec_ref, coordQueueTime);
+  DEBUG_FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
