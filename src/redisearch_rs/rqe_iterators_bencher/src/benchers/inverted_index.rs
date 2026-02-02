@@ -16,9 +16,12 @@ use criterion::{
     measurement::{Measurement, WallTime},
 };
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::{IndexReader, RSIndexResult};
+use inverted_index::{
+    IndexReader, RSIndexResult, doc_ids_only::DocIdsOnly, opaque::OpaqueEncoding,
+};
 use rqe_iterators::{FieldExpirationChecker, RQEIterator, SkipToOutcome, inverted_index::Numeric};
 
+use crate::ffi::QueryIterator;
 use rqe_iterators_test_utils::TestContext;
 
 const MEASUREMENT_TIME: Duration = Duration::from_millis(2000);
@@ -475,3 +478,118 @@ where
     }
 }
  */
+
+/// Benchmarks for the wildcard inverted index iterator.
+pub struct WildcardBencher {
+    context_dense: TestContext,
+    context_sparse: TestContext,
+}
+
+impl Default for WildcardBencher {
+    fn default() -> Self {
+        let dense_iter = || 1..INDEX_SIZE;
+        let sparse_iter = || (1..INDEX_SIZE).map(|i| i * SPARSE_DELTA);
+
+        Self {
+            context_dense: TestContext::wildcard(dense_iter()),
+            context_sparse: TestContext::wildcard(sparse_iter()),
+        }
+    }
+}
+
+impl WildcardBencher {
+    pub fn bench(&self, c: &mut Criterion) {
+        self.read_dense(c);
+        self.skip_to_dense(c);
+        self.skip_to_sparse(c);
+    }
+
+    fn read_dense(&self, c: &mut Criterion) {
+        let mut group = benchmark_group(c, "Wildcard", "Read Dense");
+        self.c_read(&mut group, &self.context_dense);
+        self.rust_read(&mut group, &self.context_dense);
+        group.finish();
+    }
+
+    fn skip_to_dense(&self, c: &mut Criterion) {
+        let mut group = benchmark_group(c, "Wildcard", "SkipTo Dense");
+        self.c_skip_to(&mut group, &self.context_dense);
+        self.rust_skip_to(&mut group, &self.context_dense);
+        group.finish();
+    }
+
+    fn skip_to_sparse(&self, c: &mut Criterion) {
+        let mut group = benchmark_group(c, "Wildcard", "SkipTo Sparse");
+        self.c_skip_to(&mut group, &self.context_sparse);
+        self.rust_skip_to(&mut group, &self.context_sparse);
+        group.finish();
+    }
+
+    fn c_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
+        group.bench_function("C", |b| {
+            let ii_ptr = context.wildcard_index_ptr();
+
+            b.iter(|| {
+                let it = unsafe { QueryIterator::new_wildcard(ii_ptr, context.sctx, 1.0) };
+
+                while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
+                    black_box(it.current());
+                }
+                it.free();
+            });
+        });
+    }
+
+    fn c_skip_to<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
+        group.bench_function("C", |b| {
+            let ii_ptr = context.wildcard_index_ptr();
+
+            b.iter(|| {
+                let it = unsafe { QueryIterator::new_wildcard(ii_ptr, context.sctx, 1.0) };
+
+                while it.skip_to(it.last_doc_id() + SKIP_TO_STEP)
+                    != ::ffi::IteratorStatus_ITERATOR_EOF
+                {
+                    black_box(it.current());
+                }
+                it.free();
+            });
+        });
+    }
+
+    fn rust_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
+        use rqe_iterators::inverted_index::Wildcard;
+
+        group.bench_function("Rust", |b| {
+            let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
+            b.iter(|| {
+                let mut it = Wildcard::new(ii.reader(), context.sctx, 1.0);
+                while let Ok(Some(current)) = it.read() {
+                    black_box(current);
+                }
+            });
+        });
+    }
+
+    fn rust_skip_to<M: Measurement>(
+        &self,
+        group: &mut BenchmarkGroup<'_, M>,
+        context: &TestContext,
+    ) {
+        use rqe_iterators::inverted_index::Wildcard;
+
+        group.bench_function("Rust", |b| {
+            let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
+            b.iter(|| {
+                let mut it = Wildcard::new(ii.reader(), context.sctx, 1.0);
+                while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {
+                    match outcome {
+                        SkipToOutcome::Found(current) | SkipToOutcome::NotFound(current) => {
+                            black_box(current);
+                        }
+                    }
+                }
+            });
+        });
+    }
+}
