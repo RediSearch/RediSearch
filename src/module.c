@@ -77,6 +77,9 @@
 #include "module_init.h"
 #include "asm_state_machine.h"
 #include "search_disk_utils.h"
+#ifdef ENABLE_ASSERT
+#include <unistd.h>  // for usleep in coordinator reduce pause
+#endif
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -1940,6 +1943,9 @@ typedef struct searchReducerCtx {
   specialCaseCtx* reduceSpecialCaseCtxSortby;
 
   MRReply *warning;
+#ifdef ENABLE_ASSERT
+  struct MRCtx *mc;  // Reference to MRCtx for debug pause timeout check
+#endif
 } searchReducerCtx;
 
 typedef struct {
@@ -2691,7 +2697,32 @@ error:
   rCtx->cachedResult = res;
 }
 
+#ifdef ENABLE_ASSERT
+// Helper function to check and pause before reducing a result (for testing coordinator timeout during reduce)
+static void debugCheckAndPauseBeforeReduce(searchReducerCtx *rCtx) {
+  int currentCount = CoordReduceDebugCtx_GetReduceCount();
+  int pauseBeforeN = CoordReduceDebugCtx_GetPauseBeforeN();
+  if (pauseBeforeN > 0 && currentCount == pauseBeforeN - 1) {
+    // Pause before the Nth result (1-based index)
+    CoordReduceDebugCtx_SetPause(true);
+    while (CoordReduceDebugCtx_IsPaused()) {
+      // Check if timed out - break to avoid deadlock with timeout callback
+      // (timeout callback waits for reducer to complete, but we're paused)
+      if (MRCtx_IsTimedOut(rCtx->mc)) {
+        CoordReduceDebugCtx_SetPause(false);
+        break;
+      }
+      usleep(1000);  // Spin-wait with 1ms sleep
+    }
+  }
+}
+#endif
+
 static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
+#ifdef ENABLE_ASSERT
+  debugCheckAndPauseBeforeReduce(rCtx);
+#endif
+
   if (!res || !res->id) {
     RedisModule_Log(ctx, "warning", "got an unexpected argument when parsing redisearch results");
     rCtx->errorOccurred = true;
@@ -2718,10 +2749,17 @@ static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx, 
       if (rCtx->searchCtx->withSortby) {
         // If the result is lower than the last result in the heap,
         // AND there is a user-defined sort order - we can stop now
+#ifdef ENABLE_ASSERT
+        CoordReduceDebugCtx_IncrementReduceCount();
+#endif
         return;
       }
     }
   }
+
+#ifdef ENABLE_ASSERT
+  CoordReduceDebugCtx_IncrementReduceCount();
+#endif
 }
 
 static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
@@ -3145,6 +3183,9 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   req->rctx = rCtx;
   // Set searchCtx early so it's available even if we bail out early
   rCtx->searchCtx = req;
+#ifdef ENABLE_ASSERT
+  rCtx->mc = mc;  // Store MRCtx reference for debug pause timeout check
+#endif
 
   // Initialize heap early so it's available even if we bail out
   // (timeout callback may need to call sendSearchResults with partial/empty results)
@@ -3226,6 +3267,21 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
 
     }
   }
+
+#ifdef ENABLE_ASSERT
+  // Handle N=-1: pause after the last result is reduced
+  if (CoordReduceDebugCtx_GetPauseBeforeN() == -1) {
+    CoordReduceDebugCtx_SetPause(true);
+    while (CoordReduceDebugCtx_IsPaused()) {
+      // Check if timed out - break to avoid deadlock with timeout callback
+      if (MRCtx_IsTimedOut(mc)) {
+        CoordReduceDebugCtx_SetPause(false);
+        break;
+      }
+      usleep(1000);  // Spin-wait with 1ms sleep
+    }
+  }
+#endif
 
   if (rCtx->cachedResult) {
     rm_free(rCtx->cachedResult);
