@@ -69,6 +69,21 @@ def _normalize_single_argument(arg):
         else:
             normalized[key] = value
 
+    # For 'oneof' argument types, the order of alternatives is not semantically meaningful.
+    # Redis COMMAND DOCS may return these alternatives in an arbitrary/stable-but-different order
+    # than our commands.json. Sort deterministically to keep the comparison strict elsewhere.
+    if normalized.get('type') == 'oneof' and isinstance(normalized.get('arguments'), list):
+        def _oneof_sort_key(item):
+            if not isinstance(item, dict):
+                return (1, str(item))
+            return (
+                0,
+                str(item.get('token') or ''),
+                str(item.get('name') or ''),
+                str(item.get('type') or ''),
+            )
+        normalized['arguments'] = sorted(normalized['arguments'], key=_oneof_sort_key)
+
     return normalized
 
 def _normalize_arguments_structure(args):
@@ -282,12 +297,13 @@ def compare_arguments(actual, expected, fields_to_strip=None):
     if fields_to_strip is None:
         fields_to_strip = ['display_text']
 
-    # Step 1: Normalize actual
+    # Step 1: Normalize actual and expected (COMMAND DOCS returns flags arrays and may reorder oneof alternatives)
     normalized_actual = _normalize_arguments_structure(actual)
+    normalized_expected = _normalize_arguments_structure(expected)
 
     # Step 2: Strip fields from both
     stripped_actual = _strip_fields(normalized_actual, fields_to_strip)
-    stripped_expected = _strip_fields(expected, fields_to_strip)
+    stripped_expected = _strip_fields(normalized_expected, fields_to_strip)
 
     # Step 3: Compare using recursive inclusion
     return _is_dict_included(stripped_actual, stripped_expected)

@@ -57,8 +57,8 @@
 %stack_size 256
 
 %stack_overflow {
-  QueryError_SetError(ctx->status, QUERY_ERROR_CODE_SYNTAX,
-    "Parser stack overflow. Try moving nested parentheses more to the left");
+  QueryError_SetWithUserDataFmt(ctx->status, QUERY_ERROR_CODE_SYNTAX,
+    "Parser stack overflow", ". Try moving nested parentheses more to the left");
 }
 
 %syntax_error {

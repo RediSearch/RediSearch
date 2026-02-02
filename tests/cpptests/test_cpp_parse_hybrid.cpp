@@ -803,7 +803,16 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
   int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_EQ(QueryError_GetCode(&status), expected_code) << "parsing error: " << QueryError_GetUserError(&status);
-  ASSERT_STREQ(QueryError_GetUserError(&status), expected_detail) << "parsing error: " << QueryError_GetUserError(&status);
+
+  // Many errors now include a stable prefix (e.g. "SEARCH_FOO: ...") for uniqueness.
+  // To keep tests stable, allow either exact match or "contains" match when the
+  // test asserts only the detail portion.
+  const char *user_error = QueryError_GetUserError(&status);
+  ASSERT_TRUE(user_error != nullptr);
+  if (strcmp(user_error, expected_detail) != 0) {
+    ASSERT_NE(std::string(user_error).find(expected_detail), std::string::npos)
+        << "parsing error: " << user_error;
+  }
 
   // Clean up
   QueryError_ClearError(&status);
@@ -847,7 +856,7 @@ TEST_F(ParseHybridTest, testMissingSecondSearchArgument) {
 TEST_F(ParseHybridTest, testInvalidSearchAfterSearch) {
   // Test invalid syntax: FT.HYBRID <index> SEARCH hello SEARCH world (should fail)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "SEARCH", "world");
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `SEARCH` in SEARCH");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `SEARCH` in SEARCH");
 }
 
 // VSIM parsing error tests
@@ -873,7 +882,7 @@ TEST_F(ParseHybridTest, testVsimVectorFieldMissingAtPrefix) {
 TEST_F(ParseHybridTest, testBlobWithoutParams) {
   // Test using $BLOB without PARAMS section - should fail
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10");
-  testErrorCode(args, QUERY_ERROR_CODE_NO_PARAM, "No such parameter `BLOB`");
+  testErrorCode(args, QUERY_ERROR_CODE_NO_PARAM, "Parameter not found `BLOB`");
 }
 
 TEST_F(ParseHybridTest, testDirectVector) {
@@ -955,19 +964,19 @@ TEST_F(ParseHybridTest, testKNNCountingYieldDistanceAs) {
     "VSIM", "@vector", "$BLOB",
       "KNN", "4", "K", "10", "YIELD_SCORE_AS", "v_score",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `YIELD_SCORE_AS` in KNN");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `YIELD_SCORE_AS` in KNN");
 }
 
 TEST_F(ParseHybridTest, testVsimKNNWithEpsilon) {
   // Test KNN with EPSILON (should be RANGE-only)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "10", "EPSILON", "0.01", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `EPSILON` in KNN");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `EPSILON` in KNN");
 }
 
 TEST_F(ParseHybridTest, testVsimSubqueryWrongParamCount) {
   // Test with wrong argument count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "\"hello\"", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "10", "FILTER", "@text:hello", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `FILTER` in KNN");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `FILTER` in KNN");
 }
 
 // RANGE parsing error tests
@@ -1025,13 +1034,13 @@ TEST_F(ParseHybridTest, testRangeCountingYieldDistanceAs) {
     "VSIM", "@vector", "$BLOB",
       "RANGE", "4", "RADIUS", "0.5", "YIELD_SCORE_AS", "v_score",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `YIELD_SCORE_AS` in RANGE");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `YIELD_SCORE_AS` in RANGE");
 }
 
 TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
   // Test RANGE with EF_RUNTIME (should be KNN-only)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "4", "RADIUS", "0.5", "EF_RUNTIME", "100", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `EF_RUNTIME` in RANGE");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `EF_RUNTIME` in RANGE");
 }
 
 // NOTE: Invalid parameter values of EF_RUNTIME EPSILON_STRING are NOT validated during parsing.
@@ -1316,13 +1325,13 @@ TEST_F(ParseHybridTest, testDialectInSearchSubquery) {
 TEST_F(ParseHybridTest, testDialectInVectorKNNSubquery) {
   // Test DIALECT in vector KNN subquery - should fail with specific error
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "DIALECT", "2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `DIALECT` in KNN");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `DIALECT` in KNN");
 }
 
 TEST_F(ParseHybridTest, testDialectInVectorRangeSubquery) {
   // Test DIALECT in vector RANGE subquery - should fail with specific error
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "2", "DIALECT", "2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `DIALECT` in RANGE");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `DIALECT` in RANGE");
 }
 
 TEST_F(ParseHybridTest, testDialectInTail) {

@@ -300,7 +300,7 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
     # Verify we got a timeout warning in the response
     if isinstance(result, dict):
         env.assertEqual(result.get('warning', []),
-                        ['Timeout limit was reached'])
+                        ['SEARCH_TIMEOUT: Timeout limit was reached'])
 
 
 @skip() # Flaky test
@@ -522,13 +522,13 @@ def _test_barrier_handles_error_in_shard(protocol):
     env.expect(
         'FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 2, '@t', '@n',
         'APPLY', '1 / @n', 'AS', 'reciprocal')\
-            .error().contains("Could not convert value to a number")
+            .error().contains("SEARCH_NUMERIC_VALUE_INVALID")
 
     env.expect(
         'FT.PROFILE', 'idx', 'AGGREGATE',
         'QUERY', '*', 'WITHCOUNT', 'LOAD', 2, '@t', '@n',
         'APPLY', '1 / @n', 'AS', 'reciprocal')\
-            .error().contains("Could not convert value to a number")
+            .error().contains("SEARCH_NUMERIC_VALUE_INVALID")
 
 
 def test_barrier_handles_error_in_shard_resp2():
@@ -565,7 +565,7 @@ def _test_barrier_shard_timeout_with_fail_policy(protocol):
         env.assertTrue(False, message="Expected timeout error, got valid result")
     except Exception as e:
         # Timeout error is expected with FAIL policy
-        env.assertContains(str(e), 'Timeout limit was reached')
+        env.assertContains(str(e), 'SEARCH_TIMEOUT: Timeout limit was reached')
 
 
 @skip(cluster=False)

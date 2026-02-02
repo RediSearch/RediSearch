@@ -129,7 +129,7 @@ def testInvalidApplyFunction(env):
         env.expect(
             'FT.AGGREGATE', 'idx', '*',
             'APPLY', apply_expr, 'AS', 'final_score',
-            'DIALECT', '2').error().contains("Property `missing` not loaded nor in pipeline")
+            'DIALECT', '2').error().contains("SEARCH_PROP_NOT_FOUND: Property not loaded nor in pipeline: `missing`")
 
 def testCaseFunction(env):
     """Test the case function in APPLY clause with various conditions"""

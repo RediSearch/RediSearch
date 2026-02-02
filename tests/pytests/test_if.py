@@ -94,11 +94,13 @@ def testExists(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if exists(@txt) FIELDS txt word').equal('OK')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if exists(@num) FIELDS txt word').equal('OK')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if exists(@empty) FIELDS txt word').equal('NOADD')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if exists(@noexist) FIELDS txt word').contains('`noexist` not loaded')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if exists(@noexist) FIELDS txt word')\
+        .contains('SEARCH_PROP_NOT_FOUND: Property not loaded nor in pipeline: `noexist`')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !exists(@txt) FIELDS txt word').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !exists(@num) FIELDS txt word').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !exists(@empty) FIELDS txt word').equal('OK')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !exists(@noexist) FIELDS txt word').contains('`noexist` not loaded')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !exists(@noexist) FIELDS txt word')\
+        .contains('SEARCH_PROP_NOT_FOUND: Property not loaded nor in pipeline: `noexist`')
 
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if exists(@txt)||exists(@txt) FIELDS txt word').equal('OK')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if exists(@txt)||exists(@empty) FIELDS txt word').equal('OK')

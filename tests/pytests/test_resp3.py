@@ -116,18 +116,33 @@ def test_search():
 @skip(redis_less_than="7.0.0")
 def test_search_timeout():
     num_range = 1000
-    env = Env(protocol=3, moduleArgs=f'DEFAULT_DIALECT 2 MAXPREFIXEXPANSIONS {num_range} TIMEOUT 1 ON_TIMEOUT FAIL')
+    env = Env(protocol=3, moduleArgs=f'DEFAULT_DIALECT 2 MAXPREFIXEXPANSIONS {num_range} TIMEOUT 1')
     conn = getConnectionByEnv(env)
 
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
     for i in range(num_range):
         conn.execute_command('HSET', f'doc{i}', 't', f'aa{i}', 'geo', f"{i/10000},{i/1000}")
 
-    # TODO: Add these tests again once MOD-5965 is merged
-    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range)). \
-    #   contains('Timeout limit was reached')
-    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range), 'timeout', 1).\
-    #   contains('Timeout limit was reached')
+    # For RESP3, verify the structured warning reply under RETURN policy.
+    env.cmd(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+
+    # RESP3 returns a dict; assert on `warning` and force a deterministic timeout via DEBUG.
+    res = runDebugQueryCommandTimeoutAfterN(
+      env,
+      ['FT.SEARCH', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'LIMIT', '0', str(num_range)],
+      timeout_res_count=1,
+    )
+    VerifyTimeoutWarningResp3(env, res, message="FT.SEARCH timeout warning")
+
+    res = runDebugQueryCommandTimeoutAfterN(
+      env,
+      ['FT.SEARCH', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'LIMIT', '0', str(num_range), 'TIMEOUT', '1'],
+      timeout_res_count=1,
+    )
+    VerifyTimeoutWarningResp3(env, res, message="FT.SEARCH explicit TIMEOUT warning")
+
+    # Switch to FAIL policy for the hard timeout error assertions below.
+    env.cmd(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL')
 
     # (coverage) Later failure than the above tests - in pipeline execution
     # phase. For this, we need more documents in the index, such that we will
@@ -385,7 +400,8 @@ def test_list():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
-    env.expect('FT._LIST').equal(['idx2', 'idx1'])
+    # RESP3 returns a SET for this reply
+    env.expect('FT._LIST').equal({'idx2', 'idx1'})
 
 @skip(redis_less_than="7.0.0")
 def test_info():
@@ -508,10 +524,8 @@ def test_dictdump():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
 
     env.cmd("FT.DICTADD", "dict1", "foo", "1", "bar", "2")
-    def sort_dict(dict_list):
-        dict_list.sort()
-        return dict_list
-    env.expect("FT.DICTDUMP", "dict1").noError().apply(sort_dict).equal(['1', '2', 'bar', 'foo'])
+    # RESP3 returns a SET for this reply
+    env.expect("FT.DICTDUMP", "dict1").noError().equal({'1', '2', 'bar', 'foo'})
 
 def testSpellCheckIssue437():
     env = Env(protocol=3)
@@ -574,9 +588,10 @@ def test_tagvals():
     env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TAG", "f2", "TAG", "f5", "TAG")
     waitForIndex(env, 'idx1')
-    env.expect('FT.TAGVALS', 'idx1', 'f1').equal(['3'])
-    env.expect('FT.TAGVALS', 'idx1', 'f2').equal(['2', '3'])
-    env.expect('FT.TAGVALS', 'idx1', 'f5').equal([])
+    # RESP3 returns a SET for this reply
+    env.expect('FT.TAGVALS', 'idx1', 'f1').equal({'3'})
+    env.expect('FT.TAGVALS', 'idx1', 'f2').equal({'2', '3'})
+    env.expect('FT.TAGVALS', 'idx1', 'f5').equal(set())
 
 @skip(cluster=False)
 def test_clusterinfo():
@@ -1615,8 +1630,10 @@ def test_multiple_warnings():
   res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after_n, internal_only=True)
 
   # Both warnings should be present in the response
-  env.assertContains('Timeout limit was reached', res['warning'])
-  env.assertContains('Max prefix expansions limit was reached', res['warning'])
+  env.assertTrue(any('Timeout limit was reached' in w for w in res['warning']),
+                 message=f"Expected timeout warning, got: {res['warning']}")
+  env.assertTrue(any('Max prefix expansions limit was reached' in w for w in res['warning']),
+                 message=f"Expected max prefix expansions warning, got: {res['warning']}")
 
   # Query with wildcard that exceeds the limit and force timeout
   query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'prefix*']
@@ -1626,8 +1643,10 @@ def test_multiple_warnings():
   shards_profile = get_shards_profile(env, res)
   env.assertEqual(len(shards_profile), env.shardsCount, message=f"unexpected shard count: {res}")
   for shard_profile in shards_profile:
-    env.assertContains('Timeout limit was reached', shard_profile['Warning'])
-    env.assertContains('Max prefix expansions limit was reached', shard_profile['Warning'])
+    env.assertTrue(any('Timeout limit was reached' in w for w in shard_profile['Warning']),
+                   message=f"Expected shard timeout warning, got: {shard_profile['Warning']}")
+    env.assertTrue(any('Max prefix expansions limit was reached' in w for w in shard_profile['Warning']),
+                   message=f"Expected shard max prefix expansions warning, got: {shard_profile['Warning']}")
     # Verify internal cursor reads (In resp3 timeout is detected and we stop after 1 read)
     if env.isCluster():
       env.assertEqual(shard_profile['Internal cursor reads'], 1)

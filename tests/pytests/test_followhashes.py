@@ -10,7 +10,7 @@ def testSyntax1(env):
     conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx',
                'ONfoo*',
-               'SCHEMA', 'foo', 'text').equal('Unknown argument `ONfoo*`')
+               'SCHEMA', 'foo', 'text').error().contains('Unknown argument `ONfoo*`')
 
     env.expect('ft.create', 'idx2',
                'LANGUAGE', 'eng'
@@ -18,11 +18,11 @@ def testSyntax1(env):
 
     env.expect('ft.create', 'idx2',
                'SCORE', '1.0'
-               'SCHEMA', 'foo', 'text').equal('Unknown argument `foo`')
+               'SCHEMA', 'foo', 'text').error().contains('Unknown argument `foo`')
 
     env.expect('ft.create', 'idx2',
                'PAYLOAD_FIELD', 'awfw'
-               'SCHEMA', 'foo', 'text').equal('Unknown argument `foo`')
+               'SCHEMA', 'foo', 'text').error().contains('Unknown argument `foo`')
 
     env.expect('ft.create', 'idx2',
                'FILTER', 'a'
@@ -248,7 +248,7 @@ def testFlush(env):
 
     conn.execute_command('hset', 'thing:bar', 'name', 'foo')
 
-    env.expect('ft.search', 'things', 'foo').equal('No such index things')
+    env.expect('ft.search', 'things', 'foo').error().contains('Index not found: things')
 
 def testNotExist(env):
     conn = getConnectionByEnv(env)

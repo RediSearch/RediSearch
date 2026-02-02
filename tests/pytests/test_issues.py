@@ -510,7 +510,7 @@ def test_MOD_3372(env):
   env.expect('FT.EXPLAIN', 'idx').error().contains('wrong number of arguments')
   env.expect('FT.EXPLAIN', 'idx', 'foo').equal('UNION {\n  foo\n  +foo(expanded)\n}\n')
   env.expect('FT.EXPLAIN', 'idx', 'foo', 'verbatim').equal('foo\n')
-  env.expect('FT.EXPLAIN', 'non-exist', 'foo').error().equal('non-exist: no such index')
+  env.expect('FT.EXPLAIN', 'non-exist', 'foo').error().equal('SEARCH_INDEX_NOT_FOUND: Index not found: non-exist')
 
   if not env.isCluster():
     # FT.EXPLAINCLI is not supported by the coordinator
@@ -518,7 +518,7 @@ def test_MOD_3372(env):
     env.expect('FT.EXPLAINCLI', 'idx').error().contains('wrong number of arguments')
     env.expect('FT.EXPLAINCLI', 'idx', 'foo').equal(['UNION {', '  foo', '  +foo(expanded)', '}', ''])
     env.expect('FT.EXPLAINCLI', 'idx', 'foo', 'verbatim').equal(['foo', ''])
-    env.expect('FT.EXPLAINCLI', 'non-exist', 'foo').error().equal('non-exist: no such index')
+    env.expect('FT.EXPLAINCLI', 'non-exist', 'foo').error().equal('SEARCH_INDEX_NOT_FOUND: Index not found: non-exist')
 
 def test_MOD_3540(env):
   # disable SORTBY MAX for FT.SEARCH
@@ -1071,7 +1071,7 @@ def test_mod6510_vecsim_hybrid_adhoc_timeout(env):
     query_vec = create_np_array_typed(np.random.rand(dim))
     env.expect('FT.SEARCH', 'idx', 'meta=>[KNN 5 @v $vec_param HYBRID_POLICY ADHOC_BF]', 'NOCONTENT',
                              'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'TIMEOUT', 1, 'DIALECT', 2)\
-        .error().contains('Timeout limit was reached')
+        .error().contains('SEARCH_TIMEOUT: Timeout limit was reached')
     # Then, when we delete inplace and tried to acquire the locks again for write, we got a deadlock.
     env.expect('DEL 0').equal(1)
 
@@ -1142,7 +1142,8 @@ def test_unsafe_simpleString_values():
 
   # Test creating an index with unsafe name
   env.expect('FT.CREATE', unsafe_index, 'PREFIX', '1', unsafe_value, 'SCHEMA', 't', 'TEXT').ok()
-  env.expect('FT._LIST').equal([escape(unsafe_index)])
+  # RESP3 returns a SET for this reply
+  env.expect('FT._LIST').equal({escape(unsafe_index)})
   info = index_info(env, unsafe_index)
   env.assertEqual(info['index_name'], escape(unsafe_index))
   env.assertEqual(info['index_definition']['prefixes'], [escape(unsafe_value)])

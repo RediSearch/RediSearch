@@ -113,8 +113,8 @@ def test_error_propagation_from_shards(env):
     SkipOnNonCluster(env)
 
     # indexing an index that doesn't exist (today revealed only in the shards)
-    env.expect('FT.AGGREGATE', 'idx', '*').error().contains('No such index idx')
-    env.expect('FT.SEARCH', 'idx', '*').error().contains('No such index idx')
+    env.expect('FT.AGGREGATE', 'idx', '*').error().contains('SEARCH_INDEX_NOT_FOUND: Index not found')
+    env.expect('FT.SEARCH', 'idx', '*').error().contains('SEARCH_INDEX_NOT_FOUND: Index not found')
 
     # Bad query
     # create the index
@@ -150,18 +150,18 @@ def test_timeout():
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@t1', '@__key', 'APPLY',
         '@t1 ^ @t1', 'AS', 't1exp', 'groupby', '2', '@t1', '@t1exp', 'REDUCE',
         'tolist', '1', '@__key', 'AS', 'keys', 'timeout', '1'
-    ).error().contains('Timeout limit was reached')
+    ).error().contains('SEARCH_TIMEOUT: Timeout limit was reached')
 
     # Client cursor mid execution
     env.expect(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', n_docs,
         'timeout', '1'
-    ).error().contains('Timeout limit was reached')
+    ).error().contains('SEARCH_TIMEOUT: Timeout limit was reached')
 
     # FT.SEARCH
     env.expect(
         'FT.SEARCH', 'idx', '*', 'LIMIT', '0', n_docs, 'timeout', '1'
-    ).error().contains('Timeout limit was reached')
+    ).error().contains('SEARCH_TIMEOUT: Timeout limit was reached')
 
 @skip(cluster=False, min_shards=2)
 def test_mod_6287(env):

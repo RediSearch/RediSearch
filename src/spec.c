@@ -1254,7 +1254,6 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
         .storage = sp->diskSpec,
         .indexName = rm_strndup(namePtr, nameLen),
         .indexNameLen = nameLen,
-        .rerank = rerank,
       };
     }
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
@@ -1665,12 +1664,10 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
       rm_free((void*)fs->vectorOpts.diskCtx.indexName);
     }
 
-    // TODO: rerank is not persisted in RDB, defaulting to true on load.
     fs->vectorOpts.diskCtx = (VecSimDiskContext){
       .storage = sp->diskSpec,
       .indexName = rm_strndup(namePtr, nameLen),
       .indexNameLen = nameLen,
-      .rerank = true,
     };
   }
 }
@@ -1688,10 +1685,10 @@ void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status,
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
         "Unsupported argument for Flex index:", " `%s`", badarg);
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s`", badarg);
     }
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s`", badarg);
   }
 }
 

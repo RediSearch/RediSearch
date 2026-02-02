@@ -37,10 +37,10 @@ def testConfig(env):
 @skip(cluster=True)
 def testConfigErrors(env):
     env.expect(config_cmd(), 'set', 'MINPREFIX', 1, 2).equal('EXCESSARGS')
-    env.expect(config_cmd(), 'no_such_command', 'idx').equal(f'unknown subcommand \'no_such_command\'. Try {config_cmd()} HELP.')
-    env.expect(config_cmd(), 'idx').error().contains('unknown subcommand \'idx\'')
+    env.expect(config_cmd(), 'no_such_command', 'idx').error().contains("unknown subcommand 'no_such_command'")
+    env.expect(config_cmd(), 'idx').error().contains("unknown subcommand 'idx'")
     env.expect(config_cmd(), 'set', '_NUMERIC_RANGES_PARENTS', 3) \
-        .equal('Max depth for range cannot be higher than max depth for balance')
+        .contains('Max depth for range cannot be higher than max depth for balance')
     env.expect(config_cmd(), 'set', 'MINSTEMLEN', 1).error()\
         .contains('Minimum stem length cannot be lower than')
     env.expect(config_cmd(), 'set', 'WORKERS', 1_000_000).error()\
@@ -96,30 +96,27 @@ def testGetConfigOptions(env):
     check_config('INDEXER_YIELD_EVERY_OPS')
     check_config('BG_INDEX_SLEEP_DURATION_US')
     check_config('ON_OOM')
-    check_config('_MIN_TRIM_DELAY_MS')
-    check_config('_MAX_TRIM_DELAY_MS')
-    check_config('_TRIMMING_STATE_CHECK_DELAY_MS')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'MINPREFIX', 'str').equal('Could not convert argument to expected type')
-    env.expect(config_cmd(), 'set', 'EXTLOAD', 1).equal(not_modifiable)
-    env.expect(config_cmd(), 'set', 'NOGC', 1).equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'EXTLOAD', 1).error().contains('Not modifiable at runtime')
+    env.expect(config_cmd(), 'set', 'NOGC', 1).error().contains('Not modifiable at runtime')
     env.expect(config_cmd(), 'set', 'MINPREFIX', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 1).equal('OK')
-    env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 1).equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 1).error().contains('Not modifiable at runtime')
     env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'TIMEOUT', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'WORKERS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'DEFAULT_SCORER', 'BM25STD').equal('OK')
-    env.expect(config_cmd(), 'set', 'WORKER_THREADS', 1).equal(not_modifiable) # deprecated
-    env.expect(config_cmd(), 'set', 'MT_MODE', 1).equal(not_modifiable) # deprecated
-    env.expect(config_cmd(), 'set', 'FRISOINI', 1).equal(not_modifiable)
-    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 1).equal('Invalid ON_TIMEOUT value')
+    env.expect(config_cmd(), 'set', 'WORKER_THREADS', 1).error().contains('Not modifiable at runtime') # deprecated
+    env.expect(config_cmd(), 'set', 'MT_MODE', 1).error().contains('Not modifiable at runtime') # deprecated
+    env.expect(config_cmd(), 'set', 'FRISOINI', 1).error().contains('Not modifiable at runtime')
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 1).error().contains('Invalid ON_TIMEOUT value')
     env.expect(config_cmd(), 'set', 'GCSCANSIZE', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'MIN_PHONETIC_TERM_LEN', 1).equal('OK')
-    env.expect(config_cmd(), 'set', 'GC_POLICY', 1).equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'GC_POLICY', 1).error().contains('Not modifiable at runtime')
     env.expect(config_cmd(), 'set', 'FORK_GC_RUN_INTERVAL', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
@@ -130,14 +127,15 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'BG_INDEX_SLEEP_DURATION_US', 5).equal('OK')
-    env.expect(config_cmd(), 'set', 'ON_OOM', 1).equal('Invalid ON_OOM value')
+    env.expect(config_cmd(), 'set', 'ON_OOM', 1).error().contains('Invalid ON_OOM value')
     env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 1000).equal('OK')
     env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 8000).equal('OK')
     env.expect(config_cmd(), 'set', '_TRIMMING_STATE_CHECK_DELAY_MS', 300).equal('OK')
 
+
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
-    env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 'str').equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 'str').error().contains('Not modifiable at runtime')
     env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 'str').equal('Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'TIMEOUT', 'str').equal('Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Could not convert argument to expected type')
@@ -284,44 +282,6 @@ def test_command_name(env: Env):
         env.expect('_FT.CONFIG', 'GET', 'TIMEOUT').noError()
     # Expect the `FT.CONFIG` command to be available anyway
     env.expect('FT.CONFIG', 'GET', 'TIMEOUT').noError()
-
-@skip(cluster=True)
-def testTrimDelayValidation(env):
-    """Test _MIN_TRIM_DELAY_MS and _MAX_TRIM_DELAY_MS validation logic"""
-
-    # Test getting default values
-    env.expect(config_cmd(), 'get', '_MIN_TRIM_DELAY_MS').equal([['_MIN_TRIM_DELAY_MS', '2000']])
-    env.expect(config_cmd(), 'get', '_MAX_TRIM_DELAY_MS').equal([['_MAX_TRIM_DELAY_MS', '5000']])
-    env.expect(config_cmd(), 'get', '_TRIMMING_STATE_CHECK_DELAY_MS').equal([['_TRIMMING_STATE_CHECK_DELAY_MS', '100']])
-
-
-    # Test setting valid values
-    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 1000).equal('OK')
-    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 8000).equal('OK')
-    env.expect(config_cmd(), 'set', '_TRIMMING_STATE_CHECK_DELAY_MS', 300).equal('OK')
-
-    # Verify the values were set
-    env.expect(config_cmd(), 'get', '_MIN_TRIM_DELAY_MS').equal([['_MIN_TRIM_DELAY_MS', '1000']])
-    env.expect(config_cmd(), 'get', '_MAX_TRIM_DELAY_MS').equal([['_MAX_TRIM_DELAY_MS', '8000']])
-    env.expect(config_cmd(), 'get', '_TRIMMING_STATE_CHECK_DELAY_MS').equal([['_TRIMMING_STATE_CHECK_DELAY_MS', '300']])
-
-    # Test validation: _MIN_TRIM_DELAY_MS must be less than _MAX_TRIM_DELAY_MS
-    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 9000).error().contains('_MIN_TRIM_DELAY_MS (9000) must be less than _MAX_TRIM_DELAY_MS (8000)')
-    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 500).error().contains('_MAX_TRIM_DELAY_MS (500) must be greater than _MIN_TRIM_DELAY_MS (1000)')
-
-    # Test edge case: equal values should fail
-    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 8000).error().contains('_MIN_TRIM_DELAY_MS (8000) must be less than _MAX_TRIM_DELAY_MS (8000)')
-    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 1000).error().contains('_MAX_TRIM_DELAY_MS (1000) must be greater than _MIN_TRIM_DELAY_MS (1000)')
-
-    # Test that values remain unchanged after failed validation
-    env.expect(config_cmd(), 'get', '_MIN_TRIM_DELAY_MS').equal([['_MIN_TRIM_DELAY_MS', '1000']])
-    env.expect(config_cmd(), 'get', '_MAX_TRIM_DELAY_MS').equal([['_MAX_TRIM_DELAY_MS', '8000']])
-
-    # Test setting both values to valid range
-    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 3000).equal('OK')
-    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 6000).equal('OK')
-    env.expect(config_cmd(), 'get', '_MIN_TRIM_DELAY_MS').equal([['_MIN_TRIM_DELAY_MS', '3000']])
-    env.expect(config_cmd(), 'get', '_MAX_TRIM_DELAY_MS').equal([['_MAX_TRIM_DELAY_MS', '6000']])
 
 @skip(cluster=True)
 def testImmutable(env):

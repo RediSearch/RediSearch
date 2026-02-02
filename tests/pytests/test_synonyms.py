@@ -101,7 +101,7 @@ def testSynonymUpdateWorngArity(env):
         env.cmd('ft.synupdate', 'idx', 'id1')
 
 def testSynonymUpdateUnknownIndex(env):
-    env.expect('ft.synupdate', 'idx', '0', 'child').error().contains('no such index')
+    env.expect('ft.synupdate', 'idx', '0', 'child').error().contains('SEARCH_INDEX_NOT_FOUND: Index not found')
 
 def testSynonymDumpWorngArity(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
@@ -111,7 +111,7 @@ def testSynonymDumpWorngArity(env):
     env.expect('ft.syndump idx foo').error().contains('wrong number of arguments')
 
 def testSynonymUnknownIndex(env):
-    env.expect('ft.syndump', 'idx').error().contains('no such index')
+    env.expect('ft.syndump', 'idx').error().contains('SEARCH_INDEX_NOT_FOUND: Index not found')
 
 def testSynonymsRdb(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()

@@ -101,12 +101,12 @@ def testSuggestErrors(env):
         conn.execute_command('ft.SUGGET', 'ac', query)
         env.assertTrue(False)
     except Exception as e:
-        env.assertContains(str(e), 'Invalid query')
+        env.assertContains(str(e), 'SEARCH_SUGGEST_INVALID_QUERY: Invalid query')
     try:
         conn.execute_command('ft.SUGGET', 'ac', query + query)
         env.assertTrue(False)
     except Exception as e:
-        env.assertContains(str(e), 'Invalid query length')
+        env.assertContains(str(e), 'SEARCH_SUGGEST_QUERY_TOO_LONG: Invalid query length')
 
 def testSuggestPayload(env):
     skipOnCrdtEnv(env)
