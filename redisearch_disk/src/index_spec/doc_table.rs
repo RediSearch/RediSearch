@@ -19,6 +19,7 @@ use crate::{
     database::{ColumnFamilyGuard, Speedb, SpeedbMultithreadedDatabase},
     index_spec::{Key, deleted_ids::DeletedIdsStore},
     key_traits::{AsKeyExt, FromKeyExt},
+    value_traits::ValueExt,
 };
 use document::DocumentType;
 use ffi::t_docId;
@@ -158,16 +159,14 @@ impl DocTable {
 
         let new_doc_id = self.last_document_id.fetch_add(1, Ordering::Relaxed);
 
-        let entry_key = new_doc_id.as_key();
-        let dmd_bytes = DocumentMetadata {
+        let metadata = DocumentMetadata {
             key: key.clone(),
             score,
             flags,
             max_term_freq,
             doc_len,
             expiration,
-        }
-        .serialize();
+        };
 
         // Use a batch write to ensure atomicity: the old document deletion (if updating),
         // new document metadata, and reverse lookup are all written together.
@@ -179,12 +178,8 @@ impl DocTable {
             batch.delete_cf(&self.cf, old_id.as_key());
         }
 
-        batch.put_cf(&self.cf, entry_key, dmd_bytes);
-        batch.put_cf(
-            &self.reverse_lookup_cf,
-            <Vec<u8> as AsRef<[u8]>>::as_ref(&key),
-            new_doc_id.as_key(),
-        );
+        batch.put_cf(&self.cf, new_doc_id.as_key(), metadata.as_speedb_value());
+        batch.put_cf(&self.reverse_lookup_cf, &key, new_doc_id.as_key());
 
         self.database.write_opt(batch, &self.write_options)?;
 
@@ -224,7 +219,7 @@ impl DocTable {
         let dmd = self
             .database
             .get_cf(&self.cf, doc_id.as_key())?
-            .map(|dmd_bytes| DocumentMetadata::deserialize(&dmd_bytes));
+            .map(|value| DocumentMetadata::from_speedb_value(&value));
 
         Ok(dmd)
     }

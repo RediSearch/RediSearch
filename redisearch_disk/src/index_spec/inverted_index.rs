@@ -10,7 +10,7 @@ use inverted_index::{FilterMaskReader, RSIndexResult};
 use rqe_iterators::inverted_index::InvIndIterator;
 
 use super::DeletedIdsStore;
-use crate::merge_op::DeletedIdsMergeOperator;
+use crate::{merge_op::DeletedIdsMergeOperator, value_traits::ValueExt};
 
 use speedb::{
     BlockBasedOptions, ColumnFamilyDescriptor, Options as SpeedbDbOptions, SliceTransform,
@@ -139,6 +139,10 @@ impl PostingsListBlock {
 
         self.doc_ids.is_empty()
     }
+}
+
+impl ValueExt for PostingsListBlock {
+    type ArchivedType<'a> = term::block::ArchivedBlock;
 
     /// Serialize a postings list block into bytes for storage.
     ///
@@ -156,7 +160,7 @@ impl PostingsListBlock {
     ///
     /// The output is deterministic: given the same input, the same byte vector will be produced.
     /// This method asserts that the internal buffers are consistent and correctly sized.
-    pub fn serialize(&self) -> Vec<u8> {
+    fn as_speedb_value(&self) -> Vec<u8> {
         let Self { doc_ids, metadata } = self;
 
         // Assert that the lengths of the data buffers are correct:
@@ -190,6 +194,27 @@ impl PostingsListBlock {
         data.extend(metadata);
 
         data
+    }
+
+    fn archive_from_speedb_value(value: &[u8]) -> Self::ArchivedType<'_> {
+        term::block::ArchivedBlock::from_bytes(value.into())
+    }
+}
+
+impl From<term::block::ArchivedBlock> for PostingsListBlock {
+    fn from(archived: term::block::ArchivedBlock) -> Self {
+        let num_docs = archived.num_docs() as usize;
+
+        let mut doc_ids = Vec::with_capacity(num_docs * Self::DOC_ID_SIZE);
+        let mut metadata = Vec::with_capacity(num_docs * term::Metadata::SIZE);
+
+        for term in archived.iter() {
+            doc_ids.extend_from_slice(&term.doc_id().to_le_bytes());
+            metadata.extend_from_slice(&term.field_mask().to_le_bytes());
+            metadata.extend_from_slice(&term.frequency().to_le_bytes());
+        }
+
+        Self { doc_ids, metadata }
     }
 }
 
@@ -286,10 +311,13 @@ impl InvertedIndex {
             },
         }
         .into();
-        let block = block.serialize();
 
-        self.database
-            .put_cf_opt(&self.cf, key.as_key(), block, &self.write_options)?;
+        self.database.put_cf_opt(
+            &self.cf,
+            key.as_key(),
+            block.as_speedb_value(),
+            &self.write_options,
+        )?;
 
         Ok(())
     }
@@ -389,7 +417,7 @@ mod tests {
         block.push(doc1.clone());
         block.push(doc2.clone());
 
-        let block = term::block::ArchivedBlock::from_bytes(block.serialize().into());
+        let block = PostingsListBlock::archive_from_speedb_value(&block.as_speedb_value());
 
         assert_eq!(term::Document::from(block.get(0).unwrap()), doc1);
         assert_eq!(term::Document::from(block.get(1).unwrap()), doc2);

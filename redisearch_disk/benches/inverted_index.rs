@@ -1,5 +1,8 @@
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
-use redisearch_disk::index_spec::inverted_index::{PostingsListBlock, term};
+use redisearch_disk::{
+    index_spec::inverted_index::{PostingsListBlock, term},
+    value_traits::ValueExt,
+};
 
 fn get_single_element_test_cases() -> Vec<(&'static str, term::Document)> {
     vec![
@@ -69,7 +72,7 @@ fn create_test_documents(size: usize) -> Vec<term::Document> {
         .collect()
 }
 
-fn benchmark_single_element_serialize(c: &mut Criterion) {
+fn benchmark_single_element_as_speedb_value(c: &mut Criterion) {
     let mut group = c.benchmark_group("InvertedIndex::single_element_serialize");
 
     let test_cases = get_single_element_test_cases();
@@ -78,7 +81,7 @@ fn benchmark_single_element_serialize(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(name), &doc, |b, d| {
             b.iter(|| {
                 let block: PostingsListBlock = d.clone().into();
-                black_box(block.serialize())
+                black_box(block.as_speedb_value())
             });
         });
     }
@@ -86,19 +89,18 @@ fn benchmark_single_element_serialize(c: &mut Criterion) {
     group.finish();
 }
 
-fn benchmark_single_element_deserialize(c: &mut Criterion) {
+fn benchmark_single_element_archive_from_speedb_value(c: &mut Criterion) {
     let mut group = c.benchmark_group("InvertedIndex::single_element_deserialize");
 
     let test_cases = get_single_element_test_cases();
 
     for (name, doc) in test_cases {
         let block: PostingsListBlock = doc.clone().into();
-        let data = block.serialize();
+        let data = block.as_speedb_value();
 
         group.bench_with_input(BenchmarkId::from_parameter(name), &data, |b, bytes| {
             b.iter(|| {
-                let archived =
-                    term::block::ArchivedBlock::from_bytes(bytes.clone().into_boxed_slice());
+                let archived = PostingsListBlock::archive_from_speedb_value(&bytes);
                 black_box(term::Document::from(archived.get(0).unwrap()))
             });
         });
@@ -107,7 +109,7 @@ fn benchmark_single_element_deserialize(c: &mut Criterion) {
     group.finish();
 }
 
-fn benchmark_block_serialize(c: &mut Criterion) {
+fn benchmark_block_as_speedb_value(c: &mut Criterion) {
     let mut group = c.benchmark_group("InvertedIndex::block_serialize");
 
     for (name, size) in get_block_size_test_cases() {
@@ -119,7 +121,7 @@ fn benchmark_block_serialize(c: &mut Criterion) {
                 for doc in docs {
                     block.push(doc.clone());
                 }
-                black_box(block.serialize())
+                black_box(block.as_speedb_value())
             });
         });
     }
@@ -127,7 +129,7 @@ fn benchmark_block_serialize(c: &mut Criterion) {
     group.finish();
 }
 
-fn benchmark_block_deserialize(c: &mut Criterion) {
+fn benchmark_block_archive_from_speedb_value(c: &mut Criterion) {
     let mut group = c.benchmark_group("InvertedIndex::block_deserialize");
 
     for (name, size) in get_block_size_test_cases() {
@@ -137,12 +139,11 @@ fn benchmark_block_deserialize(c: &mut Criterion) {
         for doc in &documents {
             block.push(doc.clone());
         }
-        let data = block.serialize();
+        let data = block.as_speedb_value();
 
         group.bench_with_input(BenchmarkId::from_parameter(name), &data, |b, bytes| {
             b.iter(|| {
-                let archived =
-                    term::block::ArchivedBlock::from_bytes(bytes.clone().into_boxed_slice());
+                let archived = PostingsListBlock::archive_from_speedb_value(bytes);
                 let num_docs = archived.num_docs();
                 let mut results = Vec::with_capacity(num_docs as usize);
                 for i in 0..num_docs {
@@ -169,10 +170,10 @@ fn benchmark_block_roundtrip(c: &mut Criterion) {
                 for doc in docs {
                     block.push(doc.clone());
                 }
-                let data = block.serialize();
+                let data = block.as_speedb_value();
 
                 // Deserialize
-                let archived = term::block::ArchivedBlock::from_bytes(data.into_boxed_slice());
+                let archived = PostingsListBlock::archive_from_speedb_value(&data);
                 let num_docs = archived.num_docs();
                 let mut results = Vec::with_capacity(num_docs as usize);
                 for i in 0..num_docs {
@@ -188,10 +189,10 @@ fn benchmark_block_roundtrip(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    benchmark_single_element_serialize,
-    benchmark_single_element_deserialize,
-    benchmark_block_serialize,
-    benchmark_block_deserialize,
+    benchmark_single_element_as_speedb_value,
+    benchmark_single_element_archive_from_speedb_value,
+    benchmark_block_as_speedb_value,
+    benchmark_block_archive_from_speedb_value,
     benchmark_block_roundtrip,
 );
 

@@ -2,7 +2,7 @@ use std::mem::size_of;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::{DocumentFlag, DocumentFlags};
-use crate::index_spec::Key;
+use crate::{index_spec::Key, value_traits::ValueExt};
 
 /// Size in bytes of the expiration field (u64 seconds + u32 nanoseconds)
 const EXPIRATION_SIZE: usize = size_of::<u64>() + size_of::<u32>();
@@ -25,7 +25,9 @@ pub struct DocumentMetadata {
     pub expiration: Option<SystemTime>,
 }
 
-impl DocumentMetadata {
+impl ValueExt for DocumentMetadata {
+    type ArchivedType<'a> = ArchivedDocumentMetadata<'a>;
+
     /// Serializes the document metadata into a byte vector.
     ///
     /// The serialization format is:
@@ -42,8 +44,15 @@ impl DocumentMetadata {
     /// - When `HasExpiration` flag is set:
     ///   - 8 bytes: expiration seconds since UNIX_EPOCH (little-endian u64)
     ///   - 4 bytes: expiration subsecond nanoseconds (little-endian u32)
-    pub fn serialize(&self) -> Vec<u8> {
-        let key_bytes = &self.key;
+    fn as_speedb_value(&self) -> Vec<u8> {
+        let Self {
+            key: key_bytes,
+            score,
+            flags,
+            max_term_freq,
+            doc_len,
+            expiration,
+        } = self;
         let key_len = key_bytes.len() as u32;
 
         // Calculate the total size needed (base size + optional expiration)
@@ -53,20 +62,20 @@ impl DocumentMetadata {
             + size_of::<u32>()
             + size_of::<u32>()
             + size_of::<u32>();
-        let optional_section_size = self.expiration.map_or(0, |_| EXPIRATION_SIZE);
+        let optional_section_size = expiration.map_or(0, |_| EXPIRATION_SIZE);
         let mut bytes = Vec::with_capacity(base_size + optional_section_size);
 
         bytes.extend_from_slice(&key_len.to_le_bytes());
-        bytes.extend_from_slice(key_bytes);
-        bytes.extend_from_slice(&self.score.to_le_bytes());
-        bytes.extend_from_slice(&self.flags.bits().to_le_bytes());
-        bytes.extend_from_slice(&self.max_term_freq.to_le_bytes());
-        bytes.extend_from_slice(&self.doc_len.to_le_bytes());
+        bytes.extend(key_bytes);
+        bytes.extend_from_slice(&score.to_le_bytes());
+        bytes.extend_from_slice(&flags.bits().to_le_bytes());
+        bytes.extend_from_slice(&max_term_freq.to_le_bytes());
+        bytes.extend_from_slice(&doc_len.to_le_bytes());
 
         // Optional section: expiration (when HasExpiration flag is set)
-        if let Some(exp) = &self.expiration {
+        if let Some(exp) = expiration {
             debug_assert!(
-                self.flags.contains(DocumentFlag::HasExpiration),
+                flags.contains(DocumentFlag::HasExpiration),
                 "HasExpiration flag must be set when accessing expiration time"
             );
             let duration = exp.duration_since(UNIX_EPOCH).unwrap();
@@ -81,10 +90,8 @@ impl DocumentMetadata {
     ///
     /// # Panics
     /// Panics if the byte slice is malformed or too short.
-    pub fn deserialize(bytes: &[u8]) -> Self {
-        let archive = ArchivedDocumentMetadata::from_bytes(bytes);
-
-        archive.into()
+    fn archive_from_speedb_value(value: &[u8]) -> Self::ArchivedType<'_> {
+        ArchivedDocumentMetadata::from_bytes(value)
     }
 }
 
@@ -113,7 +120,7 @@ impl<'archive> ArchivedDocumentMetadata<'archive> {
     /// - When `HasExpiration` flag is set:
     ///   - An 8-byte little-endian unsigned integer representing expiration seconds since UNIX_EPOCH.
     ///   - A 4-byte little-endian unsigned integer representing expiration subsecond nanoseconds.
-    pub fn from_bytes(bytes: &'archive [u8]) -> Self {
+    fn from_bytes(bytes: &'archive [u8]) -> Self {
         assert!(
             bytes.len() >= size_of::<u32>(),
             "Insufficient bytes to read key length"
@@ -300,8 +307,8 @@ mod tests {
             expiration: None,
         };
 
-        let serialized = original.serialize();
-        let deserialized = DocumentMetadata::deserialize(&serialized);
+        let serialized = original.as_speedb_value();
+        let deserialized = DocumentMetadata::from_speedb_value(&serialized);
 
         assert_eq!(original, deserialized);
     }
@@ -318,8 +325,8 @@ mod tests {
             expiration: Some(expiration_time),
         };
 
-        let serialized = original.serialize();
-        let deserialized = DocumentMetadata::deserialize(&serialized);
+        let serialized = original.as_speedb_value();
+        let deserialized = DocumentMetadata::from_speedb_value(&serialized);
 
         assert_eq!(original, deserialized);
     }
@@ -337,7 +344,7 @@ mod tests {
             expiration: Some(expiration_time), // But expiration is Some
         };
 
-        original.serialize(); // This should panic since HasExpiration flag is not set and expiration is Some
+        original.as_speedb_value(); // This should panic since HasExpiration flag is not set and expiration is Some
     }
 
     #[test]
@@ -346,7 +353,7 @@ mod tests {
         let flags = DocumentFlag::Deleted.into(); // No HasExpiration flag
 
         let bytes = build_bytes(b"key", 1.0, flags, 10, 100, expiration);
-        let archived = ArchivedDocumentMetadata::from_bytes(&bytes);
+        let archived = DocumentMetadata::archive_from_speedb_value(&bytes);
 
         // Without the HasExpiration flag, expiration data shouldn't be read
         assert_eq!(archived.expiration(), None);
@@ -362,7 +369,7 @@ mod tests {
         let expiration = Some(UNIX_EPOCH + Duration::new(1706460000, 123456789));
 
         let bytes = build_bytes(key, score, flags, max_term_freq, doc_len, expiration);
-        let archived = ArchivedDocumentMetadata::from_bytes(&bytes);
+        let archived = DocumentMetadata::archive_from_speedb_value(&bytes);
 
         assert_eq!(archived.key(), key);
         assert_eq!(archived.score(), score);
@@ -378,7 +385,7 @@ mod tests {
     #[test]
     fn zero_values() {
         let bytes = build_bytes(b"key", 0.0, DocumentFlags::empty(), 0, 0, None);
-        let archived = ArchivedDocumentMetadata::from_bytes(&bytes);
+        let archived = DocumentMetadata::archive_from_speedb_value(&bytes);
 
         assert_eq!(archived.score(), 0.0);
         assert_eq!(archived.flags(), DocumentFlags::empty());
@@ -393,7 +400,7 @@ mod tests {
         // Use max values for expiration as well
         let expiration = Some(UNIX_EPOCH + Duration::new(u64::MAX / 2, 999_999_999));
         let bytes = build_bytes(b"key", f32::MAX, flags, u32::MAX, u32::MAX, expiration);
-        let archived = ArchivedDocumentMetadata::from_bytes(&bytes);
+        let archived = DocumentMetadata::archive_from_speedb_value(&bytes);
 
         assert_eq!(archived.score(), f32::MAX);
         assert_eq!(archived.max_term_freq(), u32::MAX);
@@ -405,7 +412,7 @@ mod tests {
     #[test]
     fn negative_score() {
         let bytes = build_bytes(b"key", -42.5, DocumentFlag::Deleted.into(), 5, 100, None);
-        let archived = ArchivedDocumentMetadata::from_bytes(&bytes);
+        let archived = DocumentMetadata::archive_from_speedb_value(&bytes);
 
         assert_eq!(archived.score(), -42.5);
     }
@@ -414,7 +421,7 @@ mod tests {
     #[should_panic(expected = "Insufficient bytes to read key length")]
     fn insufficient_bytes_for_key_length() {
         let bytes = vec![0u8, 1, 2]; // Only 3 bytes, need at least 4
-        ArchivedDocumentMetadata::from_bytes(&bytes);
+        DocumentMetadata::archive_from_speedb_value(&bytes);
     }
 
     #[test]
@@ -423,7 +430,7 @@ mod tests {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(10u32).to_le_bytes()); // Key length is 10
         bytes.extend_from_slice(b"short"); // But only 5 bytes of key data
-        ArchivedDocumentMetadata::from_bytes(&bytes);
+        DocumentMetadata::archive_from_speedb_value(&bytes);
     }
 
     #[test]
@@ -433,7 +440,7 @@ mod tests {
         bytes.extend_from_slice(&(3u32).to_le_bytes()); // Key length is 3
         bytes.extend_from_slice(b"key");
         bytes.extend_from_slice(&[0u8, 1]); // Only 2 bytes for score, need 4
-        ArchivedDocumentMetadata::from_bytes(&bytes);
+        DocumentMetadata::archive_from_speedb_value(&bytes);
     }
 
     #[test]
@@ -444,7 +451,7 @@ mod tests {
         bytes.extend_from_slice(b"key");
         bytes.extend_from_slice(&(1.5f32).to_le_bytes()); // Score
         bytes.extend_from_slice(&[0u8, 1]); // Only 2 bytes for flags, need 4
-        ArchivedDocumentMetadata::from_bytes(&bytes);
+        DocumentMetadata::archive_from_speedb_value(&bytes);
     }
 
     #[test]
@@ -456,7 +463,7 @@ mod tests {
         bytes.extend_from_slice(&(1.5f32).to_le_bytes()); // Score
         bytes.extend_from_slice(&DocumentFlags::empty().bits().to_le_bytes()); // Flags
         bytes.extend_from_slice(&[0u8, 1]); // Only 2 bytes for max_term_freq, need 4
-        ArchivedDocumentMetadata::from_bytes(&bytes);
+        DocumentMetadata::archive_from_speedb_value(&bytes);
     }
 
     #[test]
@@ -469,7 +476,7 @@ mod tests {
         bytes.extend_from_slice(&DocumentFlags::empty().bits().to_le_bytes()); // Flags
         bytes.extend_from_slice(&(10u32).to_le_bytes()); // max_term_freq
         bytes.extend_from_slice(&[0u8, 1]); // Only 2 bytes for doc_len, need 4
-        ArchivedDocumentMetadata::from_bytes(&bytes);
+        DocumentMetadata::archive_from_speedb_value(&bytes);
     }
 
     #[test]
@@ -479,7 +486,7 @@ mod tests {
         let mut bytes = build_bytes(b"key", 1.0, flags, 3, 4, expiration);
         bytes.extend_from_slice(b"extra_data_that_should_be_ignored");
 
-        let archived = ArchivedDocumentMetadata::from_bytes(&bytes);
+        let archived = DocumentMetadata::archive_from_speedb_value(&bytes);
 
         assert_eq!(archived.key(), b"key");
         assert_eq!(archived.score(), 1.0);
@@ -559,7 +566,7 @@ mod tests {
         let flags = DocumentFlag::Deleted | DocumentFlag::HasExpiration;
         let expiration = Some(UNIX_EPOCH + Duration::new(1706460000, 123456789));
         let bytes = build_bytes(key, 7.2, flags, 500, 1000, expiration);
-        let archived = ArchivedDocumentMetadata::from_bytes(&bytes);
+        let archived = DocumentMetadata::archive_from_speedb_value(&bytes);
 
         assert_eq!(archived.key(), key);
         assert_eq!(archived.score(), 7.2);
@@ -582,6 +589,6 @@ mod tests {
         bytes.extend_from_slice(&(10u32).to_le_bytes()); // max_term_freq
         bytes.extend_from_slice(&(100u32).to_le_bytes()); // doc_len
         // Missing expiration bytes
-        ArchivedDocumentMetadata::from_bytes(&bytes);
+        DocumentMetadata::archive_from_speedb_value(&bytes);
     }
 }

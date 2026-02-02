@@ -182,6 +182,7 @@ version = "0.0.1"
 dependencies = [
  "bindgen 0.72.1",
  "cbindgen",
+ "cc",
  "workspace_hack",
 ]
 
@@ -775,8 +776,6 @@ dependencies = [
  "glob",
  "libc",
  "libz-sys",
- "lz4-sys",
- "zstd-sys",
 ]
 
 [[package]]
@@ -821,16 +820,6 @@ name = "log"
 version = "0.4.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
-
-[[package]]
-name = "lz4-sys"
-version = "1.11.1+lz4-1.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bd8c0d6c6ed0cd30b3652886bb8711dc4bb01d637a68105a3d5158039b418e6"
-dependencies = [
- "cc",
- "libc",
-]
 
 [[package]]
 name = "memchr"
@@ -1004,6 +993,15 @@ dependencies = [
 name = "qint"
 version = "0.0.1"
 dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_error"
+version = "0.0.1"
+dependencies = [
+ "c_ffi_utils",
+ "strum",
  "workspace_hack",
 ]
 
@@ -1191,6 +1189,8 @@ dependencies = [
  "ffi",
  "field",
  "inverted_index",
+ "libc",
+ "query_error",
  "redis_mock",
  "thiserror",
  "types_ffi",
@@ -1761,9 +1761,11 @@ dependencies = [
  "regex-syntax",
  "serde",
  "serde_core",
+ "serde_json",
  "syn 1.0.109",
  "syn 2.0.111",
  "thiserror",
+ "toml",
  "tracing-core",
  "zerocopy",
 ]
@@ -1786,15 +1788,4 @@ dependencies = [
  "proc-macro2",
  "quote 1.0.42",
  "syn 2.0.111",
-]
-
-[[package]]
-name = "zstd-sys"
-version = "2.0.16+zstd.1.5.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
-dependencies = [
- "bindgen 0.72.1",
- "cc",
- "pkg-config",
 ]

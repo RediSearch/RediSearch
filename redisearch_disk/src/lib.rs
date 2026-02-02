@@ -6,6 +6,7 @@ pub mod merge_op;
 pub mod metrics;
 pub mod path_prefix;
 pub mod utils;
+pub mod value_traits;
 pub mod vecsim_disk;
 
 use crate::index_spec::IndexSpec;

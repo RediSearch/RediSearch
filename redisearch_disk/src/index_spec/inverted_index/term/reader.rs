@@ -6,7 +6,9 @@ use tracing::error;
 
 use crate::{
     document_id_key::DocumentIdKey,
+    index_spec::inverted_index::PostingsListBlock,
     key_traits::{AsKeyExt, FromKeyExt},
+    value_traits::ValueExt,
 };
 
 use super::super::InvertedIndexKey;
@@ -113,7 +115,7 @@ impl<'iterator, DBAccess: speedb::DBAccess> Reader<'iterator, DBAccess> {
             }
         };
 
-        let block = block::ArchivedBlock::from_bytes(value);
+        let block = PostingsListBlock::archive_from_speedb_value(&value);
 
         self.current_block = Some(block);
         self.current_block_key = Some(key);
@@ -139,7 +141,7 @@ impl<'iterator, DBAccess: speedb::DBAccess> Reader<'iterator, DBAccess> {
         }
 
         // Get the first document ID in the first block
-        let block = block::ArchivedBlock::from_bytes(value);
+        let block = PostingsListBlock::archive_from_speedb_value(&value);
         let first_id = block.get_unchecked(0).doc_id();
 
         // Now seek to the end to find the last document ID. This ID is stored as a suffix on the

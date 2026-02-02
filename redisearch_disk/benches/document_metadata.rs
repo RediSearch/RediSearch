@@ -3,6 +3,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use redisearch_disk::index_spec::Key;
 use redisearch_disk::index_spec::doc_table::{DocumentFlag, DocumentFlags, DocumentMetadata};
+use redisearch_disk::value_traits::ValueExt;
 
 fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
     const MAX_EXPIRATION_SECS: u64 = u64::MAX / 2;
@@ -62,32 +63,32 @@ fn get_test_cases() -> Vec<(&'static str, DocumentMetadata)> {
     ]
 }
 
-fn benchmark_document_metadata_serialize(c: &mut Criterion) {
+fn benchmark_document_metadata_as_speedb_value(c: &mut Criterion) {
     let mut group = c.benchmark_group("DocumentMetadata::serialize");
 
     let test_cases = get_test_cases();
 
     for (name, metadata) in test_cases {
         group.bench_with_input(BenchmarkId::from_parameter(name), &metadata, |b, meta| {
-            b.iter(|| black_box(meta.serialize()));
+            b.iter(|| black_box(meta.as_speedb_value()));
         });
     }
 
     group.finish();
 }
 
-fn benchmark_document_metadata_deserialize(c: &mut Criterion) {
+fn benchmark_document_metadata_from_speedb_value(c: &mut Criterion) {
     let mut group = c.benchmark_group("DocumentMetadata::deserialize");
 
     let test_cases = get_test_cases();
 
     for (name, metadata) in test_cases {
-        let serialized = metadata.serialize();
+        let serialized = metadata.as_speedb_value();
         group.bench_with_input(
             BenchmarkId::from_parameter(name),
             &serialized,
             |b, bytes| {
-                b.iter(|| black_box(DocumentMetadata::deserialize(bytes)));
+                b.iter(|| black_box(DocumentMetadata::from_speedb_value(&bytes)));
             },
         );
     }
@@ -107,8 +108,8 @@ fn benchmark_document_metadata_roundtrip(c: &mut Criterion) {
     for (name, metadata) in test_cases {
         group.bench_with_input(BenchmarkId::from_parameter(name), &metadata, |b, meta| {
             b.iter(|| {
-                let serialized = meta.serialize();
-                black_box(DocumentMetadata::deserialize(&serialized))
+                let serialized = meta.as_speedb_value();
+                black_box(DocumentMetadata::from_speedb_value(&serialized))
             });
         });
     }
@@ -118,8 +119,8 @@ fn benchmark_document_metadata_roundtrip(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    benchmark_document_metadata_serialize,
-    benchmark_document_metadata_deserialize,
+    benchmark_document_metadata_as_speedb_value,
+    benchmark_document_metadata_from_speedb_value,
     benchmark_document_metadata_roundtrip,
 );
 
