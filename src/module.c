@@ -67,6 +67,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "rs_wall_clock.h"
+#include "module_init.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -3793,6 +3794,9 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
+
+  TracingRedisModule_Init(ctx);
+  RustPanicHook_Init();
 
   setHiredisAllocators();
   uv_replace_allocator(rm_malloc, rm_realloc, rm_calloc, rm_free);
