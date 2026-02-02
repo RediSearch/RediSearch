@@ -1665,16 +1665,12 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
       rm_free((void*)fs->vectorOpts.diskCtx.indexName);
     }
 
-    // TODO(MOD-13179): The rerank field is not persisted in RDB. When the disk layer
-    // starts using rerank, we need to either:
-    // 1. Add rerank to RDB save/load (requires new RDB version), or
-    // 2. Store rerank in disk index metadata and read it back when opening
-    // For now, rerank defaults to false on RDB load.
+    // TODO: rerank is not persisted in RDB, defaulting to true on load.
     fs->vectorOpts.diskCtx = (VecSimDiskContext){
       .storage = sp->diskSpec,
       .indexName = rm_strndup(namePtr, nameLen),
       .indexNameLen = nameLen,
-      .rerank = false,
+      .rerank = true,
     };
   }
 }
