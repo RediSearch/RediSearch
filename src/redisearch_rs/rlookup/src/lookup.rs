@@ -485,7 +485,7 @@ fn load_many_keys<'a>(
     let mut keys = keys
         .into_iter()
         .map(|k| {
-            // Safety: ...
+            // Safety: `ffi::RLookupLoadOptions` requires a mutable pointer to the key array. We have full control over these keys as we handle them in the keylist. The following statements are not optimal, but will have to do for now.
             let k = unsafe { Pin::into_inner_unchecked(k.into_ref()) };
             ptr::from_ref(k).cast::<ffi::RLookupKey>()
         })

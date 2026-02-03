@@ -30,7 +30,7 @@ impl HiddenStringRef {
     /// Get the secret (aka. "unsafe" in C land) value from the underlying [`ffi::HiddenString`].
     ///
     /// This is safe **only if** the C function returns a pointer that stays valid
-    /// for at least the lifetime of `&self`, and the memory contains a NUL at `len`.
+    /// for at least the lifetime of `self`, and the memory contains a NUL at `len`.
     ///
     /// This consumes the `HiddenStringRef` and can only be called once.
     pub fn into_secret_value<'a>(self) -> &'a CStr {
