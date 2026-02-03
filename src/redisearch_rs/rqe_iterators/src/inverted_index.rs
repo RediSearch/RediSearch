@@ -631,21 +631,6 @@ where
     /// Filtering the results can be achieved by wrapping the reader with
     /// a [`inverted_index::FilterMaskReader`].
     ///
-    /// This constructor should only used in tests, production code should use
-    /// [`Term::new`] instead.
-    #[doc(hidden)]
-    pub fn new_simple(reader: R) -> Self {
-        let result = RSIndexResult::term();
-        Self {
-            it: InvIndIterator::new(reader, result, None),
-        }
-    }
-
-    /// Create an iterator returning results from a term inverted index.
-    ///
-    /// Filtering the results can be achieved by wrapping the reader with
-    /// a [`inverted_index::FilterMaskReader`].
-    ///
     /// `context`, `mask` and `predicate` are used to check for expired
     /// documents when reading from the inverted index.
     ///
