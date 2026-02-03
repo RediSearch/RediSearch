@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![allow(clippy::undocumented_unsafe_blocks)]
+#![allow(clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
 
 use std::mem::{self, offset_of};
 use std::ptr;
