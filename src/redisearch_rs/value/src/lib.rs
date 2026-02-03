@@ -7,12 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::CStr;
+use std::fmt::Debug;
 
-use crate::{
+pub use crate::{
     collection::{RsValueArray, RsValueMap},
+    rs_string::RsString,
     shared::SharedRsValue,
-    strings::{ConstString, RedisString, RmAllocString},
+    strings::RedisString,
     trio::RsValueTrio,
 };
 
@@ -29,6 +30,7 @@ mod test_utils;
 pub use test_utils::RSValueMock;
 
 pub mod collection;
+pub mod rs_string;
 pub mod shared;
 pub mod strings;
 pub mod trio;
@@ -42,12 +44,8 @@ pub enum RsValue {
     Null,
     /// Numeric value
     Number(f64),
-    /// String value
-    String(Box<CStr>),
-    /// String value backed by a rm_alloc'd string
-    RmAllocString(RmAllocString),
-    /// String value backed by a constant C string
-    ConstString(ConstString),
+    /// String
+    String(RsString),
     /// String value backed by a Redis string
     RedisString(RedisString),
     /// Array value
@@ -66,6 +64,20 @@ impl RsValue {
             ref_value.value().fully_dereferenced()
         } else {
             self
+        }
+    }
+
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            RsValue::Undefined => "Undefined",
+            RsValue::Null => "Null",
+            RsValue::Number(_) => "Number",
+            RsValue::String(_) => "String",
+            RsValue::RedisString(_) => "RedisString",
+            RsValue::Array(_) => "Array",
+            RsValue::Ref(_) => "Ref",
+            RsValue::Trio(_) => "Trio",
+            RsValue::Map(_) => "Map",
         }
     }
 }
