@@ -88,10 +88,10 @@ protected:
         parsed->cmd.hybridParams = &parsed->parsedHybridParams;
         parsed->cmd.reqConfig = &hreq->reqConfig;
         parsed->cmd.cursorConfig = &hreq->cursorConfig;
-        parsed->cmd.coordDispatchTime = &hreq->coordDispatchTime;
+        parsed->cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
         QueryError status = QueryError_Default();
-        int rc = parseHybridCommand(ctx, &ac, sctx, &parsed->cmd, &status, false);
+        int rc = parseHybridCommand(ctx, &ac, sctx, &parsed->cmd, &status, false, EXEC_NO_FLAGS);
         if (rc != REDISMODULE_OK) {
             delete parsed;
             return nullptr;
@@ -412,8 +412,8 @@ TEST_F(HybridBuildMRCommandTest, testShardKRatioModifiesK) {
     EXPECT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.5);
 
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, testIndexSpec,
-                                 &hybridParams, vq);
+    HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd, NULL,
+                                testIndexSpec, &hybridParams, vq);
 
     // Verify the command was built correctly
     EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -468,8 +468,8 @@ TEST_F(HybridBuildMRCommandTest, testShardKRatioMinGuarantee) {
     EXPECT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.1);
 
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, testIndexSpec,
-                                 &hybridParams, vq);
+    HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd, NULL,
+                                 testIndexSpec, &hybridParams, vq);
 
     // With 4 shards, K=100, ratio=0.1:
     // effectiveK = max(100/4, ceil(100*0.1)) = max(25, 10) = 25
@@ -519,8 +519,8 @@ TEST_F(HybridBuildMRCommandTest, testShardKRatioNoModificationWhenRatioIsOne) {
     EXPECT_DOUBLE_EQ(vq->knn.shardWindowRatio, 1.0);
 
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, testIndexSpec,
-                                 &hybridParams, vq);
+    HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd, NULL,
+                                 testIndexSpec, &hybridParams, vq);
 
     // K value should remain 50 since ratio = 1.0 means no modification
     long long kValue;
@@ -567,8 +567,8 @@ TEST_F(HybridBuildMRCommandTest, testShardKRatioNullVectorQuery) {
 
     // Pass NULL for VectorQuery to test backward compatibility - should not modify K
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, testIndexSpec,
-                                 &hybridParams, NULL);  // NULL VectorQuery
+    HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd, NULL,
+                                 testIndexSpec, &hybridParams, NULL);
 
     // K value should remain 25 since no VectorQuery provided
     long long kValue;
