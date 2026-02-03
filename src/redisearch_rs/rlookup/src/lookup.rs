@@ -501,7 +501,7 @@ fn load_many_keys<'a>(
     let mut options = ffi::RLookupLoadOptions {
         keys: keys.as_mut_ptr(),
         nkeys: keys.len(),
-        sctx: &mut sctx,
+        sctx: ptr::from_mut(&mut sctx),
         keyPtr: key.as_ptr(),
         type_: index_spec.rule().type_(),
         status: &mut status,
