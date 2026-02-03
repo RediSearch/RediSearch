@@ -1469,6 +1469,8 @@ mod tests {
         for fs in field_specs {
             unsafe {
                 ffi::HiddenString_Free(fs.fieldName, false);
+            }
+            unsafe {
                 ffi::HiddenString_Free(fs.fieldPath, false);
             }
         }
