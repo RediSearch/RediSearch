@@ -1,6 +1,9 @@
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use redisearch_disk::{
-    index_spec::inverted_index::{PostingsListBlock, term},
+    index_spec::inverted_index::{
+        block_traits::SerializableBlock,
+        term::{self, PostingsListBlock},
+    },
     value_traits::ValueExt,
 };
 
@@ -100,7 +103,7 @@ fn benchmark_single_element_archive_from_speedb_value(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::from_parameter(name), &data, |b, bytes| {
             b.iter(|| {
-                let archived = PostingsListBlock::archive_from_speedb_value(&bytes);
+                let archived = PostingsListBlock::archive_from_speedb_value(bytes);
                 black_box(term::Document::from(archived.get(0).unwrap()))
             });
         });

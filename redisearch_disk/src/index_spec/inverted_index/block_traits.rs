@@ -43,10 +43,23 @@ pub trait ArchivedBlock: Sized {
 
     /// Get the last document in the block, if it exists
     fn last(&self) -> Option<Self::Document<'_>>;
+
+    /// Binary search for a document by a key extracted from each document.
+    /// Returns Ok(index) if found, Err(insert_pos) if not found.
+    fn binary_search_by_key<B, F>(
+        &self,
+        start_index: Self::Index,
+        b: &B,
+        f: F,
+    ) -> Result<Self::Index, Self::Index>
+    where
+        F: FnMut(&Self::Document<'_>) -> B,
+        B: Ord;
 }
 
-/// Trait for block index types (u8, u16, etc.)
+/// Trait alias for block index types (u8, u16, etc.)
 /// This allows blocks to use different index sizes based on their capacity.
+/// Uses num_traits for standard numeric operations.
 pub trait BlockIndex:
     Copy + Ord + TryFrom<usize> + Into<usize> + num_traits::PrimInt + num_traits::FromPrimitive
 {
@@ -72,7 +85,7 @@ pub trait SerializableBlock {
     fn push(&mut self, doc: Self::Document);
 
     /// Serialize the block into bytes for storage
-    fn serialize(self) -> Vec<u8>;
+    fn serialize(&self) -> Vec<u8>;
 }
 
 /// Configuration trait for inverted index types.

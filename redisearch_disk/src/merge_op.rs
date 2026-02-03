@@ -7,7 +7,10 @@ use crate::{
     debug,
     index_spec::{
         deleted_ids::DeletedIdsStore,
-        inverted_index::{PostingsListBlock, term},
+        inverted_index::{
+            block_traits::SerializableBlock,
+            term::{self, PostingsListBlock},
+        },
     },
     value_traits::ValueExt,
 };
@@ -66,7 +69,7 @@ impl DeletedIdsMergeOperator {
         fn push_from_archived_block(
             block: &mut PostingsListBlock,
             deleted_ids: &DeletedIdsStore,
-            archived_block: &term::block::ArchivedBlock,
+            archived_block: &term::archive::ArchivedBlock,
         ) {
             for archived_doc in archived_block.iter() {
                 let doc_id = archived_doc.doc_id();
@@ -140,7 +143,10 @@ mod tests {
     use crate::{
         index_spec::{
             deleted_ids::{DeletedIds, DeletedIdsStore},
-            inverted_index::{PostingsListBlock, term},
+            inverted_index::{
+                block_traits::SerializableBlock,
+                term::{self, PostingsListBlock},
+            },
         },
         merge_op::DeletedIdsMergeOperator,
         value_traits::ValueExt,

@@ -1,276 +1,162 @@
 use ffi::t_docId;
 use std::mem::size_of;
 
-use super::{Document, Metadata};
+use super::{Document, Metadata, archive::ArchivedBlock};
+use crate::index_spec::inverted_index::block_traits;
+use crate::value_traits::ValueExt;
 
-/// An archived representation of a Document in a postings list. This type holds direct references
-/// to byte arrays representing the fields.
-pub struct ArchivedDocument<'archive> {
-    doc_id: &'archive [u8; size_of::<t_docId>()],
-    field_mask: &'archive [u8; size_of::<u128>()],
-    frequency: &'archive [u8; size_of::<u64>()],
+/// We use a block-based postings list to store document IDs of all documents containing the term and metadata for each document in the term context. This allows
+/// us to quickly jump over large sections of the postings list when searching.
+#[derive(Clone, Default)]
+pub struct PostingsListBlock {
+    /// Document IDs in this postings list block
+    doc_ids: Vec<u8>,
+
+    /// The metadata for each document in this postings list block
+    metadata: Vec<u8>,
 }
 
-impl<'archive> ArchivedDocument<'archive> {
-    /// Map the byte slice to an ArchivedDocument at the given index, panicking if the slice is too short.
-    ///
-    /// # Panics
-    /// Panics if the provided byte slice does not contain enough bytes to read:
-    /// - An 8-byte little-endian unsigned integer representing the doc_id at the index.
-    /// - A 16-byte little-endian unsigned integer representing the field_mask at the index.
-    /// - An 8-byte little-endian unsigned integer representing the frequency at the index.
-    #[inline(always)]
-    fn from_bytes(bytes: &'archive [u8], index: u8, num_docs: u8) -> Self {
-        let doc_id_offset = (index as usize) * size_of::<t_docId>();
-        let doc_id_end = doc_id_offset + size_of::<t_docId>();
+impl PostingsListBlock {
+    const LATEST_VERSION: u8 = 0;
 
-        // Check that there are enough bytes to read the doc_id
-        // - 8 bytes for doc_id
-        assert!(
-            bytes.len() >= doc_id_end,
-            "Insufficient bytes to read doc_id"
+    /// Size of the version and the length
+    const LENGTH_SIZE: usize = size_of::<u8>();
+    const VERSION_SIZE: usize = size_of_val(&Self::LATEST_VERSION);
+    const HEADER_SIZE: usize = Self::VERSION_SIZE + Self::LENGTH_SIZE;
+
+    /// Amount of bytes needed to store a doc id in the block
+    const DOC_ID_SIZE: usize = size_of::<t_docId>();
+    /// Amount of bytes needed to store a document in the block
+    const DOCUMENT_SIZE: usize = Self::DOC_ID_SIZE + Metadata::SIZE;
+
+    /// Check if this block is empty
+    pub fn is_empty(&self) -> bool {
+        debug_assert!(
+            self.doc_ids.len() / Self::DOC_ID_SIZE == self.metadata.len() / Metadata::SIZE,
+            "Document IDs and metadata buffers must have the same number of entries"
         );
 
-        // SAFETY: We have already validated the slice lengths above. We are also extracting exactly the required number of bytes.
-        let doc_id = unsafe {
-            bytes[doc_id_offset..doc_id_end]
-                .try_into()
-                .unwrap_unchecked()
-        };
+        self.doc_ids.is_empty()
+    }
+}
 
-        let metadata_start = num_docs as usize * size_of::<t_docId>();
-        let metadata_offset = metadata_start + (index as usize) * Metadata::SIZE;
-        let frequency_start = metadata_offset + size_of::<u128>();
-        let frequency_end = frequency_start + size_of::<u64>();
+impl From<Document> for PostingsListBlock {
+    fn from(doc: Document) -> Self {
+        let doc_ids = doc.doc_id.to_le_bytes().to_vec();
+        let mut metadata = Vec::with_capacity(Metadata::SIZE);
 
-        // Check that there are enough bytes to read the metadata
-        // - 16 bytes for field_mask
-        // - 8 bytes for frequency
-        assert!(
-            bytes.len() >= frequency_end,
-            "Insufficient bytes to read Metadata"
+        metadata.extend_from_slice(&doc.metadata.field_mask.to_le_bytes());
+        metadata.extend_from_slice(&doc.metadata.frequency.to_le_bytes());
+
+        Self { doc_ids, metadata }
+    }
+}
+
+impl From<ArchivedBlock> for PostingsListBlock {
+    fn from(archived: ArchivedBlock) -> Self {
+        let num_docs = archived.num_docs() as usize;
+
+        let mut doc_ids = Vec::with_capacity(num_docs * Self::DOC_ID_SIZE);
+        let mut metadata = Vec::with_capacity(num_docs * Metadata::SIZE);
+
+        for doc in archived.iter() {
+            doc_ids.extend_from_slice(&doc.doc_id().to_le_bytes());
+            metadata.extend_from_slice(&doc.field_mask().to_le_bytes());
+            metadata.extend_from_slice(&doc.frequency().to_le_bytes());
+        }
+
+        Self { doc_ids, metadata }
+    }
+}
+
+// Implement the SerializableBlock trait for PostingsListBlock
+impl block_traits::SerializableBlock for PostingsListBlock {
+    type Document = Document;
+
+    /// Create a new block builder. Does not allocate until documents are pushed.
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create a new block builder and reserve space for `cap` documents
+    fn with_capacity(cap: usize) -> Self {
+        Self {
+            doc_ids: Vec::with_capacity(cap * Self::DOC_ID_SIZE),
+            metadata: Vec::with_capacity(cap * Metadata::SIZE),
+        }
+    }
+
+    /// Add a full document to the block
+    fn push(&mut self, doc: Self::Document) {
+        self.doc_ids.extend_from_slice(&doc.doc_id.to_le_bytes());
+
+        self.metadata
+            .extend_from_slice(&doc.metadata.field_mask.to_le_bytes());
+        self.metadata
+            .extend_from_slice(&doc.metadata.frequency.to_le_bytes());
+    }
+
+    /// Serialize a postings list block into bytes for storage.
+    ///
+    /// # Layout
+    /// A block holding two documents is laid out as follows:
+    ///
+    /// ```txt
+    /// | 0    | 1   | [2,9]    | [10,17]  | [18,33]      | [34,51] | [52,67]      | [68,75] |
+    /// | ---- | --- | -------- | -------- | ------------ | ------- | ------------ | ------- |
+    /// | VERS | LEN | doc_id_1 | doc_id_2 | field_mask_1 | freq_1  | field_mask_2 | freq_2  |
+    /// ```
+    /// I.e. first comes the header containing the version (1 byte) and the length (1 byte),
+    /// then the document IDs, (8 bytes each), then the metadata for each document
+    /// which each consist of a field mask (16 bytes each) and a frequency (8 bytes each).
+    ///
+    /// The output is deterministic: given the same input, the same byte vector will be produced.
+    /// This method asserts that the internal buffers are consistent and correctly sized.
+    fn serialize(&self) -> Vec<u8> {
+        let Self { doc_ids, metadata } = self;
+
+        // Assert that the lengths of the data buffers are correct:
+        // 1. They must be a multiple of the length of the items they contain
+        debug_assert!(doc_ids.len().is_multiple_of(Self::DOC_ID_SIZE));
+        debug_assert!(metadata.len().is_multiple_of(Metadata::SIZE));
+        // 2. They must contain an equal number of items
+        debug_assert_eq!(
+            doc_ids.len() / Self::DOC_ID_SIZE,
+            metadata.len() / Metadata::SIZE
         );
 
-        // SAFETY: We have already validated the slice lengths above. We are also extracting exactly the required number of bytes.
-        let field_mask = unsafe {
-            bytes[metadata_offset..frequency_start]
-                .try_into()
-                .unwrap_unchecked()
-        };
+        let num_docs = doc_ids.len() / Self::DOC_ID_SIZE;
 
-        // SAFETY: We have already validated the slice lengths above. We are also extracting exactly the required number of bytes.
-        let frequency = unsafe {
-            bytes[frequency_start..frequency_end]
-                .try_into()
-                .unwrap_unchecked()
-        };
+        let data_size = num_docs * Self::DOCUMENT_SIZE + Self::HEADER_SIZE;
 
-        ArchivedDocument {
-            doc_id,
-            field_mask,
-            frequency,
-        }
-    }
-
-    #[inline(always)]
-    pub fn doc_id(&self) -> t_docId {
-        u64::from_le_bytes(*self.doc_id)
-    }
-
-    #[inline(always)]
-    pub fn field_mask(&self) -> u128 {
-        u128::from_le_bytes(*self.field_mask)
-    }
-
-    #[inline(always)]
-    pub fn frequency(&self) -> u64 {
-        u64::from_le_bytes(*self.frequency)
-    }
-}
-
-impl<'archive> From<ArchivedDocument<'archive>> for Document {
-    fn from(archived: ArchivedDocument<'archive>) -> Self {
-        Document {
-            doc_id: archived.doc_id(),
-            metadata: Metadata {
-                field_mask: archived.field_mask(),
-                frequency: archived.frequency(),
-            },
-        }
-    }
-}
-
-/// An archived representation of a block of full documents in a term context in a postings list. This type holds a
-/// reference to the underlying byte array and provides methods to access the documents.
-pub struct ArchivedBlock {
-    version: u8,
-    /// Currently speedb has a default block size of 4Kb for the value We probably don't want blocks
-    /// larger than that anyway. Going towards 64kb block size will probably mean we need to turn on
-    /// blob storage on Speedb. That doesn't sound like the most performant component from talking
-    /// to the Speedb team.
-    ///
-    /// Every document entry is 32 bytes (8 bytes for doc_id, 16 bytes for field_mask, 8 bytes for
-    /// frequency), so we can fit at most 128 docs in a block. Thus, we can store the number of
-    /// docs as a u8 (max 255 entries).
-    num_docs: u8,
-    bytes: Box<[u8]>,
-}
-
-impl ArchivedBlock {
-    /// The offset at the front of the data used to store metadata like version and number of docs.
-    /// - 1 byte for version
-    /// - 1 byte for number of docs
-    const BASE_OFFSET: usize = 2;
-
-    /// Create a Block from a byte slice
-    ///
-    /// # Panics
-    /// Panics if the byte slice is less than 2 bytes long, or if it does not contain enough bytes for all docs.
-    pub fn from_bytes(bytes: Box<[u8]>) -> Self {
-        assert!(
-            bytes.len() >= Self::BASE_OFFSET,
-            "Byte slice must be at least 2 bytes long to read the version and number of docs"
+        // 3. The lengths of the buffer must equal the total size
+        //    minus the reserved space for the version and length
+        debug_assert_eq!(
+            doc_ids.len() + metadata.len(),
+            data_size - Self::HEADER_SIZE
         );
 
-        let version = bytes[0];
+        let mut data = Vec::with_capacity(data_size);
 
-        match version {
-            0 => {
-                let num_docs = u8::from_le_bytes([bytes[1]]);
+        data.push(Self::LATEST_VERSION);
+        data.push(num_docs.try_into().expect(
+            "PostingsListBlock can only serialize up to 255 docs; increase length size if needed",
+        ));
+        data.extend(doc_ids);
+        data.extend(metadata);
 
-                // Calculate expected size
-                // - 1 byte for version and 1 byte for count
-                // - num_docs * 32 bytes for docs
-                //   - 8 bytes for doc_id
-                //   - 16 bytes for field_mask
-                //   - 8 bytes for frequency
-                let expected_size = (num_docs as usize)
-                    .saturating_mul(size_of::<t_docId>() + Metadata::SIZE)
-                    .saturating_add(Self::BASE_OFFSET);
-
-                assert!(
-                    bytes.len() >= expected_size,
-                    "Byte slice does not contain enough bytes for all docs"
-                );
-
-                ArchivedBlock {
-                    bytes,
-                    num_docs,
-                    version,
-                }
-            }
-            _ => panic!("Unsupported Block version: {}", version),
-        }
-    }
-
-    /// Get number of docs in the block
-    #[inline(always)]
-    pub fn num_docs(&self) -> u8 {
-        self.num_docs
-    }
-
-    /// Get version of the block
-    #[inline(always)]
-    #[allow(unused)]
-    pub fn version(&self) -> u8 {
-        self.version
-    }
-
-    /// Perform a binary search over the docs in the block using a key extraction function
-    pub fn binary_search_by_key<B, F>(&self, start_index: u8, b: &B, mut f: F) -> Result<u8, u8>
-    where
-        F: FnMut(&ArchivedDocument<'_>) -> B,
-        B: Ord,
-    {
-        (start_index..self.num_docs)
-            .collect::<Vec<_>>()
-            .binary_search_by_key(b, |index| {
-                let doc = ArchivedDocument::from_bytes(
-                    &self.bytes[Self::BASE_OFFSET..],
-                    *index,
-                    self.num_docs,
-                );
-                f(&doc)
-            })
-            .map(|pos| pos as u8 + start_index)
-            .map_err(|insert_pos| {
-                u8::try_from(insert_pos).expect("to not overflow the block entries") + start_index
-            })
-    }
-
-    /// Get doc at index if it exists
-    pub fn get(&self, index: u8) -> Option<ArchivedDocument<'_>> {
-        if index >= self.num_docs {
-            return None;
-        }
-
-        let doc =
-            ArchivedDocument::from_bytes(&self.bytes[Self::BASE_OFFSET..], index, self.num_docs);
-        Some(doc)
-    }
-
-    /// Get doc at index without bounds checking
-    ///
-    /// # Panic
-    /// Panics if index >= num_docs
-    pub fn get_unchecked(&self, index: u8) -> ArchivedDocument<'_> {
-        ArchivedDocument::from_bytes(&self.bytes[Self::BASE_OFFSET..], index, self.num_docs)
-    }
-
-    /// Get the last doc in the block if it exists
-    pub fn last(&self) -> Option<ArchivedDocument<'_>> {
-        if self.num_docs == 0 {
-            return None;
-        }
-
-        self.get(self.num_docs - 1)
-    }
-
-    /// Get an iterator over the documents in this block
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = ArchivedDocument<'_>> {
-        (0..self.num_docs).map(|i| self.get_unchecked(i))
+        data
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+impl ValueExt for PostingsListBlock {
+    type ArchivedType<'a> = ArchivedBlock;
 
-    #[test]
-    fn deserialize_version_0() {
-        // Create a byte array representing a version 0 Block with 2 docs
-        let mut bytes: Vec<u8> = Vec::with_capacity(2 + 2 * 32);
-        bytes.extend_from_slice(&[0u8]); // version 0
-        bytes.extend_from_slice(&2u8.to_le_bytes()); // number of docs = 2
+    fn as_speedb_value(&self) -> Vec<u8> {
+        <Self as block_traits::SerializableBlock>::serialize(self)
+    }
 
-        // Doc 1 ID
-        bytes.extend_from_slice(&1u64.to_le_bytes()); // doc_id = 1
-
-        // Doc 2 Id
-        bytes.extend_from_slice(&2u64.to_le_bytes()); // doc_id = 2
-
-        // Doc 1 Metadata
-        bytes.extend_from_slice(&0x10000000000000000000000000000001u128.to_le_bytes()); // field_mask
-        bytes.extend_from_slice(&5u64.to_le_bytes()); // frequency = 5
-
-        // Doc 2 Metadata
-        bytes.extend_from_slice(&0xFFFFu128.to_le_bytes()); // field_mask
-        bytes.extend_from_slice(&10u64.to_le_bytes()); // frequency = 10
-
-        let archived_block = ArchivedBlock::from_bytes(bytes.into());
-        assert_eq!(archived_block.version(), 0);
-        assert_eq!(archived_block.num_docs(), 2);
-
-        let doc1 = archived_block.get(0).unwrap();
-        assert_eq!(doc1.doc_id(), 1);
-        assert_eq!(doc1.field_mask(), 0x10000000000000000000000000000001);
-        assert_eq!(doc1.frequency(), 5);
-
-        let doc2 = archived_block.get(1).unwrap();
-        assert_eq!(doc2.doc_id(), 2);
-        assert_eq!(doc2.field_mask(), 0xFFFF);
-        assert_eq!(doc2.frequency(), 10);
-
-        assert!(archived_block.get(2).is_none());
+    fn archive_from_speedb_value(value: &[u8]) -> Self::ArchivedType<'_> {
+        ArchivedBlock::from_bytes(value.into())
     }
 }

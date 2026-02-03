@@ -1,21 +1,24 @@
 use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
 use inverted_index::IndexReader;
-use num_traits::Zero;
 use speedb::DBIteratorWithThreadMode;
 use thiserror::Error;
 use tracing::error;
 
-use crate::key_traits::AsKeyExt;
+use crate::{
+    document_id_key::DocumentIdKey,
+    key_traits::{AsKeyExt, FromKeyExt},
+};
 
 use super::{
+    InvertedIndexKey,
     block_traits::{ArchivedBlock, ArchivedDocument as _},
-    InvertedIndexKey, DELIMITER_SIZE, DOC_ID_KEY_SIZE,
 };
 
 /// Checks if a key belongs to the given term by verifying that the key's prefix
 /// (everything except the doc_id suffix) matches the expected term key prefix.
 fn key_belongs_to_term(key: &[u8], term_key_prefix: &[u8]) -> bool {
-    key.len() >= DOC_ID_KEY_SIZE && &key[..key.len() - DOC_ID_KEY_SIZE] == term_key_prefix
+    key.len() >= InvertedIndexKey::DOC_ID_KEY_SIZE
+        && &key[..key.len() - InvertedIndexKey::DOC_ID_KEY_SIZE] == term_key_prefix
 }
 
 /// Error type for posting list construction failures
@@ -29,7 +32,11 @@ pub enum ReaderCreateError {
 
 /// A generic index reader for postings lists stored in blocks.
 /// This reader works with any block type that implements the `ArchivedBlock` trait.
-pub struct GenericReader<'iterator, DBAccess, Block> {
+pub struct GenericReader<'iterator, DBAccess, Block>
+where
+    DBAccess: speedb::DBAccess,
+    Block: ArchivedBlock,
+{
     /// The underlying Speedb iterator for reading the postings list blocks.
     iterator: DBIteratorWithThreadMode<'iterator, DBAccess>,
 
@@ -82,7 +89,7 @@ where
             key_prefix,
             current_block: None,
             current_block_key: None,
-            block_index: <Block as ArchivedBlock>::Index::zero(),
+            block_index: num_traits::Zero::zero(),
             estimate,
         })
     }
@@ -95,19 +102,12 @@ where
                 (key, value)
             }
             Some(Err(error)) => {
-                // Skip key_prefix + delimiter to get the 8-byte doc_id
+                // Skip key_prefix + 1 byte delimiter to get the 8-byte doc_id
                 let last_block_document_id = self
                     .current_block_key
                     .as_ref()
-                    .and_then(|key| {
-                        let doc_id_start = self.key_prefix.len() + DELIMITER_SIZE;
-                        if key.len() >= doc_id_start + 8 {
-                            let bytes: [u8; 8] = key[doc_id_start..doc_id_start + 8].try_into().ok()?;
-                            Some(t_docId::from_be_bytes(bytes))
-                        } else {
-                            None
-                        }
-                    });
+                    .map(|key| &key[self.key_prefix.len() + InvertedIndexKey::DELIMITER_SIZE..])
+                    .and_then(|key| DocumentIdKey::from_key(key).ok());
 
                 error!(
                     error = &error as &dyn std::error::Error,
@@ -118,7 +118,7 @@ where
             }
             _ => {
                 self.current_block = None;
-                self.block_index = <Block as ArchivedBlock>::Index::zero();
+                self.block_index = num_traits::Zero::zero();
                 return false;
             }
         };
@@ -127,7 +127,7 @@ where
 
         self.current_block = Some(block);
         self.current_block_key = Some(key);
-        self.block_index = <Block as ArchivedBlock>::Index::zero();
+        self.block_index = num_traits::Zero::zero();
 
         true
     }
@@ -150,9 +150,7 @@ where
 
         // Get the first document ID in the first block
         let block = Block::from_bytes(value);
-        let first_id = block
-            .get_unchecked(<Block as ArchivedBlock>::Index::zero())
-            .doc_id();
+        let first_id = block.get_unchecked(num_traits::Zero::zero()).doc_id();
 
         // Now seek to the end to find the last document ID
         let end_key = InvertedIndexKey {
@@ -173,13 +171,13 @@ where
             .map_err(ReaderCreateError::SpeedbError)?;
 
         // Verify the key belongs to our term
-        let expected_key_len = key_prefix.len() + DOC_ID_KEY_SIZE;
+        let expected_key_len = key_prefix.len() + InvertedIndexKey::DOC_ID_KEY_SIZE;
         if key.len() != expected_key_len || !key.starts_with(key_prefix) {
             return Err(ReaderCreateError::ParseLastKey);
         }
 
         // Extract doc_id: skip key_prefix and the delimiter byte
-        let doc_id_start = key_prefix.len() + DELIMITER_SIZE;
+        let doc_id_start = key_prefix.len() + InvertedIndexKey::DELIMITER_SIZE;
         let doc_id_bytes = &key[doc_id_start..];
         let last_doc_id = t_docId::from_be_bytes(
             doc_id_bytes
@@ -212,7 +210,7 @@ where
             doc.populate_result(result);
         }
 
-        self.block_index = self.block_index + 1;
+        self.block_index = self.block_index + num_traits::One::one();
 
         let num_docs = self.current_block.as_ref().unwrap().num_docs();
         if self.block_index >= num_docs {
@@ -227,7 +225,9 @@ where
         doc_id: t_docId,
         result: &mut inverted_index::RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
-        if !self.skip_to(doc_id) || self.block_index >= self.num_docs() {
+        if !self.skip_to(doc_id)
+            || self.block_index >= self.current_block.as_ref().unwrap().num_docs()
+        {
             return Ok(false);
         }
 
@@ -243,14 +243,14 @@ where
             };
 
             let Some(entry) = block.get(self.block_index) else {
-                self.block_index = block.num_docs() - 1;
+                self.block_index = block.num_docs() - num_traits::One::one();
                 return Ok(false);
             };
 
             entry.populate_result(result);
         }
 
-        self.block_index = self.block_index + 1;
+        self.block_index = self.block_index + num_traits::One::one();
 
         let num_docs = self.current_block.as_ref().unwrap().num_docs();
         if self.block_index >= num_docs {
@@ -304,6 +304,5 @@ where
         false
     }
 
-    fn refresh_buffer_pointers(&mut self) {
-    }
+    fn refresh_buffer_pointers(&mut self) {}
 }
