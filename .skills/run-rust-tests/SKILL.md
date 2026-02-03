@@ -10,8 +10,8 @@ Run Rust tests after making changes to verify correctness.
 ## Arguments
 - No arguments: Analyze changes and run tests for affected crates only
 - `all`: Run all Rust tests
-- `<crate>`: Run tests for specific crate (e.g., `/rust-test hyperloglog`)
-- `<crate> <test>`: Run specific test in crate (e.g., `/rust-test hyperloglog test_merge`)
+- `<crate>`: Run tests for specific crate (e.g., `/run-rust-tests hyperloglog`)
+- `<crate> <test>`: Run specific test in crate (e.g., `/run-rust-tests hyperloglog test_merge`)
 
 Arguments provided: `$ARGUMENTS`
 

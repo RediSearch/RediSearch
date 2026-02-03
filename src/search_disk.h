@@ -151,7 +151,7 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
  * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
  * @return New document ID, or 0 on error or if the key already exists
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, struct timespec documentTtl);
 
 /**
  * @brief Get document metadata by document ID

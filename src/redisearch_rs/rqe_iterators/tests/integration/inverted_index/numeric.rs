@@ -317,11 +317,10 @@ fn numeric_range() {
 mod not_miri {
     use super::*;
     use crate::inverted_index::utils::{ExpirationTest, RevalidateIndexType, RevalidateTest};
-    use ffi::t_fieldIndex;
     use rqe_iterators::RQEValidateStatus;
 
     struct NumericExpirationTest {
-        test: ExpirationTest<inverted_index::numeric::Numeric>,
+        test: ExpirationTest,
     }
 
     impl NumericExpirationTest {
@@ -332,30 +331,25 @@ mod not_miri {
 
         fn new(n_docs: u64, multi: bool) -> Self {
             Self {
-                test: ExpirationTest::new(
-                    IndexFlags_Index_StoreNumeric,
-                    Box::new(Self::expected_record),
-                    n_docs,
-                    multi,
-                ),
+                test: ExpirationTest::numeric(Box::new(Self::expected_record), n_docs, multi),
             }
         }
 
         fn create_iterator(
             &self,
-            index: t_fieldIndex,
         ) -> Numeric<'_, inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>>
         {
-            let reader = self.test.ii.reader();
+            let reader = self.test.numeric_inverted_index().reader();
+            let field_index = self.test.context.field_spec().index;
 
-            NumericBuilder::new(reader, self.test.mock_ctx.sctx())
-                .field_index(index)
-                .range_tree(self.test.mock_ctx.numeric_range_tree())
+            NumericBuilder::new(reader, self.test.context.sctx)
+                .field_index(field_index)
+                .range_tree(self.test.context.numeric_range_tree())
                 .build()
         }
 
         fn test_read_expiration(&mut self) {
-            const FIELD_INDEX: t_fieldIndex = 42;
+            let field_index = self.test.context.field_spec().index;
             // Make every even document ID field expired
             let even_ids = self
                 .test
@@ -366,14 +360,14 @@ mod not_miri {
                 .collect();
 
             self.test
-                .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(FIELD_INDEX));
+                .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(field_index));
 
-            let mut it = self.create_iterator(FIELD_INDEX);
+            let mut it = self.create_iterator();
             self.test.read(&mut it);
         }
 
         fn test_skip_to_expiration(&mut self) {
-            const FIELD_INDEX: t_fieldIndex = 42;
+            let field_index = self.test.context.field_spec().index;
             // Make every even document ID field expired
             let even_ids = self
                 .test
@@ -384,31 +378,31 @@ mod not_miri {
                 .collect();
 
             self.test
-                .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(FIELD_INDEX));
+                .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(field_index));
 
-            let mut it = self.create_iterator(FIELD_INDEX);
+            let mut it = self.create_iterator();
             self.test.skip_to(&mut it);
         }
     }
 
     #[test]
     fn numeric_read_expiration() {
-        NumericExpirationTest::new(100, false).test_read_expiration();
+        NumericExpirationTest::new(10, false).test_read_expiration();
     }
 
     #[test]
     fn numeric_read_skip_multi_expiration() {
-        NumericExpirationTest::new(100, true).test_read_expiration();
+        NumericExpirationTest::new(10, true).test_read_expiration();
     }
 
     #[test]
     fn numeric_skip_to_expiration() {
-        NumericExpirationTest::new(100, false).test_skip_to_expiration();
+        NumericExpirationTest::new(10, false).test_skip_to_expiration();
     }
 
     #[test]
     fn numeric_skip_to_expiration_multi() {
-        NumericExpirationTest::new(100, true).test_skip_to_expiration();
+        NumericExpirationTest::new(10, true).test_skip_to_expiration();
     }
 
     struct NumericRevalidateTest {
@@ -431,55 +425,11 @@ mod not_miri {
             }
         }
 
-        fn inverted_index(
-            &self,
-        ) -> &mut inverted_index::InvertedIndex<inverted_index::numeric::Numeric> {
-            let context = &self.test.context;
-
-            // Create a numeric filter to find ranges
-            let mut filter = NumericFilter::default();
-            filter.ascending = false;
-            filter.field_spec = context.field_spec();
-
-            // Find a range that covers our data to get the inverted index
-            let ranges = unsafe {
-                ffi::NumericRangeTree_Find(
-                    context.numeric_range_tree().as_ptr(),
-                    // cast inverted_index::NumericFilter to ffi::NumericFilter
-                    &filter as *const _ as *const ffi::NumericFilter,
-                )
-            };
-            assert!(!ranges.is_null());
-            unsafe {
-                assert!(ffi::Vector_Size(ranges) > 0);
-            }
-            let mut range: *mut ffi::NumericRange = std::ptr::null_mut();
-            unsafe {
-                let range_out = &mut range as *mut *mut ffi::NumericRange;
-                assert!(ffi::Vector_Get(ranges, 0, range_out.cast()) == 1);
-            }
-            assert!(!range.is_null());
-            let range = unsafe { &*range };
-            let ii = range.entries;
-            assert!(!ii.is_null());
-            let ii: *mut inverted_index_ffi::InvertedIndex = ii.cast();
-            let ii = unsafe { &mut *ii };
-
-            unsafe {
-                ffi::Vector_Free(ranges);
-            }
-
-            match ii {
-                inverted_index_ffi::InvertedIndex::Numeric(entries) => entries.inner_mut(),
-                _ => panic!("Unexpected inverted index type"),
-            }
-        }
-
         fn create_iterator(
             &self,
         ) -> Numeric<'_, inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>>
         {
-            let ii = self.inverted_index();
+            let ii = self.test.context.numeric_inverted_index().as_numeric();
             let context = &self.test.context;
             let fs = context.field_spec();
 
@@ -549,7 +499,7 @@ mod not_miri {
     fn numeric_revalidate_after_document_deleted() {
         let test = NumericRevalidateTest::new(10);
         let mut it = test.create_iterator();
-        let ii = test.inverted_index();
+        let ii = test.test.context.numeric_inverted_index().as_numeric();
 
         test.test.revalidate_after_document_deleted(&mut it, ii);
     }

@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
+
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow};
 use sorting_vector::RSSortingVector;
 use std::{
@@ -132,9 +134,9 @@ struct WriteKeyMock<'a> {
 }
 
 impl<'a> WriteKeyMock<'a> {
-    fn new(rlookup: &RLookup<'_>) -> Self {
+    const fn new(rlookup: &RLookup<'_>) -> Self {
         Self {
-            row: RLookupRow::new(&rlookup),
+            row: RLookupRow::new(rlookup),
             num_resize: 0,
         }
     }

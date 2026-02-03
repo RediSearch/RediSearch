@@ -7,11 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::hash::Hasher;
+use std::{hash::Hasher, hint::black_box};
 
 use criterion::{
-    BenchmarkGroup, Criterion, Throughput, black_box, criterion_group, criterion_main,
-    measurement::WallTime,
+    BenchmarkGroup, Criterion, Throughput, criterion_group, criterion_main, measurement::WallTime,
 };
 use hyperloglog::{CFnvHasher, HyperLogLog, HyperLogLog10, Murmur3Hasher};
 

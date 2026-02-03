@@ -354,17 +354,17 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     #[track_caller]
     #[cfg(any(debug_assertions, test))]
     pub fn assert_valid(&self, ctx: &str) {
-        for val in &self.dyn_values {
-            if let Some(val) = val
-                && let Some(refcount) = val.refcount()
-            {
-                assert!(refcount >= 1, "{ctx} RSValue refcount must not be zero");
-            }
+        for val in self.dyn_values.iter().flatten() {
+            assert!(
+                val.refcount() >= 1,
+                "{ctx} RSValue refcount must not be zero"
+            );
         }
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {
     use std::ptr;
 

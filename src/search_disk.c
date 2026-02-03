@@ -40,7 +40,8 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   }
   RedisModule_Log(ctx, "warning", "RediSearch disk API enabled");
 
-  disk_db = disk->basic.open(ctx, "redisearch");
+  disk_db = disk->basic.open(ctx);
+
   return disk_db != NULL;
 }
 
@@ -93,7 +94,7 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
     return disk->index.newWildcardIterator(index, weight);
 }
 
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl) {
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, struct timespec documentTtl) {
     RS_ASSERT(disk && handle);
     return disk->docTable.putDocument(handle, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl);
 }

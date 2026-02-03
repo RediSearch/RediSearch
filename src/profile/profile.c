@@ -19,6 +19,7 @@
 #include "reply_macros.h"
 #include "util/units.h"
 #include "coord/rmr/rmr.h"
+#include "hybrid/hybrid_request.h"
 
 typedef struct {
     IteratorsConfig *iteratorsConfig;
@@ -102,6 +103,8 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_MAX_SCORE_NORMALIZER:
       case RP_NETWORK:
       case RP_SAFE_DEPLETER:
+      case RP_VECTOR_NORMALIZER:
+      case RP_HYBRID_MERGER:
       case RP_DEPLETER:
         printProfileType(RPTypeToString(rp->type));
         break;
@@ -124,8 +127,16 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     return upstreamTime;
   }
   double totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPProfile_GetClock(rp));
+
+  // For RP_SAFE_DEPLETER, use depletion time as the total time instead of
+  // RPProfile time because the actual work happens in the background thread
+  if (rp->upstream && rp->upstream->type == RP_SAFE_DEPLETER) {
+    totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPSafeDepleter_GetDepletionTime(rp->upstream));
+  }
+
   if (printProfileClock) {
-    printProfileTime(totalRPTime - upstreamTime);
+    double deltaTime = totalRPTime - upstreamTime;
+    printProfileTime(deltaTime);
   }
   printProfileRPCounter(RPProfile_GetCount(rp) - 1);
   RedisModule_Reply_MapEnd(reply); // end of recursive map
@@ -136,19 +147,54 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
   return _recursiveProfilePrint(reply, rp, printProfileClock);
 }
 
-void Profile_Print(RedisModule_Reply *reply, void *ctx) {
-  AREQ *req = ctx;
-  ProfilePrinterCtx *profileCtx = AREQ_ProfilePrinterCtx(req);
+void Profile_PrintResultProcessors(RedisModule_Reply *reply, ResultProcessor *rp, bool verbose) {
+  printProfileRP(reply, rp, verbose);
+}
+
+// Internal implementation that supports an optional callback to print extra
+// content before the result processors section.
+// Used in hybrid search profile to print the hybrid search subqueries profile.
+static void Profile_PrintCommon(RedisModule_Reply *reply,
+                                ProfileRequest *request,
+                                ProfilePrinterCB printbeforeRPSectionCB,
+                                void *beforeRPSectionCtx) {
+  ProfilePrinterCtx *profileCtx = NULL;
+  ProfileClocks *clocks = NULL;
+  QueryProcessingCtx *qctx = NULL;
+  QEFlags reqFlags = 0;
+  bool profile_verbose = false;
+  AREQ *req = NULL;  // Keep for iterator access
+
+  switch (request->type) {
+    case PROFILE_REQUEST_TYPE_AREQ:
+      req = request->req;
+      profileCtx = AREQ_ProfilePrinterCtx(req);
+      profile_verbose = req->reqConfig.printProfileClock;
+      clocks = &(req->profileClocks);
+      qctx = AREQ_QueryProcessingCtx(req);
+      reqFlags = AREQ_RequestFlags(req);
+      break;
+
+    case PROFILE_REQUEST_TYPE_HYBRID: {
+      HybridRequest *hreq = request->hreq;
+      profileCtx = &(hreq->profileCtx);
+      profile_verbose = hreq->reqConfig.printProfileClock;
+      clocks = &(hreq->profileClocks);
+      qctx = &hreq->tailPipeline->qctx;
+      reqFlags = (QEFlags)hreq->reqflags;
+      break;
+    }
+  }
+
   bool timedout = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
   bool reachedMaxPrefixExpansions = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
   bool bgScanOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
   bool queryOOM = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
   bool asmTrimmingDelayTimeout = ProfileWarnings_Has(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
-  req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
-  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+
+  clocks->profileTotalTime += rs_wall_clock_elapsed_ns(&clocks->initClock);
 
   RedisModule_Reply_Map(reply);
-  int profile_verbose = req->reqConfig.printProfileClock;
 
   // Get and add the Shard ID string to the profile reply (guarded by a ref count).
   const char *node_id = MR_GetLocalNodeId();
@@ -160,13 +206,18 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   // Print total time
   if (profile_verbose) {
     RedisModule_ReplyKV_Double(reply, "Total profile time",
-                               rs_wall_clock_convert_ns_to_ms_d(req->profileTotalTime));
+                               rs_wall_clock_convert_ns_to_ms_d(clocks->profileTotalTime));
   }
 
   // Print query parsing time
   if (profile_verbose) {
     RedisModule_ReplyKV_Double(reply, "Parsing time",
-                               rs_wall_clock_convert_ns_to_ms_d(req->profileParseTime));
+                               rs_wall_clock_convert_ns_to_ms_d(clocks->profileParseTime));
+  }
+
+  if (profile_verbose) {
+    RedisModule_ReplyKV_Double(reply, "Workers queue time",
+                               rs_wall_clock_convert_ns_to_ms_d(clocks->profileQueueTime));
   }
 
   if (profile_verbose) {
@@ -177,21 +228,22 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   // Print iterators creation time
   if (profile_verbose) {
     RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
-                               rs_wall_clock_convert_ns_to_ms_d(req->profilePipelineBuildTime));
+                               rs_wall_clock_convert_ns_to_ms_d(clocks->profilePipelineBuildTime));
   }
 
   // Print total GIL time
   if (profile_verbose) {
-    if (AREQ_RequestFlags(req) & QEXEC_F_RUN_IN_BACKGROUND) {
+    if (reqFlags & QEXEC_F_RUN_IN_BACKGROUND) {
       RedisModule_ReplyKV_Double(reply, "Total GIL time",
                                  rs_wall_clock_convert_ns_to_ms_d(qctx->queryGILTime));
     }
   }
 
+  bool isInternal = reqFlags & QEXEC_F_INTERNAL;
   // Print coord dispatch time if this is a shard handling a coordinator request.
-  if (profile_verbose && IsInternal(req)) {
+  if (profile_verbose && isInternal && req) {
     RedisModule_ReplyKV_Double(reply, "Coordinator dispatch time [ms]",
-                               rs_wall_clock_convert_ns_to_ms_d(req->coordDispatchTime));
+                               rs_wall_clock_convert_ns_to_ms_d(req->profileClocks.coordDispatchTime));
   }
 
   // Print whether a warning was raised throughout command execution
@@ -220,7 +272,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   RedisModule_Reply_ArrayEnd(reply); // >warnings
 
   // Print cursor reads count if this is a cursor request.
-  if (IsCursor(req)) {
+  if (req && IsCursor(req)) {
     // Only internal requests can use profile with cursor.
     RS_ASSERT(IsInternal(req));
     RedisModule_ReplyKV_LongLong(reply, "Internal cursor reads", profileCtx->cursor_reads);
@@ -229,7 +281,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   // Print profile of iterators
   QueryIterator *root = QITR_GetRootFilter(qctx);
   // Coordinator does not have iterators
-  if (root) {
+  if (req && root) {
     RedisModule_Reply_SimpleString(reply, "Iterators profile");
     PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
                                  .printProfileClock = profile_verbose};
@@ -237,12 +289,46 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
                          AREQ_RequestFlags(req) & QEXEC_F_PROFILE_LIMITED, &config);
   }
 
+  // Call printbeforeRPSectionCB if provided (before printing main result processors)
+  if (printbeforeRPSectionCB) {
+    printbeforeRPSectionCB(reply, beforeRPSectionCtx);
+  }
+
   // Print profile of result processors
   ResultProcessor *rp = qctx->endProc;
   RedisModule_ReplyKV_Array(reply, "Result processors profile");
-  printProfileRP(reply, rp, req->reqConfig.printProfileClock);
+  printProfileRP(reply, rp, profile_verbose);
   RedisModule_Reply_ArrayEnd(reply);
   RedisModule_Reply_MapEnd(reply);
+}
+
+void Profile_PrintHybrid(RedisModule_Reply *reply, void *ctx) {
+  HybridRequest *hreq = ctx;
+  ProfileRequest request = {
+    .type = PROFILE_REQUEST_TYPE_HYBRID,
+    .hreq = hreq
+  };
+  Profile_PrintCommon(reply, &request, NULL, NULL);
+}
+
+void Profile_PrintHybridExtra(RedisModule_Reply *reply, void *ctx,
+                              ProfilePrinterCB printbeforeRPSectionCB,
+                              void *beforeRPSectionCtx) {
+  HybridRequest *hreq = ctx;
+  ProfileRequest request = {
+    .type = PROFILE_REQUEST_TYPE_HYBRID,
+    .hreq = hreq
+  };
+  Profile_PrintCommon(reply, &request, printbeforeRPSectionCB, beforeRPSectionCtx);
+}
+
+void Profile_Print(RedisModule_Reply *reply, void *ctx) {
+  AREQ *req = ctx;
+  ProfileRequest request = {
+    .type = PROFILE_REQUEST_TYPE_AREQ,
+    .req = req
+  };
+  Profile_PrintCommon(reply, &request, NULL, NULL);
 }
 
 void Profile_PrepareMapForReply(RedisModule_Reply *reply) {

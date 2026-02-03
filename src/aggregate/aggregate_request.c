@@ -16,7 +16,7 @@
 #include <rmutil/util.h>
 #include "ext/default.h"
 #include "extension.h"
-#include "profile.h"
+#include "profile/profile.h"
 #include "config.h"
 #include "util/timeout.h"
 #include "query_optimizer.h"
@@ -673,7 +673,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .maxAggregateResults = &req->maxAggregateResults,
         .querySlots = &req->querySlots,
         .keySpaceVersion = &req->keySpaceVersion,
-        .coordDispatchTime = &req->coordDispatchTime,
+        .coordDispatchTime = &req->profileClocks.coordDispatchTime,
       };
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
@@ -1131,7 +1131,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .maxAggregateResults = &req->maxAggregateResults,
     .querySlots = &req->querySlots,
     .keySpaceVersion = &req->keySpaceVersion,
-    .coordDispatchTime = &req->coordDispatchTime,
+    .coordDispatchTime = &req->profileClocks.coordDispatchTime,
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
     goto error;
@@ -1295,11 +1295,17 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
     QueryNode_ApplyAttributes(vecNode, pvd->attributes, array_len(pvd->attributes), status);
   }
 
-  // Set vector node as ast->root and use setFilterNode for proper filter integration
-  // setFilterNode handles both KNN (child relationship) and RANGE (intersection) properly
+  // Set vector node as ast->root and use SetFilterNode for proper filter integration.
+  // SetFilterNode handles both KNN (child relationship) and RANGE (intersection) properly.
+  // For RANGE queries without explicit FILTER, we skip filter integration to keep
+  // the vector node as root directly, preserving BY_SCORE ordering from the iterator.
+  RS_LOG_ASSERT(!(pvd->skipFilterIntegration && ast->root != NULL),
+                "ast->root should be NULL when skipFilterIntegration is true");
   QueryNode *oldRoot = ast->root;
   ast->root = vecNode;
-  SetFilterNode(ast, oldRoot);
+  if (!pvd->skipFilterIntegration) {
+    SetFilterNode(ast, oldRoot);
+  }
 
   return REDISMODULE_OK;
 }
@@ -1372,9 +1378,17 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   unsigned long dialectVersion = req->reqConfig.dialectVersion;
 
-  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
-  if (rv != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
+  // For RANGE queries without explicit FILTER (skipFilterIntegration=true), we
+  // can skip parsing the wildcard query "*" since we'll immediately replace
+  // ast->root with the vector node anyway. This avoids allocating and freeing a
+  // wildcard node unnecessarily.
+  bool skipParse = req->parsedVectorData && req->parsedVectorData->skipFilterIntegration;
+
+  if (!skipParse) {
+    int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
+    if (rv != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
   }
 
   if (req->parsedVectorData) {

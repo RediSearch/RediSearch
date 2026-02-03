@@ -26,6 +26,7 @@ thiserror.workspace = true
 redis_mock.workspace = true
 value_ffi = { path = "../c_entrypoint/value_ffi" }
 types_ffi = { path = "../c_entrypoint/types_ffi" }
+varint_ffi = { path = "../c_entrypoint/varint_ffi" }
 value = { workspace = true, features = ["c_ffi_impl"] }
 workspace_hack.workspace = true
 
@@ -33,7 +34,7 @@ workspace_hack.workspace = true
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
 rqe_iterators = { path = ".", features = ["unittest"] }
-inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi" }
+rqe_iterators_test_utils = { workspace = true }
 
 # Crate required to invoke C symbols
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
