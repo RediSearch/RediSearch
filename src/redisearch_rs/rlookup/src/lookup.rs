@@ -433,7 +433,7 @@ impl<'a> RLookup<'a> {
     ) -> i32 {
         let keys = create_keys_from_spec(self, index_spec);
         let pushed_keys = keys.into_iter().map(|k| self.keys.push(k)).collect();
-        load_many_keys(self, module_ctx, dst_row, index_spec, key, pushed_keys)
+        load_specific_keys(self, module_ctx, dst_row, index_spec, key, pushed_keys)
     }
 }
 
@@ -471,7 +471,7 @@ fn create_key_from_data<'a>(
     }
 }
 
-fn load_many_keys<'a>(
+fn load_specific_keys<'a>(
     lookup: &mut RLookup<'a>,
     module_ctx: &mut ffi::RedisModuleCtx,
     dst_row: &mut RLookupRow<'a, value::RSValueFFI>,
