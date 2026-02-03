@@ -16,7 +16,7 @@
 #include <rmutil/util.h>
 #include "ext/default.h"
 #include "extension.h"
-#include "profile.h"
+#include "profile/profile.h"
 #include "config.h"
 #include "util/timeout.h"
 #include "query_optimizer.h"
@@ -673,7 +673,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .maxAggregateResults = &req->maxAggregateResults,
         .querySlots = &req->querySlots,
         .keySpaceVersion = &req->keySpaceVersion,
-        .coordDispatchTime = &req->coordDispatchTime,
+        .coordDispatchTime = &req->profileClocks.coordDispatchTime,
       };
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
@@ -1131,7 +1131,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .maxAggregateResults = &req->maxAggregateResults,
     .querySlots = &req->querySlots,
     .keySpaceVersion = &req->keySpaceVersion,
-    .coordDispatchTime = &req->coordDispatchTime,
+    .coordDispatchTime = &req->profileClocks.coordDispatchTime,
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
     goto error;

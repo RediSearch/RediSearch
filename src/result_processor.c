@@ -1184,10 +1184,12 @@ void RPProfile_IncrementCount(ResultProcessor *rp) {
 
 void Profile_AddRPs(QueryProcessingCtx *qctx) {
   ResultProcessor *cur = qctx->endProc = RPProfile_New(qctx->endProc, qctx);
-  while (cur && cur->upstream && cur->upstream->upstream) {
+  while (cur && cur->upstream) {
     cur = cur->upstream;
-    cur->upstream = RPProfile_New(cur->upstream, qctx);
-    cur = cur->upstream;
+    if (cur->upstream) {  // Only add profile RP if there's another RP upstream
+      cur->upstream = RPProfile_New(cur->upstream, qctx);
+      cur = cur->upstream;
+    }
   }
 }
 
@@ -1382,6 +1384,7 @@ typedef struct {
   RPStatus last_rc;                    // Last return code from upstream
   bool first_call;                     // Whether the first call to Next has been made
   StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
+  rs_wall_clock_ns_t depletionTime;    // Time spent depleting in the background thread (nanoseconds)
 } RPSafeDepleter;
 
 /*
@@ -1454,6 +1457,15 @@ static void RPSafeDepleter_Free(ResultProcessor *base) {
   rm_free(self);
 }
 
+/**
+ * Get the depletion time for RPSafeDepleter.
+ * This is the time spent in the background thread depleting upstream results.
+ */
+rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(ResultProcessor *base) {
+  RPSafeDepleter *self = (RPSafeDepleter *)base;
+  return self->depletionTime;
+}
+
 // Helper function for RPSafeDepleter_Deplete that does the actual work of locking, depleting, and unlocking
 static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSync *sync) {
   RPStatus rc;
@@ -1500,6 +1512,10 @@ static void RPSafeDepleter_Deplete(void *arg) {
   RPSafeDepleter *self = (RPSafeDepleter *)arg;
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
 
+  // Start timing the depletion
+  rs_wall_clock depletionStart;
+  rs_wall_clock_init(&depletionStart);
+
   // Check if timeout was exceeded before starting execution
   if (TimedOut(&self->depletingThreadCtx->time.timeout) == NOT_TIMED_OUT) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
@@ -1510,6 +1526,9 @@ static void RPSafeDepleter_Deplete(void *arg) {
       atomic_fetch_add(&sync->num_locked, 1);
     }
   }
+
+  // Record the depletion time
+  self->depletionTime = rs_wall_clock_elapsed_ns(&depletionStart);
 
   // Signal completion
   RPSafeDepleter_SignalDone(self, sync);
@@ -1648,6 +1667,7 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
   ret->sync_ref = sync_ref;
   ret->depletingThreadCtx = depletingThreadCtx;
   ret->nextThreadCtx = nextThreadCtx;
+  ret->depletionTime = 0;  // Initialize depletion time to 0
   // Make sure the sync reference is valid
   RS_LOG_ASSERT(StrongRef_Get(sync_ref), "Invalid sync reference");
   return &ret->base;
