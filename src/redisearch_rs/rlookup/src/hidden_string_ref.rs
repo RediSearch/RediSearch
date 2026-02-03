@@ -10,7 +10,7 @@
 use std::{ffi::CStr, ptr::NonNull};
 
 /// A safe wrapper around a non-null `ffi::HiddenString` reference.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 pub struct HiddenStringRef(NonNull<ffi::HiddenString>);
 
