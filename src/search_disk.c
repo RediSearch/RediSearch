@@ -9,6 +9,7 @@
 
 #include "search_disk.h"
 #include "config.h"
+#include "index_result/query_term/query_term.h"
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
@@ -81,9 +82,16 @@ bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term,
     return disk->index.indexDocument(index, term, termLen, docId, fieldMask, freq);
 }
 
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_fieldMask fieldMask, double weight, double idf, double bm25_idf) {
-    RS_ASSERT(disk && index && term);
-    return disk->index.newTermIterator(index, term, termLen, fieldMask, weight, idf, bm25_idf);
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf) {
+    RS_ASSERT(disk && index && tok);
+    RSQueryTerm *term = NewQueryTerm(tok, tokenId);
+    term->idf = idf;
+    term->bm25_idf = bm25_idf;
+    QueryIterator *it = disk->index.newTermIterator(index, term, fieldMask, weight);
+    if (!it) {
+        Term_Free(term);
+    }
+    return it;
 }
 
 QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight) {
@@ -91,7 +99,7 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
     return disk->index.newWildcardIterator(index, weight);
 }
 
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, struct timespec documentTtl) {
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl) {
     RS_ASSERT(disk && handle);
     return disk->docTable.putDocument(handle, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl);
 }

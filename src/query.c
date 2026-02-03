@@ -531,7 +531,7 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
     size_t numDocsInTerm = trienode ? trienode->numDocs : 0;
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, qn->tn.str, qn->tn.len, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight, idf, bm25_idf);
+    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &qn->tn, q->tokenId++, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight, idf, bm25_idf);
   } else {
     return Redis_OpenReader(q->sctx, &qn->tn, q->tokenId++, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
   }
@@ -552,7 +552,7 @@ static inline void addTerm(char *str, size_t tok_len, size_t numDocsInTerm, Quer
   if (q->sctx->spec->diskSpec) {
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & opts->fieldMask, 1, idf, bm25_idf);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &tok, q->tokenId++, q->opts->fieldmask & opts->fieldMask, 1, idf, bm25_idf);
   } else {
     // Open an index reader
     ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
@@ -800,7 +800,7 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t nu
   if (q->sctx->spec->diskSpec) {
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & ctx->opts->fieldMask, 1, idf, bm25_idf);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &tok, ctx->q->tokenId++, q->opts->fieldmask & ctx->opts->fieldMask, 1, idf, bm25_idf);
   } else {
     ir = Redis_OpenReader(q->sctx, &tok, ctx->q->tokenId++, &q->sctx->spec->docs,
                                         q->opts->fieldmask & ctx->opts->fieldMask, 1);
@@ -833,7 +833,7 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
     size_t numDocsInTerm = trienode ? trienode->numDocs : 0;
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & ctx->opts->fieldMask, 1, idf, bm25_idf);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &tok, q->tokenId++, q->opts->fieldmask & ctx->opts->fieldMask, 1, idf, bm25_idf);
   } else {
     ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
                                         q->opts->fieldmask & ctx->opts->fieldMask, 1);
