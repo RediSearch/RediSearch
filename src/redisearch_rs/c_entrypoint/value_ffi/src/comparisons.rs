@@ -14,20 +14,28 @@ pub unsafe extern "C" fn RSValue_Cmp(
     let v1 = unsafe { expect_value(v1) };
     let v2 = unsafe { expect_value(v2) };
 
-    match compare(v1, v2, status.is_null()) {
-        Ok(Ordering::Less) => -1,
-        Ok(Ordering::Equal) => 0,
-        Ok(Ordering::Greater) => 1,
-        Err(CompareError::NaNNumber) => 0,
-        Err(CompareError::MapComparison) => 0,
-        Err(CompareError::IncompatibleTypes) => 0,
-        Err(CompareError::NoNumberToStringFallback) => {
-            // SAFETY: Number conversion failed and status was provided.
-            let query_error = unsafe { status.as_mut().unwrap() };
-            let message = c"Error converting string".to_owned();
-            query_error.set_code_and_message(QueryErrorCode::NotNumeric, Some(message));
-            // even though we're returning 'equal', the query error code is likely checked for a possible error.
-            0
+    if let (RsValue::String(s1), RsValue::String(s2)) = (v1, v2) {
+        match s1.as_bytes().cmp(s2.as_bytes()) {
+            Ordering::Less => -1,
+            Ordering::Equal => 0,
+            Ordering::Greater => 1,
+        }
+    } else {
+        match compare(v1, v2, status.is_null()) {
+            Ok(Ordering::Less) => -1,
+            Ok(Ordering::Equal) => 0,
+            Ok(Ordering::Greater) => 1,
+            Err(CompareError::NaNNumber) => 0,
+            Err(CompareError::MapComparison) => 0,
+            Err(CompareError::IncompatibleTypes) => 0,
+            Err(CompareError::NoNumberToStringFallback) => {
+                // SAFETY: Number conversion failed and status was provided.
+                let query_error = unsafe { status.as_mut().unwrap() };
+                let message = c"Error converting string".to_owned();
+                query_error.set_code_and_message(QueryErrorCode::NotNumeric, Some(message));
+                // even though we're returning 'equal', the query error code is likely checked for a possible error.
+                0
+            }
         }
     }
 }
