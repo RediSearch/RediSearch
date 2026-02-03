@@ -55,7 +55,7 @@ fn rlookuprow_move() {
     let key = lookup
         .get_key_read(c"foo", RLookupKeyFlags::empty())
         .unwrap();
-    assert!(dst.get(&key).is_some());
+    assert!(dst.get(key).is_some());
 }
 
 #[test]
