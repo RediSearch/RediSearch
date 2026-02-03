@@ -21,6 +21,7 @@ impl HiddenStringRef {
     ///
     /// 1. `ptr` must be a valid non-null pointer to an `ffi::HiddenString` that is properly initialized.
     ///    This also applies to any of its subfields.
+    /// 2. The pointed to `ffi::HiddenString` must not be mutated for the entire lifetime of the returned `HiddenStringRef`.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw(ptr: *const ffi::HiddenString) -> Self {
