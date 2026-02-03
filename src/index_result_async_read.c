@@ -39,6 +39,12 @@ void IndexResultAsyncRead_SetupAsyncPool(IndexResultAsyncReadState *state,
 void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state) {
   if (!state) return;
 
+  // Free async pool (tracking array handles cleanup of pending reads)
+  if (state->asyncPool) {
+    SearchDisk_FreeAsyncReadPool(state->asyncPool);
+    state->asyncPool = NULL;
+  }
+
   // Free nodes in iteratorResults list
   DLLIST_node *dlnode;
   while ((dlnode = dllist_pop_tail(&state->iteratorResults)) != NULL) {
@@ -56,12 +62,6 @@ void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state) {
       IndexResult_Free(node->result);
     }
     rm_free(node);
-  }
-
-  // Free async pool (tracking array handles cleanup of pending reads)
-  if (state->asyncPool) {
-    SearchDisk_FreeAsyncReadPool(state->asyncPool);
-    state->asyncPool = NULL;
   }
 
   if (state->readyResults) {
@@ -113,6 +113,23 @@ void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
   }
 }
 
+static void IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState *state) {
+  for (uint16_t i = 0; i < array_len(state->failedUserData); i++) {
+    IndexResultNode *node = (IndexResultNode *)state->failedUserData[i];
+
+    // Remove node from pendingResults list
+    dllist_delete(&node->node);
+
+    // Free the deep-copied IndexResult
+    if (node->result) {
+      IndexResult_Free(node->result);
+    }
+
+    // Free the node itself
+    rm_free(node);
+  }
+}
+
 size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, int timeout_ms) {
   // Poll writes directly to the arrays (capacity is poolSize)
   const size_t pendingCount = SearchDisk_PollAsyncReads(
@@ -151,23 +168,6 @@ RSIndexResult* IndexResultAsyncRead_PopReadyResult(IndexResultAsyncReadState *st
   rm_free(node);
 
   return indexResult;
-}
-
-void IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState *state) {
-  for (uint16_t i = 0; i < array_len(state->failedUserData); i++) {
-    IndexResultNode *node = (IndexResultNode *)state->failedUserData[i];
-
-    // Remove node from pendingResults list
-    dllist_delete(&node->node);
-
-    // Free the deep-copied IndexResult
-    if (node->result) {
-      IndexResult_Free(node->result);
-    }
-
-    // Free the node itself
-    rm_free(node);
-  }
 }
 
 bool IndexResultAsyncRead_IsIterationComplete(const IndexResultAsyncReadState *state,

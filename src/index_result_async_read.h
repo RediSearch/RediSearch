@@ -133,15 +133,6 @@ size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, int timeout_m
 RSIndexResult* IndexResultAsyncRead_PopReadyResult(IndexResultAsyncReadState *state);
 
 /**
- * Clean up nodes for failed async reads
- *
- * Frees IndexResults and nodes for async reads that failed (not found/error).
- *
- * @param state Async read state structure
- */
-void IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState *state);
-
-/**
  * Check if async iteration is complete
  *
  * Returns true if the iterator is at EOF and all async operations are complete
