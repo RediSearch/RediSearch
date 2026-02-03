@@ -504,7 +504,7 @@ fn load_many_keys<'a>(
         sctx: ptr::from_mut(&mut sctx),
         keyPtr: key.as_ptr(),
         type_: index_spec.rule().type_(),
-        status: &mut status,
+        status: ptr::from_mut(&mut status),
         forceLoad: true,
         mode: ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
         dmd: ptr::null(),
