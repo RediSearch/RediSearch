@@ -1420,8 +1420,9 @@ TEST_F(ParseHybridTest, testShardKRatioValidMinValue) {
   // Test valid minimum SHARD_K_RATIO value (0.1)
   RMCK::ArgvList args(
     ctx, "FT.HYBRID", index_name.c_str(),
-    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
-    "SHARD_K_RATIO", "0.1",
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "0.1",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
@@ -1438,8 +1439,9 @@ TEST_F(ParseHybridTest, testShardKRatioValidMidValue) {
   // Test valid mid-range SHARD_K_RATIO value (0.5)
   RMCK::ArgvList args(
     ctx, "FT.HYBRID", index_name.c_str(),
-    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
-    "SHARD_K_RATIO", "0.5",
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "0.5",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
@@ -1456,8 +1458,9 @@ TEST_F(ParseHybridTest, testShardKRatioValidMaxValue) {
   // Test valid maximum SHARD_K_RATIO value (1.0)
   RMCK::ArgvList args(
     ctx, "FT.HYBRID", index_name.c_str(),
-    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
-    "SHARD_K_RATIO", "1.0",
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "1.0",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
@@ -1474,8 +1477,9 @@ TEST_F(ParseHybridTest, testShardKRatioInvalidBelowMin) {
   // Test invalid SHARD_K_RATIO value at exclusive minimum (must be > 0.0)
   RMCK::ArgvList args(
     ctx, "FT.HYBRID", index_name.c_str(),
-    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
-    "SHARD_K_RATIO", "0.0",
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "0.0",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   testErrorCode(args, QUERY_ERROR_CODE_INVAL,
     "Invalid shard k ratio value: Shard k ratio must be greater than 0 and at most 1 (got 0)");
@@ -1485,8 +1489,9 @@ TEST_F(ParseHybridTest, testShardKRatioInvalidAboveMax) {
   // Test invalid SHARD_K_RATIO value above maximum (> 1.0)
   RMCK::ArgvList args(
     ctx, "FT.HYBRID", index_name.c_str(),
-    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
-    "SHARD_K_RATIO", "1.5",
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "1.5",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   testErrorCode(args, QUERY_ERROR_CODE_INVAL,
     "Invalid shard k ratio value: Shard k ratio must be greater than 0 and at most 1 (got 1.5)");
@@ -1496,8 +1501,9 @@ TEST_F(ParseHybridTest, testShardKRatioInvalidNegative) {
   // Test invalid negative SHARD_K_RATIO value
   RMCK::ArgvList args(
     ctx, "FT.HYBRID", index_name.c_str(),
-    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
-    "SHARD_K_RATIO", "-0.5",
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "-0.5",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   testErrorCode(args, QUERY_ERROR_CODE_INVAL,
     "Invalid shard k ratio value: Shard k ratio must be greater than 0 and at most 1 (got -0.5)");
@@ -1507,8 +1513,9 @@ TEST_F(ParseHybridTest, testShardKRatioInvalidNonNumeric) {
   // Test invalid non-numeric SHARD_K_RATIO value
   RMCK::ArgvList args(
     ctx, "FT.HYBRID", index_name.c_str(),
-    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
-    "SHARD_K_RATIO", "invalid",
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "invalid",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   testErrorCode(args, QUERY_ERROR_CODE_INVAL,
     "Invalid shard k ratio value 'invalid'");
@@ -1518,10 +1525,13 @@ TEST_F(ParseHybridTest, testShardKRatioMissingValueAtEnd) {
   // Test missing SHARD_K_RATIO value at end of command (no PARAMS after it)
   // NOTE: Current implementation doesn't loop to check for SHARD_K_RATIO after PARAMS,
   // so it's reported as "Unknown argument" instead of "Missing argument value"
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
-                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA,
-                      "SHARD_K_RATIO");
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "2", "K", "10",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA,
+    "SHARD_K_RATIO");
   testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS,
     "SHARD_K_RATIO: Unknown argument");
 }
@@ -1531,8 +1541,9 @@ TEST_F(ParseHybridTest, testShardKRatioDuplicate) {
   // looping through optional args.
   RMCK::ArgvList args(
     ctx, "FT.HYBRID", index_name.c_str(),
-    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
-    "SHARD_K_RATIO", "0.5", "SHARD_K_RATIO", "0.7",
+    "SEARCH", "hello",
+      "VSIM", "@vector", "$BLOB", "KNN", "6", "K", "10", "SHARD_K_RATIO", "0.5",
+        "SHARD_K_RATIO", "0.7",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   testErrorCode(args, QUERY_ERROR_CODE_DUP_PARAM,
     "Duplicate SHARD_K_RATIO argument");
@@ -1542,9 +1553,10 @@ TEST_F(ParseHybridTest, testShardKRatioWithFilter) {
   // Test SHARD_K_RATIO with KNN query and FILTER
   RMCK::ArgvList args(
     ctx, "FT.HYBRID", index_name.c_str(),
-    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
-    "FILTER", "@title:world",
-    "SHARD_K_RATIO", "0.8",
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "0.8",
+      "FILTER", "@title:world",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
@@ -1557,13 +1569,15 @@ TEST_F(ParseHybridTest, testShardKRatioWithFilter) {
   ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.8);
 }
 
-TEST_F(ParseHybridTest, testShardKRatioAfterYieldScoreAs) {
-  // Test SHARD_K_RATIO combined with YIELD_SCORE_AS
+TEST_F(ParseHybridTest, testShardKRatiowithFilterAndPostFilter) {
+  // Test SHARD_K_RATIO with KNN query, FILTER, and POST-FILTER
   RMCK::ArgvList args(
     ctx, "FT.HYBRID", index_name.c_str(),
-    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
-    "YIELD_SCORE_AS", "my_score",
-    "SHARD_K_RATIO", "0.75",
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "0.8",
+      "FILTER", "@title:(world)",
+    "FILTER", "@__key:doc:1",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
@@ -1573,19 +1587,64 @@ TEST_F(ParseHybridTest, testShardKRatioAfterYieldScoreAs) {
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
   VectorQuery *vq = vecReq->ast.root->vn.vq;
-  ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.75);
+  ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.8);
 
-  // YIELD_SCORE_AS is stored in QueryNode opts.distField (not in parsedVectorData)
+  // Verify that the vector node is the child of the filter node
   QueryNode *vn = vecReq->ast.root;
-  ASSERT_STREQ(vn->opts.distField, "my_score");
+  ASSERT_EQ(QueryNode_NumChildren(vn), 1);
+  ASSERT_EQ(vn->children[0]->type, QN_UNION);
+  ASSERT_EQ(vn->children[0]->children[0]->type, QN_TOKEN);
+  ASSERT_STREQ(vn->children[0]->children[0]->tn.str, "world");
+  ASSERT_STREQ(vn->children[0]->children[1]->tn.str, "+world");
+
+  // Verify the post-filter
+  // Post-filters are stored in the tail pipeline, not in the vector AST
+  AGGPlan *tailPlan = result.tailPlan;
+  ASSERT_NE(tailPlan, nullptr) << "Tail plan should not be NULL";
+
+  // Check that a FILTER step exists in the tail plan
+  ASSERT_TRUE(AGPLN_HasStep(tailPlan, PLN_T_FILTER))
+    << "Post-filter should be present in tail plan";
+
+  // Find the FILTER step
+  const PLN_BaseStep *filterStep = AGPLN_FindStep(tailPlan, NULL, NULL, PLN_T_FILTER);
+  ASSERT_NE(filterStep, nullptr)
+    << "Post-filter step should be found in tail plan";
+  ASSERT_EQ(filterStep->type, PLN_T_FILTER)
+    << "Step should be of type PLN_T_FILTER";
+
+  // Cast to PLN_MapFilterStep to access the filter expression
+  const PLN_MapFilterStep *mapFilterStep = (const PLN_MapFilterStep *)filterStep;
+  ASSERT_NE(mapFilterStep->expr, nullptr) << "Filter expression should not be NULL";
+
+  // Verify the expression content
+  size_t exprLen = 0;
+  const char *exprStr = HiddenString_GetUnsafe(mapFilterStep->expr, &exprLen);
+  ASSERT_NE(exprStr, nullptr) << "Expression string should not be NULL";
+  ASSERT_GT(exprLen, 0) << "Expression length should be greater than 0";
+  ASSERT_STREQ(exprStr, "@__key:doc:1") << "Post-filter expression should match expected value";
+}
+
+TEST_F(ParseHybridTest, testShardKRatioAfterYieldScoreAs) {
+  // Test SHARD_K_RATIO combined with YIELD_SCORE_AS
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "2", "K", "10",
+      "YIELD_SCORE_AS", "my_score",
+      "SHARD_K_RATIO", "0.75",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS,
+    "SHARD_K_RATIO: Unknown argument");
 }
 
 TEST_F(ParseHybridTest, testShardKRatioBeforeYieldScoreAs) {
   // Test SHARD_K_RATIO combined with YIELD_SCORE_AS
   RMCK::ArgvList args(
     ctx, "FT.HYBRID", index_name.c_str(),
-    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
-    "SHARD_K_RATIO", "0.75",
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "10", "SHARD_K_RATIO", "0.75",
     "YIELD_SCORE_AS", "my_score",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
