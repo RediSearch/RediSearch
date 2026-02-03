@@ -110,7 +110,7 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
  * Fills up to current capacity, doesn't grow the buffer.
  * Returns RS_RESULT_OK on success, RS_RESULT_TIMEDOUT on timeout.
  */
-static int refillIndexResultBuffer(RPQueryIterator *self) {
+static int refillBufferUsingIterator(RPQueryIterator *self) {
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
   IndexSpec *spec = sctx->spec;
@@ -299,7 +299,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     }
 
     // Step 1: Refill IndexResult buffer if needed (cheap iterator reads)
-    int refillResult = refillIndexResultBuffer(self);
+    int refillResult = refillBufferUsingIterator(self);
     if (refillResult == RS_RESULT_TIMEDOUT) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
