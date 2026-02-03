@@ -163,7 +163,7 @@ struct UserString {
 
 /// Mock implementation of `HiddenString_GetUnsafe` from obfuscation/hidden.h for testing purposes
 #[unsafe(no_mangle)]
-pub extern "C" fn HiddenString_GetUnsafe(
+pub unsafe extern "C" fn HiddenString_GetUnsafe(
     value: *const ffi::HiddenString,
     length: *mut usize,
 ) -> *const c_char {
