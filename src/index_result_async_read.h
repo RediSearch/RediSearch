@@ -112,7 +112,7 @@ void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state);
  * @param timeout_ms Timeout in milliseconds for the poll operation
  * @return Number of pending async reads still in progress
  */
-size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, int timeout_ms);
+size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t timeout_ms);
 
 /**
  * Pop a ready result from the completed async reads

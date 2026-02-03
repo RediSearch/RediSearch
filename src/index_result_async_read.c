@@ -92,8 +92,8 @@ void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
 
   // Move nodes from iteratorResults to pendingResults
   while (added < state->poolSize && !DLLIST_IS_EMPTY(&state->iteratorResults)) {
-    // Pop from the head of iteratorResults to maintain FIFO order
-    DLLIST_node *dlnode = dllist_pop_head(&state->iteratorResults);
+    // Peek at the head of iteratorResults to maintain FIFO order
+    DLLIST_node *dlnode = state->iteratorResults.next;
     IndexResultNode *node = DLLIST_ITEM(dlnode, IndexResultNode, node);
 
     RSIndexResult *indexResult = node->result;
@@ -101,12 +101,12 @@ void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
 
     // Try to add to async pool, using the node pointer as user_data
     if (!SearchDisk_AddAsyncRead(state->asyncPool, docId, (uint64_t)node)) {
-      // Pool is full - put the node back at the head and stop
-      dllist_prepend(&state->iteratorResults, dlnode);
+      // Pool is full - stop without removing the node
       break;
     }
 
-    // Move node to pendingResults list
+    // Successfully added to async pool - now remove from iteratorResults and add to pendingResults list
+    dllist_delete(dlnode);
     dllist_append(&state->pendingResults, dlnode);
     state->iteratorResultCount--;
     added++;
@@ -130,7 +130,7 @@ static void IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState *s
   }
 }
 
-size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, int timeout_ms) {
+size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t timeout_ms) {
   // Poll writes directly to the arrays (capacity is poolSize)
   const size_t pendingCount = SearchDisk_PollAsyncReads(
       state->asyncPool, timeout_ms,

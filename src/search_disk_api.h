@@ -188,7 +188,7 @@ typedef struct DocTableDiskAPI {
    * @param max_concurrent Maximum number of concurrent pending reads
    * @return Opaque handle to the pool, or NULL on error. Must be freed with freeAsyncReadPool.
    */
-  RedisSearchDiskAsyncReadPool *(*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent);
+  RedisSearchDiskAsyncReadPool (*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent);
 
   /**
    * @brief Adds an async read request to the pool for the given document ID
