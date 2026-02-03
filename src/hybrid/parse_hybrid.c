@@ -125,12 +125,8 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
 
 static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
                                   QueryError *status) {
-  // VSIM @vectorfield vector [KNN/RANGE ...] [FILTER ...] SHARD_K_RATIO <ratio>
-  //                                                       ^
-  if (pvd->hasShardKRatio) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate SHARD_K_RATIO argument");
-    return REDISMODULE_ERR;
-  }
+  // VSIM @vectorfield vector KNN <nargs> ... SHARD_K_RATIO <ratio>
+  //                                          ^
   if (AC_IsAtEnd(ac)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for SHARD_K_RATIO");
     return REDISMODULE_ERR;
@@ -147,8 +143,14 @@ static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
     return REDISMODULE_ERR;
   }
 
-  pvd->shardKRatio = shardKRatio;
-  pvd->hasShardKRatio = true;
+  // Add as QueryAttribute (will be applied to VectorQuery via QueryNode_ApplyAttributes)
+  QueryAttribute attr = {
+    .name = SHARD_K_RATIO_ATTR,
+    .namelen = strlen(SHARD_K_RATIO_ATTR),
+    .value = rm_strdup(ratioStr),
+    .vallen = strlen(ratioStr)
+  };
+  pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
   return REDISMODULE_OK;
 }
 
@@ -170,6 +172,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   }
 
   bool hasEF = false;
+  bool hasShardKRatio = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
   for (int i=0; i<argumentCount; i+=2) {
@@ -211,9 +214,14 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       hasEF = true;
 
     } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
+      if (hasShardKRatio) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate SHARD_K_RATIO argument");
+        return REDISMODULE_ERR;
+      }
       if (parseShardKRatioClause(ac, pvd, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
+      hasShardKRatio = true;
 
     } else {
       const char *current;
@@ -524,9 +532,7 @@ final:
     case VECSIM_QT_KNN:
       vq->knn.vector = (void*)vectorParam;
       vq->knn.vecLen = vectorParamLen;
-      // Copy shardKRatio from ParsedVectorData to VectorQuery.knn
-      // Use explicit value if provided, otherwise use default (1.0 = no optimization)
-      vq->knn.shardWindowRatio = pvd->hasShardKRatio ? pvd->shardKRatio : DEFAULT_SHARD_WINDOW_RATIO;
+      vq->knn.shardWindowRatio = DEFAULT_SHARD_WINDOW_RATIO;
       break;
     case VECSIM_QT_RANGE:
       vq->range.vector = (void*)vectorParam;
