@@ -47,6 +47,7 @@ declare -A os_package_checkers=(
   ["ubuntu"]="check_package_dpkg"
   ["debian"]="check_package_dpkg"
   ["rocky"]="check_package_rpm"
+  ["centos"]="check_package_yum"
   ["amzn2"]="check_package_yum"
   ["amzn2023"]="check_package_dnf"
   ["alpine"]="check_package_apk"
@@ -191,6 +192,10 @@ declare -A rocky_dependencies=(
   ["openssl-devel"]="package"
 )
 
+declare -A centos_dependencies=(
+  ["openssl-devel"]="package"
+)
+
 declare -A amzn2_dependencies=(
   ["openssl11-devel"]="package"
 )
@@ -231,6 +236,10 @@ if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
 elif [[ "$OS" == "rocky" ]]; then
   for key in "${!rocky_dependencies[@]}"; do
     dependencies["$key"]="${rocky_dependencies[$key]}"
+  done
+elif [[ "$OS" == "centos" ]]; then
+  for key in "${!centos_dependencies[@]}"; do
+    dependencies["$key"]="${centos_dependencies[$key]}"
   done
 elif [[ "$OS" == "amzn2" ]]; then
   for key in "${!amzn2_dependencies[@]}"; do

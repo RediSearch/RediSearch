@@ -5,6 +5,7 @@ name: Get Linux Configurations
 env:
   ALL_X86_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal',
+                    'centos:7',
                     'rockylinux:8',
                     'rockylinux:9',
                     'debian:bullseye',
@@ -99,6 +100,12 @@ jobs:
           # Special cases:
           arm_include = []
           x86_include = []
+
+          # centos:7 needs pre-checkout dependencies (EOL - use vault mirrors)
+          if x86_platforms.count('centos:7') > 0:
+            x86_include.append({
+              'OS': 'centos:7',
+              'pre-deps': "sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-* && sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-* && yum install -y tar gzip git"})
 
           # amazonlinux:2 needs pre-checkout dependencies
           if x86_platforms.count('amazonlinux:2') > 0:

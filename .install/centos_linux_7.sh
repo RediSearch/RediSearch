@@ -43,3 +43,4 @@ cd Python-3.9.6
 ./configure --enable-optimizations
 $MODE make altinstall
 update-alternatives --install /usr/bin/python3 python3 `which python3.9` 2
+cd -
