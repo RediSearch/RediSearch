@@ -114,6 +114,7 @@ void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
 }
 
 static void IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState *state) {
+  RS_ASSERT(array_len(state->failedUserData) <= state->poolSize);
   for (uint16_t i = 0; i < array_len(state->failedUserData); i++) {
     IndexResultNode *node = (IndexResultNode *)state->failedUserData[i];
 
