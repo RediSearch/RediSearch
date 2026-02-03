@@ -112,30 +112,71 @@ Return Results
 
 ```
 FT.HYBRID <index>
-  SEARCH <query> [SCORER <scorer>] [YIELD_SCORE_AS <field>]
-  VSIM <@field> <vector> [KNN <k_params>] [FILTER <filter>] [YIELD_SCORE_AS <field>]
-  [COMBINE <method> [params] [YIELD_SCORE_AS <field>]]
-  [LOAD <fields>]
-  [APPLY <expression> AS <field>]
-  [FILTER <filter_expression>]
-  [SORTBY <field> [ASC|DESC]]
-  [LIMIT <offset> <count>]
+  SEARCH <query> [SCORER <scorer>] [YIELD_SCORE_AS <name>]
+  VSIM <field> <vector>
+    [KNN <count> K <k> [EF_RUNTIME <ef>] [YIELD_SCORE_AS <name>] |
+     RANGE <count> RADIUS <radius> [EPSILON <epsilon>] [YIELD_SCORE_AS <name>]]
+    [FILTER <filter_expression>]
+  [COMBINE
+    RRF <count> [CONSTANT <constant>] [WINDOW <window>] [YIELD_SCORE_AS <name>] |
+    LINEAR <count> [ALPHA <alpha> BETA <beta>] [WINDOW <window>] [YIELD_SCORE_AS <name>]]
+  [LIMIT <offset> <num>]
+  [SORTBY <field> [ASC|DESC] | NOSORT]
   [PARAMS <nargs> <name> <value> ...]
-  [WITHCURSOR]
-  [TIMEOUT <milliseconds>]
+  [TIMEOUT <timeout>]
+  [FORMAT <format>]
+  [LOAD <count> <field> ...]
+  [LOAD *]
+  [GROUPBY ...]
 ```
 
-#### COMBINE Methods
+#### Required Clauses
 
-**RRF (Reciprocal Rank Fusion)**:
-```
-COMBINE RRF [<param_count>] [CONSTANT <k>] [WINDOW <size>]
-```
+**SEARCH clause**: Text search query
+- `<query>`: Query string for full-text search
+- `SCORER <scorer>`: Optional scorer to use (default: TFIDF)
+- `YIELD_SCORE_AS <name>`: Optional alias for the search score
 
-**LINEAR (Weighted Score)**:
-```
-COMBINE LINEAR [<param_count>] [ALPHA <weight>] [BETA <weight>] [WINDOW <size>]
-```
+**VSIM clause**: Vector similarity search
+- `<field>`: Vector field name to search
+- `<vector>`: Vector blob to search for
+- Vector query type (optional, one of):
+  - `KNN <count> K <k>`: K-nearest neighbors search
+    - `<count>`: Number of results to return
+    - `K <k>`: Number of neighbors to consider
+    - `EF_RUNTIME <ef>`: Optional HNSW ef_runtime parameter
+    - `YIELD_SCORE_AS <name>`: Optional alias for the KNN score
+  - `RANGE <count> RADIUS <radius>`: Range-based search
+    - `<count>`: Number of results to return
+    - `RADIUS <radius>`: Maximum distance threshold
+    - `EPSILON <epsilon>`: Optional epsilon value for range queries
+    - `YIELD_SCORE_AS <name>`: Optional alias for the range score
+- `FILTER <filter_expression>`: Optional filter expression for vector results
+
+#### Optional Clauses
+
+**COMBINE clause**: Result fusion method
+- `RRF <count>`: Reciprocal Rank Fusion
+  - `<count>`: Number of results to return
+  - `CONSTANT <constant>`: RRF constant (default: 60)
+  - `WINDOW <window>`: Window size for fusion (default: 20)
+  - `YIELD_SCORE_AS <name>`: Alias for the fused score
+- `LINEAR <count>`: Linear weighted combination
+  - `<count>`: Number of results to return
+  - `ALPHA <alpha> BETA <beta>`: Weights for search and vector scores (default: 0.5, 0.5)
+  - `WINDOW <window>`: Window size for fusion (default: 20)
+  - `YIELD_SCORE_AS <name>`: Alias for the fused score
+
+**Standard query options**:
+- `LIMIT <offset> <num>`: Pagination (offset and count)
+- `SORTBY <field> [ASC|DESC]`: Sort results by field
+- `NOSORT`: Disable sorting
+- `PARAMS <nargs> <name> <value> ...`: Query parameters for dynamic queries
+- `TIMEOUT <timeout>`: Query timeout in milliseconds
+- `FORMAT <format>`: Output format
+- `LOAD <count> <field> ...`: Load specific fields
+- `LOAD *`: Load all fields
+- `GROUPBY ...`: Group results (see FT.AGGREGATE documentation)
 
 ## Implementation Plan
 
