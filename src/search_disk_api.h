@@ -207,12 +207,15 @@ typedef struct DocTableDiskAPI {
    * - results: successful reads with valid DMDs
    * - failed_user_data: user_data pointers for reads that failed or found no document
    *
+   * Both buffers are required and must have capacity > 0. Polling stops when either buffer
+   * is full, so callers should size buffers appropriately for their use case.
+   *
    * @param pool Pool handle from createAsyncReadPool
    * @param timeout_ms 0 for non-blocking, >0 to wait up to that many milliseconds
    * @param results Buffer to fill with successful AsyncReadResult structures (DMD + user_data)
-   * @param results_capacity Size of the results buffer
+   * @param results_capacity Size of the results buffer (must be > 0)
    * @param failed_user_data Buffer to fill with user_data from failed reads (not found/error)
-   * @param failed_capacity Size of the failed_user_data buffer
+   * @param failed_capacity Size of the failed_user_data buffer (must be > 0)
    * @param allocateDMD Callback to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr
    * @return AsyncPollResult with counts of ready, failed, and pending reads
    */
