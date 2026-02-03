@@ -534,7 +534,11 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
     RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
     term->idf = idf;
     term->bm25_idf = bm25_idf;
-    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
+    QueryIterator *ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
+    if (!ir) {
+      Term_Free(term);
+    }
+    return ir;
   } else {
     return Redis_OpenReader(q->sctx, &qn->tn, q->tokenId++, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
   }
@@ -559,14 +563,17 @@ static inline void addTerm(char *str, size_t tok_len, size_t numDocsInTerm, Quer
     term->idf = idf;
     term->bm25_idf = bm25_idf;
     ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term, q->opts->fieldmask & opts->fieldMask, 1);
+    if (!ir) {
+      Term_Free(term);
+      return;
+    }
   } else {
     // Open an index reader
     ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
                                         q->opts->fieldmask & opts->fieldMask, 1);
-  }
-
-  if (!ir) {
-    return;
+    if (!ir) {
+      return;
+    }
   }
 
   (*its)[(*itsSz)++] = ir;
@@ -810,6 +817,9 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t nu
     term->idf = idf;
     term->bm25_idf = bm25_idf;
     ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term, q->opts->fieldmask & ctx->opts->fieldMask, 1);
+    if (!ir) {
+      Term_Free(term);
+    }
   } else {
     ir = Redis_OpenReader(q->sctx, &tok, ctx->q->tokenId++, &q->sctx->spec->docs,
                                         q->opts->fieldmask & ctx->opts->fieldMask, 1);
@@ -846,6 +856,9 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
     term->idf = idf;
     term->bm25_idf = bm25_idf;
     ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term, q->opts->fieldmask & ctx->opts->fieldMask, 1);
+    if (!ir) {
+      Term_Free(term);
+    }
   } else {
     ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
                                         q->opts->fieldmask & ctx->opts->fieldMask, 1);
