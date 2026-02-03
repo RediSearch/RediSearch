@@ -30,6 +30,7 @@ fn test_new_hll() {
     assert_eq!(TestHll10::size(), 1024);
 }
 
+#[cfg(not(all(miri, target_os = "macos")))]
 #[test]
 fn test_add_single_element() {
     let mut hll = TestHll10::new();
@@ -37,6 +38,7 @@ fn test_add_single_element() {
     assert_eq!(hll.count(), 1);
 }
 
+#[cfg(not(all(miri, target_os = "macos")))]
 #[test]
 fn test_add_duplicate_elements() {
     let mut hll = TestHll10::new();
@@ -73,6 +75,7 @@ fn test_add_many_distinct_elements() {
     );
 }
 
+#[cfg(not(all(miri, target_os = "macos")))]
 #[test]
 fn test_add_hash_direct() {
     // Test with pre-computed hash values to verify algorithm correctness
@@ -152,6 +155,7 @@ fn test_register_distribution() {
     );
 }
 
+#[cfg(not(all(miri, target_os = "macos")))]
 #[test]
 fn test_small_cardinality() {
     // Test small cardinality where linear counting is expected
@@ -172,6 +176,7 @@ fn test_small_cardinality() {
     );
 }
 
+#[cfg(not(all(miri, target_os = "macos")))]
 #[test]
 fn test_merge() {
     let mut hll1 = TestHll10::new();
@@ -193,6 +198,7 @@ fn test_merge() {
     assert!(error < 0.05, "error {error} too large, count={count}");
 }
 
+#[cfg(not(all(miri, target_os = "macos")))]
 #[test]
 fn test_clear() {
     let mut hll = TestHll10::new();
@@ -203,6 +209,7 @@ fn test_clear() {
     assert_eq!(hll.count(), 0);
 }
 
+#[cfg(not(all(miri, target_os = "macos")))]
 #[test]
 fn test_cache_invalidation() {
     let mut hll = TestHll10::new();
@@ -216,6 +223,7 @@ fn test_cache_invalidation() {
     assert!(count3 >= count1);
 }
 
+#[cfg(not(all(miri, target_os = "macos")))]
 #[test]
 fn test_from_registers() {
     let mut hll1 = TestHll10::new();
@@ -229,6 +237,7 @@ fn test_from_registers() {
     assert_eq!(hll1.count(), hll2.count());
 }
 
+#[cfg(not(all(miri, target_os = "macos")))]
 #[test]
 fn test_try_from_slice() {
     let hll1 = TestHll10::new();
@@ -300,6 +309,7 @@ impl hash32::Hasher for CustomTestHasher {
     }
 }
 
+#[cfg(not(all(miri, target_os = "macos")))]
 #[test]
 fn test_custom_hasher() {
     let mut hll: HyperLogLog10<CustomTestHasher> = HyperLogLog::new();
@@ -397,6 +407,7 @@ fn test_debug_repr() {
     "###);
 }
 
+#[cfg(not(all(miri, target_os = "macos")))]
 #[test]
 fn test_clone() {
     let mut hll = HyperLogLog10::<Murmur3Hasher>::default();
