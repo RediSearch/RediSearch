@@ -454,8 +454,10 @@ mod tests {
             nfields: 0,
             refcount: 1,
         });
-        let spcache =
-            unsafe { IndexSpecCache::from_raw(NonNull::new_unchecked(Box::into_raw(spcache))) };
+        let spcache = {
+            let ptr = unsafe { NonNull::new_unchecked(Box::into_raw(spcache)) };
+            unsafe { IndexSpecCache::from_raw(ptr) }
+        };
 
         rlookup.init(Some(spcache));
 
@@ -472,8 +474,10 @@ mod tests {
             nfields: 0,
             refcount: 1,
         });
-        let spcache =
-            unsafe { IndexSpecCache::from_raw(NonNull::new_unchecked(Box::into_raw(spcache))) };
+        let spcache = {
+            let ptr = unsafe { NonNull::new_unchecked(Box::into_raw(spcache)) };
+            unsafe { IndexSpecCache::from_raw(ptr) }
+        };
 
         rlookup.init(Some(spcache));
         assert!(rlookup.index_spec_cache.is_some());
@@ -483,8 +487,10 @@ mod tests {
             nfields: 0,
             refcount: 1,
         });
-        let spcache =
-            unsafe { IndexSpecCache::from_raw(NonNull::new_unchecked(Box::into_raw(spcache))) };
+        let spcache = {
+            let ptr = unsafe { NonNull::new_unchecked(Box::into_raw(spcache)) };
+            unsafe { IndexSpecCache::from_raw(ptr) }
+        };
 
         // this should panic
         rlookup.init(Some(spcache));
