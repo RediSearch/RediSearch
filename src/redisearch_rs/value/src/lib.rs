@@ -9,11 +9,12 @@
 
 pub use crate::{
     collection::{Array, Map},
+    rs_string::RsString,
     shared::SharedRsValue,
-    strings::{ConstString, RedisString, RmAllocString},
+    strings::RedisString,
     trio::RsValueTrio,
 };
-use std::ffi::CStr;
+use std::fmt::Debug;
 
 /// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
 /// Rust port of the RSValue type.
@@ -22,7 +23,8 @@ mod rs_value_ffi;
 #[cfg(feature = "c_ffi_impl")]
 pub use rs_value_ffi::*;
 
-mod collection;
+pub mod collection;
+pub mod rs_string;
 pub mod shared;
 pub mod strings;
 pub mod trio;
@@ -36,12 +38,8 @@ pub enum RsValue {
     Null,
     /// Numeric value
     Number(f64),
-    /// String value
-    String(Box<CStr>),
-    /// String value backed by a rm_alloc'd string
-    RmAllocString(RmAllocString),
-    /// String value backed by a constant C string
-    ConstString(ConstString),
+    /// String
+    String(RsString),
     /// String value backed by a Redis string
     RedisString(RedisString),
     /// Array value
@@ -69,8 +67,6 @@ impl RsValue {
             RsValue::Null => "Null",
             RsValue::Number(_) => "Number",
             RsValue::String(_) => "String",
-            RsValue::RmAllocString(_) => "RmAllocString",
-            RsValue::ConstString(_) => "ConstString",
             RsValue::RedisString(_) => "RedisString",
             RsValue::Array(_) => "Array",
             RsValue::Ref(_) => "Ref",
@@ -80,7 +76,7 @@ impl RsValue {
     }
 
     /// Returns the string bytes of the value, if it is a string type.
-    pub const fn as_str_bytes(&self) -> Option<&[u8]> {
+    pub fn as_str_bytes(&self) -> Option<&[u8]> {
         match self {
             RsValue::String(str) => Some(str.as_bytes()),
             _ => None,
