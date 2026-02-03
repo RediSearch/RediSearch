@@ -553,16 +553,14 @@ static inline void addTerm(char *str, size_t tok_len, size_t numDocsInTerm, Quer
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &tok, q->tokenId++, q->opts->fieldmask & opts->fieldMask, 1, idf, bm25_idf);
-    if (!ir) {
-      return;
-    }
   } else {
     // Open an index reader
     ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
                                         q->opts->fieldmask & opts->fieldMask, 1);
-    if (!ir) {
-      return;
-    }
+  }
+
+  if (!ir) {
+    return;
   }
 
   (*its)[(*itsSz)++] = ir;
