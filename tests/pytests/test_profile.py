@@ -1498,3 +1498,4 @@ def testCoordinatorQueueTimeInProfile():
   env.assertGreaterEqual(coord_queue_time, pause_duration_ms * 0.8,  # Allow 20% tolerance
     message=f"Coordinator queue time ({coord_queue_time}ms) should capture queue wait. "
             f"Expected >= {pause_duration_ms * 0.8}ms. Full result: {result}")
+

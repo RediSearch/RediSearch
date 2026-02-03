@@ -220,11 +220,6 @@ static void Profile_PrintCommon(RedisModule_Reply *reply,
                                rs_wall_clock_convert_ns_to_ms_d(clocks->profileQueueTime));
   }
 
-  if (profile_verbose) {
-    RedisModule_ReplyKV_Double(reply, "Workers queue time",
-                               rs_wall_clock_convert_ns_to_ms_d(req->profileQueueTime));
-  }
-
   // Print iterators creation time
   if (profile_verbose) {
     RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
