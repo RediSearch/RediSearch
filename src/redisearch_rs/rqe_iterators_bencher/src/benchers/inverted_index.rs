@@ -9,21 +9,17 @@
 
 //! Benchmark inverted index iterator.
 
-use std::{hint::black_box, marker::PhantomData, ptr, time::Duration};
+use std::{hint::black_box, ptr, time::Duration};
 
-use ::ffi::{RSQueryTerm, Term_Free};
 use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
 use field::{self, FieldExpirationPredicate};
-use inverted_index::{DecodedBy, Encoder, InvertedIndex, RSIndexResult, TermDecoder};
-use rqe_iterators::{
-    RQEIterator, SkipToOutcome,
-    inverted_index::{Numeric, Term},
-};
+use inverted_index::RSIndexResult;
+use rqe_iterators::{RQEIterator, SkipToOutcome, inverted_index::Numeric};
 
-use crate::ffi::{self, QueryIterator, QueryTermBuilder};
+use crate::ffi::QueryIterator;
 
 use rqe_iterators_test_utils::TestContext;
 
@@ -353,6 +349,7 @@ impl NumericBencher {
     }
 }
 
+/*
 pub struct TermBencher<E> {
     /// Name of the benchmark group
     group_name: String,
@@ -603,3 +600,4 @@ where
         });
     }
 }
+ */
