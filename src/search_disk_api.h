@@ -75,15 +75,12 @@ typedef struct IndexDiskAPI {
    * @brief Creates a new iterator for the inverted index
    *
    * @param index Pointer to the index
-   * @param term Term to associate the document with
-   * @param termLen Length of the term
+   * @param term Pointer to the query term (contains term string, idf, bm25_idf)
    * @param fieldMask Field mask indicating which fields are present in the document
    * @param weight Weight for the iterator (used in scoring)
-   * @param idf IDF for the term (used in scoring)
-   * @param bm25_idf BM25 IDF for the term (used in scoring)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, const char* term, size_t termLen, t_fieldMask fieldMask, double weight, double idf, double bm25_idf);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight);
 
   /**
    * @brief Returns the number of documents in the index
@@ -112,7 +109,7 @@ typedef struct DocTableDiskAPI {
    * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
    * @return New document ID, or 0 on error/duplicate
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, struct timespec documentTtl);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl);
 
   /**
    * @brief Returns whether the docId is in the deleted set
