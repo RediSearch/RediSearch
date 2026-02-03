@@ -40,7 +40,6 @@ const INVALID_NANOSECONDS_THRESHOLD: u32 = 1_000_000_000;
 
 /// Validates that a timespec represents a valid positive time value.
 /// Returns `true` if valid, or `false` if invalid.
-#[cfg(debug_assertions)]
 fn validate_timespec(ts: &ffi::timespec) -> bool {
     ts.tv_sec >= 0
         && ts.tv_nsec >= 0
