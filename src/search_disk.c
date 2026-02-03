@@ -9,6 +9,7 @@
 
 #include "search_disk.h"
 #include "config.h"
+#include "index_result/query_term/query_term.h"
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
@@ -81,9 +82,16 @@ bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term,
     return disk->index.indexDocument(index, term, termLen, docId, fieldMask, freq);
 }
 
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSQueryTerm *term, t_fieldMask fieldMask, double weight) {
-    RS_ASSERT(disk && index && term);
-    return disk->index.newTermIterator(index, term, fieldMask, weight);
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf) {
+    RS_ASSERT(disk && index && tok);
+    RSQueryTerm *term = NewQueryTerm(tok, tokenId);
+    term->idf = idf;
+    term->bm25_idf = bm25_idf;
+    QueryIterator *it = disk->index.newTermIterator(index, term, fieldMask, weight);
+    if (!it) {
+        Term_Free(term);
+    }
+    return it;
 }
 
 QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight) {
