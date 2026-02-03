@@ -79,8 +79,13 @@ static FieldSpecStats FieldStats_Deserialize(const char* type, const MRReply* re
     switch (fieldType) {
         case INDEXFLD_T_VECTOR:
             for(int i = 0; VectorIndexStats_Metrics[i] != NULL; i++){
-                size_t metricValue = MRReply_Integer(MRReply_MapElement(reply, VectorIndexStats_Metrics[i]));
-                VectorIndexStats_GetSetter(VectorIndexStats_Metrics[i])(&stats.vecStats, metricValue);
+                // Handle missing metrics gracefully (e.g., during rolling upgrades when
+                // old shards don't output new metrics). Missing metrics default to 0.
+                MRReply *metricReply = MRReply_MapElement(reply, VectorIndexStats_Metrics[i]);
+                if (metricReply) {
+                    size_t metricValue = MRReply_Integer(metricReply);
+                    VectorIndexStats_GetSetter(VectorIndexStats_Metrics[i])(&stats.vecStats, metricValue);
+                }
             }
             stats.type = INDEXFLD_T_VECTOR;
             break;

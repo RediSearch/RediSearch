@@ -2545,9 +2545,9 @@ def test_vecsim_hnsw_tiered_info_metrics():
   # --- Test 2: Flat buffer tracking across multiple indexes ---
   env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
 
-  env.expect('FT.CREATE', 'idx_hnsw1', 'PREFIX', '1', 'hnsw1:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
+  env.expect('FT.CREATE', 'idx_hnsw1', 'SKIPINITIALSCAN', 'PREFIX', '1', 'hnsw1:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
              'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
-  env.expect('FT.CREATE', 'idx_hnsw2', 'PREFIX', '1', 'hnsw2:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
+  env.expect('FT.CREATE', 'idx_hnsw2', 'SKIPINITIALSCAN', 'PREFIX', '1', 'hnsw2:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
              'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
   # Insert vectors into first index up to buffer limit
@@ -2647,7 +2647,7 @@ def test_vecsim_hnsw_tiered_info_metrics():
   env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
 
   # Create a new HNSW index after workers are disabled
-  env.expect('FT.CREATE', 'idx_hnsw_no_workers', 'PREFIX', '1', 'hnsw_nw:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
+  env.expect('FT.CREATE', 'idx_hnsw_no_workers', 'SKIPINITIALSCAN', 'PREFIX', '1', 'hnsw_nw:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
              'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
   # Insert vectors - should go directly to HNSW since workers=0
