@@ -25,6 +25,11 @@ impl SharedRsValue {
         }
     }
 
+    /// Get a `*const RsValue` pointer from a [`SharedRsValue`].
+    pub fn as_ptr(&self) -> *const RsValue {
+        Arc::as_ptr(&self.inner)
+    }
+
     /// Convert a [`SharedRsValue`] into a raw `*const RsValue` pointer.
     pub fn into_raw(self) -> *const RsValue {
         Arc::into_raw(self.inner)
@@ -45,6 +50,19 @@ impl SharedRsValue {
     /// Get a reference to the inner [`RsValue`].
     pub fn value(&self) -> &RsValue {
         &self.inner
+    }
+
+    /// Set a new [`RsValue`] for this [`SharedRsValue`].
+    /// Only exactly one reference to the underlying [`RsValue`] must exist.
+    ///
+    /// # Panic
+    ///
+    /// Panics if more than one reference to the underlying [`RsValue`] exists.
+    pub fn set_value(&mut self, new_value: RsValue) {
+        let value =
+            Arc::get_mut(&mut self.inner).expect("Failed to get mutable reference to inner value");
+
+        *value = new_value;
     }
 }
 
