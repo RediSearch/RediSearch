@@ -34,13 +34,13 @@ impl FieldSpec {
     }
 
     /// Get the underlying field name as a `HiddenStringRef`.
-    pub const fn field_name(&self) -> HiddenStringRef {
+    pub const fn field_name<'a>(&'a self) -> HiddenStringRef<'a> {
         // Safety: (1.) due to creation with `FieldSpec::from_raw`
         unsafe { HiddenStringRef::from_raw(self.0.fieldName) }
     }
 
     /// Get the underlying field path as a `HiddenStringRef`.
-    pub const fn field_path(&self) -> HiddenStringRef {
+    pub const fn field_path<'a>(&'a self) -> HiddenStringRef<'a> {
         // Safety: (1.) due to creation with `FieldSpec::from_raw`
         unsafe { HiddenStringRef::from_raw(self.0.fieldPath) }
     }
