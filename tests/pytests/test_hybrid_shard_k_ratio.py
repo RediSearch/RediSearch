@@ -112,8 +112,8 @@ def test_shard_k_ratio_parameter_validation():
     invalid_ratios = [0.0, -0.1, 1.1, 2.0, 0, 7]
     for ratio in invalid_ratios:
         res = env.expect('FT.HYBRID', 'idx', '2', 'SEARCH', 'hello',
-                         'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', '5',
-                         'SHARD_K_RATIO', str(ratio),
+                         'VSIM', '@v', '$BLOB',
+                           'KNN', '4', 'K', '5', 'SHARD_K_RATIO', ratio,
                          'PARAMS', '2', 'BLOB', query_vec.tobytes())
         ValidateHybridError(
             env, res, "Invalid shard k ratio value",
@@ -121,8 +121,8 @@ def test_shard_k_ratio_parameter_validation():
 
     # Test non-numeric value
     res = env.expect('FT.HYBRID', 'idx', '2', 'SEARCH', 'hello',
-                     'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', '5',
-                     'SHARD_K_RATIO', 'invalid',
+                     'VSIM', '@v', '$BLOB',
+                        'KNN', '4', 'K', '5', 'SHARD_K_RATIO', 'invalid',
                      'PARAMS', '2', 'BLOB', query_vec.tobytes())
     ValidateHybridError(
         env, res, "Invalid shard k ratio value",
@@ -138,8 +138,8 @@ def test_shard_k_ratio_missing_value():
     # Test missing value - SHARD_K_RATIO followed by PARAMS (which is not a
     # valid ratio)
     res = env.expect('FT.HYBRID', 'idx', '2', 'SEARCH', 'hello',
-                     'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', '5',
-                     'SHARD_K_RATIO',
+                     'VSIM', '@v', '$BLOB',
+                        'KNN', '4', 'K', '5', 'SHARD_K_RATIO',
                      'PARAMS', '2', 'BLOB', query_vec.tobytes())
     ValidateHybridError(
         env, res, "Invalid shard k ratio value",
@@ -156,8 +156,9 @@ def test_shard_k_ratio_duplicate():
     # Test duplicate SHARD_K_RATIO
     # Note: The parser handles the second SHARD_K_RATIO as an unknown argument
     res = env.expect('FT.HYBRID', 'idx', '2', 'SEARCH', 'hello',
-                     'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', '5',
-                     'SHARD_K_RATIO', '0.5', 'SHARD_K_RATIO', '0.8',
+                     'VSIM', '@v', '$BLOB',
+                        'KNN', '6', 'K', '5', 'SHARD_K_RATIO', '0.5',
+                            'SHARD_K_RATIO', '0.8',
                      'PARAMS', '2', 'BLOB', query_vec.tobytes())
     ValidateHybridError(
         env, res, "SHARD_K_RATIO",
@@ -189,8 +190,8 @@ def test_shard_k_ratio_valid_values():
         for ratio in valid_ratios:
             res = env.cmd(
                 'FT.HYBRID', 'idx', '2', 'SEARCH', 'unexistent_term_xyz',
-                'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', k,
-                'SHARD_K_RATIO', str(ratio),
+                'VSIM', '@v', '$BLOB',
+                    'KNN', '4', 'K', k, 'SHARD_K_RATIO', ratio,
                 'GROUPBY', '1', '@shard_tag',
                 'REDUCE', 'COUNT', '0', 'AS', 'count',
                 'SORTBY', '2', '@shard_tag', 'ASC',
@@ -253,8 +254,8 @@ def test_shard_k_ratio_result_count():
         # Use a SEARCH query that matches zero docs, so only VSIM results are returned
         # Use LIMIT and WINDOW to ensure we can get K results (defaults are 10 and 20)
         res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'nonexistent_term_xyz',
-                      'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', k,
-                      'SHARD_K_RATIO', str(ratio),
+                      'VSIM', '@v', '$BLOB',
+                        'KNN', '4', 'K', k, 'SHARD_K_RATIO', ratio,
                       'COMBINE', 'RRF', '2', 'WINDOW', k,
                       'LIMIT', '0', k,
                       'PARAMS', '2', 'BLOB', query_vec.tobytes())
@@ -291,8 +292,8 @@ def test_shard_k_ratio_small_k():
     # Test small K values with a non-matching SEARCH query
     for k in [1, 2, 3]:
         res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'nonexistent_term_xyz',
-                      'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', k,
-                      'SHARD_K_RATIO', str(ratio),
+                      'VSIM', '@v', '$BLOB',
+                        'KNN', '4', 'K', k, 'SHARD_K_RATIO', ratio,
                       'PARAMS', '2', 'BLOB', query_vec.tobytes())
 
         # Response format: ['total_results', N, 'results', [...], ...]
@@ -347,8 +348,8 @@ def test_shard_k_ratio_per_shard_verification():
     # Use non-matching SEARCH query so only VSIM results are returned
     # Use GROUPBY @shard_tag with REDUCE COUNT to count results per shard
     res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'nonexistent_term_xyz',
-                  'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', k,
-                  'SHARD_K_RATIO', str(ratio),
+                  'VSIM', '@v', '$BLOB',
+                    'KNN', '4', 'K', k, 'SHARD_K_RATIO', ratio,
                   'COMBINE', 'RRF', '2', 'WINDOW', k,
                   'LOAD', '1', '@shard_tag',
                   'GROUPBY', '1', '@shard_tag',
@@ -421,8 +422,8 @@ def test_shard_k_ratio_insufficient_docs():
     # Use non-matching SEARCH query so only VSIM results are returned
     # Use GROUPBY @shard_tag with REDUCE COUNT to count results per shard
     res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'nonexistent_term_xyz',
-                  'VSIM', '@v', '$BLOB', 'KNN', '2', 'K', k,
-                  'SHARD_K_RATIO', str(ratio),
+                  'VSIM', '@v', '$BLOB',
+                    'KNN', '4', 'K', k, 'SHARD_K_RATIO', ratio,
                   'LOAD', '1', '@shard_tag',
                   'GROUPBY', '1', '@shard_tag',
                   'REDUCE', 'COUNT', '0', 'AS', 'count',

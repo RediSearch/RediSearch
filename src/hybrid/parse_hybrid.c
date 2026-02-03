@@ -123,6 +123,35 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   return REDISMODULE_OK;
 }
 
+static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
+                                  QueryError *status) {
+  // VSIM @vectorfield vector [KNN/RANGE ...] [FILTER ...] SHARD_K_RATIO <ratio>
+  //                                                       ^
+  if (pvd->hasShardKRatio) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate SHARD_K_RATIO argument");
+    return REDISMODULE_ERR;
+  }
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for SHARD_K_RATIO");
+    return REDISMODULE_ERR;
+  }
+
+  const char *ratioStr;
+  if (AC_GetString(ac, &ratioStr, NULL, 0) != AC_OK) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid SHARD_K_RATIO value");
+    return REDISMODULE_ERR;
+  }
+
+  double shardKRatio;
+  if (!ValidateShardKRatio(ratioStr, &shardKRatio, status)) {
+    return REDISMODULE_ERR;
+  }
+
+  pvd->shardKRatio = shardKRatio;
+  pvd->hasShardKRatio = true;
+  return REDISMODULE_OK;
+}
+
 static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd, QueryError *status) {
   // VSIM @vectorfield vector KNN ...
   //                              ^
@@ -180,6 +209,11 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       // Add directly to VectorQuery params
       addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
       hasEF = true;
+
+    } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
+      if (parseShardKRatioClause(ac, pvd, status) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
 
     } else {
       const char *current;
@@ -352,35 +386,6 @@ static int parseYieldScoreClause(ArgsCursor *ac, ParsedVectorData *pvd, QueryErr
   return REDISMODULE_OK;
 }
 
-static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
-                                  QueryError *status) {
-  // VSIM @vectorfield vector [KNN/RANGE ...] [FILTER ...] SHARD_K_RATIO <ratio>
-  //                                                       ^
-  if (pvd->hasShardKRatio) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate SHARD_K_RATIO argument");
-    return REDISMODULE_ERR;
-  }
-  if (AC_IsAtEnd(ac)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for SHARD_K_RATIO");
-    return REDISMODULE_ERR;
-  }
-
-  const char *ratioStr;
-  if (AC_GetString(ac, &ratioStr, NULL, 0) != AC_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid SHARD_K_RATIO value");
-    return REDISMODULE_ERR;
-  }
-
-  double shardKRatio;
-  if (!ValidateShardKRatio(ratioStr, &shardKRatio, status)) {
-    return REDISMODULE_ERR;
-  }
-
-  pvd->shardKRatio = shardKRatio;
-  pvd->hasShardKRatio = true;
-  return REDISMODULE_OK;
-}
-
 static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   // Check for required VSIM keyword
   if (!AC_AdvanceIfMatch(ac, "VSIM")) {
@@ -483,18 +488,10 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
   }
 
-  // Check for optional YIELD_SCORE_AS and SHARD_K_RATIO clauses (in any order)
-  while (!AC_IsAtEnd(ac)) {
-    if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
-      if (parseYieldScoreClause(ac, pvd, status) != REDISMODULE_OK) {
-        goto error;
-      }
-    } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
-      if (parseShardKRatioClause(ac, pvd, status) != REDISMODULE_OK) {
-        goto error;
-      }
-    } else {
-      break;  // Unknown argument, exit loop to continue with rest of parsing
+  // Check for optional YIELD_SCORE_AS clause
+  if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+    if (parseYieldScoreClause(ac, pvd, status) != REDISMODULE_OK) {
+      goto error;
     }
   }
 
