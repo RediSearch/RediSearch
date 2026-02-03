@@ -36,9 +36,11 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 /// Access to the RediSearch Module context
 pub mod context;
+mod document_metadata;
 
-/// Use the Rust definition directly
+// Use the Rust definition directly
 pub use document::DocumentType;
+pub use document_metadata::DocumentMetadata;
 
 #[repr(C)]
 #[derive(Debug)]
