@@ -364,6 +364,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
 }
 
 #[cfg(test)]
+#[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {
     use std::ptr;
 

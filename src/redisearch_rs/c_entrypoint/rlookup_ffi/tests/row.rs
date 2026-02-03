@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
+
 use std::mem::{self, offset_of};
 use std::ptr;
 use std::ptr::NonNull;
@@ -53,7 +55,7 @@ fn rlookuprow_move() {
     let key = lookup
         .get_key_read(c"foo", RLookupKeyFlags::empty())
         .unwrap();
-    assert!(dst.get(&key).is_some());
+    assert!(dst.get(key).is_some());
 }
 
 #[test]
@@ -142,7 +144,7 @@ struct UserString {
 
 /// Mock implementation of `HiddenString_GetUnsafe` from obfuscation/hidden.h for testing purposes
 #[unsafe(no_mangle)]
-pub extern "C" fn HiddenString_GetUnsafe(
+pub unsafe extern "C" fn HiddenString_GetUnsafe(
     value: *const ffi::HiddenString,
     length: *mut usize,
 ) -> *const c_char {
