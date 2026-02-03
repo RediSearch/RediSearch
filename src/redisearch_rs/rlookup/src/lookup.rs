@@ -19,11 +19,9 @@ use crate::{
 };
 use enumflags2::{BitFlags, bitflags};
 use key_list::KeyList;
-use query_error::QueryError;
 use std::{
     borrow::Cow,
     ffi::CStr,
-    mem,
     ops::{Deref, DerefMut},
     pin::Pin,
     ptr,
@@ -430,10 +428,19 @@ impl<'a> RLookup<'a> {
         dst_row: &mut RLookupRow<'a, value::RSValueFFI>,
         index_spec: &'a IndexSpec,
         key: &CStr,
+        status: &mut ffi::QueryError,
     ) -> i32 {
         let keys = create_keys_from_spec(self, index_spec);
         let pushed_keys = keys.into_iter().map(|k| self.keys.push(k)).collect();
-        load_specific_keys(self, module_ctx, dst_row, index_spec, key, pushed_keys)
+        load_specific_keys(
+            self,
+            module_ctx,
+            dst_row,
+            index_spec,
+            key,
+            pushed_keys,
+            status,
+        )
     }
 }
 
@@ -478,6 +485,7 @@ fn load_specific_keys<'a>(
     index_spec: &IndexSpec,
     key: &CStr,
     keys: Vec<Pin<&mut RLookupKey>>,
+    status: &mut ffi::QueryError,
 ) -> i32 {
     let lookup = ptr::from_mut(lookup).cast::<ffi::RLookup>();
     let dst_row = ptr::from_mut(dst_row).cast::<ffi::RLookupRow>();
@@ -493,18 +501,13 @@ fn load_specific_keys<'a>(
 
     let mut sctx = create_redis_search_ctx(module_ctx);
 
-    // Safety: The size and alignment of the Rust source struct matches the target C struct exactly. This is the only way we can initialize such a struct.
-    let mut status = unsafe {
-        mem::transmute::<query_error::QueryError, ffi::QueryError>(QueryError::default())
-    };
-
     let mut options = ffi::RLookupLoadOptions {
         keys: keys.as_mut_ptr(),
         nkeys: keys.len(),
         sctx: ptr::from_mut(&mut sctx),
         keyPtr: key.as_ptr(),
         type_: index_spec.rule().type_(),
-        status: ptr::from_mut(&mut status),
+        status: ptr::from_mut(status),
         forceLoad: true,
         mode: ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
         dmd: ptr::null(),

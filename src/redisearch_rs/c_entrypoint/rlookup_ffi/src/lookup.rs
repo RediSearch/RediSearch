@@ -466,6 +466,7 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
 ///     1. The entire memory range of this `CStr` must be contained within a single allocation!
 ///     2. `key` must be non-null even for a zero-length cstr.
 /// 7. The nul terminator must be within `isize::MAX` from `key`
+/// 8. `status` must be a [valid], non-null pointer to an `ffi::QueryError` that is properly initialized.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -475,6 +476,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields<'a>(
     dst_row: Option<NonNull<RLookupRow<'a>>>,
     index_spec: Option<NonNull<ffi::IndexSpec>>,
     key: *const c_char,
+    status: Option<NonNull<ffi::QueryError>>,
 ) -> i32 {
     // Safety: ensured by caller (1.)
     let ctx = unsafe { module_ctx.unwrap().as_mut() };
@@ -493,7 +495,10 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields<'a>(
     // Safety: ensured by caller (5., 6., 7.)
     let key = unsafe { CStr::from_ptr(key) };
 
-    lookup.load_rule_fields(ctx, dst_row, index_spec, key)
+    // Safety: ensured by caller (8.)
+    let status = unsafe { status.unwrap().as_mut() };
+
+    lookup.load_rule_fields(ctx, dst_row, index_spec, key, status)
 }
 
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.

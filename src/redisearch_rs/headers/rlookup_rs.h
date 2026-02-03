@@ -445,6 +445,7 @@ void RLookup_Cleanup(struct RLookup *lookup);
  *     1. The entire memory range of this `CStr` must be contained within a single allocation!
  *     2. `key` must be non-null even for a zero-length cstr.
  * 7. The nul terminator must be within `isize::MAX` from `key`
+ * 8. `status` must be a [valid], non-null pointer to an `ffi::QueryError` that is properly initialized.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -452,7 +453,8 @@ int32_t RLookup_LoadRuleFields(RedisModuleCtx *module_ctx,
                                struct RLookup *lookup,
                                RLookupRow *dst_row,
                                IndexSpec *index_spec,
-                               const char *key);
+                               const char *key,
+                               QueryError *status);
 
 /**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
