@@ -14,6 +14,9 @@
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
+// Global flag to control async I/O (enabled by default, can be toggled via debug command)
+static bool asyncIOEnabled = true;
+
 // Weak default implementations for when disk API is not available
 __attribute__((weak))
 bool SearchDisk_HasAPI() {
@@ -127,6 +130,57 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle) {
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size) {
     RS_ASSERT(disk && handle);
     return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
+}
+
+RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, uint16_t max_concurrent) {
+    RS_ASSERT(disk && handle);
+    return disk->docTable.createAsyncReadPool(handle, max_concurrent);
+}
+
+bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool pool, t_docId docId, uint64_t user_data) {
+    RS_ASSERT(disk && pool);
+    return disk->docTable.addAsyncRead(pool, docId, user_data);
+}
+
+// Callback to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr set
+static RSDocumentMetadata* allocateDMD(const void* key_data, size_t key_len) {
+    RSDocumentMetadata* dmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+    if (dmd) {
+        dmd->ref_count = 1;
+        dmd->keyPtr = sdsnewlen(key_data, key_len);
+    }
+    return dmd;
+}
+
+uint16_t SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, arrayof(AsyncReadResult) results, arrayof(uint64_t) failed_user_data) {
+    RS_ASSERT(disk && pool);
+    AsyncPollResult pollResult = disk->docTable.pollAsyncReads(pool, timeout_ms, results, array_cap(results), failed_user_data, array_cap(failed_user_data), &allocateDMD);
+    array_set_len(results, pollResult.ready_count);
+    array_set_len(failed_user_data, pollResult.failed_count);
+    return pollResult.pending_count;
+}
+
+void SearchDisk_FreeAsyncReadPool(RedisSearchDiskAsyncReadPool pool) {
+    RS_ASSERT(disk);
+    if (pool) {
+        disk->docTable.freeAsyncReadPool(pool);
+    }
+}
+
+bool SearchDisk_IsAsyncIOSupported() {
+    if (!disk || !disk_db) {
+        return false;
+    }
+    // Check if the underlying disk backend supports async I/O
+    return disk->basic.isAsyncIOSupported(disk_db);
+}
+
+void SearchDisk_SetAsyncIOEnabled(bool enabled) {
+    asyncIOEnabled = enabled;
+}
+
+bool SearchDisk_GetAsyncIOEnabled() {
+    return asyncIOEnabled;
 }
 
 void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, uint32_t *oldLen, t_docId *id) {

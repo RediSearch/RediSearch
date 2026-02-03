@@ -24,9 +24,26 @@ typedef const void* RedisSearchDisk;
 typedef const void* RedisSearchDiskIndexSpec;
 typedef const void* RedisSearchDiskInvertedIndex;
 typedef const void* RedisSearchDiskIterator;
+typedef const void* RedisSearchDiskAsyncReadPool;
 
 // Callback function to allocate memory for the key in the scope of the search module memory
 typedef char* (*AllocateKeyCallback)(const void*, size_t len);
+
+// Callback function to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr set
+typedef RSDocumentMetadata* (*AllocateDMDCallback)(const void* key_data, size_t key_len);
+
+// Result of polling the async read pool
+typedef struct AsyncPollResult {
+  uint16_t ready_count;   // Number of successful reads in results buffer
+  uint16_t failed_count;  // Number of failed reads in failed_user_data buffer
+  uint16_t pending_count; // Number of reads still in flight
+} AsyncPollResult;
+
+// Result structure containing both DMD and user data (for successful reads only)
+typedef struct AsyncReadResult {
+  RSDocumentMetadata *dmd;  // Pointer to allocated DMD (caller must free with DMD_Return)
+  uint64_t user_data;       // Generic user data passed to addAsyncRead (e.g., index, pointer, flags)
+} AsyncReadResult;
 
 typedef struct BasicDiskAPI {
   RedisSearchDisk *(*open)(RedisModuleCtx *ctx);
@@ -35,6 +52,13 @@ typedef struct BasicDiskAPI {
   void (*closeIndexSpec)(RedisSearchDiskIndexSpec *index);
   void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
   u_int32_t (*indexSpecRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Check if async I/O is supported by the underlying storage engine
+   * @param disk Pointer to the disk
+   * @return true if async I/O operations are available, false otherwise
+   */
+  bool (*isAsyncIOSupported)(RedisSearchDisk *disk);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
@@ -160,6 +184,59 @@ typedef struct DocTableDiskAPI {
    * @return The number of IDs written to the buffer
    */
   size_t (*getDeletedIds)(RedisSearchDiskIndexSpec* handle, t_docId* buffer, size_t buffer_size);
+
+  /**
+   * @brief Creates an async read pool for batched document metadata reads
+   *
+   * The pool allows adding async read requests up to a maximum concurrency limit,
+   * and polling for completed results. This enables I/O parallelism for query processing.
+   *
+   * @param handle Handle to the index
+   * @param max_concurrent Maximum number of concurrent pending reads
+   * @return Opaque handle to the pool, or NULL on error. Must be freed with freeAsyncReadPool.
+   */
+  RedisSearchDiskAsyncReadPool (*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent);
+
+  /**
+   * @brief Adds an async read request to the pool for the given document ID
+   *
+   * @param pool Pool handle from createAsyncReadPool
+   * @param docId Document ID to read
+   * @param user_data Generic user data to associate with this read (returned in AsyncReadResult)
+   * @return true if the request was added, false if the pool is at capacity
+   */
+  bool (*addAsyncRead)(RedisSearchDiskAsyncReadPool pool, t_docId docId, uint64_t user_data);
+
+  /**
+   * @brief Polls the pool for ready results
+   *
+   * Checks for completed async reads and fills two buffers:
+   * - results: successful reads with valid DMDs
+   * - failed_user_data: user_data pointers for reads that failed or found no document
+   *
+   * Both buffers are required and must have capacity > 0. Polling stops when either buffer
+   * is full, so callers should size buffers appropriately for their use case.
+   *
+   * @param pool Pool handle from createAsyncReadPool
+   * @param timeout_ms 0 for non-blocking, >0 to wait up to that many milliseconds
+   * @param results Buffer to fill with successful AsyncReadResult structures (DMD + user_data)
+   * @param results_capacity Size of the results buffer (must be > 0)
+   * @param failed_user_data Buffer to fill with user_data from failed reads (not found/error)
+   * @param failed_capacity Size of the failed_user_data buffer (must be > 0)
+   * @param allocateDMD Callback to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr
+   * @return AsyncPollResult with counts of ready, failed, and pending reads
+   */
+  AsyncPollResult (*pollAsyncReads)(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms,
+                                    AsyncReadResult* results, uint16_t results_capacity,
+                                    uint64_t* failed_user_data, uint16_t failed_capacity,
+                                    AllocateDMDCallback allocateDMD);
+
+  /**
+   * @brief Frees the async read pool and cancels any pending reads
+   *
+   * @param pool Pool handle from createAsyncReadPool
+   */
+  void (*freeAsyncReadPool)(RedisSearchDiskAsyncReadPool pool);
 } DocTableDiskAPI;
 
 typedef struct VectorDiskAPI {

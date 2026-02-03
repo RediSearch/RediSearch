@@ -203,6 +203,78 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
  */
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
 
+// Async Read Pool API
+
+/**
+ * @brief Create an async read pool for batched document metadata reads
+ *
+ * @param handle Handle to the index
+ * @param max_concurrent Maximum number of concurrent pending reads
+ * @return Opaque handle to the pool, or NULL on error
+ */
+RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, uint16_t max_concurrent);
+
+/**
+ * @brief Add an async read request to the pool
+ *
+ * @param pool Pool handle from SearchDisk_CreateAsyncReadPool
+ * @param docId Document ID to read
+ * @param user_data Generic user data to associate with this read (returned in AsyncReadResult)
+ * @return true if added, false if pool is at capacity
+ */
+bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool pool, t_docId docId, uint64_t user_data);
+
+/**
+ * @brief Poll the pool for ready results
+ *
+ * Returns two arrays: successful reads with DMDs, and failed reads with just user_data.
+ *
+ * @param pool Pool handle
+ * @param timeout_ms 0 for non-blocking, >0 to wait
+ * @param results Buffer to fill with successful AsyncReadResult structures
+ * @param results_capacity Size of results buffer
+ * @param failed_user_data Buffer to fill with user_data from failed reads
+ * @param failed_capacity Size of failed_user_data buffer
+ * @return Number of pending reads after the poll
+ */
+uint16_t SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, arrayof(AsyncReadResult) results, arrayof(uint64_t) failed_user_data);
+
+/**
+ * @brief Free the async read pool
+ *
+ * @param pool Pool handle
+ */
+void SearchDisk_FreeAsyncReadPool(RedisSearchDiskAsyncReadPool pool);
+
+/**
+ * @brief Check if async I/O is supported by the underlying storage engine
+ *
+ * This checks whether the disk backend has async I/O capability.
+ * Note: This does NOT check the global async I/O enabled flag - use
+ * SearchDisk_GetAsyncIOEnabled() for that. Both must be true for async I/O to be used.
+ *
+ * @return true if the disk backend supports async I/O operations, false otherwise
+ */
+bool SearchDisk_IsAsyncIOSupported();
+
+/**
+ * @brief Enable or disable async I/O globally
+ *
+ * This allows runtime control of async I/O behavior for testing and debugging.
+ * Note: This only affects new queries; existing queries continue with their
+ * original configuration.
+ *
+ * @param enabled true to enable async I/O, false to disable
+ */
+void SearchDisk_SetAsyncIOEnabled(bool enabled);
+
+/**
+ * @brief Get the current async I/O enabled state
+ *
+ * @return true if async I/O is enabled, false otherwise
+ */
+bool SearchDisk_GetAsyncIOEnabled();
+
 /**
  * @brief Check if the search disk module is enabled from configuration
  *

@@ -2157,6 +2157,47 @@ DEBUG_COMMAND(VecSimMockTimeout) {
   }
 }
 
+/**
+ * FT.DEBUG DISK_IO_CONTROL <enable|disable|status>
+ *
+ * Control async disk I/O behavior for testing and debugging.
+ * - enable: Enable async I/O (default)
+ * - disable: Disable async I/O, use sync path instead
+ * - status: Show current async I/O status
+ */
+DEBUG_COMMAND(DiskIOControl) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp("enable", op)) {
+    // Check if disk is available first
+    if (!SearchDisk_IsAsyncIOSupported()) {
+      return RedisModule_ReplyWithError(ctx, "Async I/O is not supported (disk API not available or disk doesn't support async I/O)");
+    }
+    SearchDisk_SetAsyncIOEnabled(true);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK - Async I/O enabled");
+  } else if (!strcasecmp("disable", op)) {
+    SearchDisk_SetAsyncIOEnabled(false);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK - Async I/O disabled");
+  } else if (!strcasecmp("status", op)) {
+    bool flagEnabled = SearchDisk_GetAsyncIOEnabled();
+    bool diskSupported = SearchDisk_IsAsyncIOSupported();
+
+    if (!diskSupported) {
+      return RedisModule_ReplyWithSimpleString(ctx, "Async I/O: not supported by disk");
+    }
+    return RedisModule_ReplyWithSimpleString(ctx, flagEnabled ? "Async I/O: enabled" : "Async I/O: disabled");
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid command for 'DISK_IO_CONTROL'. Use: enable, disable, or status");
+  }
+}
+
 // FT.DEBUG GET_MAX_DOC_ID INDEX_NAME
 DEBUG_COMMAND(GetMaxDocId) {
   if (!debugCommandsEnabled(ctx)) {
@@ -2292,6 +2333,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
+                               {"DISK_IO_CONTROL", DiskIOControl},
                                {"REGISTER_TEST_SCORERS", RegisterTestScorers}, // Register test scorers
                                /**
                                 * The following commands are for debugging distributed search/aggregation.

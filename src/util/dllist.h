@@ -51,7 +51,7 @@ static inline void dllist_delete(DLLIST_node *item) {
   item->next = item->prev = NULL;
 }
 
-#define DLLIST_IS_EMPTY(l) (l)->prev == (l)
+#define DLLIST_IS_EMPTY(l) ((l)->prev == (l))
 #define DLLIST_IS_FIRST(l, itm) ((itm)->prev == l)
 #define DLLIST_IS_LAST(l, itm) ((itm)->next == l)
 #define DLLIST_IS_END(l, itm) ((l) == (itm))
@@ -60,11 +60,19 @@ static inline void dllist_delete(DLLIST_node *item) {
 #define DLLIST_FOREACH(it, ll) for (DLLIST_node *it = (ll)->next; it != (ll); it = it->next)
 
 static inline DLLIST_node *dllist_pop_tail(DLLIST *list) {
-  DLLIST_node *item;
   if (DLLIST_IS_EMPTY(list)) {
     return NULL;
   }
-  item = list->prev;
+  DLLIST_node *item = list->prev;
+  dllist_delete(item);
+  return item;
+}
+
+static inline DLLIST_node *dllist_pop_head(DLLIST *list) {
+  if (DLLIST_IS_EMPTY(list)) {
+    return NULL;
+  }
+  DLLIST_node *item = list->next;
   dllist_delete(item);
   return item;
 }
