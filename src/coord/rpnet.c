@@ -397,7 +397,7 @@ int getNextReply(RPNet *nc) {
   nc->current.meta = meta;
 
   const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
-  RS_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY);
+  RS_LOG_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY, rows ? "rows is not an array" : "rows is NULL");
   if (MRReply_Length(rows) <= empty_rows_len) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
     int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3);
@@ -432,6 +432,7 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     // Create cursor read command using the copied index name
     nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx_copy);
     nc->cmd.rootCommand = C_READ;
+    nc->cmd.forProfiling = IsProfile(nc->areq);
     nc->cmd.protocol = 3;
     rm_free(idx_copy);
 
