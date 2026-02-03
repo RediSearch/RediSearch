@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow};
 use sorting_vector::RSSortingVector;
 use std::{
