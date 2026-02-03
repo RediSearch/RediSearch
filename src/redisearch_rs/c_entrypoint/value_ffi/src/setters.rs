@@ -10,10 +10,7 @@
 use crate::util::expect_shared_value;
 use libc::size_t;
 use std::ffi::{c_char, c_double};
-use value::{
-    RsValue,
-    strings::{ConstString, RmAllocString},
-};
+use value::{RsString, RsValue};
 
 /// Converts an [`RsValue`] to a number type in-place.
 ///
@@ -63,8 +60,8 @@ pub unsafe extern "C" fn RSValue_SetNull(value: *mut RsValue) {
 pub unsafe extern "C" fn RSValue_SetString(value: *const RsValue, str: *mut c_char, len: size_t) {
     let mut shared_value = unsafe { expect_shared_value(value) };
 
-    let rm_alloc_string = unsafe { RmAllocString::from_raw(str, len as u32) };
-    let value = RsValue::RmAllocString(rm_alloc_string);
+    let string = unsafe { RsString::rm_alloc_string(str, len as u32) };
+    let value = RsValue::String(string);
     shared_value.set_value(value);
 }
 
@@ -76,7 +73,7 @@ pub unsafe extern "C" fn RSValue_SetConstString(
 ) {
     let mut shared_value = unsafe { expect_shared_value(value) };
 
-    let const_string = unsafe { ConstString::from_raw(str, len as u32) };
-    let value = RsValue::ConstString(const_string);
+    let string = unsafe { RsString::const_string(str, len as u32) };
+    let value = RsValue::String(string);
     shared_value.set_value(value);
 }

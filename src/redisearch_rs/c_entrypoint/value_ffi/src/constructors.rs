@@ -11,9 +11,9 @@ use std::ffi::{c_char, c_double};
 use std::ptr::copy_nonoverlapping;
 
 use ffi::{RedisModule_Alloc, RedisModuleString};
-use value::strings::{ConstString, RedisString, RmAllocString};
+use value::strings::RedisString;
 use value::trio::RsValueTrio;
-use value::{RsValue, shared::SharedRsValue};
+use value::{RsString, RsValue, shared::SharedRsValue};
 
 /// Creates and returns a new **owned** [`RsValue`] object of type undefined.
 ///
@@ -77,16 +77,16 @@ pub unsafe extern "C" fn RSValue_NewTrio(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewString(str: *mut c_char, len: u32) -> *mut RsValue {
-    let string = unsafe { RmAllocString::from_raw(str, len) };
-    let value = RsValue::RmAllocString(string);
+    let string = unsafe { RsString::rm_alloc_string(str, len) };
+    let value = RsValue::String(string);
     let shared_value = SharedRsValue::new(value);
     shared_value.into_raw() as *mut _
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewConstString(str: *const c_char, len: u32) -> *mut RsValue {
-    let string = unsafe { ConstString::from_raw(str, len) };
-    let value = RsValue::ConstString(string);
+    let string = unsafe { RsString::const_string(str, len) };
+    let value = RsValue::String(string);
     let shared_value = SharedRsValue::new(value);
     shared_value.into_raw() as *mut _
 }
@@ -105,8 +105,8 @@ pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -
     let buf = unsafe { rm_alloc((len + 1) as usize) } as *mut c_char;
     unsafe { copy_nonoverlapping(str, buf, len as usize) };
     unsafe { buf.add(len as usize).write(0) };
-    let string = unsafe { RmAllocString::from_raw(buf, len) };
-    let value = RsValue::RmAllocString(string);
+    let string = unsafe { RsString::rm_alloc_string(buf, len) };
+    let value = RsValue::String(string);
     let shared_value = SharedRsValue::new(value);
     shared_value.into_raw() as *mut _
 }
