@@ -139,7 +139,6 @@ cmd_lint() {
   # Build SpeedB first so cargo clippy can link against it
   local profile="${PROFILE:-Debug}"
   ensure_cmake_configured "${profile}"
-  build_speedb
 
   cd "${ROOT_DIR}/redisearch_disk/"
   # Allow linting to proceed without the speedb library built
@@ -211,6 +210,7 @@ ensure_cmake_configured() {
 }
 
 build_speedb() {
+  local export_env="${1:-false}"
   local speedb_build_dir="${BUILD_DIR}/speedb-build"
   local speedb_lib="${speedb_build_dir}/libspeedb.so"
   local rocksdb_symlink="${speedb_build_dir}/librocksdb.so"
@@ -231,11 +231,13 @@ build_speedb() {
     cd "${ROOT_DIR}"
   fi
 
-  # Export for Rust build
-  export ROCKSDB_LIB_DIR="${speedb_build_dir}"
-  export ROCKSDB_STATIC=0  # Use shared library
-  export RUSTFLAGS="-C relocation-model=pic"
-  export LD_LIBRARY_PATH="${speedb_build_dir}:${LD_LIBRARY_PATH:-}"
+  # Optionally export environment variables for Rust build and runtime
+  if [ "${export_env}" = "true" ]; then
+    export ROCKSDB_LIB_DIR="${speedb_build_dir}"
+    export ROCKSDB_STATIC=0  # Use shared library
+    export RUSTFLAGS="-C relocation-model=pic"
+    export LD_LIBRARY_PATH="${speedb_build_dir}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  fi
 }
 
 cmd_build() {
@@ -245,7 +247,7 @@ cmd_build() {
   ensure_cmake_configured "${profile}"
 
   # Build SpeedB using CMake target - both vecsim_disk (C++) and redisearch_disk (Rust) will use it
-  build_speedb
+  build_speedb false
 
   cmake --build "${BUILD_DIR}" -j"$(nproc)" || { echo "[build] Error: Build failed."; exit 1; }
 }
@@ -257,7 +259,7 @@ cmd_test() {
   ensure_cmake_configured "${profile}"
 
   # Build SpeedB and configure Cargo to use it
-  build_speedb
+  build_speedb true
 
   # Convert CMake build type to Rust profile name
   local rust_profile="dev"
@@ -296,12 +298,12 @@ cmd_test_vecsim() {
   ensure_cmake_configured "${profile}"
 
   # Build SpeedB dependency using CMake target
-  build_speedb
+  build_speedb true
 
   echo "[test-vecsim] Building vecsim_disk and all tests..."
   cmake --build "${BUILD_DIR}" --target vecsim_disk_tests -j"$(nproc)" || { echo "[test-vecsim] Error: Build failed."; exit 1; }
 
-  # Run CTest with LD_LIBRARY_PATH set so tests can find libspeedb.so
+  # Run CTest - LD_LIBRARY_PATH is set by build_speedb so tests can find libspeedb.so
   echo "[test-vecsim] Running tests..."
   cd "${BUILD_DIR}/vecsim_disk"
   ctest --output-on-failure
@@ -312,9 +314,6 @@ cmd_test_miri() {
 
   local profile="${PROFILE:-Debug}"
   ensure_cmake_configured "${profile}"
-
-  # Build SpeedB and configure Cargo to use it
-  build_speedb
 
   cd "${ROOT_DIR}/redisearch_disk/"
   # Set default MIRIFLAGS if not already set
@@ -336,9 +335,6 @@ cmd_bench() {
   # Use Release for benchmarks
   local profile="Release"
   ensure_cmake_configured "${profile}"
-
-  # Build SpeedB and configure Cargo to use it
-  build_speedb
 
   cd "${ROOT_DIR}/redisearch_disk/"
   # Benchmarks always run in release mode for accurate performance measurement

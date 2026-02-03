@@ -27,11 +27,13 @@ speedb = { path = "../deps/rust-speedb" }
 strum = { version = "0.27.2", features = ["derive"] }
 thiserror = "2.0.17"
 tracing = "0.1.42"
+tokio = { version = "1.49.0", features = ["rt", "sync", "time"] }
 
 [dev-dependencies]
 redis_mock = { path = "../deps/RediSearch/src/redisearch_rs/redis_mock" }
 tempfile = "3.23.0"
 criterion = "0.5"
+tokio = { version = "1.49.0", features = ["rt", "macros"] }
 
 [[bench]]
 name = "document_id_key"

@@ -26,7 +26,7 @@ use rqe_iterators_interop::RQEIteratorWrapper;
 
 use std::ffi::{OsStr, c_char, c_void};
 use std::time::{Duration, UNIX_EPOCH};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::utils::{compute_disk_path, get_redis_config_value};
 
@@ -83,6 +83,7 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut RedisSearchDiskAPI {
             closeIndexSpec: Some(index_spec_close),
             indexSpecRdbSave: Some(index_spec_rdb_save),
             indexSpecRdbLoad: Some(index_spec_rdb_load),
+            isAsyncIOSupported: Some(is_async_io_supported),
         },
         index: IndexDiskAPI {
             indexDocument: Some(index_spec_index_doc),
@@ -98,6 +99,10 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut RedisSearchDiskAPI {
             getMaxDocId: Some(index_spec_get_max_doc_id),
             getDeletedIdsCount: Some(index_spec_get_deleted_ids_count),
             getDeletedIds: Some(index_spec_get_deleted_ids),
+            createAsyncReadPool: Some(index_spec_create_async_read_pool),
+            addAsyncRead: Some(index_spec_add_async_read),
+            pollAsyncReads: Some(index_spec_poll_async_reads),
+            freeAsyncReadPool: Some(index_spec_free_async_read_pool),
         },
         vector: VectorDiskAPI {
             createVectorIndex: Some(vector_create_index),
@@ -116,12 +121,13 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut RedisSearchDiskAPI {
 ///
 /// This function retrieves the `bigredis-path` configuration from Redis,
 /// computes the disk storage path by extracting the parent directory and
-/// appending "/redisearch", then creates the PathPrefix for individual index databases.
+/// appending "/redisearch", then creates the DiskContext for individual index databases.
 ///
 /// # Safety
 /// 1. `ctx` must be a valid RedisModuleCtx pointer.
 extern "C" fn open(ctx: *mut RedisModuleCtx) -> *mut RedisSearchDisk {
-    debug!("opening search disk");
+    let is_async_io_supported = speedb::DB::is_async_io_available();
+    info!(is_async_io_supported, "opening search disk");
 
     // Safety: ctx is a valid RedisModuleCtx pointer (see safety point 1 above)
     let redis_ctx = redis_module::Context::new(ctx as *mut redis_module::raw::RedisModuleCtx);
@@ -153,7 +159,7 @@ extern "C" fn open(ctx: *mut RedisModuleCtx) -> *mut RedisSearchDisk {
 
     debug!("RediSearch disk storage path: {}", disk_path);
 
-    DiskContext::new(OsStr::new(&disk_path)).into_ptr()
+    DiskContext::new(OsStr::new(&disk_path), is_async_io_supported).into_ptr()
 }
 
 /// Closes the on-disk index db.
@@ -172,6 +178,21 @@ extern "C" fn close(disk_ptr: *mut RedisSearchDisk) {
     let _ = unsafe { DiskContext::from_ptr(disk_ptr) };
 
     debug!("closing search disk");
+}
+
+/// Checks if async I/O is supported by the underlying storage engine.
+///
+/// Returns true if io_uring is available and properly initialized, false otherwise.
+///
+/// # Safety
+/// 1. `disk` must have been returned from [`open`].
+extern "C" fn is_async_io_supported(disk: *mut RedisSearchDisk) -> bool {
+    // Safety: see safety point 1 above.
+    let Some(disk_ctx) = (unsafe { DiskContext::try_as_ref(disk) }) else {
+        warn!("is_async_io_supported called with null disk pointer");
+        return false;
+    };
+    disk_ctx.is_async_io_supported()
 }
 
 /// Opens an index.
@@ -538,19 +559,23 @@ extern "C" fn index_spec_put_doc(
 ///
 /// # Safety
 /// 1. `index` must have been returned from [`index_spec_open`].
-/// 2. `term` must point to a valid buffer of at least `term_len` bytes.
-extern "C" fn index_spec_new_term_iterator(
+/// 2. `term` must be a valid pointer to an `RSQueryTerm`.
+unsafe extern "C" fn index_spec_new_term_iterator(
     index: *mut RedisSearchDiskIndexSpec,
-    term: *const c_char,
-    term_len: usize,
+    term: *mut ffi::RSQueryTerm,
     field_mask: t_fieldMask,
     weight: f64,
-    _idf: f64,
-    _bm25_idf: f64,
 ) -> *mut QueryIterator {
     // Safety: see safety point 2 above.
-    let term = unsafe {
-        let slice = std::slice::from_raw_parts(term.cast::<u8>(), term_len);
+    let Some(query_term) = (unsafe { term.as_ref() }) else {
+        error!("term pointer is null");
+        return std::ptr::null_mut();
+    };
+
+    // Extract term string from RSQueryTerm
+    // Safety: RSQueryTerm.str is valid for RSQueryTerm.len bytes per the C API contract
+    let term_str = unsafe {
+        let slice = std::slice::from_raw_parts(query_term.str_.cast::<u8>(), query_term.len);
         match std::str::from_utf8(slice) {
             Ok(s) => s,
             Err(error) => {
@@ -563,7 +588,7 @@ extern "C" fn index_spec_new_term_iterator(
         }
     };
 
-    debug!(term, field_mask, weight, "index_spec_new_term_iterator");
+    debug!(term_str, field_mask, weight, "index_spec_new_term_iterator");
 
     // Safety: see safety point 1 above.
     let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
@@ -573,7 +598,7 @@ extern "C" fn index_spec_new_term_iterator(
 
     match index
         .inverted_index()
-        .term_iterator(term, field_mask, weight)
+        .term_iterator(term_str, field_mask, weight)
     {
         Ok(iterator) => RQEIteratorWrapper::boxed_new(IteratorType_INV_IDX_TERM_ITERATOR, iterator),
         Err(error) => {
@@ -633,6 +658,22 @@ extern "C" fn index_spec_is_doc_id_deleted(
     };
 
     index.doc_table().is_deleted(doc_id)
+}
+
+/// Populates an allocated RSDocumentMetadata struct with data from DocumentMetadata.
+fn populate_dmd(
+    dmd_ref: &mut ffi::RSDocumentMetadata,
+    doc_id: ffi::t_docId,
+    dmd: &index_spec::doc_table::DocumentMetadata,
+    document_type: ffi::DocumentType,
+) {
+    dmd_ref.id = doc_id;
+    // keyPtr is already set by allocate_dmd callback
+    dmd_ref.score = dmd.score;
+    dmd_ref.set_maxTermFreq(dmd.max_term_freq);
+    dmd_ref.set_flags(flags_to_oss(dmd.flags));
+    dmd_ref.set_docLen(dmd.doc_len);
+    dmd_ref.set_type(document_type);
 }
 
 /// Retrieves the document metadata for `doc_id` and writes it to `dmd`.
@@ -695,13 +736,259 @@ extern "C" fn index_spec_get_document_metadata(
             doc_table_dmd.key.len(),
         )
     };
-    dmd.score = doc_table_dmd.score;
-    dmd.set_maxTermFreq(doc_table_dmd.max_term_freq);
-    dmd.set_flags(flags_to_oss(doc_table_dmd.flags));
-    dmd.set_docLen(doc_table_dmd.doc_len);
-    dmd.set_type(doc_table.document_type());
+    populate_dmd(dmd, doc_id, &doc_table_dmd, doc_table.document_type());
 
     true
+}
+
+// ============================================================================
+// Async Read Pool API
+// ============================================================================
+
+/// Opaque handle for the async read pool.
+/// Used to manage async document metadata reads and populate results.
+struct AsyncReadPoolHandle {
+    pool: index_spec::doc_table::AsyncReadPool<'static>,
+    document_type: DocumentType,
+}
+
+/// Creates an async read pool for batched document metadata reads.
+///
+/// # Safety
+/// 1. `index` must have been returned from [`index_spec_open`].
+/// 2. The returned pool handle must be freed before the index is closed.
+///
+/// # Returns
+/// An opaque pointer to the pool handle, or null on error.
+unsafe extern "C" fn index_spec_create_async_read_pool(
+    index: *mut RedisSearchDiskIndexSpec,
+    max_concurrent: u16,
+) -> ffi::RedisSearchDiskAsyncReadPool {
+    debug!(max_concurrent, "creating async read pool");
+
+    // Safety: see safety point 1 above.
+    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+        error!("index pointer is null");
+        return std::ptr::null();
+    };
+
+    let doc_table = index.doc_table();
+    let document_type = doc_table.document_type();
+
+    // Safety: We extend the lifetime to 'static; see safety point 2 above.
+    let doc_table_static: &'static index_spec::doc_table::DocTable =
+        unsafe { std::mem::transmute(doc_table) };
+
+    let Some(pool) = index_spec::doc_table::AsyncReadPool::new(doc_table_static, max_concurrent)
+    else {
+        error!("failed to create tokio runtime for async read pool");
+        return std::ptr::null();
+    };
+
+    let handle = Box::new(AsyncReadPoolHandle {
+        pool,
+        document_type,
+    });
+
+    Box::into_raw(handle) as ffi::RedisSearchDiskAsyncReadPool
+}
+
+/// Adds an async read request to the pool for the given document ID.
+///
+/// # Safety
+/// 1. `pool` must have been returned from [`index_spec_create_async_read_pool`].
+///
+/// # Returns
+/// `true` if the request was added, `false` if the pool is at capacity.
+unsafe extern "C" fn index_spec_add_async_read(
+    pool: ffi::RedisSearchDiskAsyncReadPool,
+    doc_id: t_docId,
+    user_data: u64,
+) -> bool {
+    let pool = pool as *mut c_void;
+    if pool.is_null() {
+        error!("pool pointer is null");
+        return false;
+    }
+
+    // Safety: see safety point 1 above.
+    let handle = unsafe { &mut *(pool as *mut AsyncReadPoolHandle) };
+
+    handle.pool.add_read(doc_id, user_data)
+}
+
+/// Validated inputs for poll_async_reads.
+struct PollAsyncReadsInputs<'a> {
+    handle: &'a mut AsyncReadPoolHandle,
+    results_slice: &'a mut [ffi::AsyncReadResult],
+    failed_slice: &'a mut [u64],
+    allocate_dmd: unsafe extern "C" fn(*const c_void, usize) -> *mut ffi::RSDocumentMetadata,
+}
+
+/// Validates inputs for poll_async_reads, returning None on validation failure.
+///
+/// # Safety
+/// 1. `pool` must have been returned from [`index_spec_create_async_read_pool`].
+/// 2. `results` must be a valid pointer to an array of `results_capacity` AsyncReadResult (capacity > 0).
+/// 3. `failed_user_data` must be a valid pointer to an array of `failed_capacity` u64 (capacity > 0).
+/// 4. `allocate_dmd` must be a valid callback function.
+unsafe fn validate_poll_inputs<'a>(
+    pool: ffi::RedisSearchDiskAsyncReadPool,
+    results: *mut ffi::AsyncReadResult,
+    results_capacity: u16,
+    failed_user_data: *mut u64,
+    failed_capacity: u16,
+    allocate_dmd: ffi::AllocateDMDCallback,
+) -> Option<PollAsyncReadsInputs<'a>> {
+    let pool = pool as *mut c_void;
+    if pool.is_null() {
+        error!("pool pointer is null");
+        return None;
+    }
+
+    if results.is_null() || results_capacity == 0 {
+        error!("results buffer is null or empty");
+        return None;
+    }
+
+    if failed_user_data.is_null() || failed_capacity == 0 {
+        error!("failed_user_data buffer is null or empty");
+        return None;
+    }
+
+    let allocate_dmd = allocate_dmd?;
+
+    // Safety: caller guarantees pool is valid.
+    let handle = unsafe { &mut *(pool as *mut AsyncReadPoolHandle) };
+
+    // Safety: caller guarantees results is valid with results_capacity elements.
+    let results_slice =
+        unsafe { std::slice::from_raw_parts_mut(results, results_capacity as usize) };
+
+    // SAFETY: Caller guarantees failed_user_data is valid with failed_capacity elements.
+    let failed_slice =
+        unsafe { std::slice::from_raw_parts_mut(failed_user_data, failed_capacity as usize) };
+
+    Some(PollAsyncReadsInputs {
+        handle,
+        results_slice,
+        failed_slice,
+        allocate_dmd,
+    })
+}
+
+/// Polls the pool for ready results.
+///
+/// # TODO
+/// This function does not check document expiration, unlike the synchronous
+/// `index_spec_get_document_metadata` which filters out expired documents.
+/// To fix this, we need to:
+/// 1. Add a `current_time: ffi::timespec` parameter
+/// 2. Add expiration check before calling `populate_dmd`
+/// 3. Update the C-side FFI definition and callers
+///
+/// # Safety
+/// 1. `pool` must have been returned from [`index_spec_create_async_read_pool`].
+/// 2. `results` must be a valid pointer to an array of `results_capacity` AsyncReadResult.
+/// 3. `failed_user_data` must be a valid pointer to an array of `failed_capacity` u64.
+/// 4. `allocate_dmd` must be a valid callback function.
+///
+/// # Returns
+/// AsyncPollResult with counts of ready, failed, and pending reads.
+unsafe extern "C" fn index_spec_poll_async_reads(
+    pool: ffi::RedisSearchDiskAsyncReadPool,
+    timeout_ms: u32,
+    results: *mut ffi::AsyncReadResult,
+    results_capacity: u16,
+    failed_user_data: *mut u64,
+    failed_capacity: u16,
+    allocate_dmd: ffi::AllocateDMDCallback,
+) -> ffi::AsyncPollResult {
+    let empty_result = ffi::AsyncPollResult {
+        ready_count: 0,
+        failed_count: 0,
+        pending_count: 0,
+    };
+
+    // Safety: caller guarantees all pointers are valid per the safety requirements.
+    let Some(PollAsyncReadsInputs {
+        handle,
+        results_slice,
+        failed_slice,
+        allocate_dmd,
+    }) = (unsafe {
+        validate_poll_inputs(
+            pool,
+            results,
+            results_capacity,
+            failed_user_data,
+            failed_capacity,
+            allocate_dmd,
+        )
+    })
+    else {
+        return empty_result;
+    };
+
+    let document_type = handle.document_type;
+    let mut ready_count = 0u16;
+    let mut failed_count = 0u16;
+
+    let pending_count = handle.pool.poll_with_callbacks(
+        timeout_ms,
+        results_capacity,
+        |doc_id, dmd, user_data| {
+            // SAFETY: allocate_dmd is a C callback provided by the caller. The caller guarantees
+            // it is a valid function pointer. We pass a valid pointer to the key data and its length.
+            let allocated_dmd =
+                unsafe { allocate_dmd(dmd.key.as_ptr().cast::<c_void>(), dmd.key.len()) };
+            // SAFETY: We check for null via as_mut() which returns None for null pointers.
+            let Some(dmd_ref) = (unsafe { allocated_dmd.as_mut() }) else {
+                error!("Failed allocating document metadata, this is unexpected. user provided data will probably leak!");
+                return;
+            };
+
+            let result = &mut results_slice[ready_count as usize];
+            ready_count += 1;
+
+            populate_dmd(dmd_ref, doc_id, &dmd, document_type);
+            result.dmd = allocated_dmd;
+            result.user_data = user_data;
+        },
+        |user_data| {
+            if (failed_count as usize) < failed_slice.len() {
+                failed_slice[failed_count as usize] = user_data;
+                failed_count += 1;
+                // Stop if we just filled the last slot
+                (failed_count as usize) < failed_slice.len()
+            } else {
+                false // Already full (shouldn't happen if we stop correctly)
+            }
+        },
+    );
+
+    ffi::AsyncPollResult {
+        ready_count,
+        failed_count,
+        pending_count,
+    }
+}
+
+/// Frees the async read pool and cancels any pending reads.
+///
+/// # Safety
+/// 1. `pool` must have been returned from [`index_spec_create_async_read_pool`].
+/// 2. `pool` must not be used after this call.
+unsafe extern "C" fn index_spec_free_async_read_pool(pool: ffi::RedisSearchDiskAsyncReadPool) {
+    let pool = pool as *mut c_void;
+    if pool.is_null() {
+        return;
+    }
+
+    debug!("freeing async read pool");
+
+    // Safety: see safety point 1 above. We take ownership and drop it.
+    let _ = unsafe { Box::from_raw(pool as *mut AsyncReadPoolHandle) };
 }
 
 /// Gets the maximum document ID for `index`.
@@ -775,6 +1062,19 @@ impl DiskContext {
         let disk_context = Box::new(self);
 
         Box::into_raw(disk_context).cast::<RedisSearchDisk>()
+    }
+
+    /// Casts an opaque `RedisSearchDisk` to an immutable `DiskContext` reference.
+    /// Does not consume the pointer.
+    ///
+    /// # Safety
+    /// 1. `ptr` must have been returned from [`Self::into_ptr`].
+    ///
+    /// Returns `None` if `ptr` is null.
+    unsafe fn try_as_ref<'a>(ptr: *mut RedisSearchDisk) -> Option<&'a Self> {
+        let disk_context: *const Self = ptr.cast();
+        // Safety: see safety point 1 above.
+        unsafe { disk_context.as_ref() }
     }
 
     /// Casts an opaque `RedisSearchDisk` to a mutable `DiskContext` reference.

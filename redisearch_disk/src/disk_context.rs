@@ -15,6 +15,7 @@ const DEFAULT_MEMORY_LIMIT: usize = 2 * 1024 * 1024 * 1024; // 2 GB
 /// - The base path for creating individual index databases
 /// - A shared Cache for block caching across all databases
 /// - A shared WriteBufferManager to limit memory usage (memtables + cache) across all databases
+/// - Whether async IO is supported
 pub struct DiskContext {
     /// The base path where index databases will be created.
     base_path: PathBuf,
@@ -25,6 +26,8 @@ pub struct DiskContext {
     /// Shared block cache for all databases.
     /// This cache is tracked by the WriteBufferManager for total memory accounting.
     cache: Cache,
+    /// Whether async IO is supported by the underlying storage.
+    is_async_io_supported: bool,
 }
 
 impl DiskContext {
@@ -37,7 +40,7 @@ impl DiskContext {
     /// The WriteBufferManager is configured with:
     /// - `allow_stall`: true - stalls writes when memory usage exceeds the limit
     /// - `initiate_flushes`: false - does not initiate flushes automatically
-    pub fn new(base_path: impl Into<PathBuf>) -> Self {
+    pub fn new(base_path: impl Into<PathBuf>, is_async_io_supported: bool) -> Self {
         let cache = Cache::new_lru_cache(DEFAULT_MEMORY_LIMIT);
         let write_buffer_manager = WriteBufferManager::new(
             DEFAULT_MEMORY_LIMIT,
@@ -52,6 +55,7 @@ impl DiskContext {
             base_path: base_path.into(),
             cache,
             write_buffer_manager,
+            is_async_io_supported,
         }
     }
 
@@ -68,5 +72,10 @@ impl DiskContext {
     /// Returns a reference to the shared WriteBufferManager.
     pub fn write_buffer_manager(&self) -> &WriteBufferManager {
         &self.write_buffer_manager
+    }
+
+    /// Returns whether async IO is supported.
+    pub fn is_async_io_supported(&self) -> bool {
+        self.is_async_io_supported
     }
 }

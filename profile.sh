@@ -122,6 +122,11 @@ loadmodule "${build_dir}/redisearch.so"
 bigredis-enabled yes
 bigredis-path "${bigredis_path}"
 loglevel debug
+enable-module-command yes
+enable-debug-command yes
+search-workers 16
+search-min-operation-workers 16
+save ""
 EOF
 
   echo "[profile] Starting Redis server on port ${redis_port}..."

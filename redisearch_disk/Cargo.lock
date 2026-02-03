@@ -177,6 +177,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "812e12b5285cc515a9c72a5c1d3b6d46a19dac5acfef5265968c166106e31dd3"
 
 [[package]]
+name = "buffer"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "workspace_hack",
+]
+
+[[package]]
 name = "build_utils"
 version = "0.0.1"
 dependencies = [
@@ -1139,6 +1147,7 @@ dependencies = [
  "strum",
  "tempfile",
  "thiserror",
+ "tokio",
  "tracing",
 ]
 
@@ -1196,6 +1205,7 @@ dependencies = [
  "types_ffi",
  "value",
  "value_ffi",
+ "varint_ffi",
  "workspace_hack",
 ]
 
@@ -1482,6 +1492,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio"
+version = "1.49.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72a2903cd7736441aac9df9d7688bd0ce48edccaadf181c3b90be801e81d3d86"
+dependencies = [
+ "pin-project-lite",
+ "tokio-macros",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af407857209536a95c8e56f8231ef2c2e2aff839b22e07a1ffcbc617e9db9fa5"
+dependencies = [
+ "proc-macro2",
+ "quote 1.0.42",
+ "syn 2.0.111",
+]
+
+[[package]]
 name = "toml"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1615,6 +1646,18 @@ dependencies = [
 name = "varint"
 version = "0.0.1"
 dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
+name = "varint_ffi"
+version = "0.0.1"
+dependencies = [
+ "buffer",
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "varint",
  "workspace_hack",
 ]
 

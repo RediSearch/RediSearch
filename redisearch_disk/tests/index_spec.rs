@@ -20,7 +20,7 @@ fn test_index_spec_normal_drop_does_not_delete() {
     let base_path = temp_dir.path().join("test_index_normal_drop");
 
     // Create a DiskContext with the base path
-    let disk_context = DiskContext::new(&base_path);
+    let disk_context = DiskContext::new(&base_path, false);
 
     // Create an IndexSpec
     let index_name = "test_index_normal_drop".to_string();
@@ -63,7 +63,7 @@ fn test_index_spec_marked_for_deletion_deletes_files() {
     let base_path = temp_dir.path().join("test_index_marked_deletion");
 
     // Create a DiskContext with the base path
-    let disk_context = DiskContext::new(&base_path);
+    let disk_context = DiskContext::new(&base_path, false);
 
     // Create an IndexSpec
     let index_name = "test_index_marked_deletion".to_string();

@@ -1,7 +1,9 @@
+mod async_read_pool;
 mod doc_table_reader;
 mod document_flags;
 mod document_metadata;
 
+pub use async_read_pool::AsyncReadPool;
 use doc_table_reader::DocTableReader;
 pub use doc_table_reader::ReaderCreateError as DocTableReaderCreateError;
 // Re-export public types
@@ -222,6 +224,46 @@ impl DocTable {
             .map(|value| DocumentMetadata::from_speedb_value(&value));
 
         Ok(dmd)
+    }
+
+    /// Initiates an async read of document metadata for the given document ID.
+    ///
+    /// Returns a pinned boxed Future that resolves to the document metadata when the
+    /// async read completes.
+    ///
+    /// # Arguments
+    /// * `doc_id` - The document ID to retrieve metadata for
+    ///
+    /// # Returns
+    /// A Future that yields `Ok(Some(metadata))` if found, `Ok(None)` if not found,
+    /// or `Err` on database error.
+    ///
+    /// # Example
+    /// ```text
+    /// let future = doc_table.request_document_metadata_async(doc_id);
+    /// // ... poll the future or use with async runtime ...
+    /// ```
+    pub fn request_document_metadata_async(
+        &self,
+        doc_id: t_docId,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<Option<DocumentMetadata>, speedb::Error>>
+                + Send,
+        >,
+    > {
+        let cf = &self.cf;
+        let key = doc_id.as_key();
+
+        let future = self
+            .database
+            .get_cf_async(cf, key, &speedb::ReadOptions::default());
+
+        // Map the result to deserialize DocumentMetadata
+        Box::pin(async move {
+            let result = future.await?;
+            Ok(result.map(|bytes| DocumentMetadata::from_speedb_value(&bytes)))
+        })
     }
 
     /// Returns the type of documents that are indexed.
