@@ -652,7 +652,8 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithReaderWildcardChild) {
     };
     InvertedIndex_WriteEntryGeneric(idx, &res);
   }
-  QueryIterator *wildcardChild = NewInvIndIterator_WildcardQuery(idx, nullptr, 1.0);
+  MockQueryEvalCtx mockQctx(1000, 1000);
+  QueryIterator *wildcardChild = NewInvIndIterator_WildcardQuery(idx, &mockQctx.sctx, 1.0);
   // Create optional iterator with wildcard child - should return the child directly
   QueryIterator *it = NewOptionalIterator(wildcardChild, &ctx.qctx, 2.0);
 

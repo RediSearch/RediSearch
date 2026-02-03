@@ -706,8 +706,8 @@ TEST_F(NotIteratorReducerTest, TestNotWithReaderWildcardChild) {
     };
     InvertedIndex_WriteEntryGeneric(idx, &res);
   }
-  QueryIterator *wildcardChild = NewInvIndIterator_WildcardQuery(idx, nullptr, 1.0);
   MockQueryEvalCtx mockQctx(maxDocId, maxDocId);
+  QueryIterator *wildcardChild = NewInvIndIterator_WildcardQuery(idx, &mockQctx.sctx, 1.0);
   QueryIterator *it = NewNotIterator(wildcardChild, maxDocId, 1.0, timeout, &mockQctx.qctx);
 
   // Should return an empty iterator

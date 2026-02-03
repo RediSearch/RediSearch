@@ -9,6 +9,7 @@
 
 #include "rmutil/alloc.h"
 #include "iterator_util.h"
+#include "index_utils.h"
 
 #include "src/iterators/intersection_iterator.h"
 #include "src/iterators/inverted_index_iterator.h"
@@ -431,7 +432,8 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
     };
     InvertedIndex_WriteEntryGeneric(idx, &res);
   }
-  QueryIterator *iterator = NewInvIndIterator_WildcardQuery(idx, nullptr, 1.0);
+  MockQueryEvalCtx mockQctx(1000, 1000);
+  QueryIterator *iterator = NewInvIndIterator_WildcardQuery(idx, &mockQctx.sctx, 1.0);
   children[3] = iterator;
 
   size_t num = 4;
