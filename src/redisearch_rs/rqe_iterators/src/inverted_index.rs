@@ -38,8 +38,10 @@ pub struct InvIndIterator<'index, R> {
     /// A reusable result object to avoid allocations on each `read` call.
     result: RSIndexResult<'index>,
 
-    /// Query context used to revalidate the iterator and to check for expiration.
-    query_ctx: QueryContext,
+    /// The search context used to revalidate the iterator and to check for expiration.
+    sctx: NonNull<RedisSearchCtx>,
+    /// The context for the field/s filter, used to determine if the field/s is/are expired.
+    filter_ctx: FieldFilterContext,
 
     /// The implementation of the `read` method.
     /// Using dynamic dispatch so we can pick the right version during the
@@ -50,22 +52,18 @@ pub struct InvIndIterator<'index, R> {
         fn(&mut Self, t_docId) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError>,
 }
 
-pub struct QueryContext {
-    /// The search context used to revalidate the iterator and to check for expiration.
-    sctx: NonNull<RedisSearchCtx>,
-    /// The context for the field/s filter, used to determine if the field/s is/are expired.
-    filter_ctx: FieldFilterContext,
-}
-
 /// Returns `true` if the iterator should check for expired record when reading from the inverted index.
 ///
 /// # Safety
 ///
-/// 1. `query_ctx.sctx` is a valid pointer to a `RedisSearchCtx`.
-/// 2. `query_ctx.sctx.spec` is a valid pointer to an `IndexSpec`.
-const unsafe fn has_expiration(query_ctx: &QueryContext) -> bool {
+/// 1. `sctx` is a valid pointer to a `RedisSearchCtx`.
+/// 2. `sctx.spec` is a valid pointer to an `IndexSpec`.
+const unsafe fn has_expiration(
+    sctx: NonNull<RedisSearchCtx>,
+    filter_ctx: &FieldFilterContext,
+) -> bool {
     // SAFETY: Guaranteed by 1.
-    let sctx = unsafe { query_ctx.sctx.as_ref() };
+    let sctx = unsafe { sctx.as_ref() };
     // SAFETY: Guaranteed by 2.
     let spec = unsafe { sctx.spec.as_ref().expect("sctx.spec cannot be NULL") };
 
@@ -78,7 +76,7 @@ const unsafe fn has_expiration(query_ctx: &QueryContext) -> bool {
     }
 
     // check if the specific field/fieldMask has expiration
-    match query_ctx.filter_ctx.field {
+    match filter_ctx.field {
         FieldMaskOrIndex::Mask(_mask) => true,
         FieldMaskOrIndex::Index(index) if index != RS_INVALID_FIELD_INDEX => true,
         _ => false,
@@ -93,23 +91,28 @@ where
 {
     /// # Safety
     ///
-    /// 1. `query_ctx.sctx` is a valid pointer to a `RedisSearchCtx`.
-    /// 2. `query_ctx.sctx.spec` is a valid pointer to an `IndexSpec`.
+    /// 1. `sctx` is a valid pointer to a `RedisSearchCtx`.
+    /// 2. `sctx.spec` is a valid pointer to an `IndexSpec`.
     /// 3. 1 and 2 must stay valid during the iterator's lifetime.
-    pub fn new(reader: R, result: RSIndexResult<'static>, query_ctx: QueryContext) -> Self {
+    pub fn new(
+        reader: R,
+        result: RSIndexResult<'static>,
+        sctx: NonNull<RedisSearchCtx>,
+        filter_ctx: FieldFilterContext,
+    ) -> Self {
         #[cfg(debug_assertions)]
         {
-            debug_assert!(query_ctx.sctx.is_aligned());
+            debug_assert!(sctx.is_aligned());
             // SAFETY: Guaranteed by 1.
-            let sctx = unsafe { query_ctx.sctx.as_ref() };
-            debug_assert!(!sctx.spec.is_null());
-            debug_assert!(sctx.spec.is_aligned());
+            let sctx_ref = unsafe { sctx.as_ref() };
+            debug_assert!(!sctx_ref.spec.is_null());
+            debug_assert!(sctx_ref.spec.is_aligned());
         }
 
         // no need to manually skip duplicates if there is none in the II.
         let skip_multi = reader.has_duplicates();
         // SAFETY: 1. and 2.
-        let has_expiration = unsafe { has_expiration(&query_ctx) };
+        let has_expiration = unsafe { has_expiration(sctx, &filter_ctx) };
 
         let read_impl = match (skip_multi, has_expiration) {
             (true, true) => Self::read_skip_multi_check_expiration,
@@ -129,7 +132,8 @@ where
             at_eos: false,
             last_doc_id: 0,
             result,
-            query_ctx,
+            sctx,
+            filter_ctx,
             read_impl,
             skip_to_impl,
         }
@@ -220,11 +224,11 @@ where
     /// Returns `true` if the current document is expired.
     ///
     /// # Safety
-    /// 1. `self.query_ctx.sctx` and `self.query_ctx.sctx.spec` are valid pointers to their respective types.
+    /// 1. `self.sctx` and `self.sctx.spec` are valid pointers to their respective types.
     ///    Guaranteed by the 3. from [`InvIndIterator::new`].
     fn is_current_doc_expired(&self) -> bool {
         // SAFETY: 1
-        let sctx = unsafe { self.query_ctx.sctx.as_ref() };
+        let sctx = unsafe { self.sctx.as_ref() };
         // SAFETY: 1
         let spec = unsafe { *(sctx.spec) };
         // `has_expiration` should disable the expiration code paths if `ttl` is not set.
@@ -232,7 +236,7 @@ where
 
         let current_time = &sctx.time.current as *const _;
 
-        match self.query_ctx.filter_ctx.field {
+        match self.filter_ctx.field {
             // SAFETY:
             // - 1. guarantees that the ttl pointer is valid.
             // - We just allocated `current_time` on the stack so its pointer is valid.
@@ -241,7 +245,7 @@ where
                     spec.docs.ttl,
                     self.result.doc_id,
                     index,
-                    self.query_ctx.filter_ctx.predicate.as_u32(),
+                    self.filter_ctx.predicate.as_u32(),
                     current_time,
                 )
             },
@@ -255,7 +259,7 @@ where
                     spec.docs.ttl,
                     self.result.doc_id,
                     (self.result.field_mask & mask) as u32,
-                    self.query_ctx.filter_ctx.predicate.as_u32(),
+                    self.filter_ctx.predicate.as_u32(),
                     current_time,
                     spec.fieldIdToIndex,
                 )
@@ -270,7 +274,7 @@ where
                         spec.docs.ttl,
                         self.result.doc_id,
                         self.result.field_mask & mask,
-                        self.query_ctx.filter_ctx.predicate.as_u32(),
+                        self.filter_ctx.predicate.as_u32(),
                         current_time,
                         spec.fieldIdToIndex,
                     )
@@ -502,12 +506,10 @@ where
             it: InvIndIterator::new(
                 reader,
                 result,
-                QueryContext {
-                    sctx: context,
-                    filter_ctx: FieldFilterContext {
-                        field: FieldMaskOrIndex::Index(index),
-                        predicate,
-                    },
+                context,
+                FieldFilterContext {
+                    field: FieldMaskOrIndex::Index(index),
+                    predicate,
                 },
             ),
             range_tree_info,
@@ -636,12 +638,10 @@ where
             it: InvIndIterator::new(
                 reader,
                 result,
-                QueryContext {
-                    sctx: context,
-                    filter_ctx: FieldFilterContext {
-                        field: FieldMaskOrIndex::Mask(mask),
-                        predicate,
-                    },
+                context,
+                FieldFilterContext {
+                    field: FieldMaskOrIndex::Mask(mask),
+                    predicate,
                 },
             ),
         }
