@@ -78,7 +78,7 @@ impl QueryIterator {
     /// Create an empty iterator (returns no results).
     #[inline(always)]
     pub fn new_empty() -> Self {
-        Self(iterators_ffi::empty::NewEmptyIterator() as *mut ffi::QueryIterator)
+        Self(iterators_ffi::empty::NewEmptyIterator())
     }
 
     /// Create an ID list iterator from a vector of sorted document IDs.
@@ -97,10 +97,7 @@ impl QueryIterator {
             ptr::null_mut()
         };
 
-        Self(
-            unsafe { iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, num, 1.0) }
-                as *mut ffi::QueryIterator,
-        )
+        Self(unsafe { iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, num, 1.0) })
     }
 
     /// Create a non-optimized NOT iterator with the given child and max_doc_id.
