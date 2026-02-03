@@ -29,13 +29,14 @@ pub unsafe extern "C" fn RSValue_DumpSds(
                 return unsafe { sdscatlen(sds, buf.as_ptr() as *const c_void, len as usize) };
             }
         }
-        RsValue::RmAllocString(str) => {
+        RsValue::String(str) => {
             if obfuscate {
                 // TODO: Use `Obfuscate_Text` instead.
                 return unsafe { sdscat(sds, c"\"Text\"".as_ptr()) };
             } else {
+                let (ptr, len) = str.as_ptr_len();
                 sds = unsafe { sdscat(sds, c"\"".as_ptr()) };
-                sds = unsafe { sdscatlen(sds, str.as_ptr() as *const c_void, str.len() as usize) };
+                sds = unsafe { sdscatlen(sds, ptr as *const c_void, len as usize) };
                 sds = unsafe { sdscat(sds, c"\"".as_ptr()) };
                 return sds;
             }

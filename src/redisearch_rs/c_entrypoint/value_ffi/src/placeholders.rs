@@ -3,8 +3,7 @@ use libc::{size_t, snprintf};
 use std::ffi::{CString, c_char, c_double, c_int};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
-use value::strings::{ConstString, RmAllocString};
-use value::{RsValue, shared::SharedRsValue};
+use value::{RsString, RsValue, shared::SharedRsValue};
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Dereference(value: *const RsValue) -> *mut RsValue {
@@ -234,10 +233,11 @@ pub unsafe extern "C" fn RSValue_ToString(dst: *const RsValue, value: *const RsV
             let mut buf = [0u8; 128];
             let len = value::util::num_to_string_cstyle(*number, &mut buf);
             let cstring = CString::new(&buf[..(len as usize)]).unwrap();
+            let string = RsString::cstring(cstring);
             // let str_val = std::str::from_utf8(&buf[..(len as usize)]).unwrap();
             // let str_val = str_val.to_owned();
             // let new_val = RsValue::String(Box::new(RsValueString::from_string(str_val)));
-            let new_val = RsValue::String(cstring.into_boxed_c_str());
+            let new_val = RsValue::String(string);
             unsafe { shared_dst.set_value(new_val) };
         }
         _ => unimplemented!("RSValue_ToString for type 'unknown'"),
@@ -265,8 +265,8 @@ pub unsafe extern "C" fn RSValue_NumToString(
 pub unsafe extern "C" fn RSValue_SetString(value: *const RsValue, str: *mut c_char, len: size_t) {
     let shared_value = unsafe { SharedRsValue::from_raw(value) };
     let mut shared_value = ManuallyDrop::new(shared_value);
-    let rm_alloc_string = unsafe { RmAllocString::from_raw(str, len as u32) };
-    let value = RsValue::RmAllocString(rm_alloc_string);
+    let string = unsafe { RsString::rm_alloc_string(str, len as u32) };
+    let value = RsValue::String(string);
     unsafe { shared_value.set_value(value) };
 }
 
@@ -278,7 +278,7 @@ pub unsafe extern "C" fn RSValue_SetConstString(
 ) {
     let shared_value = unsafe { SharedRsValue::from_raw(value) };
     let mut shared_value = ManuallyDrop::new(shared_value);
-    let const_string = unsafe { ConstString::from_raw(str, len as u32) };
-    let value = RsValue::ConstString(const_string);
+    let string = unsafe { RsString::const_string(str, len as u32) };
+    let value = RsValue::String(string);
     unsafe { shared_value.set_value(value) };
 }

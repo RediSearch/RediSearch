@@ -14,9 +14,8 @@ use std::ops::Deref;
 
 use crate::util::rsvalue_str_to_float;
 use std::ptr::copy_nonoverlapping;
-use value::strings::RmAllocString;
 use value::trio::RsValueTrio;
-use value::{RsValue, shared::SharedRsValue};
+use value::{RsString, RsValue, shared::SharedRsValue};
 
 /// Creates and returns a new **owned** [`RsValue`] object of type undefined.
 ///
