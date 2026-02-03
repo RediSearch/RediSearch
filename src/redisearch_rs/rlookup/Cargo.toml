@@ -15,7 +15,6 @@ sorting_vector.workspace = true
 strum.workspace = true
 value = { workspace = true, features = ["c_ffi_impl"] }
 thiserror.workspace = true
-query_error.workspace = true
 redis_mock.workspace = true
 redis-module.workspace = true
 workspace_hack.workspace = true
