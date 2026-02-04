@@ -46,7 +46,7 @@ static bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_tot
 
   return false;
 }
-#include <unistd.h>
+
 void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
   ShardResponseBarrier *barrier = (ShardResponseBarrier *)MRIteratorCallback_GetPrivateData(ctx);
@@ -152,7 +152,6 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     barrier->notifyCallback(cmd->targetShardIdx, shardTotal, false, barrier);
   }
 
-  RedisModule_Log(RSDummyContext, "notice", "netCursorCallback: forProfiling=%d, protocol=%d, forCursor=%d", cmd->forProfiling, cmd->protocol, cmd->forCursor);
   if (cmd->forProfiling && cmd->protocol == 3) {
     RS_LOG_ASSERT(!cmd->forCursor, "Profiling is not supported on a cursor command");
     MRReply *rows = NULL, *meta = NULL;
@@ -169,16 +168,12 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
         // When a shard returns timeout on RETURN policy, the profile is not returned.
         // We set the timeout here so in the next getCursorCommand we will send CURSOR PROFILE
         MRIteratorCallback_SetTimedOut(MRIteratorCallback_GetCtx(ctx));
-        __atomic_store_n(&isShardTimeout, true, __ATOMIC_RELEASE);
-        RedisModule_Log(RSDummyContext, "notice", "SET isShardTimeout at %p to true", (void*)&isShardTimeout);
       }
     }
   }
 
   // Push the reply down the chain, to be picked up by getNextReply
   MRIteratorCallback_AddReply(ctx, rep); // take ownership of the reply
-        RedisModule_Log(RSDummyContext, "notice", "Shard %d returned timeout warning, sleeping for 5 seconds", cmd->targetShardIdx);
-        sleep(2);
 
   // rewrite and resend the cursor command if needed
   // should only be determined based on the cursor and not on the set of results we get
@@ -203,7 +198,6 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
 
   // Check if the coordinator experienced a timeout or not
   bool timedout = MRIteratorCallback_GetTimedOut(ctx);
-  RedisModule_Log(RSDummyContext, "notice", "getCursorCommand: timedout: %d", timedout);
 
   if (cmd->rootCommand == C_AGG) {
     MRCommand newCmd;
