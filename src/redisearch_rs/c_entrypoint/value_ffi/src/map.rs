@@ -8,6 +8,7 @@
 */
 
 use crate::util::expect_value;
+use libc::size_t;
 use std::mem::MaybeUninit;
 use value::{Map, RsValue, SharedRsValue};
 
@@ -48,7 +49,7 @@ pub unsafe extern "C" fn RSValueMap_AllocUninit(len: u32) -> *mut RSValueMap {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValueMap_SetEntry(
     map: *mut RSValueMap,
-    index: u32,
+    index: size_t,
     key: *mut RsValue,
     value: *mut RsValue,
 ) {
@@ -56,7 +57,7 @@ pub unsafe extern "C" fn RSValueMap_SetEntry(
     let map = unsafe { map.as_mut().expect("map should not be null") };
 
     // Compatibility: C does an RS_ASSERT on index out of bounds
-    map.entries[index as usize] = MaybeUninit::new((key, value));
+    map.entries[index] = MaybeUninit::new((key, value));
 }
 
 /// Creates a heap-allocated map [`RsValue`] from an [`RSValueMap`].
