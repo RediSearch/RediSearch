@@ -18,7 +18,7 @@ def testProfileSearch(env):
   conn.execute_command('hset', '2', 't', 'world')
 
   env.expect('ft.profile', 'profile', 'idx', '*', 'nocontent').error().contains('no such index')
-  env.expect('FT.PROFILE', 'idx', 'Puffin', '*', 'nocontent').error().contains('No `SEARCH` or `AGGREGATE` provided')
+  env.expect('FT.PROFILE', 'idx', 'Puffin', '*', 'nocontent').error().contains('No `SEARCH`, `AGGREGATE`, or `HYBRID` provided')
 
   # test WILDCARD
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*', 'nocontent')
@@ -189,10 +189,9 @@ def testProfileErrors(env):
   env.expect('ft.profile', 'idx', 'SEARCH').error().contains('wrong number of arguments')
   env.expect('ft.profile', 'idx', 'SEARCH', 'QUERY').error().contains('wrong number of arguments')
   # wrong `query` type
-  env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('No `SEARCH` or `AGGREGATE` provided')
+  env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('No `SEARCH`, `AGGREGATE`, or `HYBRID` provided')
   # miss `QUERY` keyword
-  if not env.isCluster():
-    env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyword is expected')
+  env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyword is expected')
 
 @skip(cluster=True)
 def testProfileNumeric(env):
@@ -1001,6 +1000,7 @@ def testProfileBM25NormMax(env):
   search_response = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'query', 'hello', 'WITHSCORES', 'SCORER', 'BM25STD.NORM')
   env.assertTrue(recursive_contains(search_response, "Score Max Normalizer"))
 
+
 def testProfileVectorSearchMode():
   """Test Vector search mode field in FT.PROFILE for both SEARCH and AGGREGATE"""
   env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)  # Use RESP3 for easier dict access
@@ -1172,7 +1172,10 @@ def testConcurrentSetClusterAndProfile():
 
 def CoordDispatchTimeInProfile(env):
   """
-  Tests that 'Coordinator dispatch time' field appears in shard profiles for FT.AGGREGATE and FT.SEARCH.
+  Tests that 'Coordinator dispatch time [ms]' field appears in shard profiles
+  for FT.AGGREGATE, FT.SEARCH, and FT.HYBRID.
+  For HYBRID queries, verifies dispatch time is present for both SEARCH and
+  VSIM subqueries.
   """
 
   # Helper to verify dispatch time in profile result
@@ -1205,20 +1208,80 @@ def CoordDispatchTimeInProfile(env):
   res_search = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'NOCONTENT')
   verify_dispatch_time_in_profile(res_search, 'SEARCH')
 
-  # --- Test HYBRID profile dispatch time should be 0 ---
-  # Implement and remove try/except once FT.PROFILE for FT.HYBRID is implemented
-  try:
-    query_vector = np.array([0, 0], dtype=np.float32).tobytes()
-    res_hybrid = env.cmd('FT.PROFILE', 'idx', 'HYBRID', 'hello0', 'VSIM', '@v', '$BLOB',
-                                        'PARAMS', '2', 'BLOB', query_vector)
+  # --- Test HYBRID profile dispatch time ---
+  # HYBRID profile should include dispatch time for both SEARCH and VSIM subqueries
+  query_vector = np.array([0, 0], dtype=np.float32).tobytes()
+  res_hybrid = env.cmd('FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
+                       'SEARCH', 'hello0',
+                       'VSIM', '@v', '$BLOB',
+                       'PARAMS', '2', 'BLOB', query_vector)
 
-    # shards_profile_hybrid = get_shards_profile(env, res_hybrid)
-    # for i, shard_profile in enumerate(shards_profile_hybrid):
-    #   env.assertEqual(float(shard_profile['Coordinator dispatch time']), 0.0,
-    #     message=f"shard {i}: 'Coordinator dispatch time' should be 0. full reply: {res_hybrid}")
-  except Exception as e:
-    env.assertIn('No `SEARCH` or `AGGREGATE` provided', str(e))
-    pass
+  # Extract HYBRID shard profiles
+  # HYBRID has different structure: each shard contains
+  # ['Shard ID', ANY, 'SEARCH', [...], 'VSIM', [...]]
+  if env.protocol == 3:
+    hybrid_shards = res_hybrid['Profile']['Shards']
+  else:
+    # RESP2: res_hybrid[-1] is ['Shards', [...], 'Coordinator', {...}]
+    hybrid_shards = res_hybrid[-1][1]
+
+  env.assertEqual(len(hybrid_shards), env.shardsCount,
+                  message=f"HYBRID: unexpected number of shards. full reply: {res_hybrid}")
+
+  # For each shard, verify both SEARCH and VSIM subqueries have dispatch time
+  for shard_idx, shard_profile in enumerate(hybrid_shards):
+    if env.protocol == 2:
+      # RESP2: shard_profile is a list like
+      # ['Shard ID', value, 'SEARCH', {...}, 'VSIM', {...}]
+      env.assertEqual(len(shard_profile), 6,
+                      message=f"HYBRID shard {shard_idx}: unexpected structure. full reply: {res_hybrid}")
+      env.assertEqual(shard_profile[0], 'Shard ID')
+      env.assertEqual(shard_profile[2], 'SEARCH')
+      env.assertEqual(shard_profile[4], 'VSIM')
+
+      # Extract SEARCH and VSIM subprofiles (indices 3 and 5)
+      search_profile = to_dict(shard_profile[3])
+      vsim_profile = to_dict(shard_profile[5])
+    else:
+      # RESP3: shard_profile is a dict with 'Shard ID', 'SEARCH', 'VSIM' keys
+      env.assertContains('Shard ID', shard_profile)
+      env.assertContains('SEARCH', shard_profile)
+      env.assertContains('VSIM', shard_profile)
+
+      search_profile = shard_profile['SEARCH']
+      vsim_profile = shard_profile['VSIM']
+
+    # Verify SEARCH subquery has dispatch time
+    env.assertContains('Coordinator dispatch time [ms]', search_profile,
+                       message=f"HYBRID shard {shard_idx} SEARCH: 'Coordinator dispatch time [ms]' not found. full reply: {res_hybrid}")
+
+    # Verify VSIM subquery has dispatch time
+    env.assertContains('Coordinator dispatch time [ms]', vsim_profile,
+                       message=f"HYBRID shard {shard_idx} VSIM: 'Coordinator dispatch time [ms]' not found. full reply: {res_hybrid}")
+
+  # Verify all shards have consistent dispatch times for SEARCH
+  search_dispatch_times = []
+  vsim_dispatch_times = []
+  for shard_idx, shard_profile in enumerate(hybrid_shards):
+    if env.protocol == 2:
+      search_profile = to_dict(shard_profile[3])
+      vsim_profile = to_dict(shard_profile[5])
+    else:
+      search_profile = shard_profile['SEARCH']
+      vsim_profile = shard_profile['VSIM']
+
+    search_dispatch_times.append(search_profile['Coordinator dispatch time [ms]'])
+    vsim_dispatch_times.append(vsim_profile['Coordinator dispatch time [ms]'])
+
+  # All shards should have the same SEARCH dispatch time
+  for i, dispatch_time in enumerate(search_dispatch_times[1:], start=1):
+    env.assertEqual(dispatch_time, search_dispatch_times[0],
+      message=f"HYBRID SEARCH shard {i} dispatch time differs from shard 0. all shards: {search_dispatch_times}")
+
+  # All shards should have the same VSIM dispatch time
+  for i, dispatch_time in enumerate(vsim_dispatch_times[1:], start=1):
+    env.assertEqual(dispatch_time, vsim_dispatch_times[0],
+      message=f"HYBRID VSIM shard {i} dispatch time differs from shard 0. all shards: {vsim_dispatch_times}")
 
 
 @skip(cluster=False)
@@ -1435,3 +1498,4 @@ def testCoordinatorQueueTimeInProfile():
   env.assertGreaterEqual(coord_queue_time, pause_duration_ms * 0.8,  # Allow 20% tolerance
     message=f"Coordinator queue time ({coord_queue_time}ms) should capture queue wait. "
             f"Expected >= {pause_duration_ms * 0.8}ms. Full result: {result}")
+

@@ -31,6 +31,7 @@
 #include "value.h"
 #include "module.h"
 #include "aggregate/reply_empty.h"
+#include "profile/profile.h"
 
 #include <time.h>
 
@@ -180,7 +181,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   startPipelineCommon(&ctx, rp, results, r, rc);
 }
 
-static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, clock_t duration, QueryError *err) {
+static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, rs_wall_clock_ns_t duration, QueryError *err) {
   if (results) {
     destroyResults(results);
   } else {
@@ -216,8 +217,10 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
  * response to the client, according to the RESP protocol used (2/3).
  *
  * Note: Currently this is used only by the `FT.HYBRID` command, that does
- * not support cursors and profiling, thus this function does not handle
+ * not support cursors, thus this function does not handle
  * those cases. Support should be added as these features are added.
+ *
+ * Profile data is handled via the hreq->profile callback.
  *
  * @param hreq The hybrid request with built pipeline
  * @param reply Redis module reply object
@@ -300,14 +303,18 @@ done:
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
     // execution_time
-    clock_t duration = clock() - hreq->initClock;
-    double executionTime = (double)duration / CLOCKS_PER_MILLISEC;
+    const rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock);
+    double executionTime = rs_wall_clock_convert_ns_to_ms_d(duration);
     RedisModule_ReplyKV_Double(reply, "execution_time", executionTime);
+
+    if (IsProfile(hreq)) {
+      hreq->profile(reply, hreq);
+    }
 
     RedisModule_Reply_MapEnd(reply);
 
 done_err:
-    finishSendChunk_HREQ(hreq, results, &r, clock() - hreq->initClock, &err);
+    finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
 }
 
 // Simple version of sendChunk_hybrid that returns empty results for hybrid queries.
@@ -430,11 +437,15 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     arrayof(Cursor*) cursors = array_new(Cursor*, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
+      ResultProcessor *rp = areq->pipeline.qctx.endProc;
+      if (IsProfile(req) && rp->type == RP_PROFILE) {
+        rp = rp->upstream;
+      }
       if (backgroundDepletion) {
-        if (areq->pipeline.qctx.endProc->type != RP_SAFE_DEPLETER) {
+        if (rp->type != RP_SAFE_DEPLETER) {
           break;
         }
-        array_ensure_append_1(depleters, areq->pipeline.qctx.endProc);
+        array_ensure_append_1(depleters, rp);
       }
       Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref, areq->cursorConfig.maxIdle, status);
       if (!cursor) {
@@ -494,6 +505,14 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
   hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
   bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
+
+  // Start measuring pipeline build time if profiling is enabled
+  rs_wall_clock pipelineClock;
+  const bool isProfile = hreq->tailPipeline->qctx.isProfile;
+  if (isProfile) {
+    rs_wall_clock_init(&pipelineClock);
+  }
+
   // Internal commands do not have a hybrid merger and only have a depletion pipeline
   if (internal) {
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
@@ -503,6 +522,11 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     }
   } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
+  }
+
+  // Record pipeline build time if profiling is enabled
+  if (isProfile) {
+    hreq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&pipelineClock);
   }
 
   if (!isCursor) {
@@ -548,9 +572,13 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
 
     // Mark the hreq as running in the background
     hreq->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
+    if (hreq->tailPipeline->qctx.isProfile){
+      hreq->tailPipeline->qctx.queryGILTime += rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock);
+    }
     // Mark the requests as thread safe, so that the pipeline will be built in a thread safe manner
     for (size_t i = 0; i < hreq->nrequests; i++) {
       AREQ_AddRequestFlags(hreq->requests[i], QEXEC_F_RUN_IN_BACKGROUND);
+      AREQ_QueryProcessingCtx(hreq->requests[i])->queryGILTime = hreq->tailPipeline->qctx.queryGILTime;
     }
 
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, BCHCtx);
@@ -577,13 +605,48 @@ static inline int CleanupAndReplyStatus(RedisModuleCtx *ctx, StrongRef hybrid_re
     return QueryError_ReplyAndClear(ctx, status);
 }
 
+void printHybridProfileCoordinator(RedisModule_Reply *reply, void *ctx) {
+  // only print the coordinator if we are not internal
+  HybridRequest *hreq = ctx;
+  if ((hreq->reqflags & QEXEC_F_INTERNAL) != QEXEC_F_INTERNAL) {
+    Profile_PrintHybrid(reply, ctx);
+  } else {
+    RedisModule_Reply_EmptyMap(reply);
+  }
+}
+
+// output "SEARCH" and "VSIM" profiles grouped together for standalone mode
+// Format: {SEARCH: profile, VSIM: profile} - single shard with both profiles
+void printHybridProfileShards(RedisModule_Reply *reply, void *ctx) {
+  HybridRequest *hreq = ctx;
+  // For standalone mode, output as a single shard map containing both SEARCH
+  // and VSIM
+  RedisModule_Reply_Map(reply);  // Start shard map
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ *areq = hreq->requests[i];
+    const char *subqueryType = "N/A";
+    if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) {
+      subqueryType = "SEARCH";
+    } else if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY) {
+      subqueryType = "VSIM";
+    }
+    RedisModule_Reply_SimpleString(reply, subqueryType);
+    Profile_Print(reply, areq);
+  }
+  RedisModule_Reply_MapEnd(reply);  // End shard map
+}
+
+void printHybridProfile(RedisModule_Reply *reply, void *ctx) {
+  Profile_PrintInFormat(reply, printHybridProfileShards, ctx, printHybridProfileCoordinator, ctx);
+}
+
 /**
  * Main command handler for FT.HYBRID command.
  *
  * Parses command arguments, builds hybrid request structure, constructs execution pipeline,
  * and prepares for hybrid search execution.
  */
-int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal) {
+int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal, ProfileOptions profileOptions) {
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
@@ -613,6 +676,8 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   CurrentThread_SetIndexSpec(spec_ref);
 
   HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx);
+  hybridRequest->profile = printHybridProfile;
+  hybridRequest->tailPipeline->qctx.isProfile = profileOptions != EXEC_NO_FLAGS;
   StrongRef hybrid_ref = StrongRef_New(hybridRequest, &FreeHybridRequest);
   HybridPipelineParams hybridParams = {0};
 
@@ -623,15 +688,28 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.cursorConfig = &hybridRequest->cursorConfig;
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
-  cmd.coordDispatchTime = &hybridRequest->coordDispatchTime;
+  cmd.coordDispatchTime = &hybridRequest->profileClocks.coordDispatchTime;
 
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, argv, argc);
 
-  if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal) != REDISMODULE_OK) {
+  if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal, profileOptions) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
   }
 
+  // Copy dispatch time to each subquery AREQ for profile printing
+  for (size_t i = 0; i < hybridRequest->nrequests; i++) {
+    hybridRequest->requests[i]->profileClocks.coordDispatchTime = hybridRequest->profileClocks.coordDispatchTime;
+  }
+
+  if (profileOptions != EXEC_NO_FLAGS) {
+    rs_wall_clock parseClock;
+    rs_wall_clock_init(&parseClock);
+    // Calculate the time elapsed for profileParseTime by using the initialized parseClock
+    hybridRequest->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&hybridRequest->profileClocks.initClock, &parseClock);
+  }
+
+  // Initialize timeout for all subqueries BEFORE building pipelines
   for (int i = 0; i < hybridRequest->nrequests; i++) {
     AREQ *subquery = hybridRequest->requests[i];
     SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hybridRequest->reqConfig.queryTimeoutMS);
