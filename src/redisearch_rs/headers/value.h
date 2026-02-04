@@ -268,6 +268,59 @@ const struct RsValue *RSValue_Trio_GetMiddle(const struct RsValue *value);
 const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
 
 /**
+ * Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
+ * length to `lenp`.
+ *
+ * The returned pointer borrows from the [`RsValue`] and must not outlive it.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ * 2. `lenp` must be either null or a [valid], non-null pointer to a `u32`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ *
+ * # Panic
+ *
+ * Panics if the value is not a `String` type.
+ */
+char *RSValue_String_Get(const struct RsValue *value, uint32_t *lenp);
+
+/**
+ * Returns a pointer to the underlying [`RedisModuleString`] of an [`RsValue`].
+ *
+ * The returned pointer borrows from the [`RsValue`] and must not outlive it.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ *
+ * # Panic
+ *
+ * Panics if the value is not a `RedisString` type.
+ */
+const RedisModuleString *RSValue_RedisString_Get(const struct RsValue *value);
+
+/**
+ * Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
+ * length to `len_ptr`.
+ *
+ * Unlike [`RSValue_String_Get`], this function handles all string variants (including
+ * `RedisString`) and automatically dereferences `Ref` values and follows through the left
+ * element of `Trio` values. Returns null for non-string variants.
+ *
+ * The returned pointer borrows from the [`RsValue`] and must not outlive it.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ * 2. `len_ptr` must be either null or a [valid], non-null pointer to a `size_t`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+const char *RSValue_StringPtrLen(const struct RsValue *value, size_t *len_ptr);
+
+/**
  * Allocates a new, uninitialized [`RSValueMapBuilder`] with space for `len` entries.
  *
  * The map entries are uninitialized and must be set using [`RSValue_MapBuilderSetEntry`]
