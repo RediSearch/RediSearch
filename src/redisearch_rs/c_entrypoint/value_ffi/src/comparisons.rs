@@ -14,28 +14,20 @@ pub unsafe extern "C" fn RSValue_Cmp(
     let v1 = unsafe { expect_value(v1) };
     let v2 = unsafe { expect_value(v2) };
 
-    if let (RsValue::String(s1), RsValue::String(s2)) = (v1, v2) {
-        match s1.as_bytes().cmp(s2.as_bytes()) {
-            Ordering::Less => -1,
-            Ordering::Equal => 0,
-            Ordering::Greater => 1,
-        }
-    } else {
-        match compare(v1, v2, status.is_null()) {
-            Ok(Ordering::Less) => -1,
-            Ok(Ordering::Equal) => 0,
-            Ok(Ordering::Greater) => 1,
-            Err(CompareError::NaNNumber) => 0,
-            Err(CompareError::MapComparison) => 0,
-            Err(CompareError::IncompatibleTypes) => 0,
-            Err(CompareError::NoNumberToStringFallback) => {
-                // SAFETY: Number conversion failed and status was provided.
-                let query_error = unsafe { status.as_mut().unwrap() };
-                let message = c"Error converting string".to_owned();
-                query_error.set_code_and_message(QueryErrorCode::NotNumeric, Some(message));
-                // even though we're returning 'equal', the query error code is likely checked for a possible error.
-                0
-            }
+    match compare(v1, v2, status.is_null()) {
+        Ok(Ordering::Less) => -1,
+        Ok(Ordering::Equal) => 0,
+        Ok(Ordering::Greater) => 1,
+        Err(CompareError::NaNNumber) => 0,
+        Err(CompareError::MapComparison) => 0,
+        Err(CompareError::IncompatibleTypes) => 0,
+        Err(CompareError::NoNumberToStringFallback) => {
+            // SAFETY: Number conversion failed and status was provided.
+            let query_error = unsafe { status.as_mut().unwrap() };
+            let message = c"Error converting string".to_owned();
+            query_error.set_code_and_message(QueryErrorCode::NotNumeric, Some(message));
+            // even though we're returning 'equal', the query error code is likely checked for a possible error.
+            0
         }
     }
 }
@@ -102,19 +94,7 @@ fn compare(
         (RsValue::Number(n1), RsValue::Number(n2)) => {
             n1.partial_cmp(n2).ok_or(CompareError::NaNNumber)
         }
-        (RsValue::Number(n1), right) if crate::util::rsvalue_any_str(right) => {
-            compare_number_to_string(*n1, right, num_to_str_cmp_fallback)
-        }
-        (left, RsValue::Number(n2)) if crate::util::rsvalue_any_str(left) => {
-            compare_number_to_string(*n2, left, num_to_str_cmp_fallback).map(Ordering::reverse)
-        }
-        (left, right)
-            if crate::util::rsvalue_any_str(left) && crate::util::rsvalue_any_str(right) =>
-        {
-            let slice1 = crate::util::rsvalue_as_byte_slice2(left).unwrap();
-            let slice2 = crate::util::rsvalue_as_byte_slice2(right).unwrap();
-            Ok(slice1.cmp(slice2))
-        }
+        (RsValue::String(s1), RsValue::String(s2)) => Ok(s1.as_bytes().cmp(s2.as_bytes())),
         (RsValue::Trio(t1), RsValue::Trio(t2)) => compare(
             t1.left().value(),
             t2.left().value(),
@@ -130,22 +110,40 @@ fn compare(
             Ok(a1.len().cmp(&a2.len()))
         }
         (RsValue::Map(_), RsValue::Map(_)) => Err(CompareError::MapComparison),
+        (RsValue::Number(n1), RsValue::String(s2)) => {
+            compare_number_to_string(*n1, s2.as_bytes(), num_to_str_cmp_fallback)
+        }
+        (RsValue::Number(n1), RsValue::RedisString(s2)) => {
+            compare_number_to_string(*n1, s2.as_bytes(), num_to_str_cmp_fallback)
+        }
+        (RsValue::String(s1), RsValue::Number(n2)) => {
+            compare_number_to_string(*n2, s1.as_bytes(), num_to_str_cmp_fallback)
+                .map(Ordering::reverse)
+        }
+        (RsValue::RedisString(s1), RsValue::Number(n2)) => {
+            compare_number_to_string(*n2, s1.as_bytes(), num_to_str_cmp_fallback)
+                .map(Ordering::reverse)
+        }
+        (RsValue::RedisString(rs1), RsValue::RedisString(rs2)) => {
+            Ok(rs1.as_bytes().cmp(rs2.as_bytes()))
+        }
+        (RsValue::String(s1), RsValue::RedisString(rs2)) => Ok(s1.as_bytes().cmp(rs2.as_bytes())),
+        (RsValue::RedisString(rs1), RsValue::String(s2)) => Ok(rs1.as_bytes().cmp(s2.as_bytes())),
         _ => Err(CompareError::IncompatibleTypes),
     }
 }
 
 fn compare_number_to_string(
     number: f64,
-    string: &RsValue,
+    slice: &[u8],
     num_to_str_cmp_fallback: bool,
 ) -> Result<Ordering, CompareError> {
-    let slice = crate::util::rsvalue_as_byte_slice2(string).unwrap();
-    // first try to convert the string to a number for comparison
+    // first try to convert the slice to a number for comparison
     if let Some(other_number) = crate::util::rsvalue_str_to_float(slice) {
         number
             .partial_cmp(&other_number)
             .ok_or(CompareError::NaNNumber)
-    // else only if num_to_str_cmp_fallback is enabled, convert the number to a string for comparison
+    // else only if num_to_str_cmp_fallback is enabled, convert the number to a slice for comparison
     } else if num_to_str_cmp_fallback {
         Ok(crate::util::rsvalue_num_to_str(number)
             .as_bytes()
