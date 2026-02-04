@@ -34,8 +34,8 @@ typedef enum RsValueType {
 
 /**
  * Opaque map structure used during map construction.
- * Holds uninitialized entries that are populated via `RSValueMap_SetEntry`
- * before being finalized into an `RsValue::Map` via `RSValue_NewMap`.
+ * Holds uninitialized entries that are populated via [`RSValueMap_SetEntry`]
+ * before being finalized into an [`RsValue::Map`] via [`RSValue_NewMap`].
  */
 typedef struct RSValueMap RSValueMap;
 
