@@ -9,7 +9,7 @@
 #include "expression.h"
 #include "result_processor.h"
 #include "rlookup.h"
-#include "profile.h"
+#include "profile/profile.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

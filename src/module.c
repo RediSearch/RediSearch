@@ -57,7 +57,8 @@
 #include "coord/config.h"
 #include "coord/debug_commands.h"
 #include "libuv/include/uv.h"
-#include "profile.h"
+#include "profile/profile.h"
+#include "profile/options.h"
 #include "coord/dist_profile.h"
 #include "coord/cluster_spell_check.h"
 #include "coord/info_command.h"
@@ -446,9 +447,14 @@ int QueryExplainCLICommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   return queryExplainCommon(ctx, argv, argc, 1);
 }
 
-int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSExecuteAggregateOrSearch(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, ProfileOptions profileOptions);
+int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return RSExecuteAggregateOrSearch(ctx, argv, argc, COMMAND_AGGREGATE, EXEC_NO_FLAGS);
+}
+int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return RSExecuteAggregateOrSearch(ctx, argv, argc, COMMAND_SEARCH, EXEC_NO_FLAGS);
+}
+int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* FT.DEL {index} {doc_id}
  *  Delete a document from the index. Returns 1 if the document was in the index, or 0 if not.
@@ -1530,11 +1536,90 @@ static int CreateArbitraryWriteSearchCommands(RedisModuleCtx *ctx, const SearchC
 }
 
 int RSShardedHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return hybridCommandHandler(ctx, argv, argc, true);
+return hybridCommandHandler(ctx, argv, argc, true, EXEC_NO_FLAGS);
 }
 
 int RSClientHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return hybridCommandHandler(ctx, argv, argc, false);
+  return hybridCommandHandler(ctx, argv, argc, false, EXEC_NO_FLAGS);
+}
+
+#define PROFILE_1ST_PARAM 2
+
+RedisModuleString **_profileArgsDup(RedisModuleString **argv, int argc, int params) {
+  RedisModuleString **newArgv = rm_malloc(sizeof(*newArgv) * (argc- params));
+  // copy cmd & index
+  memcpy(newArgv, argv, PROFILE_1ST_PARAM * sizeof(*newArgv));
+  // copy non-profile commands
+  memcpy(newArgv + PROFILE_1ST_PARAM, argv + PROFILE_1ST_PARAM + params,
+         (argc - PROFILE_1ST_PARAM - params) * sizeof(*newArgv));
+  return newArgv;
+}
+
+// Forward declaration, taken from aggregate/aggregate_exec.c
+int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                             CommandType type, ProfileOptions profileOptions);
+int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                             CommandType type, ProfileOptions profileOptions);
+
+
+int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return RSProfileCommandImp(ctx, argv, argc, false);
+}
+
+int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
+  if (argc < 5) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  CommandType cmdType;
+  int curArg = PROFILE_1ST_PARAM;
+  int withProfile = EXEC_WITH_PROFILE;
+  execCommandCommonHandler execCommandHandlerFunc = execCommandCommon;
+
+  // Check if this is a debug command
+  if (isDebug) {
+    execCommandHandlerFunc = DEBUG_execCommandCommon;
+    withProfile |= EXEC_DEBUG;
+  }
+
+  // Check the command type
+  const char *cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
+  if (strcasecmp(cmd, "SEARCH") == 0) {
+    cmdType = COMMAND_SEARCH;
+  } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
+    cmdType = COMMAND_AGGREGATE;
+  } else if (strcasecmp(cmd, "HYBRID") == 0) {
+    cmdType = COMMAND_HYBRID;
+  } else {
+    RedisModule_ReplyWithError(ctx, "No `SEARCH`, `AGGREGATE`, or `HYBRID` provided");
+    return REDISMODULE_OK;
+  }
+
+  cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
+  if (strcasecmp(cmd, "LIMITED") == 0) {
+    withProfile |= EXEC_WITH_PROFILE_LIMITED;
+    cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
+  }
+
+  if (strcasecmp(cmd, "QUERY") != 0) {
+    RedisModule_ReplyWithError(ctx, "The QUERY keyword is expected");
+    return REDISMODULE_OK;
+  }
+
+  int newArgc = argc - curArg + PROFILE_1ST_PARAM;
+  RedisModuleString **newArgv = _profileArgsDup(argv, argc, curArg - PROFILE_1ST_PARAM);
+
+  if (cmdType == COMMAND_HYBRID) {
+    RedisModuleString *command = argv[0];
+    bool internal = RedisModule_StringPtrLen(command, NULL)[0] == '_'; // _FT.PROFILE or FT.PROFILE
+    hybridCommandHandler(ctx, newArgv, newArgc, internal, withProfile);
+  } else {
+    // RSExecuteAggregateOrSearch(ctx, newArgv, newArgc, cmdType, withProfile);
+    execCommandHandlerFunc(ctx, newArgv, newArgc, cmdType, withProfile);
+  }
+
+  rm_free(newArgv);
+  return REDISMODULE_OK;
 }
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
@@ -2120,7 +2205,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     // Missing QUERY keyword is the only error that can occur in rscParseProfile
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No QUERY keyword provided");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "The QUERY keyword is expected");
     searchRequestCtx_Free(req);
     return NULL;
   }
@@ -3068,57 +3153,6 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     rm_free(results[pos]);
   }
   rm_free(results);
-}
-
-/**
- * This function is used to print profiles received from the shards.
- * It is used by both SEARCH and AGGREGATE.
- */
-static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
-  // On FT.SEARCH, `replies` is an array of replies from the shards.
-  // On FT.AGGREGATE, `replies` is already the profile part only
-  for (int i = 0; i < count; ++i) {
-    MRReply *current = replies[i];
-    // Check if reply is error
-    if (MRReply_Type(current) == MR_REPLY_ERROR) {
-      MR_ReplyWithMRReply(reply, current);
-      continue;
-    }
-    if (isSearch) {
-      // On FT.SEARCH, extract the profile information from the reply. (should be the second element)
-      current = MRReply_ArrayElement(current, 1);
-    }
-    MRReply *shards_array_profile = MRReply_ArrayElement(current, 1);
-    MRReply *shard_profile = MRReply_ArrayElement(shards_array_profile, 0);
-    MR_ReplyWithMRReply(reply, shard_profile);
-  }
-}
-
-static void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
-  for (int i = 0; i < count; ++i) {
-    MRReply *current = replies[i];
-    // Check if reply is error
-    if (MRReply_Type(current) == MR_REPLY_ERROR) {
-      MR_ReplyWithMRReply(reply, current);
-      continue;
-    }
-    if (isSearch) { // On aggregate commands, we get the profile info directly.
-      current = MRReply_MapElement(current, PROFILE_STR);
-    }
-    MRReply *shards = MRReply_MapElement(current, PROFILE_SHARDS_STR);
-    MRReply *shard = MRReply_ArrayElement(shards, 0);
-
-    MR_ReplyWithMRReply(reply, shard);
-  }
-}
-
-void PrintShardProfile(RedisModule_Reply *reply, void *ctx) {
-  PrintShardProfile_ctx *pCtx = ctx;
-  if (reply->resp3) {
-    PrintShardProfile_resp3(reply, pCtx->count, pCtx->replies, pCtx->isSearch);
-  } else {
-    PrintShardProfile_resp2(reply, pCtx->count, pCtx->replies, pCtx->isSearch);
-  }
 }
 
 struct PrintCoordProfile_ctx {
@@ -4286,11 +4320,12 @@ int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   if (RMUtil_ArgExists("SEARCH", argv, 3, 2)) {
     return DistSearchCommandImp(ctx, argv, argc, isDebug);
-  }
-  if (RMUtil_ArgExists("AGGREGATE", argv, 3, 2)) {
+  } else if (RMUtil_ArgExists("AGGREGATE", argv, 3, 2)) {
     return DistAggregateCommandImp(ctx, argv, argc, isDebug);
+  } else if (RMUtil_ArgExists("HYBRID", argv, 3, 2)) {
+    return DistHybridCommand(ctx, argv, argc);
   }
-  return RedisModule_ReplyWithError(ctx, "No `SEARCH` or `AGGREGATE` provided");
+  return RedisModule_ReplyWithError(ctx, "No `SEARCH`, `AGGREGATE`, or `HYBRID` provided");
 }
 
 int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

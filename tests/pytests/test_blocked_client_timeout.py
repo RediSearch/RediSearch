@@ -90,7 +90,7 @@ class TestCoordinatorTimeout:
         self.n_docs = 100
 
         # Init all shards
-        for i in range(self.env.shardsCount):
+        for i in range(1, self.env.shardsCount + 1):
             verify_shard_init(self.env.getConnection(i))
 
         conn = getConnectionByEnv(self.env)
@@ -102,11 +102,14 @@ class TestCoordinatorTimeout:
         for i in range(self.n_docs):
             conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
 
+        # Warmup query
+        self.env.expect('FT.SEARCH', 'idx', '*').noError()
+
     def _test_fail_timeout_impl(self, query_args):
         env = self.env
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
         initial_jobs_done = getWorkersThpoolStats(env)['totalJobsDone']
 
@@ -144,7 +147,7 @@ class TestCoordinatorTimeout:
 
         wait_for_client_blocked(env, blocked_client_id)
 
-        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
 
         wait_for_client_unblocked(env, blocked_client_id)
 
@@ -152,7 +155,7 @@ class TestCoordinatorTimeout:
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
         shard_to_pause_p.resume()
-        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def test_fail_timeout_search(self):
         self._test_fail_timeout_impl(['FT.SEARCH', 'idx', '*'])
@@ -165,15 +168,13 @@ class TestCoordinatorTimeout:
         env = self.env
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
         # Pause coordinator thread pool to prevent fanout
         env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
-
         wait_for_condition(
-            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED') == 1, {'is_paused': env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED')}),
-            'Timeout while waiting for coordinator to pause'
-        )
+            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
+            'Timeout while waiting for coordinator threads to pause', timeout=30)
 
         blocked_client_id = env.cmd('CLIENT', 'ID')
 
@@ -187,24 +188,27 @@ class TestCoordinatorTimeout:
         wait_for_client_blocked(env, blocked_client_id)
 
         # Unblock the client to simulate timeout
-        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
 
         wait_for_client_unblocked(env, blocked_client_id)
 
         # Resume coordinator threads and restore config
         env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 0, {}),
+            'Timeout while waiting for coordinator threads to resume', timeout=30)
 
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
-        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def test_fail_timeout_after_fanout(self):
         """Test timeout occurring after the fanout (after query is dispatched to shards - best effort)."""
         env = self.env
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
         # Get initial jobs done count from all shards
         initial_jobs_done = [stats['totalJobsDone'] for stats in getWorkersThpoolStatsFromAllShards(env)]
@@ -223,36 +227,35 @@ class TestCoordinatorTimeout:
 
         # Pause coordinator thread pool
         env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
-
         wait_for_condition(
-            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED') == 1, {'is_paused': env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED')}),
-            'Timeout while waiting for coordinator to pause'
-        )
+            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
+            'Timeout while waiting for coordinator threads to pause', timeout=30)
 
         # Resume worker thread pool on all shards
         verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'RESUME')
 
         # Wait for coordinator to dispatch the query (jobs done should increase on shards)
-        def check_shards_processed():
+        def check_jobs_done():
             current_jobs_done = [stats['totalJobsDone'] for stats in getWorkersThpoolStatsFromAllShards(env)]
             done = all(current > initial for current, initial in zip(current_jobs_done, initial_jobs_done))
             return done, {'current_jobs_done': current_jobs_done, 'initial_jobs_done': initial_jobs_done}
-        wait_for_condition(check_shards_processed, 'Timeout while waiting for shards to process query')
-
-        wait_for_client_blocked(env, blocked_client_id)
+        wait_for_condition(check_jobs_done, 'Timeout while waiting for shards to process query', timeout=30)
 
         # Unblock the client to simulate timeout
-        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
 
         wait_for_client_unblocked(env, blocked_client_id)
 
         # Resume coordinator threads
         env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 0, {}),
+            'Timeout while waiting for coordinator threads to resume', timeout=30)
 
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
-        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def _test_partial_results_timeout_impl(self, query_args):
         """

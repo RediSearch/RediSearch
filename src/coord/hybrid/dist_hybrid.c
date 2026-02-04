@@ -19,6 +19,8 @@
 #include "rpnet.h"
 #include "hybrid_cursor_mappings.h"
 #include "info/global_stats.h"
+#include "profile/profile.h"
+#include "dist_profile.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -189,13 +191,24 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv, int 
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
+                            ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, HybridPipelineParams *hybridParams) {
   int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
-  // Build _FT.HYBRID command (no profiling support)
-  *xcmd = MR_NewCommand(2, "_FT.HYBRID", index_name);
+  int cmdArgCount = 2;
+  const char *cmdArgs[5] = {"_FT.HYBRID", index_name};
+
+  if (profileOptions != EXEC_NO_FLAGS) {
+    cmdArgs[0] = "_FT.PROFILE";
+    cmdArgs[cmdArgCount++] = "HYBRID";
+    if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
+      cmdArgs[cmdArgCount++] = "LIMITED";
+    }
+    cmdArgs[cmdArgCount++] = "QUERY";
+  }
+  *xcmd = MR_NewCommandArgv(cmdArgCount, cmdArgs);
 
   // Add all SEARCH-related arguments (SEARCH, query, optional SCORER, YIELD_SCORE_AS)
   int searchOffset = RMUtil_ArgIndex("SEARCH", argv, argc);
@@ -373,10 +386,151 @@ static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorReques
   }
 }
 
+// Helper function to extract shard profile from a reply based on protocol version
+static MRReply *extractShardProfile(MRReply *current, bool resp3) {
+  if (MRReply_Type(current) == MR_REPLY_ERROR) {
+    return current;
+  }
+  if (resp3) {
+    // RESP3: profile -> Shards -> [shard_profile]
+    MRReply *shards = MRReply_MapElement(current, PROFILE_SHARDS_STR);
+    return MRReply_ArrayElement(shards, 0);
+  } else {
+    // RESP2: [results, shards_array] -> shards_array[0] is the shard profile
+    MRReply *shards_array_profile = MRReply_ArrayElement(current, 1);
+    MRReply *profile = MRReply_ArrayElement(shards_array_profile, 0);
+    // Convert to map for easier access (modifies in place)
+    MRReply_ArrayToMap(profile);
+    return profile;
+  }
+}
+
+// Helper function to extract Shard ID MRReply from a shard profile
+// Returns the MRReply for the Shard ID value (for use with MR_ReplyWithMRReply)
+static MRReply *extractShardIdReply(MRReply *shardProfile) {
+  if (!shardProfile || MRReply_Type(shardProfile) == MR_REPLY_ERROR) {
+    return NULL;
+  }
+  return MRReply_MapElement(shardProfile, "Shard ID");
+}
+
+// Helper function to print a profile map excluding the "Shard ID" field
+static void printProfileExcludingShardId(RedisModule_Reply *reply, MRReply *profile) {
+  if (!profile || MRReply_Type(profile) == MR_REPLY_ERROR) {
+    MR_ReplyWithMRReply(reply, profile);
+    return;
+  }
+
+  // Profile should be a map at this point
+  RedisModule_Reply_Map(reply);
+  size_t len = MRReply_Length(profile);
+  // Iterate through key-value pairs (len is total elements, so len/2 pairs)
+  for (size_t i = 0; i < len; i += 2) {
+    MRReply *key = MRReply_ArrayElement(profile, i);
+    MRReply *value = MRReply_ArrayElement(profile, i + 1);
+
+    // Skip "Shard ID" field
+    if (MRReply_StringEquals(key, "Shard ID", 1)) {
+      continue;
+    }
+
+    // Print key and value
+    MR_ReplyWithMRReply(reply, key);
+    MR_ReplyWithMRReply(reply, value);
+  }
+  RedisModule_Reply_MapEnd(reply);
+}
+
+void printShardsHybridProfile(RedisModule_Reply *reply, void *ctx) {
+  HybridRequest *hreq = ctx;
+  // New format: group by shard with Shard ID printed once per shard
+  // [{"Shard ID": "id", "SEARCH": profile (without Shard ID), "VSIM": profile (without Shard ID)}, ...]
+
+  // Get RPNets for SEARCH and VSIM requests
+  AREQ *searchAreq = hreq->requests[SEARCH_INDEX];
+  AREQ *vsimAreq = hreq->requests[VECTOR_INDEX];
+  RPNet *searchRpnet = (RPNet *)AREQ_QueryProcessingCtx(searchAreq)->rootProc;
+  RPNet *vsimRpnet = (RPNet *)AREQ_QueryProcessingCtx(vsimAreq)->rootProc;
+
+  size_t searchCount = array_len(searchRpnet->shardsProfile);
+
+  bool resp3 = reply->resp3;
+
+  // Iterate over shards and print both SEARCH and VSIM profiles for each shard
+  for (size_t i = 0; i < searchCount; i++) {
+    RedisModule_Reply_Map(reply);  // Start shard map
+
+    // Extract shard profiles
+    MRReply *searchProfile = extractShardProfile(searchRpnet->shardsProfile[i], resp3);
+    MRReply *vsimProfile = extractShardProfile(vsimRpnet->shardsProfile[i], resp3);
+
+    // Extract and print Shard ID from SEARCH profile
+    MRReply *shardIdReply = NULL;
+    if (searchProfile) {
+      shardIdReply = extractShardIdReply(searchProfile);
+      RedisModule_Reply_SimpleString(reply, "Shard ID");
+      MR_ReplyWithMRReply(reply, shardIdReply);
+    }
+
+    // Print SEARCH profile for this shard (excluding Shard ID)
+    if (searchProfile) {
+      RedisModule_Reply_SimpleString(reply, "SEARCH");
+      printProfileExcludingShardId(reply, searchProfile);
+    }
+
+    // Print VSIM profile for this shard (excluding Shard ID)
+    if (vsimProfile) {
+      RedisModule_Reply_SimpleString(reply, "VSIM");
+      printProfileExcludingShardId(reply, vsimProfile);
+    }
+
+    RedisModule_Reply_MapEnd(reply);  // End shard map
+  }
+}
+
+// Callback to print subquery result processors for the coordinator profile
+static void printDistHybridSubqueryRPs(RedisModule_Reply *reply, void *ctx) {
+  HybridRequest *hreq = ctx;
+  bool profile_verbose = hreq->reqConfig.printProfileClock;
+
+  // Print subqueries result processors
+  // (SEARCH and VSIM pipelines in coordinator)
+  RedisModule_ReplyKV_Map(reply, "Subqueries result processors profile");
+
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ *areq = hreq->requests[i];
+    const char *subqueryType = "N/A";
+    if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) {
+      subqueryType = "SEARCH";
+    } else if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY) {
+      subqueryType = "VSIM";
+    }
+
+    ResultProcessor *rp = AREQ_QueryProcessingCtx(areq)->endProc;
+    RedisModule_ReplyKV_Array(reply, subqueryType);
+    Profile_PrintResultProcessors(reply, rp, profile_verbose);
+    RedisModule_Reply_ArrayEnd(reply);
+  }
+
+  RedisModule_Reply_MapEnd(reply);
+}
+
+// Coordinator profile printer that includes subquery result processors
+static void printDistHybridCoordinatorProfile(RedisModule_Reply *reply,
+                                              void *ctx) {
+  Profile_PrintHybridExtra(reply, ctx, printDistHybridSubqueryRPs, ctx);
+}
+
+void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
+  Profile_PrintInFormat(reply, printShardsHybridProfile, ctx,
+                        printDistHybridCoordinatorProfile, ctx);
+}
+
 static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
         RedisModuleString **argv, int argc, IndexSpec *sp, QueryError *status) {
 
     hreq->tailPipeline->qctx.err = status;
+    hreq->profile = printDistHybridProfile;
 
     // Parse the hybrid command (equivalent to AREQ_Compile)
     HybridPipelineParams hybridParams = {0};
@@ -387,15 +541,33 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     cmd.hybridParams = &hybridParams;
     cmd.tailPlan = &hreq->tailPipeline->ap;
     cmd.reqConfig = &hreq->reqConfig;
-    cmd.coordDispatchTime = &hreq->coordDispatchTime;
+    cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
     ArgsCursor ac = {0};
-    HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
-    int rc = parseHybridCommand(ctx, &ac, hreq->sctx, &cmd, status, false);
+    ArgsCursor_InitRString(&ac, argv, argc);
+    ProfileOptions profileOptions = EXEC_NO_FLAGS;
+    int rc = ParseProfile(&ac, status, &profileOptions);
+    if (rc == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    if (profileOptions == EXEC_NO_FLAGS) {
+      // No profile args, we can use the original args cursor to skip past the command name and index
+      HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
+    }
+
+    hreq->tailPipeline->qctx.isProfile = profileOptions != EXEC_NO_FLAGS;
+    rc = parseHybridCommand(ctx, &ac, hreq->sctx, &cmd, status, false, profileOptions);
     // we only need parse the combine and what comes after it
     // we can manually create the subqueries pipelines (depleter -> sorter(window)-> RPNet(shared dispatcher ))
     if (rc != REDISMODULE_OK) {
       return REDISMODULE_ERR;
+    }
+
+    rs_wall_clock parseClock;
+    if (profileOptions != EXEC_NO_FLAGS) {
+      // Initialize parseClock after parsing is done, we want that to be accounted in the parsing timing
+      rs_wall_clock_init(&parseClock);
+      // Calculate the time elapsed for profileParseTime by using the initialized parseClock
+      hreq->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&hreq->profileClocks.initClock, &parseClock);
     }
 
     // Initialize timeout for all subqueries BEFORE building pipelines
@@ -407,7 +579,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
 
     // Set request flags from hybridParams
-    hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
+    hreq->reqflags = (QEFlags)hybridParams.aggregationParams.common.reqflags;
 
     for (size_t i = 0; i < hreq->nrequests; i++) {
         AREQ *areq = hreq->requests[i];
@@ -426,16 +598,24 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
     // Construct the command string
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(argv, argc, &xcmd, serialized, sp, &hybridParams);
+    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized, sp, &hybridParams);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
-    xcmd.forProfiling = false;  // No profiling support for hybrid yet
+    xcmd.forProfiling = profileOptions != EXEC_NO_FLAGS;
     xcmd.rootCommand = C_READ;
+    xcmd.coordStartTime = hreq->profileClocks.coordStartTime;
 
     // UPDATED: Use new start function with mappings (no dispatcher needed)
     HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, lookups[0], rpnetNext_StartWithMappings);
     HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, lookups[1], rpnetNext_StartWithMappings);
+
+    if (profileOptions != EXEC_NO_FLAGS) {
+      rs_wall_clock pipelineClock;
+      rs_wall_clock_init(&pipelineClock);
+      // Calculate the time elapsed for profileParseTime by using the initialized parseClock
+      hreq->profileClocks.profilePipelineBuildTime = rs_wall_clock_diff_ns(&parseClock, &pipelineClock);
+    }
 
     // Free the command
     MRCommand_Free(&xcmd);
@@ -471,7 +651,7 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     // Get the command from the RPNet (it was set during prepareForExecution)
     MRCommand *cmd = &searchRPNet->cmd;
     int numShards = GetNumShards_UnSafe();
-    cmd->coordStartTime = hreq->coordStartTime;
+    cmd->coordStartTime = hreq->profileClocks.coordStartTime;
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
     if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy)) {
@@ -566,7 +746,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
 
     // Store coordinator start time for dispatch time tracking
-    hreq->coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+    hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
     if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, &status) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
