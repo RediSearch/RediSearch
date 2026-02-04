@@ -49,17 +49,21 @@ def test_yield_while_bg_indexing_mod4745(env):
         res = conn.execute_command('hset', f'doc:{i}', 'name', f'hello world')
         env.assertEqual(res, 1)
 
-    # Baseline - zero sleeps before index has created.
+    # Baseline - zero sleeps/yields before index has created.
     env.assertEqual(run_command_on_all_shards(env, debug_cmd(), 'YIELDS_COUNTER', 'BG_INDEX_SLEEP'),
+                    [0]*env.shardsCount)
+    env.assertEqual(run_command_on_all_shards(env, debug_cmd(), 'YIELDS_COUNTER', 'BG_INDEX'),
                     [0]*env.shardsCount)
     env.expect('ft.create', 'idx', 'schema', 'name', 'text').ok()
     allShards_waitForIndexFinishScan(env)
-    # Validate that we slept at least once (we should after every 100 bg indexing iterations).
+    # Validate that we slept and yielded at least once.
     # The background scan in Redis may scan keys more than once (see RM_Scan() docs), so we assert that each shard
-    # sleeps *at least* once for each 100 documents.
+    # sleeps/yields *at least* once for each 100/1000 documents respectively.
     for shard in env.getOSSMasterNodesConnectionList():
         env.assertGreaterEqual(shard.execute_command(debug_cmd(), 'YIELDS_COUNTER', 'BG_INDEX_SLEEP'),
                                int((n/env.shardsCount) // 100))
+        env.assertGreaterEqual(shard.execute_command(debug_cmd(), 'YIELDS_COUNTER', 'BG_INDEX'),
+                               int((n/env.shardsCount) // 1000))
     # The sleep mechanism releases the GIL to allow Redis to process commands.
     # Additionally, RedisModule_Yield is called periodically to ensure critical commands (e.g., PING)
     # are processed, preventing watchdog from killing unresponsive shards.
