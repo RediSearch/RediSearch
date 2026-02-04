@@ -326,7 +326,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 
     // Step 3: No ready results - poll for more
     int timeout_ms = it->atEOF ? ASYNC_POLL_TIMEOUT_AT_EOF_MS : 0;
-    const size_t pendingCount = IndexResultAsyncRead_Poll(&self->async, timeout_ms);
+    const size_t pendingCount = IndexResultAsyncRead_Poll(&self->async, timeout_ms, &sctx->time.current);
 
     // Step 4: Check if we're completely done
     if (IndexResultAsyncRead_IsIterationComplete(&self->async, it->atEOF, pendingCount)) {
