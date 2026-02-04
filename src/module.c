@@ -78,6 +78,7 @@
 #include "module_init.h"
 #include "asm_state_machine.h"
 #include "search_disk_utils.h"
+#include "config.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -1664,9 +1665,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     RSGlobalConfig.gcConfigParams.enableGC = false;
     RedisModule_Log(ctx, "notice", "GC disabled (Flex mode)");
 
-    // Set default WORKERS to 1 in Flex mode if not explicitly configured
     if (RSGlobalConfig.numWorkerThreads == 0) {
-      RSGlobalConfig.numWorkerThreads = 1;
+      RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
       RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
     }
   }
