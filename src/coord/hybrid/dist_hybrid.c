@@ -116,7 +116,9 @@ static int MRCommand_appendVsimFilter(MRCommand *xcmd, RedisModuleString **argv,
  * This includes VSIM keyword, field, vector, KNN/RANGE method, and VSIM FILTER
  * if present.
  * For KNN queries, replaces the K value with the provided effectiveK value.
- * For RANGE queries, effectiveK is ignored.
+ *
+ * SHARD_K_RATIO is only valid for KNN queries, but this is validated during
+ * parsing - no validation is done here.
  *
  * @param xcmd - destination MR command to append arguments to
  * @param argv - source command arguments array

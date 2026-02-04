@@ -100,24 +100,6 @@ protected:
         return parsed;
     }
 
-    void printMRCommand(const MRCommand *cmd) {
-        printf("MRCommand: ");
-        for (int i = 0; i < cmd->num; i++) {
-            printf("%s ", cmd->strs[i]);
-        }
-        printf("\n");
-    }
-
-    void printArgvList(RedisModuleString **argv, int argc) {
-        printf("ArgvList: ");
-        for (int i = 0; i < argc; i++) {
-            size_t len;
-            const char *str = RedisModule_StringPtrLen(argv[i], &len);
-            printf("%.*s ", (int)len, str);
-        }
-        printf("\n");
-    }
-
     // Helper function to find K value in MRCommand
     // Returns the index of K keyword, or -1 if not found
     // If found, kValue will contain the K value as long long
