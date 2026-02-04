@@ -11,7 +11,7 @@ use crate::{
 
 use super::{
     InvertedIndexKey,
-    block_traits::{ArchivedBlock, ArchivedDocument as _},
+    block_traits::{ArchivedBlock, ArchivedDocument},
 };
 
 /// Checks if a key belongs to the given term by verifying that the key's prefix

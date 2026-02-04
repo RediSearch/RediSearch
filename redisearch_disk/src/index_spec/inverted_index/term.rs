@@ -20,6 +20,9 @@ pub mod block;
 // Re-export PostingsListBlock for convenience
 pub use block::PostingsListBlock;
 
+// Re-export ArchivedBlock with an alias to avoid naming conflict with the trait
+pub use archive::ArchivedBlock as TermArchivedBlock;
+
 /// A document in a postings list, including its ID and associated metadata.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Document {

@@ -1,16 +1,21 @@
 pub mod block_traits;
 pub mod generic_index;
 pub mod generic_reader;
+pub mod tag;
 pub mod term;
 
 // Re-export the main types for convenience
-pub use term::InvertedIndex;
+pub use tag::{TagIndexConfig, TagInvertedIndex};
+pub use term::{InvertedIndex, TermIndexConfig};
 
 // Type aliases for the specific reader types
 pub type PostingsListReader<'iterator, DBAccess> =
     generic_reader::GenericReader<'iterator, DBAccess, term::archive::ArchivedBlock>;
+pub type TagPostingsListReader<'iterator, DBAccess> =
+    generic_reader::GenericReader<'iterator, DBAccess, tag::archive::ArchivedTagBlock>;
 
 pub use generic_reader::ReaderCreateError as PostingReaderCreateError;
+pub use generic_reader::ReaderCreateError as TagPostingReaderCreateError;
 
 use std::mem::size_of;
 
@@ -20,6 +25,7 @@ use crate::key_traits::AsKeyExt;
 
 // Re-export for internal use by term and tag modules
 pub(crate) use super::deleted_ids::DeletedIdsStore;
+use crate::database::{Speedb, SpeedbMultithreadedDatabase};
 
 /// Key structure for inverted index entries.
 ///
@@ -71,7 +77,7 @@ impl<'term> AsKeyExt for InvertedIndexKey<'term> {
 mod tests {
     use super::*;
     use crate::value_traits::ValueExt;
-    use block_traits::SerializableBlock;
+    use block_traits::{ArchivedBlock, SerializableBlock};
     use term::PostingsListBlock;
 
     #[test]
@@ -140,5 +146,27 @@ mod tests {
         assert_eq!(term::Document::from(block.get(0).unwrap()), doc1);
         assert_eq!(term::Document::from(block.get(1).unwrap()), doc2);
         assert!(block.get(2).is_none());
+    }
+
+    #[test]
+    fn tag_postings_list_block_roundtrip() {
+        let mut block = tag::TagPostingsListBlock::default();
+
+        let doc1 = tag::TagDocument::new(1);
+        let doc2 = tag::TagDocument::new(2);
+        let doc3 = tag::TagDocument::new(100);
+
+        block.push(doc1.clone());
+        block.push(doc2.clone());
+        block.push(doc3.clone());
+
+        let block =
+            tag::archive::ArchivedTagBlock::from_bytes(block.serialize().into_boxed_slice());
+
+        assert_eq!(block.num_docs(), 3);
+        assert_eq!(block.get(0).unwrap().doc_id(), doc1.doc_id);
+        assert_eq!(block.get(1).unwrap().doc_id(), doc2.doc_id);
+        assert_eq!(block.get(2).unwrap().doc_id(), doc3.doc_id);
+        assert!(block.get(3).is_none());
     }
 }

@@ -1,9 +1,10 @@
 //! Tests for ArchivedBlock - the zero-copy deserialization of term postings list blocks.
 
-use redisearch_disk::index_spec::inverted_index::term::archive::ArchivedBlock;
+use redisearch_disk::index_spec::inverted_index::block_traits::ArchivedBlock;
+use redisearch_disk::index_spec::inverted_index::term::TermArchivedBlock;
 
 /// Helper to create a test block with the given doc_ids
-fn create_test_block(doc_ids: &[u64]) -> ArchivedBlock {
+fn create_test_block(doc_ids: &[u64]) -> TermArchivedBlock {
     let num_docs = doc_ids.len();
     let mut bytes: Vec<u8> = Vec::with_capacity(2 + num_docs * 32);
     bytes.push(0u8); // version 0
@@ -20,7 +21,7 @@ fn create_test_block(doc_ids: &[u64]) -> ArchivedBlock {
         bytes.extend_from_slice(&((i + 1) as u32).to_le_bytes()); // frequency
     }
 
-    ArchivedBlock::from_bytes(bytes.into())
+    TermArchivedBlock::from_bytes(bytes.into())
 }
 
 #[test]
@@ -44,7 +45,7 @@ fn deserialize_version_0() {
     bytes.extend_from_slice(&0xFFFFu128.to_le_bytes()); // field_mask
     bytes.extend_from_slice(&10u32.to_le_bytes()); // frequency = 10
 
-    let archived_block = ArchivedBlock::from_bytes(bytes.into());
+    let archived_block = TermArchivedBlock::from_bytes(bytes.into());
     assert_eq!(archived_block.version(), 0);
     assert_eq!(archived_block.num_docs(), 2);
 

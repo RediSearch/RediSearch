@@ -2,7 +2,7 @@ use ffi::t_docId;
 use std::mem::size_of;
 
 use super::{Document, Metadata, archive::ArchivedBlock};
-use crate::index_spec::inverted_index::block_traits;
+use crate::index_spec::inverted_index::block_traits::{self, ArchivedBlock as _};
 use crate::value_traits::ValueExt;
 
 /// We use a block-based postings list to store document IDs of all documents containing the term and metadata for each document in the term context. This allows

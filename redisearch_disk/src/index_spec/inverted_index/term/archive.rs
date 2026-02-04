@@ -2,7 +2,7 @@ use ffi::t_docId;
 use std::mem::size_of;
 
 use super::{Document, Metadata};
-use crate::index_spec::inverted_index::block_traits;
+use crate::index_spec::inverted_index::block_traits::{self, ArchivedBlock as _};
 
 /// An archived representation of a Document in a postings list. This type holds direct references
 /// to byte arrays representing the fields.
@@ -123,52 +123,11 @@ impl ArchivedBlock {
     /// - 1 byte for number of docs
     const BASE_OFFSET: usize = 2;
 
-    /// Create a Block from a byte slice
-    ///
-    /// # Panics
-    /// Panics if the byte slice is less than 2 bytes long, or if it does not contain enough bytes for all docs.
-    pub fn from_bytes(bytes: Box<[u8]>) -> Self {
-        <Self as block_traits::ArchivedBlock>::from_bytes(bytes)
-    }
-
-    /// Get number of docs in the block
-    #[inline(always)]
-    pub fn num_docs(&self) -> u8 {
-        <Self as block_traits::ArchivedBlock>::num_docs(self)
-    }
-
     /// Get version of the block
     #[inline(always)]
     #[allow(unused)]
     pub fn version(&self) -> u8 {
         self.version
-    }
-
-    /// Perform a binary search over the docs in the block using a key extraction function
-    pub fn binary_search_by_key<B, F>(&self, start_index: u8, b: &B, f: F) -> Result<u8, u8>
-    where
-        F: FnMut(&ArchivedDocument<'_>) -> B,
-        B: Ord,
-    {
-        <Self as block_traits::ArchivedBlock>::binary_search_by_key(self, start_index, b, f)
-    }
-
-    /// Get doc at index if it exists
-    pub fn get(&self, index: u8) -> Option<ArchivedDocument<'_>> {
-        <Self as block_traits::ArchivedBlock>::get(self, index)
-    }
-
-    /// Get doc at index without bounds checking
-    ///
-    /// # Panic
-    /// Panics if index >= num_docs
-    pub fn get_unchecked(&self, index: u8) -> ArchivedDocument<'_> {
-        <Self as block_traits::ArchivedBlock>::get_unchecked(self, index)
-    }
-
-    /// Get the last doc in the block if it exists
-    pub fn last(&self) -> Option<ArchivedDocument<'_>> {
-        <Self as block_traits::ArchivedBlock>::last(self)
     }
 
     /// Get an iterator over the documents in this block
@@ -270,19 +229,20 @@ impl block_traits::ArchivedBlock for ArchivedBlock {
         F: FnMut(&Self::Document<'_>) -> B,
         B: Ord,
     {
-        (start_index..self.num_docs)
-            .collect::<Vec<_>>()
-            .binary_search_by_key(b, |index| {
-                let doc = ArchivedDocument::from_bytes(
-                    &self.bytes[Self::BASE_OFFSET..],
-                    *index,
-                    self.num_docs,
-                );
-                f(&doc)
-            })
-            .map(|pos| pos as u8 + start_index)
-            .map_err(|insert_pos| {
-                u8::try_from(insert_pos).expect("to not overflow the block entries") + start_index
-            })
+        let mut low = start_index;
+        let mut high = self.num_docs;
+
+        while low < high {
+            let mid = low + (high - low) / 2;
+            let doc =
+                ArchivedDocument::from_bytes(&self.bytes[Self::BASE_OFFSET..], mid, self.num_docs);
+            match f(&doc).cmp(b) {
+                std::cmp::Ordering::Less => low = mid + 1,
+                std::cmp::Ordering::Greater => high = mid,
+                std::cmp::Ordering::Equal => return Ok(mid),
+            }
+        }
+
+        Err(low)
     }
 }

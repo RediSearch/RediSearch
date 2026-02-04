@@ -1,7 +1,7 @@
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use redisearch_disk::{
     index_spec::inverted_index::{
-        block_traits::SerializableBlock,
+        block_traits::{ArchivedBlock, SerializableBlock},
         term::{self, PostingsListBlock},
     },
     value_traits::ValueExt,

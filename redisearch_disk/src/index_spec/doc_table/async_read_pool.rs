@@ -275,11 +275,6 @@ impl<'a> AsyncReadPool<'a> {
         })
     }
 
-    /// Returns the current metrics for this pool.
-    pub fn metrics(&self) -> &AsyncReadPoolMetrics {
-        &self.metrics
-    }
-
     /// Adds an async read request for the given document ID.
     ///
     /// # Arguments

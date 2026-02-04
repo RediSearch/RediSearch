@@ -8,7 +8,7 @@ use crate::{
     index_spec::{
         deleted_ids::DeletedIdsStore,
         inverted_index::{
-            block_traits::SerializableBlock,
+            block_traits::{ArchivedBlock, SerializableBlock},
             term::{self, PostingsListBlock},
         },
     },
@@ -144,7 +144,7 @@ mod tests {
         index_spec::{
             deleted_ids::{DeletedIds, DeletedIdsStore},
             inverted_index::{
-                block_traits::SerializableBlock,
+                block_traits::{ArchivedBlock as _, SerializableBlock},
                 term::{self, PostingsListBlock},
             },
         },
