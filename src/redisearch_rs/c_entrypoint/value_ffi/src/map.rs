@@ -13,8 +13,8 @@ use std::mem::MaybeUninit;
 use value::{Map, RsValue, SharedRsValue};
 
 /// Opaque map structure used during map construction.
-/// Holds uninitialized entries that are populated via `RSValueMap_SetEntry`
-/// before being finalized into an `RsValue::Map` via `RSValue_NewMap`.
+/// Holds uninitialized entries that are populated via [`RSValueMap_SetEntry`]
+/// before being finalized into an [`RsValue::Map`] via [`RSValue_NewMap`].
 pub struct RSValueMap {
     entries: Vec<MaybeUninit<(*mut RsValue, *mut RsValue)>>,
 }
